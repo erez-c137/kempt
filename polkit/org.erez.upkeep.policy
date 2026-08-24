@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Upkeep</vendor>
+
+  <action id="org.erez.upkeep.refresh">
+    <description>Refresh package metadata</description>
+    <message>Upkeep wants to refresh package metadata</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/upkeep-refresh</annotate>
+  </action>
+
+  <action id="org.erez.upkeep.apply">
+    <description>Apply system updates</description>
+    <message>Upkeep wants to update the system</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/upkeep-apply</annotate>
+  </action>
+</policyconfig>

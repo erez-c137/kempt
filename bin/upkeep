@@ -74,6 +74,23 @@ cmd_unhold() {
 }
 cmd_holds()  { holds_all; }
 
+RULES_DST="/etc/polkit-1/rules.d/49-upkeep.rules"
+
+cmd_enable_passwordless() {
+  local tmp; tmp="$(mktemp)"
+  sed "s/@USER@/$USER/" "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
+  # dash (not colon-dash) on purpose: empty UPKEEP_PKEXEC means "no wrapper" (test sandbox),
+  # matching priv_refresh/priv_apply — colon-dash would run REAL pkexec inside tests.
+  ${UPKEEP_PKEXEC-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
+  rm -f "$tmp"
+  echo "Passwordless updates ENABLED for $USER ($RULES_DST)"
+}
+
+cmd_disable_passwordless() {
+  ${UPKEEP_PKEXEC-pkexec} rm -f "$RULES_DST"
+  echo "Passwordless updates disabled"
+}
+
 usage() {
   cat <<'EOF'
 usage: upkeep <command>
@@ -96,6 +113,8 @@ case "${1:-help}" in
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
+  enable-passwordless)  cmd_enable_passwordless ;;
+  disable-passwordless) cmd_disable_passwordless ;;
   help|--help|-h) usage ;;
   *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

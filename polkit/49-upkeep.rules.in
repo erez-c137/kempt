@@ -1,0 +1,8 @@
+// Upkeep passwordless updates for @USER@ — installed/removed by `upkeep enable/disable-passwordless`.
+// Scoped to the apply action ONLY (refresh is already no-dialog by policy).
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.erez.upkeep.apply" &&
+        subject.user == "@USER@" && subject.active && subject.local) {
+        return polkit.Result.YES;
+    }
+});
