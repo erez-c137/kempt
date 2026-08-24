@@ -232,5 +232,23 @@ acquire_lock() {
 }
 release_lock() { rm -f "$LOCK_FILE"; }
 
-# TEMPORARY stub — Task 12 replaces this with the real renderer (its test forces the real one).
-render_summary() { jq -r .status "$1"; }
+# --- human summary of one history entry (same renderer for the terminal, the popup and the
+# notification body: one truth, rendered once) ---
+render_summary() {  # history-json-file → human text
+  jq -r '
+    def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
+    def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
+    def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
+                  else "Held (skipped): " + join(", ") end;
+    "Upkeep — " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
+      + (if .status == "ok" then "✓" else "FAILED — see " + .log end),
+    "System (dnf): " + (.backends.dnf.updated|length|tostring) + " updated"
+      + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
+    (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
+    "Apps (flatpak): " + (.backends.flatpak.updated|length|tostring) + " updated"
+      + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
+    (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
+    heldline,
+    "Reboot: " + (if .reboot_needed then "needed" else "not needed" end)
+  ' "$1"
+}

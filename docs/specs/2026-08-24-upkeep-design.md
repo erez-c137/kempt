@@ -87,7 +87,8 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 - **In-popup:** `upkeep update` runs detached writing to the log; the popup tails the log (compact progress) and shows the summary when done.
 - **Background:** fully silent; desktop notification on completion with headline counts; clicking the widget shows the full summary in the popup.
 
-- **Offline:** stages the transaction with `dnf5 upgrade --offline`; it applies during the next reboot (with an optional "reboot now" button). The post-reboot `upkeep check` harvests the result from `dnf5 offline log`/history into a normal history entry + notification. This is Fedora's officially recommended path — live updates of a running desktop are documented to occasionally break the session mid-transaction (survey C1).
+- **Offline:** stages the transaction with `dnf5 upgrade --offline`; it applies during the next reboot (with an optional "reboot now" button). The post-reboot `upkeep check` harvests the result into a normal history entry + notification. This is Fedora's officially recommended path — live updates of a running desktop are documented to occasionally break the session mid-transaction (survey C1).
+  - **How the harvest works in v1 (implemented):** staging writes a marker (`offline_staged.json`) that owns its own copy of the pre-transaction package snapshot; the next `upkeep check` re-snapshots and, if the installed set moved, diffs the two into a history entry with surface `offline (applied on reboot)`. Snapshot diff, not `dnf5 offline log`. **Accepted caveat:** ANY rpm change between staging and the next check trips the harvest (a manual `dnf install` counts) — the diff it reports is still truthful, it just may not be only the staged transaction.
 
 All surfaces run the same `upkeep update`; the surface only decides where output goes. After any run, the plasmoid triggers `upkeep check` to reset the badge.
 

@@ -21,6 +21,9 @@ cmd_check() {
     jq -e . "$STATE_FILE" 2>/dev/null || true   # validated: never hand a reader corrupt bytes under rc 0
     return 0
   fi
+  # inside the check lock, before anything reads the world: two overlapping checks must not both
+  # harvest the same staged transaction into two history entries
+  harvest_offline
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # -n/[inputs][0]: same corrupt-tolerance as state_prev_items. A multi-doc state file made the
@@ -202,6 +205,52 @@ cmd_update() {
   [[ "$status" == "ok" ]]
 }
 
+cmd_summary() {  # [N] — 1 = latest (default)
+  local n="${1:-1}" f
+  [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: upkeep summary [N]  (N ≥ 1, 1 = latest)" >&2; exit 2; }
+  # `|| true`: an empty history dir makes ls exit 2, and under pipefail that would kill the whole
+  # command before it could say the friendly thing. No runs yet is NOT an error.
+  f="$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort | tail -n "$n" | head -1)" || true
+  [[ -n "$f" ]] || { echo "no update runs recorded yet"; exit 0; }
+  render_summary "$f"
+}
+
+cmd_history() {
+  local f
+  for f in $(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r); do
+    jq -r '[.timestamp, .surface, .status,
+            (([.backends[].updated | length] | add | tostring) + " updated")] | join("  ")' "$f"
+  done
+}
+
+# The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
+# what turns it into a normal history entry. Caveat (documented in the spec): any rpm change after
+# staging trips the harvest — the diff it reports is still truthful.
+harvest_offline() {
+  [[ -f "$OFFLINE_MARKER" ]] || return 0
+  local pre now_snap ts report hist
+  pre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+  # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
+  # pointer on every check for the rest of time.
+  [[ -n "$pre" && -f "$pre" ]] || { rm -f "$OFFLINE_MARKER"; return 0; }
+  now_snap="$(mktemp)"
+  # never take the check down with it — a failed harvest must still leave a working check
+  dnf_snapshot > "$now_snap" \
+    || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2; return 0; }
+  if cmp -s "$pre" "$now_snap"; then rm -f "$now_snap"; return 0; fi   # not applied yet
+  ts="$(date +%Y%m%dT%H%M%S)"
+  report="$(tsv_diff_updates "$pre" "$now_snap")" \
+    || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
+  hist="$HIST_DIR/$ts.json"
+  jq -n --arg ts "$(now_iso)" --argjson dnf "$report" '
+    {timestamp:$ts, surface:"offline (applied on reboot)", status:"ok", duration_sec:0,
+     reboot_needed:false, log:"",
+     backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
+               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
+  rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
+  notify "Upkeep" "Staged updates were applied on reboot — $(jq '.backends.dnf.updated|length' "$hist") packages"
+}
+
 cmd_config() {
   case "${1:-}" in
     get) [[ -n "${2:-}" ]] || { echo "usage: upkeep config get <key> [default]" >&2; exit 2; }
@@ -283,6 +332,8 @@ EOF
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;
   update)  shift; cmd_update "$@" ;;
+  summary) shift; cmd_summary "$@" ;;
+  history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
   config)  shift; cmd_config "$@" ;;
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;

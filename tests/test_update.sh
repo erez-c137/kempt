@@ -121,4 +121,48 @@ assert_eq "$(grep -c 'giving up' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)"
 # the marker's snapshot copy survives runs that rewrite dnf-before.tsv
 assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
 
+# --- offline harvest: the staged transaction applies during a reboot, and the next check has to
+# notice and turn it into a normal history entry + notification.
+# The marker OWNS its pre-snapshot copy and harvest deletes it, so a marker must never point at a
+# shared file — pointing this one at tests/fixtures/ would delete a repo fixture.
+pre_copy="$UPKEEP_STATE_DIR/snapshots/offline-pre-harvest.tsv"
+cp "$FIXTURES/snap-before.tsv" "$pre_copy"
+jq -n --arg snap "$pre_copy" '{staged_at:"x", pre_snapshot:$snap}' > "$UPKEEP_STATE_DIR/offline_staged.json"
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-stub"
+
+# not applied yet (reboot hasn't happened): the installed set still matches the pre-snapshot
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+before_n="$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)"
+"$UPKEEP" check >/dev/null
+assert_exit 0 "unapplied stage keeps its marker" -- test -f "$UPKEEP_STATE_DIR/offline_staged.json"
+assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$before_n" "unapplied stage records nothing"
+
+# applied on reboot: the installed set moved
+cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/notifications"
+sleep 1   # history filenames are per-second; keep the harvested entry from landing on an older one
+"$UPKEEP" check >/dev/null
+[[ ! -f "$UPKEEP_STATE_DIR/offline_staged.json" ]] && echo "ok: marker consumed" || { echo "FAIL: marker"; _fail=1; }
+ls "$UPKEEP_STATE_DIR"/history/*.json >/dev/null 2>&1 && echo "ok: harvest wrote history" || { echo "FAIL: harvest"; _fail=1; }
+assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" "exactly one history entry harvested"
+hh="$UPKEEP_STATE_DIR/history/$(ls "$UPKEEP_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .surface "$hh")" "offline (applied on reboot)" "harvested entry names the surface"
+assert_eq "$(jq '.backends.dnf.updated | length' "$hh")" "2" "harvest diffs against the marker's own snapshot"
+assert_exit 0 "harvest removes the snapshot copy it owned" -- test ! -f "$pre_copy"
+grep -q NOTIFY "$WORLD/notifications" && echo "ok: harvest notifies" || { echo "FAIL: harvest notify"; _fail=1; }
+
+# a consumed marker must not be harvested twice (a second entry would double-count the run)
+"$UPKEEP" check >/dev/null
+assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" "harvest does not repeat"
+
+# cmd_update prints the rendered summary on stdout — that is the terminal surface's whole point
+# ($out was captured from the very first run, before the stub renderer was replaced)
+grep -q 'kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44' <<<"$out" && echo "ok: update printed a rendered summary" \
+  || { echo "FAIL: update printed no summary — got: $out"; _fail=1; }
+
 finish
