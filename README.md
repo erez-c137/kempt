@@ -1,6 +1,6 @@
 # Upkeep
 
-One-click system updates from the KDE Plasma panel. Fedora first; built to grow into a universal Linux updater.
+One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widget over the same engine. Built to grow into a universal Linux updater.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -13,14 +13,20 @@ Flatpak apps are a separate command, and then reading a wall of transaction outp
 what actually changed. Discover's notifier nags about it, disagrees with what the CLI reports,
 and holds the dnf5 lock in the background while it does.
 
-Upkeep replaces that with one icon. It knows what is pending because it asks the same root
-metadata cache the update itself will use, so the badge count and the update never disagree.
-Click it, and the run ends with a short summary: every package `old -> new`, apps updated,
-how long it took, whether you need to reboot. Packages you never want touched can be **held** -
-still counted, still shown, never updated. And when the pending transaction touches
-session-critical packages (kernel, systemd, mesa, Qt/KDE), Upkeep recommends Fedora's own
-answer: stage the transaction and let it apply during the next reboot, instead of rewriting a
-running desktop underneath itself.
+Upkeep replaces that with one command. It knows what is pending because it asks the same root
+metadata cache the update itself will use, so the pending count and the update never disagree.
+`upkeep update` ends with a short summary: every package `old -> new`, apps updated, how long it
+took, whether you need to reboot. Packages you never want touched can be **held** - still
+counted, still shown, never updated. And when the pending transaction touches session-critical
+packages (kernel, systemd, mesa, Qt/KDE), Upkeep recommends Fedora's own answer: stage the
+transaction and let it apply during the next reboot, instead of rewriting a running desktop
+underneath itself.
+
+The panel widget is the same thing with an icon in front of it. It carries no package-manager
+logic at all: the badge is the number `upkeep check` just wrote, and its Update Now button is
+`upkeep run`. That is why the count on the panel and the count in the terminal cannot drift
+apart - there is only one engine, and the widget is a client of it. See **Status** for where that
+half stands today.
 
 ## Features
 
@@ -44,10 +50,10 @@ running desktop underneath itself.
 ## Status
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
-  by the test suite in `tests/`.
-- **Plasma widget: in progress.** The panel icon, popup and settings page are the next piece of
-  work. The CLI is the whole engine; the widget will be a thin QML client over `upkeep check`,
-  `upkeep run` and `upkeep config`.
+  by the test suite in `tests/`. This is the whole engine, and it is the half that is finished.
+- **Plasma widget: landing next.** A thin QML client over `upkeep check`, `upkeep run` and
+  `upkeep config`, with no package management of its own. Everything documented here works from
+  a terminal whether or not the widget is on your panel yet.
 - Not yet packaged. Installation is a symlink from a git checkout (see below).
 
 ## Quick start
