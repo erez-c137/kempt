@@ -332,7 +332,8 @@ hold_remove() {  # backend name
 mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   local holds_json
   holds_json="$(holds_for "$1" | jq -Rn '[inputs]')"
-  jq --argjson holds "$holds_json" '[.[] | . + {held: (($holds | index(.name)) != null)}]'
+  # .name must be bound BEFORE entering the $holds pipeline — inside it, index()'s input is $holds
+  jq --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
 }
 ```
 
@@ -378,7 +379,7 @@ finish
 # --- snapshot diff: before/after TSV (name\tversion, sorted by name) → report JSON ---
 tsv_diff_updates() {  # before_file after_file
   {
-    join -t "$(printf '\t')" "$1" "$2" | awk -F'\t' '$2 != $3 {print "U\t"$1"\t"$2"\t"$3}'
+    join -t "$(printf '\t')" "$1" "$2" | awk -F'\t' '$2"" != $3"" {print "U\t"$1"\t"$2"\t"$3}'
     join -t "$(printf '\t')" -v2 "$1" "$2" | awk -F'\t' '{print "A\t"$1"\t\t"$2}'
     join -t "$(printf '\t')" -v1 "$1" "$2" | awk -F'\t' '{print "R\t"$1"\t"$2"\t"}'
   } | jq -Rn '
@@ -388,6 +389,7 @@ tsv_diff_updates() {  # before_file after_file
       removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }'
 }
 ```
+The `$2"" != $3""` concatenation forces STRING comparison — without it awk compares numeric-looking versions numerically, so `1.1` vs `1.10` compare equal and a real upgrade vanishes from the report (live hazard on flatpak versions, which lack rpm's `-release` suffix).
 
 - [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: tsv_diff_updates snapshot report engine"`
