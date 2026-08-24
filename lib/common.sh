@@ -40,3 +40,23 @@ priv_refresh() { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@";
 priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
 notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
+
+# --- holds: one "backend:name" per line ---
+holds_all() { cat "$HOLDS_FILE" 2>/dev/null || true; }
+holds_for() { holds_all | grep "^$1:" | cut -d: -f2- || true; }
+hold_add() {  # backend name
+  upkeep_init_dirs; touch "$HOLDS_FILE"
+  grep -qxF "$1:$2" "$HOLDS_FILE" || printf '%s:%s\n' "$1" "$2" >> "$HOLDS_FILE"
+}
+hold_remove() {  # backend name
+  [[ -f "$HOLDS_FILE" ]] || return 0
+  grep -vxF "$1:$2" "$HOLDS_FILE" > "$HOLDS_FILE.tmp" || true
+  mv "$HOLDS_FILE.tmp" "$HOLDS_FILE"
+}
+mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
+  local holds_json
+  holds_json="$(holds_for "$1" | jq -Rn '[inputs]')"
+  # `.name as $n` is load-bearing: jq evaluates the argument of index() against index()'s own
+  # input ($holds, an array), so an inline `index(.name)` dies with "Cannot index array".
+  jq --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
+}
