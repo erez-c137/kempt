@@ -839,9 +839,11 @@ finish
 - [ ] **Step 3: Write libexec/upkeep-refresh**
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
 # Upkeep root helper — metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
+# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing.
 set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8
 case "${1:-}" in
   # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
@@ -855,11 +857,13 @@ esac
 - [ ] **Step 4: Write libexec/upkeep-apply**
 
 ```bash
-#!/usr/bin/env bash
+#!/bin/bash
 # Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
+# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing.
 set -euo pipefail
-export LC_ALL=C.UTF-8
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: UPKEEP_APPLY_ECHO=1 prints instead of exec
@@ -886,24 +890,27 @@ case "$verb" in
     assume=(); ids=()
     for a in "$@"; do
       case "$a" in
-        -y) assume=(-y) ;;
+        -y) assume=(--noninteractive -y) ;;   # auto-accept; without -y flatpak may prompt (terminal surface only)
         -*) echo "invalid arg: $a" >&2; exit 2 ;;
         *) [[ "$a" =~ $NAME_RE ]] || { echo "invalid app id: $a" >&2; exit 2; }
            ids+=("$a") ;;
       esac
     done
     if [[ ${#ids[@]} -eq 0 ]]; then
-      run flatpak update --system --noninteractive "${assume[@]}"
+      run flatpak update --system "${assume[@]}"
     else
-      # per-app so holds can be skipped; validate each id against the installed system set
+      # per-app so holds can be skipped; validate each id against the installed system set.
+      # This validation query is deliberately NOT env-overridable: an env-injected command
+      # in a root helper would be a real vulnerability; untestability is the accepted price.
       installed="$(flatpak list --system --app --columns=application 2>/dev/null || true)"
       for id in "${ids[@]}"; do
         grep -qxF "$id" <<<"$installed" || { echo "not installed: $id" >&2; exit 2; }
       done
       rc=0
       for id in "${ids[@]}"; do
-        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "flatpak update --system --noninteractive ${assume[*]} $id"
-        else flatpak update --system --noninteractive "${assume[@]}" "$id" || rc=1; fi
+        cmd=(flatpak update --system "${assume[@]}" "$id")   # ONE array: echo and real mode can never diverge
+        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "${cmd[*]}"
+        else "${cmd[@]}" || rc=1; fi
       done
       exit $rc
     fi
@@ -958,7 +965,7 @@ finish
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
 <policyconfig>
   <vendor>Upkeep</vendor>
 
@@ -1002,16 +1009,22 @@ polkit.addRule(function(action, subject) {
 - [ ] **Step 5: Add to bin/upkeep** (new cmd functions + two case arms `enable-passwordless) cmd_enable_passwordless ;;` / `disable-passwordless) cmd_disable_passwordless ;;`)
 
 ```bash
-RULES_DST="/etc/polkit-1/rules.d/49-upkeep.rules"
+RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
 cmd_enable_passwordless() {
-  local tmp; tmp="$(mktemp)"
-  sed "s/@USER@/$USER/" "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
+  # $(id -un) not $USER: an attacker-controlled USER env var sed-injected into the render could
+  # strip the active/local scoping; id -un is kernel-truth and the awk -v render never interprets it.
+  local u tmp
+  u="$(id -un)"
+  [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || { echo "unexpected username: $u" >&2; exit 2; }
+  tmp="$(mktemp)"
+  awk -v u="$u" '{gsub(/@USER@/, u); print}' "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
+  grep -q 'subject.active && subject.local' "$tmp" || { echo "rendered rule failed scope check" >&2; rm -f "$tmp"; exit 2; }
   # dash (not colon-dash) on purpose: empty UPKEEP_PKEXEC means "no wrapper" (test sandbox),
   # matching priv_refresh/priv_apply — colon-dash would run REAL pkexec inside tests.
   ${UPKEEP_PKEXEC-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
   rm -f "$tmp"
-  echo "Passwordless updates ENABLED for $USER ($RULES_DST)"
+  echo "Passwordless updates ENABLED for $u ($RULES_DST)"
 }
 
 cmd_disable_passwordless() {
