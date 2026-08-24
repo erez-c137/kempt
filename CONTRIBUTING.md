@@ -1,8 +1,10 @@
 # Contributing to Upkeep
 
-The most useful contribution is a backend for another distribution. The second most useful is a
-test that fails against a bug nobody had noticed yet. Both are welcome, and neither needs
-permission first.
+The most useful contribution is a backend for another distribution. It is also the one kind of
+change that starts with an issue rather than a pull request, because a backend needs a new verb
+in the root helper (see [Adding a backend](#adding-a-backend)). The second most useful is a test
+that fails against a bug nobody had noticed yet, and that one needs no permission at all: send
+it.
 
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 problems go through [SECURITY.md](SECURITY.md), never a public issue.
@@ -105,7 +107,11 @@ functions to implement, the new verb in the apply helper, the fixture and MANIFE
 worked sketches for apt, pacman and zypper.
 
 Changes to the state schema, the exit-code contract or the root helpers are worth an issue before
-a pull request. A new backend file is not: just send it.
+a pull request. A backend is one of those changes, whether or not it looks like one: it cannot
+work without a new verb in `libexec/upkeep-apply`, which runs as root, and adding it changes
+`assemble_state`'s signature. So open an issue first, and say which package manager and which
+apply verb you have in mind. The backend file itself is the easy part; the review is about the
+privileged half and the state contract.
 
 ## Docs
 

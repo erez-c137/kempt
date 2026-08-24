@@ -45,7 +45,16 @@ status:
 
 Anything a backend parses lives in a pure function that takes stdin plus an installed-lookup
 file, so it can be tested against a recorded fixture with no package manager present:
-`dnf_parse_check_update`, `flatpak_parse_remote_ls`.
+`dnf_parse_check_update`, `flatpak_parse_remote_ls`. Two required functions plus that parser is
+the whole per-backend contract: three functions in one file.
+
+One more function exists and is deliberately **not** per-backend: `dnf_reboot_needed`, in
+`backends/dnf.sh`. `cmd_update` calls it unconditionally at the end of every run, whatever
+backends took part, because "does this machine need a reboot" is a property of the machine and
+not of one package manager. On a box without dnf5 it degrades rather than failing the run:
+`dnf5 -C needs-restarting` errors, the function warns on stderr and answers `false`. That is the
+one part of this contract that is still honestly dnf-shaped; a per-backend reboot verdict is v2
+work, and a new backend does not implement one today.
 
 Two things the spec lists as backend responsibilities are deliberately **not** per-backend in the
 build:
@@ -243,8 +252,29 @@ Holds become whatever your package manager's exclude mechanism is. Whatever it i
 name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrade` verb does with
 `--exclude=`, and reject the whole invocation rather than dropping a bad argument quietly.
 
-Then wire the verb into `cmd_update` in `bin/upkeep` next to the existing `apply_with_retry`
-calls, and add the backend to `cmd_check` and `assemble_state`.
+### 2b. Wire it in: every place that names a backend
+
+There is no registry and no discovery. Backends are named literally, in more places than the
+sketch above suggests, and a missed one fails quietly rather than loudly. The complete list, so
+nobody has to find it by grep:
+
+| Where | What it names today | What a third backend needs |
+| --- | --- | --- |
+| `bin/upkeep`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
+| `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
+| `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
+| `cmd_update` | Before and after snapshots, the apply verb, per-backend status, held lists, and the history entry's `backends` object | The same set again, plus the new apply verb from step 2. |
+| `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
+| `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends | to_entries` that would make the renderer generic for good. |
+| `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key, or that entry is missing a backend the readers expect. |
+| `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `upkeep hold apt:foo` exits 2 while the backend works fine. |
+| `cmd_doctor` | The per-tool check (flatpak's command, from its seam) and the checkout file list | A tool check, so a missing package manager is reported rather than showing up as a permanently stale backend. |
+| `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
+
+What is already generic and needs nothing: the totals in `assemble_state`'s `wrap`,
+`run_counts_phrase`, and the held-items line in `render_summary`. All three iterate
+`.backends[]` and pick up a new backend for free, which is why the ones that do not are worth
+listing.
 
 ### 3. Record fixtures
 
@@ -305,7 +335,9 @@ needs no installed lookup at all, so its parser is the smallest of the three; an
 reuse `dnf.sh`'s snapshot verbatim, since it is the same rpm database.
 
 Anything that changes the state schema, the exit-code contract or the privileged helpers is a
-discussion first, a pull request second. Everything else is just a new file.
+discussion first, a pull request second. A backend touches all three, so it starts there too: a
+new apply verb in root-owned code, a new key under `backends`, and a changed `assemble_state`
+signature. Fixtures, parsers and tests are just files.
 
 ## Environment seams
 

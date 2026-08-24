@@ -86,7 +86,9 @@ Design and background: [the design spec](docs/specs/2026-08-24-upkeep-design.md)
 ## Contributing
 
 New backends (apt, pacman, zypper) are the most useful thing anyone can add, and the contract
-is deliberately small: three functions in one file. Start with
+is deliberately small: two required functions plus the pure parser they share, in one file.
+Wiring one in also means a new verb in the root apply helper, which is a security change and
+worth an issue first. Start with
 [docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro), then read
 [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup and the test-harness rules that reviews
 enforce. Security reports go through [SECURITY.md](SECURITY.md), not the public issue tracker.
