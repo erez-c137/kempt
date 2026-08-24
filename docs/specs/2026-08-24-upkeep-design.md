@@ -32,7 +32,7 @@ Files:
 
 - Config: `~/.config/upkeep/config` (simple `key=value`). Single source of truth; the plasmoid settings page is a view over it via `upkeep config`.
 - Holds: `~/.config/upkeep/holds` — one entry per line, `dnf:<package-name>` or `flatpak:<app-id>`.
-- State: `~/.local/state/upkeep/state.json` — schema v1 (frozen public interface for the widget): `{schema:1, last_check, last_success (null if never), status ok|stale, error, backends:{dnf|flatpak:{enabled, actionable, held, items:[{name,from,to,held}]}}, actionable, held_total}`. `upkeep check` exits 0 on backend failures and corrupt state (recorded as stale, previous items kept); only a failure to PERSIST the state exits non-zero — after printing the fresh state to stdout, so the caller still gets the answer.
+- State: `~/.local/state/upkeep/state.json` — schema v1 (frozen public interface for the widget): `{schema:1, last_check, last_success (null if never), status ok|stale, error, backends:{dnf|flatpak:{enabled, actionable, held, items:[{name,from,to,held}]}}, actionable, held_total}`. `upkeep check` exits 0 on backend failures and corrupt state (recorded as stale, previous items kept); only a failure to PERSIST the state exits non-zero — after printing the fresh state to stdout, so the caller still gets the answer. One more caller rule: empty stdout with rc 0 (lock timeout with no valid previous state) means "no data — keep the last known state", never "zero updates".
 - History: `~/.local/state/upkeep/history/<ISO-timestamp>.json` — one file per update run.
 - Logs: `~/.local/state/upkeep/logs/<ISO-timestamp>.log` — full raw output per run.
 
