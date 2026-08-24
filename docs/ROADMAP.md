@@ -40,7 +40,8 @@ The CLI is code-complete, documented, and audited. Remaining, in order:
   Fedora Bodhi karma. Never generated prose.
 - **`dnf5 check-update --json`** migration - retires the text-parser bug class by
   construction.
-- **Backend registry** - today adding a backend touches three call sites; a registry
+- **Backend registry** - today adding a backend touches ten call sites (listed in
+  `docs/architecture.md`, and one of them changes `assemble_state`'s signature); a registry
   makes "one file per package manager" literally true. Prerequisite for:
 - **apt and pacman backends** - the universal-updater vision becomes real.
 - **Per-version holds** ("skip this one bad release, auto-clear on the next"),
