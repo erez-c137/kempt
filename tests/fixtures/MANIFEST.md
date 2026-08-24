@@ -16,8 +16,10 @@ aajohan-comfortaa-fonts), each bumped to a plausible newer EVR. 2 guard rows add
   rpm-installed.tsv, so a parser whose join-miss guard (e.g. `join -e '?'`) gets deleted fails
   instead of silently passing.
 - `bash.i686` — a duplicate of the existing `bash.x86_64` row (same EVR, same repo, only the
-  arch differs) — a multilib-collapse case: two arches of the same source package, to catch a
-  parser that de-dupes on bare name and silently drops one entry.
+  arch differs) — a multilib-collapse case: two arches of the same source package. Collapsing
+  the pair into a single `bash` entry is the CORRECT behavior (contract: these 8 data lines
+  parse to 7 items, not 8), so this row catches a parser that FAILS to collapse multilib twins
+  and double-counts `bash`.
 
 ## tests/fixtures/rpm-installed.tsv
 **Captured-live**, 2026-08-24, via
