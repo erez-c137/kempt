@@ -1,7 +1,7 @@
 # Prior-art survey — panel update indicators, universal updaters, update managers
 
 **Date:** 2026-08-24
-**For:** Upkeep v1 design (`docs/superpowers/specs/2026-08-24-upkeep-design.md`)
+**For:** Upkeep v1 design (`docs/specs/2026-08-24-upkeep-design.md`)
 **Method:** web research (project READMEs, source, GitHub issues, distro wikis, Fedora/KDE discussion threads). Signal over completeness.
 
 ---

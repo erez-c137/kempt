@@ -8,7 +8,7 @@
 
 **Tech Stack:** bash, jq (installed), dnf5 5.4, flatpak 1.18, polkit (pkexec), notify-send. Test harness: plain bash + fixtures (no bats dependency).
 
-**Spec:** `docs/superpowers/specs/2026-08-24-upkeep-design.md` — read it before starting. The survey behind its decisions: `docs/research/2026-08-24-similar-tools-survey.md`.
+**Spec:** `docs/specs/2026-08-24-upkeep-design.md` — read it before starting. The survey behind its decisions: `docs/research/2026-08-24-similar-tools-survey.md`.
 
 **House rules for workers:**
 - Repo root: `/mnt/dev_workspace/projects/upkeep`. All paths below are repo-relative.
@@ -64,7 +64,7 @@ tests/tmp/
 
 One-click system updates from the Plasma panel (Fedora/KDE first; universal Linux updater is the long-term goal).
 
-- Spec: docs/superpowers/specs/2026-08-24-upkeep-design.md
+- Spec: docs/specs/2026-08-24-upkeep-design.md
 - Prior-art survey: docs/research/2026-08-24-similar-tools-survey.md
 - CLI: `bin/upkeep` — run `upkeep help`
 - Tests: `tests/run_tests.sh`
@@ -689,7 +689,7 @@ metered_connection() {
 
 ```bash
 #!/usr/bin/env bash
-# Upkeep — one-click system updates. See docs/superpowers/specs/2026-08-24-upkeep-design.md
+# Upkeep — one-click system updates. See docs/specs/2026-08-24-upkeep-design.md
 set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(dirname "$(dirname "$SELF")")"
@@ -1519,7 +1519,7 @@ Do NOT execute this step autonomously. Present this checklist to the user and wa
 ## Final self-review checklist (after all tasks)
 
 - [ ] `tests/run_tests.sh` → ALL PASS, and `bash -n` every script (`bin/upkeep lib/common.sh backends/*.sh libexec/* install.sh`) → no syntax errors
-- [ ] Spec coverage sweep against `docs/superpowers/specs/2026-08-24-upkeep-design.md`: every CLI subcommand listed there exists; holds semantics (skip + notify + summary line) all present; C2 (lock retry), C3 (root-cache check), C4 (flatpak via apply helper), C5 (split actions), C7 (3h/battery/metered gating) each traceable to code
+- [ ] Spec coverage sweep against `docs/specs/2026-08-24-upkeep-design.md`: every CLI subcommand listed there exists; holds semantics (skip + notify + summary line) all present; C2 (lock retry), C3 (root-cache check), C4 (flatpak via apply helper), C5 (split actions), C7 (3h/battery/metered gating) each traceable to code
 - [ ] `git log` shows one commit per task minimum
 
 Plan 2 (Plasma widget) is written after this plan completes and is reviewed against the CLI as actually built.
