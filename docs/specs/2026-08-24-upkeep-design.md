@@ -116,6 +116,10 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old â†
 - Widget: `plasmoidviewer` + screenshots at phase gates (visual verification per house rule: screenshot + read the PNG).
 - Counts as a light job on the G9-Mini heavy-job policy (no builds, no vitest).
 
+## Documentation (first-class deliverable)
+
+Community adoption is a stated goal, so documentation ships to the standard of a serious open-source project, not as an afterthought: a real README (features, install, quick start), user docs (install/usage/configuration references with every command, key, default, and exit code), an architecture doc whose centerpiece is "how to add a backend for your distro" (the community on-ramp), a security doc (the two-action polkit model, helper validation, passwordless scoping - this tool runs code as root and must explain itself), CONTRIBUTING (dev setup, test harness conventions, fixture rules), SECURITY.md reporting policy, CHANGELOG (Keep a Changelog), CODE_OF_CONDUCT, and a man page. Public-copy rules apply (no em dashes). Docs plan: `docs/plans/2026-08-24-upkeep-docs.md`, executed once the v1 CLI surface freezes.
+
 ## Design principle (from survey)
 
 The badge count MUST come from the same command path that performs the update ("front-end disagreeing with the CLI destroys trust" â€” the defining DiscoverNotifier/Discover complaint). Same cache, same excludes, same backends.
