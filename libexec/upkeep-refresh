@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Upkeep root helper — metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
+set -euo pipefail
+export LC_ALL=C.UTF-8
+case "${1:-}" in
+  # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
+  # progress/errors on stderr — merging them would feed diagnostics into the parser.
+  check)   exec dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
+  refresh) exec dnf5 makecache --refresh ;;
+  *) echo "usage: upkeep-refresh check|refresh" >&2; exit 2 ;;
+esac

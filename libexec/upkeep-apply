@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
+# SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
+set -euo pipefail
+export LC_ALL=C.UTF-8
+NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
+
+run() {  # test seam: UPKEEP_APPLY_ECHO=1 prints instead of exec
+  if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+}
+
+verb="${1:-}"; shift || true
+case "$verb" in
+  dnf-upgrade|dnf-offline-stage)
+    assume=(); excludes=()
+    for a in "$@"; do
+      case "$a" in
+        -y) assume=(-y) ;;
+        --exclude=*) n="${a#--exclude=}"
+           [[ "$n" =~ $NAME_RE ]] || { echo "invalid exclude: $n" >&2; exit 2; }
+           excludes+=("--exclude=$n") ;;
+        *) echo "invalid arg: $a" >&2; exit 2 ;;
+      esac
+    done
+    offline=(); [[ "$verb" == dnf-offline-stage ]] && offline=(--offline)
+    run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
+    ;;
+  flatpak-update)
+    assume=(); ids=()
+    for a in "$@"; do
+      case "$a" in
+        -y) assume=(-y) ;;
+        -*) echo "invalid arg: $a" >&2; exit 2 ;;
+        *) [[ "$a" =~ $NAME_RE ]] || { echo "invalid app id: $a" >&2; exit 2; }
+           ids+=("$a") ;;
+      esac
+    done
+    if [[ ${#ids[@]} -eq 0 ]]; then
+      run flatpak update --system --noninteractive "${assume[@]}"
+    else
+      # per-app so holds can be skipped; validate each id against the installed system set
+      installed="$(flatpak list --system --app --columns=application 2>/dev/null || true)"
+      for id in "${ids[@]}"; do
+        grep -qxF "$id" <<<"$installed" || { echo "not installed: $id" >&2; exit 2; }
+      done
+      rc=0
+      for id in "${ids[@]}"; do
+        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "flatpak update --system --noninteractive ${assume[*]} $id"
+        else flatpak update --system --noninteractive "${assume[@]}" "$id" || rc=1; fi
+      done
+      exit $rc
+    fi
+    ;;
+  *) echo "usage: upkeep-apply dnf-upgrade|dnf-offline-stage|flatpak-update [args]" >&2; exit 2 ;;
+esac
