@@ -137,7 +137,7 @@ POST-REVIEW NOTE: the harness was hardened in a follow-up commit after quality r
 
 ### Task 2: Capture fixtures from the live box
 
-Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), hand-write realistic sample lines in the documented format so parsers still get a non-empty test case. POST-REVIEW CONVENTION (supersedes the original in-band `# HAND-WRITTEN SAMPLE` markers): fixtures stay byte-faithful to real tool output — NO comment lines inside fixture files; provenance (captured vs hand-written, dates, per-row edge-case intent) lives in `tests/fixtures/MANIFEST.md`. Guard rows are mandatory: at least one pending dnf package absent from rpm-installed.tsv (`brandnew`), one `.i686` multilib duplicate of an existing row, one pending flatpak absent from flatpak-list.tsv (`com.example.NotInstalled`), and the installonly-duplication fixture `snap-multiver-raw.tsv` (kernel-core ×3, gpg-pubkey ×2). Capture rule learned the hard way: fixtures must go through the SAME code path production uses — the original capture used `sort -u` while production used plain `sort`, which made the installonly cross-product bug structurally invisible to the whole suite.
+Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), hand-write realistic sample lines in the documented format so parsers still get a non-empty test case. POST-REVIEW CONVENTION (supersedes the original in-band `# HAND-WRITTEN SAMPLE` markers): fixtures stay byte-faithful to real tool output — NO comment lines inside fixture files; provenance (captured vs hand-written, dates, per-row edge-case intent) lives in `tests/fixtures/MANIFEST.md`. Guard rows are mandatory: at least one pending dnf package absent from rpm-installed.tsv (`brandnew`), one `.i686` multilib duplicate of an existing row WITH A DIVERGENT EVR (pending-side collapse guard), an "Obsoleting Packages" section with a 4-space-indented row (dnf5 renders obsoletes that way; unfiltered they parse as phantom self-updates), one pending flatpak absent from flatpak-list.tsv (`com.example.NotInstalled`), and the installonly-duplication fixture `snap-multiver-raw.tsv` (kernel-core ×3, gpg-pubkey ×2). Capture rule learned the hard way: fixtures must go through the SAME code path production uses — the original capture used `sort -u` while production used plain `sort`, which made the installonly cross-product bug structurally invisible to the whole suite.
 
 **Files:**
 - Create: `tests/fixtures/dnf-check-update.txt`, `tests/fixtures/rpm-installed.tsv`, `tests/fixtures/flatpak-remote-ls.txt`, `tests/fixtures/flatpak-list.tsv`, `tests/fixtures/snap-before.tsv`, `tests/fixtures/snap-after.tsv`
@@ -462,8 +462,13 @@ dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined 
 }
 
 dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines → JSON [{name,from,to}]
-  awk 'NF>=3 && $1 ~ /\.[A-Za-z0-9_]+$/ && $1 !~ /^#/ { n=$1; sub(/\.[^.]+$/, "", n); print n "\t" $2 }' \
-  | sort -u \
+  # column-0 anchor kills dnf5's 4-space-indented "Obsoleting Packages" rows (they'd parse as
+  # phantom self-updates); the $2 EVR-shape guard kills non-package diagnostic lines;
+  # collapse_versions on the pending side collapses divergent-EVR multilib pairs (one row per name).
+  awk '/^[^[:space:]]/ && NF>=3 && $1 ~ /\.[A-Za-z0-9_]+$/ \
+       && $2 ~ /^([0-9]+:)?[^[:space:]]*[0-9][^[:space:]]*-[^[:space:]]+$/ \
+       { n=$1; sub(/\.[^.]+$/,"",n); print n "\t" $2 }' \
+  | sort -u | collapse_versions \
   | join -t "$(printf '\t')" -a1 -e '?' -o '1.1,2.2,1.2' - "$1" \
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:.[2]}]'
 }
@@ -472,7 +477,7 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure;
   local out rc=0 lookup prc=0
   out="$(priv_refresh check)" || rc=$?
   if [[ $rc -ne 0 && $rc -ne 100 ]]; then return 1; fi
-  lookup="$(mktemp)"; dnf_installed_lookup > "$lookup"
+  lookup="$(mktemp)"; dnf_installed_lookup > "$lookup" || { rm -f "$lookup"; return 1; }
   dnf_parse_check_update "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
   return $prc
@@ -480,15 +485,23 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure;
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
 
-dnf_reboot_needed() {  # → prints true|false
+UPKEEP_DNF_CMD="${UPKEEP_DNF_CMD:-dnf5}"
+
+dnf_reboot_needed() {  # → prints true|false; -C = cache-only (without it, needs-restarting does NETWORK I/O and can prompt on stdin — a hang on the widget's hourly path)
   local rc=0
-  dnf5 needs-restarting -r >/dev/null 2>&1 || rc=$?
-  [[ $rc -eq 1 ]] && echo true || echo false
+  $UPKEEP_DNF_CMD -C needs-restarting </dev/null >/dev/null 2>&1 || rc=$?
+  case $rc in
+    1) echo true ;;
+    0) echo false ;;
+    *) echo "warning: reboot check failed (rc=$rc)" >&2; echo false ;;
+  esac
 }
 ```
 
 - [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS. If an assertion fails, fix the PARSER against the fixture's documented contract in tests/fixtures/MANIFEST.md (e.g. "Obsoleting packages" section headers must be excluded by the awk filter). Never weaken a test to make it pass.
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: dnf backend — check parser + stub-driven check"`
+
+DECISION (recorded post-review): dnf5 5.4 supports `check-update --json`, which would eliminate the text-parsing bug class (obsoletes sections, indentation, column drift, locale) by construction. v1 STAYS on the hardened text parser — it is verified, fixture-pinned, and switching mid-build churns the whole fixture/test layer. Migrating the check verb to `--json` is the designated v2 upgrade for this backend (also listed in the spec's v2 candidates).
 
 ---
 
@@ -544,7 +557,7 @@ flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines 
 flatpak_check() {  # → items JSON; non-zero on failure; zero pending (the COMMON case) → [] rc 0, never "stale"
   local out lookup prc=0
   out="$($UPKEEP_FLATPAK_REMOTE_CMD)" || return 1
-  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup"
+  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup" || { rm -f "$lookup"; return 1; }
   flatpak_parse_remote_ls "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
   return $prc
@@ -685,6 +698,8 @@ source "$ROOT/backends/dnf.sh"
 source "$ROOT/backends/flatpak.sh"
 
 cmd_check() {
+  # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body — backends must therefore
+  # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
   upkeep_init_dirs
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items
@@ -807,6 +822,8 @@ finish
 set -euo pipefail
 export LC_ALL=C.UTF-8
 case "${1:-}" in
+  # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
+  # progress/errors on stderr — merging them would feed diagnostics into the parser.
   check)   exec dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
   refresh) exec dnf5 makecache --refresh ;;
   *) echo "usage: upkeep-refresh check|refresh" >&2; exit 2 ;;
@@ -1139,6 +1156,8 @@ cmd_update() {
   fi
 
   # flatpak (live even when dnf staged offline — flatpak has no offline mechanism)
+  # Known v1 limitation: check/snapshot use --app, but `flatpak update` also updates RUNTIMES,
+  # so the summary can under-report what the transaction actually changed. Documented, accepted.
   local fp_status="skipped"
   if [[ "$include_fp" == "true" ]]; then
     fp_status="ok"

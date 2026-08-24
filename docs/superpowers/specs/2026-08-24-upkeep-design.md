@@ -133,4 +133,5 @@ The badge count MUST come from the same command path that performs the update ("
 - Security/kernel classification of updates, security sorted first (mintupdate).
 - Per-version holds ("skip this one bad version", auto-clears on the next release) on top of v1's per-package holds.
 - topgrade-style config vocabulary (`disable`/`only`/`ignore_failures` per backend) when more backends exist — adopt the nouns before config grows organically.
+- Migrate the dnf check parser to `dnf5 check-update --json` (available since 5.4) — removes the text-parsing bug class (obsoletes sections, indentation, column drift, locale) by construction; v1's hardened text parser is fixture-pinned and stays.
 - Pre/post-run hooks; user-selectable terminal emulator; idle-inhibit during runs (Apdatifier).
