@@ -72,8 +72,11 @@ assert_exit 2 "unknown update option rejected" "$UPKEEP" update --bogus
 # is forced to the terminal surface and -y must NOT reach the privileged helper.
 : > "$WORLD/apply-calls"
 "$UPKEEP" config set auto_accept false
-"$UPKEEP" update >/dev/null
+# UPKEEP_REBOOT_CMD=true → rc 0 → no reboot needed. The everyday case, and the one where the
+# `[[ $rrc -eq 1 ]] && reboot=true` shorthand must not abort the run under errexit.
+UPKEEP_REBOOT_CMD=true "$UPKEEP" update >/dev/null
 h2="$UPKEEP_STATE_DIR/history/$(ls "$UPKEEP_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .reboot_needed "$h2")" "false" "no-reboot-needed run completes and records false"
 assert_eq "$(jq -r .surface "$h2")" "terminal" "auto_accept=false forces the terminal surface"
 assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "auto_accept=false never sends -y to the helper"
 "$UPKEEP" config set auto_accept true
@@ -92,6 +95,28 @@ assert_exit 0 "marker owns its own pre-snapshot copy" -- test -f "$pre"
 [[ "$pre" != "$UPKEEP_STATE_DIR/snapshots/dnf-before.tsv" ]] && echo "ok: copy is not the shared before-snapshot" \
   || { echo "FAIL: marker points at the reusable dnf-before.tsv"; _fail=1; }
 grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says staged" || { echo "FAIL: offline notify"; _fail=1; }
+
+# The run is over the moment the helper returns: a report step that dies afterwards would take the
+# HISTORY ENTRY and the notification down with it, leaving a system that changed and a CLI that
+# says nothing happened. Fail the AFTER-snapshot only (2nd call in a run) and demand a clean,
+# honest, empty report instead of a crash — and never a report claiming everything was removed.
+cat > "$TESTTMP/flaky-installed" <<STUB
+#!/usr/bin/env bash
+n=0; [[ -f "$WORLD/installed-calls" ]] && n=\$(cat "$WORLD/installed-calls")
+n=\$((n + 1)); echo \$n > "$WORLD/installed-calls"
+[[ \$n -ge 2 ]] && exit 7
+cat "$WORLD/rpm.tsv"
+STUB
+chmod +x "$TESTTMP/flaky-installed"
+rm -f "$WORLD/installed-calls"
+snaprc=0
+snaperr="$(UPKEEP_DNF_INSTALLED_CMD="$TESTTMP/flaky-installed" "$UPKEEP" update --no-flatpak 2>&1 >/dev/null)" || snaprc=$?
+assert_eq "$snaprc" "0" "a broken after-snapshot never crashes the run"
+h3="$UPKEEP_STATE_DIR/history/$(ls "$UPKEEP_STATE_DIR/history/" | tail -1)"
+grep -q 'snapshot after the run failed' <<<"$snaperr" && echo "ok: broken after-snapshot warns" || { echo "FAIL: snapshot warning"; _fail=1; }
+assert_eq "$(jq -r .status "$h3")" "ok" "a broken report does not turn a good run into a failure"
+assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")" "0" \
+  "broken after-snapshot degrades to an empty report, never phantom removals"
 
 # second update while lock held → refuses.
 # $$ (this test shell) is deliberately a LIVE pid: a fabricated one is correctly cleared as a

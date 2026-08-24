@@ -136,7 +136,13 @@ cmd_update() {
     if [[ -n "$held_fp" ]]; then
       # holds exist → per-app updates of every pending, non-held, INSTALLED app
       # (installed pre-filter: the helper's installed-set check is a backstop that must never fire in normal runs)
-      local installed_fp id; installed_fp="$(flatpak_snapshot | cut -f1)"
+      # dnf has already run by now, so a flatpak-side failure must be REPORTED, never fatal:
+      # crashing here would lose the history entry and the notification for an update that
+      # already changed the system. Empty installed set → no ids pass the filter → nothing is
+      # attempted, and the run says flatpak failed.
+      local installed_fp id
+      installed_fp="$(flatpak_snapshot | cut -f1)" \
+        || { installed_fp=""; fp_status="failed"; status="failed"; echo "warning: flatpak installed lookup failed - no flatpak apps updated" | tee -a "$log" >&2; }
       while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         grep -qxF "$id" <<<"$held_fp" && continue
@@ -152,16 +158,26 @@ cmd_update() {
   fi
 
   # snapshots (after) + reports
-  # Reports must never crash cmd_update after the system already changed — degrade to empty + warning.
-  dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"
+  # Reports must never crash cmd_update after the system already changed — degrade to empty +
+  # warning. That covers the SNAPSHOT too, not just the diff: the run is over either way, and the
+  # history entry (plus the notification that carries it) must still be written.
+  # `if fn; then` disables errexit inside fn, so both snapshot functions return status explicitly.
+  # An empty after-snapshot is NOT usable as a diff input: it would report every package REMOVED.
   local empty_report='{"updated":[],"added":[],"removed":[]}'
-  local dnf_report fp_report="$empty_report"
-  dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
-    || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
+  local dnf_report="$empty_report" fp_report="$empty_report"
+  if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
+    dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
+      || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
+  else
+    echo "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected" | tee -a "$log" >&2
+  fi
   if is_true "$include_fp"; then
-    flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"
-    fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
-      || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
+    if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
+      fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
+        || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
+    else
+      echo "warning: flatpak snapshot after the run failed - summary incomplete" | tee -a "$log" >&2
+    fi
   fi
   local rrc=0
   $UPKEEP_REBOOT_CMD </dev/null >/dev/null 2>&1 || rrc=$?
@@ -345,7 +361,7 @@ usage() {
 usage: upkeep <command>
   check                 refresh pending-updates state (JSON to stdout)
   update                run the update now (options from config; --no-flatpak, --surface=X override)
-  run                   launch update per configured surface (what the widget calls)
+  run [--dry-run]       launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
   history               list past runs
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
