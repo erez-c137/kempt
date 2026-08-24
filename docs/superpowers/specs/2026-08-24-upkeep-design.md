@@ -24,11 +24,13 @@ Subcommands:
 - `upkeep summary [N]` — renders the last (or Nth-last) run's summary as clean text.
 - `upkeep history` — lists past runs (date, counts, status).
 - `upkeep config get <key>` / `upkeep config set <key> <value>` — the ONLY way anything (including the widget) reads/writes settings.
+- `upkeep hold <name>` / `upkeep unhold <name>` / `upkeep holds` — manage the hold list (see Holds).
 - `upkeep enable-passwordless` / `upkeep disable-passwordless` — installs/removes the polkit rules file (itself via one pkexec prompt).
 
 Files:
 
 - Config: `~/.config/upkeep/config` (simple `key=value`). Single source of truth; the plasmoid settings page is a view over it via `upkeep config`.
+- Holds: `~/.config/upkeep/holds` — one entry per line, `dnf:<package-name>` or `flatpak:<app-id>`.
 - State: `~/.local/state/upkeep/state.json` — pending counts + package lists per backend, last-check timestamp, last-check status.
 - History: `~/.local/state/upkeep/history/<ISO-timestamp>.json` — one file per update run.
 - Logs: `~/.local/state/upkeep/logs/<ISO-timestamp>.log` — full raw output per run.
@@ -41,7 +43,7 @@ Thin. Package id `org.erez.upkeep` (rename before any public release).
 
 - **Panel icon states:** up-to-date (plain icon), updates-available (badge with total pending count, dnf+flatpak), updating (spinner/activity), error (warning emblem), stale (tooltip notes last successful check time when the latest check failed).
 - **Timer:** runs `upkeep check` every `refresh_interval_min`; also on plasmoid load.
-- **Popup:** header "N updates available", scrollable pending list grouped System (dnf) / Apps (flatpak) with `name old → new`, buttons **Update Now** and **Refresh**, gear icon → standard plasmoid config dialog.
+- **Popup:** header "N updates available", scrollable pending list grouped System (dnf) / Apps (flatpak) with `name old → new`, buttons **Update Now** and **Refresh**, gear icon → standard plasmoid config dialog. Each row has a pin toggle (hold/unhold); held items move to a separate "Held" section showing the waiting version.
 - **Config dialog pages:** checkboxes include-flatpaks and auto-accept; run-surface radio (Terminal/In-popup/Background); refresh interval; passwordless toggle. All values read/written through `upkeep config` — no plasmoid-local settings for these (avoids drift with CLI use). Auto-accept OFF forces surface=Terminal (the other surfaces can't prompt); the dialog disables the other radios in that case.
 - Command execution from QML via the executable data engine (Plasma5Support.DataSource) or equivalent Plasma 6 mechanism.
 
@@ -56,6 +58,15 @@ Thin. Package id `org.erez.upkeep` (rename before any public release).
 This file boundary is the future port point (apt/pacman backend = one new file). No abstraction beyond the contract in v1.
 
 Parsing notes: `dnf5 check-update` exits 100 when updates exist, 0 when none — treat both as success. Parsers must tolerate locale differences by pinning `LC_ALL=C` on all parsed commands.
+
+## Holds (don't update, still notify)
+
+Users can flag packages/apps they do NOT want updated while still seeing that an update exists.
+
+- **Scope:** upkeep-only. dnf holds become per-run `--exclude=<name>` args; flatpak holds are skipped by updating apps individually rather than `flatpak update` (all). No system config is touched — a manual `sudo dnf upgrade` outside Upkeep ignores holds. (System-wide `dnf versionlock` integration = possible later feature.)
+- **Notification semantics:** the badge counts only actionable (non-held) updates. Held items with pending updates appear in the popup's "Held" section with the waiting version, and in the tooltip as "N held". If only held updates exist, the icon stays in the up-to-date state (tooltip still notes the held count).
+- **`upkeep check`** marks each pending item `held: true/false` in state JSON; **`upkeep update`** excludes held items and lists them ("skipped (held)") in the run summary so a hold is never silently forgotten.
+- **UI:** pin toggle per row in the popup; the settings page lists current holds with remove buttons.
 
 ## Privileges
 
