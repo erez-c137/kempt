@@ -126,8 +126,12 @@ substitution could quietly break:
   is written and the command exits 2. That catches the three ways a broken template turns into a
   broken grant: losing the scope test (grants to inactive and remote sessions), losing the action
   id (grants **every** polkit action), or gaining a second rule block that could say anything.
-- The destination is shape-checked before use: it must be an absolute path ending in `.rules`,
-  because that path is handed to a root `install(1)`.
+- The destination is pinned before use, because that path is handed to a root `install(1)`. It
+  must be an absolute path ending in `.rules`, and either inside `/etc/polkit-1/rules.d/` (the
+  one directory polkit reads) or outside `/etc` entirely (which is what the test seam uses). A
+  `.rules` file anywhere else under `/etc` is refused: that would only ever plant a root-owned
+  file in another tool's configuration directory. The comparison runs on the `realpath -m` form,
+  so `..` cannot walk a destination out of the directory it claims to be in.
 - Installation is a single `pkexec install -m 0644 -o root -g root`.
 
 `upkeep disable-passwordless` removes the file. It reports "not enabled" only when it can

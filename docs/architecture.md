@@ -323,7 +323,8 @@ destructive paths without ever running them.
 | `UPKEEP_RISKY_RE`, `UPKEEP_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `UPKEEP_SKIP_REFRESH`, `UPKEEP_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
 | `UPKEEP_ASSUME_TTY`, `UPKEEP_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
-| `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination (shape-validated) |
+| `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` or outside `/etc` altogether |
+| `UPKEEP_POLICY_FILE` | `/usr/share/polkit-1/actions/org.erez.upkeep.policy` | Where `upkeep doctor` looks for the installed polkit actions |
 | `UPKEEP_APPLY_ECHO`, `UPKEEP_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
 

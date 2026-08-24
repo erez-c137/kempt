@@ -653,10 +653,26 @@ cmd_doctor() {
 
 RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
-# The destination is a path this command hands to a ROOT install(1): pin its shape so a bad
-# UPKEEP_RULES_DST can only ever name a .rules file, never an arbitrary system path.
+# The destination is a path this command hands to a ROOT install(1), so its shape is pinned.
+# "Absolute and ending in .rules" was too loose: it accepted any path under /etc, which would let
+# this command plant a root-owned file in another tool's config directory (/etc/cron.d,
+# /etc/sudoers.d, anywhere that tolerates an unexpected filename). polkit reads exactly one
+# directory, so that is the only place under /etc a rules file may go; outside /etc is left open
+# because that is what the test seam uses and nothing there is system policy.
+# The comparison is on the realpath -m form (it resolves `..` without requiring the path to
+# exist), so a destination cannot walk out of the directory it claims to be in.
 check_rules_dst() {
-  [[ "$RULES_DST" == /*.rules ]] || { echo "invalid rules destination: $RULES_DST" >&2; exit 2; }
+  local p
+  p="$(realpath -m -- "$RULES_DST" 2>/dev/null)" || p=""
+  if [[ -z "$p" || "$RULES_DST" != /* || "$p" != *.rules ]]; then
+    echo "invalid rules destination: $RULES_DST" >&2; exit 2
+  fi
+  if [[ "$p" =~ ^/etc/polkit-1/rules\.d/[^/]+\.rules$ ]]; then return 0; fi
+  if [[ "$p" == /etc/* ]]; then
+    echo "invalid rules destination: $RULES_DST - under /etc, only /etc/polkit-1/rules.d/*.rules" >&2
+    exit 2
+  fi
+  return 0
 }
 
 cmd_enable_passwordless() {

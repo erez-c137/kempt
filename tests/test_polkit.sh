@@ -73,6 +73,34 @@ assert_exit 2 "enable rejects a relative destination" \
   env UPKEEP_RULES_DST="relative/49-upkeep.rules" "$UPKEEP" enable-passwordless
 assert_exit 2 "enable-passwordless takes no arguments" \
   env UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" enable-passwordless --force
+
+# "absolute and ends in .rules" was too loose: it accepted ANY path under /etc, so the seam could
+# hand a root install(1) a file in /etc/cron.d, /etc/sudoers.d or any other system config
+# directory that tolerates an unexpected filename. The destination is now pinned to the one
+# directory polkit reads, or to somewhere outside /etc entirely (which is what these tests use).
+# Compared after realpath -m, so `..` cannot walk out of the allowed directory.
+polkit_dst_rejected() {  # path label
+  assert_exit 2 "$2" env UPKEEP_RULES_DST="$1" "$UPKEEP" enable-passwordless
+  grep -q 'invalid rules destination' "$TESTTMP/last_output" \
+    && echo "ok: ...and says why ($1)" || { echo "FAIL: no rejection message for $1"; _fail=1; }
+}
+polkit_dst_rejected '/etc/polkit-1/rules.d/../../cron.d/x.rules' \
+  "enable rejects a destination that walks out of the polkit rules directory"
+polkit_dst_rejected '/etc/cron.d/49-upkeep.rules' \
+  "enable rejects a .rules file elsewhere under /etc"
+polkit_dst_rejected '/etc/polkit-1/rules.d/sub/49-upkeep.rules' \
+  "enable rejects a subdirectory of the polkit rules directory"
+# ...and the real destination is still accepted: this must fail at the unprivileged install(1),
+# which is exit 1, not at the shape check, which is exit 2. Nothing is written: the real
+# /etc/polkit-1/rules.d is 0750 root:polkitd, so install cannot even create the file.
+assert_exit 1 "the real polkit rules destination passes the shape check" \
+  env UPKEEP_RULES_DST=/etc/polkit-1/rules.d/49-upkeep.rules "$UPKEEP" enable-passwordless
+grep -q 'invalid rules destination' "$TESTTMP/last_output" \
+  && { echo "FAIL: the shipped destination was rejected by its own guard"; _fail=1; } \
+  || echo "ok: the shipped destination is not what the guard is for"
+[[ -e /etc/polkit-1/rules.d/49-upkeep.rules ]] \
+  && { echo "FAIL: the test suite wrote a polkit rule to /etc"; _fail=1; } \
+  || echo "ok: nothing reached /etc"
 assert_exit 2 "disable-passwordless takes no arguments" \
   env UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" disable-passwordless --force
 # Disabling something that was never enabled is not a failure, and must not raise an auth prompt
