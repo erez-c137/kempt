@@ -13,6 +13,9 @@ UPKEEP_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 # key" (whose default lives in upkeep_default) - the env var still wins when set.
 UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-}"
 
+# Test/power-user seam for the boot session (see current_boot_id). EMPTY means "read procfs".
+UPKEEP_BOOT_ID="${UPKEEP_BOOT_ID:-}"
+
 UPKEEP_CONFIG_DIR="${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
 UPKEEP_STATE_DIR="${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
 UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
@@ -37,7 +40,10 @@ upkeep_init_dirs() {
   mkdir -p "$UPKEEP_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
   # Sweep aged orphan tmps: a crash between mktemp and mv leaks .atomic.XXXXXX forever.
   # +60min so a tmp belonging to a live concurrent writer is never eligible.
-  [[ -d "$UPKEEP_STATE_DIR" ]] && find "$UPKEEP_STATE_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  # maxdepth 2, not 1: atomic_write puts its temp NEXT TO the destination, and the offline
+  # baseline it rewrites lives in snapshots/ - depth 1 never reached those, so a crash mid-rebase
+  # leaked a file nothing would ever clean up.
+  [[ -d "$UPKEEP_STATE_DIR" ]] && find "$UPKEEP_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest
   # 50 entries (`upkeep history` stays readable and `summary N` still reaches back months) and
@@ -285,7 +291,10 @@ release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; 
 # this and the harvest compares: same session means the stage is still pending, whatever else
 # happened to the rpm database in the meantime. "unknown" (no procfs) degrades to the old
 # snapshot-comparison behaviour rather than blocking the harvest forever.
-current_boot_id() { cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown; }
+current_boot_id() {
+  [[ -n "$UPKEEP_BOOT_ID" ]] && { printf '%s\n' "$UPKEEP_BOOT_ID"; return 0; }
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown
+}
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
 # offline harvest's: a transaction that only installs or removes packages must never be

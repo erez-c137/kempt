@@ -607,4 +607,22 @@ grep -qE '0 (packages )?updated|no package changes' "$WORLD/notifications" \
   || echo "ok: the harvest notification counts installs, not just upgrades"
 grep -q '+1 installed' "$WORLD/notifications" && echo "ok: it names the install" || { echo "FAIL: harvest notify installs - got: $(cat "$WORLD/notifications")"; _fail=1; }
 
+# ...but a box with no readable /proc/sys/kernel/random/boot_id records "unknown", and an unknown
+# session must NOT gate the harvest forever - it falls back to the old snapshot comparison.
+# Both sides read "unknown" here, which is exactly the case a bare equality test would swallow.
+export UPKEEP_BOOT_ID=unknown
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/notifications"
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_eq "$(jq -r .boot_id "$marker")" "unknown" "a box without a readable boot id stages an unknown session"
+cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+sleep 1
+"$UPKEEP" check >/dev/null 2>&1
+[[ ! -f "$marker" ]] && echo "ok: an unknown boot session falls back to the snapshot comparison" \
+  || { echo "FAIL: an unknown boot session gated the harvest forever"; _fail=1; }
+hu="$UPKEEP_STATE_DIR/history/$(ls -1 "$UPKEEP_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .surface "$hu")" "offline (applied on reboot)" "...and still reports the staged transaction"
+unset UPKEEP_BOOT_ID
+
 finish

@@ -49,4 +49,18 @@ assert_exit 0 "retention only ever deletes its own file types" -- test -f "$LOG_
 # into every command that calls upkeep_init_dirs).
 rm -f "$HIST_DIR"/*.json
 assert_exit 0 "pruning an empty history dir is not an error" -- upkeep_init_dirs
+
+# Orphan temp sweep: a crash between mktemp and mv leaks a .atomic.XXXXXX forever. atomic_write
+# puts its temp NEXT TO the destination, so it is not only the state root that collects them -
+# the offline-baseline rebase writes through snapshots/, one level down.
+printf 'x' > "$UPKEEP_STATE_DIR/.atomic.old"; touch -d '2 hours ago' "$UPKEEP_STATE_DIR/.atomic.old"
+printf 'x' > "$SNAP_DIR/.atomic.old";         touch -d '2 hours ago' "$SNAP_DIR/.atomic.old"
+printf 'x' > "$SNAP_DIR/.atomic.fresh"
+printf 'x' > "$SNAP_DIR/keep.tsv";            touch -d '2 hours ago' "$SNAP_DIR/keep.tsv"
+upkeep_init_dirs
+assert_exit 0 "an aged orphan temp in the state dir is swept" -- test ! -e "$UPKEEP_STATE_DIR/.atomic.old"
+assert_exit 0 "...and one in snapshots/, where the rebase leaves them" -- test ! -e "$SNAP_DIR/.atomic.old"
+assert_exit 0 "a fresh temp (a live concurrent writer's) is left alone" -- test -f "$SNAP_DIR/.atomic.fresh"
+assert_exit 0 "the sweep only ever takes .atomic. files" -- test -f "$SNAP_DIR/keep.tsv"
+rm -f "$SNAP_DIR/.atomic.fresh" "$SNAP_DIR/keep.tsv"
 finish
