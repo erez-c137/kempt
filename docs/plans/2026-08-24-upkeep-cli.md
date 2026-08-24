@@ -1520,6 +1520,14 @@ risky_names() { jq -r '.[] | select(.held|not) | .name' | grep -E "$UPKEEP_RISKY
 - Create: `install.sh`
 - Test: `tests/test_install.sh`
 
+- [ ] **Step 0: Retention (goes in lib/common.sh, warm-up for this task)** — logs and history currently grow forever; the widget will trigger runs on a timer. Extend `upkeep_init_dirs`:
+```bash
+  # retention: keep the newest 50 history entries; drop logs older than 60 days
+  ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 | while IFS= read -r f; do rm -f "$f"; done
+  find "$LOG_DIR" -name '*.log' -mtime +60 -delete 2>/dev/null || true
+```
+Test: create 55 dummy history files with distinct mtimes → init leaves exactly 50 newest.
+
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_install.sh`:
@@ -1575,9 +1583,12 @@ fi
 
 mkdir -p "$HOME/.local/bin"
 ln -sf "$ROOT/bin/upkeep" "$HOME/.local/bin/upkeep"
-pkexec bash -c "mkdir -p /usr/local/libexec \
-  && install -m 755 -o root -g root '$ROOT/libexec/upkeep-refresh' '$ROOT/libexec/upkeep-apply' /usr/local/libexec/ \
-  && install -m 644 -o root -g root '$ROOT/polkit/org.erez.upkeep.policy' /usr/share/polkit-1/actions/"
+# paths passed as POSITIONAL ARGS, never interpolated into the root shell string (a repo path
+# containing a quote would otherwise break or inject inside the pkexec'd bash -c)
+pkexec bash -c 'mkdir -p /usr/local/libexec \
+  && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
+  && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
+  "$ROOT/libexec/upkeep-refresh" "$ROOT/libexec/upkeep-apply" "$ROOT/polkit/org.erez.upkeep.policy"
 echo "Installed. Try: upkeep check"
 echo "note: the CLI runs from this checkout (symlink install) — don't move/delete the repo. Only the root helpers + policy are copies."
 
@@ -1585,10 +1596,11 @@ echo "note: the CLI runs from this checkout (symlink install) — don't move/del
 read -rp "Disable plasma-discover-notifier for this user? [Y/n] " ans
 if [[ "${ans,,}" != "n" ]]; then
   mkdir -p "$HOME/.config/autostart"
-  cp /etc/xdg/autostart/org.kde.discover.notifier.desktop "$HOME/.config/autostart/" 2>/dev/null || true
-  echo "Hidden=true" >> "$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+  f="$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+  cp /etc/xdg/autostart/org.kde.discover.notifier.desktop "$f" 2>/dev/null || true
+  grep -q '^Hidden=true' "$f" 2>/dev/null || echo "Hidden=true" >> "$f"   # idempotent: re-running install.sh must not accumulate lines
   pkill -f DiscoverNotifier 2>/dev/null || true
-  echo "DiscoverNotifier disabled for $USER (delete ~/.config/autostart/org.kde.discover.notifier.desktop to undo)"
+  echo "DiscoverNotifier disabled for $(id -un) (delete $f to undo)"
 fi
 ```
 
@@ -1601,10 +1613,13 @@ Do NOT execute this step autonomously. Present this checklist to the user and wa
 1. `./install.sh` → auth prompt once → installed.
 2. `upkeep check` → real pending counts, no auth dialog (refresh action is allow_active=yes). Verify `jq .actionable ~/.local/state/upkeep/state.json` matches `dnf5 check-update` reality.
 3. `upkeep hold dnf:<some pending pkg>` → `upkeep check` → actionable drops by one.
-4. `upkeep update` in a terminal → ONE auth dialog → real run → summary shows old→new versions; held package in "Held (skipped)".
+4. `upkeep update` in a terminal → ONE auth dialog → real run → summary shows old→new versions; held package in "Held (skipped)". NOTE: if session-critical packages are pending, the [u]/[s]/[a] recommendation prompt appears FIRST — expected, not a bug; answer u for this step.
 5. `upkeep summary` and `upkeep history` render the run.
 6. `upkeep run` with surface=background → notification appears.
 7. Check `dnf5 needs-restarting` agreement with the summary's Reboot line.
+8. **auto_accept=false interactive check (only a live run can prove this):** `upkeep config set auto_accept false; upkeep update` → dnf5's `Is this ok [y/N]:` must RENDER AND ACCEPT INPUT through the tee pipe (stdout is not a tty in live-output mode; if dnf5 goes non-interactive here, the whole auto-accept-off surface is broken and needs a fix before v1). Restore `auto_accept true` after.
+9. Optional (fits this box's pending reboot): `upkeep update --surface=offline` → staged notification; after the next natural reboot, `upkeep check` → harvest history entry + notification.
+10. `upkeep run` success contract for Plan 2: run prechecks the launcher (rc 4 when konsole missing); a successful detached LAUNCH still says nothing about the update's outcome — the widget must poll state.json/history, never trust run's rc as "updated".
 
 ---
 
