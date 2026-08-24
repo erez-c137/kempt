@@ -24,6 +24,7 @@ Subcommands:
 - `upkeep summary [N]` — renders the last (or Nth-last) run's summary as clean text.
 - `upkeep history` — lists past runs (date, counts, status).
 - `upkeep config get <key>` / `upkeep config set <key> <value>` — the ONLY way anything (including the widget) reads/writes settings.
+- `upkeep run` — surface dispatcher: reads `surface` from config and launches `upkeep update` accordingly (Konsole window, detached, or offline staging). This is what the widget's Update Now button calls; humans can call `upkeep update` directly.
 - `upkeep hold <name>` / `upkeep unhold <name>` / `upkeep holds` — manage the hold list (see Holds).
 - `upkeep enable-passwordless` / `upkeep disable-passwordless` — installs/removes the polkit rules file (itself via one pkexec prompt).
 
@@ -73,7 +74,7 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 
 ## Privileges
 
-- Root helper `upkeep-apply` (root-owned, installed to `/usr/local/libexec/`) is the only thing that runs privileged. Verbs: `refresh` (dnf metadata makecache), `dnf-upgrade` (with `--exclude` args validated against the pending set), `flatpak-update` (system-installation update; app-id args validated against the installed set). No arbitrary args — every argument is validated against a known-good list before use.
+- Two root helpers (root-owned, installed to `/usr/local/libexec/`) are the only things that run privileged — one per polkit action, since pkexec maps an action to exactly one executable path: `upkeep-refresh` (verbs: `check` = cache-only check-update as root, `refresh` = dnf makecache) and `upkeep-apply` (verbs: `dnf-upgrade`, `dnf-offline-stage`, `flatpak-update`; `--exclude`/app-id args validated by strict pattern and against known-good lists). No arbitrary args.
 - **Two polkit action IDs** (survey finding C5: `auth_admin_keep` caches per action ID, not per argument, so one action must never mix cheap and dangerous verbs):
   - `org.erez.upkeep.refresh` — metadata refresh only; `allow_active=yes` (no dialog; same pattern as PackageKit's system-sources-refresh). This keeps the badge reading the **root** metadata cache, so check and update always agree (survey C3: non-root dnf reads a different cache than root).
   - `org.erez.upkeep.apply` — the actual upgrade verbs (dnf + flatpak together, one auth moment; survey C4: Flathub is a system remote on Fedora, so flatpak updates need privileges too); defaults `auth_admin_keep` → KDE auth dialog once per run.
