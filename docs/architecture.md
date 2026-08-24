@@ -135,7 +135,7 @@ bumping `schema`.
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
-| `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones. Additive key: readers must tolerate its absence in files written by older builds. |
+| `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
 
 Two rules for anything that reads this file:
 
@@ -280,9 +280,10 @@ assert_eq "$(jq -r '.[] | select(.name == "newthing") | .from' <<<"$out")" "?" \
 finish
 ```
 
-`sandbox` must be the first call: it creates a throwaway `HOME`, points the config and state
-directories at it, unsets every seam, and installs the EXIT trap that makes the file's exit
-status meaningful. Do not install your own EXIT trap over it.
+`sandbox` must be the first call: it creates one throwaway temp directory, points `HOME`, the
+config directory and the state directory at separate paths inside it, neutralizes every seam,
+and installs the EXIT trap that makes the file's exit status meaningful. Do not install your own
+EXIT trap over it.
 
 Then **prove the test binds**: break the code the test claims to cover, watch the test fail, put
 it back. A test that passes against the defect it is named after is worse than no test.
@@ -326,9 +327,11 @@ destructive paths without ever running them.
 | `UPKEEP_APPLY_ECHO`, `UPKEEP_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure |
 
-The `*_ECHO` seams exist for tests only, and they are unreachable in a real privileged run:
-pkexec sanitizes the environment, so a variable set by the caller never arrives inside the root
-helper.
+The `*_ECHO` seams exist for tests only. The two that live in root-owned code,
+`UPKEEP_APPLY_ECHO` and `UPKEEP_REFRESH_ECHO`, are unreachable in a real privileged run: pkexec
+sanitizes the environment, so a variable set by the caller never arrives inside the root helper.
+`UPKEEP_INSTALL_ECHO` runs on the user's side of the boundary, and all it can do is stop
+`install.sh` from running its privileged commands.
 
 ## Known v1 decisions
 

@@ -23,6 +23,9 @@ assert_eq "$(stat -c %a "$D/usr/share/polkit-1/actions/org.erez.upkeep.policy")"
 # The symlink is the whole "the checkout is load-bearing" contract: it must resolve INTO the
 # repo, not into a copy. A copy would silently freeze the CLI at install time.
 assert_eq "$(readlink "$D$HOME/.local/bin/upkeep")" "$REPO_ROOT/bin/upkeep" "the CLI symlink points into the checkout"
+# Same contract for the man page: `man upkeep` must show the checkout's page, not a copy frozen
+# at install time. It goes to the USER man hierarchy, so it needs no root.
+assert_eq "$(readlink "$D$HOME/.local/share/man/man1/upkeep.1")" "$REPO_ROOT/docs/man/upkeep.1" "man page symlinked into the checkout"
 
 # Staging is for packaging and tests: it must not reach outside DESTDIR and install for real.
 assert_exit 0 "staging never touches the live HOME" -- test ! -e "$HOME/.local/bin/upkeep"
@@ -42,6 +45,7 @@ assert_exit 0 "uninstall removes the staged refresh helper" -- test ! -e "$D/usr
 assert_exit 0 "uninstall removes the staged apply helper" -- test ! -e "$D/usr/local/libexec/upkeep-apply"
 assert_exit 0 "uninstall removes the staged policy" -- test ! -e "$D/usr/share/polkit-1/actions/org.erez.upkeep.policy"
 assert_exit 0 "uninstall removes the staged CLI symlink" -- test ! -e "$D$HOME/.local/bin/upkeep"
+assert_exit 0 "uninstall removes the staged man page symlink" -- test ! -e "$D$HOME/.local/share/man/man1/upkeep.1"
 assert_exit 0 "uninstall leaves the config alone" -- test -s "$UPKEEP_CONFIG_DIR/config"
 assert_exit 0 "uninstall leaves the holds alone" -- test -s "$UPKEEP_CONFIG_DIR/holds"
 

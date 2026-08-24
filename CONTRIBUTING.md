@@ -49,9 +49,11 @@ green suite for exactly that reason.
 
 `tests/lib.sh` is small on purpose. These rules are what reviews enforce:
 
-- **Call `sandbox` first, before anything else.** It creates a throwaway `HOME`, points
-  `UPKEEP_CONFIG_DIR` and `UPKEEP_STATE_DIR` inside it, clears every seam variable, and installs
-  the EXIT trap that cleans up and gives the file a meaningful exit status.
+- **Call `sandbox` first, before anything else.** It creates one throwaway temp directory and
+  points `HOME`, `UPKEEP_CONFIG_DIR` and `UPKEEP_STATE_DIR` at separate paths inside it, so no
+  test can reach your real config or state. It also neutralizes every seam variable (unset, or
+  pointed somewhere harmless) and installs the EXIT trap that cleans up and gives the file a
+  meaningful exit status.
 - **Never install your own EXIT trap.** It replaces the harness's, and a test file that then
   forgets `finish` silently passes.
 - **Stub the seams you use.** The helper seams deliberately default to nonexistent
@@ -113,11 +115,14 @@ Documentation is a first-class deliverable here, and it is held to the same stan
   remembered. Where a doc and the code disagree, the code is right and the doc is a bug.
 - **Every shell example must be copy-paste runnable.** Run it before you commit it.
 - **No em dashes in documentation or user-facing copy.** Use a spaced hyphen or rephrase. Sweep
-  before every commit:
+  the published docs before every commit:
 
   ```bash
-  grep -rnP '\x{2014}' README.md docs/ *.md   # U+2014 EM DASH; expect no output
+  grep -rnP '\x{2014}' *.md docs/*.md docs/man/   # U+2014 EM DASH; expect no output
   ```
+
+  `docs/plans/`, `docs/specs/` and `docs/research/` are working archives rather than published
+  documentation, and are deliberately outside the sweep.
 
 - Concise beats complete. A reader who finishes a page should know what to do next.
 

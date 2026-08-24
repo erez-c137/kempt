@@ -62,8 +62,9 @@ upkeep update         # run it now, ending with a summary
 
 `install.sh` symlinks `bin/upkeep` into `~/.local/bin`, so **keep the checkout where it is** -
 the CLI runs out of it. Only the root helpers and the polkit action are copied out of the repo.
-Full detail, including the Discover-notifier opt-out and how to undo everything, is in the
-[install guide](docs/install.md).
+If `upkeep` is not found right afterwards, `~/.local/bin` was not on your `PATH` when this shell
+started; log out and back in. Full detail, including the Discover-notifier opt-out and how to
+undo everything, is in the [install guide](docs/install.md).
 
 ## Documentation
 
