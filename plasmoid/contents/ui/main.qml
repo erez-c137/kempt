@@ -17,14 +17,25 @@ PlasmoidItem {
     // NOT called `state`: QQuickItem already has a string property by that name, and shadowing it
     // with an object is the kind of thing that works in review and misbehaves in a real panel.
     property var upkeepState: null
-    property bool updating: false          // a run WE started is in flight (Task W3 sets it)
+    property bool updating: false          // a run WE started is in flight
     property bool checking: false          // a check is in flight; keeps checks from piling up
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
+    property bool holdInFlight: false      // a hold/unhold is running; the pins go inert meanwhile
+
+    // Our OWN report of a check that produced nothing usable - the CLI missing from PATH, say.
+    // Distinct from the CLI reporting a problem, which arrives inside the state as `error`.
+    property string cliError: ""
+    // The result of the last button press, shown under the buttons until the next one.
+    property string actionMessage: ""
+    // Configured run surface, read from the CLI. Decides whether the popup tails the log.
+    property string surface: "terminal"
+    property string logTail: ""
+    property string logPath: ""
 
     // The single derived value. Re-evaluated by the engine whenever either input changes, which is
     // why nothing below ever recomputes or caches a label. null is a first-class input here: it
     // renders as "unknown", never as "zero updates".
-    readonly property var vm: Logic.viewModel(upkeepState, updating)
+    readonly property var vm: Logic.viewModel(upkeepState, updating, cliError)
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -33,13 +44,19 @@ PlasmoidItem {
     // shell, so a per-command assignment is all this needs to be.
     readonly property string upkeepCmd: "PATH=\"$HOME/.local/bin:$PATH\" upkeep"
 
+    // Where the CLI keeps its state, resolved the way lib/common.sh resolves it:
+    // UPKEEP_STATE_DIR when set, else ~/.local/state/upkeep. Deliberately NOT XDG_STATE_HOME -
+    // the CLI does not honour it, so honouring it here would point the watcher at a directory
+    // `upkeep` never writes to, and the badge would stop noticing its own runs. If the CLI ever
+    // adopts XDG_STATE_HOME, this line follows it, not the other way round.
+    readonly property string stateDir: "${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
+
     // The event-driven half of the refresh (spec: an update applied from ANY source must show up
     // within seconds). KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
     // package databases plus our own state file - three stats cost nothing and catch a manual
     // `dnf upgrade`, a Discover run and another Upkeep run alike.
-    // The state path matches lib/common.sh's UPKEEP_STATE_DIR default exactly.
     readonly property string watchCmd:
-        "stat -c %Y /var/lib/rpm /var/lib/flatpak \"$HOME/.local/state/upkeep/state.json\" 2>/dev/null | tr '\\n' ' '"
+        "stat -c %Y /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" 2>/dev/null | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
@@ -68,6 +85,14 @@ PlasmoidItem {
             var parsed = Logic.parseState(stdout);
             if (parsed !== null) {
                 root.upkeepState = parsed;
+                // The CLI answered. Whatever it thinks is wrong is inside that answer now, so our
+                // own "could not run it" report has to go, or the popup would show a stale excuse
+                // next to fresh data.
+                root.cliError = "";
+            } else if (rc !== 0) {
+                // Nothing usable AND a failure: this is the one case where the widget itself has
+                // something to report - the CLI is missing, or it could not start at all.
+                root.cliError = Logic.firstLineOf(stderr);
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
             // next poll would see its own footprint as a change and check again, forever.
@@ -93,7 +118,12 @@ PlasmoidItem {
             if (stamp === "") return;              // stat found nothing: learn nothing, change nothing
             var changed = (root.watchStamp !== "" && stamp !== root.watchStamp);
             root.watchStamp = stamp;
-            if (changed && triggerCheck) root.doCheck();
+            if (!changed || !triggerCheck) return;
+            // A change we did not make. If a run of ours is in flight, this is how it ends: the
+            // CLI re-checks itself when it finishes, so its own write to state.json is the signal
+            // that there is something new to show.
+            root.leaveUpdating();
+            root.doCheck();
         });
     }
 
@@ -106,8 +136,128 @@ PlasmoidItem {
         });
     }
 
+    // Which surface a run will use. Only the popup surface makes the log pane worth showing.
+    function readSurface() {
+        executor.run(upkeepCmd + " config get surface", 10000, function(stdout, stderr, rc) {
+            var s = Logic.firstLineOf(stdout);
+            if (rc === 0 && s !== "") root.surface = s;
+        });
+    }
+
+    // --- actions -------------------------------------------------------------------------------
+
+    // Update Now. `upkeep run` is the verb built for this caller: it launches the configured
+    // surface and RETURNS, so it gets a short timeout - the update itself is detached and never
+    // occupies the executor. Putting a 40-minute dnf transaction through this queue would block
+    // every check and every pin behind it, and the kill timer would only disconnect the reader
+    // anyway: the child would keep running, unwatched.
+    function startUpdate() {
+        if (updating) return;
+        actionMessage = "";
+        executor.run(upkeepCmd + " run", 15000, function(stdout, stderr, rc) {
+            if (rc === 0) {
+                root.enterUpdating();
+                return;
+            }
+            // The CLI's own words. rc 4 is a missing terminal emulator and its message carries the
+            // remedy; rc 3 is another run already holding the lock.
+            var msg = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+            if (rc === 3 && msg === "") msg = "An update is already running.";
+            root.actionMessage = msg !== "" ? msg : "Could not start the update (exit " + rc + ").";
+        });
+    }
+
+    // The offline recommendation, acted on. `upkeep update --surface=offline` runs the staging
+    // synchronously, so unlike `run` it has to be detached here - and detached means it must NOT
+    // be waited on by the executor.
+    function stageOffline() {
+        if (updating) return;
+        actionMessage = "";
+        // `setsid sh -c '<script>'` and not `setsid <script>`: upkeepCmd begins with a PATH=
+        // assignment, and setsid would try to EXECUTE a program by that name rather than set a
+        // variable. The quoted script keeps the expansion for the inner shell, which is where it
+        // is supposed to happen.
+        executor.run("setsid sh -c " + Logic.shellQuote(upkeepCmd + " update --surface=offline")
+                     + " >/dev/null 2>&1 &", 10000,
+                     function(stdout, stderr, rc) {
+            if (rc === 0) root.enterUpdating();
+            else root.actionMessage = Logic.firstLineOf(stderr) || "Could not stage the offline update.";
+        });
+    }
+
+    // The pin toggle. The name comes out of the CLI's own JSON and goes back into a shell command,
+    // so it is quoted - see Logic.shellQuote. Nothing about a hold is stored in the widget: the
+    // CLI owns the holds file, and the re-check is what moves the row between groups.
+    function setHold(backend, name, hold) {
+        if (holdInFlight) return;
+        holdInFlight = true;
+        actionMessage = "";
+        var verb = hold ? " hold " : " unhold ";
+        executor.run(upkeepCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
+                     function(stdout, stderr, rc) {
+            root.holdInFlight = false;
+            if (rc !== 0) {
+                root.actionMessage = Logic.firstLineOf(stderr) || "Could not change the hold on " + name + ".";
+                return;
+            }
+            root.doCheck();
+        });
+    }
+
+    // --- the updating state ----------------------------------------------------------------------
+
+    function enterUpdating() {
+        updating = true;
+        logTail = "";
+        logPath = "";
+        updateGuard.restart();
+        if (surface === "popup") findLog();
+    }
+
+    function leaveUpdating() {
+        if (!updating) return;
+        updating = false;
+        updateGuard.stop();
+        loadSummary();
+    }
+
+    // The newest log file, found once per run.
+    // stateDir is NOT shellQuote'd, and that distinction is the whole rule: it is a shell
+    // expression this file wrote, whose ${...} expansion is the point of it, and single quotes
+    // would turn it into a literal directory name that cannot exist. shellQuote is for values
+    // that came from OUTSIDE - package names, paths the CLI printed - which must never be
+    // interpreted. Double quotes give stateDir its expansion and still survive a space in $HOME;
+    // the glob stays outside them so it can still glob.
+    function findLog() {
+        tailExecutor.run("ls -1t \"" + stateDir + "\"/logs/*.log 2>/dev/null | head -1",
+                         10000, function(stdout, stderr, rc) {
+            root.logPath = Logic.firstLineOf(stdout);
+        });
+    }
+
+    function pollLog() {
+        if (!updating || surface !== "popup" || logPath === "") return;
+        tailExecutor.run("tail -n 25 " + Logic.shellQuote(logPath), 10000, function(stdout, stderr, rc) {
+            if (rc === 0) root.logTail = stdout;
+        });
+    }
+
+    // One line saying what the run actually did, from the same renderer the terminal and the
+    // notification use.
+    function loadSummary() {
+        executor.run(upkeepCmd + " summary", 15000, function(stdout, stderr, rc) {
+            if (rc === 0) root.actionMessage = Logic.firstLineOf(stdout);
+        });
+    }
+
     // --- wiring --------------------------------------------------------------------------------
     Executor { id: executor }
+
+    // A SECOND executor, for the log tail alone. The queue is strictly first-in-first-out, so a
+    // 2-second tail sharing it with a 120-second check would put ~60 tails in front of everything
+    // else - the Refresh button would appear dead for two minutes. Separating them means the tail
+    // can never delay an action, and an action can never stall the tail.
+    Executor { id: tailExecutor }
 
     Timer {
         id: checkTimer
@@ -129,6 +279,31 @@ PlasmoidItem {
         onTriggered: root.pollWatch(true)
     }
 
+    Timer {
+        id: logTimer
+        interval: 2000
+        repeat: true
+        // Only while a run is actually in flight AND the output is meant to land here. On any
+        // other surface this never starts, so there is no tail process at all.
+        running: root.updating && root.surface === "popup" && root.expanded
+        onTriggered: root.pollLog()
+    }
+
+    // The safety net on `updating`. A run ends when the CLI writes state.json - but a user who
+    // closes the terminal window, or an update that dies, never writes it, and the popup would
+    // sit on a spinner until plasmashell restarted. Three hours is far longer than any real
+    // transaction and far shorter than forever.
+    Timer {
+        id: updateGuard
+        interval: 3 * 60 * 60 * 1000
+        repeat: false
+        onTriggered: {
+            root.updating = false;
+            root.actionMessage = "Stopped waiting for the update to report back. Check: upkeep summary";
+            root.doCheck();
+        }
+    }
+
     // The standard panel tooltip. Both strings come from the view model, so what the tooltip says
     // is pinned by the node tests rather than assembled here.
     toolTipMainText: vm ? vm.tooltipMain : "Upkeep"
@@ -147,10 +322,14 @@ PlasmoidItem {
         plasmoidItem: root
         vm: root.vm
     }
-    fullRepresentation: FullRepresentation {}
+    fullRepresentation: FullRepresentation {
+        plasmoidItem: root
+        vm: root.vm
+    }
 
     Component.onCompleted: {
         readInterval();
+        readSurface();
         doCheck();
     }
 }

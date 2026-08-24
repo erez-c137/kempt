@@ -28,8 +28,41 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // Same number the CLI's notification uses (bin/upkeep).
 var RISKY_FAMILIES_SHOWN = 4;
 
-// Highest number the panel badge spells out; above this it reads "99+".
-var BADGE_MAX = 99;
+// Highest number the panel badge spells out; above this it reads "999+".
+// COMPACT ONLY. The popup header is never capped: there is room for the real number there, and
+// a person opening the popup is asking for the real number.
+// 999 and not 99: a Fedora box left alone for a few weeks routinely has two or three hundred
+// updates pending, so a cap of 99 would be vague in the ordinary case rather than the extreme
+// one - and a badge that is exactly right is the entire pitch of this widget.
+var BADGE_MAX = 999;
+
+// shellQuote(s) -> the string as ONE shell word, safe to paste into a command line.
+//
+// This is the widget's only injection surface and it is a real one. Package names come out of
+// the CLI's JSON, and the popup builds `upkeep hold <backend>:<name>` from them - a name
+// containing `;` or a backtick would otherwise be a second command running as the user, from
+// inside the panel process. POSIX single quotes disable every expansion the shell has; the only
+// character that cannot appear inside them is the single quote itself, which is closed, escaped
+// and reopened ('\'') in the usual way.
+// Anything state-derived that reaches a command line goes through here. No exceptions - not
+// "obviously safe" package names, not log paths.
+function shellQuote(s) {
+    if (s === undefined || s === null) return "''";
+    return "'" + String(s).split("'").join("'\\''") + "'";
+}
+
+// firstLineOf(text) -> the first non-blank line, trimmed, or "".
+// `ls -1t | head -1` and `upkeep summary` both hand back text the popup shows on one line; doing
+// the trimming here rather than in QML is what lets a node test pin it.
+function firstLineOf(text) {
+    if (typeof text !== "string") return "";
+    var lines = text.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line !== "") return line;
+    }
+    return "";
+}
 
 // parseState(text) -> the state object, or null.
 // null means "we learned nothing from this call". Every caller must treat it as "keep what you
@@ -171,18 +204,54 @@ function collectItems(state) {
     return { sections: sections, heldItems: heldItems, actionable: actionable, heldTotal: heldTotal };
 }
 
-// viewModel(state, updating) -> everything the QML layer binds to. Called on every state change;
-// the QML side holds no derived state of its own.
+// rowsOf(sections, heldItems) -> ONE flat list for the popup's ListView.
+// A ListView with a flat model creates delegates lazily, so a box with 1200 pending updates costs
+// the same as a box with six. Building the flattening here (rather than nesting Repeaters in QML)
+// also means the grouping is something a node test can check.
+// Each row is {kind: "header", title} or {kind: "item", ...the item, plus `held`}.
+function rowsOf(sections, heldItems) {
+    var rows = [], i, j;
+    for (i = 0; i < sections.length; i++) {
+        rows.push({ kind: "header", title: sections[i].title });
+        for (j = 0; j < sections[i].items.length; j++) rows.push(rowOf(sections[i].items[j], "item"));
+    }
+    // Held last and always its own group: the spec's promise is that a held item stays VISIBLE
+    // with its waiting version, just out of the way of the things you can act on.
+    if (heldItems.length > 0) {
+        rows.push({ kind: "header", title: "Held" });
+        for (i = 0; i < heldItems.length; i++) rows.push(rowOf(heldItems[i], "item"));
+    }
+    return rows;
+}
+
+function rowOf(item, kind) {
+    return { kind: kind, title: "", name: item.name, from: item.from, to: item.to,
+             held: item.held, backend: item.backend };
+}
+
+// viewModel(state, updating, cliError) -> everything the QML layer binds to. Called on every
+// state change; the QML side holds no derived state of its own.
+//
+// cliError is the widget's own report of a check that produced nothing usable - the CLI missing
+// from PATH, say. It is NOT the same thing as the CLI reporting a problem: when `upkeep check`
+// runs and something inside it fails, it says so in the state's own `error` field and that comes
+// out as staleReason. This argument is only for "we could not get an answer at all".
 //
 // iconState is decided in this order, and the order is the contract:
 //   updating   - we started a run; it wins over whatever the last check said
-//   unknown    - no state at all (first load, or every check so far returned nothing)
-//   error      - we have an object, but it is not schema v1: say so, never render it as 0
+//   error      - no state AND the CLI failed us, or an object that is not schema v1
+//   unknown    - no state, but nothing has gone wrong yet (first load, still checking)
 //   stale      - the last check failed; the counts below are the last known good ones
 //   updates    - actionable > 0
 //   uptodate   - actionable == 0 (held items do not count: spec, Holds semantics)
-function viewModel(state, updating) {
+//
+// Note what "stale" deliberately is NOT: an error. The counts are the best known truth and the
+// user does not need alarming about a repo that flapped, so the panel keeps rendering the
+// CONTENTS (a count badge, or nothing) and the explanation goes in the tooltip. Only a genuine
+// "we cannot read this at all" earns a warning emblem.
+function viewModel(state, updating, cliError) {
     updating = !!updating;
+    cliError = firstLineOf(typeof cliError === "string" ? cliError : "");
     var usable = looksLikeState(state);
     var counted = collectItems(usable ? state : null);
     var stale = usable && state.status === "stale";
@@ -196,10 +265,22 @@ function viewModel(state, updating) {
         ? (typeof state.held_total === "number" ? state.held_total : counted.heldTotal)
         : null;
 
+    var noState = (state === null || state === undefined);
+    var everSucceeded = usable && typeof state.last_success === "string" && state.last_success.trim() !== "";
+    var nothingKnown = counted.sections.length === 0 && counted.heldItems.length === 0;
+
+    // Calm-stale is for a FLAP OVER KNOWN COUNTS: we had an answer, this check failed, the old
+    // numbers stand. A box that has never had a successful check and knows nothing has no counts
+    // to be calm about - "up to date" there would be a clean lie, and it is exactly what a box
+    // whose root helpers were never installed looks like. That belongs with the errors.
+    var neverAnswered = usable && stale && !everSucceeded && nothingKnown;
+
     var iconState;
     if (updating) iconState = "updating";
-    else if (state === null || state === undefined) iconState = "unknown";
+    else if (noState && cliError !== "") iconState = "error";
+    else if (noState) iconState = "unknown";
     else if (!usable) iconState = "error";
+    else if (neverAnswered) iconState = "error";
     else if (stale) iconState = "stale";
     else if (actionable > 0) iconState = "updates";
     else iconState = "uptodate";
@@ -227,23 +308,57 @@ function viewModel(state, updating) {
         headerText = "No update data yet";
     } else if (iconState === "error") {
         tooltipMain = "Upkeep";
-        headerText = "Could not read the update state";
+        headerText = (cliError !== "" || neverAnswered)
+            ? "Upkeep cannot check for updates"
+            : "Could not read the update state";
     } else {
         tooltipMain = countPhrase;
         headerText = countPhrase;
     }
 
     var lastSuccessText = usable ? formatStamp(state.last_success) : "";
+    var staleReason = stale
+        ? (typeof state.error === "string" && state.error !== "" ? state.error : "the last check failed")
+        : "";
+
+    // The one sentence an error state owes the user, in descending order of how much it knows.
+    var problemText = "";
+    if (iconState === "error") {
+        if (cliError !== "") problemText = cliError;                 // we could not run the CLI
+        else if (neverAnswered) problemText = staleReason;           // it ran, and told us why not
+        else problemText = "the update state could not be read";     // it answered something else
+    }
 
     var subParts = [];
     if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
-    else if (iconState === "error") subParts.push("the update state could not be read");
+    else if (iconState === "error") subParts.push(problemText);
     else {
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
         if (heldTotal > 0) subParts.push(heldTotal + " held");
-        if (stale) subParts.push("last successful check: " + lastSuccessText);
+        // Staleness is a tooltip fact, not an icon alarm - so the tooltip has to actually carry
+        // BOTH halves: what went wrong, and how old the numbers above it therefore are. Without
+        // the reason, "last successful check: yesterday" leaves the user guessing why.
+        if (stale) {
+            subParts.push(staleReason);
+            subParts.push("last successful check: " + lastSuccessText);
+        }
     }
+
+    // What the popup shows where the list would be, when there is no list to show.
+    var emptyStateText = "";
+    if (updating) emptyStateText = "";
+    else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
+    else if (iconState === "error") emptyStateText = problemText;
+    else if (nothingKnown) {
+        emptyStateText = stale ? "No updates in the last known state." : "Everything is up to date.";
+    }
+
+    // The one thing a stuck user can usefully be told to type. `upkeep doctor` is the CLI's own
+    // diagnosis command, and its name reaching the popup is not a guess: when the root helpers are
+    // missing the CLI says so itself, in the state's error field, and names doctor in the text.
+    var remedyCommand = "";
+    if (cliError !== "" || staleReason.indexOf("upkeep doctor") >= 0) remedyCommand = "upkeep doctor";
 
     return {
         iconState: iconState,
@@ -254,14 +369,16 @@ function viewModel(state, updating) {
         headerText: headerText,
         sections: counted.sections,
         heldItems: counted.heldItems,
+        rows: rowsOf(counted.sections, counted.heldItems),
         actionable: actionable,
         heldTotal: heldTotal,
         stale: stale,
         // "" when fine; otherwise the CLI's own error text, so the popup's stale banner says what
         // actually went wrong instead of a generic apology.
-        staleReason: stale
-            ? (typeof state.error === "string" && state.error !== "" ? state.error : "the last check failed")
-            : "",
+        staleReason: staleReason,
+        cliError: cliError,
+        emptyStateText: emptyStateText,
+        remedyCommand: remedyCommand,
         riskySummary: riskySummaryOf(
             usable && state.risky_pending && typeof state.risky_pending.length === "number"
                 ? state.risky_pending : []),
@@ -277,6 +394,9 @@ if (typeof module !== "undefined" && module.exports) {
         viewModel: viewModel,
         newestOf: newestOf,
         familiesOf: familiesOf,
-        formatStamp: formatStamp
+        formatStamp: formatStamp,
+        shellQuote: shellQuote,
+        firstLineOf: firstLineOf,
+        rowsOf: rowsOf
     };
 }

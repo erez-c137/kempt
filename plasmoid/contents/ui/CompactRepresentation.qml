@@ -32,10 +32,15 @@ Item {
         active: mouseArea.containsMouse
         // update-none / update-low / update-high are the Breeze update icons the rest of Plasma
         // uses for exactly this, so the panel stays visually consistent with Discover's notifier.
+        //
+        // Stale renders its CONTENTS, not its staleness: a repo that flapped for one check is not
+        // a broken machine, and an alarm icon for it trains the user to ignore alarms. The counts
+        // are still the best known truth, so a stale state with pending updates looks exactly like
+        // a fresh one with pending updates - and the tooltip carries the reason and the age.
         source: {
             switch (compactRoot.iconState) {
             case "updates": return "update-low";
-            case "stale":
+            case "stale":   return compactRoot.badgeVisible ? "update-low" : "update-none";
             case "error":   return "update-high";
             default:        return "update-none";   // uptodate, updating, unknown
             }
@@ -45,9 +50,11 @@ Item {
     }
 
     // Bottom LEFT, because the count badge owns the bottom right.
+    // ONLY for a real error - a state we cannot read, or a CLI we could not run. Staleness does
+    // not get one: see the icon mapping above.
     Kirigami.Icon {
         id: warningEmblem
-        visible: compactRoot.iconState === "stale" || compactRoot.iconState === "error"
+        visible: compactRoot.iconState === "error"
         source: "emblem-warning"
         width: Math.round(compactRoot.shortSide * 0.45)
         height: width
@@ -70,8 +77,11 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: Math.round(compactRoot.shortSide * 0.5)
-        // Grows for a three-digit count instead of clipping it; never narrower than a circle.
-        width: Math.max(height, badgeLabel.implicitWidth + Kirigami.Units.smallSpacing)
+        // Grows for a longer count instead of clipping it, never narrower than a circle, and
+        // never wider than the icon it sits on. The cap is 999+, so four characters is the most
+        // this ever has to hold.
+        width: Math.min(compactRoot.width,
+                        Math.max(height, badgeLabel.implicitWidth + Kirigami.Units.smallSpacing))
         radius: height / 2
         color: Kirigami.Theme.highlightColor
 
@@ -80,9 +90,11 @@ Item {
             anchors.centerIn: parent
             text: compactRoot.badgeText
             color: Kirigami.Theme.highlightedTextColor
+            // Long counts get a smaller face rather than a wider badge: "999+" at the two-digit
+            // size would be as wide as the whole panel icon.
             // Math.max(1, ...): a zero pixelSize is a Qt warning on every layout pass while the
             // panel is still sizing itself.
-            font.pixelSize: Math.max(1, Math.round(badge.height * 0.7))
+            font.pixelSize: Math.max(1, Math.round(badge.height * (text.length > 2 ? 0.5 : 0.7)))
             font.bold: true
         }
     }

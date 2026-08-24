@@ -104,7 +104,7 @@ unchanged package (bash), two upgraded (kernel-core, vim-common), one removed (z
 ## tests/fixtures/state-*.json (widget: `upkeep check` state schema v1)
 
 The plasmoid parses `upkeep check` stdout and nothing else, so its tests are fed real CLI output
-rather than JSON somebody typed by hand. Six of the nine were **captured live on 2026-08-25**
+rather than JSON somebody typed by hand. Seven of the ten were **captured live on 2026-08-25**
 by running `bin/upkeep check` in a stub sandbox built exactly the way `tests/test_check.sh`
 builds one: a throwaway `HOME`, `UPKEEP_CONFIG_DIR`/`UPKEEP_STATE_DIR` under a tmpdir,
 `UPKEEP_PKEXEC=""`, `UPKEEP_SKIP_REFRESH=1`, a `UPKEEP_REFRESH_HELPER` stub that cats
@@ -154,6 +154,20 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   this. The CLI flags all 20 in `risky_pending`; they reduce to 9 families (dbus, glibc, kernel,
   kf6, kwin, mesa, plasma, qt6, systemd), which is what makes this fixture exercise the ", ..."
   tail on the offline recommendation rather than just the four-family happy path.
+- **state-broken.json** - captured, on a box where `install.sh` has never run: the refresh helper
+  path does not exist and `include_flatpak=false` leaves nothing else that can answer. Result:
+  `status: "stale"`, `last_success: null`, zero items in either backend, and the CLI's own
+  diagnosis in `error` - "dnf check failed: root helper not installed - run ./install.sh (see:
+  upkeep doctor)". Recipe: a fresh config/state pair, `UPKEEP_REFRESH_HELPER` pointed at a
+  nonexistent path, `upkeep config set include_flatpak false`, then `upkeep check`.
+
+  This fixture exists because of a specific near-miss. "Stale" was made deliberately calm - last
+  known counts, no alarm icon - which is right for a repo that flapped once. Applied to THIS
+  state, where nothing has ever been known, the same rule rendered a clean "Up to date" on a box
+  that cannot check for updates at all. state-never.json does not catch it: there the flatpak
+  backend still answers, so items exist. The distinction the widget now draws - has it ever
+  succeeded, does it know anything - is only testable against a capture that has neither.
+
 - **state-schema-v0.json** - **derived**, `jq 'del(.risky_pending)'` over state-live.json. Stands
   in for a state file written before Task 13.5 added that additive key: schema-1 readers must
   tolerate its absence, and there is no way to make today's CLI emit one.

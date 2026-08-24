@@ -124,14 +124,19 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,bac
   "uptodate" "nothing pending => up to date"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).badgeVisible')" \
   "false" "up to date shows no badge"
-# A four-digit badge stops being a badge and starts being a layout problem. "99+" is still true,
-# and the tooltip - which is never capped - still carries the exact number.
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:99,held_total:0,backends:{}},false).badgeText')" \
-  "99" "a two-digit count is spelled out"
+# The cap is 999, not 99: a Fedora box left alone for a few weeks routinely has two or three
+# hundred updates pending, so a 99 cap would be vague in the ORDINARY case - and an exactly right
+# badge is the whole pitch. The tooltip and the popup header are never capped at all.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:100,held_total:0,backends:{}},false).badgeText')" \
-  "99+" "above 99 the badge caps"
+  "100" "a three-digit count - the common few-weeks-behind case - is spelled out exactly"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:347,held_total:0,backends:{}},false).badgeText')" \
+  "347" "...and so is a big one"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:999,held_total:0,backends:{}},false).badgeText')" \
+  "999" "999 is still an exact number"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1000,held_total:0,backends:{}},false).badgeText')" \
+  "999+" "above 999 the badge caps"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).badgeText')" \
-  "99+" "...however far above"
+  "999+" "...however far above"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).tooltipMain')" \
   "1247 updates available" "...while the tooltip still gives the exact number"
 
@@ -153,11 +158,13 @@ assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")"
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
 assert_eq "$(js 'V("stale",false).badgeText')" "10" "stale keeps the LAST KNOWN count on the badge"
-assert_eq "$(js 'V("stale",false).tooltipSub')" "last successful check: $ls_stale" \
-  "the stale tooltip carries the last SUCCESSFUL check, not the last attempt"
+assert_eq "$(js 'V("stale",false).tooltipSub')" "dnf check failed - last successful check: $ls_stale" \
+  "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
+assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
+  "...and the reason it carries is the CLI's own staleReason, verbatim"
 assert_eq "$(js 'V("stale",false).lastSuccessText')" "$ls_stale" "lastSuccessText is the formatted last success"
 assert_eq "$(js 'V("stale",false).staleReason')" "dnf check failed" "the stale reason is the CLI's own error text"
-assert_eq "$(js 'V("never",false).tooltipSub')" "last successful check: never" \
+assert_eq "$(js 'V("never",false).tooltipSub.indexOf("last successful check: never") >= 0')" "true" \
   "a box that has never had a successful check says never, not Invalid Date"
 assert_eq "$(js 'V("never",false).lastSuccessText')" "never" "...and lastSuccessText says never too"
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held_total:0,backends:{}},false).staleReason')" \
@@ -165,7 +172,117 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
 # fall in the same minute would let last_check pass for last_success. These two cannot.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2020-01-01T10:30:00+03:00",backends:{}},false).tooltipSub')" \
-  "last successful check: 2020-01-01 10:30" "the tooltip reads last_success, never last_check"
+  "x - last successful check: 2020-01-01 10:30" "the tooltip reads last_success, never last_check"
+
+# --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------
+# A repo that flapped is not a broken machine. The panel keeps rendering whatever the last good
+# check found; only a state we genuinely cannot read earns the warning treatment.
+assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check is its own state, not an error"
+assert_eq "$(js 'V("stale",false).badgeVisible')" "true" "a stale state still shows its last known count"
+assert_eq "$(js 'V("stale",false).cliError')" "" "the CLI answered, so there is no CLI error"
+assert_eq "$(js 'V("stale",false).emptyStateText')" "" "...and there are rows to show, so no empty state"
+# Calm-stale needs something to BE calm about. A box that once succeeded and now flaps keeps its
+# last known "nothing pending"; the boundary below is what separates that from knowing nothing.
+calm_empty='L.viewModel({schema:1,status:"stale",error:"repo flap",last_success:"2026-08-20T10:00:00+03:00",actionable:0,held_total:0,backends:{}},false)'
+assert_eq "$(js "$calm_empty.iconState")" "stale" "a flap after a real success stays calm"
+assert_eq "$(js "$calm_empty.emptyStateText")" "No updates in the last known state." \
+  "...and says the count is the LAST KNOWN one"
+
+# --- the other family: never succeeded, nothing known. NOT calm. -------------------------------
+# This is what a box looks like when install.sh never ran: the check cannot run at all, so there
+# is no count, no history and nothing to be reassuring about. Rendering "Up to date" here - which
+# a purely status-driven mapping would - is a clean lie, and the most damaging one this widget
+# could tell. It belongs with the errors: emblem, honest words, and the command that diagnoses it.
+assert_eq "$(jq -r '[.status, (.last_success|tostring), (.actionable|tostring), (.backends.dnf.items|length|tostring)] | join(",")' "$FIXTURES/state-broken.json")" \
+  "stale,null,0,0" "fixture guard: the broken-install capture really is stale, never-succeeded and empty"
+assert_eq "$(js 'V("broken",false).iconState')" "error" "never succeeded and nothing known is an ERROR, not calm staleness"
+assert_eq "$(js 'V("broken",false).headerText')" "Upkeep cannot check for updates" "...the header says so plainly"
+assert_eq "$(js 'V("broken",false).headerText.indexOf("Up to date")')" "-1" "...and never claims the box is up to date"
+assert_eq "$(js 'V("broken",false).badgeVisible')" "false" "...it badges nothing"
+assert_eq "$(js 'V("broken",false).emptyStateText.indexOf("root helper not installed") >= 0')" "true" \
+  "...the popup shows the CLI's own diagnosis"
+assert_eq "$(js 'V("broken",false).tooltipSub.indexOf("root helper not installed") >= 0')" "true" \
+  "...so does the tooltip"
+assert_eq "$(js 'V("broken",false).remedyCommand')" "upkeep doctor" "...and it points at doctor"
+assert_eq "$(js 'V("broken",false).staleReason.indexOf("root helper not installed") >= 0')" "true" \
+  "...with staleReason still carrying the raw text for anyone who wants it"
+# The boundary itself, from both sides: one known item is enough to make a stale state calm again,
+# and a real last_success is enough on its own.
+one_item='{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}'
+assert_eq "$(js "L.viewModel({schema:1,status:\"stale\",error:\"x\",last_success:null,actionable:1,held_total:0,backends:$one_item},false).iconState")" \
+  "stale" "knowing even one pending item makes a stale state calm again"
+assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",last_success:"2026-08-20T10:00:00+03:00",actionable:0,held_total:0,backends:{}},false).iconState')" \
+  "stale" "and so does having ever succeeded"
+assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",last_success:"",actionable:0,held_total:0,backends:{}},false).iconState')" \
+  "error" "an empty last_success counts as never, not as a success"
+
+# --- a CLI we could not run at all: say what happened, and what to type ------------------------
+# Distinct from the CLI reporting a problem (that arrives as staleReason). This is "upkeep is not
+# on PATH" / "it did not run" - the widget's own report, not the CLI's.
+cli_err='L.viewModel(null,false,"upkeep: command not found")'
+assert_eq "$(js "$cli_err.iconState")" "error" "no state plus a failed CLI is an error, not merely unknown"
+assert_eq "$(js "$cli_err.badgeVisible")" "false" "...and it badges nothing"
+assert_eq "$(js "$cli_err.headerText")" "Upkeep cannot check for updates" "the popup header names the problem"
+assert_eq "$(js "$cli_err.emptyStateText")" "upkeep: command not found" "the popup shows the CLI's own words"
+assert_eq "$(js "$cli_err.tooltipSub")" "upkeep: command not found" "...and so does the tooltip"
+assert_eq "$(js "$cli_err.remedyCommand")" "upkeep doctor" "...and points at the command that diagnoses it"
+assert_eq "$(js 'L.viewModel(null,false,"").iconState')" "unknown" \
+  "no state and no error is still just unknown - not every blank is a failure"
+assert_eq "$(js 'L.viewModel(null,false,"").remedyCommand')" "" "...and unknown suggests nothing"
+assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").emptyStateText')" "line one" \
+  "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
+# The CLI names `upkeep doctor` itself when the root helpers are missing (lib/common.sh
+# explain_helper_error). That text arrives in the state, so the remedy must be offered from there
+# too - the CLI ran fine, it is the install that is broken.
+# A box that HAS known counts and then loses its helpers: the counts stand, so this stays calm -
+# but the remedy is still offered, because the CLI named it. (The other case, where the helpers
+# were never there and nothing is known, is the error family tested further down.)
+helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed - run ./install.sh (see: upkeep doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
+assert_eq "$(js "$helper_missing.remedyCommand")" "upkeep doctor" \
+  "a missing root helper offers doctor even though the CLI itself answered"
+assert_eq "$(js "$helper_missing.iconState")" "stale" "...while staying calm about it, because the counts still stand"
+assert_eq "$(js 'V("live",false).remedyCommand')" "" "a healthy box is told to run nothing"
+
+# --- shellQuote: the widget's one injection surface --------------------------------------------
+# Package names come out of the CLI's JSON and go into `upkeep hold <backend>:<name>`, which the
+# data engine hands to a shell. Everything state-derived is quoted; these pin the quoting itself,
+# and the end-to-end proof through a real shell is further down.
+assert_eq "$(js 'L.shellQuote("curl")')" "'curl'" "an ordinary name is wrapped in single quotes"
+assert_eq "$(js 'L.shellQuote("evil; rm -rf ~")')" "'evil; rm -rf ~'" "a command separator is just text inside quotes"
+assert_eq "$(js "L.shellQuote(\"it's\")")" "'it'\\''s'" "a single quote is closed, escaped and reopened"
+bs='back\slash'
+assert_eq "$(BS="$bs" js 'L.shellQuote(process.env.BS)')" "'$bs'" "a backslash needs no escaping inside single quotes"
+assert_eq "$(js 'L.shellQuote("two\nlines")')" "$(printf "'two\nlines'")" "a newline stays inside the one word"
+assert_eq "$(js 'L.shellQuote("")')" "''" "an empty string is still one argument"
+assert_eq "$(js 'L.shellQuote(null)')" "''" "...and so is a missing one"
+assert_eq "$(js 'L.shellQuote("$(whoami)")')" "'\$(whoami)'" "command substitution is inert inside single quotes"
+assert_eq "$(js 'L.shellQuote("`id`")')" "'\`id\`'" "so are backticks"
+
+# --- firstLineOf ------------------------------------------------------------------------------
+assert_eq "$(js 'L.firstLineOf("  hello  \nworld")')" "hello" "the first line comes back trimmed"
+assert_eq "$(js 'L.firstLineOf("\n\n  real line\nmore")')" "real line" "leading blank lines are skipped"
+assert_eq "$(js 'L.firstLineOf("")')" "" "empty text has no first line"
+assert_eq "$(js 'L.firstLineOf("   \n  ")')" "" "neither does whitespace"
+assert_eq "$(js 'L.firstLineOf(null)')" "" "nor a missing string"
+
+# --- rows: the popup's flat model --------------------------------------------------------------
+# A ListView over a flat model creates delegates lazily, so 1200 pending updates cost what six do.
+assert_eq "$(js 'V("live",false).rows[0].kind')" "header" "the list starts with a section header"
+assert_eq "$(js 'V("live",false).rows[0].title')" "System (dnf)" "...naming the first group"
+assert_eq "$(js 'V("live",false).rows[1].kind')" "item" "the group's items follow it"
+assert_eq "$(js 'V("live",false).rows.length')" "12" "10 items plus 2 group headers"
+assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "header"; }).map(function (r) { return r.title; })')" \
+  '["System (dnf)","Apps (flatpak)"]' "one header per non-empty group, in order"
+assert_eq "$(js 'V("held-only",false).rows[0].title')" "Held" "a held-only box shows the Held group"
+assert_eq "$(js 'V("held-only",false).rows.length')" "11" "...one header plus its ten rows"
+assert_eq "$(js 'V("held-only",false).rows[1].held')" "true" "held rows are marked as held"
+assert_eq "$(js 'L.viewModel(null,false).rows.length')" "0" "no data, no rows"
+assert_eq "$(js 'V("flatpak-disabled",false).rows.filter(function (r) { return r.kind === "header"; }).length')" "1" \
+  "a disabled backend contributes no header either"
+# Held goes LAST, after everything actionable: the spec keeps held items visible but out of the way.
+mixed='L.viewModel({schema:1,status:"ok",actionable:1,held_total:1,backends:{dnf:{enabled:true,items:[{name:"a",from:"1",to:"2",held:false},{name:"b",from:"1",to:"2",held:true}]}}},false)'
+assert_eq "$(js "$mixed.rows.map(function (r) { return r.kind === \"header\" ? r.title : r.name; })")" \
+  '["System (dnf)","a","Held","b"]' "held items sort below the actionable ones, under their own header"
 
 # --- versions: the widget renders exactly what the CLI's summary renders (lib/common.sh
 # `def newest(v): v | split(",") | last`), so a comma-joined multilib/installonly set can never
@@ -265,13 +382,50 @@ assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...a
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","headerText","heldItems","heldTotal","iconState","lastSuccessText","riskySummary","sections","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","emptyStateText","headerText","heldItems","heldTotal","iconState","lastSuccessText","remedyCommand","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
-            'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' \
-            'L.viewModel({hello:"world"},false)'; do
+            'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
+            'L.viewModel({hello:"world"},false)' 'L.viewModel(null,false,"boom")'; do
   assert_eq "$(js "Object.keys($case).sort()")" "$keys" "$case returns the whole view model"
 done
+
+# --- the injection proof, through a real shell -------------------------------------------------
+# The data engine hands its command string to a shell, so quoting is the only thing between a
+# package name and arbitrary code running as the user from inside plasmashell. Asserting the
+# QUOTES look right proves nothing on its own; this runs the command the popup would build and
+# checks what actually lands in argv.
+cat > "$TESTTMP/argv-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$#" > "$TESTTMP/argc"
+printf '%s\n' "\$@" > "$TESTTMP/argv"
+STUB
+chmod +x "$TESTTMP/argv-stub"
+export HOSTILE="evil; touch $TESTTMP/PWNED"
+
+# The canary FIRST. Without it a passing test below might only mean the attack never worked here.
+sh -c "'$TESTTMP/argv-stub' dnf:$HOSTILE" >/dev/null 2>&1 || true
+assert_exit 0 "canary: unquoted, the injected command really does run" -- test -e "$TESTTMP/PWNED"
+rm -f "$TESTTMP/PWNED"
+
+# ...and now the same name through shellQuote, exactly as main.qml builds a hold command.
+q="$(js 'L.shellQuote("dnf:" + process.env.HOSTILE)')"
+sh -c "'$TESTTMP/argv-stub' $q" >/dev/null 2>&1 || true
+assert_exit 0 "quoted, the injected command does NOT run" -- test ! -e "$TESTTMP/PWNED"
+assert_eq "$(cat "$TESTTMP/argc")" "1" "the hostile name arrives as exactly one argument"
+assert_eq "$(cat "$TESTTMP/argv")" "dnf:$HOSTILE" "...carrying its characters verbatim, semicolon and all"
+
+# The same, for the shapes a shell treats specially in other ways.
+for evil in 'a$(touch '"$TESTTMP"'/PWNED)' 'a`touch '"$TESTTMP"'/PWNED`' 'a b c' "quote'inside" 'tilde~/x' '*'; do
+  export EVIL="$evil"          # a separate export: `EVIL=x q=$(...)` is two assignments, and the
+  q="$(js 'L.shellQuote(process.env.EVIL)')"   # command substitution would not see EVIL at all
+  sh -c "'$TESTTMP/argv-stub' $q" >/dev/null 2>&1 || true
+  assert_eq "$(cat "$TESTTMP/argc")" "1" "one argument for: $evil"
+  assert_eq "$(cat "$TESTTMP/argv")" "$evil" "verbatim for: $evil"
+done
+unset EVIL
+assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
+unset HOSTILE
 
 qml_check
 finish
