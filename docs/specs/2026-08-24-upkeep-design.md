@@ -79,6 +79,7 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
   - `org.erez.upkeep.refresh` — metadata refresh only; `allow_active=yes` (no dialog; same pattern as PackageKit's system-sources-refresh). This keeps the badge reading the **root** metadata cache, so check and update always agree (survey C3: non-root dnf reads a different cache than root).
   - `org.erez.upkeep.apply` — the actual upgrade verbs (dnf + flatpak together, one auth moment; survey C4: Flathub is a system remote on Fedora, so flatpak updates need privileges too); defaults `auth_admin_keep` → KDE auth dialog once per run.
 - Passwordless toggle installs/removes a polkit `.rules` file returning YES for `org.erez.upkeep.apply` for the active user — scoped, not blanket sudo.
+- **Flatpak scope contract (v1): system installation only.** Both flatpak queries (`remote-ls --updates`, `list`) and the root helper's installed-set validation use `--system`, so check and apply agree; the CLI additionally pre-filters app ids against the installed set, making the helper's check a backstop that never fires in normal operation. User-scope flatpaks are out of v1 scope (they need no privileges and could be a future unprivileged path).
 
 ## Run surfaces
 
@@ -108,6 +109,7 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 - Repo: `/mnt/dev_workspace/projects/upkeep` (reachable via `~/my_projects/upkeep`); covered by restic.
 - Layout: `bin/upkeep`, `backends/`, `libexec/upkeep-apply`, `plasmoid/` (QML package), `polkit/` (action + rules template), `install.sh`, `tests/`, `docs/`.
 - `install.sh`: symlinks/copies CLI to `~/.local/bin`, installs plasmoid via `kpackagetool6 -t Plasma/Applet -i`, installs helper + polkit action via a single pkexec prompt. `install.sh --uninstall` reverses it.
+- The symlink install makes the repo checkout LOAD-BEARING at runtime (bin/upkeep, lib/, backends/, and the passwordless rules template all resolve into it) — intentional for this box; only the root helpers + policy are copied out (root-owned, so editing the repo can never change what runs privileged). Proper packaging (RPM) is the v2 answer for other users.
 
 ## Testing
 

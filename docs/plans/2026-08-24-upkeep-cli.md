@@ -544,8 +544,9 @@ finish
 #!/usr/bin/env bash
 # flatpak backend. Same contract as dnf.sh. Requires lib/common.sh sourced first.
 
-UPKEEP_FLATPAK_REMOTE_CMD="${UPKEEP_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --app --columns=application,version}"
-UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --app --columns=application,version}"
+# --system on BOTH: the root helper validates against the system installation; check and apply must agree (spec: flatpak scope contract)
+UPKEEP_FLATPAK_REMOTE_CMD="${UPKEEP_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --system --app --columns=application,version}"
+UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --system --app --columns=application,version}"
 
 flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines → JSON [{name,from,to}]; empty input → [] rc 0
   awk 'NF && $1 !~ /^#/' \
@@ -1144,7 +1145,12 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
   local attempt rc
   for attempt in 1 2 3; do
     rc=0
-    priv_apply "$@" >>"$log" 2>&1 || rc=$?
+    if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
+      # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false)
+      priv_apply "$@" 2>&1 | tee -a "$log"; rc=${PIPESTATUS[0]}
+    else
+      priv_apply "$@" >>"$log" 2>&1 || rc=$?
+    fi
     [[ $rc -eq 0 ]] && return 0
     if tail -n 20 "$log" | grep -qiE 'lock|another (process|application)'; then
       echo "Package system busy (PackageKit/Discover?) — retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
@@ -1166,6 +1172,10 @@ cmd_update() {
   esac; done
   [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak)"
   local auto; auto="$(config_get auto_accept)"
+  # only a terminal can prompt — enforced HERE too (cmd_run also guards, but update can be invoked directly)
+  is_true "$auto" || { surface="terminal"; UPKEEP_LIVE_OUTPUT=1; }
+  [[ "$surface" == "terminal" ]] && UPKEEP_LIVE_OUTPUT=1
+  export UPKEEP_LIVE_OUTPUT
 
   acquire_lock || { echo "another upkeep update is running" >&2; exit 3; }
   trap release_lock EXIT
@@ -1199,9 +1209,14 @@ cmd_update() {
     local held_fp ids=()
     held_fp="$(holds_for flatpak)"
     if [[ -n "$held_fp" ]]; then
-      # holds exist → per-app updates of every pending, non-held app
+      # holds exist → per-app updates of every pending, non-held, INSTALLED app
+      # (installed pre-filter: the helper's installed-set check is a backstop that must never fire in normal runs)
+      local installed_fp; installed_fp="$(flatpak_snapshot | cut -f1)"
       while IFS= read -r id; do
-        [[ -n "$id" ]] && ! grep -qxF "$id" <<<"$held_fp" && ids+=("$id")
+        [[ -n "$id" ]] || continue
+        grep -qxF "$id" <<<"$held_fp" && continue
+        grep -qxF "$id" <<<"$installed_fp" || continue
+        ids+=("$id")
       done < <(flatpak_check 2>/dev/null | jq -r '.[].name')
       if [[ ${#ids[@]} -gt 0 ]]; then
         apply_with_retry "$log" flatpak-update "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
@@ -1494,11 +1509,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESTDIR=""
 UNINSTALL=""
-for a in "$@"; do case "$a" in
-  --destdir) : ;;                    # value read below
-  --uninstall) UNINSTALL=1 ;;
-esac; done
-[[ "${1:-}" == "--destdir" ]] && DESTDIR="$2"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --destdir) [[ -n "${2:-}" ]] || { echo "--destdir needs a value" >&2; exit 2; }; DESTDIR="$2"; shift 2 ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
 
 if [[ -n "$UNINSTALL" ]]; then
   rm -f "$HOME/.local/bin/upkeep"
@@ -1520,9 +1537,11 @@ fi
 
 mkdir -p "$HOME/.local/bin"
 ln -sf "$ROOT/bin/upkeep" "$HOME/.local/bin/upkeep"
-pkexec bash -c "install -m 755 -o root -g root '$ROOT/libexec/upkeep-refresh' '$ROOT/libexec/upkeep-apply' /usr/local/libexec/ \
+pkexec bash -c "mkdir -p /usr/local/libexec \
+  && install -m 755 -o root -g root '$ROOT/libexec/upkeep-refresh' '$ROOT/libexec/upkeep-apply' /usr/local/libexec/ \
   && install -m 644 -o root -g root '$ROOT/polkit/org.erez.upkeep.policy' /usr/share/polkit-1/actions/"
 echo "Installed. Try: upkeep check"
+echo "note: the CLI runs from this checkout (symlink install) — don't move/delete the repo. Only the root helpers + policy are copies."
 
 # Recommended: stop Discover's notifier (duplicate nags + it holds the dnf5 lock at random — see spec)
 read -rp "Disable plasma-discover-notifier for this user? [Y/n] " ans
