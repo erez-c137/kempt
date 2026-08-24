@@ -31,7 +31,9 @@ cd upkeep
 
 The installer does four things, in this order:
 
-1. **Symlinks the CLI.** `~/.local/bin/upkeep` points at `bin/upkeep` inside the checkout.
+1. **Symlinks the CLI and its man page.** `~/.local/bin/upkeep` points at `bin/upkeep` inside the
+   checkout, and `~/.local/share/man/man1/upkeep.1` at the man page, so `man upkeep` works
+   without root.
 2. **Asks for authentication once** (a single `pkexec`) and, as root, copies the two helpers and
    the polkit action out of the repo.
 3. **Tells you the checkout is load-bearing.** The CLI, its library, the backends and the
@@ -44,6 +46,7 @@ The installer does four things, in this order:
 | Path | Owner | Installed by |
 | --- | --- | --- |
 | `~/.local/bin/upkeep` | you | `install.sh` (symlink into the checkout) |
+| `~/.local/share/man/man1/upkeep.1` | you | `install.sh` (symlink into the checkout), so `man upkeep` works |
 | `/usr/local/libexec/upkeep-refresh` | `root:root` 0755 | the one `pkexec` |
 | `/usr/local/libexec/upkeep-apply` | `root:root` 0755 | the one `pkexec` |
 | `/usr/share/polkit-1/actions/org.erez.upkeep.policy` | `root:root` 0644 | the one `pkexec` |
@@ -161,8 +164,8 @@ is the answer for distributing Upkeep to other users (the symlink install is a d
 ./install.sh --uninstall
 ```
 
-Removes the `~/.local/bin/upkeep` symlink, then asks for authentication once to remove the two
-root helpers, the polkit action and the passwordless rule if present. Declining that prompt
+Removes the `~/.local/bin/upkeep` and man-page symlinks, then asks for authentication once to
+remove the two root helpers, the polkit action and the passwordless rule if present. Declining that prompt
 exits 1 and names the half-removed state so you can finish with a second run.
 
 Left behind on purpose:

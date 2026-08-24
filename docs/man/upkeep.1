@@ -1,0 +1,212 @@
+.TH UPKEEP 1 "2026-08-24" "Upkeep" "User Commands"
+.SH NAME
+upkeep \- one-click system updates for Fedora, from the terminal or the Plasma panel
+.SH SYNOPSIS
+.B upkeep
+.I command
+.RI [ arguments ]
+.PP
+.B upkeep check
+.br
+.B upkeep update
+.RB [ \-\-no\-flatpak ]
+.RB [ \-\-surface=\c
+.IR surface ]
+.br
+.B upkeep run
+.RB [ \-\-dry\-run ]
+.br
+.B upkeep summary
+.RI [ N ]
+.br
+.B upkeep history
+.br
+.B upkeep hold
+.IR backend : name
+.br
+.B upkeep unhold
+.IR backend : name
+.br
+.B upkeep holds
+.br
+.B upkeep config get
+.I key
+.RI [ default ]
+.br
+.B upkeep config set
+.I key value
+.br
+.B upkeep enable\-passwordless
+.br
+.B upkeep disable\-passwordless
+.SH DESCRIPTION
+.B upkeep
+reports and applies pending system updates from the dnf5 and Flatpak backends, and is the
+engine behind the Upkeep Plasma panel widget. It queries the same root metadata cache that the
+update itself uses, so the pending count and the update can never disagree.
+.PP
+Packages can be
+.B held:
+excluded from every Upkeep run while still being reported as pending. When a pending
+transaction touches session\-critical packages such as the kernel, systemd or the Qt and KDE
+stack, an interactive run recommends staging the transaction for the next reboot instead of
+rewriting a running desktop.
+.PP
+Only two small helpers run as root, one per polkit action, and both validate every argument
+before executing anything.
+.SH COMMANDS
+.TP
+.B check
+Query every enabled backend, write the state file and print it as JSON. Takes no arguments.
+Backend failures do not fail the command: the state is marked
+.B stale
+with an error message and the previous item lists are kept. Empty output with exit status 0
+means "no data, keep the last known state", never "zero updates". This command also harvests a
+staged offline transaction once the machine has rebooted, and refreshes package metadata at most
+once every three hours, never on battery or on a metered connection.
+.TP
+.BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
+.IR surface ]
+Run the update now. Options come from the configuration file;
+.B \-\-no\-flatpak
+excludes Flatpak apps for this run and
+.B \-\-surface=
+overrides the run surface
+.RB ( terminal ", " popup ", " background ", " offline ).
+An unrecognized surface falls back to
+.BR terminal .
+Held items are excluded and listed. When session\-critical packages are pending, an interactive
+terminal run first offers to update live, stage the transaction offline, or abort; anything
+other than an explicit yes aborts, having changed nothing.
+.TP
+.BR run " [" \-\-dry\-run ]
+Launch
+.B upkeep update
+according to the configured surface and return immediately. This is what the widget's Update Now
+button calls.
+.B \-\-dry\-run
+prints what would be launched.
+A successful launch says nothing about the update's outcome: poll the state file or the history.
+.TP
+.BI summary " N"
+Render one run as human\-readable text.
+.I N
+counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
+.TP
+.B history
+List past runs, newest first: timestamp, surface, status and how many packages were updated.
+.TP
+.BI hold " backend:name"
+Exclude a package or app from Upkeep runs while still reporting it as pending.
+.I backend
+is
+.B dnf
+or
+.BR flatpak ;
+the colon is required. Holds are Upkeep's own list, not a system\-wide version lock.
+.TP
+.BI unhold " backend:name"
+Remove a hold. Removing one that does not exist is not an error.
+.TP
+.B holds
+List current holds, one
+.I backend:name
+per line.
+.TP
+.BI "config get" " key " [ default ]
+Print a configuration value, falling back to the built\-in default for the key, or to
+.I default
+if given.
+.TP
+.BI "config set" " key value"
+Set a configuration value. Keys must match
+.RB ' ^[a-z][a-z0-9_]+$ '
+and values must be single\-line.
+.TP
+.B enable\-passwordless
+Install a polkit rule that lets the current user apply updates without the authentication
+dialog. It covers one action id only, for that user, and only in an active local session.
+.TP
+.B disable\-passwordless
+Remove that rule.
+.SH CONFIGURATION
+Settings live in
+.I ~/.config/upkeep/config
+as
+.IR key = value
+lines and are read and written with
+.BR "upkeep config" .
+The keys are
+.BR include_flatpak " (default " true "),"
+.BR auto_accept " (default " true "),"
+.BR surface " (default " terminal "),"
+.BR refresh_interval_min " (default " 60 ") and"
+.BR risky_regex .
+A value counts as true when it is
+.BR true ", " 1 " or " yes ;
+everything else is false. See
+.I docs/configuration.md
+in the source tree for the full reference.
+.SH FILES
+.TP
+.I ~/.config/upkeep/config
+Settings.
+.TP
+.I ~/.config/upkeep/holds
+Holds, one
+.I backend:name
+per line.
+.TP
+.I ~/.local/state/upkeep/state.json
+Latest check result, schema v1. A documented public interface.
+.TP
+.I ~/.local/state/upkeep/history/
+One JSON entry per run. The newest 50 are kept.
+.TP
+.I ~/.local/state/upkeep/logs/
+Full raw output per run. Deleted after 60 days.
+.TP
+.I /usr/local/libexec/upkeep-refresh
+Root helper: package metadata only, no authentication dialog.
+.TP
+.I /usr/local/libexec/upkeep-apply
+Root helper: the upgrade verbs, one authentication per run.
+.TP
+.I /usr/share/polkit-1/actions/org.erez.upkeep.policy
+The two polkit actions.
+.TP
+.I /etc/polkit-1/rules.d/49-upkeep.rules
+Present only while passwordless mode is enabled.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, including declining at the session\-critical recommendation prompt.
+.TP
+.B 1
+The run itself failed: a backend returned non\-zero.
+.TP
+.B 2
+Usage error: unknown command, option or argument.
+.TP
+.B 3
+Cannot start: jq is missing, or another
+.B upkeep update
+holds the lock.
+.TP
+.B 4
+Launcher missing: no terminal emulator for the
+.B terminal
+surface.
+.TP
+.B 5
+Aborted during pre\-flight. Nothing was changed.
+.SH SEE ALSO
+.BR dnf5 (8),
+.BR flatpak (1),
+.BR pkexec (1),
+.BR polkit (8)
+.PP
+Full documentation in the source tree:
+.IR README.md ", " docs/usage.md ", " docs/configuration.md ", " docs/architecture.md
+and
+.IR docs/security.md .

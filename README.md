@@ -74,7 +74,7 @@ Full detail, including the Discover-notifier opt-out and how to undo everything,
 | [docs/configuration.md](docs/configuration.md) | Every config key with type and default, the run surfaces, holds, file locations, retention |
 | [docs/architecture.md](docs/architecture.md) | How it is built, the state JSON schema, and how to add a backend for your distro |
 | [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |
-| [docs/man/upkeep.1](docs/man/upkeep.1) | Man page: `man -l docs/man/upkeep.1` |
+| [docs/man/upkeep.1](docs/man/upkeep.1) | Man page: `man upkeep` once installed, or `man -l docs/man/upkeep.1` from the checkout |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
 Design and background: [the design spec](docs/specs/2026-08-24-upkeep-design.md) and the

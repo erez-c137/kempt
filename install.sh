@@ -49,7 +49,10 @@ notifier_optout() {  # autostart_dir
 }
 
 main() {
-  local DESTDIR="" UNINSTALL=""
+  # Man page goes to the USER man hierarchy: `man upkeep` finds it there, it needs no root, and
+  # a symlink keeps it in step with the checkout the CLI already runs from. The one pkexec below
+  # stays exactly as it was - a man page is not worth widening the privileged step.
+  local DESTDIR="" UNINSTALL="" MAN1_DIR="$HOME/.local/share/man/man1"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --destdir) [[ -n "${2:-}" ]] || { echo "--destdir needs a value" >&2; exit 2; }; DESTDIR="$2"; shift 2 ;;
@@ -63,11 +66,12 @@ main() {
     # install needs root, and only for the three root-owned files it created.
     if [[ -n "$DESTDIR" ]]; then
       rm -f "$DESTDIR$LIBEXEC_DIR/upkeep-refresh" "$DESTDIR$LIBEXEC_DIR/upkeep-apply" \
-            "$DESTDIR$ACTIONS_DIR/$POLICY" "$DESTDIR$RULES_FILE" "$DESTDIR$HOME/.local/bin/upkeep"
+            "$DESTDIR$ACTIONS_DIR/$POLICY" "$DESTDIR$RULES_FILE" "$DESTDIR$HOME/.local/bin/upkeep" \
+            "$DESTDIR$MAN1_DIR/upkeep.1"
       echo "removed the staged install under $DESTDIR"
       exit 0
     fi
-    rm -f "$HOME/.local/bin/upkeep"
+    rm -f "$HOME/.local/bin/upkeep" "$MAN1_DIR/upkeep.1"
     # A declined auth prompt leaves a HALF-uninstalled system, and pkexec's own rc 126 says
     # nothing about that. Name the exact state and the exact way out.
     run pkexec bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
@@ -82,14 +86,16 @@ main() {
     install -D -m 755 "$ROOT/libexec/upkeep-refresh" "$DESTDIR$LIBEXEC_DIR/upkeep-refresh"
     install -D -m 755 "$ROOT/libexec/upkeep-apply"   "$DESTDIR$LIBEXEC_DIR/upkeep-apply"
     install -D -m 644 "$ROOT/polkit/$POLICY"         "$DESTDIR$ACTIONS_DIR/$POLICY"
-    mkdir -p "$DESTDIR$HOME/.local/bin"
+    mkdir -p "$DESTDIR$HOME/.local/bin" "$DESTDIR$MAN1_DIR"
     ln -sfn "$ROOT/bin/upkeep" "$DESTDIR$HOME/.local/bin/upkeep"
+    ln -sfn "$ROOT/docs/man/upkeep.1" "$DESTDIR$MAN1_DIR/upkeep.1"
     echo "staged into $DESTDIR"
     exit 0
   fi
 
-  mkdir -p "$HOME/.local/bin"
+  mkdir -p "$HOME/.local/bin" "$MAN1_DIR"
   ln -sfn "$ROOT/bin/upkeep" "$HOME/.local/bin/upkeep"
+  ln -sfn "$ROOT/docs/man/upkeep.1" "$MAN1_DIR/upkeep.1"
   # Paths passed as POSITIONAL ARGS, never interpolated into the root shell's script: a checkout
   # path containing a quote would otherwise break the command - or inject into it, as root.
   # mkdir -p first: a fresh Fedora box has no /usr/local/libexec at all.
@@ -98,7 +104,7 @@ main() {
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
     "$ROOT/libexec/upkeep-refresh" "$ROOT/libexec/upkeep-apply" "$ROOT/polkit/$POLICY" \
     || { echo "root install failed (authentication declined?) - the CLI symlink is in place, but the root helpers are NOT installed and 'upkeep check' will not work yet" >&2; exit 1; }
-  echo "Installed. Try: upkeep check"
+  echo "Installed. Try: upkeep check   (reference: man upkeep)"
   echo "note: the CLI runs from this checkout (symlink install) - don't move/delete the repo. Only the root helpers + policy are copies."
 
   # Recommended: stop Discover's notifier (duplicate nags + it holds the dnf5 lock at random).
