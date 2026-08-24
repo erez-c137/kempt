@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # flatpak backend. Same contract as dnf.sh. Requires lib/common.sh sourced first.
 
-UPKEEP_FLATPAK_REMOTE_CMD="${UPKEEP_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --app --columns=application,version}"
-UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --app --columns=application,version}"
+# v1 is SYSTEM-scope flatpaks only, and --system here is a CROSS-BOUNDARY contract, not a detail:
+# libexec/upkeep-apply validates every app id against `flatpak list --system`, so a per-user app
+# surfaced by an unscoped check would be counted in the badge and then refused at update time.
+UPKEEP_FLATPAK_REMOTE_CMD="${UPKEEP_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --system --app --columns=application,version}"
+UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --system --app --columns=application,version}"
 
 # remote-ls with --columns=application,version may emit an empty version column, and a pending
 # app can be missing from the installed lookup entirely. GNU join's `-a1 -e '?' -o` flags are the

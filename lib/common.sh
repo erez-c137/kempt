@@ -90,6 +90,34 @@ priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
 notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 
+# --- passwordless polkit rule rendering ---
+# Split out of bin/upkeep so the render and its self-check are unit-testable without touching
+# /etc: the ONLY thing this file's caller then does is hand the result to install(1).
+render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing written
+  local tmpl="$1" out="$2" u n
+  # $(id -un), never $USER: a crafted USER env var used to be sed-injected into the render and
+  # could drop the scope clause. id -un is kernel truth, awk -v never interprets it, and the
+  # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
+  u="$(id -un)"
+  [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || {
+    echo "unexpected username: $u - install the rules file manually; see polkit/49-upkeep.rules.in" >&2
+    return 2; }
+  awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl" > "$out" || { rm -f "$out"; return 2; }
+  # Self-check BOTH halves plus the rule count. A template that lost the scope clause grants to
+  # inactive/remote sessions; one that lost the action id grants EVERY polkit action; a second
+  # addRule block could carry anything at all. Nothing unverified reaches install(1).
+  # Comment lines are stripped first: a grep that reads them would accept a rule whose scope
+  # survives only in a `//` comment while the code that runs has none.
+  local code
+  code="$(grep -v '^[[:space:]]*//' "$out" || true)"
+  n="$(grep -c 'polkit.addRule' <<<"$code" || true)"
+  if ! grep -q 'subject.active && subject.local' <<<"$code" \
+     || ! grep -q 'action.id == "org.erez.upkeep.apply"' <<<"$code" \
+     || [[ "$n" != 1 ]]; then
+    echo "rendered rule failed scope check" >&2; rm -f "$out"; return 2
+  fi
+}
+
 # --- holds: one "backend:name" per line ---
 holds_all() { cat "$HOLDS_FILE" 2>/dev/null || true; }
 holds_for() { holds_all | grep "^$1:" | cut -d: -f2- || true; }

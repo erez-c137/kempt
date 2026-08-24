@@ -43,6 +43,14 @@ package database, filtered to the names referenced above plus 3 extra real rows 
 version — nothing here is invented. `brandnew` was deliberately NOT added (see guard row
 above — that's the point of the guard).
 
+**Scope note (v1 decision):** Upkeep v1 handles **system-scope flatpaks only**, so the backend's
+real commands carry `--system` (`flatpak remote-ls --updates --system --app …` and
+`flatpak list --system --app …`). These fixtures were captured without `--system` on a box where
+the one installed app is system-scope, so their content is identical either way; the flag is a
+cross-boundary contract with `libexec/upkeep-apply`, which validates app ids against
+`flatpak list --system`. A per-user app must therefore never appear in a check result. Re-capture
+with `--system` if this box ever gains per-user apps.
+
 ## tests/fixtures/flatpak-remote-ls.txt
 **Hand-written.** `LC_ALL=C flatpak remote-ls --updates --app --columns=application,version`
 failed live twice (Flathub summary fetch timed out, ~2 min each, 2026-08-24) — there was no

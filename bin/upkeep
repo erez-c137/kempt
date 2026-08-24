@@ -76,26 +76,38 @@ cmd_holds()  { holds_all; }
 
 RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
+# The destination is a path this command hands to a ROOT install(1): pin its shape so a bad
+# UPKEEP_RULES_DST can only ever name a .rules file, never an arbitrary system path.
+check_rules_dst() {
+  [[ "$RULES_DST" == /*.rules ]] || { echo "invalid rules destination: $RULES_DST" >&2; exit 2; }
+}
+
 cmd_enable_passwordless() {
-  local u tmp
-  # id -un, never $USER: a crafted USER env var was a sed-injection into the rendered rule
-  # (a payload ending the s/// expression could drop `subject.active && subject.local`,
-  # widening the grant to inactive/remote sessions). awk gsub takes the name as DATA, and the
-  # post-render scope check refuses to install anything that lost the scope clause.
-  u="$(id -un)"
-  [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || { echo "unexpected username: $u" >&2; exit 2; }
+  local tmp
+  check_rules_dst
   tmp="$(mktemp)"
-  awk -v u="$u" '{gsub(/@USER@/, u); print}' "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
-  grep -q 'subject.active && subject.local' "$tmp" || { echo "rendered rule failed scope check" >&2; rm -f "$tmp"; exit 2; }
-  # dash (not colon-dash) on purpose: empty UPKEEP_PKEXEC means "no wrapper" (test sandbox),
-  # matching priv_refresh/priv_apply — colon-dash would run REAL pkexec inside tests.
-  ${UPKEEP_PKEXEC-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
+  # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result;
+  # it writes nothing on failure, so an unverified rule can never reach install(1).
+  if ! render_passwordless_rule "$ROOT/polkit/49-upkeep.rules.in" "$tmp"; then rm -f "$tmp"; exit 2; fi
+  # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty UPKEEP_PKEXEC means "no wrapper" (test
+  # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
+  if ! ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} install -m 0644 -o root -g root "$tmp" "$RULES_DST"; then
+    rm -f "$tmp"; echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
+  fi
   rm -f "$tmp"
-  echo "Passwordless updates ENABLED for $u ($RULES_DST)"
+  echo "Passwordless updates ENABLED for $(id -un) ($RULES_DST)"
 }
 
 cmd_disable_passwordless() {
-  ${UPKEEP_PKEXEC-pkexec} rm -f "$RULES_DST"
+  check_rules_dst
+  # Nothing to remove is not a failure, and it must not raise an auth prompt to discover that.
+  # The negative test is only trusted where we can actually search the directory: the real
+  # /etc/polkit-1/rules.d is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for
+  # a file that exists — claiming "not enabled" there would leave a live grant in place.
+  if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
+    echo "passwordless was not enabled"; return 0
+  fi
+  ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} rm -f "$RULES_DST"
   echo "Passwordless updates disabled"
 }
 
@@ -121,8 +133,8 @@ case "${1:-help}" in
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
-  enable-passwordless)  cmd_enable_passwordless ;;
-  disable-passwordless) cmd_disable_passwordless ;;
+  enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
+  disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   help|--help|-h) usage ;;
   *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

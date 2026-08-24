@@ -1,15 +1,19 @@
 #!/bin/bash
 # Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
-# Absolute shebang + fixed PATH: this runs as root, so neither the interpreter nor the commands
-# it resolves may come from a caller-controlled environment.
+# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
+# the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
 set -euo pipefail
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: UPKEEP_APPLY_ECHO=1 prints instead of exec
   if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+}
+
+run_noexec() {  # same seam without exec: the per-app loop has to survive its own commands
+  if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "$*"; else "$@"; fi
 }
 
 verb="${1:-}"; shift || true
@@ -51,10 +55,8 @@ case "$verb" in
       done
       rc=0
       for id in "${ids[@]}"; do
-        # ONE array for both modes: echo and real can never drift in argument handling.
-        cmd=(flatpak update --system "${assume[@]}" "$id")
-        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "${cmd[*]}"
-        else "${cmd[@]}" || rc=1; fi
+        # ONE argument list, ONE seam: echo and real mode can never drift in argument handling.
+        run_noexec flatpak update --system "${assume[@]}" "$id" || rc=1
       done
       exit $rc
     fi

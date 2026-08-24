@@ -5,6 +5,15 @@ AH="$REPO_ROOT/libexec/upkeep-apply"
 
 assert_exit 2 "refresh: no verb"        bash "$RH"
 assert_exit 2 "refresh: bad verb"       bash "$RH" nuke
+# Extra args are never forwarded to dnf5, so they must be REFUSED rather than silently dropped —
+# `upkeep-refresh check --installroot=/foo` must not look like it honoured the flag.
+assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
+assert_exit 2 "refresh: trailing empty arg rejected" bash "$RH" refresh ''
+# UPKEEP_REFRESH_ECHO mirrors apply's seam: print the final command instead of exec'ing it.
+assert_eq "$(UPKEEP_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
+  "refresh helper: check builds exact command"
+assert_eq "$(UPKEEP_REFRESH_ECHO=1 bash "$RH" refresh)" "dnf5 makecache --refresh" \
+  "refresh helper: refresh builds exact command"
 assert_exit 2 "apply: no verb"          bash "$AH"
 assert_exit 2 "apply: bad verb"         bash "$AH" rm-rf
 assert_exit 2 "apply: injection via exclude" bash "$AH" dnf-upgrade '--exclude=foo;rm -rf /'
@@ -23,17 +32,35 @@ got4="$(UPKEEP_APPLY_ECHO=1 bash "$AH" flatpak-update)"
 assert_eq "$got4" "flatpak update --system" "no -y omits the auto-accept flags"
 
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
-# [A-Za-z] to accented letters (verified: é, Ä, ß all match under en_US.UTF-8), so a caller's
-# locale must not be able to widen what the ROOT helper accepts. ECHO is set as a second guard:
-# if the pin ever regressed, this asserts loudly instead of reaching a real dnf5.
-assert_exit 2 "apply: caller locale cannot widen the name pattern" \
-  env LC_ALL=en_US.UTF-8 UPKEEP_APPLY_ECHO=1 bash "$AH" dnf-upgrade '--exclude=évil'
+# [A-Za-z] to accented letters, so a caller's locale must not be able to widen what the ROOT
+# helper accepts. ECHO is set as a second guard: if the pin ever regressed, this asserts loudly
+# instead of reaching a real dnf5. Probe first — on a box without en_US.UTF-8 the range does not
+# widen and the assertion would pass for the wrong reason.
+if LC_ALL=en_US.UTF-8 bash -c '[[ "é" =~ ^[A-Za-z]$ ]]' 2>/dev/null; then
+  assert_exit 2 "apply: caller locale cannot widen the name pattern" \
+    env LC_ALL=en_US.UTF-8 UPKEEP_APPLY_ECHO=1 bash "$AH" dnf-upgrade '--exclude=évil'
+else
+  echo "ok: SKIPPED locale probe (en_US.UTF-8 unavailable)"
+fi
 
-# Root-helper hardening: absolute interpreter + fixed PATH, so neither is caller-controlled.
+# Root-helper hardening: absolute interpreter + pinned, EXPORTED PATH. Exported matters: without
+# it, children spawned under a cleared environment fall back to a default that puts /usr/local/bin
+# first — for RPM scriptlets running as root, that is a writable-by-admin dir ahead of /usr/bin.
 for h in "$RH" "$AH"; do
   head -1 "$h" | grep -qx '#!/bin/bash' && echo "ok: absolute shebang ($(basename "$h"))" \
     || { echo "FAIL: shebang ($(basename "$h"))"; _fail=1; }
-  grep -qE '^(export )?PATH=/usr/sbin:/usr/bin:/sbin:/bin$' "$h" && echo "ok: fixed PATH ($(basename "$h"))" \
+  grep -qx 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin' "$h" && echo "ok: exported pinned PATH ($(basename "$h"))" \
     || { echo "FAIL: PATH ($(basename "$h"))"; _fail=1; }
 done
+
+# Cross-boundary scope contract (v1 = system-scope flatpaks only): the helper validates app ids
+# against `flatpak list --system`, so the backend's check commands must carry --system too, or a
+# per-user app would be counted in the badge and then refused at update time.
+FP="$REPO_ROOT/backends/flatpak.sh"
+grep -q 'flatpak remote-ls --updates --system --app' "$FP" && echo "ok: check scope is --system" \
+  || { echo "FAIL: remote-ls not --system scoped"; _fail=1; }
+grep -q 'flatpak list --system --app' "$FP" && echo "ok: installed lookup scope is --system" \
+  || { echo "FAIL: list not --system scoped"; _fail=1; }
+grep -q 'flatpak list --system --app --columns=application' "$AH" && echo "ok: helper validates against the same scope" \
+  || { echo "FAIL: helper scope drifted from the backend"; _fail=1; }
 finish
