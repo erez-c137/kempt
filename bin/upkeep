@@ -247,11 +247,16 @@ cmd_update() {
   # `if fn; then` disables errexit inside fn, so both snapshot functions return status explicitly.
   # An empty after-snapshot is NOT usable as a diff input: it would report every package REMOVED.
   local empty_report='{"updated":[],"added":[],"removed":[]}'
-  local dnf_report="$empty_report" fp_report="$empty_report"
+  # snapshots_ok gates the offline-marker rebase below and NOTHING else: dnf-after.tsv is
+  # written by a redirection, so a snapshot that dies mid-stream leaves a TRUNCATED but
+  # non-empty file behind. Harmless as a report input (it degrades to empty), fatal as a harvest
+  # baseline - every package missing from the truncation would come back as newly installed.
+  local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
   if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
-      || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
+      || { dnf_report="$empty_report"; snapshots_ok=false; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
   else
+    snapshots_ok=false
     echo "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected" | tee -a "$log" >&2
   fi
   if is_true "$include_fp"; then
@@ -323,20 +328,24 @@ cmd_update() {
   # entry as well). The staged transaction then applied at the next reboot and was never
   # reported at all. Rebasing the marker's baseline onto the after-snapshot leaves the
   # post-reboot harvest diffing the staged transaction and nothing else.
-  # -s, not -f: a FAILED after-snapshot leaves an empty file behind (the redirection truncates
-  # before dnf_snapshot runs), and an empty baseline would make the next harvest report every
-  # installed package as newly added.
-  if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
+  # snapshots_ok (plus -s as a floor): the baseline must never be a truncated or empty snapshot.
+  if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && "$snapshots_ok" == true && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
     local mpre
     mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
-    if [[ -n "$mpre" && -f "$mpre" ]]; then
+    if [[ -z "$mpre" || ! -f "$mpre" ]]; then
+      # Leave the marker alone: harvest_offline handles a dead pointer on its own (it clears the
+      # marker), and guessing here could throw away a real staged transaction.
+      echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
+    elif cmp -s "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
+      # STILL PENDING: staging writes no rpm changes, so a baseline that still matches the world
+      # this run started from means the reboot has not applied it yet. Safe to rebase.
       cp "$SNAP_DIR/dnf-after.tsv" "$mpre" \
         || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
-    else
-      # Leave the marker alone: harvest_offline handles a dead pointer on its own, and guessing
-      # here could throw away a real staged transaction.
-      echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
     fi
+    # ALREADY APPLIED (baselines differ): the reboot ran the staged transaction and no check has
+    # harvested it yet. Rebasing here would fold that delta into the baseline and the staged
+    # transaction would never be reported at all - and the marker would linger to mislabel the
+    # next rpm change. Leave it: the self-refresh below harvests it normally.
   fi
 
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run

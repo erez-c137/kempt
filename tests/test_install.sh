@@ -83,21 +83,38 @@ grep -q 'DiscoverNotifier' <<<"$nout" && { echo "FAIL: pkill reached a non-inter
   || echo "ok: nothing was killed on the user's desktop"
 
 # --- the notifier opt-out itself (sourced: install.sh only runs main when executed) ---
+# UPKEEP_AUTOSTART_SRC is the copy source. Seeding the RESULT would prove nothing: the next call
+# re-copies the source over it, so only a fixture SOURCE actually exercises the replace logic.
 source "$INSTALL"
 AUTOSTART="$TESTTMP/autostart"
-notifier_optout "$AUTOSTART"
 f="$AUTOSTART/org.kde.discover.notifier.desktop"
+
+# No system entry to copy (a box without Discover installed): still a valid, hiding entry.
+UPKEEP_AUTOSTART_SRC="$TESTTMP/no-such-autostart.desktop"
+notifier_optout "$AUTOSTART"
 assert_exit 0 "opt-out writes an autostart override" -- test -f "$f"
 assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "the override hides the notifier"
+grep -q '^\[Desktop Entry\]' "$f" && echo "ok: the fallback is a valid desktop entry" || { echo "FAIL: fallback has no desktop entry header"; _fail=1; }
+grep -q '^Type=Application' "$f" && echo "ok: the fallback carries the required Type key" || { echo "FAIL: fallback missing Type"; _fail=1; }
 notifier_optout "$AUTOSTART"
 notifier_optout "$AUTOSTART"
 assert_eq "$(grep -c '^Hidden=' "$f")" "1" "re-running the installer never accumulates Hidden= lines"
 assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and the one line still hides it"
+
 # A system entry that ships Hidden=false must not survive alongside ours: two Hidden= keys is an
 # invalid desktop entry and parsers disagree about which one wins.
-printf '[Desktop Entry]\nType=Application\nName=x\nHidden=false\n' > "$f"
+UPKEEP_AUTOSTART_SRC="$TESTTMP/system-notifier.desktop"
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
+  > "$UPKEEP_AUTOSTART_SRC"
+rm -rf "$AUTOSTART"
 notifier_optout "$AUTOSTART"
 assert_eq "$(grep -c '^Hidden=' "$f")" "1" "an existing Hidden= key is replaced, not duplicated"
 assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and what remains is Hidden=true"
 grep -q '^\[Desktop Entry\]' "$f" && echo "ok: the file stays a valid desktop entry" || { echo "FAIL: desktop entry header lost"; _fail=1; }
+grep -q '^Exec=/usr/bin/DiscoverNotifier' "$f" && echo "ok: the system entry's own keys survive" || { echo "FAIL: Exec key lost"; _fail=1; }
+grep -q '^X-KDE-autostart-phase=2' "$f" && echo "ok: even the trailing keys survive" || { echo "FAIL: trailing key lost"; _fail=1; }
+notifier_optout "$AUTOSTART"
+notifier_optout "$AUTOSTART"
+assert_eq "$(grep -c '^Hidden=' "$f")" "1" "re-running against a Hidden=false system entry still leaves one"
+assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and it is still the hiding one"
 finish

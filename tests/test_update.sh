@@ -484,4 +484,73 @@ assert_eq "$(ls -1 "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1"
   "double staging leaves exactly one pre-snapshot"
 assert_exit 0 "and the survivor is the one the live marker points at" -- test -f "$second_pre"
 
+# --- the OTHER ordering: the reboot ALREADY applied the staged transaction, and no check has run
+# since, so the marker is still sitting there unharvested. Rebasing here would fold the staged
+# delta into the baseline - the transaction would never be reported at all, and the marker would
+# linger to mislabel whatever changed next. The rebase therefore only fires while the stage is
+# still PENDING, which is exactly "the marker's baseline still matches the world this run started
+# from" (staging writes no rpm changes of its own).
+printf 'bash\t5.2.37-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-applied.tsv"
+printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-live2.tsv"
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && cp "$TESTTMP/rb-live2.tsv" "$WORLD/rpm.tsv"
+exit 0
+STUB
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/apply-calls"
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no check has run yet
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
+sleep 1
+"$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
+[[ ! -f "$marker" ]] && echo "ok: an already-applied stage is harvested, never swallowed by a rebase" \
+  || { echo "FAIL: the staged transaction was folded into the baseline and lost"; _fail=1; }
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
+comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
+assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "2" "two entries: the live run AND the harvested stage"
+off_entry=/dev/null; live_entry=/dev/null
+while IFS= read -r f; do
+  case "$(jq -r '.surface // ""' "$f" 2>/dev/null)" in
+    "offline (applied on reboot)") off_entry="$f" ;;
+    background) live_entry="$f" ;;
+  esac
+done < "$TESTTMP/hist-new.txt"
+[[ "$off_entry" != /dev/null ]] && echo "ok: the staged transaction gets its own history entry" \
+  || { echo "FAIL: no harvested entry - the staged transaction was never reported"; _fail=1; }
+[[ "$live_entry" != /dev/null ]] && echo "ok: the live run keeps its own entry" \
+  || { echo "FAIL: the live run's entry was lost or mislabelled"; _fail=1; }
+assert_eq "$(jq -r '[.backends.dnf.updated[].name] | index("kernel-core") != null' "$off_entry")" "true" \
+  "the harvested entry reports the staged package"
+assert_eq "$(jq -r '[.backends.dnf.updated[].name] | index("bash") != null' "$live_entry")" "true" \
+  "the live entry reports the live package, under its own surface"
+assert_eq "$(ls -1 "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv 2>/dev/null | wc -l)" "0" \
+  "the harvest cleans up the snapshot copy the marker owned"
+
+# --- a TRUNCATED after-snapshot must never become the harvest baseline. The redirection creates
+# the file before the snapshot runs, so a snapshot that dies mid-stream leaves a short but
+# non-empty file: every package missing from it would come back as newly installed at the next
+# harvest. The report degrades to empty (the run is over either way) and the marker keeps the
+# baseline it was staged with.
+cat > "$TESTTMP/partial-installed" <<STUB
+#!/usr/bin/env bash
+[[ -s "$WORLD/apply-calls" ]] && { printf 'bash\t5.2.37-1.fc44\n'; exit 7; }
+cat "$WORLD/rpm.tsv"
+STUB
+chmod +x "$TESTTMP/partial-installed"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/apply-calls"
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+pre_c="$(jq -r .pre_snapshot "$marker")"
+cp "$pre_c" "$TESTTMP/baseline-copy.tsv"
+: > "$WORLD/apply-calls"
+sleep 1
+UPKEEP_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
+assert_exit 0 "a truncated after-snapshot leaves the marker in place" -- test -f "$marker"
+assert_exit 0 "...and never overwrites its baseline with the truncation" -- cmp -s "$pre_c" "$TESTTMP/baseline-copy.tsv"
+
 finish

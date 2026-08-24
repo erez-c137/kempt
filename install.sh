@@ -13,6 +13,10 @@ LIBEXEC_DIR=/usr/local/libexec
 ACTIONS_DIR=/usr/share/polkit-1/actions
 RULES_FILE=/etc/polkit-1/rules.d/49-upkeep.rules
 POLICY=org.erez.upkeep.policy
+# The system autostart entry the opt-out overrides. A seam so the copy source can be a fixture:
+# with the real path hardcoded, every call re-copied the live system file over the test's own,
+# and the "an existing Hidden= is replaced" case could never actually run.
+UPKEEP_AUTOSTART_SRC="${UPKEEP_AUTOSTART_SRC:-/etc/xdg/autostart/org.kde.discover.notifier.desktop}"
 
 # Test seam, same shape as libexec/upkeep-apply's UPKEEP_APPLY_ECHO: with UPKEEP_INSTALL_ECHO=1
 # the privileged (and process-killing) commands are PRINTED instead of run, so the real-mode
@@ -26,7 +30,7 @@ run() { if [[ -n "${UPKEEP_INSTALL_ECHO:-}" ]]; then printf '%s\n' "$*"; else "$
 # and a system entry that already carries `Hidden=false` must be REPLACED, not joined - two
 # Hidden= keys make an invalid desktop entry that parsers disagree about.
 notifier_optout() {  # autostart_dir
-  local dir="$1" src=/etc/xdg/autostart/org.kde.discover.notifier.desktop body
+  local dir="$1" src="$UPKEEP_AUTOSTART_SRC" body
   local f="$dir/org.kde.discover.notifier.desktop"
   mkdir -p "$dir"
   [[ -f "$src" ]] && cp "$src" "$f"
