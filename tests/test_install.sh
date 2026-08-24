@@ -14,6 +14,19 @@ bash "$INSTALL" --destdir "$D" >/dev/null
 [[ -f "$D/usr/share/polkit-1/actions/org.erez.upkeep.policy" ]] && echo "ok: policy staged" || { echo "FAIL: policy"; _fail=1; }
 [[ -L "$D$HOME/.local/bin/upkeep" ]] && echo "ok: CLI symlinked" || { echo "FAIL: symlink"; _fail=1; }
 
+# The panel widget. kpackagetool6 COPIES a package into the user's plasmoids directory, so
+# --destdir stages a copy of the same tree in the same place - that is what makes the widget arm
+# testable at all on a box where running kpackagetool6 is off limits.
+P="$D$HOME/.local/share/plasma/plasmoids/org.erez.upkeep"
+[[ -f "$P/metadata.json" ]] && echo "ok: widget metadata staged" || { echo "FAIL: widget metadata"; _fail=1; }
+[[ -f "$P/contents/ui/main.qml" ]] && echo "ok: widget main.qml staged" || { echo "FAIL: widget main.qml"; _fail=1; }
+[[ -f "$P/contents/ui/logic.js" ]] && echo "ok: widget logic.js staged" || { echo "FAIL: widget logic.js"; _fail=1; }
+[[ -f "$P/contents/config/config.qml" ]] && echo "ok: widget config page staged" || { echo "FAIL: widget config"; _fail=1; }
+assert_eq "$(jq -r .KPlugin.Id "$P/metadata.json")" "org.erez.upkeep" "the staged package carries the id install.sh removes by"
+# A symlinked package would break the moment the repo moved, and it is not what kpackagetool6
+# does either: the widget is the one part of the install that is genuinely a copy.
+assert_exit 0 "the staged widget is a copy, not a symlink into the checkout" -- test ! -L "$P"
+
 # The helpers are the only COPIES: they must be byte-identical to what the repo reviewed, and
 # the policy has to be world-readable or polkit ignores the action.
 assert_exit 0 "staged refresh helper matches the repo" -- cmp -s "$REPO_ROOT/libexec/upkeep-refresh" "$D/usr/local/libexec/upkeep-refresh"
@@ -31,9 +44,14 @@ assert_eq "$(readlink "$D$HOME/.local/share/man/man1/upkeep.1")" "$REPO_ROOT/doc
 assert_exit 0 "staging never touches the live HOME" -- test ! -e "$HOME/.local/bin/upkeep"
 
 # Re-running the installer is the normal way to pick up a repo update.
+# The stray file proves re-staging REPLACES the widget package: a copy that merged instead would
+# keep serving a QML file the repo deleted, and the widget would drift from the source it came from.
+printf 'stale\n' > "$P/contents/ui/GoneInTheNextRelease.qml"
 bash "$INSTALL" --destdir "$D" >/dev/null
 assert_eq "$(ls -1 "$D$HOME/.local/bin/" | wc -l)" "1" "re-staging leaves exactly one CLI entry"
 assert_eq "$(readlink "$D$HOME/.local/bin/upkeep")" "$REPO_ROOT/bin/upkeep" "re-staging keeps the symlink pointing into the checkout"
+assert_exit 0 "re-staging the widget drops a file the repo no longer has" -- test ! -e "$P/contents/ui/GoneInTheNextRelease.qml"
+assert_exit 0 "...and still stages the real ones" -- test -f "$P/contents/ui/logic.js"
 
 # --uninstall against a DESTDIR removes exactly what --destdir staged, with no pkexec anywhere.
 # Holds and history are the user's own data: uninstalling the tool must not throw them away.
@@ -46,6 +64,7 @@ assert_exit 0 "uninstall removes the staged apply helper" -- test ! -e "$D/usr/l
 assert_exit 0 "uninstall removes the staged policy" -- test ! -e "$D/usr/share/polkit-1/actions/org.erez.upkeep.policy"
 assert_exit 0 "uninstall removes the staged CLI symlink" -- test ! -e "$D$HOME/.local/bin/upkeep"
 assert_exit 0 "uninstall removes the staged man page symlink" -- test ! -e "$D$HOME/.local/share/man/man1/upkeep.1"
+assert_exit 0 "uninstall removes the staged widget package" -- test ! -e "$P"
 assert_exit 0 "uninstall leaves the config alone" -- test -s "$UPKEEP_CONFIG_DIR/config"
 assert_exit 0 "uninstall leaves the holds alone" -- test -s "$UPKEEP_CONFIG_DIR/holds"
 
@@ -63,7 +82,9 @@ grep -q 'install -m 755 -o root -g root "\$1" "\$2" /usr/local/libexec/' <<<"$ou
   || { echo "FAIL: pkexec script does not use positional args - got: $out"; _fail=1; }
 grep -qF -- "_ $REPO_ROOT/libexec/upkeep-refresh $REPO_ROOT/libexec/upkeep-apply $REPO_ROOT/polkit/org.erez.upkeep.policy" <<<"$out" \
   && echo "ok: the three paths are trailing positional args" || { echo "FAIL: positional args - got: $out"; _fail=1; }
-assert_eq "$(grep -oF "$REPO_ROOT" <<<"$out" | wc -l)" "3" "each path appears exactly once, as an argument"
+# The widget arm names the checkout too, and this assertion is about the ROOT script's three
+# arguments - so the (single-line, unprivileged) kpackagetool command is excluded from the count.
+assert_eq "$(grep -v 'Plasma/Applet' <<<"$out" | grep -oF "$REPO_ROOT" | wc -l)" "3" "each path appears exactly once, as an argument"
 grep -q 'mkdir -p /usr/local/libexec' <<<"$out" \
   && echo "ok: creates /usr/local/libexec (a fresh Fedora box has none)" || { echo "FAIL: mkdir -p missing"; _fail=1; }
 assert_eq "$(grep -c '^pkexec' <<<"$out")" "1" "one pkexec prompt for the whole root install"
@@ -158,4 +179,73 @@ notifier_optout "$AUTOSTART"
 grep -q '^X-Erez-Custom=1' "$f" && echo "ok: re-installing preserves the user's own autostart edits" \
   || { echo "FAIL: the system entry overwrote the user's file"; _fail=1; }
 assert_eq "$(grep -c '^Hidden=' "$f")" "1" "and still exactly one Hidden= line"
+
+# --- the panel widget arm (sourced, with a stub kpackagetool6) ---------------------------------
+# The real kpackagetool6 is never run here: it writes into the user's plasmoids directory and
+# talks to the running plasmashell. UPKEEP_KPACKAGETOOL points at a stub that records its
+# arguments, which is what makes the install-or-upgrade fallback provable rather than asserted.
+cat > "$TESTTMP/kp-ok" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/kp-calls"
+exit 0
+STUB
+# The real tool refuses -i when the package is already installed. That refusal is the ONLY signal
+# install.sh has that this is an update, so the stub reproduces it exactly.
+cat > "$TESTTMP/kp-already" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/kp-calls"
+case " \$* " in *" -i "*) echo "org.erez.upkeep already exists" >&2; exit 1 ;; esac
+exit 0
+STUB
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/kp-broken"
+chmod +x "$TESTTMP/kp-ok" "$TESTTMP/kp-already" "$TESTTMP/kp-broken"
+
+: > "$TESTTMP/kp-calls"
+UPKEEP_KPACKAGETOOL="$TESTTMP/kp-ok" widget_install > "$TESTTMP/wout" 2>&1
+assert_eq "$(grep -c '' "$TESTTMP/kp-calls")" "1" "a first install calls kpackagetool6 exactly once"
+assert_eq "$(cat "$TESTTMP/kp-calls")" "-t Plasma/Applet -i $REPO_ROOT/plasmoid" \
+  "...as an Applet install of the repo's own plasmoid tree"
+grep -q 'Add Widgets' "$TESTTMP/wout" && echo "ok: and it says how to actually put the widget on the panel" \
+  || { echo "FAIL: no instruction after install - got: $(cat "$TESTTMP/wout")"; _fail=1; }
+grep -q 'COPY' "$TESTTMP/wout" && echo "ok: ...and that the widget, unlike the CLI, is a copy" \
+  || { echo "FAIL: does not say the widget is a copy - got: $(cat "$TESTTMP/wout")"; _fail=1; }
+
+# Re-running the installer is how a user updates: -i refuses, -u has to pick it up.
+: > "$TESTTMP/kp-calls"
+UPKEEP_KPACKAGETOOL="$TESTTMP/kp-already" widget_install >/dev/null 2>&1
+assert_eq "$(grep -c '' "$TESTTMP/kp-calls")" "2" "an already-installed widget falls back to the upgrade path"
+assert_eq "$(sed -n 2p "$TESTTMP/kp-calls")" "-t Plasma/Applet -u $REPO_ROOT/plasmoid" \
+  "...and the fallback is -u against the same tree"
+
+# The CLI is the product. A box with no kpackagetool6 (no Plasma at all, or a KDE-less server)
+# must still finish the install, and must SAY the widget was skipped rather than imply it worked.
+rc=0
+out="$(UPKEEP_KPACKAGETOOL="$TESTTMP/no-such-kpackagetool" widget_install 2>&1)" || rc=$?
+assert_eq "$rc" "0" "a missing kpackagetool6 never fails the install"
+grep -q 'NOT installed' <<<"$out" && echo "ok: and it says the widget was skipped" \
+  || { echo "FAIL: silent widget skip - got: $out"; _fail=1; }
+rc=0
+out="$(UPKEEP_KPACKAGETOOL="$TESTTMP/kp-broken" widget_install 2>&1)" || rc=$?
+assert_eq "$rc" "0" "a kpackagetool6 that fails both ways never fails the install either"
+grep -q 'CLI is installed and working' <<<"$out" && echo "ok: and it says what still works" \
+  || { echo "FAIL: unhelpful widget failure - got: $out"; _fail=1; }
+
+# Uninstall addresses the package by id, and a widget that was never installed is not an error.
+: > "$TESTTMP/kp-calls"
+UPKEEP_KPACKAGETOOL="$TESTTMP/kp-ok" widget_uninstall >/dev/null 2>&1
+assert_eq "$(cat "$TESTTMP/kp-calls")" "-t Plasma/Applet -r org.erez.upkeep" \
+  "uninstall removes the widget by the id in metadata.json"
+assert_eq "$(jq -r .KPlugin.Id "$REPO_ROOT/plasmoid/metadata.json")" "org.erez.upkeep" \
+  "...and that id is the one the package actually declares"
+rc=0
+UPKEEP_KPACKAGETOOL="$TESTTMP/kp-broken" widget_uninstall >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "removing a widget that was never installed is not a failure"
+
+# ...and the whole arm is covered by the echo seam, so no test anywhere in this suite can reach
+# a real kpackagetool6 and write into somebody's plasmoids directory.
+: > "$TESTTMP/kp-calls"
+wout="$(UPKEEP_KPACKAGETOOL="$TESTTMP/kp-ok" UPKEEP_INSTALL_ECHO=1 bash "$INSTALL" </dev/null)"
+grep -qF -- "$TESTTMP/kp-ok -t Plasma/Applet -i $REPO_ROOT/plasmoid" <<<"$wout" \
+  && echo "ok: echo mode prints the kpackagetool command" || { echo "FAIL: widget arm missing from echo mode - got: $wout"; _fail=1; }
+assert_eq "$(grep -c '' "$TESTTMP/kp-calls" || true)" "0" "echo mode PRINTS the widget install without running it"
 finish

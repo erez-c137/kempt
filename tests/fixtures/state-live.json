@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "last_check": "2026-08-24T23:59:34+03:00",
+  "last_success": "2026-08-24T23:59:34+03:00",
+  "status": "ok",
+  "error": "",
+  "backends": {
+    "dnf": {
+      "enabled": true,
+      "actionable": 7,
+      "held": 0,
+      "items": [
+        {
+          "name": "aajohan-comfortaa-fonts",
+          "from": "3.105-0.9.20210729git2a87ac6.fc44",
+          "to": "3.106-1.fc44",
+          "held": false
+        },
+        {
+          "name": "bash",
+          "from": "5.3.9-3.fc44",
+          "to": "5.3.10-1.fc44,5.3.9-4.fc44",
+          "held": false
+        },
+        {
+          "name": "brandnew",
+          "from": "?",
+          "to": "1.0-1.fc44",
+          "held": false
+        },
+        {
+          "name": "curl",
+          "from": "8.18.0-8.fc44",
+          "to": "8.18.0-9.fc44",
+          "held": false
+        },
+        {
+          "name": "git-core",
+          "from": "2.55.0-1.fc44",
+          "to": "2.55.1-1.fc44",
+          "held": false
+        },
+        {
+          "name": "tar",
+          "from": "2:1.35-8.fc44",
+          "to": "2:1.35-9.fc44",
+          "held": false
+        },
+        {
+          "name": "vim-minimal",
+          "from": "2:9.2.967-1.fc44",
+          "to": "2:9.2.1000-1.fc44",
+          "held": false
+        }
+      ]
+    },
+    "flatpak": {
+      "enabled": true,
+      "actionable": 3,
+      "held": 0,
+      "items": [
+        {
+          "name": "com.example.NotInstalled",
+          "from": "?",
+          "to": "9.9",
+          "held": false
+        },
+        {
+          "name": "net.mkiol.SpeechNote",
+          "from": "4.8.4",
+          "to": "4.8.5",
+          "held": false
+        },
+        {
+          "name": "org.gimp.GIMP",
+          "from": "3.0.2",
+          "to": "3.0.4",
+          "held": false
+        }
+      ]
+    }
+  },
+  "actionable": 10,
+  "held_total": 0,
+  "risky_pending": []
+}

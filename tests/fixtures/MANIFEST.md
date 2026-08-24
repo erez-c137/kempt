@@ -97,3 +97,58 @@ both files are consumed directly by `join`, which requires every line to be a re
 row, so a leading `#` line would break the diff instead of being skipped. Encodes: one
 unchanged package (bash), two upgraded (kernel-core, vim-common), one removed (zsh), one added
 (newpkg).
+
+## tests/fixtures/state-*.json (widget: `upkeep check` state schema v1)
+
+The plasmoid parses `upkeep check` stdout and nothing else, so its tests are fed real CLI output
+rather than JSON somebody typed by hand. Five of the eight were **captured live on 2026-08-25**
+by running `bin/upkeep check` in a stub sandbox built exactly the way `tests/test_check.sh`
+builds one: a throwaway `HOME`, `UPKEEP_CONFIG_DIR`/`UPKEEP_STATE_DIR` under a tmpdir,
+`UPKEEP_PKEXEC=""`, `UPKEEP_SKIP_REFRESH=1`, a `UPKEEP_REFRESH_HELPER` stub that cats
+`dnf-check-update.txt` and exits 100, and `UPKEEP_DNF_INSTALLED_CMD` /
+`UPKEEP_FLATPAK_REMOTE_CMD` / `UPKEEP_FLATPAK_LIST_CMD` pointed at the fixtures above. Each one
+got a fresh config/state pair, so no fixture inherits another's holds or history. The files are
+byte-faithful `upkeep check` stdout (jq's own formatting, trailing newline included) - re-capture
+by re-running the CLI the same way, never by editing the JSON.
+
+Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flatpak fixtures to
+3, so 10 pending in total):
+
+- **state-live.json** - captured. The everyday case: both backends enabled, nothing held,
+  `actionable: 10`, `status: "ok"`, `risky_pending: []`. Carries two guards the widget needs:
+  `bash` arrives as a comma-joined multilib set (`5.3.10-1.fc44,5.3.9-4.fc44`) so the popup's
+  version rendering has something to collapse, and `brandnew` / `com.example.NotInstalled` carry
+  `from: "?"`.
+- **state-held-only.json** - captured, after holding all 7 dnf and all 3 flatpak names:
+  `actionable: 0`, `held_total: 10`. This is the state that must still look up to date in the
+  panel while the tooltip says "10 held" (spec, Holds semantics).
+- **state-flatpak-disabled.json** - captured with `include_flatpak=false`:
+  `backends.flatpak.enabled: false` with an empty item list. Note the CLI empties a disabled
+  backend, so this file alone cannot prove the widget honours the `enabled` flag - the test pairs
+  it with an inline state that keeps items under a disabled backend.
+- **state-stale.json** - captured: one successful check, a 61-second pause, then a refresh helper
+  that exits 1. `status: "stale"`, the previous 10 items and counts preserved, `error: "dnf check
+  failed"`. The pause is the point: `last_success` (23:59) and `last_check` (00:00 the next day)
+  land in different minutes, so a widget that showed the last ATTEMPT where it promised the last
+  SUCCESS fails the test instead of passing by coincidence.
+- **state-never.json** - captured: the FIRST check on a fresh box fails (no network, no previous
+  state). `status: "stale"`, `last_success: null`, dnf items empty while flatpak still answers.
+  The "never" branch of the stale tooltip, and the case where a reader that trusts `new Date()`
+  would print "Invalid Date" at the user.
+- **state-risky-heavy.json** - captured, with a hand-written 20-row `check-update` input in the
+  documented `name.arch  evr  repo` format: kernel-core, kernel-modules, kernel-modules-core,
+  systemd, systemd-libs, systemd-udev, glibc, glibc-common, dbus, dbus-broker, mesa-dri-drivers,
+  mesa-libGL, mesa-vulkan-drivers, qt6-qtbase, qt6-qtdeclarative, kf6-kio, kf6-kcoreaddons,
+  plasma-workspace, kwin-common, kwin-x11, all at EVR `9.9.9-1.fc44`. Real Fedora package names
+  from the session-critical families, all pending at once - a Qt or KDE bump genuinely looks like
+  this. The CLI flags all 20 in `risky_pending`; they reduce to 9 families (dbus, glibc, kernel,
+  kf6, kwin, mesa, plasma, qt6, systemd), which is what makes this fixture exercise the ", ..."
+  tail on the offline recommendation rather than just the four-family happy path.
+- **state-schema-v0.json** - **derived**, `jq 'del(.risky_pending)'` over state-live.json. Stands
+  in for a state file written before Task 13.5 added that additive key: schema-1 readers must
+  tolerate its absence, and there is no way to make today's CLI emit one.
+- **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,
+  `{"schema": 1, "last_check": "2026-08-2`) - **hand-written**, because no CLI can produce them:
+  the first is the "empty stdout, exit 0" case the state schema defines as "no data, keep the
+  last known state" (never "zero updates"), and the second is what a write killed halfway leaves
+  behind. Both must parse to null and neither may throw.

@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Id": "org.erez.upkeep",
+        "Name": "Upkeep",
+        "Description": "One-click system updates with a truthful badge",
+        "Icon": "system-software-update",
+        "Category": "System Information",
+        "Authors": [{ "Name": "Erez Avital" }],
+        "License": "MIT",
+        "Version": "0.1.0",
+        "Website": "https://github.com/erez-c137/upkeep"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPackageStructure": "Plasma/Applet"
+}

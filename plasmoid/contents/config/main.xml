@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deliberately EMPTY. Every Upkeep setting lives in `upkeep config` (~/.config/upkeep/config),
+     which is the single source of truth for the CLI and the widget alike; a KConfig entry here
+     would be a second copy of the same setting and the two would drift apart the first time the
+     box was configured from a terminal. The group exists so the standard plasmoid configuration
+     dialog has a skeleton to load. -->
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <kcfgfile name=""/>
+    <group name="General"/>
+</kcfg>
