@@ -3,6 +3,7 @@
 **Date:** 2026-08-24
 **Status:** Approved design (v1)
 **Target:** Fedora 44, KDE Plasma 6.7, dnf5 5.4, Flatpak 1.18 — Erez's G9-Mini first. Portability to other distros/DEs is a design constraint (clean boundaries), not a v1 feature.
+**Long-term vision:** grow into a universal Linux updater utility (multi-distro backends, any DE, other users). v1 decisions must not close that door. Prior-art survey (gems to borrow, mistakes to avoid) lives in `docs/research/`.
 
 ## Goal
 
