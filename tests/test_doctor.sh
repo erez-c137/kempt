@@ -49,6 +49,28 @@ assert_eq "$rc" "0" "with no root helper, check still exits 0"
 assert_eq "$(jq -r .backends.dnf.actionable <<<"$state")" "0" \
   "...and reports 0 pending system updates, which reads as up to date"
 assert_eq "$(jq -r .status <<<"$state")" "stale" "...with only 'stale' to hint that anything is wrong"
+# ...and the one clue check DOES give has to point at the real cause. The raw stderr is
+# "timeout: failed to run command '<path>': No such file or directory" - the `timeout` wrapper
+# naming a file that does not exist, which reads as "the check timed out" and sends the user
+# hunting a network problem they do not have.
+assert_eq "$(jq -r .error <<<"$state")" \
+  "dnf check failed: root helper not installed - run ./install.sh (see: upkeep doctor)" \
+  "the stale error names the missing helper, not a timeout"
+grep -qi 'timeout' <<<"$(jq -r .error <<<"$state")" \
+  && { echo "FAIL: the error still reads as a timeout"; _fail=1; } \
+  || echo "ok: no phantom timeout in the error"
+# a real backend failure is still reported verbatim: the substitution must not swallow the truth
+cat > "$TESTTMP/angry-refresh" <<'STUB'
+#!/usr/bin/env bash
+echo "Errors during downloading metadata for repository 'updates'" >&2
+exit 1
+STUB
+chmod +x "$TESTTMP/angry-refresh"
+astate="$(UPKEEP_REFRESH_HELPER="$TESTTMP/angry-refresh" "$UPKEEP" check 2>/dev/null)"
+grep -q 'Errors during downloading metadata' <<<"$(jq -r .error <<<"$astate")" \
+  && echo "ok: an ordinary backend failure still reports its own message" \
+  || { echo "FAIL: real backend error lost - got: $(jq -r .error <<<"$astate")"; _fail=1; }
+
 assert_exit 1 "...while doctor fails and names the missing helper" \
   env UPKEEP_REFRESH_HELPER="$TESTTMP/nope-refresh" "$UPKEEP" doctor
 grep -q 'root helper (refresh) not installed' "$TESTTMP/last_output" \

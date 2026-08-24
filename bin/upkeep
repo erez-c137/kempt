@@ -32,7 +32,10 @@ cmd_check() {
   prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
   errf="$(mktemp)"
   if dnf_items="$(dnf_check 2>"$errf")"; then :; else
-    serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+    # explain_helper_error only rewrites the one case the raw text gets WRONG (a missing root
+    # helper reported by `timeout` as a failure to run a command, which reads as a timeout).
+    # This is the dnf branch on purpose: it is the only check path that goes through a root helper.
+    serr="$(explain_helper_error "$(tail -c 200 "$errf" | tr '\n' ' ')")"
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
   if is_true "$(config_get include_flatpak)"; then
@@ -139,7 +142,8 @@ cmd_update() {
     # this is advice, and losing it must never stop the user from updating.
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
-      echo "warning: could not check for session-critical updates: $(tail -c 200 "$rerr" | tr '\n' ' ')" >&2
+      # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
+      echo "warning: could not check for session-critical updates: $(explain_helper_error "$(tail -c 200 "$rerr" | tr '\n' ' ')")" >&2
     }
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then

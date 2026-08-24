@@ -124,6 +124,24 @@ config_set() {  # key value
 # there, interactive auth is the legitimate flow.
 priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
 priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
+
+# A stderr tail from a privileged call, turned into something a human can act on. `timeout`
+# reports a MISSING helper as "timeout: failed to run command '<path>': No such file or
+# directory", which reads as "the update check timed out" and sends the reader hunting a network
+# problem they do not have. The real cause is that install.sh has never run. Anything else is
+# passed through untouched: a genuine repo or metadata error must still speak for itself.
+explain_helper_error() {  # stderr-tail → the tail, or the missing-helper message
+  local t="$1" h
+  if [[ "$t" == *"No such file"* ]]; then
+    for h in "$UPKEEP_REFRESH_HELPER" "$UPKEEP_APPLY_HELPER"; do
+      if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
+        printf '%s\n' "root helper not installed - run ./install.sh (see: upkeep doctor)"
+        return 0
+      fi
+    done
+  fi
+  printf '%s\n' "$t"
+}
 notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 

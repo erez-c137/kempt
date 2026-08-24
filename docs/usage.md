@@ -77,6 +77,10 @@ once every 3 hours, never on battery and never on a metered connection.
 
 - **Backend failure** (network down, repo flap): exit **0**, `status` becomes `"stale"`, `error`
   carries the message, and the previous item lists are kept so the badge does not drop to zero.
+  One message is rewritten rather than passed through: a **missing root helper** surfaces from
+  `timeout` as `failed to run command '...': No such file or directory`, which reads as a
+  timed-out check, so `error` says `root helper not installed - run ./install.sh (see: upkeep
+  doctor)` instead. Every other backend message is verbatim.
 - **Corrupt or missing state file:** exit 0, degrades to an empty previous list, never a crash.
 - **Failure to persist** the new state: the fresh state is printed to stdout **first**, then the
   command exits non-zero. The caller still gets the answer.
