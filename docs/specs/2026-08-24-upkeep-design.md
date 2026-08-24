@@ -69,7 +69,7 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 
 - **Scope:** upkeep-only. dnf holds become per-run `--exclude=<name>` args; flatpak holds are skipped by updating apps individually rather than `flatpak update` (all). No system config is touched — a manual `sudo dnf upgrade` outside Upkeep ignores holds. (System-wide `dnf versionlock` integration = possible later feature.)
 - **Notification semantics:** the badge counts only actionable (non-held) updates. Held items with pending updates appear in the popup's "Held" section with the waiting version, and in the tooltip as "N held". If only held updates exist, the icon stays in the up-to-date state (tooltip still notes the held count).
-- **`upkeep check`** marks each pending item `held: true/false` in state JSON; **`upkeep update`** excludes held items and lists them ("skipped (held)") in the run summary so a hold is never silently forgotten.
+- **`upkeep check`** marks each pending item `held: true/false` in state JSON; **`upkeep update`** excludes held items and lists them (summary line `Held (skipped): <names>`) so a hold is never silently forgotten.
 - **UI:** pin toggle per row in the popup; the settings page lists current holds with remove buttons.
 
 ## Privileges
@@ -103,7 +103,7 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 - **Check fails** (network down, repo flap — see G9-Mini's known GitHub/Cloudflare path flaps): keep the previous counts, mark state `stale` with the error message; icon shows stale hint in tooltip, no scary error state for transient check failures.
 - **Update fails:** non-zero exit recorded in history entry; icon shows error state until next successful check; notification "Update failed — see log" with log path. Partial success (dnf ok, flatpak failed) is reported per-backend, not collapsed.
 - **Concurrent runs:** lockfile in state dir; second `upkeep update` refuses with a clear message.
-- **Foreign package-manager lock (survey C2):** dnf5 fails instantly when another process holds the rpm lock (no `--wait` exists), and PackageKit/Discover now sits on the dnf5 backend on Fedora 44. Before updating, detect a busy lock, retry with backoff a few times, then fail with a human message naming the likely holder ("PackageKit/Discover is busy — try again in a minute").
+- **Foreign package-manager lock (survey C2):** dnf5 fails instantly when another process holds the rpm lock (no `--wait` exists), and PackageKit/Discover now sits on the dnf5 backend on Fedora 44. On a busy lock, retry a few times with a fixed delay, then fail with a human message naming the likely holder ("PackageKit/Discover is busy - try again in a minute").
 
 ## Repo & install
 

@@ -1086,7 +1086,7 @@ export UPKEEP_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export UPKEEP_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
 export UPKEEP_SKIP_REFRESH=1
-export UPKEEP_REBOOT_CMD="false"   # false → exit 1 → reboot_needed=true
+export UPKEEP_DNF_CMD="$TESTTMP/dnf-stub"   # backend seam answers the reboot question (exit 1 = reboot needed)
 
 "$UPKEEP" config set surface background
 "$UPKEEP" hold dnf:vim-common
