@@ -34,6 +34,12 @@ flatpak_parse_remote_ls() { return 3; }
 assert_exit 3 "parser failure propagates past cleanup rm" flatpak_check
 eval "$_real_parse"
 
+# A broken installed-lookup must FAIL, not report every app as from="?".
+export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
+export UPKEEP_FLATPAK_LIST_CMD="false"
+assert_exit 1 "failing installed-lookup is loud" flatpak_check
+export UPKEEP_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+
 export UPKEEP_FLATPAK_REMOTE_CMD="false"
 assert_exit 1 "flatpak_check propagates failure" flatpak_check
 finish

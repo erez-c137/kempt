@@ -11,15 +11,29 @@ lines); this file is the source of truth for what's genuinely captured vs. hand-
 up to date, verified live 2026-08-24) — there was no real "pending update" output to capture.
 6 rows hand-written in the documented `name.arch  evr  repo` format, using real package names
 and real current installed EVRs from this box (bash, curl, git-core, tar, vim-minimal,
-aajohan-comfortaa-fonts), each bumped to a plausible newer EVR. 2 guard rows added on top:
+aajohan-comfortaa-fonts), each bumped to a plausible newer EVR. Guard rows added on top:
 - `brandnew.x86_64` (EVR `1.0-1.fc44`) — a package name deliberately absent from
   rpm-installed.tsv, so a parser whose join-miss guard (e.g. `join -e '?'`) gets deleted fails
   instead of silently passing.
-- `bash.i686` — a duplicate of the existing `bash.x86_64` row (same EVR, same repo, only the
-  arch differs) — a multilib-collapse case: two arches of the same source package. Collapsing
-  the pair into a single `bash` entry is the CORRECT behavior (contract: these 8 data lines
-  parse to 7 items, not 8), so this row catches a parser that FAILS to collapse multilib twins
-  and double-counts `bash`.
+- `bash.i686` at EVR `5.3.9-4.fc44` — a multilib twin of `bash.x86_64` (`5.3.10-1.fc44`) at a
+  **deliberately divergent** EVR, because that is what multilib lag actually looks like: the
+  i686 build of a package routinely trails the x86_64 one by a build or a release. Two arches
+  are ONE package as far as this CLI's report is concerned, so the pair must collapse to a
+  single `bash` entry (contract: this file parses to **7 items**). The divergence is the point:
+  identical EVRs would collapse for free at `sort -u`, which silently hides a parser that has
+  no real collapse step. Only a pending-side `collapse_versions` merges divergent twins, and
+  the merged entry carries both versions comma-joined (`5.3.10-1.fc44,5.3.9-4.fc44`, sorted
+  order) exactly like the installonly sets in snap-multiver-raw.tsv.
+- An **obsoletes section** — the literal header line `Obsoleting Packages` followed by one row
+  indented by four spaces (`    old-tool.x86_64`) carrying a normal EVR and repo in the usual
+  columns. Format is dnf5's own: after the pending-update table it appends this header and
+  lists obsoleted packages **indented**, so indentation at column 0 is the ONLY structural
+  signal separating them from real update rows (their name/EVR/repo columns are otherwise
+  indistinguishable). An obsoleted package is being REMOVED, not upgraded — reporting it as
+  pending invents a phantom self-update (`old-tool: ? → 1.0-1.fc44`) for something the user is
+  losing. The parser's `/^[^[:space:]]/` column-0 anchor kills the indented row and the
+  `NF>=3` + EVR-shape guards kill the bare header; if either is deleted the item count goes
+  to 8 and the test fails.
 
 ## tests/fixtures/rpm-installed.tsv
 **Captured-live**, 2026-08-24, via
