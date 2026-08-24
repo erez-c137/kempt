@@ -38,6 +38,19 @@ upkeep_init_dirs() {
   # Sweep aged orphan tmps: a crash between mktemp and mv leaks .atomic.XXXXXX forever.
   # +60min so a tmp belonging to a live concurrent writer is never eligible.
   [[ -d "$UPKEEP_STATE_DIR" ]] && find "$UPKEEP_STATE_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
+  # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest
+  # 50 entries (`upkeep history` stays readable and `summary N` still reaches back months) and
+  # drop logs after 60 days (they are the failure evidence; the entry that names them is what
+  # has to last). Both sweeps are best-effort: an unprunable state dir must never stop an update.
+  # Process substitution, not a pipe: `ls` exits 2 on an empty history dir - the normal state on
+  # a fresh install - and under pipefail that rc would propagate out of every command that calls
+  # upkeep_init_dirs.
+  local f
+  while IFS= read -r f; do [[ -n "$f" ]] && rm -f "$f"; done \
+    < <(ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 || true)
+  find "$LOG_DIR" -name '*.log' -mtime +60 -delete 2>/dev/null || true
+  return 0
 }
 
 atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays atomic)

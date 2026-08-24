@@ -1621,6 +1621,19 @@ Do NOT execute this step autonomously. Present this checklist to the user and wa
 9. Optional (fits this box's pending reboot): `upkeep update --surface=offline` → staged notification; after the next natural reboot, `upkeep check` → harvest history entry + notification.
 10. `upkeep run` success contract for Plan 2: run prechecks the launcher (rc 4 when konsole missing); a successful detached LAUNCH still says nothing about the update's outcome — the widget must poll state.json/history, never trust run's rc as "updated".
 
+POST-REVIEW NOTE (Task 14 as built): `install.sh` matches the block above in REAL-MODE BEHAVIOUR and goes beyond it so the privileged path could be tested without ever running privileged:
+- Structure: `run()` / `notifier_optout()` / `main()`, with `main "$@"` only when executed — the test file sources it to unit-test the opt-out. `UPKEEP_INSTALL_ECHO=1` prints the `pkexec` and `pkill` commands instead of running them (same seam shape as `UPKEEP_APPLY_ECHO`), which is what binds the positional-args form: the test asserts the root script reads `"$1" "$2" "$3"` and that each repo path appears exactly once, as a trailing argument.
+- `--uninstall --destdir <dir>` tears down a staged tree with plain `rm` and no pkexec (that is the tested path; real uninstall still goes through one pkexec, with the paths passed positionally too).
+- The notifier opt-out REPLACES any existing `Hidden=` line rather than appending (a system entry shipping `Hidden=false` would otherwise leave two keys in one desktop file), and a non-interactive run (`read` hits EOF) leaves the notifier ENABLED and says so, instead of taking silence for consent.
+- A declined auth prompt exits 1 with a message saying the symlink is in place but the helpers are not.
+- Retention (Step 0) landed in `upkeep_init_dirs` as specified: newest 50 history entries, logs dropped after 60 days, both best-effort; the sweep uses process substitution because `ls` exits 2 on an empty history dir and pipefail would carry that into every command that initialises the dirs.
+
+CHECKLIST PRECISION (items above are otherwise accurate as built):
+- Item 2: `.actionable` is dnf + flatpak MINUS holds, and multilib twins collapse to one item — so it will not line up with a raw `dnf5 check-update` line count. Compare `jq '.backends.dnf.items|length'` against dnf5, and expect flatpak to add to the total.
+- Item 4: one auth DIALOG, but two `upkeep-apply` invocations (dnf, then flatpak) — the second is covered by polkit's `auth_admin_keep` cache.
+- Item 7: the CLI runs `dnf5 -C needs-restarting` (cache-only, `</dev/null`); compare with the same `-C` flag.
+- Item 9: a live `upkeep update` between staging and the reboot is now safe — cmd_update rebases the marker's baseline onto its after-snapshot, so the post-reboot harvest still reports only the staged transaction.
+
 ---
 
 ## Final self-review checklist (after all tasks)
