@@ -1146,8 +1146,10 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
   for attempt in 1 2 3; do
     rc=0
     if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
-      # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false)
-      priv_apply "$@" 2>&1 | tee -a "$log"; rc=${PIPESTATUS[0]}
+      # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
+      # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
+      # apply_with_retry bare — a bare `; rc=` form would abort the run instead of retrying.
+      priv_apply "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
     else
       priv_apply "$@" >>"$log" 2>&1 || rc=$?
     fi
