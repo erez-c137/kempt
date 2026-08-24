@@ -28,6 +28,9 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // Same number the CLI's notification uses (bin/upkeep).
 var RISKY_FAMILIES_SHOWN = 4;
 
+// Highest number the panel badge spells out; above this it reads "99+".
+var BADGE_MAX = 99;
+
 // parseState(text) -> the state object, or null.
 // null means "we learned nothing from this call". Every caller must treat it as "keep what you
 // had", which is why nothing here ever invents an empty-but-valid state.
@@ -51,6 +54,13 @@ function parseState(text) {
 // rendering it as "no updates".
 function looksLikeState(state) {
     if (!state || typeof state !== "object") return false;
+    // A declared schema we do not know is NOT something to render optimistically. This matters
+    // more here than it would in most readers: the CLI is installed as a symlink into the
+    // checkout while the widget is a COPY, so after a `git pull` the CLI is new and the widget is
+    // whatever was last installed. Version skew is the normal state of this pair, not an edge
+    // case, and a schema 2 field could mean anything. Say "error" and let the tooltip explain,
+    // rather than badge a number whose meaning we are guessing at.
+    if (typeof state.schema === "number" && state.schema !== 1) return false;
     if (typeof state.actionable === "number") return true;
     if (state.backends && typeof state.backends === "object") return true;
     return false;
@@ -196,7 +206,11 @@ function viewModel(state, updating) {
 
     // No count, no badge. This is rule 1 of the state schema in one line: "no data" must never
     // reach the panel as a confident zero.
-    var badgeText = (usable && actionable > 0) ? String(actionable) : "";
+    // Capped at "99+" because a four-digit badge stops being a badge and starts being a layout
+    // problem in a panel. It stays truthful - "more than 99" is a fact - and the exact number is
+    // one hover away in the tooltip, which is never capped.
+    var badgeText = "";
+    if (usable && actionable > 0) badgeText = actionable > BADGE_MAX ? BADGE_MAX + "+" : String(actionable);
 
     var countPhrase = "";
     if (usable) {

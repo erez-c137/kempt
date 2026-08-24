@@ -71,6 +71,12 @@ PlasmoidItem {
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
             // next poll would see its own footprint as a change and check again, forever.
+            // Clearing the stamp FIRST is what closes the race. A watcher poll queued while the
+            // check was still running has not read the mtimes yet - it reads them after, sees our
+            // own fresh state.json against the pre-check baseline, and calls that a change from
+            // elsewhere. An empty stamp means "no baseline", so that poll learns the new mtimes
+            // instead of reacting to them, and only a change from somewhere else can trigger.
+            root.watchStamp = "";
             root.pollWatch(false);
             if (root.recheckPending) {
                 root.recheckPending = false;
@@ -105,9 +111,11 @@ PlasmoidItem {
 
     Timer {
         id: checkTimer
-        // Math.max is not paranoia: a 0 interval on a repeating timer spins the panel process, and
-        // this number comes from a text file a human can edit.
-        interval: Math.max(1, root.refreshIntervalMin) * 60000
+        // Clamped at BOTH ends, because this number comes from a text file a human can edit.
+        // A 0 interval on a repeating timer spins the panel process; a large enough one overflows
+        // Timer's 32-bit interval when multiplied by 60000 and comes out NEGATIVE, which spins it
+        // just the same. A day is already far past any sensible check interval.
+        interval: Math.min(1440, Math.max(1, root.refreshIntervalMin)) * 60000
         repeat: true
         running: true
         onTriggered: root.doCheck()
@@ -132,7 +140,13 @@ PlasmoidItem {
     // `preferredRepresentation: Plasmoid.compactRepresentation` line copied around third-party
     // widgets is a no-op on Plasma 6. Both properties live on PlasmoidItem, not on the Plasmoid
     // attached object, so that expression is undefined and the default heuristic runs anyway.)
-    compactRepresentation: CompactRepresentation {}
+    // Both inputs are handed down explicitly rather than reached for across files. They are
+    // `required` on the other side, so a wiring mistake is a hard error at creation instead of a
+    // panel that quietly renders the fallback branch of a guard.
+    compactRepresentation: CompactRepresentation {
+        plasmoidItem: root
+        vm: root.vm
+    }
     fullRepresentation: FullRepresentation {}
 
     Component.onCompleted: {

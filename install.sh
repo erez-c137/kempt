@@ -150,10 +150,14 @@ main() {
   && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
     "$ROOT/libexec/upkeep-refresh" "$ROOT/libexec/upkeep-apply" "$ROOT/polkit/$POLICY" \
-    || { echo "root install failed (authentication declined?) - the CLI symlink is in place, but the root helpers are NOT installed and 'upkeep check' will not work yet" >&2; exit 1; }
+    || { echo "root install failed (authentication declined?) - the CLI symlink is in place, but the root helpers are NOT installed and 'upkeep check' will not work yet; the panel widget was not installed either. Re-run ./install.sh to finish both" >&2; exit 1; }
   echo "Installed. Try: upkeep check   (reference: man upkeep)"
   echo "note: the CLI runs from this checkout (symlink install) - don't move/delete the repo. Only the root helpers + policy are copies."
 
+  # After the root step, deliberately. The widget needs no authentication, so it COULD go first
+  # like widget_uninstall does - but a widget installed against missing root helpers is worse than
+  # no widget: every check fails, and it sits in the panel showing a warning emblem forever. So a
+  # declined auth dialog skips it, and the failure message above says so.
   widget_install
 
   # Recommended: stop Discover's notifier (duplicate nags + it holds the dnf5 lock at random).

@@ -1,23 +1,25 @@
-// The panel icon and its badge. Pure presentation: every value below is read from main.qml's view
-// model, which is derived in logic.js and pinned by the node tests. Nothing is decided here.
+// The panel icon and its badge. Pure presentation: every value below comes from the view model
+// main.qml derives in logic.js, which the node tests pin. Nothing is decided here.
 //
-// `root` is main.qml's PlasmoidItem - a representation is created in main.qml's context, so its
-// ids are in scope. This file's own root carries a different id on purpose, so that reference can
-// never be shadowed by accident.
+// Both inputs are `required`, and that is the safety property. Reaching across into main.qml's ids
+// works right up until it does not - and the failure mode is silent, because a binding that cannot
+// resolve its object falls back to whatever the `?:` says and the panel calmly renders a lie. A
+// required property cannot be forgotten: the component refuses to be created at all. This is the
+// pattern KDE's own widgets use (see org.kde.kdeconnect's CompactRepresentation).
 import QtQuick
+import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
 
 Item {
     id: compactRoot
 
-    // Read through guards. A representation is built and torn down independently of main.qml, and
-    // on teardown `root` itself can already be gone - so this tests the object before the property
-    // rather than only the property. "unknown" is the honest fallback: it renders as "no data yet",
-    // never as zero updates.
-    readonly property string iconState: (root && root.vm) ? root.vm.iconState : "unknown"
-    readonly property string badgeText: (root && root.vm) ? root.vm.badgeText : ""
-    readonly property bool badgeVisible: (root && root.vm) ? root.vm.badgeVisible : false
+    required property PlasmoidItem plasmoidItem   // for expanding the popup on click
+    required property var vm                      // the derived view model, never null
+
+    readonly property string iconState: compactRoot.vm.iconState
+    readonly property string badgeText: compactRoot.vm.badgeText
+    readonly property bool badgeVisible: compactRoot.vm.badgeVisible
 
     // A panel a few pixels tall cannot show a legible number; Plasma widgets drop the overlay
     // rather than draw mush.
@@ -89,6 +91,6 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        onClicked: root.expanded = !root.expanded
+        onClicked: compactRoot.plasmoidItem.expanded = !compactRoot.plasmoidItem.expanded
     }
 }

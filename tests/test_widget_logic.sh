@@ -24,9 +24,13 @@ qml_check() {
     echo "ok: SKIPPED - PySide6 is absent, so the .qml files were NOT compile-checked in this run"
     return 0
   fi
-  local out="$TESTTMP/qmlcheck.txt" want
+  local out="$TESTTMP/qmlcheck.txt" want rc=0
   want="$(find "$REPO_ROOT/plasmoid" -name '*.qml' | wc -l)"
-  QT_QPA_PLATFORM=offscreen python3 - "$REPO_ROOT/plasmoid" > "$out" 2>&1 <<'PY'
+  # `|| rc=$?` is load-bearing: lib.sh sets errexit, so without it a failing compile kills this
+  # function on the spot - before the count assertion and before the error dump below. The file
+  # then exits non-zero having printed no FAIL line at all, and the diagnostics go with TESTTMP
+  # when the trap removes it. A gate that fails invisibly is barely a gate.
+  QT_QPA_PLATFORM=offscreen python3 - "$REPO_ROOT/plasmoid" > "$out" 2>&1 <<'PY' || rc=$?
 import glob, os, sys
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QGuiApplication
@@ -51,7 +55,6 @@ for f in sorted(glob.glob(os.path.join(sys.argv[1], "**", "*.qml"), recursive=Tr
         print(f"OK {name}")
 sys.exit(rc)
 PY
-  local rc=$?
   # The count guards the vacuous pass: a probe that found no files would otherwise "succeed".
   assert_eq "$(grep -c '^OK ' "$out")" "$want" "every .qml in the package compiles against the system Qt 6"
   [[ $rc -eq 0 ]] || { echo "FAIL: QML compile errors"; sed 's/^/    /' "$out"; _fail=1; }
@@ -121,6 +124,16 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,bac
   "uptodate" "nothing pending => up to date"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).badgeVisible')" \
   "false" "up to date shows no badge"
+# A four-digit badge stops being a badge and starts being a layout problem. "99+" is still true,
+# and the tooltip - which is never capped - still carries the exact number.
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:99,held_total:0,backends:{}},false).badgeText')" \
+  "99" "a two-digit count is spelled out"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:100,held_total:0,backends:{}},false).badgeText')" \
+  "99+" "above 99 the badge caps"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).badgeText')" \
+  "99+" "...however far above"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).tooltipMain')" \
+  "1247 updates available" "...while the tooltip still gives the exact number"
 
 # --- holds: the spec's promise that a held-only box looks up to date but still says so ---
 assert_eq "$(js 'V("held-only",false).iconState')" "uptodate" "held-only pending => the up-to-date icon"
@@ -165,8 +178,10 @@ assert_eq "$(js 'L.newestOf("")')" "?" "...and so does an empty one"
 bash_to="$(jq -r '.backends.dnf.items[] | select(.name=="bash") | .to' "$FIXTURES/state-live.json")"
 assert_eq "$(jq -r '.backends.dnf.items[] | select(.name=="bash") | .to | contains(",")' "$FIXTURES/state-live.json")" \
   "true" "fixture guard: the captured bash entry really is a comma-joined multilib set"
+# $NF, not -f2: the set size is a property of the box (a multilib pair here, three kernels
+# elsewhere), and the rule under test is "the LAST one", not "the second one".
 assert_eq "$(js 'V("live",false).sections[0].items.filter(i => i.name === "bash")[0].to')" \
-  "$(cut -d, -f2 <<<"$bash_to")" "a multilib set is rendered the CLI's way in the popup row"
+  "$(awk -F, '{print $NF}' <<<"$bash_to")" "a multilib set is rendered the CLI's way in the popup row"
 assert_eq "$(js 'V("live",false).sections[0].items.filter(i => i.name === "brandnew")[0].from')" \
   "?" "a package that is not installed yet keeps its ? on the from side"
 
@@ -175,6 +190,14 @@ assert_eq "$(js 'V("live",false).sections.map(s => s.title)')" '["System (dnf)",
   "pending updates group as System / Apps, dnf first"
 assert_eq "$(js 'V("live",false).sections[0].items[0].backend')" "dnf" \
   "every row carries its backend, which is half of the hold/unhold argument"
+# Row order is the CLI's, not something the widget re-sorts or reverses. The CLI hands items over
+# sorted by name; a popup that showed them backwards would be a different list from `upkeep check`.
+assert_eq "$(js 'V("live",false).sections[0].items.map(function (i) { return i.name; })')" \
+  "$(jq -c '[.backends.dnf.items[].name]' "$FIXTURES/state-live.json")" \
+  "pending rows keep the CLI's own order"
+assert_eq "$(js 'V("held-only",false).heldItems.map(function (i) { return i.name; }).slice(0,3)')" \
+  "$(jq -c '[.backends.dnf.items[].name][0:3]' "$FIXTURES/state-held-only.json")" \
+  "...and so do held rows"
 assert_eq "$(js 'V("flatpak-disabled",false).sections.map(s => s.title)')" '["System (dnf)"]' \
   "a disabled backend renders no section at all, not an empty one"
 assert_eq "$(js 'V("flatpak-disabled",false).badgeText')" "7" "a disabled backend contributes nothing to the badge"
@@ -229,6 +252,14 @@ assert_eq "$(js 'L.formatStamp("junk\nmore junk").indexOf("\n") >= 0')" "false" 
 
 # --- a state object that is not schema v1: say so, never invent a count ---
 assert_eq "$(js 'L.viewModel({hello:"world"},false).iconState')" "error" "an unrecognisable state object => error"
+# Version skew between CLI and widget is NORMAL here, not exotic: install.sh symlinks the CLI into
+# the checkout but COPIES the widget, so a `git pull` routinely leaves a new CLI talking to an old
+# widget. A schema this build does not know must never be badged as if it were understood.
+assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:5,held_total:0,backends:{}},false).iconState')" \
+  "error" "a future schema is refused, not guessed at"
+assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:5,held_total:0,backends:{}},false).badgeText')" \
+  "" "...and it badges nothing at all"
+assert_eq "$(js 'V("live",false).iconState')" "updates" "schema 1 is of course still read normally"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).badgeVisible')" "false" "...and it badges nothing"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...and lists nothing"
 

@@ -103,6 +103,10 @@ iout="$(UPKEEP_INSTALL_ECHO=fail bash "$INSTALL" </dev/null 2>&1)" || irc=$?
 assert_eq "$irc" "1" "a declined install exits 1, not a bare pkexec rc"
 grep -q 'root helpers are NOT installed' <<<"$iout" \
   && echo "ok: a declined install says the helpers are missing" || { echo "FAIL: install failure message - got: $iout"; _fail=1; }
+# The widget arm sits after the root step, so a declined dialog skips it too. Skipping is right (a
+# widget with no root helpers can only ever show a failed check), but it must be SAID, not silent.
+grep -q 'panel widget was not installed either' <<<"$iout" \
+  && echo "ok: ...and that the widget was skipped along with them" || { echo "FAIL: declined install does not mention the widget - got: $iout"; _fail=1; }
 urc=0
 uout="$(UPKEEP_INSTALL_ECHO=fail bash "$INSTALL" --uninstall 2>&1)" || urc=$?
 assert_eq "$urc" "1" "a declined uninstall exits 1, not a bare pkexec rc"

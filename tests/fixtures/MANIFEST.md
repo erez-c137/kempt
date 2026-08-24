@@ -104,7 +104,7 @@ unchanged package (bash), two upgraded (kernel-core, vim-common), one removed (z
 ## tests/fixtures/state-*.json (widget: `upkeep check` state schema v1)
 
 The plasmoid parses `upkeep check` stdout and nothing else, so its tests are fed real CLI output
-rather than JSON somebody typed by hand. Five of the eight were **captured live on 2026-08-25**
+rather than JSON somebody typed by hand. Six of the nine were **captured live on 2026-08-25**
 by running `bin/upkeep check` in a stub sandbox built exactly the way `tests/test_check.sh`
 builds one: a throwaway `HOME`, `UPKEEP_CONFIG_DIR`/`UPKEEP_STATE_DIR` under a tmpdir,
 `UPKEEP_PKEXEC=""`, `UPKEEP_SKIP_REFRESH=1`, a `UPKEEP_REFRESH_HELPER` stub that cats
@@ -119,9 +119,16 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
 
 - **state-live.json** - captured. The everyday case: both backends enabled, nothing held,
   `actionable: 10`, `status: "ok"`, `risky_pending: []`. Carries two guards the widget needs:
-  `bash` arrives as a comma-joined multilib set (`5.3.10-1.fc44,5.3.9-4.fc44`) so the popup's
+  `bash` arrives as a comma-joined multilib set (`5.3.9-4.fc44,5.3.10-1.fc44`) so the popup's
   version rendering has something to collapse, and `brandnew` / `com.example.NotInstalled` carry
   `from: "?"`.
+
+  All six captured files were **re-captured after `fix: version-sort collapsed sets so last always
+  means newest`** (654546e). That commit made collapsed sets ascending, so the last element is now
+  genuinely the newest - which is what both `render_summary`'s `newest()` and the widget's
+  `newestOf()` take. Captured before it, this fixture's `bash` set read
+  `5.3.10-1.fc44,5.3.9-4.fc44` and the widget faithfully rendered the OLDER build, agreeing with
+  the CLI while both were wrong. Re-capture rather than edit if these ever drift again.
 - **state-held-only.json** - captured, after holding all 7 dnf and all 3 flatpak names:
   `actionable: 0`, `held_total: 10`. This is the state that must still look up to date in the
   panel while the tooltip says "10 held" (spec, Holds semantics).
