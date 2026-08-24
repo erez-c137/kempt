@@ -281,6 +281,24 @@ acquire_lock() {
 }
 release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; }
 
+# The boot session. A staged transaction can only be applied by a REBOOT, so the marker records
+# this and the harvest compares: same session means the stage is still pending, whatever else
+# happened to the rpm database in the meantime. "unknown" (no procfs) degrades to the old
+# snapshot-comparison behaviour rather than blocking the harvest forever.
+current_boot_id() { cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown; }
+
+# One-line count of what a run actually changed. Shared by cmd_update's notification and the
+# offline harvest's: a transaction that only installs or removes packages must never be
+# announced as "0 packages" by one surface and correctly by the other.
+run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N removed" | "no package changes"
+  jq -r '
+    def tot(k): [.backends[] | .[k] | length] | add // 0;
+    [ (if tot("updated") > 0 then (tot("updated")|tostring) + " updated" else empty end),
+      (if tot("added")   > 0 then "+" + (tot("added")|tostring)   + " installed" else empty end),
+      (if tot("removed") > 0 then "-" + (tot("removed")|tostring) + " removed"   else empty end) ]
+    | if length == 0 then "no package changes" else join(", ") end' "$1"
+}
+
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text

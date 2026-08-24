@@ -43,6 +43,15 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
 export UPKEEP_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 
+# A staged transaction can only be applied by a REBOOT, and the marker records the boot session
+# it was staged in. Nothing else in a test can change /proc, so "the machine rebooted" is
+# simulated by rewriting that field - which is exactly what the harvest gates on.
+simulate_reboot() {
+  local m="$UPKEEP_STATE_DIR/offline_staged.json"
+  [[ -f "$m" ]] || return 0
+  jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
+}
+
 "$UPKEEP" config set surface background
 "$UPKEEP" hold dnf:vim-common
 
@@ -425,6 +434,7 @@ assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" 
 
 # ...and after the reboot that actually applies it, the harvest reports the STAGED delta only
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+simulate_reboot
 sleep 1
 "$UPKEEP" check >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: the post-reboot check consumes the marker" || { echo "FAIL: marker survived the reboot"; _fail=1; }
@@ -503,6 +513,7 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/apply-calls"
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no check has run yet
+simulate_reboot
 ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
 sleep 1
 "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
@@ -552,5 +563,48 @@ sleep 1
 UPKEEP_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
 assert_exit 0 "a truncated after-snapshot leaves the marker in place" -- test -f "$marker"
 assert_exit 0 "...and never overwrites its baseline with the truncation" -- cmp -s "$pre_c" "$TESTTMP/baseline-copy.tsv"
+assert_eq "$(ls -1a "$UPKEEP_STATE_DIR"/snapshots/.atomic.* 2>/dev/null | wc -l)" "0" "the rebase leaves no temp files behind"
+
+# --- BOOT SESSION GATE: only a reboot can apply a staged transaction. "The installed set moved"
+# never was evidence of that - a manual `dnf install cowsay` between staging and the reboot used
+# to consume the marker and report someone else's package as "offline (applied on reboot)", and
+# the real staged transaction was then never reported at all.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+pre_boot="$(jq -r .pre_snapshot "$marker")"
+assert_eq "$(jq -r '.boot_id | length > 0' "$marker")" "true" "staging records the boot session"
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
+# somebody installs a package by hand before rebooting
+printf 'bash\t5.2.37-1.fc44\ncowsay\t3.04-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$WORLD/rpm.tsv"
+: > "$WORLD/notifications"
+sleep 1
+"$UPKEEP" check >/dev/null 2>&1
+assert_exit 0 "a manual install before the reboot leaves the stage pending" -- test -f "$marker"
+assert_exit 0 "...and the marker's snapshot copy with it" -- test -f "$pre_boot"
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
+assert_eq "$(comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" | wc -l)" "0" \
+  "...and records no history entry for a transaction that has not happened"
+assert_eq "$(wc -c < "$WORLD/notifications")" "0" "...and tells the user nothing was applied"
+
+# the reboot itself: same package set, different boot session → NOW it is harvested
+simulate_reboot
+sleep 1
+"$UPKEEP" check >/dev/null 2>&1
+[[ ! -f "$marker" ]] && echo "ok: the reboot consumes the marker" || { echo "FAIL: marker survived a real reboot"; _fail=1; }
+hb2="$UPKEEP_STATE_DIR/history/$(ls -1 "$UPKEEP_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .surface "$hb2")" "offline (applied on reboot)" "the staged transaction is reported after the reboot"
+assert_eq "$(jq -r '[.backends.dnf.added[].name] | index("cowsay") != null' "$hb2")" "true" \
+  "the post-reboot diff reports what actually changed since staging"
+grep -q NOTIFY "$WORLD/notifications" && echo "ok: and the user is told" || { echo "FAIL: no harvest notification"; _fail=1; }
+
+# The harvest notification uses the same counts phrase as a live run: a staged transaction that
+# only installed or removed packages must never be announced as "0 packages".
+grep -qE '0 (packages )?updated|no package changes' "$WORLD/notifications" \
+  && { echo "FAIL: harvest notification claimed nothing happened"; _fail=1; } \
+  || echo "ok: the harvest notification counts installs, not just upgrades"
+grep -q '+1 installed' "$WORLD/notifications" && echo "ok: it names the install" || { echo "FAIL: harvest notify installs - got: $(cat "$WORLD/notifications")"; _fail=1; }
 
 finish

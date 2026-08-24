@@ -247,10 +247,12 @@ cmd_update() {
   # `if fn; then` disables errexit inside fn, so both snapshot functions return status explicitly.
   # An empty after-snapshot is NOT usable as a diff input: it would report every package REMOVED.
   local empty_report='{"updated":[],"added":[],"removed":[]}'
-  # snapshots_ok gates the offline-marker rebase below and NOTHING else: dnf-after.tsv is
-  # written by a redirection, so a snapshot that dies mid-stream leaves a TRUNCATED but
-  # non-empty file behind. Harmless as a report input (it degrades to empty), fatal as a harvest
-  # baseline - every package missing from the truncation would come back as newly installed.
+  # snapshots_ok gates the offline-marker rebase below and NOTHING else. A snapshot that dies
+  # mid-stream leaves a TRUNCATED but non-empty dnf-after.tsv (the redirection created the file
+  # before the command ran) - harmless as a report input, fatal as a harvest baseline, where
+  # every package missing from the truncation would come back as newly installed. That case is
+  # caught by the SNAPSHOT branch below; the flag is also set in the diff-failure branch as
+  # belt-and-braces, since a diff that rejects its input says the snapshot is malformed too.
   local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
   if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
@@ -282,8 +284,11 @@ cmd_update() {
     # that would otherwise accumulate one file per staged run, forever.
     rm -f "$SNAP_DIR"/offline-pre-*.tsv
     cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
+    # boot_id: only a REBOOT can apply a staged transaction, so the harvest compares boot
+    # sessions instead of guessing from the package set (see harvest_offline).
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
-      '{staged_at:$ts, pre_snapshot:$snap}' > "$OFFLINE_MARKER"
+      --arg boot "$(current_boot_id)" \
+      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot}' > "$OFFLINE_MARKER"
   fi
 
   # history entry
@@ -307,12 +312,7 @@ cmd_update() {
     # Same truth as the summary: a run that installed and removed packages must never be
     # announced as "0 packages updated".
     local phrase
-    phrase="$(jq -r '
-      def tot(k): [.backends[] | .[k] | length] | add // 0;
-      [ (if tot("updated") > 0 then (tot("updated")|tostring) + " updated" else empty end),
-        (if tot("added")   > 0 then "+" + (tot("added")|tostring)   + " installed" else empty end),
-        (if tot("removed") > 0 then "-" + (tot("removed")|tostring) + " removed"   else empty end) ]
-      | if length == 0 then "no package changes" else join(", ") end' "$hist")"
+    phrase="$(run_counts_phrase "$hist")"
     if [[ "$surface" == "offline" ]]; then
       notify "Upkeep" "Updates staged - they apply on the next reboot"
     elif [[ "$status" == "ok" ]]; then
@@ -339,7 +339,9 @@ cmd_update() {
     elif cmp -s "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
       # STILL PENDING: staging writes no rpm changes, so a baseline that still matches the world
       # this run started from means the reboot has not applied it yet. Safe to rebase.
-      cp "$SNAP_DIR/dnf-after.tsv" "$mpre" \
+      # atomic_write, not cp: the widget's timer can fire a check that reads this baseline at any
+      # moment, and a half-copied baseline would be diffed as a real transaction.
+      atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
         || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
     fi
     # ALREADY APPLIED (baselines differ): the reboot ran the staged transaction and no check has
@@ -431,11 +433,22 @@ cmd_history() {
 }
 
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
-# what turns it into a normal history entry. Caveat (documented in the spec): any rpm change after
-# staging trips the harvest - the diff it reports is still truthful.
+# what turns it into a normal history entry.
+# The harvest is GATED ON THE BOOT SESSION, because "the installed set moved" was never evidence
+# that the stage had applied: a live upkeep run, a manual `dnf install cowsay`, anything at all
+# would trip it, consume the marker and label someone else's change "offline (applied on reboot)".
+# A staged transaction can only be applied by a reboot, so same boot session = still pending,
+# full stop. Residual caveat (spec): once the boot HAS changed, the diff can also contain rpm
+# changes made by other tools since staging - what it reports is still truthful.
 harvest_offline() {
   [[ -f "$OFFLINE_MARKER" ]] || return 0
-  local pre now_snap ts report hist
+  local pre now_snap ts report hist boot
+  # Legacy markers (staged before this gate existed) and an unreadable boot_id fall back to the
+  # snapshot comparison below - never to "never harvest".
+  boot="$(jq -r '.boot_id // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+  if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
+    return 0   # same boot: the stage has not been applied, whatever the package set says
+  fi
   pre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
   # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
   # pointer on every check for the rest of time.
@@ -459,7 +472,9 @@ harvest_offline() {
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
   rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
-  notify "Upkeep" "Staged updates were applied on reboot - $(jq '.backends.dnf.updated|length' "$hist") packages"
+  # Same counts phrase as a live run's notification: a staged transaction that only installed or
+  # removed packages must not be announced as "0 packages".
+  notify "Upkeep" "Staged updates were applied on reboot - $(run_counts_phrase "$hist")"
 }
 
 cmd_config() {

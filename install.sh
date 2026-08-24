@@ -21,7 +21,14 @@ UPKEEP_AUTOSTART_SRC="${UPKEEP_AUTOSTART_SRC:-/etc/xdg/autostart/org.kde.discove
 # Test seam, same shape as libexec/upkeep-apply's UPKEEP_APPLY_ECHO: with UPKEEP_INSTALL_ECHO=1
 # the privileged (and process-killing) commands are PRINTED instead of run, so the real-mode
 # path can be tested without ever touching /usr, /etc or somebody's running desktop.
-run() { if [[ -n "${UPKEEP_INSTALL_ECHO:-}" ]]; then printf '%s\n' "$*"; else "$@"; fi; }
+# UPKEEP_INSTALL_ECHO=fail additionally makes them REPORT failure - the only way to test what the
+# installer says when someone dismisses the auth dialog.
+run() {
+  [[ -n "${UPKEEP_INSTALL_ECHO:-}" ]] || { "$@"; return; }
+  printf '%s\n' "$*"
+  [[ "$UPKEEP_INSTALL_ECHO" == fail ]] && return 1
+  return 0
+}
 
 # Recommended opt-out: plasma-discover-notifier duplicates Upkeep's notifications AND its
 # background PackageKit activity takes the dnf5 lock at random, which makes Upkeep runs fail
@@ -33,7 +40,9 @@ notifier_optout() {  # autostart_dir
   local dir="$1" src="$UPKEEP_AUTOSTART_SRC" body
   local f="$dir/org.kde.discover.notifier.desktop"
   mkdir -p "$dir"
-  [[ -f "$src" ]] && cp "$src" "$f"
+  # Seed from the system entry ONLY when there is nothing there yet: re-running the installer
+  # must not overwrite an override the user has since edited by hand.
+  [[ -f "$f" ]] || { [[ -f "$src" ]] && cp "$src" "$f"; } || true
   [[ -f "$f" ]] || printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\n' > "$f"
   body="$(grep -v '^Hidden=' "$f")" || true
   printf '%sHidden=true\n' "${body:+$body$'\n'}" > "$f"
@@ -59,9 +68,13 @@ main() {
       exit 0
     fi
     rm -f "$HOME/.local/bin/upkeep"
+    # A declined auth prompt leaves a HALF-uninstalled system, and pkexec's own rc 126 says
+    # nothing about that. Name the exact state and the exact way out.
     run pkexec bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
-      "$LIBEXEC_DIR/upkeep-refresh" "$LIBEXEC_DIR/upkeep-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE"
-    echo "Upkeep uninstalled (config/state in ~/.config/upkeep, ~/.local/state/upkeep left in place)"
+      "$LIBEXEC_DIR/upkeep-refresh" "$LIBEXEC_DIR/upkeep-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
+      || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/upkeep-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
+    echo "Upkeep uninstalled (config/state in ~/.config/upkeep, ~/.local/state/upkeep left in place;"
+    echo "  ~/.config/autostart/org.kde.discover.notifier.desktop also stays - delete it to let Discover's notifier run again)"
     exit 0
   fi
 
@@ -96,11 +109,15 @@ main() {
     echo "note: nothing to read an answer from - plasma-discover-notifier left ENABLED. Re-run install.sh in a terminal to turn it off (recommended: it duplicates notifications and holds the dnf5 lock)."
     return 0
   fi
-  if [[ "${ans,,}" != "n" ]]; then
-    notifier_optout "$HOME/.config/autostart"
-    run pkill -f DiscoverNotifier 2>/dev/null || true
-    echo "DiscoverNotifier disabled for $(id -un) (delete $HOME/.config/autostart/org.kde.discover.notifier.desktop to undo)"
-  fi
+  # "no" must mean no: the old `!= "n"` test read the word "no" as consent.
+  case "${ans,,}" in
+    n|no)
+      echo "plasma-discover-notifier left enabled (run ./install.sh again to change your mind)" ;;
+    *)
+      notifier_optout "$HOME/.config/autostart"
+      run pkill -f DiscoverNotifier 2>/dev/null || true
+      echo "DiscoverNotifier disabled for $(id -un) (delete $HOME/.config/autostart/org.kde.discover.notifier.desktop to undo)" ;;
+  esac
 }
 
 # Sourced (by the tests) it defines functions only; executed it installs.

@@ -71,8 +71,37 @@ assert_eq "$(readlink "$HOME/.local/bin/upkeep")" "$REPO_ROOT/bin/upkeep" "real 
 grep -q "don't move/delete the repo" <<<"$out" \
   && echo "ok: says the checkout is load-bearing" || { echo "FAIL: no checkout warning - got: $out"; _fail=1; }
 
-# Answering no to the notifier question must leave the user's autostart alone.
-assert_exit 0 "declining the notifier opt-out writes nothing" -- test ! -e "$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+# --- wrong outcomes: what the installer SAYS when the auth dialog is dismissed. UPKEEP_INSTALL_ECHO=fail
+# makes the printed pkexec report failure, which is the only way to reach these paths unprivileged.
+irc=0
+iout="$(UPKEEP_INSTALL_ECHO=fail bash "$INSTALL" </dev/null 2>&1)" || irc=$?
+assert_eq "$irc" "1" "a declined install exits 1, not a bare pkexec rc"
+grep -q 'root helpers are NOT installed' <<<"$iout" \
+  && echo "ok: a declined install says the helpers are missing" || { echo "FAIL: install failure message - got: $iout"; _fail=1; }
+urc=0
+uout="$(UPKEEP_INSTALL_ECHO=fail bash "$INSTALL" --uninstall 2>&1)" || urc=$?
+assert_eq "$urc" "1" "a declined uninstall exits 1, not a bare pkexec rc"
+grep -q 'the CLI symlink is gone, but' <<<"$uout" \
+  && echo "ok: a declined uninstall names the half-removed state" || { echo "FAIL: uninstall failure message - got: $uout"; _fail=1; }
+grep -q 're-run ./install.sh --uninstall' <<<"$uout" \
+  && echo "ok: ...and says how to finish" || { echo "FAIL: no recovery instruction - got: $uout"; _fail=1; }
+
+# --- the notifier question. "no" must mean no: `!= "n"` used to read the word "no" as consent.
+export UPKEEP_AUTOSTART_SRC="$TESTTMP/system-notifier.desktop"
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
+  > "$UPKEEP_AUTOSTART_SRC"
+USER_AUTOSTART="$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+assert_exit 0 "declining with n writes nothing" -- test ! -e "$USER_AUTOSTART"
+nout_no="$(UPKEEP_INSTALL_ECHO=1 bash "$INSTALL" <<<"no")"
+assert_exit 0 "declining with the word 'no' writes nothing either" -- test ! -e "$USER_AUTOSTART"
+grep -q 'left enabled' <<<"$nout_no" && echo "ok: and it says the notifier is still enabled" || { echo "FAIL: no-answer message - got: $nout_no"; _fail=1; }
+grep -q 'DiscoverNotifier disabled' <<<"$nout_no" && { echo "FAIL: 'no' disabled the notifier anyway"; _fail=1; } \
+  || echo "ok: 'no' never claims it disabled anything"
+yout="$(UPKEEP_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
+assert_exit 0 "accepting writes the override" -- test -f "$USER_AUTOSTART"
+assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "the override hides the notifier"
+grep -q 'pkill -f DiscoverNotifier' <<<"$yout" && echo "ok: accepting also stops the running notifier" || { echo "FAIL: pkill not attempted - got: $yout"; _fail=1; }
+rm -f "$USER_AUTOSTART"
 
 # ...and neither does having nobody to ask. The spec is explicit that the notifier is never
 # disabled silently, so a piped/redirected stdin must leave it exactly as it was.
@@ -117,4 +146,12 @@ notifier_optout "$AUTOSTART"
 notifier_optout "$AUTOSTART"
 assert_eq "$(grep -c '^Hidden=' "$f")" "1" "re-running against a Hidden=false system entry still leaves one"
 assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and it is still the hiding one"
+
+# An override the user has since edited by hand must survive a re-install: the system entry is
+# only ever a SEED, copied when there is nothing there yet.
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nX-Erez-Custom=1\nHidden=true\n' > "$f"
+notifier_optout "$AUTOSTART"
+grep -q '^X-Erez-Custom=1' "$f" && echo "ok: re-installing preserves the user's own autostart edits" \
+  || { echo "FAIL: the system entry overwrote the user's file"; _fail=1; }
+assert_eq "$(grep -c '^Hidden=' "$f")" "1" "and still exactly one Hidden= line"
 finish
