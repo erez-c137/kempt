@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Test helpers. Source me. Each test file runs in its own sandbox HOME.
+# Test helpers. Source me. Each test file runs in its own sandboxed HOME (a throwaway
+# $TESTTMP/home — the real $HOME is never touched; see sandbox()).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES="$REPO_ROOT/tests/fixtures"
@@ -7,11 +8,16 @@ _fail=0
 
 sandbox() {  # fresh dirs per test file; call first
   TESTTMP="$(mktemp -d "${TMPDIR:-/tmp}/upkeep-test.XXXXXX")"
+  export HOME="$TESTTMP/home"; mkdir -p "$HOME"
+  export XDG_CONFIG_HOME="$HOME/.config" XDG_STATE_HOME="$HOME/.local/state"
   export UPKEEP_CONFIG_DIR="$TESTTMP/config"
   export UPKEEP_STATE_DIR="$TESTTMP/state"
   export UPKEEP_PKEXEC=""
   export UPKEEP_NOTIFY="true"   # /usr/bin/true — notifications are no-ops in tests
-  trap 'rm -rf "$TESTTMP"' EXIT
+  export UPKEEP_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
+  export UPKEEP_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
+  unset UPKEEP_DNF_INSTALLED_CMD UPKEEP_FLATPAK_REMOTE_CMD UPKEEP_FLATPAK_LIST_CMD UPKEEP_SKIP_REFRESH
+  trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 
 assert_eq() {  # got expected label
@@ -23,10 +29,14 @@ assert_json_eq() {  # got expected label (order-insensitive keys)
   assert_eq "$(jq -Sc . <<<"$1")" "$(jq -Sc . <<<"$2")" "$3"
 }
 
-assert_exit() {  # expected_rc label -- cmd...
-  local want="$1" label="$2"; shift 2; local rc=0
-  "$@" >/dev/null 2>&1 || rc=$?
+assert_exit() {  # expected_rc label [--] cmd...
+  local want="$1" label="$2"; shift 2
+  [[ "${1:-}" == "--" ]] && shift
+  local rc=0
+  "$@" >"$TESTTMP/last_output" 2>&1 || rc=$?
   assert_eq "$rc" "$want" "$label"
+  [[ "$rc" != "$want" ]] && { echo "  output:"; sed 's/^/    /' "$TESTTMP/last_output"; }
+  return 0
 }
 
 finish() { exit $_fail; }
