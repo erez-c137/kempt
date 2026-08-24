@@ -657,9 +657,7 @@ state_prev_items() {  # backend → previous items JSON or []
   jq ".backends.$1.items // []" "$STATE_FILE" 2>/dev/null || echo '[]'
 }
 
-write_state() {  # stdin: state JSON; atomic
-  cat > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
-}
+write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
 
 maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
@@ -741,6 +739,7 @@ cmd_hold() {
 cmd_unhold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
+  [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   hold_remove "$b" "$n"
 }
 cmd_holds()  { holds_all; }
