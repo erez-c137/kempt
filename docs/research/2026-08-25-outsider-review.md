@@ -5,7 +5,7 @@
 in turn: a new user who just cloned it, a would-be contributor looking for the seam to add a
 backend, and a security auditor who does not take the security doc's word for anything.
 **Status of this file:** condensed by the person who then implemented most of it. The ranked list
-and the credibility list below are tight paraphrases, not a transcript. Dispositions and commit
+are tight paraphrases; the credibility section carries both a synthesis and the reviewer's verbatim closing list. Dispositions and commit
 subjects are facts; the wording is a summary.
 
 Working archive, like everything else under `docs/research/`. It is here so a future maintainer
@@ -85,3 +85,22 @@ rest, and any one of them is easy to erode by accident.
    a place to go and read about it.
 10. **Plain commit messages that explain the why.** The log is part of the documentation here, and
     it reads like one.
+
+### The reviewer's original closing list, verbatim
+
+(Recovered from the review transcript after the section above was written; kept because the
+stranger's own phrasing shows what registered.)
+
+- The locale-pin claim being **true and demonstrable**. It is the moment the security doc stopped
+  reading as marketing.
+- Comments that name the bug they prevent, with measured numbers: "a self-diff... produced 192
+  phantom updated rows", "a 12-package qt6 bump used to fill the whole listing and push the
+  pending KERNEL out of sight". That is someone who got bitten, not someone performing rigor.
+- The suite genuinely needing none of the tools it drives.
+- security.md's "Accepted limitations" volunteering the checkout hole and the untestable flatpak
+  path unprompted.
+- CONTRIBUTING's "prove the test binds" rule, and "No trailers, no generated sign-offs, no
+  'AI assisted' footers".
+- The `check` exit contract ("empty stdout with exit 0 means no data, never zero updates") stated
+  in three places, and `atomic_write`'s `sync`-before-`mv` with its reason (a zero-length holds
+  file silently un-holds everything).
