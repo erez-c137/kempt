@@ -1137,8 +1137,8 @@ release_lock() { rm -f "$LOCK_FILE"; }
 - [ ] **Step 4: Add cmd_update to bin/upkeep** (+ case arm `update) shift; cmd_update "$@" ;;`)
 
 ```bash
-UPKEEP_REBOOT_CMD="${UPKEEP_REBOOT_CMD:-dnf5 needs-restarting -r}"
 UPKEEP_RETRY_DELAY="${UPKEEP_RETRY_DELAY:-10}"
+# reboot question is answered by the BACKEND's dnf_reboot_needed (UPKEEP_DNF_CMD seam) — one mechanism, no drift
 
 apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock errors
   local log="$1"; shift
@@ -1240,9 +1240,7 @@ cmd_update() {
     fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
       || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
   fi
-  local rrc=0
-  $UPKEEP_REBOOT_CMD >/dev/null 2>&1 || rrc=$?
-  [[ $rrc -eq 1 ]] && reboot=true
+  [[ "$(dnf_reboot_needed)" == "true" ]] && reboot=true
 
   # offline staging marker (harvested by cmd_check after reboot — Task 12)
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
@@ -1342,7 +1340,7 @@ render_summary() {  # history-json-file → human text
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
     def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
-    "Upkeep — " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
+    "Upkeep - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
       + (if .status == "ok" then "✓" else "FAILED — see " + .log end),
     "System (dnf): " + (.backends.dnf.updated|length|tostring) + " updated"
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
@@ -1475,6 +1473,8 @@ cmd_run() {
 
 - [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: upkeep run surface dispatcher (+ auto-accept forces terminal)"`
+
+POST-REVIEW NOTE (Tasks 11-13 as built): the repo is authoritative and exceeds the blocks above — cmd_summary survives an empty or corrupt history dir (warning + fallback, never a pipefail crash); cmd_history skips corrupt entries; both cmd_run and cmd_update validate the surface value (unknown → warning + terminal); cmd_run rejects unknown args (an unguarded typo like `--dryrun` would have launched a real Konsole update); post-run snapshot/lookup failures degrade with a warning instead of crashing a run that already changed the system; the concurrent-update lock test uses a LIVE pid (a dead-pid "lock" is correctly cleared as stale — separate assertion); retry logging announces a retry only when one follows, with a distinct "giving up" line; harvest tests copy fixtures into the sandbox (harvest deletes its pre-snapshot — pointing it at a repo fixture would delete the fixture); product copy is em-dash-free per house rule.
 
 ---
 
