@@ -220,3 +220,17 @@ metered_connection() {
   busctl get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager \
     org.freedesktop.NetworkManager Metered 2>/dev/null | grep -qE ' (1|3)$'
 }
+
+# --- update lock (our own concurrency; foreign rpm lock handled by retry in cmd_update) ---
+# A lockfile whose PID is dead is stale and gets cleared: a lock nobody owns froze restic's
+# retention for 8 days while the backups still reported healthy. Never inherit that failure.
+acquire_lock() {
+  upkeep_init_dirs
+  if [[ -f "$LOCK_FILE" ]] && kill -0 "$(cat "$LOCK_FILE")" 2>/dev/null; then return 1; fi
+  [[ -f "$LOCK_FILE" ]] && echo "note: clearing stale upkeep lock" >&2
+  echo $$ > "$LOCK_FILE"
+}
+release_lock() { rm -f "$LOCK_FILE"; }
+
+# TEMPORARY stub — Task 12 replaces this with the real renderer (its test forces the real one).
+render_summary() { jq -r .status "$1"; }

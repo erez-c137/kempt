@@ -49,6 +49,159 @@ cmd_check() {
   printf '%s\n' "$state" | write_state
 }
 
+# `-C` (cache-only) and </dev/null are load-bearing, exactly as in dnf_reboot_needed: an
+# uncached needs-restarting does NETWORK I/O and can prompt on stdin, and this runs from
+# background/detached surfaces where there is nobody to answer. Exit 1 = reboot needed.
+UPKEEP_REBOOT_CMD="${UPKEEP_REBOOT_CMD:-dnf5 -C needs-restarting}"
+UPKEEP_RETRY_DELAY="${UPKEEP_RETRY_DELAY:-10}"
+
+apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock errors
+  local log="$1"; shift
+  local attempt rc
+  for attempt in 1 2 3; do
+    rc=0
+    if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
+      # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
+      # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
+      # apply_with_retry bare — a bare `; rc=` form would abort the run instead of retrying.
+      priv_apply "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
+    else
+      priv_apply "$@" >>"$log" 2>&1 || rc=$?
+    fi
+    [[ $rc -eq 0 ]] && return 0
+    if tail -n 20 "$log" | grep -qiE 'lock|another (process|application)'; then
+      # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
+      if [[ $attempt -lt 3 ]]; then
+        echo "Package system busy (PackageKit/Discover?) — retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
+        sleep "$UPKEEP_RETRY_DELAY"
+      else
+        echo "Package system still busy after $attempt attempts — giving up" | tee -a "$log" >&2
+      fi
+    else
+      return $rc
+    fi
+  done
+  return $rc
+}
+
+cmd_update() {
+  local a h surface include_fp=""
+  surface="$(config_get surface)"
+  for a in "$@"; do case "$a" in
+    --no-flatpak) include_fp=false ;;
+    --surface=*) surface="${a#--surface=}" ;;
+    *) echo "unknown option: $a" >&2; exit 2 ;;
+  esac; done
+  [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak)"
+  local auto; auto="$(config_get auto_accept)"
+  # only a terminal can prompt — enforced HERE too (cmd_run also guards, but update can be invoked directly)
+  is_true "$auto" || { surface="terminal"; UPKEEP_LIVE_OUTPUT=1; }
+  [[ "$surface" == "terminal" ]] && UPKEEP_LIVE_OUTPUT=1
+  export UPKEEP_LIVE_OUTPUT
+
+  acquire_lock || { echo "another upkeep update is running" >&2; exit 3; }
+  trap release_lock EXIT
+
+  upkeep_init_dirs
+  local ts start log status="ok" reboot=false
+  ts="$(date +%Y%m%dT%H%M%S)"; start="$(date +%s)"
+  log="$LOG_DIR/$ts.log"
+
+  # snapshots (before)
+  dnf_snapshot > "$SNAP_DIR/dnf-before.tsv"
+  is_true "$include_fp" && flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"
+
+  # dnf
+  local yflag=() excl=() dnf_status="ok"
+  is_true "$auto" && yflag=(-y)
+  local held_dnf; held_dnf="$(holds_for dnf)"
+  while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
+  if [[ "$surface" == "offline" ]]; then
+    apply_with_retry "$log" dnf-offline-stage "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+  else
+    apply_with_retry "$log" dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+  fi
+
+  # flatpak (live even when dnf staged offline — flatpak has no offline mechanism)
+  # Known v1 limitation: check/snapshot use --app, but `flatpak update` also updates RUNTIMES,
+  # so the summary can under-report what the transaction actually changed. Documented, accepted.
+  local fp_status="skipped"
+  if is_true "$include_fp"; then
+    fp_status="ok"
+    local held_fp ids=()
+    held_fp="$(holds_for flatpak)"
+    if [[ -n "$held_fp" ]]; then
+      # holds exist → per-app updates of every pending, non-held, INSTALLED app
+      # (installed pre-filter: the helper's installed-set check is a backstop that must never fire in normal runs)
+      local installed_fp id; installed_fp="$(flatpak_snapshot | cut -f1)"
+      while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        grep -qxF "$id" <<<"$held_fp" && continue
+        grep -qxF "$id" <<<"$installed_fp" || continue
+        ids+=("$id")
+      done < <(flatpak_check 2>/dev/null | jq -r '.[].name')
+      if [[ ${#ids[@]} -gt 0 ]]; then
+        apply_with_retry "$log" flatpak-update "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
+      fi
+    else
+      apply_with_retry "$log" flatpak-update "${yflag[@]}" || { fp_status="failed"; status="failed"; }
+    fi
+  fi
+
+  # snapshots (after) + reports
+  # Reports must never crash cmd_update after the system already changed — degrade to empty + warning.
+  dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"
+  local empty_report='{"updated":[],"added":[],"removed":[]}'
+  local dnf_report fp_report="$empty_report"
+  dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
+    || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
+  if is_true "$include_fp"; then
+    flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"
+    fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
+      || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
+  fi
+  local rrc=0
+  $UPKEEP_REBOOT_CMD </dev/null >/dev/null 2>&1 || rrc=$?
+  [[ $rrc -eq 1 ]] && reboot=true
+
+  # offline staging marker (harvested by cmd_check after reboot)
+  if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
+    # marker owns its snapshot copy — a later update run overwrites dnf-before.tsv
+    cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
+    jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
+      '{staged_at:$ts, pre_snapshot:$snap}' > "$OFFLINE_MARKER"
+  fi
+
+  # history entry
+  local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json"
+  held_dnf_json="$(holds_for dnf | jq -Rn '[inputs]')"
+  held_fp_json="$(holds_for flatpak | jq -Rn '[inputs]')"
+  jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
+        --arg log "$log" --argjson dur "$(( $(date +%s) - start ))" \
+        --argjson reboot "$reboot" \
+        --argjson dnf "$dnf_report" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
+        --argjson fp "$fp_report" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
+    {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
+     reboot_needed:$reboot, log:$log,
+     backends: {
+       dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
+
+  # tell the human
+  render_summary "$hist"
+  if [[ "$surface" != "terminal" ]]; then
+    local n; n="$(jq '[.backends[].updated | length] | add' "$hist")"
+    if [[ "$surface" == "offline" ]]; then
+      notify "Upkeep" "Updates staged — they apply on the next reboot"
+    elif [[ "$status" == "ok" ]]; then
+      notify "Upkeep" "$n packages updated$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+    else
+      notify "Upkeep" "Update FAILED — see $log"
+    fi
+  fi
+  [[ "$status" == "ok" ]]
+}
+
 cmd_config() {
   case "${1:-}" in
     get) [[ -n "${2:-}" ]] || { echo "usage: upkeep config get <key> [default]" >&2; exit 2; }
@@ -129,6 +282,7 @@ EOF
 
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;
+  update)  shift; cmd_update "$@" ;;
   config)  shift; cmd_config "$@" ;;
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;

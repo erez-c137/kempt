@@ -3,8 +3,10 @@ source "$(dirname "$0")/lib.sh"; sandbox
 RH="$REPO_ROOT/libexec/upkeep-refresh"
 AH="$REPO_ROOT/libexec/upkeep-apply"
 
-assert_exit 2 "refresh: no verb"        bash "$RH"
-assert_exit 2 "refresh: bad verb"       bash "$RH" nuke
+# ECHO=1 on the rejection cases too (belt and braces): if an arg guard is ever removed, the
+# assertion fails loudly instead of the test reaching a real dnf5 invocation.
+assert_exit 2 "refresh: no verb"        env UPKEEP_REFRESH_ECHO=1 bash "$RH"
+assert_exit 2 "refresh: bad verb"       env UPKEEP_REFRESH_ECHO=1 bash "$RH" nuke
 # Extra args are never forwarded to dnf5, so they must be REFUSED rather than silently dropped —
 # `upkeep-refresh check --installroot=/foo` must not look like it honoured the flag.
 assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
@@ -63,4 +65,9 @@ grep -q 'flatpak list --system --app' "$FP" && echo "ok: installed lookup scope 
   || { echo "FAIL: list not --system scoped"; _fail=1; }
 grep -q 'flatpak list --system --app --columns=application' "$AH" && echo "ok: helper validates against the same scope" \
   || { echo "FAIL: helper scope drifted from the backend"; _fail=1; }
+# The per-app loop is the one privileged argv no test can execute (its installed-set validation
+# is deliberately not env-overridable), so its scope is pinned by source grep instead: dropping
+# --system there would update per-USER apps from a root helper the badge never counted.
+grep -q 'run_noexec flatpak update --system' "$AH" && echo "ok: per-app privileged argv pinned" \
+  || { echo "FAIL: per-app privileged argv lost --system"; _fail=1; }
 finish
