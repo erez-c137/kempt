@@ -40,6 +40,11 @@ installer and its documentation. The Plasma panel widget is not part of this yet
   exactly what it put where, stages unprivileged with `--destdir`, reverses itself with
   `--uninstall`, and offers (never assumes) disabling Discover's notifier, which otherwise
   duplicates notifications and holds the dnf5 lock.
+- **`upkeep doctor`, a checkup that says what is wrong.** One line per check for the two root
+  helpers, the polkit action, `jq`, the terminal emulator, flatpak, the config file's syntax, a
+  writable state directory and an intact checkout; exit 1 if anything failed. It exists because
+  everything else degrades instead of crashing: with the root helpers missing, `check` exits 0
+  with a stale state and nothing pending, which reads as "up to date".
 - **A man page**, installed into the user's man hierarchy: `man upkeep`.
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, contributing
