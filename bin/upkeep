@@ -7,28 +7,43 @@ source "$ROOT/lib/common.sh"
 source "$ROOT/backends/dnf.sh"
 source "$ROOT/backends/flatpak.sh"
 
+command -v jq >/dev/null || { echo "upkeep: requires jq" >&2; exit 3; }
+
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body — backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   upkeep_init_dirs
-  maybe_refresh_metadata
-  local status="ok" error="" dnf_items fp_items
-  if dnf_items="$(dnf_check)"; then :; else
-    status="stale"; error="dnf check failed"; dnf_items="$(state_prev_items dnf)"
+  # serialize checks: last FINISHER used to win, letting a slow stale result overwrite a fresh one
+  exec 9>"$UPKEEP_STATE_DIR/check.lock"
+  if ! flock -w 60 9; then
+    echo "warning: another check holds the lock; serving previous state" >&2
+    [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE"
+    return 0
   fi
-  if [[ "$(config_get include_flatpak true)" == "true" ]]; then
-    if fp_items="$(flatpak_check)"; then :; else
-      status="stale"; error="${error:+$error; }flatpak check failed"; fp_items="$(state_prev_items flatpak)"
+  maybe_refresh_metadata
+  local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
+  prev_ls="$(jq -r '.last_success // empty' "$STATE_FILE" 2>/dev/null || true)"
+  errf="$(mktemp)"
+  if dnf_items="$(dnf_check 2>"$errf")"; then :; else
+    serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+    status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
+  fi
+  if is_true "$(config_get include_flatpak)"; then
+    if fp_items="$(flatpak_check 2>"$errf")"; then :; else
+      serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+      status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
   else
-    fp_items='[]'
+    fp_enabled=false; fp_items='[]'
   fi
+  rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
   fp_items="$(mark_held flatpak <<<"$fp_items")"
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls")"
+  printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
-  printf '%s\n' "$state"
 }
 
 cmd_config() {
@@ -79,5 +94,5 @@ case "${1:-help}" in
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
   help|--help|-h) usage ;;
-  *) usage; exit 2 ;;
+  *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

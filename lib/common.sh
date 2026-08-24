@@ -26,12 +26,20 @@ LAST_REFRESH_FILE="$UPKEEP_STATE_DIR/last_refresh"
 OFFLINE_MARKER="$UPKEEP_STATE_DIR/offline_staged.json"
 LOCK_FILE="$UPKEEP_STATE_DIR/lock"
 
-upkeep_init_dirs() { mkdir -p "$UPKEEP_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"; }
+upkeep_init_dirs() {
+  mkdir -p "$UPKEEP_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
+  # Sweep aged orphan tmps: a crash between mktemp and mv leaks .atomic.XXXXXX forever.
+  # +60min so a tmp belonging to a live concurrent writer is never eligible.
+  [[ -d "$UPKEEP_STATE_DIR" ]] && find "$UPKEEP_STATE_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+}
 
 atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays atomic)
   local dest="$1" tmp
   tmp="$(mktemp -p "$(dirname "$dest")" .atomic.XXXXXX)"
-  if cat > "$tmp"; then mv "$tmp" "$dest"; else rm -f "$tmp"; return 1; fi
+  # sync before the rename: an atomic rename only guarantees you see the OLD or NEW name, not
+  # that the new name's CONTENT reached disk. After an unclean shutdown that gap shows up as a
+  # zero-length holds file — which silently un-holds every package the user pinned.
+  if cat > "$tmp"; then sync "$tmp" 2>/dev/null || true; mv "$tmp" "$dest"; else rm -f "$tmp"; return 1; fi
 }
 
 collapse_versions() {  # stdin: name-sorted TSV name\tver (names may repeat) → one row per name, versions comma-joined in input order
@@ -41,13 +49,23 @@ collapse_versions() {  # stdin: name-sorted TSV name\tver (names may repeat) →
     END { if (prev != "") print prev "\t" vals }'
 }
 
-config_get() {  # key default
+upkeep_default() {  # key → default ("" if unknown)
+  case "$1" in
+    include_flatpak|auto_accept) echo true ;;
+    surface) echo terminal ;;
+    refresh_interval_min) echo 60 ;;
+    *) echo "" ;;
+  esac
+}
+is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
+
+config_get() {  # key [default]; explicit default wins, else the upkeep_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
     echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
   fi
   local v
   v="$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)"
-  printf '%s\n' "${v:-$2}"
+  printf '%s\n' "${v:-${2:-$(upkeep_default "$1")}}"
 }
 
 config_set() {  # key value
@@ -63,7 +81,11 @@ config_set() {  # key value
   printf '%s%s=%s\n' "${out:+$out$'\n'}" "$1" "$2" | atomic_write "$CONFIG_FILE"
 }
 
-priv_refresh() { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
+# timeout: metadata refresh runs from background checks. Once polkit exists but before the
+# action file is installed, pkexec falls back to an auth DIALOG — a background check would hang
+# forever waiting on a password nobody is there to type. priv_apply stays untimed on purpose:
+# there, interactive auth is the legitimate flow.
+priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
 priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
 notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
@@ -117,19 +139,31 @@ tsv_diff_updates() {  # before_file after_file
 }
 
 # --- state assembly ---
-assemble_state() {  # $1 dnf items JSON (held-marked), $2 flatpak items JSON, $3 status, $4 error
-  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" --arg now "$(now_iso)" '
-    def wrap: {count: ([.[] | select(.held|not)] | length),
-               held:  ([.[] | select(.held)] | length),
-               items: .};
-    {last_check: $now, status: $status, error: $error,
-     backends: {dnf: ($dnf | wrap), flatpak: ($fp | wrap)},
+# State schema v1 — FROZEN. This JSON is a public interface (the widget and any scripted reader
+# consume it), so additive changes only; anything else bumps `schema`.
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or ""
+  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
+        --argjson fpe "$5" --arg pls "$6" --arg now "$(now_iso)" '
+    def wrap(e): {enabled: e,
+                  actionable: ([.[] | select(.held|not)] | length),
+                  held:       ([.[] | select(.held)] | length),
+                  items: .};
+    {schema: 1, last_check: $now,
+     last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
+     status: $status, error: $error,
+     backends: {dnf: ($dnf | wrap(true)), flatpak: ($fp | wrap($fpe))},
      actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length)}'
 }
 
-state_prev_items() {  # backend → previous items JSON or []
-  jq ".backends.$1.items // []" "$STATE_FILE" 2>/dev/null || echo '[]'
+# Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach
+# --argjson as invalid JSON (or a string), killing the whole check with jq rc 2/5 — the one
+# moment the fallback exists for. Every bad shape degrades to [].
+state_prev_items() {  # backend → previous items array; [] for missing/corrupt/wrong-shaped state
+  local out
+  out="$(jq -c -n --arg b "$1" '[inputs][0].backends[$b].items? // []
+                                 | if type=="array" then . else [] end' "$STATE_FILE" 2>/dev/null)"
+  [[ "$out" == \[* ]] && printf '%s\n' "$out" || echo '[]'
 }
 
 write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
@@ -137,7 +171,9 @@ write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlappin
 maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
   local last=0 now; now="$(date +%s)"
-  [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE")"
+  # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
+  # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
+  [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE" || echo 0)"
   (( now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
