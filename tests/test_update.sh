@@ -259,8 +259,14 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: the re-prompt acce
 big="$(UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"a" 2>/dev/null)"
 grep -q 'touches 20 session-critical packages' <<<"$big" \
   && echo "ok: the count is the headline (kernel-devel excluded)" || { echo "FAIL: risky count - got: $(head -1 <<<"$big")"; _fail=1; }
-assert_eq "$(grep -cE '^  [a-z]' <<<"$big")" "8" "terminal listing caps at 8 names"
-grep -q '\.\.\. and 12 more' <<<"$big" && echo "ok: the rest are counted, not printed" || { echo "FAIL: overflow line"; _fail=1; }
+# One representative per FAMILY, like the notification: eight alphabetical names off the top of
+# a 12-package qt6 bump told the user nothing about the kernel further down the list. Five
+# families here (kernel, kf6, kwin, mesa, qt6), so five names and the rest counted in the tail.
+assert_eq "$(grep -cE '^  [a-z]' <<<"$big")" "5" "terminal listing shows one name per family"
+assert_eq "$(grep -c 'qt6-qtmod' <<<"$big")" "1" "a single family never fills the whole listing"
+grep -q '  mesa-libGL' <<<"$big" && echo "ok: a one-package family is still named" || { echo "FAIL: small family missing"; _fail=1; }
+grep -q '  kernel-core' <<<"$big" && echo "ok: the kernel is named, not buried by alphabetical qt6 rows" || { echo "FAIL: kernel missing from the listing"; _fail=1; }
+grep -q '\.\.\. and 15 more' <<<"$big" && echo "ok: the rest are counted, not printed" || { echo "FAIL: overflow line"; _fail=1; }
 : > "$WORLD/notifications"
 "$UPKEEP" update --surface=background >/dev/null 2>&1
 grep -q '20 session-critical packages pending (kernel, kf6, kwin, mesa, ...)' "$WORLD/notifications" \
@@ -386,5 +392,96 @@ assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))"
 # ($out was captured from the very first run, before the stub renderer was replaced)
 grep -q 'kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44' <<<"$out" && echo "ok: update printed a rendered summary" \
   || { echo "FAIL: update printed no summary — got: $out"; _fail=1; }
+
+# --- a LIVE run must not let its own closing self-refresh mis-harvest a PENDING offline stage.
+# The staged transaction applies only on reboot, but a live run moves the rpm snapshot too — so
+# the self-refresh saw "the installed set changed", harvested immediately, labelled the LIVE
+# delta "offline (applied on reboot)" and consumed the marker. The staged transaction then
+# applied at the next reboot and was never reported at all. Three distinct worlds below:
+# staged (baseline) → live (a live run bumped bash) → reboot (the staged kernel landed).
+printf 'bash\t5.2.37-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-staged.tsv"
+printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-live.tsv"
+printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-reboot.tsv"
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"
+exit 0
+STUB
+marker="$UPKEEP_STATE_DIR/offline_staged.json"
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_exit 0 "offline stage left a marker to rebase" -- test -f "$marker"
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
+sleep 1   # per-second history filenames: keep the live run off the staging run's name
+"$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
+assert_exit 0 "a live run leaves a pending offline marker in place" -- test -f "$marker"
+ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
+comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
+assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom harvest"
+assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" "the entry is the live run, not a mislabelled harvest"
+
+# ...and after the reboot that actually applies it, the harvest reports the STAGED delta only
+cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+sleep 1
+"$UPKEEP" check >/dev/null 2>&1
+[[ ! -f "$marker" ]] && echo "ok: the post-reboot check consumes the marker" || { echo "FAIL: marker survived the reboot"; _fail=1; }
+hr="$UPKEEP_STATE_DIR/history/$(ls -1 "$UPKEEP_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .surface "$hr")" "offline (applied on reboot)" "the reboot result is harvested as an offline run"
+assert_eq "$(jq -c '[.backends.dnf.updated[].name]' "$hr")" '["kernel-core"]' \
+  "the harvest diffs the rebased baseline: only the staged package, not the live run's bash"
+
+# --- history filenames are per-second, and a harvest fires from a check a live run may have
+# triggered in the same second. An existing entry must never be overwritten.
+pre2="$UPKEEP_STATE_DIR/snapshots/offline-pre-collide.tsv"
+cp "$TESTTMP/rb-live.tsv" "$pre2"
+jq -n --arg snap "$pre2" '{staged_at:"x", pre_snapshot:$snap}' > "$marker"
+cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+decoys=()
+for off in 0 1 2 3; do
+  d="$UPKEEP_STATE_DIR/history/$(date -d "+$off seconds" +%Y%m%dT%H%M%S).json"
+  printf 'DECOY\n' > "$d"; decoys+=("$d")
+done
+"$UPKEEP" check >/dev/null 2>&1
+assert_eq "$(ls -1 "$UPKEEP_STATE_DIR"/history/*-offline.json 2>/dev/null | wc -l)" "1" \
+  "a same-second harvest takes its own filename"
+assert_eq "$(cat "${decoys[@]}" | grep -c DECOY)" "4" "no existing history entry was overwritten"
+rm -f "${decoys[@]}"
+
+# --- the lock-retry window is PER ATTEMPT. dnf fails three times on a busy package lock, then
+# flatpak fails on a full disk in the SAME log: a fixed `tail -n 20` re-reads dnf's lock errors,
+# calls the disk failure a lock too, and retries a run that was never going to succeed.
+cat > "$TESTTMP/apply-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "APPLY $@" >> "$WORLD/apply-calls"
+case "$1" in
+  dnf-upgrade)    echo "cannot open lock file: held by another process" >&2 ;;
+  flatpak-update) echo "Error: No space left on device" >&2 ;;
+esac
+exit 1
+STUB
+: > "$WORLD/apply-calls"
+export UPKEEP_RETRY_DELAY=0
+assert_exit 1 "a lock-then-disk run fails" "$UPKEEP" update --surface=background
+mixed_log="$(ls -t "$UPKEEP_STATE_DIR"/logs/*.log | head -1)"
+assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "4" "3 dnf attempts + exactly ONE flatpak attempt"
+assert_eq "$(grep -c 'retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
+
+# --- double staging leaves ONE pre-snapshot: only the newest can ever be harvested, so an
+# un-swept copy is dead weight that accumulates one file per staged run, forever.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+first_pre="$(jq -r .pre_snapshot "$marker")"
+sleep 1   # per-second names: without this the second staging would reuse the first one's file
+"$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
+second_pre="$(jq -r .pre_snapshot "$marker")"
+[[ "$first_pre" != "$second_pre" ]] && echo "ok: the second staging really wrote a new copy" \
+  || { echo "FAIL: both stagings used one filename - the sweep was never exercised"; _fail=1; }
+assert_eq "$(ls -1 "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1" \
+  "double staging leaves exactly one pre-snapshot"
+assert_exit 0 "and the survivor is the one the live marker points at" -- test -f "$second_pre"
 
 finish

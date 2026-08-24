@@ -146,10 +146,17 @@ cmd_update() {
       rcount="$(wc -l <<<"$risky_list")"
       if [[ "$surface" == "terminal" && ( -t 0 || -n "${UPKEEP_ASSUME_TTY:-}" ) ]]; then
         echo "Recommendation: this update touches $rcount session-critical packages (a live upgrade can break the running desktop):"
-        # capped: a Qt or KDE bump legitimately produces hundreds of matches, and a wall of
-        # names is not a recommendation a human can act on.
-        sed 's/^/  /' <<<"$risky_list" | head -8
-        (( rcount > 8 )) && echo "  ... and $(( rcount - 8 )) more"
+        # ONE NAME PER FAMILY, same rule as the notification. A Qt or KDE bump legitimately
+        # produces hundreds of matches, and the first eight alphabetically are all the same
+        # family: a 12-package qt6 bump used to fill the whole listing and push the pending
+        # KERNEL out of sight. Families are the prefix up to the first - or . (kernel-core and
+        # kernel-modules are one decision, not two); the tail counts every name not shown.
+        local reps shown nshown
+        reps="$(awk '{ f = $0; sub(/[-.].*/, "", f); if (!(f in seen)) { seen[f] = 1; print } }' <<<"$risky_list")"
+        shown="$(head -8 <<<"$reps")"        # still capped: a box can always surprise us with 30 families
+        nshown="$(grep -c '' <<<"$shown")"
+        sed 's/^/  /' <<<"$shown"
+        (( rcount > nshown )) && echo "  ... and $(( rcount - nshown )) more"
         local ans tries
         for tries in 1 2; do
           # `|| ans=""` keeps EOF (Ctrl-D) out of errexit; EOF and Enter both mean "I did not
@@ -309,6 +316,29 @@ cmd_update() {
       notify "Upkeep" "Update FAILED - see $log"
     fi
   fi
+  # A PENDING offline stage has to survive a live run. The staged transaction applies only on
+  # reboot, but this run just moved the rpm snapshot too - so the self-refresh below saw "the
+  # installed set changed", harvested at once, labelled THIS run's delta "offline (applied on
+  # reboot)" and consumed the marker (same second, so it overwrote the live run's own history
+  # entry as well). The staged transaction then applied at the next reboot and was never
+  # reported at all. Rebasing the marker's baseline onto the after-snapshot leaves the
+  # post-reboot harvest diffing the staged transaction and nothing else.
+  # -s, not -f: a FAILED after-snapshot leaves an empty file behind (the redirection truncates
+  # before dnf_snapshot runs), and an empty baseline would make the next harvest report every
+  # installed package as newly added.
+  if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
+    local mpre
+    mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+    if [[ -n "$mpre" && -f "$mpre" ]]; then
+      cp "$SNAP_DIR/dnf-after.tsv" "$mpre" \
+        || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
+    else
+      # Leave the marker alone: harvest_offline handles a dead pointer on its own, and guessing
+      # here could throw away a real staged transaction.
+      echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
+    fi
+  fi
+
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's own verdict.
   cmd_check >/dev/null 2>&1 || true
@@ -409,7 +439,11 @@ harvest_offline() {
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
     || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
+  # History filenames are per-second, and this harvest runs inside a check that a live update run
+  # may have triggered in the very same second. Never overwrite an entry that already exists -
+  # that silently destroyed the live run's own history entry.
   hist="$HIST_DIR/$ts.json"
+  [[ -e "$hist" ]] && hist="$HIST_DIR/$ts-offline.json"
   jq -n --arg ts "$(now_iso)" --argjson dnf "$report" '
     {timestamp:$ts, surface:"offline (applied on reboot)", status:"ok", duration_sec:0,
      reboot_needed:false, log:"",

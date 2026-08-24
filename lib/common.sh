@@ -251,6 +251,16 @@ metered_connection() {
 # and still lied both ways: a SIGKILLed holder left a lock nobody owned (the restic lock that
 # froze retention for 8 days), while a recycled PID made a dead lock look alive. The kernel
 # releases this one when the fd closes, however the holder died - no heuristic, nothing to clear.
+#
+# Scope, precisely: fd 8 is inherited, so the lock lives as long as the run OR ANY CHILD THAT
+# STILL HOLDS THE FD - on the terminal surface the `tee` in apply_with_retry holds it for the
+# whole live-output run, and release_lock in the parent does not end it until tee exits too.
+# That is the behaviour we want (the update is not over until its output is), but it means "the
+# lock is free" answers a question about the whole process tree, not about one PID.
+#
+# If a PID or timestamp record is ever added to this file, open it with `exec 8<>"$LOCK_FILE"`,
+# never `8>`: the `>` form TRUNCATES on open, so the next process to merely ATTEMPT the lock
+# would erase the live holder's record before finding out it cannot have the lock.
 acquire_lock() {
   upkeep_init_dirs
   exec 8>"$LOCK_FILE"
