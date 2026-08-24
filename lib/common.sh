@@ -19,8 +19,16 @@ UPKEEP_BOOT_ID="${UPKEEP_BOOT_ID:-}"
 UPKEEP_CONFIG_DIR="${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
 UPKEEP_STATE_DIR="${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
 UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
-UPKEEP_REFRESH_HELPER="${UPKEEP_REFRESH_HELPER:-/usr/local/libexec/upkeep-refresh}"
-UPKEEP_APPLY_HELPER="${UPKEEP_APPLY_HELPER:-/usr/local/libexec/upkeep-apply}"
+# The polkit-annotated helper paths. `exec.path` in polkit/org.erez.upkeep.policy pins these, so
+# they are the only paths root ever runs; the seams below point elsewhere in tests. `upkeep doctor`
+# compares the two, because a root-ownership check on a test stub proves nothing about the install.
+UPKEEP_REFRESH_HELPER_PATH=/usr/local/libexec/upkeep-refresh
+UPKEEP_APPLY_HELPER_PATH=/usr/local/libexec/upkeep-apply
+UPKEEP_REFRESH_HELPER="${UPKEEP_REFRESH_HELPER:-$UPKEEP_REFRESH_HELPER_PATH}"
+UPKEEP_APPLY_HELPER="${UPKEEP_APPLY_HELPER:-$UPKEEP_APPLY_HELPER_PATH}"
+# Where install.sh puts the two polkit actions. A seam so `upkeep doctor` can be tested without
+# writing to /usr/share.
+UPKEEP_POLICY_FILE="${UPKEEP_POLICY_FILE:-/usr/share/polkit-1/actions/org.erez.upkeep.policy}"
 UPKEEP_NOTIFY="${UPKEEP_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
 # loudly (exit 4) instead of `upkeep run` silently doing nothing at all.

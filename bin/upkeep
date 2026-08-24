@@ -502,6 +502,147 @@ cmd_unhold() {
 }
 cmd_holds()  { holds_all; }
 
+# --- upkeep doctor ---
+# The trap this closes: with the root helpers missing, `upkeep check` exits 0 with status "stale"
+# and 0 pending - which reads to a human, and to a badge, as "you are up to date". Every command
+# here degrades instead of crashing (deliberately), so nothing else ever says "this install is
+# incomplete". Doctor is the one command whose whole job is to say it.
+# Every check runs and every problem is printed: a checkup that stops at the first failure sends
+# the user round the loop once per problem.
+DOCTOR_FAILS=0
+doctor_ok()   { printf 'ok    %s\n' "$1"; }
+doctor_info() { printf 'info  %s\n' "$1"; }
+doctor_fail() { printf 'FAIL  %s\n' "$1"; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 )); }
+
+doctor_helper() {  # label seam_path annotated_path
+  local label="$1" path="$2" annotated="$3" own
+  if [[ ! -e "$path" ]]; then
+    doctor_fail "root helper ($label) not installed: $path - run ./install.sh"
+    return 0
+  fi
+  if [[ "$path" != "$annotated" ]]; then
+    # Not the path polkit execs, so its ownership says nothing about what root would run.
+    doctor_info "root helper ($label): $path (seam override, ownership not checked)"
+    return 0
+  fi
+  # stat can fail on a path we cannot reach (an unsearchable parent). A helper we cannot INSPECT
+  # is not the same as a broken one: report what is known instead of inventing a verdict.
+  own="$(stat -c '%U:%G %a' "$path" 2>/dev/null)" || {
+    doctor_info "root helper ($label): $path (present, ownership not readable)"; return 0; }
+  if [[ "$own" == "root:root 755" ]]; then
+    doctor_ok "root helper ($label): $path (root:root 0755)"
+  else
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path - re-run ./install.sh"
+  fi
+}
+
+cmd_doctor() {
+  DOCTOR_FAILS=0
+  doctor_helper refresh "$UPKEEP_REFRESH_HELPER" "$UPKEEP_REFRESH_HELPER_PATH"
+  doctor_helper apply   "$UPKEEP_APPLY_HELPER"   "$UPKEEP_APPLY_HELPER_PATH"
+
+  # Without the action file, pkexec has no policy for these helpers and falls back to an
+  # authentication DIALOG - which a background check cannot answer, so it times out after 120s.
+  if [[ -r "$UPKEEP_POLICY_FILE" ]]; then
+    doctor_ok "polkit action: $UPKEEP_POLICY_FILE"
+  else
+    doctor_fail "polkit action not installed: $UPKEEP_POLICY_FILE - run ./install.sh"
+  fi
+
+  # jq: a missing one exits 3 before this command can run, so this line can only ever say ok. It
+  # is here to name WHICH jq answered, not to catch an absence.
+  doctor_ok "jq: $(command -v jq) ($(jq --version 2>/dev/null || echo 'version unknown'))"
+
+  # The terminal emulator matters only where it is actually launched: surface=terminal, plus any
+  # surface at all when auto_accept=false (which forces terminal, because only a terminal can
+  # answer dnf's prompt). Saying FAIL on a detached surface would be a warning nobody can act on.
+  local surface auto term_needed=false
+  surface="$(config_get surface)"; auto="$(config_get auto_accept)"
+  case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
+  is_true "$auto" || term_needed=true
+  if command -v "$UPKEEP_TERMINAL" >/dev/null; then
+    doctor_ok "terminal emulator: $(command -v "$UPKEEP_TERMINAL")"
+  elif [[ "$term_needed" == true ]]; then
+    doctor_fail "terminal emulator '$UPKEEP_TERMINAL' not found - 'upkeep run' exits 4 on this surface; install it or run: upkeep config set surface background"
+  else
+    doctor_info "terminal emulator '$UPKEEP_TERMINAL' not found - not needed for surface=$surface"
+  fi
+
+  # flatpak: ask about the command the BACKEND actually runs (first word of its seam), not a
+  # hardcoded name that a test or a power user may have redirected.
+  local fp_cmd; fp_cmd="${UPKEEP_FLATPAK_LIST_CMD%% *}"
+  if command -v "$fp_cmd" >/dev/null; then
+    doctor_ok "flatpak: $(command -v "$fp_cmd")"
+  elif is_true "$(config_get include_flatpak)"; then
+    doctor_fail "flatpak command '$fp_cmd' not found - include_flatpak=true, so every check reports the flatpak backend stale; install flatpak or run: upkeep config set include_flatpak false"
+  else
+    doctor_info "flatpak command '$fp_cmd' not found - include_flatpak=false, so it is not needed"
+  fi
+
+  # The config file is read with `grep "^key="`, so a line that is not key=value is ignored
+  # forever: the setting the user believes they wrote never applies, silently. Validated exactly
+  # as config_set validates, so doctor accepts precisely what `upkeep config set` writes.
+  local line n=0 bad=0 keys=0 k
+  if [[ ! -e "$CONFIG_FILE" ]]; then
+    doctor_ok "config file: none yet, built-in defaults apply ($CONFIG_FILE)"
+  elif [[ ! -r "$CONFIG_FILE" ]]; then
+    doctor_fail "config file is not readable: $CONFIG_FILE - every command silently falls back to defaults"
+  else
+    # `|| [[ -n "$line" ]]`: a final line with no trailing newline is still a line.
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      n=$(( n + 1 ))
+      [[ -z "${line//[[:space:]]/}" ]] && continue
+      k="${line%%=*}"
+      if [[ "$line" != *=* || ! "$k" =~ ^[a-z][a-z0-9_]+$ ]]; then
+        doctor_fail "config file line $n is not key=value: $line ($CONFIG_FILE)"
+        bad=$(( bad + 1 ))
+      else
+        keys=$(( keys + 1 ))
+      fi
+    done < "$CONFIG_FILE"
+    if [[ $bad -eq 0 ]]; then doctor_ok "config file: $CONFIG_FILE ($keys setting(s))"; fi
+  fi
+
+  # "Writable" means "can be written OR created": on a fresh install nothing has run yet, and a
+  # checkup must not CREATE the directory it is checking. Walk up to the nearest existing ancestor.
+  local probe="$UPKEEP_STATE_DIR"
+  while [[ ! -e "$probe" ]]; do
+    [[ "$probe" == */* && "$probe" != / ]] || break
+    probe="${probe%/*}"; [[ -n "$probe" ]] || probe=/
+  done
+  if [[ -d "$probe" && -w "$probe" ]]; then
+    if [[ "$probe" == "$UPKEEP_STATE_DIR" ]]; then
+      doctor_ok "state dir writable: $UPKEEP_STATE_DIR"
+    else
+      doctor_ok "state dir writable: $UPKEEP_STATE_DIR (created on first use)"
+    fi
+  else
+    doctor_fail "state dir not writable: $UPKEEP_STATE_DIR - no state, history or logs can be written"
+  fi
+
+  # The CLI is a symlink INTO the checkout, so a missing file here is a broken install. What is
+  # sourced at startup would have failed already; what is not (the passwordless rules template)
+  # fails on the day it is needed and never before.
+  local missing=() rel
+  for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-upkeep.rules.in; do
+    [[ -r "$ROOT/$rel" ]] || missing+=("$rel")
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    doctor_ok "checkout intact: $ROOT"
+  else
+    doctor_fail "checkout incomplete: missing ${missing[*]} (in $ROOT)"
+  fi
+
+  if [[ $DOCTOR_FAILS -eq 0 ]]; then
+    echo "upkeep doctor: all checks passed"
+    return 0
+  fi
+  local word=problems
+  if [[ $DOCTOR_FAILS -eq 1 ]]; then word=problem; fi
+  echo "upkeep doctor: $DOCTOR_FAILS $word found"
+  return 1
+}
+
 RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
 # The destination is a path this command hands to a ROOT install(1): pin its shape so a bad
@@ -541,7 +682,7 @@ cmd_disable_passwordless() {
 
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
-#   1 the run itself failed (a backend returned non-zero)
+#   1 the run itself failed (a backend returned non-zero), or `doctor` found a problem
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another upkeep update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)
@@ -554,6 +695,7 @@ usage: upkeep <command>
   run [--dry-run]       launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
   history               list past runs
+  doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
   unhold <same>         remove a hold
   holds                 list holds
@@ -568,6 +710,7 @@ case "${1:-help}" in
   run)     shift; cmd_run "$@" ;;
   summary) shift; cmd_summary "$@" ;;
   history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
+  doctor)  shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_doctor ;;
   config)  shift; cmd_config "$@" ;;
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;

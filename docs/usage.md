@@ -8,6 +8,7 @@ update                run the update now (options from config; --no-flatpak, --s
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 history               list past runs
+doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
 unhold <same>         remove a hold
 holds                 list holds
@@ -22,7 +23,7 @@ One contract, every subcommand:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. Includes declining at the risky-transaction prompt, and includes `check` when a backend failed (the failure is recorded in the state, not in the exit code). |
-| 1 | The run itself failed: a backend returned non-zero. |
+| 1 | The run itself failed (a backend returned non-zero), or `doctor` found at least one problem. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `upkeep update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
@@ -220,6 +221,54 @@ upkeep history
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
 2026-08-22T18:12:55+03:00  background  failed  0 updated
 ```
+
+## doctor
+
+```
+upkeep doctor
+```
+
+Checks this installation and prints one line per check. Exits 0 when everything passes, 1 when
+anything failed. Takes no arguments.
+
+```bash
+upkeep doctor
+```
+
+```
+ok    root helper (refresh): /usr/local/libexec/upkeep-refresh (root:root 0755)
+ok    root helper (apply): /usr/local/libexec/upkeep-apply (root:root 0755)
+ok    polkit action: /usr/share/polkit-1/actions/org.erez.upkeep.policy
+ok    jq: /usr/bin/jq (jq-1.8.1)
+ok    terminal emulator: /usr/bin/konsole
+ok    flatpak: /usr/bin/flatpak
+ok    config file: /home/you/.config/upkeep/config (2 settings)
+ok    state dir writable: /home/you/.local/state/upkeep
+ok    checkout intact: /home/you/src/upkeep
+upkeep doctor: all checks passed
+```
+
+It exists because of one specific trap. Every other command degrades instead of crashing, which
+is right for a widget that polls on a timer but wrong for a human trying to find out what is
+broken: with the root helpers missing, `upkeep check` **exits 0** with `status: "stale"` and zero
+pending items, and a badge showing nothing pending is indistinguishable from an up-to-date
+machine. `doctor` is the one command whose job is to say why the answer is empty.
+
+What it checks, and what each failure means:
+
+| Check | FAIL means |
+| --- | --- |
+| Both root helpers exist at the polkit-annotated paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. `check` will be permanently `stale`, `update` cannot run. |
+| The polkit action file is installed | pkexec has no policy for the helpers and falls back to an authentication dialog, which a background check cannot answer. |
+| `jq` is present | Nothing: without `jq` every command exits 3 before `doctor` can run, so this line only ever names which `jq` answered. |
+| The terminal emulator (`$UPKEEP_TERMINAL`) is present | `upkeep run` exits 4 every time. Reported only when it would actually be launched: `surface=terminal`, or any surface with `auto_accept=false`. Otherwise it is an `info` line. |
+| `flatpak` is present | Every check reports the Flatpak backend stale. An `info` line instead when `include_flatpak=false`. |
+| Every config line is `key=value` with a valid key | The file is read with `grep "^key="`, so a malformed line is ignored forever and the setting the user wrote never applies. |
+| The state directory is writable, or can be created | No state file, no history, no logs. |
+| The checkout still holds `lib/`, `backends/` and the passwordless rules template | The CLI is a symlink into the checkout. A missing rules template only surfaces the day `enable-passwordless` is run. |
+
+Lines are `ok`, `info` or `FAIL`. Only `FAIL` affects the exit code, and every check runs even
+after one fails, so one pass shows every problem.
 
 ## hold, unhold, holds
 

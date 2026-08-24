@@ -97,6 +97,19 @@ consent.
 ## Verify the install
 
 ```bash
+upkeep doctor
+```
+
+Expect `upkeep doctor: all checks passed` and exit status 0. It checks the two root helpers at
+the polkit-annotated paths (present, `root:root` 0755), the polkit action file, `jq`, your
+terminal emulator, flatpak, your config file's syntax, a writable state directory and an intact
+checkout, and it prints one line per check so a failure names itself. Run it first: if the
+authentication prompt was declined, or the checkout has since moved, this is the command that
+says so. Full detail in [usage.md](usage.md#doctor).
+
+Then the real answer:
+
+```bash
 upkeep check | jq '{status, actionable, held_total}'
 ```
 

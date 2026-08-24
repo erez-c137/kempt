@@ -21,6 +21,8 @@ upkeep \- one-click system updates for Fedora, from the terminal or the Plasma p
 .br
 .B upkeep history
 .br
+.B upkeep doctor
+.br
 .B upkeep hold
 .IR backend : name
 .br
@@ -96,6 +98,22 @@ counts back from the newest and defaults to 1. Corrupt entries are skipped with 
 .TP
 .B history
 List past runs, newest first: timestamp, surface, status and how many packages were updated.
+.TP
+.B doctor
+Check this installation and print one line per check, prefixed
+.BR ok ", " info " or " FAIL :
+both root helpers at the polkit\-annotated paths and owned by root, the polkit action file,
+.BR jq ,
+the terminal emulator, flatpak, the configuration file's syntax, a writable state directory and
+an intact checkout. Every check runs even after one fails. Exit status 1 when anything failed.
+Worth running when
+.B check
+reports nothing pending on a machine that cannot possibly be up to date: a missing root helper
+leaves
+.B check
+exiting 0 with a
+.B stale
+state and no items.
 .TP
 .BI hold " backend:name"
 Exclude a package or app from Upkeep runs while still reporting it as pending.
@@ -184,7 +202,9 @@ Present only while passwordless mode is enabled.
 Success, including declining at the session\-critical recommendation prompt.
 .TP
 .B 1
-The run itself failed: a backend returned non\-zero.
+The run itself failed (a backend returned non\-zero), or
+.B doctor
+found at least one problem.
 .TP
 .B 2
 Usage error: unknown command, option or argument.

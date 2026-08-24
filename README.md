@@ -56,6 +56,7 @@ running desktop underneath itself.
 git clone https://github.com/erez-c137/upkeep.git
 cd upkeep
 ./install.sh          # one pkexec prompt: installs two root helpers + the polkit action
+upkeep doctor         # verify the install: helpers, polkit action, tools, config, state
 upkeep check          # what is pending, as JSON
 upkeep update         # run it now, ending with a summary
 ```
