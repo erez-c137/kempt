@@ -131,8 +131,8 @@ What happens, in order:
 3. **Pre-flight snapshots** of the installed package sets. If one cannot be read, the run aborts
    with exit 5 before changing anything.
 4. **dnf**, through the root helper, with `-y` when `auto_accept` is on and one `--exclude=` per
-   dnf hold. A foreign package lock (PackageKit, Discover) is retried 3 times, 10 seconds apart,
-   with a message naming the likely holder.
+   dnf hold. A foreign package lock (PackageKit, Discover) is tried up to 3 times, 10 seconds
+   apart, with a message naming the likely holder.
 5. **flatpak**, unless disabled. With no Flatpak holds this is one system-wide update; with
    holds it becomes a per-app update of every pending, non-held, installed app.
 6. **Report.** After-snapshots are diffed against the before-snapshots, a history entry and a log
