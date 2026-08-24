@@ -32,7 +32,7 @@ Files:
 
 - Config: `~/.config/upkeep/config` (simple `key=value`). Single source of truth; the plasmoid settings page is a view over it via `upkeep config`.
 - Holds: `~/.config/upkeep/holds` — one entry per line, `dnf:<package-name>` or `flatpak:<app-id>`.
-- State: `~/.local/state/upkeep/state.json` — pending counts + package lists per backend, last-check timestamp, last-check status.
+- State: `~/.local/state/upkeep/state.json` — schema v1 (frozen public interface for the widget): `{schema:1, last_check, last_success (null if never), status ok|stale, error, backends:{dnf|flatpak:{enabled, actionable, held, items:[{name,from,to,held}]}}, actionable, held_total}`. `upkeep check` exits 0 always; failures are recorded in the state (stale keeps the previous items).
 - History: `~/.local/state/upkeep/history/<ISO-timestamp>.json` — one file per update run.
 - Logs: `~/.local/state/upkeep/logs/<ISO-timestamp>.log` — full raw output per run.
 
@@ -55,7 +55,7 @@ Thin. Package id `org.erez.upkeep` (rename before any public release).
 
 `backends/dnf.sh`, `backends/flatpak.sh`. Each implements three functions with a fixed contract:
 
-- `check` → JSON fragment: count + list of `{name, from_version, to_version}`.
+- `check` → JSON fragment: count + list of `{name, from, to}` (versions comma-joined for installonly packages that keep multiple versions installed).
 - `update` → performs the update (dnf via the privileged helper; flatpak as user), streams raw output to the log, exit code = success/failure.
 - `report` → JSON fragment of what actually changed (dnf: parsed from `dnf5 history info last`; flatpak: parsed from update output), plus dnf's reboot-needed check (`dnf5 needs-restarting -r` or kernel/systemd heuristic).
 

@@ -207,11 +207,11 @@ source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
 upkeep_init_dirs
 
-assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
+assert_eq "$(config_get surface)" "terminal" "default when unset"
 config_set surface background
-assert_eq "$(config_get surface terminal)" "background" "reads set value"
+assert_eq "$(config_get surface)" "background" "reads set value"
 config_set surface offline
-assert_eq "$(config_get surface terminal)" "offline" "overwrite same key"
+assert_eq "$(config_get surface)" "offline" "overwrite same key"
 assert_eq "$(grep -c '^surface=' "$UPKEEP_CONFIG_DIR/config")" "1" "no duplicate keys"
 config_set include_flatpak false
 assert_eq "$(config_get include_flatpak true)" "false" "second key independent"
@@ -265,8 +265,8 @@ config_set() {  # key value
   mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 }
 
-priv_refresh() { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
-priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
+priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }  # timeout: a surprise auth dialog must never hang a background check
+priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }               # no timeout: waiting on interactive auth is legitimate here
 notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 ```
@@ -641,20 +641,27 @@ finish
 - [ ] **Step 3: Append to lib/common.sh**
 
 ```bash
-# --- state assembly ---
-assemble_state() {  # $1 dnf items JSON (held-marked), $2 flatpak items JSON, $3 status, $4 error
-  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" --arg now "$(now_iso)" '
-    def wrap: {count: ([.[] | select(.held|not)] | length),
-               held:  ([.[] | select(.held)] | length),
-               items: .};
-    {last_check: $now, status: $status, error: $error,
-     backends: {dnf: ($dnf | wrap), flatpak: ($fp | wrap)},
+# --- state assembly (state JSON = PUBLIC INTERFACE, schema v1, frozen — the QML widget parses this blind) ---
+assemble_state() {  # $1 dnf items JSON (held-marked), $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or ""
+  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
+        --argjson fpe "$5" --arg pls "$6" --arg now "$(now_iso)" '
+    def wrap(e): {enabled: e,
+                  actionable: ([.[] | select(.held|not)] | length),
+                  held:       ([.[] | select(.held)] | length),
+                  items: .};
+    {schema: 1, last_check: $now,
+     last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
+     status: $status, error: $error,
+     backends: {dnf: ($dnf | wrap(true)), flatpak: ($fp | wrap($fpe))},
      actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length)}'
 }
 
-state_prev_items() {  # backend → previous items JSON or []
-  jq ".backends.$1.items // []" "$STATE_FILE" 2>/dev/null || echo '[]'
+state_prev_items() {  # backend → previous items array; [] for missing/corrupt/wrong-shaped state (a zero-length state.json after an unclean shutdown must NEVER crash the check)
+  local out
+  out="$(jq -c -n --arg b "$1" '[inputs][0].backends[$b].items? // []
+                                 | if type=="array" then . else [] end' "$STATE_FILE" 2>/dev/null)"
+  [[ "$out" == \[* ]] && printf '%s\n' "$out" || echo '[]'
 }
 
 write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
@@ -662,7 +669,7 @@ write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlappin
 maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
   local last=0 now; now="$(date +%s)"
-  [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE")"
+  [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE" || echo 0)"   # || echo 0: the assignment after && is NOT errexit-exempt; a TOCTOU-raced stat must not kill the check
   (( now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
@@ -698,25 +705,39 @@ source "$ROOT/backends/flatpak.sh"
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body — backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   upkeep_init_dirs
-  maybe_refresh_metadata
-  local status="ok" error="" dnf_items fp_items
-  if dnf_items="$(dnf_check)"; then :; else
-    status="stale"; error="dnf check failed"; dnf_items="$(state_prev_items dnf)"
+  # serialize checks: without the lock, the last FINISHER wins and a slow stale result
+  # can overwrite a fresh one (timer + event watch + post-run checks routinely overlap)
+  exec 9>"$UPKEEP_STATE_DIR/check.lock"
+  if ! flock -w 60 9; then
+    echo "warning: another check holds the lock; serving previous state" >&2
+    [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE"
+    return 0
   fi
-  if [[ "$(config_get include_flatpak true)" == "true" ]]; then
-    if fp_items="$(flatpak_check)"; then :; else
-      status="stale"; error="${error:+$error; }flatpak check failed"; fp_items="$(state_prev_items flatpak)"
+  maybe_refresh_metadata
+  local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
+  prev_ls="$(jq -r '.last_success // empty' "$STATE_FILE" 2>/dev/null || true)"
+  errf="$(mktemp)"
+  if dnf_items="$(dnf_check 2>"$errf")"; then :; else
+    serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+    status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
+  fi
+  if is_true "$(config_get include_flatpak)"; then
+    if fp_items="$(flatpak_check 2>"$errf")"; then :; else
+      serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+      status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
   else
-    fp_items='[]'
+    fp_enabled=false; fp_items='[]'
   fi
+  rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
   fp_items="$(mark_held flatpak <<<"$fp_items")"
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls")"
+  printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
-  printf '%s\n' "$state"
 }
 
 cmd_config() {
@@ -774,6 +795,8 @@ esac
 
 - [ ] **Step 5: Run tests** — `tests/run_tests.sh` → ALL PASS
 - [ ] **Step 6: Commit** — `git add -A && git commit -m "feat: upkeep check — state assembly, holds-aware counts, stale fallback"`
+
+POST-REVIEW NOTE (Task 8 as built): the repo exceeds the blocks above after quality review — lib/common.sh gains `upkeep_default` (config defaults table; `config_get key` with no explicit default falls back to it, so the widget's settings dialog reads real defaults, never blanks) and `is_true` (tolerant boolean); bin/upkeep has a jq preflight (rc 3) and reports unknown commands to stderr; `atomic_write` syncs before mv and `upkeep_init_dirs` sweeps hour-old orphan tmps; test_check.sh covers schema v1 keys, corrupt/zero-length state recovery (rc 0 + stale, never a crash), config defaults, the check lock, and first maybe_refresh_metadata gating tests. State JSON schema v1 is FROZEN: `{schema, last_check, last_success, status ok|stale, error, backends:{dnf|flatpak:{enabled, actionable, held, items:[{name,from,to,held}]}}, actionable, held_total}`.
 
 ---
 
@@ -1122,14 +1145,14 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
 
 cmd_update() {
   local surface include_fp="" 
-  surface="$(config_get surface terminal)"
+  surface="$(config_get surface)"
   for a in "$@"; do case "$a" in
     --no-flatpak) include_fp=false ;;
     --surface=*) surface="${a#--surface=}" ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
-  [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak true)"
-  local auto; auto="$(config_get auto_accept true)"
+  [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak)"
+  local auto; auto="$(config_get auto_accept)"
 
   acquire_lock || { echo "another upkeep update is running" >&2; exit 3; }
   trap release_lock EXIT
@@ -1141,11 +1164,11 @@ cmd_update() {
 
   # snapshots (before)
   dnf_snapshot > "$SNAP_DIR/dnf-before.tsv"
-  [[ "$include_fp" == "true" ]] && flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"
+  is_true "$include_fp" && flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"
 
   # dnf
   local yflag=() excl=() dnf_status="ok"
-  [[ "$auto" == "true" ]] && yflag=(-y)
+  is_true "$auto" && yflag=(-y)
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
   if [[ "$surface" == "offline" ]]; then
@@ -1158,7 +1181,7 @@ cmd_update() {
   # Known v1 limitation: check/snapshot use --app, but `flatpak update` also updates RUNTIMES,
   # so the summary can under-report what the transaction actually changed. Documented, accepted.
   local fp_status="skipped"
-  if [[ "$include_fp" == "true" ]]; then
+  if is_true "$include_fp"; then
     fp_status="ok"
     local held_fp ids=()
     held_fp="$(holds_for flatpak)"
@@ -1182,7 +1205,7 @@ cmd_update() {
   local dnf_report fp_report="$empty_report"
   dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
     || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
-  if [[ "$include_fp" == "true" ]]; then
+  if is_true "$include_fp"; then
     flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"
     fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
       || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
@@ -1404,9 +1427,9 @@ finish
 cmd_run() {
   local dry="" surface auto
   [[ "${1:-}" == "--dry-run" ]] && dry=1
-  surface="$(config_get surface terminal)"
-  auto="$(config_get auto_accept true)"
-  [[ "$auto" != "true" ]] && surface="terminal"   # only a terminal can prompt
+  surface="$(config_get surface)"
+  auto="$(config_get auto_accept)"
+  is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   if [[ "$surface" == "terminal" ]]; then
     if [[ -n "$dry" ]]; then echo "terminal: konsole -e upkeep update"; return 0; fi
