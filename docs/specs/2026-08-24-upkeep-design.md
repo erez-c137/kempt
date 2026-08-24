@@ -36,7 +36,9 @@ Files:
 - History: `~/.local/state/upkeep/history/<ISO-timestamp>.json` — one file per update run.
 - Logs: `~/.local/state/upkeep/logs/<ISO-timestamp>.log` — full raw output per run.
 
-Config keys (v1): `include_flatpak` (default `true`), `auto_accept` (default `true`), `surface` (`terminal`|`popup`|`background`|`offline`, default `terminal`), `refresh_interval_min` (default `60`).
+Config keys (v1): `include_flatpak` (default `true`), `auto_accept` (default `true`), `surface` (`terminal`|`popup`|`background`|`offline`, default `terminal`), `refresh_interval_min` (default `60`), `risky_regex` (session-critical families, default `^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)`; build/doc tails such as `-devel`, `-headers`, `-doc`, `-macros` are always excluded because the running session never loads them).
+
+Exit codes (every command): `0` success, including a user who declines at the risky-transaction prompt; `1` the run itself failed; `2` usage error; `3` cannot start (jq missing, or another update holds the lock); `4` launcher missing (no terminal emulator for the terminal surface); `5` aborted during pre-flight, nothing changed.
 
 **Check cadence (survey C7):** `refresh_interval_min` governs cheap cache-only checks against the root metadata cache. An actual metadata refresh (the privileged `refresh` verb) runs at most every 3h (dnf's own `metadata_timer_sync` default) and is skipped on battery or metered connections. Checks never re-download metadata on their own faster than dnf itself would.
 
@@ -102,7 +104,7 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 
 - **Check fails** (network down, repo flap — see G9-Mini's known GitHub/Cloudflare path flaps): keep the previous counts, mark state `stale` with the error message; icon shows stale hint in tooltip, no scary error state for transient check failures.
 - **Update fails:** non-zero exit recorded in history entry; icon shows error state until next successful check; notification "Update failed — see log" with log path. Partial success (dnf ok, flatpak failed) is reported per-backend, not collapsed.
-- **Concurrent runs:** lockfile in state dir; second `upkeep update` refuses with a clear message.
+- **Concurrent runs:** `flock` on a lockfile in the state dir (the same mechanism `upkeep check` uses); a second `upkeep update` refuses with a clear message and exit 3. The kernel releases the lock when the holding process's fd closes, so a crashed or SIGKILLed run leaves nothing to clean up and no staleness heuristic is needed. The lock is taken AFTER the risky-transaction prompt: a recommendation left unanswered must never block the next scheduled run.
 - **Foreign package-manager lock (survey C2):** dnf5 fails instantly when another process holds the rpm lock (no `--wait` exists), and PackageKit/Discover now sits on the dnf5 backend on Fedora 44. On a busy lock, retry a few times with a fixed delay, then fail with a human message naming the likely holder ("PackageKit/Discover is busy - try again in a minute").
 
 ## Repo & install

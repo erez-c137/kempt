@@ -9,9 +9,9 @@ export LC_ALL=C.UTF-8
 # rejected HERE, at hold time, so a bad name can never reach the privileged apply path.
 UPKEEP_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
-# session-critical prefixes: a LIVE upgrade of these can break the running desktop mid-transaction
-# (spec §Run surfaces), so Upkeep recommends the offline path before proceeding. Overridable.
-UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace)}"
+# Test/power-user seam for the session-critical pattern. EMPTY means "use the risky_regex config
+# key" (whose default lives in upkeep_default) - the env var still wins when set.
+UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-}"
 
 UPKEEP_CONFIG_DIR="${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
 UPKEEP_STATE_DIR="${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
@@ -19,6 +19,9 @@ UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
 UPKEEP_REFRESH_HELPER="${UPKEEP_REFRESH_HELPER:-/usr/local/libexec/upkeep-refresh}"
 UPKEEP_APPLY_HELPER="${UPKEEP_APPLY_HELPER:-/usr/local/libexec/upkeep-apply}"
 UPKEEP_NOTIFY="${UPKEEP_NOTIFY:-notify-send}"
+# The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
+# loudly (exit 4) instead of `upkeep run` silently doing nothing at all.
+UPKEEP_TERMINAL="${UPKEEP_TERMINAL:-konsole}"
 
 CONFIG_FILE="$UPKEEP_CONFIG_DIR/config"
 HOLDS_FILE="$UPKEEP_CONFIG_DIR/holds"
@@ -58,6 +61,9 @@ upkeep_default() {  # key → default ("" if unknown)
     include_flatpak|auto_accept) echo true ;;
     surface) echo terminal ;;
     refresh_interval_min) echo 60 ;;
+    # session-critical families: a LIVE upgrade of these can break the running desktop
+    # mid-transaction (spec §Run surfaces), so Upkeep recommends the offline path first.
+    risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
     *) echo "" ;;
   esac
 }
@@ -149,8 +155,16 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
 # stdin: items JSON (AFTER mark_held) → one session-critical name per line.
 # Held packages are excluded on purpose: the user already declined that one, so recommending a
 # whole different update strategy because of it would be nagging about a decision already made.
+# Second stage drops build/doc tails: kernel-devel, qt6-qtbase-devel, kf6-*-doc and friends are
+# never loaded by the running session, so they cannot break it - counting them turned an ordinary
+# Qt bump into a 168-package "session-critical" scare.
 # `|| true`: grep exits 1 when it selects nothing, and "nothing risky" is the common, happy case.
-risky_names() { jq -r '.[] | select(.held|not) | .name' | grep -E "$UPKEEP_RISKY_RE" || true; }
+risky_names() {
+  local re="${UPKEEP_RISKY_RE:-$(config_get risky_regex)}"
+  jq -r '.[] | select(.held|not) | .name' \
+    | grep -E "$re" \
+    | grep -vE -- '-(devel|headers|static|tools|doc)($|-)|-macros' || true
+}
 
 # --- snapshot diff: before/after TSV, sorted by name with ONE row per name → report JSON ---
 # Producers MUST pipe through collapse_versions first. Fedora keeps several versions of
@@ -233,15 +247,16 @@ metered_connection() {
 }
 
 # --- update lock (our own concurrency; foreign rpm lock handled by retry in cmd_update) ---
-# A lockfile whose PID is dead is stale and gets cleared: a lock nobody owns froze restic's
-# retention for 8 days while the backups still reported healthy. Never inherit that failure.
+# flock on a held fd, the same mechanism cmd_check uses. A PID file needed a staleness heuristic
+# and still lied both ways: a SIGKILLed holder left a lock nobody owned (the restic lock that
+# froze retention for 8 days), while a recycled PID made a dead lock look alive. The kernel
+# releases this one when the fd closes, however the holder died - no heuristic, nothing to clear.
 acquire_lock() {
   upkeep_init_dirs
-  if [[ -f "$LOCK_FILE" ]] && kill -0 "$(cat "$LOCK_FILE")" 2>/dev/null; then return 1; fi
-  [[ -f "$LOCK_FILE" ]] && echo "note: clearing stale upkeep lock" >&2
-  echo $$ > "$LOCK_FILE"
+  exec 8>"$LOCK_FILE"
+  flock -n 8
 }
-release_lock() { rm -f "$LOCK_FILE"; }
+release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; }
 
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
@@ -251,12 +266,17 @@ render_summary() {  # history-json-file → human text
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
     def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
+    # a transaction that installs or removes packages changed the system just as much as one
+    # that upgrades them: counting only .updated under-reports what actually happened.
+    def counts(b): (b.updated|length|tostring) + " updated"
+      + (if (b.added|length)   > 0 then ", +" + (b.added|length|tostring)   + " installed" else "" end)
+      + (if (b.removed|length) > 0 then ", -" + (b.removed|length|tostring) + " removed"   else "" end);
     "Upkeep - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
       + (if .status == "ok" then "✓" else "FAILED - see " + .log end),
-    "System (dnf): " + (.backends.dnf.updated|length|tostring) + " updated"
+    "System (dnf): " + counts(.backends.dnf)
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
-    "Apps (flatpak): " + (.backends.flatpak.updated|length|tostring) + " updated"
+    "Apps (flatpak): " + counts(.backends.flatpak)
       + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     heldline,

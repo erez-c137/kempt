@@ -161,6 +161,15 @@ assert_eq "$(risky_names <<<"$_items" | paste -sd, -)" "kernel-core,qt6-qtbase,s
   "risky_names matches session-critical families, skips ordinary and held packages"
 assert_eq "$(risky_names <<<'[]' | wc -l)" "0" "no items → no recommendation, not an error"
 
+# Build and doc tails are never loaded by the running session, so they cannot break it. Counting
+# them turned an ordinary Qt bump into a 168-package "session-critical" scare. kwin can.
+_tails='[{"name":"kernel-devel","held":false},{"name":"kernel-headers","held":false},
+         {"name":"qt6-qtbase-devel","held":false},{"name":"kf6-kio-doc","held":false},
+         {"name":"systemd-rpm-macros","held":false},{"name":"kwin-x11","held":false},
+         {"name":"systemd-udev","held":false}]'
+assert_eq "$(risky_names <<<"$_tails" | paste -sd, -)" "kwin-x11,systemd-udev" \
+  "devel/headers/doc/macros tails are excluded, the session's own packages are not"
+
 # the everyday fixture has nothing session-critical: the key must be present and EMPTY, never absent
 state5="$("$UPKEEP" check)"
 assert_eq "$(jq -c .risky_pending <<<"$state5")" "[]" "risky_pending is published even when empty"
@@ -180,4 +189,9 @@ assert_eq "$(jq -r '.risky_pending[0]' <<<"$state6")" "kernel-core" "pending ses
 state7="$(UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub" "$UPKEEP" check)"
 assert_eq "$(jq -c .risky_pending <<<"$state7")" "[]" "holding it stops the recommendation"
 "$UPKEEP" unhold dnf:kernel-core
+
+# the pattern is a config key, not a hardcode: a box with its own session-critical package can say so
+"$UPKEEP" config set risky_regex '^bash'
+state8="$("$UPKEEP" check)"
+assert_eq "$(jq -r '.risky_pending[0]' <<<"$state8")" "bash" "risky_regex is configurable"
 finish

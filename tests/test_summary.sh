@@ -75,6 +75,30 @@ assert_eq "$("$UPKEEP" history | wc -l)" "3" "history lists every run"
 assert_eq "$("$UPKEEP" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
 assert_exit 2 "summary rejects a non-numeric N" "$UPKEEP" summary abc
 
+# A run that installed and removed packages changed the system as much as one that upgraded them.
+cat > "$TESTTMP/ar-entry.json" <<'EOF'
+{"timestamp":"2026-08-24T16:00:00+03:00","surface":"background","status":"ok","duration_sec":9,
+ "reboot_needed":false,"log":"/tmp/a.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[],
+    "added":[{"name":"newpkg","to":"1.0"},{"name":"other","to":"2.0"}],
+    "removed":[{"name":"zsh","from":"5.9"}]},
+  "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+EOF
+ar="$(render_summary "$TESTTMP/ar-entry.json")"
+grep -q 'System (dnf): 0 updated, +2 installed, -1 removed' <<<"$ar" \
+  && echo "ok: installs and removals are counted" || { echo "FAIL: add/remove counts - got: $ar"; _fail=1; }
+grep -q 'Apps (flatpak): 0 updated \[skipped\]' <<<"$ar" \
+  && echo "ok: an empty backend line stays clean" || { echo "FAIL: empty backend line"; _fail=1; }
+
+# asking for a run further back than the history goes shows the oldest - and says it did
+crc=0
+cout="$("$UPKEEP" summary 99 2>"$TESTTMP/clamperr")" || crc=$?
+assert_eq "$crc" "0" "summary N past the end still succeeds"
+grep -q 'only 3 run(s) recorded' "$TESTTMP/clamperr" \
+  && echo "ok: clamping says so on stderr" || { echo "FAIL: no clamp note"; _fail=1; }
+grep -q '12:00:00' <<<"$cout" && echo "ok: clamped to the oldest run" || { echo "FAIL: clamp target"; _fail=1; }
+
 # --- a damaged history entry must not cost the user every other run ---
 # Both readers are what the widget and the terminal shell out to, and a half-written entry (power
 # loss mid-write, a full disk) is exactly what they will meet one day.

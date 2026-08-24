@@ -70,9 +70,13 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
 
 apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock errors
   local log="$1"; shift
-  local attempt rc
+  local attempt rc before_sz
   for attempt in 1 2 3; do
     rc=0
+    # Only THIS attempt's output decides whether to retry. A fixed `tail -n 20` re-read the
+    # previous attempt's lock error and could keep retrying a run whose real failure had nothing
+    # to do with a lock (and the bare word "lock" matches package names like `lockdev`).
+    before_sz=0; [[ -f "$log" ]] && before_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
       # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
@@ -82,7 +86,8 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
       priv_apply "$@" >>"$log" 2>&1 || rc=$?
     fi
     [[ $rc -eq 0 ]] && return 0
-    if tail -n 20 "$log" | grep -qiE 'lock|another (process|application)'; then
+    if tail -c +$(( before_sz + 1 )) "$log" \
+       | grep -qiE '(rpm|package|transaction).*lock|lock.*held|another (process|application)'; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
         echo "Package system busy (PackageKit/Discover?) - retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
@@ -95,6 +100,15 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
     fi
   done
   return $rc
+}
+
+# Pre-flight failure: nothing has been changed and nothing will be. Loud on stderr, exit 5 (never
+# a bare backend rc escaping through errexit), and a notification when the caller is a detached
+# surface - nobody is reading stderr there. Reads cmd_update's $surface.
+preflight_abort() {  # message
+  echo "$1" >&2
+  [[ "$surface" != "terminal" ]] && notify "Upkeep" "Update did not start: $1"
+  exit 5
 }
 
 cmd_update() {
@@ -119,22 +133,42 @@ cmd_update() {
   # so it is never nagged. Deliberately BEFORE acquire_lock: an abort must leave no lock residue
   # and no history entry, having changed nothing at all.
   if [[ "$surface" != "offline" ]]; then
-    local risky_list=""
-    risky_list="$(dnf_check 2>/dev/null | mark_held dnf | risky_names)" || risky_list=""
+    local risky_list="" rerr rcount fams
+    rerr="$(mktemp)"
+    # A pre-check that cannot run is not the same as "nothing risky": say so, then proceed -
+    # this is advice, and losing it must never stop the user from updating.
+    risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
+      risky_list=""
+      echo "warning: could not check for session-critical updates: $(tail -c 200 "$rerr" | tr '\n' ' ')" >&2
+    }
+    rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
+      rcount="$(wc -l <<<"$risky_list")"
       if [[ "$surface" == "terminal" && ( -t 0 || -n "${UPKEEP_ASSUME_TTY:-}" ) ]]; then
-        echo "Recommendation: this update touches session-critical packages (a live upgrade can break the running desktop):"
-        sed 's/^/  /' <<<"$risky_list"
-        # `|| ans=""` keeps EOF (Ctrl-D) from aborting the whole command under errexit; an empty
-        # answer takes the documented default below, same as pressing Enter.
-        local ans; read -rp "[u]pdate live / [s]tage offline instead / [a]bort? " ans || ans=""
-        case "${ans,,}" in
-          s) surface="offline" ;;
-          a) echo "aborted"; exit 0 ;;
-          *) : ;;   # default: proceed live - the user always decides
-        esac
+        echo "Recommendation: this update touches $rcount session-critical packages (a live upgrade can break the running desktop):"
+        # capped: a Qt or KDE bump legitimately produces hundreds of matches, and a wall of
+        # names is not a recommendation a human can act on.
+        sed 's/^/  /' <<<"$risky_list" | head -8
+        (( rcount > 8 )) && echo "  ... and $(( rcount - 8 )) more"
+        local ans tries
+        for tries in 1 2; do
+          # `|| ans=""` keeps EOF (Ctrl-D) out of errexit; EOF and Enter both mean "I did not
+          # answer", and the safe answer to a risk warning is to NOT proceed.
+          read -rp "[u]pdate live / [s]tage offline / [a]bort (default: abort) " ans || ans=""
+          case "${ans,,}" in
+            ""|n|no|a|abort)  echo "aborted"; exit 0 ;;
+            s|stage)          surface="offline"; break ;;
+            u|update|y|yes)   break ;;
+            *) if [[ $tries -eq 1 ]]; then echo "Please answer u, s or a."
+               else echo "aborted"; exit 0; fi ;;
+          esac
+        done
       else
-        notify "Upkeep" "Heads-up: session-critical updates pending ($(tr '\n' ' ' <<<"$risky_list")) - consider the Offline surface"
+        # families, not names: unique prefixes up to the first - or . keep the notification
+        # readable when 168 qt6-* packages are pending.
+        fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
+        local fam_n; fam_n="$(wc -l <<<"$fams")"
+        notify "Upkeep" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...')) - consider the Offline surface"
       fi
     fi
   fi
@@ -147,9 +181,14 @@ cmd_update() {
   ts="$(date +%Y%m%dT%H%M%S)"; start="$(date +%s)"
   log="$LOG_DIR/$ts.log"
 
-  # snapshots (before)
-  dnf_snapshot > "$SNAP_DIR/dnf-before.tsv"
-  is_true "$include_fp" && flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"
+  # snapshots (before). A pre-run snapshot that fails means we could never say what changed, so
+  # the run stops BEFORE changing anything (see preflight_abort).
+  dnf_snapshot > "$SNAP_DIR/dnf-before.tsv" \
+    || preflight_abort "cannot read the installed package set - aborting before any change"
+  if is_true "$include_fp"; then
+    flatpak_snapshot > "$SNAP_DIR/fp-before.tsv" \
+      || preflight_abort "cannot read the installed flatpak set - aborting before any change"
+  fi
 
   # dnf
   local yflag=() excl=() dnf_status="ok"
@@ -226,7 +265,10 @@ cmd_update() {
 
   # offline staging marker (harvested by cmd_check after reboot)
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
-    # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv
+    # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv.
+    # Sweep first: only the newest staging can be harvested, so older copies are dead weight
+    # that would otherwise accumulate one file per staged run, forever.
+    rm -f "$SNAP_DIR"/offline-pre-*.tsv
     cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       '{staged_at:$ts, pre_snapshot:$snap}' > "$OFFLINE_MARKER"
@@ -250,15 +292,26 @@ cmd_update() {
   # tell the human
   render_summary "$hist"
   if [[ "$surface" != "terminal" ]]; then
-    local n; n="$(jq '[.backends[].updated | length] | add' "$hist")"
+    # Same truth as the summary: a run that installed and removed packages must never be
+    # announced as "0 packages updated".
+    local phrase
+    phrase="$(jq -r '
+      def tot(k): [.backends[] | .[k] | length] | add // 0;
+      [ (if tot("updated") > 0 then (tot("updated")|tostring) + " updated" else empty end),
+        (if tot("added")   > 0 then "+" + (tot("added")|tostring)   + " installed" else empty end),
+        (if tot("removed") > 0 then "-" + (tot("removed")|tostring) + " removed"   else empty end) ]
+      | if length == 0 then "no package changes" else join(", ") end' "$hist")"
     if [[ "$surface" == "offline" ]]; then
       notify "Upkeep" "Updates staged - they apply on the next reboot"
     elif [[ "$status" == "ok" ]]; then
-      notify "Upkeep" "$n packages updated$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+      notify "Upkeep" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
       notify "Upkeep" "Update FAILED - see $log"
     fi
   fi
+  # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
+  # already emptied. Never allowed to change the run's own verdict.
+  cmd_check >/dev/null 2>&1 || true
   [[ "$status" == "ok" ]]
 }
 
@@ -280,8 +333,12 @@ cmd_run() {
   is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   if [[ "$surface" == "terminal" ]]; then
-    if [[ -n "$dry" ]]; then echo "terminal: konsole -e upkeep update"; return 0; fi
-    setsid konsole -e bash -c \
+    # Checked before the dry run too: "what would happen" must include "nothing, you have no
+    # terminal emulator". Silently spawning nothing is how a widget button becomes a mystery.
+    command -v "$UPKEEP_TERMINAL" >/dev/null \
+      || { echo "$UPKEEP_TERMINAL not found - install it or run: upkeep config set surface background" >&2; exit 4; }
+    if [[ -n "$dry" ]]; then echo "terminal: $UPKEEP_TERMINAL -e upkeep update"; return 0; fi
+    setsid "$UPKEEP_TERMINAL" -e bash -c \
       "'$SELF' update; ec=\$?; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec" \
       >/dev/null 2>&1 &
   else
@@ -298,7 +355,11 @@ cmd_summary() {  # [N] - 1 = latest (default)
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
   [[ ${#files[@]} -gt 0 ]] || { echo "no update runs recorded yet"; exit 0; }
-  i=$(( n - 1 )); (( i >= ${#files[@]} )) && i=$(( ${#files[@]} - 1 ))   # N past the end → oldest
+  i=$(( n - 1 ))
+  if (( i >= ${#files[@]} )); then   # N past the end → oldest, and SAY so
+    i=$(( ${#files[@]} - 1 ))
+    echo "note: only ${#files[@]} run(s) recorded - showing the oldest" >&2
+  fi
   for (( ; i < ${#files[@]}; i++ )); do
     # One damaged entry must not be the last word the user gets: warn, fall back to the next
     # newest. EMPTY output counts as damaged - jq exits 0 on a zero-byte file, so "rendered
@@ -313,8 +374,11 @@ cmd_summary() {  # [N] - 1 = latest (default)
 }
 
 cmd_history() {
-  local f row
-  for f in $(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r); do
+  local f row files=()
+  # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
+  while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
+    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
+  for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, and must not take the
     # whole listing down with it - every other run is still perfectly readable.
     if row="$(jq -r '[.timestamp, .surface, .status,
@@ -417,6 +481,13 @@ cmd_disable_passwordless() {
   echo "Passwordless updates disabled"
 }
 
+# Exit codes (one contract, every command):
+#   0 success - including a user who declines at the risky-transaction prompt
+#   1 the run itself failed (a backend returned non-zero)
+#   2 usage error (unknown command, option or argument)
+#   3 cannot start: jq missing, or another upkeep update already holds the lock
+#   4 launcher missing (no terminal emulator for the terminal surface)
+#   5 aborted during pre-flight - nothing was changed
 usage() {
   cat <<'EOF'
 usage: upkeep <command>

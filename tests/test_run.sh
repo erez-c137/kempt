@@ -31,4 +31,13 @@ assert_exit 2 "run: extra arguments rejected" "$UPKEEP" run --dry-run extra
 surferr="$("$UPKEEP" run --dry-run 2>&1 >/dev/null)"
 assert_eq "$("$UPKEEP" run --dry-run 2>/dev/null)" "terminal: konsole -e upkeep update" "unknown surface falls back to terminal"
 grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
+
+# No terminal emulator = the button does nothing, forever, silently. Fail loudly instead, and say
+# how to fix it. Checked in --dry-run too: "what would happen" has to include "nothing".
+"$UPKEEP" config set surface terminal
+assert_exit 4 "missing terminal emulator is a loud failure" \
+  env UPKEEP_TERMINAL=upkeep-no-such-terminal "$UPKEEP" run --dry-run
+termerr="$(UPKEEP_TERMINAL=upkeep-no-such-terminal "$UPKEEP" run --dry-run 2>&1 >/dev/null || true)"
+grep -q 'config set surface background' <<<"$termerr" \
+  && echo "ok: the error tells the user how to fix it" || { echo "FAIL: no remedy in the message"; _fail=1; }
 finish

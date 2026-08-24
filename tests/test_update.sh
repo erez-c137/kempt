@@ -17,6 +17,7 @@ esac
 exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub"
+cp "$TESTTMP/apply-stub" "$TESTTMP/apply-stub.orig"   # probes that swap it restore from here
 cat > "$TESTTMP/refresh-stub" <<STUB
 #!/usr/bin/env bash
 [[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
@@ -55,6 +56,34 @@ assert_eq "$(jq -r .reboot_needed "$h")" "true" "reboot flag captured"
 grep -q -- '--exclude=vim-common' "$WORLD/apply-calls" && echo "ok: hold became --exclude" || { echo "FAIL: exclude"; _fail=1; }
 grep -q 'flatpak-update' "$WORLD/apply-calls" && echo "ok: flatpak ran" || { echo "FAIL: flatpak"; _fail=1; }
 grep -q NOTIFY "$WORLD/notifications" && echo "ok: non-terminal surface notified" || { echo "FAIL: notify"; _fail=1; }
+
+# A CLI-only user must not be left staring at a pending list the run already emptied: the run
+# refreshes the state itself instead of waiting for the widget to come along and do it.
+assert_exit 0 "update self-refreshes the state" -- test -f "$UPKEEP_STATE_DIR/state.json"
+assert_eq "$(jq '.backends.dnf.items | length' "$UPKEEP_STATE_DIR/state.json")" "7" \
+  "the state written after the run comes from a fresh check"
+
+# --- truthful counts: a transaction that only installs and removes changed the system just as
+# much as one that upgrades. "0 packages updated" would be a lie the user can act wrongly on.
+printf 'bash\t5.2.37-1.fc44\nzsh\t5.9-11.fc44\n'    > "$TESTTMP/ar-before.tsv"
+printf 'bash\t5.2.37-1.fc44\nnewpkg\t1.0-1.fc44\n'  > "$TESTTMP/ar-after.tsv"
+cp "$TESTTMP/ar-before.tsv" "$WORLD/rpm.tsv"
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+cp "$TESTTMP/ar-after.tsv" "$WORLD/rpm.tsv"
+exit 0
+STUB
+: > "$WORLD/notifications"
+arout="$("$UPKEEP" update --no-flatpak)"
+grep -q 'System (dnf): 0 updated, +1 installed, -1 removed' <<<"$arout" \
+  && echo "ok: summary counts installs and removals" || { echo "FAIL: summary counts - got: $arout"; _fail=1; }
+grep -qE '0 (packages )?updated|no package changes' "$WORLD/notifications" \
+  && { echo "FAIL: notification claimed nothing happened"; _fail=1; } || echo "ok: notification never claims nothing happened"
+grep -q '+1 installed' "$WORLD/notifications" && echo "ok: notification counts installs" || { echo "FAIL: notify installs"; _fail=1; }
+grep -q '\-1 removed' "$WORLD/notifications" && echo "ok: notification counts removals" || { echo "FAIL: notify removals"; _fail=1; }
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"   # back to the main fake world
+cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
 
 # A flatpak hold switches the whole backend to PER-APP updates, and that list is pre-filtered to
 # apps that are actually installed: com.example.NotInstalled is pending in the remote fixture but
@@ -132,6 +161,27 @@ assert_eq "$(jq -r .status "$h3")" "ok" "a broken report does not turn a good ru
 assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")" "0" \
   "broken after-snapshot degrades to an empty report, never phantom removals"
 
+# every run since the staging rewrote dnf-before.tsv, and the marker's own copy is still there
+assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
+
+# A pre-run snapshot that cannot be read means we could never say what changed, so the run stops
+# BEFORE touching anything - loudly, with its own exit code, and the detached user is told.
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+prc=0
+perr="$(UPKEEP_DNF_INSTALLED_CMD=false "$UPKEEP" update --surface=background 2>&1 >/dev/null)" || prc=$?
+assert_eq "$prc" "5" "unreadable package set aborts pre-flight with exit 5"
+grep -q 'cannot read the installed package set' <<<"$perr" \
+  && echo "ok: pre-flight failure says what went wrong" || { echo "FAIL: preflight message - got: $perr"; _fail=1; }
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "pre-flight abort changes nothing"
+grep -q 'did not start' "$WORLD/notifications" \
+  && echo "ok: a detached user is told the run never started" || { echo "FAIL: preflight notify"; _fail=1; }
+# same for the optional backend: it must not die silently through errexit either
+frc=0
+ferr="$(UPKEEP_FLATPAK_LIST_CMD=false "$UPKEEP" update 2>&1 >/dev/null)" || frc=$?
+assert_eq "$frc" "5" "unreadable flatpak set aborts pre-flight too"
+grep -q 'cannot read the installed flatpak set' <<<"$ferr" \
+  && echo "ok: flatpak pre-flight failure is named" || { echo "FAIL: flatpak preflight message"; _fail=1; }
+
 # --- risky-transaction detection: recommend offline staging before a LIVE upgrade of packages
 # that can break the running desktop. The fixture used everywhere else has none, so this section
 # swaps in a check stub that does, and restores it afterwards.
@@ -155,25 +205,76 @@ grep -q 'kernel-core' <<<"$aout" && echo "ok: recommendation names the package" 
 grep -q 'bash' <<<"$aout" && { echo "FAIL: ordinary package listed as risky"; _fail=1; } || echo "ok: ordinary packages stay out of the list"
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "abort runs no privileged command"
 assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$hist_n" "abort records no run"
-assert_exit 0 "abort leaves no lock behind" -- test ! -f "$UPKEEP_STATE_DIR/lock"
+# "no residue" now means NOT LOCKED (flock leaves the file in place; only the lock matters)
+assert_exit 0 "abort leaves the lock free" -- flock -n "$UPKEEP_STATE_DIR/lock" true
 
 # [s]tage offline instead: the recommendation is actionable, not just advice
 : > "$WORLD/apply-calls"
 UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"s" >/dev/null 2>&1
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: [s] switches the run to offline staging" || { echo "FAIL: stage offline"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: [s] upgraded live anyway"; _fail=1; } || echo "ok: [s] never upgrades live"
+# only the newest staging can ever be harvested, so older copies are swept, not accumulated
+assert_eq "$(ls "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1" "staging sweeps orphaned pre-snapshots"
+assert_exit 0 "the surviving copy is the one the marker points at" \
+  -- test -f "$(jq -r .pre_snapshot "$UPKEEP_STATE_DIR/offline_staged.json")"
 
 # [u]pdate live: the user always decides
 : > "$WORLD/apply-calls"
 UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"u" >/dev/null 2>&1
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: [u] proceeds with the live upgrade" || { echo "FAIL: update live"; _fail=1; }
 
+# Saying NO to a risk warning must never proceed - the answer people actually type is "n".
+# The trailing "u" is the point: if "n" were ever treated as an unrecognised answer, the
+# re-prompt would swallow it and the run would proceed on an answer meant to stop it.
+: > "$WORLD/apply-calls"
+nrc=0
+printf 'n\nu\n' | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1 || nrc=$?
+assert_eq "$nrc" "0" "declining with n exits 0"
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "n means no: nothing is applied"
+
+# no answer at all (Enter, or EOF from a closed stdin) is NOT consent
+: > "$WORLD/apply-calls"
+UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal </dev/null >/dev/null 2>&1
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "an unanswered risk warning defaults to abort"
+: > "$WORLD/apply-calls"
+printf '\nu\n' | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "pressing Enter defaults to abort"
+
+# gibberish gets one more chance, then aborts rather than guessing
+: > "$WORLD/apply-calls"
+printf 'x\nx\n' | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "two unparseable answers abort"
+: > "$WORLD/apply-calls"
+printf 'x\nu\n' | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: the re-prompt accepts a valid second answer" || { echo "FAIL: re-prompt"; _fail=1; }
+
+# --- bounded output: a real Qt or KDE bump matches by the hundred (168 on this box), and a wall
+# of names is not a recommendation anyone can act on.
+{ for i in 01 02 03 04 05 06 07 08 09 10 11 12; do printf 'qt6-qtmod%s.x86_64   6.9.1-1.fc44   updates\n' "$i"; done
+  for i in 01 02 03 04 05; do printf 'kf6-kmod%s.x86_64   6.18.0-1.fc44   updates\n' "$i"; done
+  printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\n'
+  printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'kwin-x11.x86_64   6.5.1-1.fc44   updates\n'
+  printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
+big="$(UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"a" 2>/dev/null)"
+grep -q 'touches 20 session-critical packages' <<<"$big" \
+  && echo "ok: the count is the headline (kernel-devel excluded)" || { echo "FAIL: risky count - got: $(head -1 <<<"$big")"; _fail=1; }
+assert_eq "$(grep -cE '^  [a-z]' <<<"$big")" "8" "terminal listing caps at 8 names"
+grep -q '\.\.\. and 12 more' <<<"$big" && echo "ok: the rest are counted, not printed" || { echo "FAIL: overflow line"; _fail=1; }
+: > "$WORLD/notifications"
+"$UPKEEP" update --surface=background >/dev/null 2>&1
+grep -q '20 session-critical packages pending (kernel, kf6, kwin, mesa, ...)' "$WORLD/notifications" \
+  && echo "ok: notification summarises by family, capped at 4" || { echo "FAIL: family summary - got: $(cat "$WORLD/notifications")"; _fail=1; }
+grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked into the notification"; _fail=1; } \
+  || echo "ok: no wall of package names in a notification"
+printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\nbash.x86_64   5.3.10-1.fc44   updates\n' > "$TESTTMP/risky-check.txt"
+
 # The lock is NOT held while a human deliberates: the recommendation runs before acquire_lock, so
 # a prompt left open over lunch never blocks the timer's next run, and an abort leaves no residue.
 { sleep 1; echo a; } | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1 &
 bgpid=$!
 sleep 0.4
-if kill -0 "$bgpid" 2>/dev/null && [[ ! -f "$UPKEEP_STATE_DIR/lock" ]]; then
+if kill -0 "$bgpid" 2>/dev/null && flock -n "$UPKEEP_STATE_DIR/lock" true; then
   echo "ok: no lock is held while the recommendation waits for an answer"
 else echo "FAIL: lock held (or run already over) during the prompt"; _fail=1; fi
 wait "$bgpid" || true
@@ -198,19 +299,37 @@ grep -q 'session-critical' "$WORLD/notifications" && { echo "FAIL: offline run s
   || echo "ok: offline surface skips the recommendation"
 export UPKEEP_REFRESH_HELPER="$TESTTMP/refresh-stub"
 
-# second update while lock held → refuses.
-# $$ (this test shell) is deliberately a LIVE pid: a fabricated one is correctly cleared as a
-# stale lock, which would make this assertion pass for the wrong reason.
-mkdir -p "$UPKEEP_STATE_DIR"; echo $$ > "$UPKEEP_STATE_DIR/lock"
+# second update while the lock is REALLY held → refuses. A background holder takes the same
+# flock the CLI takes, so this exercises the kernel's answer, not a heuristic about a pid file.
+hold_lock() {  # → sets $holder; returns once the lock is genuinely held
+  rm -f "$TESTTMP/held-flag"
+  ( exec 8>"$UPKEEP_STATE_DIR/lock"; flock 8; touch "$TESTTMP/held-flag"; sleep 30 ) &
+  holder=$!
+  local w=0
+  until [[ -f "$TESTTMP/held-flag" ]] || (( w > 100 )); do sleep 0.05; w=$(( w + 1 )); done
+  [[ -f "$TESTTMP/held-flag" ]] || { echo "FAIL: background lock holder never started"; _fail=1; }
+}
+mkdir -p "$UPKEEP_STATE_DIR"
+hold_lock
 assert_exit 3 "concurrent update refused" "$UPKEEP" update
-rm -f "$UPKEEP_STATE_DIR/lock"
+kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
 
-# ...and a lock left behind by a DEAD process must not freeze updates forever (the restic lock
-# that silently froze retention for 8 days). 99999999 is above pid_max: guaranteed not running.
-echo 99999999 > "$UPKEEP_STATE_DIR/lock"
-lockerr="$("$UPKEEP" update --no-flatpak 2>&1 >/dev/null)"
-grep -q 'stale' <<<"$lockerr" && echo "ok: stale lock cleared, with a note" || { echo "FAIL: stale lock note"; _fail=1; }
-assert_exit 0 "stale lock does not block the run" -- test ! -f "$UPKEEP_STATE_DIR/lock"
+# ...and a lock whose holder was SIGKILLed must not freeze updates forever (the restic lock that
+# silently froze retention for 8 days). With flock there is nothing to clear: the kernel drops it
+# when the fd closes, however the process died.
+hold_lock
+kill -9 "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
+assert_exit 0 "a killed holder's lock is gone by construction" "$UPKEEP" update --no-flatpak
+
+# A failure that is NOT a busy package lock must fail at once: retrying a full disk three times
+# just makes the user wait three times as long for the same bad news.
+cat > "$TESTTMP/apply-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "Error: No space left on device" >&2; exit 1
+STUB
+export UPKEEP_RETRY_DELAY=0
+assert_exit 1 "a non-lock failure fails immediately" "$UPKEEP" update --no-flatpak
+assert_eq "$(grep -c 'retrying' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)")" "0" "only package-lock errors are retried"
 
 # helper failure with lock-ish stderr → retried then fails cleanly.
 # --no-flatpak keeps the retry count scoped to ONE apply call (both backends would retry).
@@ -223,8 +342,6 @@ assert_exit 1 "busy rpm lock eventually fails" "$UPKEEP" update --no-flatpak
 assert_eq "$(grep -c 'retrying' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)")" "2" "two retries logged"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
 assert_eq "$(grep -c 'giving up' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)")" "1" "gives up loudly after the last attempt"
-# the marker's snapshot copy survives runs that rewrite dnf-before.tsv
-assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
 
 # --- offline harvest: the staged transaction applies during a reboot, and the next check has to
 # notice and turn it into a normal history entry + notification.

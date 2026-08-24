@@ -16,7 +16,8 @@ sandbox() {  # fresh dirs per test file; call first
   export UPKEEP_NOTIFY="true"   # /usr/bin/true — notifications are no-ops in tests
   export UPKEEP_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
   export UPKEEP_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
-  unset UPKEEP_DNF_INSTALLED_CMD UPKEEP_DNF_CMD UPKEEP_FLATPAK_REMOTE_CMD UPKEEP_FLATPAK_LIST_CMD UPKEEP_SKIP_REFRESH
+  unset UPKEEP_DNF_INSTALLED_CMD UPKEEP_DNF_CMD UPKEEP_FLATPAK_REMOTE_CMD UPKEEP_FLATPAK_LIST_CMD \
+        UPKEEP_SKIP_REFRESH UPKEEP_RISKY_RE UPKEEP_TERMINAL UPKEEP_ASSUME_TTY UPKEEP_RETRY_DELAY
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 
