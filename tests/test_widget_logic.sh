@@ -1,17 +1,69 @@
 #!/usr/bin/env bash
-# plasmoid/contents/ui/logic.js is engine-agnostic JavaScript on purpose: the plasmoid loads it
-# with `import "logic.js" as Logic`, and this file loads the SAME file with node. Everything the
-# widget derives from the CLI's state JSON - the badge number, the icon state, the tooltip, the
-# popup sections - is therefore pinned by a test that runs in the ordinary suite, on a box where
-# no QML engine can be started at all.
+# The widget's tests. Two halves, because the widget is deliberately two halves:
+#
+#   1. plasmoid/contents/ui/logic.js is engine-agnostic JavaScript on purpose - the plasmoid loads
+#      it with `import "logic.js" as Logic`, and this file loads the SAME file with node. Every
+#      rule the panel shows a human (badge number, icon state, tooltip, popup sections) is pinned
+#      here rather than in QML, where no test could reach it.
+#   2. the QML around it is compile-checked against the system Qt 6 (see the bottom of the file).
+#
+# Both halves skip LOUDLY rather than failing when their tool is missing: neither node nor PySide6
+# is a dependency of Upkeep itself.
 source "$(dirname "$0")/lib.sh"; sandbox
 LOGIC="$REPO_ROOT/plasmoid/contents/ui/logic.js"
+
+# Half 2, defined up here because the node half below can skip out early and this must run either
+# way. There is no qmllint on this box (it ships in qt6-qtdeclarative-devel, which is not
+# installed), but PySide6 is present and links against the SAME Qt 6 the desktop runs on.
+# Compiling each .qml with QQmlComponent resolves every import and every property assignment -
+# a typo'd property or a module that does not exist fails here instead of in somebody's panel.
+# Nothing is instantiated, so this needs no Applet, no display and no plasmashell. It does NOT
+# check layout, bindings at runtime or anything visual: that is the founder's visual gate.
+qml_check() {
+  if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
+    echo "ok: SKIPPED - PySide6 is absent, so the .qml files were NOT compile-checked in this run"
+    return 0
+  fi
+  local out="$TESTTMP/qmlcheck.txt" want
+  want="$(find "$REPO_ROOT/plasmoid" -name '*.qml' | wc -l)"
+  QT_QPA_PLATFORM=offscreen python3 - "$REPO_ROOT/plasmoid" > "$out" 2>&1 <<'PY'
+import glob, os, sys
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QQmlEngine, QQmlComponent
+
+app = QGuiApplication(sys.argv[:1])
+engine = QQmlEngine()
+for p in ("/usr/lib64/qt6/qml", "/usr/lib/qt6/qml"):
+    if os.path.isdir(p):
+        engine.addImportPath(p)
+rc = 0
+for f in sorted(glob.glob(os.path.join(sys.argv[1], "**", "*.qml"), recursive=True)):
+    comp = QQmlComponent(engine, QUrl.fromLocalFile(f))
+    errs = comp.errors()
+    name = os.path.relpath(f, sys.argv[1])
+    if errs:
+        rc = 1
+        print(f"ERR {name}")
+        for e in errs:
+            print(f"      line {e.line()}:{e.column()}  {e.description()}")
+    else:
+        print(f"OK {name}")
+sys.exit(rc)
+PY
+  local rc=$?
+  # The count guards the vacuous pass: a probe that found no files would otherwise "succeed".
+  assert_eq "$(grep -c '^OK ' "$out")" "$want" "every .qml in the package compiles against the system Qt 6"
+  [[ $rc -eq 0 ]] || { echo "FAIL: QML compile errors"; sed 's/^/    /' "$out"; _fail=1; }
+  [[ "$want" -gt 0 ]] || { echo "FAIL: no .qml files were checked at all"; _fail=1; }
+}
 
 # node is not a dependency of Upkeep itself, so its absence must not fail the suite - but it must
 # be LOUD, because a silent skip here means the widget's whole derivation layer went unverified.
 if ! command -v node >/dev/null 2>&1; then
   echo "ok: SKIPPED - node is not installed, so logic.js was NOT verified in this run"
   echo "    (install nodejs and re-run: these are the only tests the widget's derivation layer has)"
+  qml_check
   finish
 fi
 
@@ -189,4 +241,6 @@ for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)'
             'L.viewModel({hello:"world"},false)'; do
   assert_eq "$(js "Object.keys($case).sort()")" "$keys" "$case returns the whole view model"
 done
+
+qml_check
 finish
