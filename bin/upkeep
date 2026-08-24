@@ -74,16 +74,24 @@ cmd_unhold() {
 }
 cmd_holds()  { holds_all; }
 
-RULES_DST="/etc/polkit-1/rules.d/49-upkeep.rules"
+RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
 cmd_enable_passwordless() {
-  local tmp; tmp="$(mktemp)"
-  sed "s/@USER@/$USER/" "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
+  local u tmp
+  # id -un, never $USER: a crafted USER env var was a sed-injection into the rendered rule
+  # (a payload ending the s/// expression could drop `subject.active && subject.local`,
+  # widening the grant to inactive/remote sessions). awk gsub takes the name as DATA, and the
+  # post-render scope check refuses to install anything that lost the scope clause.
+  u="$(id -un)"
+  [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || { echo "unexpected username: $u" >&2; exit 2; }
+  tmp="$(mktemp)"
+  awk -v u="$u" '{gsub(/@USER@/, u); print}' "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
+  grep -q 'subject.active && subject.local' "$tmp" || { echo "rendered rule failed scope check" >&2; rm -f "$tmp"; exit 2; }
   # dash (not colon-dash) on purpose: empty UPKEEP_PKEXEC means "no wrapper" (test sandbox),
   # matching priv_refresh/priv_apply — colon-dash would run REAL pkexec inside tests.
   ${UPKEEP_PKEXEC-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
   rm -f "$tmp"
-  echo "Passwordless updates ENABLED for $USER ($RULES_DST)"
+  echo "Passwordless updates ENABLED for $u ($RULES_DST)"
 }
 
 cmd_disable_passwordless() {

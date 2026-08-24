@@ -1,8 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
+# Absolute shebang + fixed PATH: this runs as root, so neither the interpreter nor the commands
+# it resolves may come from a caller-controlled environment.
 set -euo pipefail
-export LC_ALL=C.UTF-8
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: UPKEEP_APPLY_ECHO=1 prints instead of exec
@@ -29,24 +32,29 @@ case "$verb" in
     assume=(); ids=()
     for a in "$@"; do
       case "$a" in
-        -y) assume=(-y) ;;
+        -y) assume=(--noninteractive -y) ;;   # auto-accept; without -y flatpak may prompt (terminal surface only)
         -*) echo "invalid arg: $a" >&2; exit 2 ;;
         *) [[ "$a" =~ $NAME_RE ]] || { echo "invalid app id: $a" >&2; exit 2; }
            ids+=("$a") ;;
       esac
     done
     if [[ ${#ids[@]} -eq 0 ]]; then
-      run flatpak update --system --noninteractive "${assume[@]}"
+      run flatpak update --system "${assume[@]}"
     else
-      # per-app so holds can be skipped; validate each id against the installed system set
+      # per-app so holds can be skipped; validate each id against the installed system set.
+      # This validation query is deliberately NOT env-overridable: an injectable command inside
+      # a root helper would be a real vulnerability, so the per-app path staying untestable
+      # without a live flatpak is the accepted price.
       installed="$(flatpak list --system --app --columns=application 2>/dev/null || true)"
       for id in "${ids[@]}"; do
         grep -qxF "$id" <<<"$installed" || { echo "not installed: $id" >&2; exit 2; }
       done
       rc=0
       for id in "${ids[@]}"; do
-        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "flatpak update --system --noninteractive ${assume[*]} $id"
-        else flatpak update --system --noninteractive "${assume[@]}" "$id" || rc=1; fi
+        # ONE array for both modes: echo and real can never drift in argument handling.
+        cmd=(flatpak update --system "${assume[@]}" "$id")
+        if [[ -n "${UPKEEP_APPLY_ECHO:-}" ]]; then echo "${cmd[*]}"
+        else "${cmd[@]}" || rc=1; fi
       done
       exit $rc
     fi
