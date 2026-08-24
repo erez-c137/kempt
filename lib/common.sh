@@ -115,3 +115,46 @@ tsv_diff_updates() {  # before_file after_file
       added:   [.[] | select(.[0]=="A") | {name:.[1], to:.[3]}],
       removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }'
 }
+
+# --- state assembly ---
+assemble_state() {  # $1 dnf items JSON (held-marked), $2 flatpak items JSON, $3 status, $4 error
+  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" --arg now "$(now_iso)" '
+    def wrap: {count: ([.[] | select(.held|not)] | length),
+               held:  ([.[] | select(.held)] | length),
+               items: .};
+    {last_check: $now, status: $status, error: $error,
+     backends: {dnf: ($dnf | wrap), flatpak: ($fp | wrap)},
+     actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
+     held_total: (($dnf + $fp) | [.[] | select(.held)] | length)}'
+}
+
+state_prev_items() {  # backend → previous items JSON or []
+  jq ".backends.$1.items // []" "$STATE_FILE" 2>/dev/null || echo '[]'
+}
+
+write_state() {  # stdin: state JSON; atomic
+  cat > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+
+maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
+  [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
+  local last=0 now; now="$(date +%s)"
+  [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE")"
+  (( now - last < 10800 )) && return 0
+  on_battery && return 0
+  metered_connection && return 0
+  priv_refresh refresh >/dev/null 2>&1 && touch "$LAST_REFRESH_FILE" || true
+}
+
+on_battery() {
+  local ps
+  for ps in /sys/class/power_supply/BAT*/status; do
+    [[ -e "$ps" ]] && grep -q Discharging "$ps" && return 0
+  done
+  return 1
+}
+
+metered_connection() {
+  busctl get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager \
+    org.freedesktop.NetworkManager Metered 2>/dev/null | grep -qE ' (1|3)$'
+}

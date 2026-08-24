@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Upkeep — one-click system updates. See docs/specs/2026-08-24-upkeep-design.md
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="$(dirname "$(dirname "$SELF")")"
+source "$ROOT/lib/common.sh"
+source "$ROOT/backends/dnf.sh"
+source "$ROOT/backends/flatpak.sh"
+
+cmd_check() {
+  # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body — backends must therefore
+  # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
+  upkeep_init_dirs
+  maybe_refresh_metadata
+  local status="ok" error="" dnf_items fp_items
+  if dnf_items="$(dnf_check)"; then :; else
+    status="stale"; error="dnf check failed"; dnf_items="$(state_prev_items dnf)"
+  fi
+  if [[ "$(config_get include_flatpak true)" == "true" ]]; then
+    if fp_items="$(flatpak_check)"; then :; else
+      status="stale"; error="${error:+$error; }flatpak check failed"; fp_items="$(state_prev_items flatpak)"
+    fi
+  else
+    fp_items='[]'
+  fi
+  dnf_items="$(mark_held dnf <<<"$dnf_items")"
+  fp_items="$(mark_held flatpak <<<"$fp_items")"
+  local state
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error")"
+  printf '%s\n' "$state" | write_state
+  printf '%s\n' "$state"
+}
+
+cmd_config() {
+  case "${1:-}" in
+    get) [[ -n "${2:-}" ]] || { echo "usage: upkeep config get <key> [default]" >&2; exit 2; }
+         config_get "$2" "${3-}" ;;
+    set) [[ -n "${2:-}" && -n "${3+x}" ]] || { echo "usage: upkeep config set <key> <value>" >&2; exit 2; }
+         config_set "$2" "$3" ;;
+    *) echo "usage: upkeep config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
+  esac
+}
+
+# a missing colon must not silently hold a package named after the backend ("upkeep hold dnf")
+cmd_hold() {
+  [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  local b="${1%%:*}" n="${1#*:}"
+  [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  hold_add "$b" "$n"
+}
+cmd_unhold() {
+  [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  local b="${1%%:*}" n="${1#*:}"
+  hold_remove "$b" "$n"
+}
+cmd_holds()  { holds_all; }
+
+usage() {
+  cat <<'EOF'
+usage: upkeep <command>
+  check                 refresh pending-updates state (JSON to stdout)
+  update                run the update now (options from config; --no-flatpak, --surface=X override)
+  run                   launch update per configured surface (what the widget calls)
+  summary [N]           human summary of the last (or Nth-last) run
+  history               list past runs
+  hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
+  unhold <same>         remove a hold
+  holds                 list holds
+  config get|set        read/write settings
+  enable-passwordless | disable-passwordless
+EOF
+}
+
+case "${1:-help}" in
+  check)   shift; cmd_check "$@" ;;
+  config)  shift; cmd_config "$@" ;;
+  hold)    shift; cmd_hold "$@" ;;
+  unhold)  shift; cmd_unhold "$@" ;;
+  holds)   shift; cmd_holds "$@" ;;
+  help|--help|-h) usage ;;
+  *) usage; exit 2 ;;
+esac
