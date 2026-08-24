@@ -110,8 +110,8 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 ## Repo & install
 
 - Repo: `/mnt/dev_workspace/projects/upkeep` (reachable via `~/my_projects/upkeep`); covered by restic.
-- Layout: `bin/upkeep`, `backends/`, `libexec/upkeep-apply`, `plasmoid/` (QML package), `polkit/` (action + rules template), `install.sh`, `tests/`, `docs/`.
-- `install.sh`: symlinks/copies CLI to `~/.local/bin`, installs plasmoid via `kpackagetool6 -t Plasma/Applet -i`, installs helper + polkit action via a single pkexec prompt. `install.sh --uninstall` reverses it.
+- Layout: `bin/upkeep`, `backends/`, `libexec/` (two root helpers), `plasmoid/` (QML package — Plan 2, not yet present), `polkit/` (action + rules template), `install.sh`, `tests/`, `docs/`.
+- `install.sh`: symlinks/copies CLI to `~/.local/bin`, installs helpers + polkit action via a single pkexec prompt, and the man page. `install.sh --uninstall` reverses it. The plasmoid install step (`kpackagetool6 -t Plasma/Applet -i`) is Plan 2 — added when the widget exists.
 - The symlink install makes the repo checkout LOAD-BEARING at runtime (bin/upkeep, lib/, backends/, and the passwordless rules template all resolve into it) — intentional for this box; only the root helpers + policy are copied out (root-owned, so editing the repo can never change what runs privileged). Proper packaging (RPM) is the v2 answer for other users.
 
 ## Testing

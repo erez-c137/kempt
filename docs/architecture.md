@@ -325,7 +325,7 @@ destructive paths without ever running them.
 | `UPKEEP_ASSUME_TTY`, `UPKEEP_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
 | `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination (shape-validated) |
 | `UPKEEP_APPLY_ECHO`, `UPKEEP_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
-| `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure |
+| `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
 
 The `*_ECHO` seams exist for tests only. The two that live in root-owned code,
 `UPKEEP_APPLY_ECHO` and `UPKEEP_REFRESH_ECHO`, are unreachable in a real privileged run: pkexec
