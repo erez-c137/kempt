@@ -35,7 +35,12 @@ export UPKEEP_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export UPKEEP_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
 export UPKEEP_SKIP_REFRESH=1
-export UPKEEP_REBOOT_CMD="false"   # false → exit 1 → reboot_needed=true
+# The reboot check is the backend's (dnf_reboot_needed), so it is stubbed through the backend's
+# own seam: UPKEEP_DNF_CMD, exit 1 = reboot needed, exit 0 = not needed.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/dnf-reboot-yes"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
+chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
+export UPKEEP_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 
 "$UPKEEP" config set surface background
 "$UPKEEP" hold dnf:vim-common
@@ -72,14 +77,21 @@ assert_exit 2 "unknown update option rejected" "$UPKEEP" update --bogus
 # is forced to the terminal surface and -y must NOT reach the privileged helper.
 : > "$WORLD/apply-calls"
 "$UPKEEP" config set auto_accept false
-# UPKEEP_REBOOT_CMD=true → rc 0 → no reboot needed. The everyday case, and the one where the
-# `[[ $rrc -eq 1 ]] && reboot=true` shorthand must not abort the run under errexit.
-UPKEEP_REBOOT_CMD=true "$UPKEEP" update >/dev/null
+# dnf-reboot-no → rc 0 → no reboot needed: the everyday case, and the one the reboot-needed
+# stub above can never prove.
+UPKEEP_DNF_CMD="$TESTTMP/dnf-reboot-no" "$UPKEEP" update >/dev/null
 h2="$UPKEEP_STATE_DIR/history/$(ls "$UPKEEP_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .reboot_needed "$h2")" "false" "no-reboot-needed run completes and records false"
 assert_eq "$(jq -r .surface "$h2")" "terminal" "auto_accept=false forces the terminal surface"
 assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "auto_accept=false never sends -y to the helper"
 "$UPKEEP" config set auto_accept true
+
+# An unknown surface must not silently mean "detached, and definitely not offline". auto_accept is
+# true again here, so terminal can ONLY have come from the surface guard.
+surferr="$("$UPKEEP" update --surface=bogus 2>&1 >/dev/null)"
+grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns" || { echo "FAIL: surface warning"; _fail=1; }
+hs="$UPKEEP_STATE_DIR/history/$(ls "$UPKEEP_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .surface "$hs")" "terminal" "unknown surface falls back to terminal in update"
 
 # offline surface: stage instead of upgrading live, and leave a marker owning its OWN copy of the
 # pre-snapshot (a later update overwrites dnf-before.tsv, and the harvest still has to diff

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upkeep root helper — metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
+# Upkeep root helper - metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
 # Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
 # the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
 set -euo pipefail
@@ -15,7 +15,7 @@ run() {  # test seam: UPKEEP_REFRESH_ECHO=1 prints the final command instead of 
 [[ $# -eq 1 ]] || { echo "usage: upkeep-refresh check|refresh" >&2; exit 2; }
 case "$1" in
   # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
-  # progress/errors on stderr — merging them would feed diagnostics into the parser.
+  # progress/errors on stderr - merging them would feed diagnostics into the parser.
   check)   run dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
   refresh) run dnf5 makecache --refresh ;;
   *) echo "usage: upkeep-refresh check|refresh" >&2; exit 2 ;;

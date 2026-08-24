@@ -9,7 +9,7 @@ UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --system --app 
 
 # remote-ls with --columns=application,version may emit an empty version column, and a pending
 # app can be missing from the installed lookup entirely. GNU join's `-a1 -e '?' -o` flags are the
-# guard that fills both gaps — jq's `//` does NOT catch empty strings, so they are not redundant.
+# guard that fills both gaps - jq's `//` does NOT catch empty strings, so they are not redundant.
 flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines → JSON [{name,from,to}]
   # awk, not `grep -vE '^(#|$)'`: same filtering, but grep exits 1 when it selects nothing, and
   # under pipefail that turned the COMMON "no pending updates" case into a check failure.
@@ -23,11 +23,11 @@ flatpak_check() {  # → items JSON; non-zero on command OR parser failure
   local out lookup prc=0
   out="$($UPKEEP_FLATPAK_REMOTE_CMD)" || return 1
   # A failed lookup must be loud: without this guard the join still succeeds against an empty
-  # file and every app reports from="?" — a plausible-looking, entirely fabricated report.
+  # file and every app reports from="?" - a plausible-looking, entirely fabricated report.
   lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup" \
     || { rm -f "$lookup"; return 1; }
   # Capture BEFORE the cleanup: rm's exit 0 would otherwise mask a parser failure. This masking
-  # is what hid the zero-pending bug above — the two defects have to be fixed together.
+  # is what hid the zero-pending bug above - the two defects have to be fixed together.
   flatpak_parse_remote_ls "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
   return $prc

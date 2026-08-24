@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
+# Upkeep root helper - upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
 # Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
 # the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.

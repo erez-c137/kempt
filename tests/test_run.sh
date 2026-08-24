@@ -22,4 +22,13 @@ assert_eq "$("$UPKEEP" run --dry-run)" "terminal: konsole -e upkeep update" "no-
 # real update, so an unrecognised argument has to stop before anything spawns.
 assert_exit 2 "run: mistyped dry-run flag rejected" "$UPKEEP" run --dryrun
 assert_exit 2 "run: extra arguments rejected" "$UPKEEP" run --dry-run extra
+
+# An unknown surface (config typo, stale value from an older widget) falls back to the one surface
+# that can always show a human what happened. auto_accept goes back to TRUE first, or the
+# auto-accept guard would force terminal on its own and this would prove nothing.
+"$UPKEEP" config set auto_accept true
+"$UPKEEP" config set surface bogus
+surferr="$("$UPKEEP" run --dry-run 2>&1 >/dev/null)"
+assert_eq "$("$UPKEEP" run --dry-run 2>/dev/null)" "terminal: konsole -e upkeep update" "unknown surface falls back to terminal"
+grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
 finish

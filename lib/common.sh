@@ -38,7 +38,7 @@ atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays at
   tmp="$(mktemp -p "$(dirname "$dest")" .atomic.XXXXXX)"
   # sync before the rename: an atomic rename only guarantees you see the OLD or NEW name, not
   # that the new name's CONTENT reached disk. After an unclean shutdown that gap shows up as a
-  # zero-length holds file — which silently un-holds every package the user pinned.
+  # zero-length holds file - which silently un-holds every package the user pinned.
   if cat > "$tmp"; then sync "$tmp" 2>/dev/null || true; mv "$tmp" "$dest"; else rm -f "$tmp"; return 1; fi
 }
 
@@ -82,7 +82,7 @@ config_set() {  # key value
 }
 
 # timeout: metadata refresh runs from background checks. Once polkit exists but before the
-# action file is installed, pkexec falls back to an auth DIALOG — a background check would hang
+# action file is installed, pkexec falls back to an auth DIALOG - a background check would hang
 # forever waiting on a password nobody is there to type. priv_apply stays untimed on purpose:
 # there, interactive auth is the legitimate flow.
 priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
@@ -145,7 +145,7 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
 # --- snapshot diff: before/after TSV, sorted by name with ONE row per name → report JSON ---
 # Producers MUST pipe through collapse_versions first. Fedora keeps several versions of
 # installonly packages (kernel* families, gpg-pubkey), so a raw rpm listing repeats names and
-# join emits a CROSS PRODUCT — a self-diff of this box's real package list produced 192 phantom
+# join emits a CROSS PRODUCT - a self-diff of this box's real package list produced 192 phantom
 # "updated" rows. The guard below refuses that input loudly instead of reporting fiction.
 tsv_diff_updates() {  # before_file after_file
   local f
@@ -167,7 +167,7 @@ tsv_diff_updates() {  # before_file after_file
 }
 
 # --- state assembly ---
-# State schema v1 — FROZEN. This JSON is a public interface (the widget and any scripted reader
+# State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
 assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or ""
   jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
@@ -185,7 +185,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
 }
 
 # Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach
-# --argjson as invalid JSON (or a string), killing the whole check with jq rc 2/5 — the one
+# --argjson as invalid JSON (or a string), killing the whole check with jq rc 2/5 - the one
 # moment the fallback exists for. Every bad shape degrades to [].
 state_prev_items() {  # backend → previous items array; [] for missing/corrupt/wrong-shaped state
   local out
@@ -240,8 +240,8 @@ render_summary() {  # history-json-file → human text
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
     def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
-    "Upkeep — " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
-      + (if .status == "ok" then "✓" else "FAILED — see " + .log end),
+    "Upkeep - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
+      + (if .status == "ok" then "✓" else "FAILED - see " + .log end),
     "System (dnf): " + (.backends.dnf.updated|length|tostring) + " updated"
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),

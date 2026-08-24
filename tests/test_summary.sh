@@ -45,7 +45,7 @@ cat > "$HIST_DIR/20260824T130000.json" <<'EOF'
   "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 EOF
 f="$(render_summary "$HIST_DIR/20260824T130000.json")"
-grep -q 'FAILED — see /tmp/y.log' <<<"$f" && echo "ok: failure names the log" || { echo "FAIL: failure log line"; _fail=1; }
+grep -q 'FAILED - see /tmp/y.log' <<<"$f" && echo "ok: failure names the log" || { echo "FAIL: failure log line"; _fail=1; }
 grep -q 'System (dnf): 0 updated \[failed\]' <<<"$f" && echo "ok: failing backend is marked" || { echo "FAIL: backend status marker"; _fail=1; }
 grep -q 'Apps (flatpak): 0 updated \[skipped\]' <<<"$f" && echo "ok: skipped backend is marked" || { echo "FAIL: skipped marker"; _fail=1; }
 grep -q 'Held' <<<"$f" && { echo "FAIL: empty held list printed a line"; _fail=1; } || echo "ok: no held line when nothing is held"
@@ -74,4 +74,33 @@ assert_eq "$("$UPKEEP" summary 2 | head -1 | grep -c '13:00:00')" "1" "summary N
 assert_eq "$("$UPKEEP" history | wc -l)" "3" "history lists every run"
 assert_eq "$("$UPKEEP" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
 assert_exit 2 "summary rejects a non-numeric N" "$UPKEEP" summary abc
+
+# --- a damaged history entry must not cost the user every other run ---
+# Both readers are what the widget and the terminal shell out to, and a half-written entry (power
+# loss mid-write, a full disk) is exactly what they will meet one day.
+rm -f "$HIST_DIR"/*.json
+printf '{"timestamp":"2026-08-24T15:00:00+03:00","surface":"term' > "$HIST_DIR/20260824T150000.json"  # truncated
+: > "$HIST_DIR/20260824T160000.json"   # zero-byte: jq exits 0 with NO output, the nastier shape
+cat > "$HIST_DIR/20260824T110000.json" <<'EOF'
+{"timestamp":"2026-08-24T11:00:00+03:00","surface":"background","status":"ok","duration_sec":12,
+ "reboot_needed":false,"log":"/tmp/z.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[{"name":"curl","from":"8.17","to":"8.18"}],"added":[],"removed":[]},
+  "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+EOF
+src=0
+sout="$("$UPKEEP" summary 2>"$TESTTMP/serr")" || src=$?
+assert_eq "$src" "0" "corrupt newest entry does not fail the command"
+grep -q 'curl 8.17 → 8.18' <<<"$sout" && echo "ok: summary falls back to the newest READABLE entry" \
+  || { echo "FAIL: summary fallback - got: $sout"; _fail=1; }
+assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/serr")" "2" "both damaged entries are named on stderr"
+assert_eq "$("$UPKEEP" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
+assert_eq "$("$UPKEEP" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
+
+# every entry damaged → the same calm no-runs answer, still rc 0
+rm -f "$HIST_DIR/20260824T110000.json"
+arc=0
+aout="$("$UPKEEP" summary 2>/dev/null)" || arc=$?
+assert_eq "$arc" "0" "all-corrupt history still exits 0"
+assert_eq "$aout" "no update runs recorded yet" "all-corrupt history degrades to the no-runs message"
 finish

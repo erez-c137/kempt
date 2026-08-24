@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Upkeep — one-click system updates. See docs/specs/2026-08-24-upkeep-design.md
+# Upkeep - one-click system updates. See docs/specs/2026-08-24-upkeep-design.md
 set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(dirname "$(dirname "$SELF")")"
@@ -10,7 +10,7 @@ source "$ROOT/backends/flatpak.sh"
 command -v jq >/dev/null || { echo "upkeep: requires jq" >&2; exit 3; }
 
 cmd_check() {
-  # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body — backends must therefore
+  # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   upkeep_init_dirs
@@ -27,7 +27,7 @@ cmd_check() {
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # -n/[inputs][0]: same corrupt-tolerance as state_prev_items. A multi-doc state file made the
-  # plain form emit one last_success PER DOCUMENT, newline-joined into a single string — which
+  # plain form emit one last_success PER DOCUMENT, newline-joined into a single string - which
   # reaches the widget as "Invalid Date".
   prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
   errf="$(mktemp)"
@@ -52,11 +52,17 @@ cmd_check() {
   printf '%s\n' "$state" | write_state
 }
 
-# `-C` (cache-only) and </dev/null are load-bearing, exactly as in dnf_reboot_needed: an
-# uncached needs-restarting does NETWORK I/O and can prompt on stdin, and this runs from
-# background/detached surfaces where there is nobody to answer. Exit 1 = reboot needed.
-UPKEEP_REBOOT_CMD="${UPKEEP_REBOOT_CMD:-dnf5 -C needs-restarting}"
 UPKEEP_RETRY_DELAY="${UPKEEP_RETRY_DELAY:-10}"
+
+# Surfaces are a closed set. An unknown one (typo in the config, a stale value from an older
+# widget) must not silently mean "detached, and definitely not offline": fall back to the one
+# surface that can always show a human what happened, and say so.
+resolve_surface() {  # surface → a known surface (single definition: cmd_update and cmd_run must never drift)
+  case "$1" in
+    terminal|popup|background|offline) printf '%s\n' "$1" ;;
+    *) echo "warning: unknown surface '$1' - using terminal" >&2; printf 'terminal\n' ;;
+  esac
+}
 
 apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock errors
   local log="$1"; shift
@@ -66,7 +72,7 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
     if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
       # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
-      # apply_with_retry bare — a bare `; rc=` form would abort the run instead of retrying.
+      # apply_with_retry bare - a bare `; rc=` form would abort the run instead of retrying.
       priv_apply "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
     else
       priv_apply "$@" >>"$log" 2>&1 || rc=$?
@@ -75,10 +81,10 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
     if tail -n 20 "$log" | grep -qiE 'lock|another (process|application)'; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
-        echo "Package system busy (PackageKit/Discover?) — retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
+        echo "Package system busy (PackageKit/Discover?) - retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
         sleep "$UPKEEP_RETRY_DELAY"
       else
-        echo "Package system still busy after $attempt attempts — giving up" | tee -a "$log" >&2
+        echo "Package system still busy after $attempt attempts - giving up" | tee -a "$log" >&2
       fi
     else
       return $rc
@@ -97,7 +103,9 @@ cmd_update() {
   esac; done
   [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak)"
   local auto; auto="$(config_get auto_accept)"
-  # only a terminal can prompt — enforced HERE too (cmd_run also guards, but update can be invoked directly)
+  # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
+  surface="$(resolve_surface "$surface")"
+  # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
   is_true "$auto" || { surface="terminal"; UPKEEP_LIVE_OUTPUT=1; }
   [[ "$surface" == "terminal" ]] && UPKEEP_LIVE_OUTPUT=1
   export UPKEEP_LIVE_OUTPUT
@@ -125,7 +133,7 @@ cmd_update() {
     apply_with_retry "$log" dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
   fi
 
-  # flatpak (live even when dnf staged offline — flatpak has no offline mechanism)
+  # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
   # Known v1 limitation: check/snapshot use --app, but `flatpak update` also updates RUNTIMES,
   # so the summary can under-report what the transaction actually changed. Documented, accepted.
   local fp_status="skipped"
@@ -158,7 +166,7 @@ cmd_update() {
   fi
 
   # snapshots (after) + reports
-  # Reports must never crash cmd_update after the system already changed — degrade to empty +
+  # Reports must never crash cmd_update after the system already changed - degrade to empty +
   # warning. That covers the SNAPSHOT too, not just the diff: the run is over either way, and the
   # history entry (plus the notification that carries it) must still be written.
   # `if fn; then` disables errexit inside fn, so both snapshot functions return status explicitly.
@@ -179,13 +187,17 @@ cmd_update() {
       echo "warning: flatpak snapshot after the run failed - summary incomplete" | tee -a "$log" >&2
     fi
   fi
-  local rrc=0
-  $UPKEEP_REBOOT_CMD </dev/null >/dev/null 2>&1 || rrc=$?
-  [[ $rrc -eq 1 ]] && reboot=true
+  # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the rc mapping and the
+  # -C / </dev/null hardening (an uncached needs-restarting does network I/O and can prompt on
+  # stdin, and this runs from detached surfaces where nobody can answer). Its seam is
+  # UPKEEP_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
+  # would lose the history entry of a run that already changed the system.
+  reboot="$(dnf_reboot_needed)"
+  [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
 
   # offline staging marker (harvested by cmd_check after reboot)
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
-    # marker owns its snapshot copy — a later update run overwrites dnf-before.tsv
+    # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv
     cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       '{staged_at:$ts, pre_snapshot:$snap}' > "$OFFLINE_MARKER"
@@ -211,18 +223,18 @@ cmd_update() {
   if [[ "$surface" != "terminal" ]]; then
     local n; n="$(jq '[.backends[].updated | length] | add' "$hist")"
     if [[ "$surface" == "offline" ]]; then
-      notify "Upkeep" "Updates staged — they apply on the next reboot"
+      notify "Upkeep" "Updates staged - they apply on the next reboot"
     elif [[ "$status" == "ok" ]]; then
       notify "Upkeep" "$n packages updated$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
-      notify "Upkeep" "Update FAILED — see $log"
+      notify "Upkeep" "Update FAILED - see $log"
     fi
   fi
   [[ "$status" == "ok" ]]
 }
 
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
-# cmd_update re-checks auto_accept itself — this guard is for the LAUNCH decision (a detached run
+# cmd_update re-checks auto_accept itself - this guard is for the LAUNCH decision (a detached run
 # can never answer a prompt), that one is for direct `upkeep update` callers.
 cmd_run() {
   local dry="" surface auto
@@ -235,6 +247,7 @@ cmd_run() {
   [[ $# -le 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
   surface="$(config_get surface)"
   auto="$(config_get auto_accept)"
+  surface="$(resolve_surface "$surface")"
   is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   if [[ "$surface" == "terminal" ]]; then
@@ -248,27 +261,46 @@ cmd_run() {
   fi
 }
 
-cmd_summary() {  # [N] — 1 = latest (default)
-  local n="${1:-1}" f
-  [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: upkeep summary [N]  (N ≥ 1, 1 = latest)" >&2; exit 2; }
-  # `|| true`: an empty history dir makes ls exit 2, and under pipefail that would kill the whole
-  # command before it could say the friendly thing. No runs yet is NOT an error.
-  f="$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort | tail -n "$n" | head -1)" || true
-  [[ -n "$f" ]] || { echo "no update runs recorded yet"; exit 0; }
-  render_summary "$f"
+cmd_summary() {  # [N] - 1 = latest (default)
+  local n="${1:-1}" f out i files=()
+  [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: upkeep summary [N]  (N >= 1, 1 = latest)" >&2; exit 2; }
+  # newest first. `|| true`: an empty history dir makes ls exit 2, and under pipefail that would
+  # kill the whole command before it could say the friendly thing. No runs yet is NOT an error.
+  while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
+    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
+  [[ ${#files[@]} -gt 0 ]] || { echo "no update runs recorded yet"; exit 0; }
+  i=$(( n - 1 )); (( i >= ${#files[@]} )) && i=$(( ${#files[@]} - 1 ))   # N past the end → oldest
+  for (( ; i < ${#files[@]}; i++ )); do
+    # One damaged entry must not be the last word the user gets: warn, fall back to the next
+    # newest. EMPTY output counts as damaged - jq exits 0 on a zero-byte file, so "rendered
+    # nothing" would otherwise pass for a successful render (the same empty-stdout-is-not-data
+    # trap as `upkeep check`).
+    if out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
+      printf '%s\n' "$out"; return 0
+    fi
+    echo "warning: corrupt history entry: ${files[$i]}" >&2
+  done
+  echo "no update runs recorded yet"
 }
 
 cmd_history() {
-  local f
+  local f row
   for f in $(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r); do
-    jq -r '[.timestamp, .surface, .status,
-            (([.backends[].updated | length] | add | tostring) + " updated")] | join("  ")' "$f"
+    # capture before printing: a damaged entry must not emit half a row, and must not take the
+    # whole listing down with it - every other run is still perfectly readable.
+    if row="$(jq -r '[.timestamp, .surface, .status,
+                      (([.backends[].updated | length] | add | tostring) + " updated")] | join("  ")' \
+                   "$f" 2>/dev/null)" && [[ -n "$row" ]]; then
+      printf '%s\n' "$row"
+    else
+      echo "warning: corrupt history entry: $f" >&2
+    fi
   done
 }
 
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
 # what turns it into a normal history entry. Caveat (documented in the spec): any rpm change after
-# staging trips the harvest — the diff it reports is still truthful.
+# staging trips the harvest - the diff it reports is still truthful.
 harvest_offline() {
   [[ -f "$OFFLINE_MARKER" ]] || return 0
   local pre now_snap ts report hist
@@ -277,7 +309,7 @@ harvest_offline() {
   # pointer on every check for the rest of time.
   [[ -n "$pre" && -f "$pre" ]] || { rm -f "$OFFLINE_MARKER"; return 0; }
   now_snap="$(mktemp)"
-  # never take the check down with it — a failed harvest must still leave a working check
+  # never take the check down with it - a failed harvest must still leave a working check
   dnf_snapshot > "$now_snap" \
     || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2; return 0; }
   if cmp -s "$pre" "$now_snap"; then rm -f "$now_snap"; return 0; fi   # not applied yet
@@ -291,7 +323,7 @@ harvest_offline() {
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
   rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
-  notify "Upkeep" "Staged updates were applied on reboot — $(jq '.backends.dnf.updated|length' "$hist") packages"
+  notify "Upkeep" "Staged updates were applied on reboot - $(jq '.backends.dnf.updated|length' "$hist") packages"
 }
 
 cmd_config() {
@@ -348,7 +380,7 @@ cmd_disable_passwordless() {
   # Nothing to remove is not a failure, and it must not raise an auth prompt to discover that.
   # The negative test is only trusted where we can actually search the directory: the real
   # /etc/polkit-1/rules.d is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for
-  # a file that exists — claiming "not enabled" there would leave a live grant in place.
+  # a file that exists - claiming "not enabled" there would leave a live grant in place.
   if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
     echo "passwordless was not enabled"; return 0
   fi
