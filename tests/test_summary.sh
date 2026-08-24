@@ -29,10 +29,8 @@ grep -q 'Held (skipped): vim-common' <<<"$s" && echo "ok: held surfaced" || { ec
 grep -q 'Reboot: needed' <<<"$s" && echo "ok: reboot line" || { echo "FAIL: reboot"; _fail=1; }
 assert_eq "$("$UPKEEP" summary | grep -c 'kernel-core')" "1" "upkeep summary reads latest"
 assert_eq "$("$UPKEEP" history | wc -l)" "1" "history lists one run"
-row="$("$UPKEEP" history)"
-if grep -q '2026-08-24' <<<"$row" && grep -q 'ok' <<<"$row" && grep -q '2 updated' <<<"$row"; then
-  echo "ok: history row shape"
-else echo "FAIL: history row shape — got: $row"; _fail=1; fi
+assert_eq "$("$UPKEEP" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
+  "history row shape: timestamp, surface, status, what the run changed"
 
 # --- beyond the plan: the shapes cmd_update actually writes ---
 
@@ -98,6 +96,24 @@ assert_eq "$crc" "0" "summary N past the end still succeeds"
 grep -q 'only 3 run(s) recorded' "$TESTTMP/clamperr" \
   && echo "ok: clamping says so on stderr" || { echo "FAIL: no clamp note"; _fail=1; }
 grep -q '12:00:00' <<<"$cout" && echo "ok: clamped to the oldest run" || { echo "FAIL: clamp target"; _fail=1; }
+
+# ...and so does `upkeep history`, which used to count .updated ALONE - printing "0 updated" for
+# the very run whose summary, rendered by the same command a moment earlier, says
+# "+2 installed, -1 removed". One entry, two renderers, two different truths.
+cp "$TESTTMP/ar-entry.json" "$HIST_DIR/20260824T160000.json"
+# No `| head -1`: history writes row by row, so head closing the pipe early races the writer into
+# SIGPIPE (141) and kills the whole test file under pipefail.
+hist_out="$("$UPKEEP" history)"
+hrow="${hist_out%%$'\n'*}"
+assert_eq "$hrow" "2026-08-24T16:00:00+03:00  background  ok  +2 installed, -1 removed" \
+  "a history row counts installs and removals, not just upgrades"
+grep -q '0 updated' <<<"$hrow" \
+  && { echo "FAIL: history says '0 updated' for a run that changed 3 packages"; _fail=1; } \
+  || echo "ok: no phantom '0 updated' on an install/remove-only run"
+# and a run that really changed nothing says so in words, the same phrase the notification uses
+assert_eq "$("$UPKEEP" history | grep '13:00:00')" \
+  "2026-08-24T13:00:00+03:00  background  failed  no package changes" \
+  "a run that changed nothing says so"
 
 # --- a damaged history entry must not cost the user every other run ---
 # Both readers are what the widget and the terminal shell out to, and a half-written entry (power

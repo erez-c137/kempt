@@ -419,13 +419,17 @@ cmd_history() {
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
+  local phrase
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, and must not take the
     # whole listing down with it - every other run is still perfectly readable.
-    if row="$(jq -r '[.timestamp, .surface, .status,
-                      (([.backends[].updated | length] | add | tostring) + " updated")] | join("  ")' \
-                   "$f" 2>/dev/null)" && [[ -n "$row" ]]; then
-      printf '%s\n' "$row"
+    # run_counts_phrase, not a local ".updated | length": counting upgrades alone printed
+    # "0 updated" for a run whose own summary, from the same entry, says "+2 installed,
+    # -1 removed". Same entry, same command, two different truths.
+    if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
+       && [[ -n "$row" ]] \
+       && phrase="$(run_counts_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
+      printf '%s  %s\n' "$row" "$phrase"
     else
       echo "warning: corrupt history entry: $f" >&2
     fi

@@ -209,17 +209,18 @@ Reboot: needed
 With no runs recorded, `summary` prints `no update runs recorded yet` and exits 0. A damaged
 history entry is skipped with a warning on stderr and the next-newest is rendered instead.
 
-`history` lists past runs, newest first: timestamp, surface, status, and how many packages the
-run updated.
+`history` lists past runs, newest first: timestamp, surface, status, and what the run changed.
+That last column is the same phrase the notifications use, so a run that only installed or
+removed packages is never listed as "0 updated", and a run that changed nothing says so.
 
 ```bash
 upkeep history
 ```
 
 ```
-2026-08-24T21:05:11+03:00  terminal  ok  3 updated
+2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
-2026-08-22T18:12:55+03:00  background  failed  0 updated
+2026-08-22T18:12:55+03:00  background  failed  no package changes
 ```
 
 ## doctor

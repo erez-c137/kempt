@@ -97,7 +97,10 @@ Render one run as human\-readable text.
 counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
 .TP
 .B history
-List past runs, newest first: timestamp, surface, status and how many packages were updated.
+List past runs, newest first: timestamp, surface, status and what the run changed. The last
+column counts upgrades, installs and removals in the same words the notifications use
+.RB ( "3 updated, +1 installed" ", " "no package changes" ),
+so a run that only installed or removed packages is never listed as "0 updated".
 .TP
 .B doctor
 Check this installation and print one line per check, prefixed
