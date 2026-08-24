@@ -92,7 +92,7 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 
 All surfaces run the same `upkeep update`; the surface only decides where output goes. After any run, the plasmoid triggers `upkeep check` to reset the badge.
 
-**Risky-transaction detection:** if the pending transaction touches session-critical packages (kernel, systemd, glibc, dbus, mesa, qt6*/kf6*, plasma-workspace), Upkeep recommends the offline path before proceeding — terminal surface prompts, popup/background surfaces notify with a one-click "stage offline instead". Live surfaces stay available; the user always decides. Default surface remains `terminal` (live) — Erez's call to flip the default to `offline`.
+**Risky-transaction detection:** if the pending transaction touches session-critical packages (kernel, systemd, glibc, dbus, mesa, qt6*/kf6*, plasma-workspace), Upkeep recommends the offline path before proceeding. CLI half (Plan 1, Task 13.5): `upkeep check` publishes `risky_pending` in the state JSON (additive schema-1 key; consumers tolerate absence); interactive terminal updates prompt [u]pdate live / [s]tage offline / [a]bort; detached surfaces get a heads-up notification and proceed. Widget half (Plan 2): one-click "stage offline instead" on that notification. Live surfaces stay available; the user always decides. Default surface remains `terminal` (live) — Erez's call to flip the default to `offline`.
 
 ## Summary & history
 

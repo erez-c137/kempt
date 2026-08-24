@@ -1478,6 +1478,42 @@ POST-REVIEW NOTE (Tasks 11-13 as built): the repo is authoritative and exceeds t
 
 ---
 
+### Task 13.5: Risky-transaction detection (CLI half of the spec promise)
+
+The spec (§Run surfaces) promises a recommendation toward offline staging when a pending update touches session-critical packages. The widget's one-click "stage offline instead" is Plan 2; this task builds the CLI half.
+
+**Files:** Modify: `lib/common.sh`, `bin/upkeep`, `docs/specs/...` (schema note); Test: extend `tests/test_check.sh`, `tests/test_update.sh`
+
+- [ ] **Step 1 (lib/common.sh):**
+```bash
+# session-critical prefixes: a live upgrade of these can break the running desktop (spec §Run surfaces)
+UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace)}"
+risky_names() { jq -r '.[] | select(.held|not) | .name' | grep -E "$UPKEEP_RISKY_RE" || true; }  # stdin: items JSON
+```
+- [ ] **Step 2 (cmd_check):** after mark_held, compute `risky="$(risky_names <<<"$dnf_items" | jq -Rn '[inputs]')"` and add `risky_pending: $risky` to the state via assemble_state (new final arg). ADDITIVE key — schema stays 1 (consumers must tolerate its absence in old files; sync the spec's schema line).
+- [ ] **Step 3 (cmd_update):** after resolve_surface + auto-accept guard, when `surface != offline`:
+```bash
+  local risky_list=""
+  risky_list="$(dnf_check 2>/dev/null | mark_held dnf | risky_names)" || risky_list=""
+  if [[ -n "$risky_list" ]]; then
+    if [[ "$surface" == "terminal" && ( -t 0 || -n "${UPKEEP_ASSUME_TTY:-}" ) ]]; then
+      echo "Recommendation: this update touches session-critical packages (a live upgrade can break the running desktop):"
+      sed 's/^/  /' <<<"$risky_list"
+      local ans; read -rp "[u]pdate live / [s]tage offline instead / [a]bort? " ans
+      case "${ans,,}" in
+        s) surface="offline" ;;
+        a) echo "aborted"; exit 0 ;;
+        *) : ;;   # default: proceed live — the user always decides
+      esac
+    else
+      notify "Upkeep" "Heads-up: session-critical updates pending ($(tr '\n' ' ' <<<"$risky_list")) - consider the Offline surface"
+    fi
+  fi
+```
+(Place BEFORE acquire_lock so an abort never leaves lock residue; abort exits 0 having changed nothing.)
+- [ ] **Step 4 (tests):** risky_names unit (matches kernel-core/qt6-qtbase/systemd-libs, ignores vim/held items); cmd_check state carries `risky_pending` (fixture has kernel-core? it does NOT — extend the check-stub fixture usage or assert `[]` for the current fixture AND add one targeted stub with a kernel-core line asserting the name appears); cmd_update with UPKEEP_ASSUME_TTY=1 + scripted stdin: `s` → dnf-offline-stage called; `a` → rc 0, no apply calls, no history entry; `u` → dnf-upgrade called; detached surface with risky → pre-run notification recorded then proceeds.
+- [ ] **Step 5:** suite ALL PASS; commit `feat: risky-transaction detection - recommend offline for session-critical updates`
+
 ### Task 14: install.sh + live verification (USER-GATED at the end)
 
 **Files:**
