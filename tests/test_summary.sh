@@ -60,6 +60,22 @@ cat > "$HIST_DIR/20260824T140000.json" <<'EOF'
     "added":[],"removed":[]},
   "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 EOF
+# ...and "newest" means the LAST element, which is only true because the producers sort version
+# sets ascending. 1.9 vs 1.10 is the pair where a lexical sort gets it backwards, so this is the
+# consumer half of that contract: given an ascending set, the human sees the newest build.
+cat > "$TESTTMP/vset-entry.json" <<'EOF'
+{"timestamp":"2026-08-24T17:00:00+03:00","surface":"terminal","status":"ok","duration_sec":3,
+ "reboot_needed":false,"log":"/tmp/v.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],
+    "updated":[{"name":"pkg","from":"1.8,1.9","to":"1.9,1.10"}],
+    "added":[],"removed":[]},
+  "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+EOF
+vs="$(render_summary "$TESTTMP/vset-entry.json")"
+grep -q 'pkg 1.9 → 1.10' <<<"$vs" && echo "ok: an ascending set renders newest → newest" \
+  || { echo "FAIL: version-set display - got: $vs"; _fail=1; }
+
 m="$(render_summary "$HIST_DIR/20260824T140000.json")"
 grep -q 'kernel-core 6.15.2-200.fc44 → 6.15.4-200.fc44' <<<"$m" && echo "ok: installonly set renders newest → newest" \
   || { echo "FAIL: newest() display — got: $m"; _fail=1; }

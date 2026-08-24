@@ -85,9 +85,22 @@ installed package list, where nothing had changed at all, produced 192 phantom "
 
 So the contract has two halves and both are load-bearing:
 
-- Every producer pipes through `collapse_versions`, giving one row per name with the versions
-  comma-joined in input order (`6.15.4-200.fc44,6.15.3-200.fc44`).
+- Every producer pipes through `sort_name_version | collapse_versions`, giving one row per name
+  with the versions **comma-joined in ascending version order**
+  (`6.15.3-200.fc44,6.15.4-200.fc44`).
 - `tsv_diff_updates` **refuses** duplicate-name input with exit 65 instead of emitting fiction.
+
+**The last element of a comma-joined set is the newest, and consumers rely on it.**
+`render_summary`'s `newest()` and the widget's `newestOf()` both take the last element, so the
+ordering is a contract, not a coincidence. It is why the sort is version-aware rather than
+lexical: `5.3.10-1` sorts before `5.3.9-4` byte by byte, which would leave the *older* build
+last. `sort_name_version` in `lib/common.sh` is the single definition; its first key stays plain
+byte order because `join` and `tsv_diff_updates` require the name field in exactly that order.
+
+Its honest limit is rpm epochs: `sort -V` reads a leading `1:` as an ordinary number, so a set
+that **mixes** epochs can be ordered wrongly (`1:2.0-1` sorts before `9.0-1` although the epoch
+makes it newer). Sets that share an epoch are exact, and multilib twins and installonly kernel
+sets always do, which is every set this code actually produces today.
 
 The same collapse runs on the pending side, where the problem is multilib rather than installonly:
 `bash.x86_64` and `bash.i686` routinely sit at different releases, and they are one package as far
@@ -141,7 +154,7 @@ bumping `schema`.
 | `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
-| `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). |
+| `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package that keeps several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order, so the last element is the newest. Readers that show one version take the last. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
 | `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
@@ -188,9 +201,11 @@ is the shorter of the two shipped backends.
 UPKEEP_APT_PENDING_CMD="${UPKEEP_APT_PENDING_CMD:-apt list --upgradable}"
 UPKEEP_APT_INSTALLED_CMD="${UPKEEP_APT_INSTALLED_CMD:-}"
 
-apt_installed_lookup() {  # -> sorted TSV, one row per name
+apt_installed_lookup() {  # -> sorted TSV, one row per name, versions ascending
+  # Both branches share the sort tail on purpose: a seam that bypasses it lets a stub feed
+  # collapse_versions rows in any order, and the suite can never see what the real path produces.
   { if [[ -n "$UPKEEP_APT_INSTALLED_CMD" ]]; then $UPKEEP_APT_INSTALLED_CMD
-    else dpkg-query -W -f '${Package}\t${Version}\n' | sort; fi; } | collapse_versions
+    else dpkg-query -W -f '${Package}\t${Version}\n'; fi; } | sort_name_version | collapse_versions
 }
 
 # stdin: "bash/noble 5.2-2ubuntu2 amd64 [upgradable from: 5.2-1ubuntu1]"
@@ -222,8 +237,11 @@ Rules that reviews will hold you to:
   when nothing is pending turns an up-to-date box into a permanent `stale` state.
 - **Capture the parser's status before cleanup.** An `rm -f` after the parse returns 0 and will
   mask the parser's failure as an empty, entirely plausible "nothing pending" result.
-- **Collapse, always.** Even where duplicates cannot happen today, `tsv_diff_updates` rejects
-  duplicate names, so the contract is one row per name.
+- **Collapse, always, behind `sort_name_version`.** Even where duplicates cannot happen today,
+  `tsv_diff_updates` rejects duplicate names, so the contract is one row per name. Use the shared
+  sort rather than a plain one, and put it where **every** branch of the function flows through
+  it: a comma-joined set has to come out ascending, because every consumer reads its last element
+  as the newest version.
 - **Do not add locale handling.** `lib/common.sh` pins `LC_ALL=C.UTF-8` for everything.
 - **Guard the not-installed case.** A pending package with no installed row must come out as
   `from: "?"`, never as an empty string. GNU `join -a1 -e '?' -o ...` is what does that; jq's

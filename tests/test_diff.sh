@@ -32,7 +32,10 @@ assert_exit 65 "raw multiver input rejected (as before-file)" tsv_diff_updates "
 assert_exit 65 "raw multiver input rejected (as after-file)"  tsv_diff_updates "$FIXTURES/snap-before.tsv" "$RAW"
 assert_exit 65 "raw multiver input rejected (both files)"     tsv_diff_updates "$RAW" "$RAW"
 
-# collapse_versions: one row per name, versions comma-joined in input order.
+# collapse_versions: one row per name, versions comma-joined in the order they arrive. Producers
+# feed it through sort_name_version, so that order is ascending by version and the last element
+# is the newest (see tests/test_dnf.sh for the pair where lexical order gets that backwards).
+# This fixture's sets read the same either way, which is why they are not the ordering test.
 collapse_versions < "$RAW" > "$TESTTMP/collapsed.tsv"
 assert_eq "$(wc -l < "$TESTTMP/collapsed.tsv")" "3" "collapse_versions yields one row per name"
 assert_eq "$(awk -F'\t' '$1=="gpg-pubkey"{print $2}' "$TESTTMP/collapsed.tsv")" \

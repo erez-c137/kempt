@@ -22,8 +22,11 @@ aajohan-comfortaa-fonts), each bumped to a plausible newer EVR. Guard rows added
   single `bash` entry (contract: this file parses to **7 items**). The divergence is the point:
   identical EVRs would collapse for free at `sort -u`, which silently hides a parser that has
   no real collapse step. Only a pending-side `collapse_versions` merges divergent twins, and
-  the merged entry carries both versions comma-joined (`5.3.10-1.fc44,5.3.9-4.fc44`, sorted
-  order) exactly like the installonly sets in snap-multiver-raw.tsv.
+  the merged entry carries both versions comma-joined in **ascending version order**
+  (`5.3.9-4.fc44,5.3.10-1.fc44`) exactly like the installonly sets in snap-multiver-raw.tsv.
+  This pair is also the ordering guard: lexically `5.3.10-1` sorts *before* `5.3.9-4`, so a
+  producer that sorts by bytes instead of by version leaves the older build last, where every
+  consumer reads the newest (`render_summary`'s `newest()`, the widget's `newestOf()`).
 - An **obsoletes section** — the literal header line `Obsoleting Packages` followed by one row
   indented by four spaces (`    old-tool.x86_64`) carrying a normal EVR and repo in the usual
   columns. Format is dnf5's own: after the pending-update table it appends this header and

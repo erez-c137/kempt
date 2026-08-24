@@ -5,9 +5,12 @@
 UPKEEP_DNF_INSTALLED_CMD="${UPKEEP_DNF_INSTALLED_CMD:-}"
 UPKEEP_DNF_CMD="${UPKEEP_DNF_CMD:-dnf5}"
 
-dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
+dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
+  # Both branches flow through the SAME sort tail. The seam branch used to bypass sorting
+  # entirely, so a stub's row order reached collapse_versions untouched: no test could see the
+  # ordering the real rpm path produces, and the version-order bug was invisible to the suite.
   { if [[ -n "$UPKEEP_DNF_INSTALLED_CMD" ]]; then $UPKEEP_DNF_INSTALLED_CMD
-    else rpm -qa --queryformat '%{NAME}\t%{EVR}\n' | sort; fi; } | collapse_versions
+    else rpm -qa --queryformat '%{NAME}\t%{EVR}\n'; fi; } | sort_name_version | collapse_versions
 }
 
 dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines → JSON [{name,from,to}]
@@ -20,12 +23,14 @@ dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines �
   #   $2 ~ EVR-shape   diagnostic/notice lines ("Last metadata expiration check: ...") reach
   #                    stdin on some paths and otherwise satisfy NF>=3.
   # collapse_versions on the PENDING side too: multilib twins routinely lag each other
-  # (bash.x86_64 5.3.10-1 vs bash.i686 5.3.9-4), and sort -u only dedupes byte-identical rows,
+  # (bash.x86_64 5.3.10-1 vs bash.i686 5.3.9-4), and -u only drops rows that match on both keys,
   # so divergent twins would otherwise double-count as two separate updates of one package.
+  # sort_name_version, not a plain sort: that same pair is the one where lexical order puts the
+  # OLDER build last, and last is what every consumer calls newest.
   awk '/^[^[:space:]]/ && NF>=3 && $1 ~ /\.[A-Za-z0-9_]+$/ \
        && $2 ~ /^([0-9]+:)?[^[:space:]]*[0-9][^[:space:]]*-[^[:space:]]+$/ \
        { n=$1; sub(/\.[^.]+$/,"",n); print n "\t" $2 }' \
-  | sort -u | collapse_versions \
+  | sort_name_version -u | collapse_versions \
   | join -t "$(printf '\t')" -a1 -e '?' -o '1.1,2.2,1.2' - "$1" \
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:.[2]}]'
 }

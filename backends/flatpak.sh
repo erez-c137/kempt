@@ -24,7 +24,7 @@ flatpak_check() {  # → items JSON; non-zero on command OR parser failure
   out="$($UPKEEP_FLATPAK_REMOTE_CMD)" || return 1
   # A failed lookup must be loud: without this guard the join still succeeds against an empty
   # file and every app reports from="?" - a plausible-looking, entirely fabricated report.
-  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup" \
+  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort_name_version | collapse_versions > "$lookup" \
     || { rm -f "$lookup"; return 1; }
   # Capture BEFORE the cleanup: rm's exit 0 would otherwise mask a parser failure. This masking
   # is what hid the zero-pending bug above - the two defects have to be fixed together.
@@ -33,4 +33,6 @@ flatpak_check() {  # → items JSON; non-zero on command OR parser failure
   return $prc
 }
 
-flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions; }   # same one-row-per-name contract as dnf
+# Same one-row-per-name contract as dnf, and the same ascending-version guarantee: sort_name_version
+# keeps app ids in the byte order join needs while ordering any repeated id's versions by version.
+flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort_name_version | collapse_versions; }

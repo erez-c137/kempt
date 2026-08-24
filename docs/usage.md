@@ -64,6 +64,8 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 
 `from` is `?` when the pending package is not installed yet (a new dependency), and versions are
 comma-joined for packages that keep several versions installed at once, such as `kernel-core`.
+Comma-joined sets are ordered oldest to newest, so a reader that wants to show one version takes
+the last element.
 The full field-by-field schema is in
 [architecture.md](architecture.md#state-json-schema-v1).
 

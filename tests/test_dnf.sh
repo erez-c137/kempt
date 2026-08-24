@@ -12,11 +12,28 @@ assert_eq "$(jq 'length' <<<"$out")" "7" "7 items (multilib collapses, obsoleted
 assert_eq "$(jq -r '.[0] | has("name") and has("from") and has("to")' <<<"$out")" "true" "item shape"
 assert_eq "$(jq -r '[.[].name] | any(test("\\.(x86_64|noarch|i686)$"))' <<<"$out")" "false" "arch suffix stripped"
 assert_eq "$(jq -r '[.[].name] | map(select(. == "bash")) | length' <<<"$out")" "1" "bash appears once despite two arches"
-assert_eq "$(jq -r '.[] | select(.name == "bash") | .to' <<<"$out")" "5.3.10-1.fc44,5.3.9-4.fc44" "divergent multilib EVRs collapse into one comma-joined to-version"
+# The wrinkle this pins: LEXICALLY, 5.3.10-1 sorts BEFORE 5.3.9-4 ("1" < "9" at the third
+# character), so a plain sort put the older build last - and "last" is what every consumer calls
+# newest (render_summary's newest(), the widget's newestOf). Version-aware sorting is what makes
+# the set ascending, so the newest EVR really is the last element.
+assert_eq "$(jq -r '.[] | select(.name == "bash") | .to' <<<"$out")" "5.3.9-4.fc44,5.3.10-1.fc44" "divergent multilib EVRs collapse into one comma-joined to-version, oldest first"
 assert_eq "$(jq -r '[.[].name] | any(. == "old-tool")' <<<"$out")" "false" "obsoleted package is not reported as a pending update"
 assert_eq "$(jq -r '[.[].name] | any(test("^Obsoleting"))' <<<"$out")" "false" "section header is not parsed as a package"
 assert_eq "$(jq -r '.[] | select(.name == "brandnew") | .from' <<<"$out")" "?" "not-installed package falls back to ?"
 assert_eq "$(jq -r '[.[] | select(.name != "brandnew") | .from] | any(. == "?" or . == "")' <<<"$out")" "false" "installed packages resolve real from-versions"
+
+# --- a collapsed set is ASCENDING, and both branches of the lookup get there the same way ---
+# "Last element = newest" is the contract every consumer relies on (render_summary's newest(),
+# the widget's newestOf). Lexically it is simply false for the everyday pair 1.9 vs 1.10, because
+# "1" sorts before "9" at the third character. And the seam branch of dnf_installed_lookup used
+# to skip the sort entirely, so a stub could hand collapse_versions rows in any order at all and
+# no test could notice - the exact shape that hid this.
+printf 'zsh\t5.9-11.fc44\npkg\t1.10\npkg\t1.9\n' > "$TESTTMP/unsorted.tsv"
+lookup="$(UPKEEP_DNF_INSTALLED_CMD="cat $TESTTMP/unsorted.tsv" dnf_installed_lookup)"
+assert_eq "$(awk -F'\t' '$1=="pkg"{print $2}' <<<"$lookup")" "1.9,1.10" \
+  "1.9 and 1.10 collapse in version order, so the last element is the newest"
+assert_eq "$(cut -f1 <<<"$lookup" | paste -sd, -)" "pkg,zsh" \
+  "names stay in byte order, which is what join and tsv_diff_updates require"
 
 # Nothing pending is a normal state, not an error: the parser must yield [] and exit 0.
 prc=0

@@ -76,7 +76,22 @@ atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays at
   if cat > "$tmp"; then sync "$tmp" 2>/dev/null || true; mv "$tmp" "$dest"; else rm -f "$tmp"; return 1; fi
 }
 
-collapse_versions() {  # stdin: name-sorted TSV name\tver (names may repeat) → one row per name, versions comma-joined in input order
+# The ONE sort every producer of a collapsible TSV uses. Two keys, both load-bearing:
+#   -k1,1   name, byte order. join(1) and tsv_diff_updates require the join field in exactly this
+#           order, so the primary key must never become version-aware.
+#   -k2,2V  version, VERSION-aware and ascending. Lexically, 5.3.10-1 sorts before 5.3.9-4 ("1"
+#           before "9" at the third character), so a plain sort left the OLDER build last - and
+#           every consumer reads the last element of a comma-joined set as the newest
+#           (render_summary's newest(), the widget's newestOf). The set has to be ascending for
+#           that to be true, and only a version sort makes it so.
+# Honest limit: `sort -V` does not understand rpm epochs. Sets that share an epoch (the
+# overwhelmingly common case: multilib twins and installonly kernel sets always do) are exact.
+# A set MIXING epochs can be ordered wrongly, because the leading "1:" is compared as an ordinary
+# leading number: `1:2.0-1` sorts before `9.0-1` although the epoch makes it newer. Getting that
+# exactly right needs rpm's own EVR comparison, which is not available in a pipeline.
+sort_name_version() { sort -t "$(printf '\t')" -k1,1 -k2,2V "$@"; }
+
+collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) → one row per name, versions comma-joined in ASCENDING version order (last = newest, and consumers rely on it)
   awk -F'\t' '
     $1 != prev { if (prev != "") print prev "\t" vals; prev = $1; vals = $2; next }
     { vals = vals "," $2 }

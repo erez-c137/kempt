@@ -20,6 +20,15 @@ export UPKEEP_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
 got="$(flatpak_check)"
 assert_eq "$(jq 'length' <<<"$got")" "3" "flatpak_check wires cmds→parser"
 
+# Same ascending-set contract as the dnf side: consumers read the LAST element of a comma set as
+# the newest version, and a plain sort puts 1.10 before 1.9.
+printf 'org.x.App\t1.10\norg.x.App\t1.9\ncom.a.B\t2.0\n' > "$TESTTMP/fp-unsorted.tsv"
+snap="$(UPKEEP_FLATPAK_LIST_CMD="cat $TESTTMP/fp-unsorted.tsv" flatpak_snapshot)"
+assert_eq "$(awk -F'\t' '$1=="org.x.App"{print $2}' <<<"$snap")" "1.9,1.10" \
+  "a flatpak version set collapses in version order too"
+assert_eq "$(cut -f1 <<<"$snap" | paste -sd, -)" "com.a.B,org.x.App" \
+  "app ids stay in byte order for join"
+
 # Fully up-to-date box: remote-ls prints nothing, exits 0. Must NOT look like a failed check
 # (Task 8 would misread a non-zero rc as "stale" on the most common state there is).
 export UPKEEP_FLATPAK_REMOTE_CMD="true"
