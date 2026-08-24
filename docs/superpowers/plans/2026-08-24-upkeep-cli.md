@@ -137,7 +137,7 @@ POST-REVIEW NOTE: the harness was hardened in a follow-up commit after quality r
 
 ### Task 2: Capture fixtures from the live box
 
-Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), hand-write realistic sample lines in the documented format so parsers still get a non-empty test case. POST-REVIEW CONVENTION (supersedes the original in-band `# HAND-WRITTEN SAMPLE` markers): fixtures stay byte-faithful to real tool output — NO comment lines inside fixture files; provenance (captured vs hand-written, dates, per-row edge-case intent) lives in `tests/fixtures/MANIFEST.md`. Guard rows are mandatory: at least one pending dnf package absent from rpm-installed.tsv (`brandnew`), one `.i686` multilib duplicate of an existing row, and one pending flatpak absent from flatpak-list.tsv (`com.example.NotInstalled`).
+Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), hand-write realistic sample lines in the documented format so parsers still get a non-empty test case. POST-REVIEW CONVENTION (supersedes the original in-band `# HAND-WRITTEN SAMPLE` markers): fixtures stay byte-faithful to real tool output — NO comment lines inside fixture files; provenance (captured vs hand-written, dates, per-row edge-case intent) lives in `tests/fixtures/MANIFEST.md`. Guard rows are mandatory: at least one pending dnf package absent from rpm-installed.tsv (`brandnew`), one `.i686` multilib duplicate of an existing row, one pending flatpak absent from flatpak-list.tsv (`com.example.NotInstalled`), and the installonly-duplication fixture `snap-multiver-raw.tsv` (kernel-core ×3, gpg-pubkey ×2). Capture rule learned the hard way: fixtures must go through the SAME code path production uses — the original capture used `sort -u` while production used plain `sort`, which made the installonly cross-product bug structurally invisible to the whole suite.
 
 **Files:**
 - Create: `tests/fixtures/dnf-check-update.txt`, `tests/fixtures/rpm-installed.tsv`, `tests/fixtures/flatpak-remote-ls.txt`, `tests/fixtures/flatpak-list.tsv`, `tests/fixtures/snap-before.tsv`, `tests/fixtures/snap-after.tsv`
@@ -394,6 +394,8 @@ The `$2"" != $3""` concatenation forces STRING comparison — without it awk com
 - [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: tsv_diff_updates snapshot report engine"`
 
+POST-REVIEW NOTE (Tasks 3-5 as built): the repo's `lib/common.sh` is authoritative and goes beyond the blocks above after quality review — `LC_ALL=C.UTF-8`; `atomic_write` + read-then-write in `config_set`/`hold_remove` (a truncating partial write can no longer silently destroy config or holds); key/value validation in `config_set` and `UPKEEP_NAME_RE` validation in `hold_add` (a hold the root helper would later reject is refused at hold time); `config_get` warns on an unreadable config; `collapse_versions` establishes the ONE-row-per-name snapshot contract (Fedora installonly packages ship multiple installed versions — uncollapsed, `join` cross-products them into phantom update rows) and `tsv_diff_updates` rejects duplicate-name input with exit 65. Fixture `snap-multiver-raw.tsv` + tests cover all of it.
+
 ---
 
 ### Task 6: dnf backend
@@ -454,9 +456,9 @@ finish
 
 UPKEEP_DNF_INSTALLED_CMD="${UPKEEP_DNF_INSTALLED_CMD:-}"
 
-dnf_installed_lookup() {  # → sorted TSV name\tEVR
-  if [[ -n "$UPKEEP_DNF_INSTALLED_CMD" ]]; then $UPKEEP_DNF_INSTALLED_CMD
-  else rpm -qa --queryformat '%{NAME}\t%{EVR}\n' | sort; fi
+dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined (installonly pkgs — kernel*, gpg-pubkey — install multiple versions; without collapse_versions, join cross-products them into phantom updates)
+  { if [[ -n "$UPKEEP_DNF_INSTALLED_CMD" ]]; then $UPKEEP_DNF_INSTALLED_CMD
+    else rpm -qa --queryformat '%{NAME}\t%{EVR}\n' | sort; fi; } | collapse_versions
 }
 
 dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines → JSON [{name,from,to}]
@@ -541,12 +543,12 @@ flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines 
 flatpak_check() {  # → items JSON; exit 1 on failure
   local out lookup
   out="$($UPKEEP_FLATPAK_REMOTE_CMD)" || return 1
-  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort > "$lookup"
+  lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup"
   flatpak_parse_remote_ls "$lookup" <<<"$out"
   rm -f "$lookup"
 }
 
-flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort; }
+flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions; }   # same one-row-per-name contract as dnf
 ```
 Note: remote-ls with `--columns=application,version` may emit an empty version column for some apps, and pending apps can be missing from the installed lookup — GNU join's `-a1 -e '?'` flags are the guard that fills those fields (jq's `//` does NOT catch empty strings, so don't "simplify" the join flags away as redundant). If the fixture shows a different column separator than TAB, fix the fixture capture (the `--columns` form IS tab-separated), not the parser.
 
@@ -704,14 +706,26 @@ cmd_check() {
 
 cmd_config() {
   case "${1:-}" in
-    get) config_get "$2" "${3:-}" ;;
-    set) config_set "$2" "$3" ;;
+    get) [[ -n "${2:-}" ]] || { echo "usage: upkeep config get <key> [default]" >&2; exit 2; }
+         config_get "$2" "${3-}" ;;
+    set) [[ -n "${2:-}" && -n "${3+x}" ]] || { echo "usage: upkeep config set <key> <value>" >&2; exit 2; }
+         config_set "$2" "$3" ;;
     *) echo "usage: upkeep config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
 
-cmd_hold()   { local b="${1%%:*}" n="${1#*:}"; [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }; hold_add "$b" "$n"; }
-cmd_unhold() { local b="${1%%:*}" n="${1#*:}"; hold_remove "$b" "$n"; }
+# a missing colon must not silently hold a package named after the backend ("upkeep hold dnf")
+cmd_hold() {
+  [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  local b="${1%%:*}" n="${1#*:}"
+  [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  hold_add "$b" "$n"
+}
+cmd_unhold() {
+  [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  local b="${1%%:*}" n="${1#*:}"
+  hold_remove "$b" "$n"
+}
 cmd_holds()  { holds_all; }
 
 usage() {
@@ -789,7 +803,7 @@ finish
 #!/usr/bin/env bash
 # Upkeep root helper — metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
 set -euo pipefail
-export LC_ALL=C
+export LC_ALL=C.UTF-8
 case "${1:-}" in
   check)   exec dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
   refresh) exec dnf5 makecache --refresh ;;
@@ -804,7 +818,7 @@ esac
 # Upkeep root helper — upgrade verbs. polkit action org.erez.upkeep.apply (auth_admin_keep).
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
 set -euo pipefail
-export LC_ALL=C
+export LC_ALL=C.UTF-8
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: UPKEEP_APPLY_ECHO=1 prints instead of exec
@@ -1142,12 +1156,16 @@ cmd_update() {
   fi
 
   # snapshots (after) + reports
+  # Reports must never crash cmd_update after the system already changed — degrade to empty + warning.
   dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"
-  local dnf_report fp_report='{"updated":[],"added":[],"removed":[]}'
-  dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")"
+  local empty_report='{"updated":[],"added":[],"removed":[]}'
+  local dnf_report fp_report="$empty_report"
+  dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
+    || { dnf_report="$empty_report"; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
   if [[ "$include_fp" == "true" ]]; then
     flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"
-    fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")"
+    fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
+      || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
   fi
   local rrc=0
   $UPKEEP_REBOOT_CMD >/dev/null 2>&1 || rrc=$?
@@ -1155,7 +1173,9 @@ cmd_update() {
 
   # offline staging marker (harvested by cmd_check after reboot — Task 12)
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
-    jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/dnf-before.tsv" \
+    # marker owns its snapshot copy — a later update run overwrites dnf-before.tsv
+    cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
+    jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       '{staged_at:$ts, pre_snapshot:$snap}' > "$OFFLINE_MARKER"
   fi
 
@@ -1299,7 +1319,7 @@ harvest_offline() {
      reboot_needed:false, log:"",
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
-  rm -f "$OFFLINE_MARKER" "$now_snap"
+  rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
   notify "Upkeep" "Staged updates were applied on reboot — $(jq '.backends.dnf.updated|length' "$hist") packages"
 }
 ```
