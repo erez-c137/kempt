@@ -205,6 +205,33 @@ cmd_update() {
   [[ "$status" == "ok" ]]
 }
 
+# What the widget's "Update now" button calls: pick the surface, then get out of the way.
+# cmd_update re-checks auto_accept itself — this guard is for the LAUNCH decision (a detached run
+# can never answer a prompt), that one is for direct `upkeep update` callers.
+cmd_run() {
+  local dry="" surface auto
+  # An unrecognised argument must never fall through to a real launch.
+  case "${1:-}" in
+    "") ;;
+    --dry-run) dry=1 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  [[ $# -le 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+  surface="$(config_get surface)"
+  auto="$(config_get auto_accept)"
+  is_true "$auto" || surface="terminal"   # only a terminal can prompt
+
+  if [[ "$surface" == "terminal" ]]; then
+    if [[ -n "$dry" ]]; then echo "terminal: konsole -e upkeep update"; return 0; fi
+    setsid konsole -e bash -c \
+      "'$SELF' update; ec=\$?; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec" \
+      >/dev/null 2>&1 &
+  else
+    if [[ -n "$dry" ]]; then echo "detached: upkeep update (surface=$surface)"; return 0; fi
+    setsid bash -c "'$SELF' update --surface=$surface" >/dev/null 2>&1 &
+  fi
+}
+
 cmd_summary() {  # [N] — 1 = latest (default)
   local n="${1:-1}" f
   [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: upkeep summary [N]  (N ≥ 1, 1 = latest)" >&2; exit 2; }
@@ -332,6 +359,7 @@ EOF
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;
   update)  shift; cmd_update "$@" ;;
+  run)     shift; cmd_run "$@" ;;
   summary) shift; cmd_summary "$@" ;;
   history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
   config)  shift; cmd_config "$@" ;;
