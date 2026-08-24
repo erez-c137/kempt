@@ -46,8 +46,12 @@ cmd_check() {
   rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
   fp_items="$(mark_held flatpak <<<"$fp_items")"
+  # Published for the widget so it can offer "stage offline instead" without re-deriving the
+  # rule. dnf only: a flatpak app cannot take the session down mid-transaction.
+  local risky
+  risky="$(risky_names <<<"$dnf_items" | jq -Rn '[inputs]')"
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
 }
@@ -109,6 +113,31 @@ cmd_update() {
   is_true "$auto" || { surface="terminal"; UPKEEP_LIVE_OUTPUT=1; }
   [[ "$surface" == "terminal" ]] && UPKEEP_LIVE_OUTPUT=1
   export UPKEEP_LIVE_OUTPUT
+
+  # Risky-transaction recommendation (spec §Run surfaces). Live surfaces stay available - this
+  # recommends, it never blocks; the user always decides. An offline run IS the recommendation,
+  # so it is never nagged. Deliberately BEFORE acquire_lock: an abort must leave no lock residue
+  # and no history entry, having changed nothing at all.
+  if [[ "$surface" != "offline" ]]; then
+    local risky_list=""
+    risky_list="$(dnf_check 2>/dev/null | mark_held dnf | risky_names)" || risky_list=""
+    if [[ -n "$risky_list" ]]; then
+      if [[ "$surface" == "terminal" && ( -t 0 || -n "${UPKEEP_ASSUME_TTY:-}" ) ]]; then
+        echo "Recommendation: this update touches session-critical packages (a live upgrade can break the running desktop):"
+        sed 's/^/  /' <<<"$risky_list"
+        # `|| ans=""` keeps EOF (Ctrl-D) from aborting the whole command under errexit; an empty
+        # answer takes the documented default below, same as pressing Enter.
+        local ans; read -rp "[u]pdate live / [s]tage offline instead / [a]bort? " ans || ans=""
+        case "${ans,,}" in
+          s) surface="offline" ;;
+          a) echo "aborted"; exit 0 ;;
+          *) : ;;   # default: proceed live - the user always decides
+        esac
+      else
+        notify "Upkeep" "Heads-up: session-critical updates pending ($(tr '\n' ' ' <<<"$risky_list")) - consider the Offline surface"
+      fi
+    fi
+  fi
 
   acquire_lock || { echo "another upkeep update is running" >&2; exit 3; }
   trap release_lock EXIT

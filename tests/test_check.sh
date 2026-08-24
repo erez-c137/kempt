@@ -148,4 +148,36 @@ else
   "$UPKEEP" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "2" "refresh resumes once the 3h window lapses"
 fi
+
+# --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
+export UPKEEP_SKIP_REFRESH=1   # back to deterministic after the gating section above
+
+# risky_names is pure: prefix match on session-critical families, and a HELD package is never
+# recommended (the user already said no to it).
+_items='[{"name":"kernel-core","held":false},{"name":"qt6-qtbase","held":false},
+         {"name":"systemd-libs","held":false},{"name":"vim-common","held":false},
+         {"name":"kernel-headers","held":true},{"name":"kf6-kio","held":false}]'
+assert_eq "$(risky_names <<<"$_items" | paste -sd, -)" "kernel-core,qt6-qtbase,systemd-libs,kf6-kio" \
+  "risky_names matches session-critical families, skips ordinary and held packages"
+assert_eq "$(risky_names <<<'[]' | wc -l)" "0" "no items → no recommendation, not an error"
+
+# the everyday fixture has nothing session-critical: the key must be present and EMPTY, never absent
+state5="$("$UPKEEP" check)"
+assert_eq "$(jq -c .risky_pending <<<"$state5")" "[]" "risky_pending is published even when empty"
+assert_eq "$(jq -r .schema <<<"$state5")" "1" "additive key does not bump the frozen schema"
+
+# a pending kernel IS session-critical, and the widget has to be able to see that
+printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\n' > "$TESTTMP/risky-check.txt"
+cat > "$TESTTMP/risky-stub" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$TESTTMP/risky-check.txt"; exit 100; }
+exit 0
+STUB
+chmod +x "$TESTTMP/risky-stub"
+state6="$(UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub" "$UPKEEP" check)"
+assert_eq "$(jq -r '.risky_pending[0]' <<<"$state6")" "kernel-core" "pending session-critical package is flagged"
+"$UPKEEP" hold dnf:kernel-core
+state7="$(UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub" "$UPKEEP" check)"
+assert_eq "$(jq -c .risky_pending <<<"$state7")" "[]" "holding it stops the recommendation"
+"$UPKEEP" unhold dnf:kernel-core
 finish

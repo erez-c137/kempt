@@ -112,15 +112,17 @@ grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says s
 # HISTORY ENTRY and the notification down with it, leaving a system that changed and a CLI that
 # says nothing happened. Fail the AFTER-snapshot only (2nd call in a run) and demand a clean,
 # honest, empty report instead of a crash — and never a report claiming everything was removed.
+# Fails only AFTER the apply has run - i.e. the after-snapshot, whatever else a run happens to
+# look up first. Binding to the MEANING and not to a call index: a new lookup elsewhere in
+# cmd_update (the risky-transaction check added one) must not silently re-point this probe at
+# the pre-run snapshot, where crashing is correct behaviour.
 cat > "$TESTTMP/flaky-installed" <<STUB
 #!/usr/bin/env bash
-n=0; [[ -f "$WORLD/installed-calls" ]] && n=\$(cat "$WORLD/installed-calls")
-n=\$((n + 1)); echo \$n > "$WORLD/installed-calls"
-[[ \$n -ge 2 ]] && exit 7
+[[ -s "$WORLD/apply-calls" ]] && exit 7
 cat "$WORLD/rpm.tsv"
 STUB
 chmod +x "$TESTTMP/flaky-installed"
-rm -f "$WORLD/installed-calls"
+: > "$WORLD/apply-calls"
 snaprc=0
 snaperr="$(UPKEEP_DNF_INSTALLED_CMD="$TESTTMP/flaky-installed" "$UPKEEP" update --no-flatpak 2>&1 >/dev/null)" || snaprc=$?
 assert_eq "$snaprc" "0" "a broken after-snapshot never crashes the run"
@@ -129,6 +131,72 @@ grep -q 'snapshot after the run failed' <<<"$snaperr" && echo "ok: broken after-
 assert_eq "$(jq -r .status "$h3")" "ok" "a broken report does not turn a good run into a failure"
 assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")" "0" \
   "broken after-snapshot degrades to an empty report, never phantom removals"
+
+# --- risky-transaction detection: recommend offline staging before a LIVE upgrade of packages
+# that can break the running desktop. The fixture used everywhere else has none, so this section
+# swaps in a check stub that does, and restores it afterwards.
+printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\nbash.x86_64   5.3.10-1.fc44   updates\n' > "$TESTTMP/risky-check.txt"
+cat > "$TESTTMP/risky-stub" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$TESTTMP/risky-check.txt"; exit 100; }
+exit 0
+STUB
+chmod +x "$TESTTMP/risky-stub"
+export UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub"
+
+# [a]bort: nothing runs, nothing is recorded, rc 0 - the user declined, that is not a failure
+: > "$WORLD/apply-calls"
+hist_n="$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)"
+arc=0
+aout="$(UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"a" 2>/dev/null)" || arc=$?
+assert_eq "$arc" "0" "declining a risky update is not an error"
+grep -q 'session-critical' <<<"$aout" && echo "ok: recommendation explains the risk" || { echo "FAIL: recommendation text"; _fail=1; }
+grep -q 'kernel-core' <<<"$aout" && echo "ok: recommendation names the package" || { echo "FAIL: risky list"; _fail=1; }
+grep -q 'bash' <<<"$aout" && { echo "FAIL: ordinary package listed as risky"; _fail=1; } || echo "ok: ordinary packages stay out of the list"
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "abort runs no privileged command"
+assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$hist_n" "abort records no run"
+assert_exit 0 "abort leaves no lock behind" -- test ! -f "$UPKEEP_STATE_DIR/lock"
+
+# [s]tage offline instead: the recommendation is actionable, not just advice
+: > "$WORLD/apply-calls"
+UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"s" >/dev/null 2>&1
+grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: [s] switches the run to offline staging" || { echo "FAIL: stage offline"; _fail=1; }
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: [s] upgraded live anyway"; _fail=1; } || echo "ok: [s] never upgrades live"
+
+# [u]pdate live: the user always decides
+: > "$WORLD/apply-calls"
+UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal <<<"u" >/dev/null 2>&1
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: [u] proceeds with the live upgrade" || { echo "FAIL: update live"; _fail=1; }
+
+# The lock is NOT held while a human deliberates: the recommendation runs before acquire_lock, so
+# a prompt left open over lunch never blocks the timer's next run, and an abort leaves no residue.
+{ sleep 1; echo a; } | UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=terminal >/dev/null 2>&1 &
+bgpid=$!
+sleep 0.4
+if kill -0 "$bgpid" 2>/dev/null && [[ ! -f "$UPKEEP_STATE_DIR/lock" ]]; then
+  echo "ok: no lock is held while the recommendation waits for an answer"
+else echo "FAIL: lock held (or run already over) during the prompt"; _fail=1; fi
+wait "$bgpid" || true
+
+# A detached surface must not prompt even when it happens to have a terminal on stdin: the surface
+# itself says nobody is watching, and a background run must never block waiting on a human.
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+UPKEEP_ASSUME_TTY=1 "$UPKEEP" update --surface=background <<<"a" >/dev/null 2>&1
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: background surface proceeds instead of prompting" \
+  || { echo "FAIL: background surface prompted and was aborted"; _fail=1; }
+
+# detached surface: nobody is there to answer a prompt, so it warns and proceeds
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+"$UPKEEP" update --surface=background >/dev/null 2>&1
+grep -q 'session-critical' "$WORLD/notifications" && echo "ok: detached surface gets a heads-up" || { echo "FAIL: detached heads-up"; _fail=1; }
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface proceeds anyway" || { echo "FAIL: detached proceed"; _fail=1; }
+
+# an offline run is already the recommendation - it must not nag about taking its own advice
+: > "$WORLD/notifications"
+"$UPKEEP" update --surface=offline >/dev/null 2>&1
+grep -q 'session-critical' "$WORLD/notifications" && { echo "FAIL: offline run still recommended offline"; _fail=1; } \
+  || echo "ok: offline surface skips the recommendation"
+export UPKEEP_REFRESH_HELPER="$TESTTMP/refresh-stub"
 
 # second update while lock held → refuses.
 # $$ (this test shell) is deliberately a LIVE pid: a fabricated one is correctly cleared as a

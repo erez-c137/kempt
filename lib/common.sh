@@ -9,6 +9,10 @@ export LC_ALL=C.UTF-8
 # rejected HERE, at hold time, so a bad name can never reach the privileged apply path.
 UPKEEP_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
+# session-critical prefixes: a LIVE upgrade of these can break the running desktop mid-transaction
+# (spec §Run surfaces), so Upkeep recommends the offline path before proceeding. Overridable.
+UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace)}"
+
 UPKEEP_CONFIG_DIR="${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
 UPKEEP_STATE_DIR="${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
 UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
@@ -142,6 +146,12 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   jq --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
 }
 
+# stdin: items JSON (AFTER mark_held) → one session-critical name per line.
+# Held packages are excluded on purpose: the user already declined that one, so recommending a
+# whole different update strategy because of it would be nagging about a decision already made.
+# `|| true`: grep exits 1 when it selects nothing, and "nothing risky" is the common, happy case.
+risky_names() { jq -r '.[] | select(.held|not) | .name' | grep -E "$UPKEEP_RISKY_RE" || true; }
+
 # --- snapshot diff: before/after TSV, sorted by name with ONE row per name → report JSON ---
 # Producers MUST pipe through collapse_versions first. Fedora keeps several versions of
 # installonly packages (kernel* families, gpg-pubkey), so a raw rpm listing repeats names and
@@ -169,9 +179,9 @@ tsv_diff_updates() {  # before_file after_file
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or ""
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional)
   jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
-        --argjson fpe "$5" --arg pls "$6" --arg now "$(now_iso)" '
+        --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" --arg now "$(now_iso)" '
     def wrap(e): {enabled: e,
                   actionable: ([.[] | select(.held|not)] | length),
                   held:       ([.[] | select(.held)] | length),
@@ -181,7 +191,8 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      status: $status, error: $error,
      backends: {dnf: ($dnf | wrap(true)), flatpak: ($fp | wrap($fpe))},
      actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
-     held_total: (($dnf + $fp) | [.[] | select(.held)] | length)}'
+     held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
+     risky_pending: $risky}'
 }
 
 # Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach
