@@ -137,7 +137,8 @@ The badge count MUST come from the same command path that performs the update ("
 
 ## v2 candidates (from survey — recorded, not committed)
 
-- Security/kernel classification of updates, security sorted first (mintupdate).
+- **Update Insights (flagship candidate, Erez 2026-08-24):** per-update warnings and recommendations tailored to THIS machine, so users stop reading up elsewhere. Local-first signal sources, no LLM required: (1) `dnf5 updateinfo` advisory metadata → security classification with severity + CVE ("3 security fixes, 1 Important"), absorbing the mintupdate classification gem below; (2) a hardware-relevance map from lspci/lsmod inventory → "mesa: affects your AMD GPU", "linux-firmware: your wifi chip", kernel + akmod-nvidia detected → "driver rebuild on next boot, first boot slower"; (3) session-impact detail extending `risky_pending` from "careful" to "why, for you"; (4) opt-in Bodhi API karma for Fedora ("+12 positive reports" / "boot issues reported") — network, cached, never blocking. Delivery: additive `insights` fields on state items (schema precedent: risky_pending) + a per-item detail row in the widget popup; Plan 2 should leave that UI affordance. Philosophy guard: insights are sourced facts (advisory, inventory match, karma), never generated prose.
+- Security/kernel classification of updates, security sorted first (mintupdate) — subsumed by Update Insights above.
 - Per-version holds ("skip this one bad version", auto-clears on the next release) on top of v1's per-package holds.
 - topgrade-style config vocabulary (`disable`/`only`/`ignore_failures` per backend) when more backends exist — adopt the nouns before config grows organically.
 - Migrate the dnf check parser to `dnf5 check-update --json` (available since 5.4) — removes the text-parsing bug class (obsoletes sections, indentation, column drift, locale) by construction; v1's hardened text parser is fixture-pinned and stays.
