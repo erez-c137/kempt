@@ -25,7 +25,13 @@ assert_eq "$prc" "0" "parser on empty stdin exits 0"
 assert_json_eq "$empty_out" "[]" "parser on empty stdin → []"
 
 # A failure mid-pipeline (unreadable lookup) must not surface as a successful empty parse.
-assert_exit 1 "mid-pipe join failure propagates" dnf_parse_check_update /nonexistent/lookup.tsv </dev/null
+# pipefail must come from lib/common.sh itself, not from tests/lib.sh: bin/upkeep sources only
+# the former, and without it a mid-pipe failure returns rc 0 + [] = a silent "nothing pending".
+rc=0
+bash -c 'set +o pipefail
+  source "'"$REPO_ROOT"'/lib/common.sh"; source "'"$REPO_ROOT"'/backends/dnf.sh"
+  dnf_parse_check_update /nonexistent/lookup.tsv </dev/null >/dev/null 2>&1' || rc=$?
+assert_eq "$rc" "1" "lib/common.sh itself sets pipefail (production path)"
 
 # Impure check with stubbed helper: exit 100 + fixture on stdout
 cat > "$TESTTMP/refresh-stub" <<STUB
