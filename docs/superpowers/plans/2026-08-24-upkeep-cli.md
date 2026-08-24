@@ -468,13 +468,14 @@ dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines �
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:.[2]}]'
 }
 
-dnf_check() {  # → items JSON on stdout; exit 1 on helper failure
-  local out rc=0 lookup
+dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure; empty pending → [] rc 0
+  local out rc=0 lookup prc=0
   out="$(priv_refresh check)" || rc=$?
   if [[ $rc -ne 0 && $rc -ne 100 ]]; then return 1; fi
   lookup="$(mktemp)"; dnf_installed_lookup > "$lookup"
-  dnf_parse_check_update "$lookup" <<<"$out"
+  dnf_parse_check_update "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
+  return $prc
 }
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
@@ -533,19 +534,20 @@ finish
 UPKEEP_FLATPAK_REMOTE_CMD="${UPKEEP_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --app --columns=application,version}"
 UPKEEP_FLATPAK_LIST_CMD="${UPKEEP_FLATPAK_LIST_CMD:-flatpak list --app --columns=application,version}"
 
-flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines → JSON [{name,from,to}]
-  grep -vE '^(#|$)' \
+flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines → JSON [{name,from,to}]; empty input → [] rc 0
+  awk 'NF && $1 !~ /^#/' \
   | sort -u \
   | join -t "$(printf '\t')" -a1 -e '?' -o '1.1,2.2,1.2' - "$1" \
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:(.[2] // "?")}]'
 }
 
-flatpak_check() {  # → items JSON; exit 1 on failure
-  local out lookup
+flatpak_check() {  # → items JSON; non-zero on failure; zero pending (the COMMON case) → [] rc 0, never "stale"
+  local out lookup prc=0
   out="$($UPKEEP_FLATPAK_REMOTE_CMD)" || return 1
   lookup="$(mktemp)"; $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions > "$lookup"
-  flatpak_parse_remote_ls "$lookup" <<<"$out"
+  flatpak_parse_remote_ls "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
+  return $prc
 }
 
 flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort | collapse_versions; }   # same one-row-per-name contract as dnf
