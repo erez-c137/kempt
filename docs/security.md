@@ -69,6 +69,72 @@ Two more layers sit in front of that:
 - The CLI pre-filters Flatpak ids against the installed set before calling the helper, which
   makes the helper's own installed-set check a backstop that should never fire in a normal run.
 
+## What the retention window actually means
+
+`auth_admin_keep` is not "one dialog per run" in any enforceable sense. It is one dialog, and
+then a **brief period** (polkit's own documentation says "e.g. five minutes") during which the
+same authorization check for the same action and the same subject simply returns yes. Upkeep
+does not choose that window and cannot shorten it.
+
+So the honest statement is: for a few minutes after you authenticate an update, **any process
+running as your user can invoke `upkeep-apply` again and it will run, with no prompt at all.**
+Not just the run you authorized. Anything on your session, including something you did not
+start. Passwordless mode is the same condition made permanent, which is the real reason it is
+opt-in and scoped to one action id.
+
+polkit's manual is explicit that the retained authorization ignores what was passed:
+
+> `polkit.Result.AUTH_ADMIN_KEEP` is returned, authorization checks for the same action
+> identifier and subject will succeed (that is, return `polkit.Result.YES`) for the next brief
+> period (e.g. five minutes) **even if the variables passed along with the check are different**.
+>
+> - polkit(8)
+
+and pkexec's manual draws the conclusion:
+
+> However, if an action is used for which the user can retain authorization (or if the user is
+> implicitly authorized) this could be a security hole. Therefore, as a rule of thumb, programs
+> for which the default required authorization is changed, should never implicitly trust user
+> input (e.g. like any other well-written suid program).
+>
+> - pkexec(1), SECURITY NOTES
+
+That is the authority the section above answers. Argument validation in the helpers is not
+defense in depth against a threat that mostly cannot happen; it is the **only** thing standing
+between the retention window and a root command line, because polkit will not check the arguments
+for you and pkexec explicitly does not.
+
+What is left after the validation is the verb list itself. Inside the window (or under
+passwordless mode) a process running as you can upgrade the system, stage an offline transaction,
+or update system Flatpak apps, without asking you. It cannot install a package of its choosing,
+pass an arbitrary flag, run an arbitrary command, or reach anything outside those three verbs.
+That is the bound. It is a real one, and it is smaller than "sudo", but it is not "nothing".
+
+## What bounds a malicious update
+
+Everything above is about *who* may start an upgrade and *what* may be said to the package
+manager. None of it says anything about **what gets installed**, and an upgrade is by
+construction root running code somebody else wrote. What bounds that is not Upkeep:
+
+- **dnf5 verifies package signatures.** Fedora's shipped repository definitions set
+  `gpgcheck=1`, so every RPM in a transaction must be signed by a key in the rpm keyring or the
+  transaction fails. The repository configuration that says so lives in `/etc/yum.repos.d`, which
+  is root-owned: adding a repository, or turning `gpgcheck` off, already requires root. Worth
+  knowing precisely: Fedora sets `repo_gpgcheck=0`, so it is the **packages** that are verified,
+  not the repository metadata.
+- **Flatpak verifies commits.** System remotes are ostree repositories whose commits are signed,
+  and the remote configuration is root-owned the same way. Upkeep only ever touches `--system`
+  scope, so a per-user remote a user added for themselves is outside what the helper will act on.
+- **Upgrade verbs still run vendor scriptlets as root.** An RPM `%post` from any package in the
+  transaction runs as root, and Upkeep has no say in that whatsoever. This is equally true of
+  `sudo dnf5 upgrade` typed by hand; Upkeep neither adds nor removes that exposure, and no amount
+  of argument validation could.
+
+The trust model, stated plainly: **Upkeep controls who may ask for an upgrade and what may be
+said to the package manager. The package manager and its signing keys control what actually
+lands on the disk.** If the repositories configured on a machine are not trustworthy, nothing in
+this document helps.
+
 ## The locale pin is load-bearing
 
 Both helpers `export LC_ALL=C.UTF-8`. This is not cosmetic. pkexec passes `LC_*` through, and
@@ -110,6 +176,11 @@ local.** An SSH session gets nothing. A switched-away session gets nothing. Anot
 nothing. The refresh action is not mentioned because it never asked for a password anyway. And
 everything the apply action can do is still bounded by the helper's verb list and its argument
 validation, so this is a shortcut past the dialog, not a shortcut past the rules.
+
+What it does change is duration: this is the retention window above, made permanent. Any process
+running as you, in your active local session, can apply updates for as long as the rule is
+installed. That is the trade, and it is why the command that installs it is separate, opt-in and
+one line to undo.
 
 The rendering path is hardened, because a rule file is a security boundary that a template
 substitution could quietly break:
