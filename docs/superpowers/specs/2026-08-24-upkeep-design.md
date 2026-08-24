@@ -35,7 +35,9 @@ Files:
 - History: `~/.local/state/upkeep/history/<ISO-timestamp>.json` — one file per update run.
 - Logs: `~/.local/state/upkeep/logs/<ISO-timestamp>.log` — full raw output per run.
 
-Config keys (v1): `include_flatpak` (default `true`), `auto_accept` (default `true`), `surface` (`terminal`|`popup`|`background`, default `terminal`), `refresh_interval_min` (default `60`).
+Config keys (v1): `include_flatpak` (default `true`), `auto_accept` (default `true`), `surface` (`terminal`|`popup`|`background`|`offline`, default `terminal`), `refresh_interval_min` (default `60`).
+
+**Check cadence (survey C7):** `refresh_interval_min` governs cheap cache-only checks against the root metadata cache. An actual metadata refresh (the privileged `refresh` verb) runs at most every 3h (dnf's own `metadata_timer_sync` default) and is skipped on battery or metered connections. Checks never re-download metadata on their own faster than dnf itself would.
 
 ### Layer 2 — Plasma 6 plasmoid (QML)
 
@@ -43,9 +45,10 @@ Thin. Package id `org.erez.upkeep` (rename before any public release).
 
 - **Panel icon states:** up-to-date (plain icon), updates-available (badge with total pending count, dnf+flatpak), updating (spinner/activity), error (warning emblem), stale (tooltip notes last successful check time when the latest check failed).
 - **Timer:** runs `upkeep check` every `refresh_interval_min`; also on plasmoid load.
+- **Event-driven refresh (survey gem, fixes Apdatifier's #1 bug — stale badge):** additionally watch `/var/lib/rpm` and `/var/lib/flatpak` for changes, so an update applied from ANY source (manual dnf, Discover, Upkeep itself) refreshes the count within seconds.
 - **Popup:** header "N updates available", scrollable pending list grouped System (dnf) / Apps (flatpak) with `name old → new`, buttons **Update Now** and **Refresh**, gear icon → standard plasmoid config dialog. Each row has a pin toggle (hold/unhold); held items move to a separate "Held" section showing the waiting version.
-- **Config dialog pages:** checkboxes include-flatpaks and auto-accept; run-surface radio (Terminal/In-popup/Background); refresh interval; passwordless toggle. All values read/written through `upkeep config` — no plasmoid-local settings for these (avoids drift with CLI use). Auto-accept OFF forces surface=Terminal (the other surfaces can't prompt); the dialog disables the other radios in that case.
-- Command execution from QML via the executable data engine (Plasma5Support.DataSource) or equivalent Plasma 6 mechanism.
+- **Config dialog pages:** checkboxes include-flatpaks and auto-accept; run-surface radio (Terminal/In-popup/Background/Offline); refresh interval; passwordless toggle. All values read/written through `upkeep config` — no plasmoid-local settings for these (avoids drift with CLI use). Auto-accept OFF forces surface=Terminal (the other surfaces can't prompt); the dialog disables the other radios in that case.
+- Command execution from QML is isolated in ONE component (`Executor.qml`) wrapping the executable data engine (`Plasma5Support.DataSource` — a deprecated shim KDE plans to drop, survey C6; isolating it makes the eventual swap a one-file change). Every invocation is async with a hard timeout — synchronous or unbounded shell-outs from the panel process have frozen/crashed plasmashell in comparable widgets (survey mistakes #2).
 
 ### Backends contract
 
@@ -70,9 +73,11 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 
 ## Privileges
 
-- Root helper `upkeep-apply` (root-owned, installed to `/usr/local/libexec/`) is the only thing that runs privileged; it accepts a fixed small verb set (e.g. `dnf-upgrade`), no arbitrary args.
-- Registered as a polkit action (`org.erez.upkeep.apply`), defaults `auth_admin_keep` → KDE auth dialog once per update run, works in all three surfaces.
-- Passwordless toggle installs/removes a polkit `.rules` file returning YES for that one action for the active user — scoped, not blanket sudo.
+- Root helper `upkeep-apply` (root-owned, installed to `/usr/local/libexec/`) is the only thing that runs privileged. Verbs: `refresh` (dnf metadata makecache), `dnf-upgrade` (with `--exclude` args validated against the pending set), `flatpak-update` (system-installation update; app-id args validated against the installed set). No arbitrary args — every argument is validated against a known-good list before use.
+- **Two polkit action IDs** (survey finding C5: `auth_admin_keep` caches per action ID, not per argument, so one action must never mix cheap and dangerous verbs):
+  - `org.erez.upkeep.refresh` — metadata refresh only; `allow_active=yes` (no dialog; same pattern as PackageKit's system-sources-refresh). This keeps the badge reading the **root** metadata cache, so check and update always agree (survey C3: non-root dnf reads a different cache than root).
+  - `org.erez.upkeep.apply` — the actual upgrade verbs (dnf + flatpak together, one auth moment; survey C4: Flathub is a system remote on Fedora, so flatpak updates need privileges too); defaults `auth_admin_keep` → KDE auth dialog once per run.
+- Passwordless toggle installs/removes a polkit `.rules` file returning YES for `org.erez.upkeep.apply` for the active user — scoped, not blanket sudo.
 
 ## Run surfaces
 
@@ -80,7 +85,11 @@ Users can flag packages/apps they do NOT want updated while still seeing that an
 - **In-popup:** `upkeep update` runs detached writing to the log; the popup tails the log (compact progress) and shows the summary when done.
 - **Background:** fully silent; desktop notification on completion with headline counts; clicking the widget shows the full summary in the popup.
 
-All three surfaces run the same `upkeep update`; the surface only decides where output goes. After any run, the plasmoid triggers `upkeep check` to reset the badge.
+- **Offline:** stages the transaction with `dnf5 upgrade --offline`; it applies during the next reboot (with an optional "reboot now" button). The post-reboot `upkeep check` harvests the result from `dnf5 offline log`/history into a normal history entry + notification. This is Fedora's officially recommended path — live updates of a running desktop are documented to occasionally break the session mid-transaction (survey C1).
+
+All surfaces run the same `upkeep update`; the surface only decides where output goes. After any run, the plasmoid triggers `upkeep check` to reset the badge.
+
+**Risky-transaction detection:** if the pending transaction touches session-critical packages (kernel, systemd, glibc, dbus, mesa, qt6*/kf6*, plasma-workspace), Upkeep recommends the offline path before proceeding — terminal surface prompts, popup/background surfaces notify with a one-click "stage offline instead". Live surfaces stay available; the user always decides. Default surface remains `terminal` (live) — Erez's call to flip the default to `offline`.
 
 ## Summary & history
 
@@ -91,6 +100,7 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 - **Check fails** (network down, repo flap — see G9-Mini's known GitHub/Cloudflare path flaps): keep the previous counts, mark state `stale` with the error message; icon shows stale hint in tooltip, no scary error state for transient check failures.
 - **Update fails:** non-zero exit recorded in history entry; icon shows error state until next successful check; notification "Update failed — see log" with log path. Partial success (dnf ok, flatpak failed) is reported per-backend, not collapsed.
 - **Concurrent runs:** lockfile in state dir; second `upkeep update` refuses with a clear message.
+- **Foreign package-manager lock (survey C2):** dnf5 fails instantly when another process holds the rpm lock (no `--wait` exists), and PackageKit/Discover now sits on the dnf5 backend on Fedora 44. Before updating, detect a busy lock, retry with backoff a few times, then fail with a human message naming the likely holder ("PackageKit/Discover is busy — try again in a minute").
 
 ## Repo & install
 
@@ -105,9 +115,21 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old �
 - Widget: `plasmoidviewer` + screenshots at phase gates (visual verification per house rule: screenshot + read the PNG).
 - Counts as a light job on the G9-Mini heavy-job policy (no builds, no vitest).
 
+## Design principle (from survey)
+
+The badge count MUST come from the same command path that performs the update ("front-end disagreeing with the CLI destroys trust" — the defining DiscoverNotifier/Discover complaint). Same cache, same excludes, same backends.
+
 ## Out of scope for v1 (explicitly)
 
 - Firmware updates (fwupd) — possible later menu item.
 - Other distros/DEs, KDE Store publishing, packaging (RPM).
 - Auto-updating on a schedule (the widget checks, never installs on its own).
-- Disabling `plasma-discover-notifier` — manual follow-up for Erez once Upkeep proves itself, to avoid double notifications.
+
+`install.sh` OFFERS to disable `plasma-discover-notifier` (recommended, default yes): it duplicates notifications AND its background PackageKit activity holds the dnf5 lock at random, which would make Upkeep runs fail spuriously (survey C2). It never disables it silently.
+
+## v2 candidates (from survey — recorded, not committed)
+
+- Security/kernel classification of updates, security sorted first (mintupdate).
+- Per-version holds ("skip this one bad version", auto-clears on the next release) on top of v1's per-package holds.
+- topgrade-style config vocabulary (`disable`/`only`/`ignore_failures` per backend) when more backends exist — adopt the nouns before config grows organically.
+- Pre/post-run hooks; user-selectable terminal emulator; idle-inhibit during runs (Apdatifier).
