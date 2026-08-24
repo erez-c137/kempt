@@ -60,3 +60,18 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   # input ($holds, an array), so an inline `index(.name)` dies with "Cannot index array".
   jq --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
 }
+
+# --- snapshot diff: before/after TSV (name\tversion, sorted by name) → report JSON ---
+tsv_diff_updates() {  # before_file after_file
+  {
+    # `$2"" != $3""` forces STRING comparison: awk compares two numeric-looking fields
+    # numerically, which makes a real 1.1 → 1.10 bump compare equal and vanish from the report.
+    join -t "$(printf '\t')" "$1" "$2" | awk -F'\t' '$2"" != $3"" {print "U\t"$1"\t"$2"\t"$3}'
+    join -t "$(printf '\t')" -v2 "$1" "$2" | awk -F'\t' '{print "A\t"$1"\t\t"$2}'
+    join -t "$(printf '\t')" -v1 "$1" "$2" | awk -F'\t' '{print "R\t"$1"\t"$2"\t"}'
+  } | jq -Rn '
+    [inputs | split("\t")] |
+    { updated: [.[] | select(.[0]=="U") | {name:.[1], from:.[2], to:.[3]}],
+      added:   [.[] | select(.[0]=="A") | {name:.[1], to:.[3]}],
+      removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }'
+}

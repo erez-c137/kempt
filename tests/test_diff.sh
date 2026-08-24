@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+source "$(dirname "$0")/lib.sh"; sandbox
+source "$REPO_ROOT/lib/common.sh"
+
+got="$(tsv_diff_updates "$FIXTURES/snap-before.tsv" "$FIXTURES/snap-after.tsv")"
+expected='{
+  "updated":[{"name":"kernel-core","from":"6.15.3-200.fc44","to":"6.15.4-200.fc44"},
+             {"name":"vim-common","from":"2:9.1.900-1.fc44","to":"2:9.1.1000-1.fc44"}],
+  "added":[{"name":"newpkg","to":"1.0-1.fc44"}],
+  "removed":[{"name":"zsh","from":"5.9-11.fc44"}]
+}'
+assert_json_eq "$got" "$expected" "diff finds updated/added/removed, skips unchanged"
+
+got2="$(tsv_diff_updates "$FIXTURES/snap-before.tsv" "$FIXTURES/snap-before.tsv")"
+assert_json_eq "$got2" '{"updated":[],"added":[],"removed":[]}' "identical snapshots → empty"
+
+# Regression guard: awk compares two "numeric string" fields NUMERICALLY, so a genuine
+# 1.1 → 1.10 bump (plausible for flatpak --columns=version) reads as UNCHANGED and vanishes
+# from the report unless string comparison is forced. RPM EVRs dodge this only because they
+# always carry a release suffix; flatpak versions do not.
+printf 'org.example.App\t1.1\n' > "$TESTTMP/numeric-before.tsv"
+printf 'org.example.App\t1.10\n' > "$TESTTMP/numeric-after.tsv"
+assert_json_eq "$(tsv_diff_updates "$TESTTMP/numeric-before.tsv" "$TESTTMP/numeric-after.tsv")" \
+  '{"updated":[{"name":"org.example.App","from":"1.1","to":"1.10"}],"added":[],"removed":[]}' \
+  "numeric-looking version bump (1.1 → 1.10) is not swallowed"
+finish
