@@ -52,6 +52,31 @@ simulate_reboot() {
   jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
 }
 
+# History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
+# so a test can never choose the name the NEXT run will write. The `sleep 1`s that used to sit at
+# every call site below were only ever buying the other half of that: no entry ALREADY ON DISK
+# sitting on the second the next run is about to use. Moving the written entries is free, so this
+# does that instead, and the suite stops paying a second per collision.
+# Renames rather than `touch -d`: the collision is on the FILENAME. mtime only drives the
+# 50-entry prune in upkeep_init_dirs, which nothing here is near.
+# Five minutes back, one distinct second per entry, and the -offline suffix the harvest's
+# collision guard appends is preserved. Nothing in this file writes an entry that old, so the new
+# names cannot collide with a surviving one either.
+# The one case this CANNOT cover is two consecutive cmd_update runs that must land on different
+# seconds themselves - see the surviving sleep at the double-staging probe.
+push_history_back() {
+  local f base cutoff now n=0
+  now="$(date +%s)"
+  cutoff="$(date -d "@$(( now - 1 ))" +%Y%m%dT%H%M%S)"
+  for f in "$UPKEEP_STATE_DIR"/history/*.json; do
+    [[ -e "$f" ]] || continue        # no nullglob here: an empty history dir yields the pattern itself
+    base="$(basename "$f")"
+    if [[ "${base:0:15}" < "$cutoff" ]]; then continue; fi
+    mv -f "$f" "$UPKEEP_STATE_DIR/history/$(date -d "@$(( now - 300 - n ))" +%Y%m%dT%H%M%S)${base:15}"
+    n=$(( n + 1 ))
+  done
+}
+
 "$UPKEEP" config set surface background
 "$UPKEEP" hold dnf:vim-common
 
@@ -343,6 +368,10 @@ cat > "$TESTTMP/apply-stub" <<'STUB'
 echo "Error: No space left on device" >&2; exit 1
 STUB
 export UPKEEP_RETRY_DELAY=0
+# Log filenames are per-second too ($LOG_DIR/$ts.log, same $ts as the history entry) and the run
+# APPENDS, so a run sharing a second with an earlier one reads both runs' lines. Clearing the dir
+# makes "the newest log" unambiguously this run's, whatever second it lands on.
+rm -f "$UPKEEP_STATE_DIR"/logs/*.log
 assert_exit 1 "a non-lock failure fails immediately" "$UPKEEP" update --no-flatpak
 assert_eq "$(grep -c 'retrying' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)")" "0" "only package-lock errors are retried"
 
@@ -353,6 +382,7 @@ cat > "$TESTTMP/apply-stub" <<'STUB'
 echo "cannot open lock file: held by another process" >&2; exit 1
 STUB
 export UPKEEP_RETRY_DELAY=0
+rm -f "$UPKEEP_STATE_DIR"/logs/*.log   # per-second log names: this run's retries only
 assert_exit 1 "busy rpm lock eventually fails" "$UPKEEP" update --no-flatpak
 assert_eq "$(grep -c 'retrying' "$(ls -t "$UPKEEP_STATE_DIR"/logs/* | head -1)")" "2" "two retries logged"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
@@ -382,7 +412,7 @@ assert_eq "$(ls "$UPKEEP_STATE_DIR"/history/*.json | wc -l)" "$before_n" "unappl
 # applied on reboot: the installed set moved
 cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/notifications"
-sleep 1   # history filenames are per-second; keep the harvested entry from landing on an older one
+push_history_back   # per-second names: keep the harvested entry from landing on an older one
 "$UPKEEP" check >/dev/null
 [[ ! -f "$UPKEEP_STATE_DIR/offline_staged.json" ]] && echo "ok: marker consumed" || { echo "FAIL: marker"; _fail=1; }
 ls "$UPKEEP_STATE_DIR"/history/*.json >/dev/null 2>&1 && echo "ok: harvest wrote history" || { echo "FAIL: harvest"; _fail=1; }
@@ -423,8 +453,8 @@ rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 assert_exit 0 "offline stage left a marker to rebase" -- test -f "$marker"
+push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
-sleep 1   # per-second history filenames: keep the live run off the staging run's name
 "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
 assert_exit 0 "a live run leaves a pending offline marker in place" -- test -f "$marker"
 ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
@@ -435,7 +465,7 @@ assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" 
 # ...and after the reboot that actually applies it, the harvest reports the STAGED delta only
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
 simulate_reboot
-sleep 1
+push_history_back   # `ls | tail -1` below must find the harvest, not the live run it collided with
 "$UPKEEP" check >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: the post-reboot check consumes the marker" || { echo "FAIL: marker survived the reboot"; _fail=1; }
 hr="$UPKEEP_STATE_DIR/history/$(ls -1 "$UPKEEP_STATE_DIR/history" | tail -1)"
@@ -474,6 +504,7 @@ exit 1
 STUB
 : > "$WORLD/apply-calls"
 export UPKEEP_RETRY_DELAY=0
+rm -f "$UPKEEP_STATE_DIR"/logs/*.log   # per-second log names: the mixed log must be this run's alone
 assert_exit 1 "a lock-then-disk run fails" "$UPKEEP" update --surface=background
 mixed_log="$(ls -t "$UPKEEP_STATE_DIR"/logs/*.log | head -1)"
 assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "4" "3 dnf attempts + exactly ONE flatpak attempt"
@@ -485,7 +516,12 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 rm -f "$marker" "$UPKEEP_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 first_pre="$(jq -r .pre_snapshot "$marker")"
-sleep 1   # per-second names: without this the second staging would reuse the first one's file
+# The one sleep that has to stay. Everywhere else the collision is with a file already on disk,
+# which push_history_back moves for free - here it is between the $ts of two CONSECUTIVE
+# cmd_update runs, generated inside each run, and the assertion below is precisely that the two
+# stagings produced DIFFERENT offline-pre-$ts.tsv names. Faking that would delete the guard: with
+# both stagings on one filename the sweep is never exercised and this probe proves nothing.
+sleep 1
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 second_pre="$(jq -r .pre_snapshot "$marker")"
 [[ "$first_pre" != "$second_pre" ]] && echo "ok: the second staging really wrote a new copy" \
@@ -514,8 +550,8 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no check has run yet
 simulate_reboot
+push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
-sleep 1
 "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: an already-applied stage is harvested, never swallowed by a rebase" \
   || { echo "FAIL: the staged transaction was folded into the baseline and lost"; _fail=1; }
@@ -559,7 +595,7 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 pre_c="$(jq -r .pre_snapshot "$marker")"
 cp "$pre_c" "$TESTTMP/baseline-copy.tsv"
 : > "$WORLD/apply-calls"
-sleep 1
+push_history_back   # per-second names: the live run must not overwrite the staging run's entry
 UPKEEP_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$UPKEEP" update --surface=background --no-flatpak >/dev/null 2>&1
 assert_exit 0 "a truncated after-snapshot leaves the marker in place" -- test -f "$marker"
 assert_exit 0 "...and never overwrites its baseline with the truncation" -- cmp -s "$pre_c" "$TESTTMP/baseline-copy.tsv"
@@ -576,11 +612,15 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 pre_boot="$(jq -r .pre_snapshot "$marker")"
 assert_eq "$(jq -r '.boot_id | length > 0' "$marker")" "true" "staging records the boot session"
+# Not just speed here - this makes the probe BIND. The "no new entry" assertion below counts
+# files, so a buggy same-second harvest that OVERWROTE the staging entry would leave the count
+# unchanged and pass. With the staging entry moved out of the way, a harvest that fires has
+# nowhere to hide: it writes a new name and the count goes up.
+push_history_back
 ls -1 "$UPKEEP_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
 # somebody installs a package by hand before rebooting
 printf 'bash\t5.2.37-1.fc44\ncowsay\t3.04-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$WORLD/rpm.tsv"
 : > "$WORLD/notifications"
-sleep 1
 "$UPKEEP" check >/dev/null 2>&1
 assert_exit 0 "a manual install before the reboot leaves the stage pending" -- test -f "$marker"
 assert_exit 0 "...and the marker's snapshot copy with it" -- test -f "$pre_boot"
@@ -591,7 +631,7 @@ assert_eq "$(wc -c < "$WORLD/notifications")" "0" "...and tells the user nothing
 
 # the reboot itself: same package set, different boot session → NOW it is harvested
 simulate_reboot
-sleep 1
+push_history_back   # `ls | tail -1` below must find the harvest, not an entry it collided with
 "$UPKEEP" check >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: the reboot consumes the marker" || { echo "FAIL: marker survived a real reboot"; _fail=1; }
 hb2="$UPKEEP_STATE_DIR/history/$(ls -1 "$UPKEEP_STATE_DIR/history" | tail -1)"
@@ -617,7 +657,7 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 "$UPKEEP" update --surface=offline --no-flatpak >/dev/null 2>&1
 assert_eq "$(jq -r .boot_id "$marker")" "unknown" "a box without a readable boot id stages an unknown session"
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
-sleep 1
+push_history_back   # `ls | tail -1` below must find the harvest, not the staging entry
 "$UPKEEP" check >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: an unknown boot session falls back to the snapshot comparison" \
   || { echo "FAIL: an unknown boot session gated the harvest forever"; _fail=1; }
