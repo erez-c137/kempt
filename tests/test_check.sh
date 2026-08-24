@@ -71,13 +71,16 @@ assert_exit 2 "unhold validates backend" "$UPKEEP" unhold apt:foo
 # used to take the whole check down with it: a truncated file fed "" to --argjson (rc 2), a
 # wrong-shaped .items fed a STRING into an array concat (rc 5). Every shape must degrade to [].
 # (dnf stub is still the failing one from the stale section above — that is the point.)
-for corrupt in '' 'garbage' '{"backends":{"dnf":{"items":"nope"}}}' '{"a":1}{"b":2}'; do
+# The multi-doc shape carries last_success in BOTH documents on purpose: a per-document read
+# concatenates them into one newline-joined string that reaches the widget as "Invalid Date".
+for corrupt in '' 'garbage' '{"backends":{"dnf":{"items":"nope"}}}' '{"last_success":"2020-01-01T00:00:00+00:00"}{"last_success":"2021-01-01T00:00:00+00:00"}'; do
   shape="${corrupt:-<empty file>}"
   printf '%s' "$corrupt" > "$UPKEEP_STATE_DIR/state.json"
   rc=0; out="$("$UPKEEP" check 2>/dev/null)" || rc=$?
   assert_eq "$rc" "0" "corrupt state ($shape) → check still exits 0"
   assert_eq "$(jq -r .status <<<"$out")" "stale" "corrupt state ($shape) → stale"
   assert_eq "$(jq -c '.backends.dnf.items' <<<"$out")" "[]" "corrupt state ($shape) → no fabricated items"
+  assert_eq "$(jq -r '(.last_success // "") | contains("\n")' <<<"$out")" "false" "corrupt state ($shape) → last_success is a single value"
 done
 
 # Concurrency: the widget guarantees overlapping checks (timer + event watch + post-run check).
@@ -103,6 +106,30 @@ assert_exit 0 "state intact after concurrent writes" -- jq -e .actionable "$UPKE
 # guards the vacuous pass: 10 runs that all serve a cached stale state would satisfy the rc
 # assertion above while proving nothing about the write path
 assert_eq "$(jq -r .status "$UPKEEP_STATE_DIR/state.json")" "ok" "concurrent block ends in real ok state"
+
+# Serialization, not just collision-freedom: without the check lock the last FINISHER wins, so a
+# slow check that started earlier lands ON TOP of a newer, faster one and the widget shows a
+# pending count that was already obsolete when it was written. Slow serves 7 pending; fast serves
+# zero pending and starts later — the only correct final state is the fast one's.
+cat > "$TESTTMP/slow-stub" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) sleep 2; cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+esac
+STUB
+cat > "$TESTTMP/fast-stub" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  check) exit 0 ;;   # zero pending: dnf5 exits 0 with no output
+esac
+STUB
+chmod +x "$TESTTMP/slow-stub" "$TESTTMP/fast-stub"
+UPKEEP_REFRESH_HELPER="$TESTTMP/slow-stub" "$UPKEEP" check >/dev/null 2>&1 &
+slow_pid=$!
+sleep 0.5
+UPKEEP_REFRESH_HELPER="$TESTTMP/fast-stub" "$UPKEEP" check >/dev/null 2>&1
+wait "$slow_pid" || true
+assert_eq "$(jq .backends.dnf.actionable "$UPKEEP_STATE_DIR/state.json")" "0" "a slow in-flight check cannot overwrite a newer result"
 
 # --- metadata refresh gating: the only place maybe_refresh_metadata actually runs ---
 # on_battery/metered_connection read real hardware and have no seam, so skip rather than fail

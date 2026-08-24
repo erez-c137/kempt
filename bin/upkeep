@@ -18,12 +18,15 @@ cmd_check() {
   exec 9>"$UPKEEP_STATE_DIR/check.lock"
   if ! flock -w 60 9; then
     echo "warning: another check holds the lock; serving previous state" >&2
-    [[ -f "$STATE_FILE" ]] && cat "$STATE_FILE"
+    jq -e . "$STATE_FILE" 2>/dev/null || true   # validated: never hand a reader corrupt bytes under rc 0
     return 0
   fi
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
-  prev_ls="$(jq -r '.last_success // empty' "$STATE_FILE" 2>/dev/null || true)"
+  # -n/[inputs][0]: same corrupt-tolerance as state_prev_items. A multi-doc state file made the
+  # plain form emit one last_success PER DOCUMENT, newline-joined into a single string — which
+  # reaches the widget as "Invalid Date".
+  prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
   errf="$(mktemp)"
   if dnf_items="$(dnf_check 2>"$errf")"; then :; else
     serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
