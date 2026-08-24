@@ -1,0 +1,6 @@
+gpg-pubkey	11aa22bb-1111
+gpg-pubkey	33cc44dd-2222
+kernel-core	6.15.3-200.fc44
+kernel-core	6.15.4-200.fc44
+kernel-core	6.15.5-200.fc44
+zsh	5.9-11.fc44

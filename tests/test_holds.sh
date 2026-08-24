@@ -12,8 +12,10 @@ assert_eq "$(holds_for flatpak)" "org.gimp.GIMP" "flatpak holds listed"
 hold_remove dnf vim-common
 assert_eq "$(holds_for dnf | wc -l)" "0" "unhold removes"
 assert_eq "$(holds_for flatpak)" "org.gimp.GIMP" "unhold is scoped to backend"
-hold_remove dnf never-held                   # removing absent = ok, exit 0
-assert_exit 0 "unhold absent is not an error" -- true
+assert_exit 0 "unhold absent is not an error" -- hold_remove dnf never-held
+assert_eq "$(holds_all | wc -l)" "1" "removing an absent hold preserves other holds"
+assert_exit 2 "hold name validated" hold_add dnf '*'
+assert_eq "$(holds_all | wc -l)" "1" "rejected hold was not written"
 
 # mark_held: annotate items with held:bool. Regression guard — jq evaluates the argument of
 # index() against index()'s OWN input ($holds, an array), so .name must be bound to a $var

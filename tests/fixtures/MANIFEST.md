@@ -49,6 +49,25 @@ invented (GIMP is not installed here); added so flatpak-remote-ls.txt's GIMP ent
 matching older-version row to join against, exercising the 2-app case. `com.example.NotInstalled`
 was deliberately NOT added here (see guard row above — that's the point of the guard).
 
+## tests/fixtures/snap-multiver-raw.tsv
+**Hand-written**, 2026-08-24, but modeled directly on this box's real installonly duplication
+(measured live: `rpm -qa` returns 2516 rows for only 2492 distinct names — `gpg-pubkey` ×13 and
+six `kernel*` families ×3 each). Fedora keeps several versions of *installonly* packages
+installed at once, so a raw `name\tEVR` snapshot legitimately repeats names.
+
+That raw shape is POISON for `join`: duplicate names on both sides produce a CROSS PRODUCT, and
+a self-diff of this box's real package list yielded **192 phantom "updated" rows** — a report
+claiming 192 upgrades where nothing changed at all. Hence the two-part contract this fixture
+guards:
+- Producers (snapshot/lookup functions) pipe through `collapse_versions`, giving ONE row per
+  name with the versions comma-joined in input order.
+- `tsv_diff_updates` REJECTS duplicate-name input outright (exit 65) rather than silently
+  emitting fiction.
+
+6 rows: `gpg-pubkey` ×2 (short hex-ish keyids, the real format), `kernel-core` ×3 (consecutive
+kernel builds, the everyday case), and `zsh` ×1 as a single-version control that must survive
+collapsing untouched. Deliberately kept in RAW (uncollapsed) form — that is the entire point.
+
 ## tests/fixtures/snap-before.tsv / tests/fixtures/snap-after.tsv
 **Hand-written**, per the plan's literal Task 2 Step 3 content — not live-captured; these exist
 purely to give `tsv_diff_updates` a deterministic before/after pair. No comment-marker line:
