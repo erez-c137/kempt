@@ -48,4 +48,28 @@ STUB
 state4="$("$UPKEEP" check)"
 assert_eq "$(jq -r .status <<<"$state4")" "stale" "check failure → stale"
 assert_eq "$(jq '.backends.dnf.items | length' <<<"$state4")" "$(jq '.backends.dnf.items | length' <<<"$state2")" "stale keeps previous dnf items"
+
+# unhold rejects unknown backends exactly like hold does (a typo must never silently no-op)
+assert_exit 2 "unhold validates backend" "$UPKEEP" unhold apt:foo
+
+# Concurrency: the widget guarantees overlapping checks (timer + event watch + post-run check).
+# A fixed tmp name in write_state made them race — one process's mv stole another's tmp file and
+# the loser died with "mv: cannot stat" (measured: 19/80 non-zero). Restore the working stub
+# first; the stale section above left it exiting 1.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) echo refreshed >> "$TESTTMP/refresh-calls"; exit 0 ;;
+esac
+STUB
+chmod +x "$TESTTMP/refresh-stub"
+rm -f "$TESTTMP"/conc-rc.*
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  ( rc=0; "$UPKEEP" check >/dev/null 2>&1 || rc=$?; printf '%s\n' "$rc" > "$TESTTMP/conc-rc.$i" ) &
+done
+wait
+# comma-joins the DISTINCT exit codes seen, so a failure names the rc instead of just a count
+assert_eq "$(sort -u "$TESTTMP"/conc-rc.* | paste -sd, -)" "0" "concurrent checks never collide"
+assert_exit 0 "state intact after concurrent writes" -- jq -e .actionable "$UPKEEP_STATE_DIR/state.json"
 finish

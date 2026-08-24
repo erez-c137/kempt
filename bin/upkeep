@@ -51,6 +51,7 @@ cmd_hold() {
 cmd_unhold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
+  [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   hold_remove "$b" "$n"
 }
 cmd_holds()  { holds_all; }

@@ -132,9 +132,7 @@ state_prev_items() {  # backend → previous items JSON or []
   jq ".backends.$1.items // []" "$STATE_FILE" 2>/dev/null || echo '[]'
 }
 
-write_state() {  # stdin: state JSON; atomic
-  cat > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
-}
+write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
 
 maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
