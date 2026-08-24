@@ -1,0 +1,3 @@
+# HAND-WRITTEN SAMPLE
+net.mkiol.SpeechNote	4.8.5
+org.gimp.GIMP	3.0.4

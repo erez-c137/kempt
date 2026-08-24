@@ -1,0 +1,7 @@
+# HAND-WRITTEN SAMPLE
+bash.x86_64   5.3.10-1.fc44   updates
+curl.x86_64   8.18.0-9.fc44   updates
+git-core.x86_64   2.55.1-1.fc44   updates
+tar.x86_64   2:1.35-9.fc44   updates
+vim-minimal.x86_64   2:9.2.1000-1.fc44   updates
+aajohan-comfortaa-fonts.noarch   3.106-1.fc44   updates
