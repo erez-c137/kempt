@@ -131,11 +131,13 @@ Expected: `ALL PASS` (glob matches nothing — if the glob literal `test_*.sh` e
 git add -A && git commit -m "chore: scaffolding + bash test harness"
 ```
 
+POST-REVIEW NOTE: the harness was hardened in a follow-up commit after quality review — authoritative EXIT trap in `sandbox` (a test file that forgets `finish` still fails), sandboxed HOME/XDG dirs, UNSTUBBED-by-default helper seams, `--`-tolerant `assert_exit` with captured output, guarded `cd` + empty-suite failure in run_tests.sh. The repo's `tests/lib.sh` / `tests/run_tests.sh` are authoritative over the code blocks above; the public interface (`sandbox` / `assert_*` / `finish`) is unchanged, so later tasks' test templates work as written.
+
 ---
 
 ### Task 2: Capture fixtures from the live box
 
-Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), keep the empty file AND hand-write a `*-sample.txt` variant using the documented format so parsers still get a non-empty test case — mark hand-written fixtures with a leading comment line `# HAND-WRITTEN SAMPLE` (parsers must skip `#` lines).
+Read-only commands only. If any produces empty output right now (e.g. no flatpak updates pending), hand-write realistic sample lines in the documented format so parsers still get a non-empty test case. POST-REVIEW CONVENTION (supersedes the original in-band `# HAND-WRITTEN SAMPLE` markers): fixtures stay byte-faithful to real tool output — NO comment lines inside fixture files; provenance (captured vs hand-written, dates, per-row edge-case intent) lives in `tests/fixtures/MANIFEST.md`. Guard rows are mandatory: at least one pending dnf package absent from rpm-installed.tsv (`brandnew`), one `.i686` multilib duplicate of an existing row, and one pending flatpak absent from flatpak-list.tsv (`com.example.NotInstalled`).
 
 **Files:**
 - Create: `tests/fixtures/dnf-check-update.txt`, `tests/fixtures/rpm-installed.tsv`, `tests/fixtures/flatpak-remote-ls.txt`, `tests/fixtures/flatpak-list.tsv`, `tests/fixtures/snap-before.tsv`, `tests/fixtures/snap-after.tsv`
@@ -408,12 +410,15 @@ source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/dnf.sh"
 
 # Pure parser: fixture lines + installed lookup → items JSON
+# Fixture contract (tests/fixtures/MANIFEST.md): 8 data lines parse to exactly 7 items —
+# the bash.i686/bash.x86_64 multilib pair collapses; brandnew is absent from rpm-installed.tsv.
 out="$(dnf_parse_check_update "$FIXTURES/rpm-installed.tsv" < "$FIXTURES/dnf-check-update.txt")"
-n_fixture="$(grep -cvE '^(#|$)' "$FIXTURES/dnf-check-update.txt" || true)"
-assert_eq "$(jq 'length' <<<"$out")" "$n_fixture" "one item per fixture line"
+assert_eq "$(jq 'length' <<<"$out")" "7" "8 fixture lines → 7 items (multilib pair collapses)"
 assert_eq "$(jq -r '.[0] | has("name") and has("from") and has("to")' <<<"$out")" "true" "item shape"
 assert_eq "$(jq -r '[.[].name] | any(test("\\.(x86_64|noarch|i686)$"))' <<<"$out")" "false" "arch suffix stripped"
-assert_eq "$(jq -r '[.[].from] | any(. == "")' <<<"$out")" "false" "from never empty (falls back to ?)"
+assert_eq "$(jq -r '[.[].name] | map(select(. == "bash")) | length' <<<"$out")" "1" "bash appears once despite two arches"
+assert_eq "$(jq -r '.[] | select(.name == "brandnew") | .from' <<<"$out")" "?" "not-installed package falls back to ?"
+assert_eq "$(jq -r '[.[] | select(.name != "brandnew") | .from] | any(. == "?" or . == "")' <<<"$out")" "false" "installed packages resolve real from-versions"
 
 # Impure check with stubbed helper: exit 100 + fixture on stdout
 cat > "$TESTTMP/refresh-stub" <<STUB
@@ -425,7 +430,7 @@ chmod +x "$TESTTMP/refresh-stub"
 export UPKEEP_REFRESH_HELPER="$TESTTMP/refresh-stub"
 export UPKEEP_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
 got="$(dnf_check)"
-assert_eq "$(jq 'length' <<<"$got")" "$n_fixture" "dnf_check wires helper→parser"
+assert_eq "$(jq 'length' <<<"$got")" "7" "dnf_check wires helper→parser"
 
 # Helper failure (exit 1, not 100) → dnf_check exits non-zero
 cat > "$TESTTMP/refresh-stub" <<'STUB'
@@ -477,7 +482,7 @@ dnf_reboot_needed() {  # → prints true|false
 }
 ```
 
-- [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS. If the parser count assertion fails, inspect the fixture: adjust the awk filter to the REAL captured lines (e.g. "Obsoleting packages" section headers must be excluded), never weaken the test.
+- [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS. If an assertion fails, fix the PARSER against the fixture's documented contract in tests/fixtures/MANIFEST.md (e.g. "Obsoleting packages" section headers must be excluded by the awk filter). Never weaken a test to make it pass.
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: dnf backend — check parser + stub-driven check"`
 
 ---
@@ -497,15 +502,16 @@ source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/flatpak.sh"
 
+# Fixture contract (MANIFEST.md): 3 pending apps; com.example.NotInstalled is absent from flatpak-list.tsv.
 out="$(flatpak_parse_remote_ls "$FIXTURES/flatpak-list.tsv" < "$FIXTURES/flatpak-remote-ls.txt")"
-n="$(grep -cvE '^(#|$)' "$FIXTURES/flatpak-remote-ls.txt" || true)"
-assert_eq "$(jq 'length' <<<"$out")" "$n" "one item per pending flatpak"
+assert_eq "$(jq 'length' <<<"$out")" "3" "three pending flatpaks"
 assert_eq "$(jq -r '.[0] | has("name") and has("from") and has("to")' <<<"$out")" "true" "item shape"
+assert_eq "$(jq -r '.[] | select(.name == "com.example.NotInstalled") | .from' <<<"$out")" "?" "not-installed app falls back to ?"
 
 export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export UPKEEP_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
 got="$(flatpak_check)"
-assert_eq "$(jq 'length' <<<"$got")" "$n" "flatpak_check wires cmds→parser"
+assert_eq "$(jq 'length' <<<"$got")" "3" "flatpak_check wires cmds→parser"
 
 export UPKEEP_FLATPAK_REMOTE_CMD="false"
 assert_exit 1 "flatpak_check propagates failure" flatpak_check
@@ -540,7 +546,7 @@ flatpak_check() {  # → items JSON; exit 1 on failure
 
 flatpak_snapshot() { $UPKEEP_FLATPAK_LIST_CMD | sort; }
 ```
-Note: remote-ls with `--columns=application,version` may emit an empty version column for some apps — the jq `// "?"` guard covers it. If the fixture shows a different column separator than TAB, fix the fixture capture (the `--columns` form IS tab-separated), not the parser.
+Note: remote-ls with `--columns=application,version` may emit an empty version column for some apps, and pending apps can be missing from the installed lookup — GNU join's `-a1 -e '?'` flags are the guard that fills those fields (jq's `//` does NOT catch empty strings, so don't "simplify" the join flags away as redundant). If the fixture shows a different column separator than TAB, fix the fixture capture (the `--columns` form IS tab-separated), not the parser.
 
 - [ ] **Step 4: Run tests** — `tests/run_tests.sh` → ALL PASS
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: flatpak backend — pending parser + stub-driven check"`
@@ -577,8 +583,9 @@ export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export UPKEEP_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
 export UPKEEP_SKIP_REFRESH=1   # deterministic: no metadata refresh attempts in tests
 
-n_dnf="$(grep -cvE '^(#|$)' "$FIXTURES/dnf-check-update.txt" || true)"
-n_fp="$(grep -cvE '^(#|$)' "$FIXTURES/flatpak-remote-ls.txt" || true)"
+# Fixture contracts (tests/fixtures/MANIFEST.md): dnf parses to 7 items, flatpak to 3.
+n_dnf=7
+n_fp=3
 
 state="$("$UPKEEP" check)"
 assert_eq "$(jq -r .status <<<"$state")" "ok" "status ok"
@@ -870,7 +877,10 @@ source "$(dirname "$0")/lib.sh"; sandbox
 POL="$REPO_ROOT/polkit/org.erez.upkeep.policy"
 RULES_IN="$REPO_ROOT/polkit/49-upkeep.rules.in"
 
-command -v xmllint >/dev/null && xmllint --noout "$POL" && echo "ok: policy XML well-formed" || echo "ok: xmllint unavailable, skipped"
+if command -v xmllint >/dev/null; then
+  if xmllint --noout "$POL"; then echo "ok: policy XML well-formed"
+  else echo "FAIL: policy XML malformed"; _fail=1; fi
+else echo "ok: xmllint unavailable, skipped"; fi
 assert_eq "$(grep -c '<action id=' "$POL")" "2" "two actions defined"
 grep -q 'org.erez.upkeep.refresh' "$POL" && echo "ok: refresh action present" || { echo "FAIL: refresh action"; _fail=1; }
 grep -q 'org.erez.upkeep.apply' "$POL" && echo "ok: apply action present" || { echo "FAIL: apply action"; _fail=1; }
@@ -940,13 +950,15 @@ RULES_DST="/etc/polkit-1/rules.d/49-upkeep.rules"
 cmd_enable_passwordless() {
   local tmp; tmp="$(mktemp)"
   sed "s/@USER@/$USER/" "$ROOT/polkit/49-upkeep.rules.in" > "$tmp"
-  ${UPKEEP_PKEXEC:-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
+  # dash (not colon-dash) on purpose: empty UPKEEP_PKEXEC means "no wrapper" (test sandbox),
+  # matching priv_refresh/priv_apply — colon-dash would run REAL pkexec inside tests.
+  ${UPKEEP_PKEXEC-pkexec} install -m 0644 -o root -g root "$tmp" "$RULES_DST"
   rm -f "$tmp"
   echo "Passwordless updates ENABLED for $USER ($RULES_DST)"
 }
 
 cmd_disable_passwordless() {
-  ${UPKEEP_PKEXEC:-pkexec} rm -f "$RULES_DST"
+  ${UPKEEP_PKEXEC-pkexec} rm -f "$RULES_DST"
   echo "Passwordless updates disabled"
 }
 ```
