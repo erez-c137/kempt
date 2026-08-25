@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - full-colour application icon, FLUSH-ENDED variant (decision candidate).
+  Same tile, same palette, same two flat colours as kempt.svg. The ONLY difference
+  from the shipped drawing is the spine: it now stops exactly where the outermost
+  teeth stop, so the comb ENDS with a tooth at each side, as a real comb does.
+
+  Teeth are byte-identical to kempt.svg - same count, width, gaps and x positions -
+  so this file isolates one variable: 20 px of spine overhang per side, or none.
+
+  Comb   144 x 140 = 56.3% x 54.7% of the 256 tile, centred (x 56-200, y 58-198).
+         Spine  50 px = 36%   y 58-108, width 144 (= tooth span), top corners r=8.
+         Teeth  90 px = 64%   y 108-198, square tips.
+         5 teeth, 16 px wide, 16 px gaps (tooth = gap), zero overhang.
+         Tooth spans x: 56-72, 88-104, 120-136, 152-168, 184-200.
+
+  Cost of flush, stated plainly: keeping the teeth on their grid means the comb
+  loses the 40 px of width the overhang was contributing, so it sits smaller in
+  the tile (56% wide instead of 72%). The alternative - keeping the 184 px
+  footprint and stretching the tooth pitch to 20/21 - is drawn in
+  kempt-flush-wide.svg and costs pixel-crisp teeth at 32 px instead.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <path
+     fill="#1F5885"
+     d="M 256 128 C 256 177.85 257.11 214.16 235.63 235.63 C 214.16 257.11 177.85 256 128 256 C 78.15 256 41.84 257.11 20.37 235.63 C -1.11 214.16 0 177.85 0 128 C 0 78.15 -1.11 41.84 20.37 20.37 C 41.84 -1.11 78.15 0 128 0 C 177.85 0 214.16 -1.11 235.63 20.37 C 257.11 41.84 256 78.15 256 128 Z" />
+  <path
+     fill="#F2F0E3"
+     d="M 64 58 H 192 A 8 8 0 0 1 200 66 V 198
+        H 184 V 108
+        H 168 V 198 H 152 V 108
+        H 136 V 198 H 120 V 108
+        H 104 V 198 H 88  V 108
+        H 72  V 198 H 56  V 66 A 8 8 0 0 1 64 58 Z" />
+</svg>

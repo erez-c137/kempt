@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - 16 px monochrome panel glyph, FLUSH-ENDED variant (decision candidate).
+
+  NOTE, and this is the point of the file: the SHIPPED 16 px glyph is ALREADY flush.
+  kempt-symbolic-16.svg draws its spine x 1-15 and its outermost teeth at x 1-3 and
+  x 13-15 - no overhang anywhere. The founder's objection never applied at 16 px, so
+  this drawing is geometrically identical to it, and exists only so that picking
+  "flush" gives a complete, consistently named set.
+
+  Glyph  14 w x 10 h, centred (x 1-15, y 3-13)
+  Spine  y 3-6  (3 px), width 14 (= tooth span)
+  Teeth  y 6-13 (7 px), 2 px wide, 1 px gaps, square tips, flush with the spine ends
+         x: 1-3, 4-6, 7-9, 10-12, 13-15
+  5 teeth at 2 px / 1 px = 14 px exactly, so the pitch never lands off-grid.
+
+  SHIPPED BUT UNREFERENCED, deliberately - same as the other symbolic files: no code
+  loads them. They are here for the planned panel-icon-choice setting; the panel icon
+  today comes from metadata.json's "Icon": "kempt" via the icon theme.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="16" height="16" viewBox="0 0 16 16">
+    <defs id="defs3">
+    <style type="text/css" id="current-color-scheme">
+        .ColorScheme-Text {            color:#232629;        }
+    </style>
+    </defs>
+    <path
+       class="ColorScheme-Text"
+       fill="currentColor"
+       d="M1 3 H15 V13 H13 V6 H12 V13 H10 V6 H9 V13 H7 V6 H6 V13 H4 V6 H3 V13 H1 Z" />
+</svg>

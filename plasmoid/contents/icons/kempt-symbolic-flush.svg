@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - 22 px monochrome panel glyph, FLUSH-ENDED variant (decision candidate).
+  Same hand-hinting discipline as kempt-symbolic.svg: every edge on an integer 22 px
+  coordinate. Never scale this drawing down to 16 px; kempt-symbolic-16-flush.svg is
+  the separate 16 px drawing.
+
+  Glyph  14 w x 13 h   (x 2-16, y 3-16)
+  Spine  y 3-8   (5 px)          spine : teeth = 5 : 8, near the 36/64 target
+  Teeth  y 8-16  (8 px), 2 px wide, 1 px gaps, square tips, flush with both ends
+         x: 2-4, 5-7, 8-10, 11-13, 14-16   (5 x 2 + 4 x 1 = 14 px exactly)
+
+  The shipped 22 px glyph is x 2-18 with 1 px of spine past each end tooth. Dropping
+  that px per side is what "flush" costs here: the glyph narrows 16 -> 14 px, which is
+  the same 14 px width the 16 px drawing already uses.
+
+  Badge clearance is preserved and slightly improved. The opaque count badge covers
+  x>=11, y>=11 of this viewBox; the spine (y 3-8) and the first three teeth (x 2-4,
+  5-7, 8-10) sit entirely clear of it, exactly as in the shipped glyph - and the
+  right edge has moved 2 px further from the badge, not into it. Teeth stay EQUAL:
+  a shortened last tooth clears nothing once the badge is opaque and reads as a
+  broken comb in the badge-hidden state, which is the common one.
+
+  Ruler check (Breeze actions/22/measure): that glyph is a hollow outlined box with
+  short ticks hanging INSIDE it. This is a solid spine with long teeth OUTSIDE it,
+  running past the glyph's own bottom edge. Flush ends do move the outer silhouette
+  a step closer to a rectangle, so the distinctness now rests entirely on the teeth
+  being solid, long and open at the bottom rather than on the ends being ragged.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="22" height="22" viewBox="0 0 22 22">
+    <defs id="defs3">
+    <style type="text/css" id="current-color-scheme">
+        .ColorScheme-Text {            color:#232629;        }
+    </style>
+    </defs>
+    <path
+       class="ColorScheme-Text"
+       fill="currentColor"
+       d="M2 3 H16 V16 H14 V8 H13 V16 H11 V8 H10 V16 H8 V8 H7 V16 H5 V8 H4 V16 H2 Z" />
+</svg>
