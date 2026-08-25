@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
-upkeep_init_dirs
+kempt_init_dirs
 
 assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
 config_set surface background
 assert_eq "$(config_get surface terminal)" "background" "reads set value"
 config_set surface offline
 assert_eq "$(config_get surface terminal)" "offline" "overwrite same key"
-assert_eq "$(grep -c '^surface=' "$UPKEEP_CONFIG_DIR/config")" "1" "no duplicate keys"
+assert_eq "$(grep -c '^surface=' "$KEMPT_CONFIG_DIR/config")" "1" "no duplicate keys"
 config_set include_flatpak false
 assert_eq "$(config_get include_flatpak true)" "false" "second key independent"
 assert_eq "$(config_get surface terminal)" "offline" "setting a second key preserves the first"
@@ -21,7 +21,7 @@ assert_exit 2 "newline value rejected" config_set multi $'a\nb=c'
 # A rejected write must not have disturbed what was already stored.
 assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surface intact"
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
-assert_eq "$(grep -c '' "$UPKEEP_CONFIG_DIR/config")" "2" "rejected writes added no lines"
+assert_eq "$(grep -c '' "$KEMPT_CONFIG_DIR/config")" "2" "rejected writes added no lines"
 
 # --- retention. History and logs grow forever otherwise, and the widget triggers a run on a
 # timer: one entry plus one log per run, on a box that never gets tidied by hand.
@@ -35,7 +35,7 @@ done
 printf 'x' > "$LOG_DIR/old.log";    touch -d '61 days ago' "$LOG_DIR/old.log"
 printf 'x' > "$LOG_DIR/recent.log"; touch -d '59 days ago' "$LOG_DIR/recent.log"
 printf 'x' > "$LOG_DIR/keep.txt";   touch -d '400 days ago' "$LOG_DIR/keep.txt"
-upkeep_init_dirs
+kempt_init_dirs
 assert_eq "$(ls -1 "$HIST_DIR"/*.json | wc -l)" "50" "retention keeps the newest 50 history entries"
 assert_exit 0 "the newest entry survives" -- test -f "$HIST_DIR/20260101T000055.json"
 assert_exit 0 "the 50th-newest survives" -- test -f "$HIST_DIR/20260101T000006.json"
@@ -46,19 +46,19 @@ assert_exit 0 "a 59-day-old log is kept" -- test -f "$LOG_DIR/recent.log"
 assert_exit 0 "retention only ever deletes its own file types" -- test -f "$LOG_DIR/keep.txt"
 # An empty history dir is the normal state on a fresh install: the sweep must not turn "nothing
 # to prune" into a failure (ls exits 2 on no match, and pipefail would carry that all the way up
-# into every command that calls upkeep_init_dirs).
+# into every command that calls kempt_init_dirs).
 rm -f "$HIST_DIR"/*.json
-assert_exit 0 "pruning an empty history dir is not an error" -- upkeep_init_dirs
+assert_exit 0 "pruning an empty history dir is not an error" -- kempt_init_dirs
 
 # Orphan temp sweep: a crash between mktemp and mv leaks a .atomic.XXXXXX forever. atomic_write
 # puts its temp NEXT TO the destination, so it is not only the state root that collects them -
 # the offline-baseline rebase writes through snapshots/, one level down.
-printf 'x' > "$UPKEEP_STATE_DIR/.atomic.old"; touch -d '2 hours ago' "$UPKEEP_STATE_DIR/.atomic.old"
+printf 'x' > "$KEMPT_STATE_DIR/.atomic.old"; touch -d '2 hours ago' "$KEMPT_STATE_DIR/.atomic.old"
 printf 'x' > "$SNAP_DIR/.atomic.old";         touch -d '2 hours ago' "$SNAP_DIR/.atomic.old"
 printf 'x' > "$SNAP_DIR/.atomic.fresh"
 printf 'x' > "$SNAP_DIR/keep.tsv";            touch -d '2 hours ago' "$SNAP_DIR/keep.tsv"
-upkeep_init_dirs
-assert_exit 0 "an aged orphan temp in the state dir is swept" -- test ! -e "$UPKEEP_STATE_DIR/.atomic.old"
+kempt_init_dirs
+assert_exit 0 "an aged orphan temp in the state dir is swept" -- test ! -e "$KEMPT_STATE_DIR/.atomic.old"
 assert_exit 0 "...and one in snapshots/, where the rebase leaves them" -- test ! -e "$SNAP_DIR/.atomic.old"
 assert_exit 0 "a fresh temp (a live concurrent writer's) is left alone" -- test -f "$SNAP_DIR/.atomic.fresh"
 assert_exit 0 "the sweep only ever takes .atomic. files" -- test -f "$SNAP_DIR/keep.tsv"

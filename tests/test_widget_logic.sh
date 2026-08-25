@@ -8,7 +8,7 @@
 #   2. the QML around it is compile-checked against the system Qt 6 (see the bottom of the file).
 #
 # Both halves skip LOUDLY rather than failing when their tool is missing: neither node nor PySide6
-# is a dependency of Upkeep itself.
+# is a dependency of Kempt itself.
 source "$(dirname "$0")/lib.sh"; sandbox
 LOGIC="$REPO_ROOT/plasmoid/contents/ui/logic.js"
 
@@ -61,7 +61,7 @@ PY
   [[ "$want" -gt 0 ]] || { echo "FAIL: no .qml files were checked at all"; _fail=1; }
 }
 
-# node is not a dependency of Upkeep itself, so its absence must not fail the suite - but it must
+# node is not a dependency of Kempt itself, so its absence must not fail the suite - but it must
 # be LOUD, because a silent skip here means the widget's whole derivation layer went unverified.
 if ! command -v node >/dev/null 2>&1; then
   echo "ok: SKIPPED - node is not installed, so logic.js was NOT verified in this run"
@@ -196,14 +196,14 @@ assert_eq "$(js "$calm_empty.emptyStateText")" "No updates in the last known sta
 assert_eq "$(jq -r '[.status, (.last_success|tostring), (.actionable|tostring), (.backends.dnf.items|length|tostring)] | join(",")' "$FIXTURES/state-broken.json")" \
   "stale,null,0,0" "fixture guard: the broken-install capture really is stale, never-succeeded and empty"
 assert_eq "$(js 'V("broken",false).iconState')" "error" "never succeeded and nothing known is an ERROR, not calm staleness"
-assert_eq "$(js 'V("broken",false).headerText')" "Upkeep cannot check for updates" "...the header says so plainly"
+assert_eq "$(js 'V("broken",false).headerText')" "Kempt cannot check for updates" "...the header says so plainly"
 assert_eq "$(js 'V("broken",false).headerText.indexOf("Up to date")')" "-1" "...and never claims the box is up to date"
 assert_eq "$(js 'V("broken",false).badgeVisible')" "false" "...it badges nothing"
 assert_eq "$(js 'V("broken",false).emptyStateText.indexOf("root helper not installed") >= 0')" "true" \
   "...the popup shows the CLI's own diagnosis"
 assert_eq "$(js 'V("broken",false).tooltipSub.indexOf("root helper not installed") >= 0')" "true" \
   "...so does the tooltip"
-assert_eq "$(js 'V("broken",false).remedyCommand')" "upkeep doctor" "...and it points at doctor"
+assert_eq "$(js 'V("broken",false).remedyCommand')" "kempt doctor" "...and it points at doctor"
 assert_eq "$(js 'V("broken",false).staleReason.indexOf("root helper not installed") >= 0')" "true" \
   "...with staleReason still carrying the raw text for anyone who wants it"
 # The boundary itself, from both sides: one known item is enough to make a stale state calm again,
@@ -217,37 +217,37 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",last_success:"",
   "error" "an empty last_success counts as never, not as a success"
 
 # --- a CLI we could not run at all: say what happened, and what to type ------------------------
-# Distinct from the CLI reporting a problem (that arrives as staleReason). This is "upkeep is not
+# Distinct from the CLI reporting a problem (that arrives as staleReason). This is "kempt is not
 # on PATH" / "it did not run" - the widget's own report, not the CLI's.
-cli_err='L.viewModel(null,false,"upkeep: command not found")'
+cli_err='L.viewModel(null,false,"kempt: command not found")'
 assert_eq "$(js "$cli_err.iconState")" "error" "no state plus a failed CLI is an error, not merely unknown"
 assert_eq "$(js "$cli_err.badgeVisible")" "false" "...and it badges nothing"
-assert_eq "$(js "$cli_err.headerText")" "Upkeep cannot check for updates" "the popup header names the problem"
-assert_eq "$(js "$cli_err.emptyStateText")" "upkeep: command not found" "the popup shows the CLI's own words"
-assert_eq "$(js "$cli_err.tooltipSub")" "upkeep: command not found" "...and so does the tooltip"
-assert_eq "$(js "$cli_err.remedyCommand")" "upkeep doctor" "...and points at the command that diagnoses it"
+assert_eq "$(js "$cli_err.headerText")" "Kempt cannot check for updates" "the popup header names the problem"
+assert_eq "$(js "$cli_err.emptyStateText")" "kempt: command not found" "the popup shows the CLI's own words"
+assert_eq "$(js "$cli_err.tooltipSub")" "kempt: command not found" "...and so does the tooltip"
+assert_eq "$(js "$cli_err.remedyCommand")" "kempt doctor" "...and points at the command that diagnoses it"
 assert_eq "$(js 'L.viewModel(null,false,"").iconState')" "unknown" \
   "no state and no error is still just unknown - not every blank is a failure"
 assert_eq "$(js 'L.viewModel(null,false,"").remedyCommand')" "" "...and unknown suggests nothing"
 assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").emptyStateText')" "line one" \
   "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
-# The CLI names `upkeep doctor` itself when the root helpers are missing (lib/common.sh
+# The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
 # explain_helper_error). That text arrives in the state, so the remedy must be offered from there
 # too - the CLI ran fine, it is the install that is broken.
 # A box that HAS known counts and then loses its helpers: the counts stand, so this stays calm -
 # but the remedy is still offered, because the CLI named it. (The other case, where the helpers
 # were never there and nothing is known, is the error family tested further down.)
-helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed - run ./install.sh (see: upkeep doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
+helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed - run ./install.sh (see: kempt doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
 assert_eq "$(js "$helper_missing.iconState")" "stale" "a missing root helper stays calm while the counts still stand"
-# ...and calm means QUIET. A "run upkeep doctor" line under counts that are perfectly good is the
+# ...and calm means QUIET. A "run kempt doctor" line under counts that are perfectly good is the
 # exact noise calm-stale exists to avoid; the CLI's own text below still names doctor itself.
 assert_eq "$(js "$helper_missing.remedyCommand")" "" "...offering no remedy line of its own"
-assert_eq "$(js "$helper_missing.staleReason.indexOf(\"upkeep doctor\") >= 0")" "true" \
+assert_eq "$(js "$helper_missing.staleReason.indexOf(\"kempt doctor\") >= 0")" "true" \
   "...while still showing the CLI's own words, which name doctor"
 assert_eq "$(js 'V("live",false).remedyCommand')" "" "a healthy box is told to run nothing"
 
 # --- shellQuote: the widget's one injection surface --------------------------------------------
-# Package names come out of the CLI's JSON and go into `upkeep hold <backend>:<name>`, which the
+# Package names come out of the CLI's JSON and go into `kempt hold <backend>:<name>`, which the
 # data engine hands to a shell. Everything state-derived is quoted; these pin the quoting itself,
 # and the end-to-end proof through a real shell is further down.
 assert_eq "$(js 'L.shellQuote("curl")')" "'curl'" "an ordinary name is wrapped in single quotes"
@@ -262,7 +262,7 @@ assert_eq "$(js 'L.shellQuote("$(whoami)")')" "'\$(whoami)'" "command substituti
 assert_eq "$(js 'L.shellQuote("`id`")')" "'\`id\`'" "so are backticks"
 
 # --- isTrue: the settings page must read a boolean the way the CLI writes one ------------------
-# The page gets these back as the TEXT `upkeep config get` printed. If the two disagreed about
+# The page gets these back as the TEXT `kempt config get` printed. If the two disagreed about
 # what counts as true, a user would switch something off and find it back on.
 for t in true TRUE True 1 yes YES; do
   assert_eq "$(js "L.isTrue(\"$t\")")" "true" "isTrue accepts $t, like lib/common.sh's is_true"
@@ -297,14 +297,14 @@ for surf in terminal popup background offline nonsense; do
   for auto in true false; do
     want="$(bash -c "
       source '$REPO_ROOT/lib/common.sh'
-      source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/upkeep')\"
+      source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/kempt')\"
       s=\"\$(resolve_surface '$surf')\"; is_true '$auto' || s=terminal; printf '%s' \"\$s\"")"
     assert_eq "$(js "L.effectiveSurfaceOf(\"$surf\", \"$auto\")")" "$want" \
       "effectiveSurfaceOf agrees with cmd_run for surface=$surf auto_accept=$auto"
   done
 done
 
-# --- resolveSurface: unknown means terminal, exactly as bin/upkeep decides ---------------------
+# --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
 for s in terminal popup background offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
@@ -314,11 +314,11 @@ assert_eq "$(js 'L.resolveSurface(null)')" "terminal" "and a missing one"
 assert_eq "$(js 'L.resolveSurface(" POPUP ")')" "popup" "case and whitespace do not hide a real surface"
 # Same reference check: the CLI's own resolve_surface is the authority.
 for s in terminal popup background offline nonsense ""; do
-  assert_eq "$(js "L.resolveSurface(\"$s\")")" "$(bash -c "source '$REPO_ROOT/lib/common.sh'; source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/upkeep')\"; resolve_surface '$s'")" \
+  assert_eq "$(js "L.resolveSurface(\"$s\")")" "$(bash -c "source '$REPO_ROOT/lib/common.sh'; source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/kempt')\"; resolve_surface '$s'")" \
     "resolveSurface agrees with the CLI about '$s'"
 done
 
-# --- holdsOf: `upkeep holds` prints raw backend:name lines -------------------------------------
+# --- holdsOf: `kempt holds` prints raw backend:name lines -------------------------------------
 assert_eq "$(js 'L.holdsOf("dnf:vim-common\nflatpak:org.gimp.GIMP").length')" "2" "one entry per line"
 assert_eq "$(js 'L.holdsOf("dnf:vim-common")[0].backend')" "dnf" "the backend is the part before the colon"
 assert_eq "$(js 'L.holdsOf("dnf:vim-common")[0].name')" "vim-common" "...and the name is the rest"
@@ -331,13 +331,13 @@ assert_eq "$(js 'L.holdsOf("\n  \n").length')" "0" "blank lines are skipped"
 assert_eq "$(js 'L.holdsOf("garbage-no-colon\ndnf:ok").length')" "1" "a line that is not a pair is skipped"
 assert_eq "$(js 'L.holdsOf("dnf:").length')" "0" "so is a backend with no name"
 assert_eq "$(js 'L.holdsOf(null).length')" "0" "a missing string is not an error"
-# End to end against the real CLI: what `upkeep holds` actually prints is what this parses.
-holds_out="$(UPKEEP_CONFIG_DIR="$TESTTMP/hcfg" UPKEEP_STATE_DIR="$TESTTMP/hstate" bash -c "
-  '$REPO_ROOT/bin/upkeep' hold dnf:vim-common >/dev/null
-  '$REPO_ROOT/bin/upkeep' hold flatpak:org.gimp.GIMP >/dev/null
-  '$REPO_ROOT/bin/upkeep' holds")"
+# End to end against the real CLI: what `kempt holds` actually prints is what this parses.
+holds_out="$(KEMPT_CONFIG_DIR="$TESTTMP/hcfg" KEMPT_STATE_DIR="$TESTTMP/hstate" bash -c "
+  '$REPO_ROOT/bin/kempt' hold dnf:vim-common >/dev/null
+  '$REPO_ROOT/bin/kempt' hold flatpak:org.gimp.GIMP >/dev/null
+  '$REPO_ROOT/bin/kempt' holds")"
 assert_eq "$(HOLDS="$holds_out" js 'L.holdsOf(process.env.HOLDS).map(function (h) { return h.id; })')" \
-  '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real `upkeep holds` prints"
+  '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real `kempt holds` prints"
 
 # --- lastLinesOf: the result line under the passwordless buttons -------------------------------
 assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 1)')" "three" "the last line is the verdict"
@@ -358,7 +358,7 @@ assert_eq "$(js 'L.firstLineOf(null)')" "" "nor a missing string"
 # A ListView over a flat model creates delegates lazily, so 1200 pending updates cost what six do.
 # --- backend routing: the half of every hold command that decides WHICH package manager --------
 # A dnf hardcode here is invisible in the rendered popup and catastrophic in the command: pinning
-# a Flatpak app would run `upkeep hold dnf:org.gimp.GIMP`, holding nothing and reporting success.
+# a Flatpak app would run `kempt hold dnf:org.gimp.GIMP`, holding nothing and reporting success.
 assert_eq "$(js 'V("live",false).sections[1].items[0].backend')" "flatpak" \
   "a row in the Apps group carries the flatpak backend, not dnf"
 assert_eq "$(js 'V("live",false).sections.map(function (s) { return s.items[0].backend; })')" \
@@ -411,7 +411,7 @@ assert_eq "$(js 'V("live",false).sections.map(s => s.title)')" '["System (dnf)",
 assert_eq "$(js 'V("live",false).sections[0].items[0].backend')" "dnf" \
   "every row carries its backend, which is half of the hold/unhold argument"
 # Row order is the CLI's, not something the widget re-sorts or reverses. The CLI hands items over
-# sorted by name; a popup that showed them backwards would be a different list from `upkeep check`.
+# sorted by name; a popup that showed them backwards would be a different list from `kempt check`.
 assert_eq "$(js 'V("live",false).sections[0].items.map(function (i) { return i.name; })')" \
   "$(jq -c '[.backends.dnf.items[].name]' "$FIXTURES/state-live.json")" \
   "pending rows keep the CLI's own order"
@@ -433,7 +433,7 @@ assert_eq "$(js 'V("held-only",false).heldItems[0].backend')" "dnf" \
   "held rows carry their backend too (the unhold argument)"
 
 # --- risky transaction: the widget's summary must match what the CLI itself says ---
-# Expected string built with the CLI's own pipeline (bin/upkeep: families are the prefix up to the
+# Expected string built with the CLI's own pipeline (bin/kempt: families are the prefix up to the
 # first - or ., sort -u, first four, then ", ...").
 risky_names="$(jq -r '.risky_pending[]' "$FIXTURES/state-risky-heavy.json")"
 n_risky="$(grep -c '' <<<"$risky_names")"
@@ -531,9 +531,9 @@ assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PW
 unset HOSTILE
 
 # --- no shadow settings ------------------------------------------------------------------------
-# The settings page is a front-end to `upkeep config` and nothing else. A KConfig entry here would
+# The settings page is a front-end to `kempt config` and nothing else. A KConfig entry here would
 # be a second copy of a setting the CLI also owns, and the two would drift the first time somebody
-# typed `upkeep config set` in a terminal. The plasmoid must therefore declare NO keys at all.
+# typed `kempt config set` in a terminal. The plasmoid must therefore declare NO keys at all.
 XML="$REPO_ROOT/plasmoid/contents/config/main.xml"
 assert_eq "$(grep -c '<entry' "$XML")" "0" "the plasmoid declares no KConfig entries of its own"
 assert_eq "$(grep -c 'cfg_' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml")" "0" \
@@ -545,7 +545,7 @@ import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"
 for key in include_flatpak auto_accept surface refresh_interval_min; do
   grep -q "setIfChanged(\"$key\"" "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
     && echo "ok: the page writes $key" || { echo "FAIL: the page never writes $key"; _fail=1; }
-  assert_eq "$(upkeep_default "$key" | head -c 1 | wc -c)" "1" "...and the CLI has a default for $key"
+  assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "...and the CLI has a default for $key"
 done
 
 qml_check

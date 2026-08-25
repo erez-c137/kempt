@@ -1,6 +1,6 @@
-# Using Upkeep
+# Using Kempt
 
-Every command is `upkeep <subcommand>`. `upkeep help` prints the same list.
+Every command is `kempt <subcommand>`. `kempt help` prints the same list.
 
 ```
 check                 refresh pending-updates state (JSON to stdout)
@@ -25,21 +25,21 @@ One contract, every subcommand:
 | 0 | Success. Includes declining at the risky-transaction prompt, and includes `check` when a backend failed (the failure is recorded in the state, not in the exit code). |
 | 1 | The run itself failed (a backend returned non-zero), or `doctor` found at least one problem. |
 | 2 | Usage error: unknown command, option or argument. |
-| 3 | Cannot start: `jq` is missing, or another `upkeep update` already holds the lock. |
+| 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
 | 5 | Aborted during pre-flight. Nothing was changed. |
 
 ## check
 
 ```
-upkeep check
+kempt check
 ```
 
-Queries every enabled backend, writes `~/.local/state/upkeep/state.json`, and prints the same
+Queries every enabled backend, writes `~/.local/state/kempt/state.json`, and prints the same
 JSON to stdout. Takes no arguments; anything else exits 2.
 
 ```bash
-upkeep check | jq '{status, actionable, held_total}'
+kempt check | jq '{status, actionable, held_total}'
 ```
 
 ```json
@@ -53,7 +53,7 @@ upkeep check | jq '{status, actionable, held_total}'
 A readable pending list:
 
 ```bash
-upkeep check | jq -r '.backends.dnf.items[] | "\(.name)  \(.from) -> \(.to)"'
+kempt check | jq -r '.backends.dnf.items[] | "\(.name)  \(.from) -> \(.to)"'
 ```
 
 ```
@@ -81,7 +81,7 @@ once every 3 hours, never on battery and never on a metered connection.
   carries the message, and the previous item lists are kept so the badge does not drop to zero.
   One message is rewritten rather than passed through: a **missing root helper** surfaces from
   `timeout` as `failed to run command '...': No such file or directory`, which reads as a
-  timed-out check, so `error` says `root helper not installed - run ./install.sh (see: upkeep
+  timed-out check, so `error` says `root helper not installed - run ./install.sh (see: kempt
   doctor)` instead. Every other backend message is verbatim.
 - **Corrupt or missing state file:** exit 0, degrades to an empty previous list, never a crash.
 - **Failure to persist** the new state: the fresh state is printed to stdout **first**, then the
@@ -95,7 +95,7 @@ That last case is the one rule every caller must implement: **empty stdout with 
 ## update
 
 ```
-upkeep update [--no-flatpak] [--surface=terminal|popup|background|offline]
+kempt update [--no-flatpak] [--surface=terminal|popup|background|offline]
 ```
 
 Runs the update now, in this process. Options from the config file, overridden by the flags.
@@ -103,9 +103,9 @@ An unrecognized option exits 2. An unrecognized `--surface=` value logs a warnin
 to `terminal`.
 
 ```bash
-upkeep update                      # everything, per config
-upkeep update --no-flatpak         # this run: system packages only
-upkeep update --surface=offline    # stage it; applies on the next reboot
+kempt update                      # everything, per config
+kempt update --no-flatpak         # this run: system packages only
+kempt update --surface=offline    # stage it; applies on the next reboot
 ```
 
 What happens, in order:
@@ -131,7 +131,7 @@ What happens, in order:
    kernel out of sight. `u` proceeds live, `s` switches this run to offline staging, `a` aborts.
    **Enter, Ctrl-D or a second unrecognized answer all abort**, with exit 0 and nothing changed.
    Detached surfaces cannot prompt, so they send a notification naming the families and proceed.
-   The same list is published as `risky_pending` by `upkeep check`, so the widget can offer
+   The same list is published as `risky_pending` by `kempt check`, so the widget can offer
    "stage offline instead" without re-deriving the rule.
 2. **Lock.** A second concurrent update exits 3. The prompt above happens before the lock is
    taken, so an unanswered recommendation never blocks the next run.
@@ -157,25 +157,25 @@ the summary track apps. A run can therefore change more than the summary itemize
 ## run
 
 ```
-upkeep run [--dry-run]
+kempt run [--dry-run]
 ```
 
-The launcher: it reads the configured surface and starts `upkeep update` in the right place,
+The launcher: it reads the configured surface and starts `kempt update` in the right place,
 then returns immediately. This is what the widget's Update Now button calls; humans can call
-`upkeep update` directly.
+`kempt update` directly.
 
 ```bash
-upkeep run --dry-run
+kempt run --dry-run
 ```
 
 ```
-terminal: konsole -e upkeep update
+terminal: konsole -e kempt update
 ```
 
 With `surface=background`:
 
 ```
-detached: upkeep update (surface=background)
+detached: kempt update (surface=background)
 ```
 
 Exit 4 when the `terminal` surface is configured and the emulator is not installed. The check
@@ -183,14 +183,14 @@ happens before the dry run too, so `--dry-run` tells you about a missing launche
 pretending it would work.
 
 **A successful launch says nothing about the update's outcome.** `run` returns as soon as the
-child is detached. Poll `state.json` or `upkeep history` for the result; never read `run`'s exit
+child is detached. Poll `state.json` or `kempt history` for the result; never read `run`'s exit
 code as "updated".
 
 ## summary and history
 
 ```
-upkeep summary [N]
-upkeep history
+kempt summary [N]
+kempt history
 ```
 
 `summary` renders one run as human text. `N` counts back from the newest: `1` (the default) is
@@ -198,11 +198,11 @@ the last run, `2` the one before it. `N` must be a positive integer, or the comm
 Asking for more runs than exist shows the oldest and says so on stderr.
 
 ```bash
-upkeep summary
+kempt summary
 ```
 
 ```
-Upkeep - 2026-08-24T21:05:11+03:00 (terminal, 74s) ✓
+Kempt - 2026-08-24T21:05:11+03:00 (terminal, 74s) ✓
 System (dnf): 2 updated, +1 installed
   curl 8.18.0-8.fc44 → 8.18.0-9.fc44
   kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44
@@ -220,7 +220,7 @@ That last column is the same phrase the notifications use, so a run that only in
 removed packages is never listed as "0 updated", and a run that changed nothing says so.
 
 ```bash
-upkeep history
+kempt history
 ```
 
 ```
@@ -232,32 +232,32 @@ upkeep history
 ## doctor
 
 ```
-upkeep doctor
+kempt doctor
 ```
 
 Checks this installation and prints one line per check. Exits 0 when everything passes, 1 when
 anything failed. Takes no arguments.
 
 ```bash
-upkeep doctor
+kempt doctor
 ```
 
 ```
-ok    root helper (refresh): /usr/local/libexec/upkeep-refresh (root:root 0755)
-ok    root helper (apply): /usr/local/libexec/upkeep-apply (root:root 0755)
-ok    polkit action: /usr/share/polkit-1/actions/org.erez.upkeep.policy
+ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
+ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
+ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
-ok    config file: /home/you/.config/upkeep/config (2 settings)
-ok    state dir writable: /home/you/.local/state/upkeep
-ok    checkout intact: /home/you/src/upkeep
-upkeep doctor: all checks passed
+ok    config file: /home/you/.config/kempt/config (2 settings)
+ok    state dir writable: /home/you/.local/state/kempt
+ok    checkout intact: /home/you/src/kempt
+kempt doctor: all checks passed
 ```
 
 It exists because of one specific trap. Every other command degrades instead of crashing, which
 is right for a widget that polls on a timer but wrong for a human trying to find out what is
-broken: with the root helpers missing, `upkeep check` **exits 0** with `status: "stale"` and zero
+broken: with the root helpers missing, `kempt check` **exits 0** with `status: "stale"` and zero
 pending items, and a badge showing nothing pending is indistinguishable from an up-to-date
 machine. `doctor` is the one command whose job is to say why the answer is empty.
 
@@ -268,7 +268,7 @@ What it checks, and what each failure means:
 | Both root helpers exist at the polkit-annotated paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. `check` will be permanently `stale`, `update` cannot run. |
 | The polkit action file is installed | pkexec has no policy for the helpers and falls back to an authentication dialog, which a background check cannot answer. |
 | `jq` is present | Nothing: without `jq` every command exits 3 before `doctor` can run, so this line only ever names which `jq` answered. |
-| The terminal emulator (`$UPKEEP_TERMINAL`) is present | `upkeep run` exits 4 every time. Reported only when it would actually be launched: `surface=terminal`, or any surface with `auto_accept=false`. Otherwise it is an `info` line. |
+| The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4 every time. Reported only when it would actually be launched: `surface=terminal`, or any surface with `auto_accept=false`. Otherwise it is an `info` line. |
 | `flatpak` is present | Every check reports the Flatpak backend stale. An `info` line instead when `include_flatpak=false`. |
 | Every config line is `key=value` with a valid key | The file is read with `grep "^key="`, so a malformed line is ignored forever and the setting the user wrote never applies. |
 | The state directory is writable, or can be created | No state file, no history, no logs. |
@@ -280,19 +280,19 @@ after one fails, so one pass shows every problem.
 ## hold, unhold, holds
 
 ```
-upkeep hold   dnf:<package> | flatpak:<app.id>
-upkeep unhold dnf:<package> | flatpak:<app.id>
-upkeep holds
+kempt hold   dnf:<package> | flatpak:<app.id>
+kempt unhold dnf:<package> | flatpak:<app.id>
+kempt holds
 ```
 
 A hold means **skip it, but keep telling me about it**. Held items are excluded from every
-Upkeep run, still appear in the state with `"held": true`, are counted in `held_total` rather
+Kempt run, still appear in the state with `"held": true`, are counted in `held_total` rather
 than `actionable`, and are listed at the end of each run as `Held (skipped): ...`.
 
 ```bash
-upkeep hold dnf:kernel-core
-upkeep hold flatpak:org.gimp.GIMP
-upkeep holds
+kempt hold dnf:kernel-core
+kempt hold flatpak:org.gimp.GIMP
+kempt holds
 ```
 
 ```
@@ -301,28 +301,28 @@ flatpak:org.gimp.GIMP
 ```
 
 The `backend:name` prefix is required, and the backend must be `dnf` or `flatpak`; anything else
-exits 2 with `use dnf:<pkg> or flatpak:<app.id>`. That guard exists so `upkeep hold dnf` cannot
+exits 2 with `use dnf:<pkg> or flatpak:<app.id>`. That guard exists so `kempt hold dnf` cannot
 silently hold a package called "dnf". Names are validated the same way the root helper validates
 them, so a hold that would later be refused is refused now. Adding the same hold twice is a
 no-op, and removing one that was never there succeeds.
 
-Holds are **Upkeep's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
-outside Upkeep ignores them.
+Holds are **Kempt's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
+outside Kempt ignores them.
 
 ## config
 
 ```
-upkeep config get <key> [default]
-upkeep config set <key> <value>
+kempt config get <key> [default]
+kempt config set <key> <value>
 ```
 
 The only supported way to read or write settings, including for the widget. `get` falls back to
 the built-in default for a known key, or to the explicit `default` argument if you pass one.
 
 ```bash
-upkeep config get surface           # terminal
-upkeep config set surface offline
-upkeep config get refresh_interval_min   # 60
+kempt config get surface           # terminal
+kempt config set surface offline
+kempt config get refresh_interval_min   # 60
 ```
 
 Keys must match `^[a-z][a-z0-9_]+$` and values must be single-line, or `set` exits 2. Every key,
@@ -331,8 +331,8 @@ its type, its default and its effect are in [configuration.md](configuration.md)
 ## enable-passwordless, disable-passwordless
 
 ```
-upkeep enable-passwordless
-upkeep disable-passwordless
+kempt enable-passwordless
+kempt disable-passwordless
 ```
 
 Installs or removes a single polkit rule that lets your active local session apply updates
@@ -345,7 +345,7 @@ What exactly is granted is documented in [security.md](security.md#passwordless-
 <!-- WIDGET STUB: replaced with the widget's own usage section when the Plasma applet ships (Plan 2). -->
 
 The panel widget is not built yet. When it lands, it will be a thin client over the commands
-above: `upkeep check` for the badge, `upkeep run` for the Update Now button, and `upkeep config`
+above: `kempt check` for the badge, `kempt run` for the Update Now button, and `kempt config`
 for every setting in its dialog. Nothing in the widget will do package management of its own,
 so anything documented here stays true from the panel.
 
@@ -353,19 +353,19 @@ so anything documented here stays true from the panel.
 
 ```bash
 # Morning: what is waiting?
-upkeep check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
+kempt check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
 
 # Something you never want updated automatically:
-upkeep hold dnf:nvidia-driver
+kempt hold dnf:nvidia-driver
 
 # Kernel and Qt in the list? Stage it instead of rewriting a running desktop:
-upkeep update --surface=offline
+kempt update --surface=offline
 # ... reboot when convenient; the transaction applies during boot ...
 
 # After the reboot, the result is harvested into normal history:
-upkeep check >/dev/null
-upkeep summary
+kempt check >/dev/null
+kempt summary
 
 # Or, on an ordinary day with nothing risky pending:
-upkeep update
+kempt update
 ```

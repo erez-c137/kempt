@@ -7,10 +7,10 @@ Item {
     id: root
     property int defaultTimeoutMs: 30000
 
-    // run("upkeep check", 120000, function(stdout, stderr, rc) {...})
+    // run("kempt check", 120000, function(stdout, stderr, rc) {...})
     function run(cmd, timeoutMs, callback) {
         queue.push({ cmd: cmd, timeoutMs: timeoutMs || defaultTimeoutMs, callback: callback,
-                     tag: "#upkeep" + (++serial) });
+                     tag: "#kempt" + (++serial) });
         pump();
     }
 

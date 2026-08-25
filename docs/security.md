@@ -1,6 +1,6 @@
 # Security model
 
-Upkeep updates your system, so some of it necessarily runs as root. This document says exactly
+Kempt updates your system, so some of it necessarily runs as root. This document says exactly
 which parts, what they are allowed to do, and what the optional passwordless mode gives away.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md).
@@ -9,8 +9,8 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 Two files, and nothing else:
 
-- `/usr/local/libexec/upkeep-refresh` - package metadata only.
-- `/usr/local/libexec/upkeep-apply` - the upgrade verbs.
+- `/usr/local/libexec/kempt-refresh` - package metadata only.
+- `/usr/local/libexec/kempt-apply` - the upgrade verbs.
 
 Both are `root:root` 0755 **copies**, installed once by `install.sh`. The CLI itself, its
 library and the backends never run as root. That split matters because the CLI is a symlink into
@@ -26,8 +26,8 @@ for the whole cache window. So there are two, each bound by `exec.path` to exact
 
 | Action | Helper | Verbs | Policy for an active local session |
 | --- | --- | --- | --- |
-| `org.erez.upkeep.refresh` | `upkeep-refresh` | `check`, `refresh` | `yes` - no dialog |
-| `org.erez.upkeep.apply` | `upkeep-apply` | `dnf-upgrade`, `dnf-offline-stage`, `flatpak-update` | `auth_admin_keep` - one dialog per run |
+| `io.github.erez_c137.kempt.refresh` | `kempt-refresh` | `check`, `refresh` | `yes` - no dialog |
+| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `flatpak-update` | `auth_admin_keep` - one dialog per run |
 
 Both actions set `allow_any=no` and `allow_inactive=no`: nothing is granted to a remote or
 inactive session.
@@ -47,10 +47,10 @@ Neither helper forwards a caller-supplied argument. Each one parses what it was 
 it, and then builds the command itself. Anything unexpected exits 2 **before** any privileged
 command runs.
 
-`upkeep-refresh` takes exactly one argument, `check` or `refresh`. Extra arguments are refused
+`kempt-refresh` takes exactly one argument, `check` or `refresh`. Extra arguments are refused
 rather than ignored, so a caller cannot believe it passed something that was silently dropped.
 
-`upkeep-apply` accepts:
+`kempt-apply` accepts:
 
 | Verb | Accepted arguments | Validation |
 | --- | --- | --- |
@@ -64,7 +64,7 @@ get the second check.
 
 Two more layers sit in front of that:
 
-- The CLI validates hold names with the same regular expression at `upkeep hold` time, so a name
+- The CLI validates hold names with the same regular expression at `kempt hold` time, so a name
   the helper would later reject is rejected while a human is still watching.
 - The CLI pre-filters Flatpak ids against the installed set before calling the helper, which
   makes the helper's own installed-set check a backstop that should never fire in a normal run.
@@ -73,11 +73,11 @@ Two more layers sit in front of that:
 
 `auth_admin_keep` is not "one dialog per run" in any enforceable sense. It is one dialog, and
 then a **brief period** (polkit's own documentation says "e.g. five minutes") during which the
-same authorization check for the same action and the same subject simply returns yes. Upkeep
+same authorization check for the same action and the same subject simply returns yes. Kempt
 does not choose that window and cannot shorten it.
 
 So the honest statement is: for a few minutes after you authenticate an update, **any process
-running as your user can invoke `upkeep-apply` again and it will run, with no prompt at all.**
+running as your user can invoke `kempt-apply` again and it will run, with no prompt at all.**
 Not just the run you authorized. Anything on your session, including something you did not
 start. Passwordless mode is the same condition made permanent, which is the real reason it is
 opt-in and scoped to one action id.
@@ -114,7 +114,7 @@ That is the bound. It is a real one, and it is smaller than "sudo", but it is no
 
 Everything above is about *who* may start an upgrade and *what* may be said to the package
 manager. None of it says anything about **what gets installed**, and an upgrade is by
-construction root running code somebody else wrote. What bounds that is not Upkeep:
+construction root running code somebody else wrote. What bounds that is not Kempt:
 
 - **dnf5 verifies package signatures.** Fedora's shipped repository definitions set
   `gpgcheck=1`, so every RPM in a transaction must be signed by a key in the rpm keyring or the
@@ -123,14 +123,14 @@ construction root running code somebody else wrote. What bounds that is not Upke
   knowing precisely: Fedora sets `repo_gpgcheck=0`, so it is the **packages** that are verified,
   not the repository metadata.
 - **Flatpak verifies commits.** System remotes are ostree repositories whose commits are signed,
-  and the remote configuration is root-owned the same way. Upkeep only ever touches `--system`
+  and the remote configuration is root-owned the same way. Kempt only ever touches `--system`
   scope, so a per-user remote a user added for themselves is outside what the helper will act on.
 - **Upgrade verbs still run vendor scriptlets as root.** An RPM `%post` from any package in the
-  transaction runs as root, and Upkeep has no say in that whatsoever. This is equally true of
-  `sudo dnf5 upgrade` typed by hand; Upkeep neither adds nor removes that exposure, and no amount
+  transaction runs as root, and Kempt has no say in that whatsoever. This is equally true of
+  `sudo dnf5 upgrade` typed by hand; Kempt neither adds nor removes that exposure, and no amount
   of argument validation could.
 
-The trust model, stated plainly: **Upkeep controls who may ask for an upgrade and what may be
+The trust model, stated plainly: **Kempt controls who may ask for an upgrade and what may be
 said to the package manager. The package manager and its signing keys control what actually
 lands on the disk.** If the repositories configured on a machine are not trustworthy, nothing in
 this document helps.
@@ -153,18 +153,18 @@ defense in depth: pkexec already sanitizes the environment.
 
 pkexec does not pass the caller's environment through. It resets to a minimal, sanitized set, so
 a hostile `PATH`, `LD_PRELOAD` or `IFS` cannot ride into the privileged process. One useful
-consequence: the `UPKEEP_APPLY_ECHO` and `UPKEEP_REFRESH_ECHO` test seams inside the helpers
+consequence: the `KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO` test seams inside the helpers
 cannot be triggered from outside a test harness, because the variable never survives the
 transition. They only ever print a command line instead of running it.
 
 ## Passwordless mode
 
-`upkeep enable-passwordless` installs one polkit rule at
-`/etc/polkit-1/rules.d/49-upkeep.rules`:
+`kempt enable-passwordless` installs one polkit rule at
+`/etc/polkit-1/rules.d/49-kempt.rules`:
 
 ```javascript
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.erez.upkeep.apply" &&
+    if (action.id == "io.github.erez_c137.kempt.apply" &&
         subject.user == "you" && subject.active && subject.local) {
         return polkit.Result.YES;
     }
@@ -207,7 +207,7 @@ substitution could quietly break:
   /usr/share/polkit-1/rules.d
   ```
 
-  Upkeep pins the administrator's one, `/etc/polkit-1/rules.d`, because the other three belong to
+  Kempt pins the administrator's one, `/etc/polkit-1/rules.d`, because the other three belong to
   the runtime and to packages. So the destination must be an absolute path ending in `.rules`,
   and either inside `/etc/polkit-1/rules.d/` or outside every system prefix (`/etc`, `/run`,
   `/usr`, `/var`, `/boot`, `/opt`) - the last case being what the test seam uses. Anything else
@@ -219,7 +219,7 @@ substitution could quietly break:
   destination out of the directory it claims to be in.
 - Installation is a single `pkexec install -m 0644 -o root -g root`.
 
-`upkeep disable-passwordless` removes the file. It reports "not enabled" only when it can
+`kempt disable-passwordless` removes the file. It reports "not enabled" only when it can
 actually search the directory: the real `/etc/polkit-1/rules.d` is 0750 `root:polkitd`, where an
 unprivileged existence test answers "absent" for a file that is really there. Claiming "not
 enabled" in that case would leave a live grant in place, so the removal goes ahead instead.
@@ -228,17 +228,21 @@ enabled" in that case would leave a live grant in place, so the removal goes ahe
 
 Recorded here rather than quietly fixed later:
 
-- **The Flatpak installed-set query inside `upkeep-apply` is not overridable.** Making it a test
+- **The Flatpak installed-set query inside `kempt-apply` is not overridable.** Making it a test
   seam would put an injectable command inside a root helper. The price is that this one path
   cannot be tested without a live Flatpak installation, and that price is accepted.
 - **The `*_ECHO` seams live in root-owned code.** They are unreachable through pkexec (see
   above) and they only print, but they are there.
-- **The checkout is load-bearing.** Anyone who can write to your Upkeep checkout controls what
+- **The rules destination has a test-seam escape hatch.** Any path outside the six system
+  prefixes is accepted, a home directory included, because that is how the suite drives the
+  real install path; no polkit rules directory is reachable that way, so it grants no policy
+  escalation.
+- **The checkout is load-bearing.** Anyone who can write to your Kempt checkout controls what
   your user runs, including the passwordless rules template that `enable-passwordless` renders
   before handing the result to root. Keep the checkout in your own home or workspace, never
   somewhere group- or world-writable. Root-owned files are unaffected either way.
 - **Flatpak is system scope only** in v1, so a per-user app is never counted and never updated.
-- **Holds are not a system-wide lock.** They are Upkeep's own exclusion list; a manual
+- **Holds are not a system-wide lock.** They are Kempt's own exclusion list; a manual
   `sudo dnf5 upgrade` ignores them.
 - **`install.sh` runs one `pkexec bash -c`**, with every repo path passed as a positional
   argument rather than interpolated into the script text, so a checkout path containing a quote

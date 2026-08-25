@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Upkeep - one-click system updates. See docs/specs/2026-08-24-upkeep-design.md
+# Kempt - one-click system updates. See docs/specs/2026-08-24-kempt-design.md
 set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(dirname "$(dirname "$SELF")")"
@@ -7,15 +7,15 @@ source "$ROOT/lib/common.sh"
 source "$ROOT/backends/dnf.sh"
 source "$ROOT/backends/flatpak.sh"
 
-command -v jq >/dev/null || { echo "upkeep: requires jq" >&2; exit 3; }
+command -v jq >/dev/null || { echo "kempt: requires jq" >&2; exit 3; }
 
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
-  upkeep_init_dirs
+  kempt_init_dirs
   # serialize checks: last FINISHER used to win, letting a slow stale result overwrite a fresh one
-  exec 9>"$UPKEEP_STATE_DIR/check.lock"
+  exec 9>"$KEMPT_STATE_DIR/check.lock"
   if ! flock -w 60 9; then
     echo "warning: another check holds the lock; serving previous state" >&2
     jq -e . "$STATE_FILE" 2>/dev/null || true   # validated: never hand a reader corrupt bytes under rc 0
@@ -59,7 +59,7 @@ cmd_check() {
   printf '%s\n' "$state" | write_state
 }
 
-UPKEEP_RETRY_DELAY="${UPKEEP_RETRY_DELAY:-10}"
+KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
 
 # Surfaces are a closed set. An unknown one (typo in the config, a stale value from an older
 # widget) must not silently mean "detached, and definitely not offline": fall back to the one
@@ -80,7 +80,7 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
     # previous attempt's lock error and could keep retrying a run whose real failure had nothing
     # to do with a lock (and the bare word "lock" matches package names like `lockdev`).
     before_sz=0; [[ -f "$log" ]] && before_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
-    if [[ "${UPKEEP_LIVE_OUTPUT:-}" == "1" ]]; then
+    if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
       # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
       # apply_with_retry bare - a bare `; rc=` form would abort the run instead of retrying.
@@ -93,8 +93,8 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
        | grep -qiE '(rpm|package|transaction).*lock|lock.*held|another (process|application)'; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
-        echo "Package system busy (PackageKit/Discover?) - retrying in ${UPKEEP_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
-        sleep "$UPKEEP_RETRY_DELAY"
+        echo "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
+        sleep "$KEMPT_RETRY_DELAY"
       else
         echo "Package system still busy after $attempt attempts - giving up" | tee -a "$log" >&2
       fi
@@ -110,7 +110,7 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
 # surface - nobody is reading stderr there. Reads cmd_update's $surface.
 preflight_abort() {  # message
   echo "$1" >&2
-  [[ "$surface" != "terminal" ]] && notify "Upkeep" "Update did not start: $1"
+  [[ "$surface" != "terminal" ]] && notify "Kempt" "Update did not start: $1"
   exit 5
 }
 
@@ -127,9 +127,9 @@ cmd_update() {
   # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
   # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
-  is_true "$auto" || { surface="terminal"; UPKEEP_LIVE_OUTPUT=1; }
-  [[ "$surface" == "terminal" ]] && UPKEEP_LIVE_OUTPUT=1
-  export UPKEEP_LIVE_OUTPUT
+  is_true "$auto" || { surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
+  [[ "$surface" == "terminal" ]] && KEMPT_LIVE_OUTPUT=1
+  export KEMPT_LIVE_OUTPUT
 
   # Risky-transaction recommendation (spec §Run surfaces). Live surfaces stay available - this
   # recommends, it never blocks; the user always decides. An offline run IS the recommendation,
@@ -148,7 +148,7 @@ cmd_update() {
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
       rcount="$(wc -l <<<"$risky_list")"
-      if [[ "$surface" == "terminal" && ( -t 0 || -n "${UPKEEP_ASSUME_TTY:-}" ) ]]; then
+      if [[ "$surface" == "terminal" && ( -t 0 || -n "${KEMPT_ASSUME_TTY:-}" ) ]]; then
         echo "Recommendation: this update touches $rcount session-critical packages (a live upgrade can break the running desktop):"
         # ONE NAME PER FAMILY, same rule as the notification. A Qt or KDE bump legitimately
         # produces hundreds of matches, and the first eight alphabetically are all the same
@@ -179,15 +179,15 @@ cmd_update() {
         # readable when 168 qt6-* packages are pending.
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
-        notify "Upkeep" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...')) - consider the Offline surface"
+        notify "Kempt" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...')) - consider the Offline surface"
       fi
     fi
   fi
 
-  acquire_lock || { echo "another upkeep update is running" >&2; exit 3; }
+  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
-  upkeep_init_dirs
+  kempt_init_dirs
   local ts start log status="ok" reboot=false
   ts="$(date +%Y%m%dT%H%M%S)"; start="$(date +%s)"
   log="$LOG_DIR/$ts.log"
@@ -276,7 +276,7 @@ cmd_update() {
   # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the rc mapping and the
   # -C / </dev/null hardening (an uncached needs-restarting does network I/O and can prompt on
   # stdin, and this runs from detached surfaces where nobody can answer). Its seam is
-  # UPKEEP_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
+  # KEMPT_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
   # would lose the history entry of a run that already changed the system.
   reboot="$(dnf_reboot_needed)"
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
@@ -318,11 +318,11 @@ cmd_update() {
     local phrase
     phrase="$(run_counts_phrase "$hist")"
     if [[ "$surface" == "offline" ]]; then
-      notify "Upkeep" "Updates staged - they apply on the next reboot"
+      notify "Kempt" "Updates staged - they apply on the next reboot"
     elif [[ "$status" == "ok" ]]; then
-      notify "Upkeep" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+      notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
-      notify "Upkeep" "Update FAILED - see $log"
+      notify "Kempt" "Update FAILED - see $log"
     fi
   fi
   # A PENDING offline stage has to survive a live run. The staged transaction applies only on
@@ -362,7 +362,7 @@ cmd_update() {
 
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
 # cmd_update re-checks auto_accept itself - this guard is for the LAUNCH decision (a detached run
-# can never answer a prompt), that one is for direct `upkeep update` callers.
+# can never answer a prompt), that one is for direct `kempt update` callers.
 cmd_run() {
   local dry="" surface auto
   # An unrecognised argument must never fall through to a real launch.
@@ -380,21 +380,21 @@ cmd_run() {
   if [[ "$surface" == "terminal" ]]; then
     # Checked before the dry run too: "what would happen" must include "nothing, you have no
     # terminal emulator". Silently spawning nothing is how a widget button becomes a mystery.
-    command -v "$UPKEEP_TERMINAL" >/dev/null \
-      || { echo "$UPKEEP_TERMINAL not found - install it or run: upkeep config set surface background" >&2; exit 4; }
-    if [[ -n "$dry" ]]; then echo "terminal: $UPKEEP_TERMINAL -e upkeep update"; return 0; fi
-    setsid "$UPKEEP_TERMINAL" -e bash -c \
+    command -v "$KEMPT_TERMINAL" >/dev/null \
+      || { echo "$KEMPT_TERMINAL not found - install it or run: kempt config set surface background" >&2; exit 4; }
+    if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update"; return 0; fi
+    setsid "$KEMPT_TERMINAL" -e bash -c \
       "'$SELF' update; ec=\$?; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec" \
       >/dev/null 2>&1 &
   else
-    if [[ -n "$dry" ]]; then echo "detached: upkeep update (surface=$surface)"; return 0; fi
+    if [[ -n "$dry" ]]; then echo "detached: kempt update (surface=$surface)"; return 0; fi
     setsid bash -c "'$SELF' update --surface=$surface" >/dev/null 2>&1 &
   fi
 }
 
 cmd_summary() {  # [N] - 1 = latest (default)
   local n="${1:-1}" f out i files=()
-  [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: upkeep summary [N]  (N >= 1, 1 = latest)" >&2; exit 2; }
+  [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: kempt summary [N]  (N >= 1, 1 = latest)" >&2; exit 2; }
   # newest first. `|| true`: an empty history dir makes ls exit 2, and under pipefail that would
   # kill the whole command before it could say the friendly thing. No runs yet is NOT an error.
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
@@ -409,7 +409,7 @@ cmd_summary() {  # [N] - 1 = latest (default)
     # One damaged entry must not be the last word the user gets: warn, fall back to the next
     # newest. EMPTY output counts as damaged - jq exits 0 on a zero-byte file, so "rendered
     # nothing" would otherwise pass for a successful render (the same empty-stdout-is-not-data
-    # trap as `upkeep check`).
+    # trap as `kempt check`).
     if out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
       printf '%s\n' "$out"; return 0
     fi
@@ -443,7 +443,7 @@ cmd_history() {
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
 # what turns it into a normal history entry.
 # The harvest is GATED ON THE BOOT SESSION, because "the installed set moved" was never evidence
-# that the stage had applied: a live upkeep run, a manual `dnf install cowsay`, anything at all
+# that the stage had applied: a live kempt run, a manual `dnf install cowsay`, anything at all
 # would trip it, consume the marker and label someone else's change "offline (applied on reboot)".
 # A staged transaction can only be applied by a reboot, so same boot session = still pending,
 # full stop. Residual caveat (spec): once the boot HAS changed, the diff can also contain rpm
@@ -482,20 +482,20 @@ harvest_offline() {
   rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
   # Same counts phrase as a live run's notification: a staged transaction that only installed or
   # removed packages must not be announced as "0 packages".
-  notify "Upkeep" "Staged updates were applied on reboot - $(run_counts_phrase "$hist")"
+  notify "Kempt" "Staged updates were applied on reboot - $(run_counts_phrase "$hist")"
 }
 
 cmd_config() {
   case "${1:-}" in
-    get) [[ -n "${2:-}" ]] || { echo "usage: upkeep config get <key> [default]" >&2; exit 2; }
+    get) [[ -n "${2:-}" ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
          config_get "$2" "${3-}" ;;
-    set) [[ -n "${2:-}" && -n "${3+x}" ]] || { echo "usage: upkeep config set <key> <value>" >&2; exit 2; }
+    set) [[ -n "${2:-}" && -n "${3+x}" ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
          config_set "$2" "$3" ;;
-    *) echo "usage: upkeep config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
+    *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
 
-# a missing colon must not silently hold a package named after the backend ("upkeep hold dnf")
+# a missing colon must not silently hold a package named after the backend ("kempt hold dnf")
 cmd_hold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
@@ -510,8 +510,8 @@ cmd_unhold() {
 }
 cmd_holds()  { holds_all; }
 
-# --- upkeep doctor ---
-# The trap this closes: with the root helpers missing, `upkeep check` exits 0 with status "stale"
+# --- kempt doctor ---
+# The trap this closes: with the root helpers missing, `kempt check` exits 0 with status "stale"
 # and 0 pending - which reads to a human, and to a badge, as "you are up to date". Every command
 # here degrades instead of crashing (deliberately), so nothing else ever says "this install is
 # incomplete". Doctor is the one command whose whole job is to say it.
@@ -546,15 +546,15 @@ doctor_helper() {  # label seam_path annotated_path
 
 cmd_doctor() {
   DOCTOR_FAILS=0
-  doctor_helper refresh "$UPKEEP_REFRESH_HELPER" "$UPKEEP_REFRESH_HELPER_PATH"
-  doctor_helper apply   "$UPKEEP_APPLY_HELPER"   "$UPKEEP_APPLY_HELPER_PATH"
+  doctor_helper refresh "$KEMPT_REFRESH_HELPER" "$KEMPT_REFRESH_HELPER_PATH"
+  doctor_helper apply   "$KEMPT_APPLY_HELPER"   "$KEMPT_APPLY_HELPER_PATH"
 
   # Without the action file, pkexec has no policy for these helpers and falls back to an
   # authentication DIALOG - which a background check cannot answer, so it times out after 120s.
-  if [[ -r "$UPKEEP_POLICY_FILE" ]]; then
-    doctor_ok "polkit action: $UPKEEP_POLICY_FILE"
+  if [[ -r "$KEMPT_POLICY_FILE" ]]; then
+    doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $UPKEEP_POLICY_FILE - run ./install.sh"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE - run ./install.sh"
   fi
 
   # jq: a missing one exits 3 before this command can run, so this line can only ever say ok. It
@@ -568,28 +568,28 @@ cmd_doctor() {
   surface="$(config_get surface)"; auto="$(config_get auto_accept)"
   case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
   is_true "$auto" || term_needed=true
-  if command -v "$UPKEEP_TERMINAL" >/dev/null; then
-    doctor_ok "terminal emulator: $(command -v "$UPKEEP_TERMINAL")"
+  if command -v "$KEMPT_TERMINAL" >/dev/null; then
+    doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
   elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$UPKEEP_TERMINAL' not found - 'upkeep run' exits 4 on this surface; install it or run: upkeep config set surface background"
+    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found - 'kempt run' exits 4 on this surface; install it or run: kempt config set surface background"
   else
-    doctor_info "terminal emulator '$UPKEEP_TERMINAL' not found - not needed for surface=$surface"
+    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found - not needed for surface=$surface"
   fi
 
   # flatpak: ask about the command the BACKEND actually runs (first word of its seam), not a
   # hardcoded name that a test or a power user may have redirected.
-  local fp_cmd; fp_cmd="${UPKEEP_FLATPAK_LIST_CMD%% *}"
+  local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
   if command -v "$fp_cmd" >/dev/null; then
     doctor_ok "flatpak: $(command -v "$fp_cmd")"
   elif is_true "$(config_get include_flatpak)"; then
-    doctor_fail "flatpak command '$fp_cmd' not found - include_flatpak=true, so every check reports the flatpak backend stale; install flatpak or run: upkeep config set include_flatpak false"
+    doctor_fail "flatpak command '$fp_cmd' not found - include_flatpak=true, so every check reports the flatpak backend stale; install flatpak or run: kempt config set include_flatpak false"
   else
     doctor_info "flatpak command '$fp_cmd' not found - include_flatpak=false, so it is not needed"
   fi
 
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored
   # forever: the setting the user believes they wrote never applies, silently. Validated exactly
-  # as config_set validates, so doctor accepts precisely what `upkeep config set` writes.
+  # as config_set validates, so doctor accepts precisely what `kempt config set` writes.
   local line n=0 bad=0 keys=0 k
   if [[ ! -e "$CONFIG_FILE" ]]; then
     doctor_ok "config file: none yet, built-in defaults apply ($CONFIG_FILE)"
@@ -620,26 +620,26 @@ cmd_doctor() {
 
   # "Writable" means "can be written OR created": on a fresh install nothing has run yet, and a
   # checkup must not CREATE the directory it is checking. Walk up to the nearest existing ancestor.
-  local probe="$UPKEEP_STATE_DIR"
+  local probe="$KEMPT_STATE_DIR"
   while [[ ! -e "$probe" ]]; do
     [[ "$probe" == */* && "$probe" != / ]] || break
     probe="${probe%/*}"; [[ -n "$probe" ]] || probe=/
   done
   if [[ -d "$probe" && -w "$probe" ]]; then
-    if [[ "$probe" == "$UPKEEP_STATE_DIR" ]]; then
-      doctor_ok "state dir writable: $UPKEEP_STATE_DIR"
+    if [[ "$probe" == "$KEMPT_STATE_DIR" ]]; then
+      doctor_ok "state dir writable: $KEMPT_STATE_DIR"
     else
-      doctor_ok "state dir writable: $UPKEEP_STATE_DIR (created on first use)"
+      doctor_ok "state dir writable: $KEMPT_STATE_DIR (created on first use)"
     fi
   else
-    doctor_fail "state dir not writable: $UPKEEP_STATE_DIR - no state, history or logs can be written"
+    doctor_fail "state dir not writable: $KEMPT_STATE_DIR - no state, history or logs can be written"
   fi
 
   # The CLI is a symlink INTO the checkout, so a missing file here is a broken install. What is
   # sourced at startup would have failed already; what is not (the passwordless rules template)
   # fails on the day it is needed and never before.
   local missing=() rel
-  for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-upkeep.rules.in; do
+  for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-kempt.rules.in; do
     [[ -r "$ROOT/$rel" ]] || missing+=("$rel")
   done
   if [[ ${#missing[@]} -eq 0 ]]; then
@@ -649,16 +649,16 @@ cmd_doctor() {
   fi
 
   if [[ $DOCTOR_FAILS -eq 0 ]]; then
-    echo "upkeep doctor: all checks passed"
+    echo "kempt doctor: all checks passed"
     return 0
   fi
   local word=problems
   if [[ $DOCTOR_FAILS -eq 1 ]]; then word=problem; fi
-  echo "upkeep doctor: $DOCTOR_FAILS $word found"
+  echo "kempt doctor: $DOCTOR_FAILS $word found"
   return 1
 }
 
-RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
+RULES_DST="${KEMPT_RULES_DST:-/etc/polkit-1/rules.d/49-kempt.rules}"
 
 # The destination is a path this command hands to a ROOT install(1), so its shape is pinned.
 # "Absolute and ending in .rules" was too loose, and so was the /etc-only fence that replaced it:
@@ -667,7 +667,7 @@ RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 # unexpected filename).
 # polkit reads FOUR rules directories, not one (polkit(8)): /etc/polkit-1/rules.d,
 # /run/polkit-1/rules.d, /usr/local/share/polkit-1/rules.d and /usr/share/polkit-1/rules.d.
-# Upkeep pins the ADMINISTRATOR's one, /etc/polkit-1/rules.d, because the other three belong to
+# Kempt pins the ADMINISTRATOR's one, /etc/polkit-1/rules.d, because the other three belong to
 # packages and to the runtime. Fencing only /etc left all three of those open, plus every other
 # system directory: /usr/share/polkit-1/rules.d/50-default.rules is a file Fedora actually ships,
 # and it was an accepted destination for a root install(1).
@@ -696,10 +696,10 @@ cmd_enable_passwordless() {
   tmp="$(mktemp)"
   # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result;
   # it writes nothing on failure, so an unverified rule can never reach install(1).
-  if ! render_passwordless_rule "$ROOT/polkit/49-upkeep.rules.in" "$tmp"; then rm -f "$tmp"; exit 2; fi
-  # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty UPKEEP_PKEXEC means "no wrapper" (test
+  if ! render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in" "$tmp"; then rm -f "$tmp"; exit 2; fi
+  # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty KEMPT_PKEXEC means "no wrapper" (test
   # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
-  if ! ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} install -m 0644 -o root -g root "$tmp" "$RULES_DST"; then
+  if ! ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} install -m 0644 -o root -g root "$tmp" "$RULES_DST"; then
     rm -f "$tmp"; echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
   fi
   rm -f "$tmp"
@@ -715,7 +715,7 @@ cmd_disable_passwordless() {
   if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
     echo "passwordless was not enabled"; return 0
   fi
-  ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} rm -f "$RULES_DST"
+  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} rm -f "$RULES_DST"
   echo "Passwordless updates disabled"
 }
 
@@ -723,12 +723,12 @@ cmd_disable_passwordless() {
 #   0 success - including a user who declines at the risky-transaction prompt
 #   1 the run itself failed (a backend returned non-zero), or `doctor` found a problem
 #   2 usage error (unknown command, option or argument)
-#   3 cannot start: jq missing, or another upkeep update already holds the lock
+#   3 cannot start: jq missing, or another kempt update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)
 #   5 aborted during pre-flight - nothing was changed
 usage() {
   cat <<'EOF'
-usage: upkeep <command>
+usage: kempt <command>
   check                 refresh pending-updates state (JSON to stdout)
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--dry-run]       launch update per configured surface (what the widget calls)

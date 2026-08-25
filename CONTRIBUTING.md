@@ -1,4 +1,4 @@
-# Contributing to Upkeep
+# Contributing to Kempt
 
 The most useful contribution is a backend for another distribution. It is also the one kind of
 change that starts with an issue rather than a pull request, because a backend needs a new verb
@@ -14,19 +14,19 @@ problems go through [SECURITY.md](SECURITY.md), never a public issue.
 There is no build step. Clone it and run it.
 
 ```bash
-git clone https://github.com/erez-c137/upkeep.git
-cd upkeep
+git clone https://github.com/erez-c137/kempt.git
+cd kempt
 tests/run_tests.sh
 ```
 
 You need bash 4+, `jq` and GNU coreutils. You do **not** need dnf, flatpak, polkit or root to
-work on Upkeep: every impure command goes through an environment seam, and the suite stubs all of
+work on Kempt: every impure command goes through an environment seam, and the suite stubs all of
 them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the full list.
 
 Syntax-check everything before you commit:
 
 ```bash
-bash -n bin/upkeep lib/common.sh backends/*.sh libexec/* install.sh
+bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
 ```
 
 **Never run a real privileged update while developing.** Use the seams and the `--destdir` mode
@@ -52,7 +52,7 @@ green suite for exactly that reason.
 `tests/lib.sh` is small on purpose. These rules are what reviews enforce:
 
 - **Call `sandbox` first, before anything else.** It creates one throwaway temp directory and
-  points `HOME`, `UPKEEP_CONFIG_DIR` and `UPKEEP_STATE_DIR` at separate paths inside it, so no
+  points `HOME`, `KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` at separate paths inside it, so no
   test can reach your real config or state. It also neutralizes every seam variable (unset, or
   pointed somewhere harmless) and installs the EXIT trap that cleans up and gives the file a
   meaningful exit status.
@@ -108,7 +108,7 @@ worked sketches for apt, pacman and zypper.
 
 Changes to the state schema, the exit-code contract or the root helpers are worth an issue before
 a pull request. A backend is one of those changes, whether or not it looks like one: it cannot
-work without a new verb in `libexec/upkeep-apply`, which runs as root, and adding it changes
+work without a new verb in `libexec/kempt-apply`, which runs as root, and adding it changes
 `assemble_state`'s signature. So open an issue first, and say which package manager and which
 apply verb you have in mind. The backend file itself is the easy part; the review is about the
 privileged half and the state contract.

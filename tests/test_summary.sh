@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
-UPKEEP="$REPO_ROOT/bin/upkeep"
-upkeep_init_dirs
+KEMPT="$REPO_ROOT/bin/kempt"
+kempt_init_dirs
 
 # Before anything has run, both readers must answer calmly instead of erroring at a user (or at
 # the widget, which shells out to them).
-assert_exit 0 "summary with no runs exits clean" "$UPKEEP" summary
-assert_eq "$("$UPKEEP" summary)" "no update runs recorded yet" "empty history says so in words"
-assert_eq "$("$UPKEEP" history)" "" "empty history lists nothing"
+assert_exit 0 "summary with no runs exits clean" "$KEMPT" summary
+assert_eq "$("$KEMPT" summary)" "no update runs recorded yet" "empty history says so in words"
+assert_eq "$("$KEMPT" history)" "" "empty history lists nothing"
 
 cat > "$HIST_DIR/20260824T120000.json" <<'EOF'
 {"timestamp":"2026-08-24T12:00:00+03:00","surface":"terminal","status":"ok","duration_sec":192,
@@ -27,9 +27,9 @@ grep -q 'kernel-core 6.15.3 → 6.15.4' <<<"$s" && echo "ok: dnf line" || { echo
 grep -q 'org.gimp.GIMP 2.10 → 2.11' <<<"$s" && echo "ok: flatpak line" || { echo "FAIL: fp line"; _fail=1; }
 grep -q 'Held (skipped): vim-common' <<<"$s" && echo "ok: held surfaced" || { echo "FAIL: held"; _fail=1; }
 grep -q 'Reboot: needed' <<<"$s" && echo "ok: reboot line" || { echo "FAIL: reboot"; _fail=1; }
-assert_eq "$("$UPKEEP" summary | grep -c 'kernel-core')" "1" "upkeep summary reads latest"
-assert_eq "$("$UPKEEP" history | wc -l)" "1" "history lists one run"
-assert_eq "$("$UPKEEP" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
+assert_eq "$("$KEMPT" summary | grep -c 'kernel-core')" "1" "kempt summary reads latest"
+assert_eq "$("$KEMPT" history | wc -l)" "1" "history lists one run"
+assert_eq "$("$KEMPT" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
   "history row shape: timestamp, surface, status, what the run changed"
 
 # --- beyond the plan: the shapes cmd_update actually writes ---
@@ -83,11 +83,11 @@ grep -q '6.15.1' <<<"$m" && { echo "FAIL: superseded version leaked into the hum
   || echo "ok: superseded versions stay in the JSON, out of the summary"
 
 # summary reads the LATEST run; `summary N` walks back; history is newest-first.
-assert_eq "$("$UPKEEP" summary | head -1 | grep -c '14:00:00')" "1" "summary defaults to the latest run"
-assert_eq "$("$UPKEEP" summary 2 | head -1 | grep -c '13:00:00')" "1" "summary N walks back"
-assert_eq "$("$UPKEEP" history | wc -l)" "3" "history lists every run"
-assert_eq "$("$UPKEEP" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
-assert_exit 2 "summary rejects a non-numeric N" "$UPKEEP" summary abc
+assert_eq "$("$KEMPT" summary | head -1 | grep -c '14:00:00')" "1" "summary defaults to the latest run"
+assert_eq "$("$KEMPT" summary 2 | head -1 | grep -c '13:00:00')" "1" "summary N walks back"
+assert_eq "$("$KEMPT" history | wc -l)" "3" "history lists every run"
+assert_eq "$("$KEMPT" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
+assert_exit 2 "summary rejects a non-numeric N" "$KEMPT" summary abc
 
 # A run that installed and removed packages changed the system as much as one that upgraded them.
 cat > "$TESTTMP/ar-entry.json" <<'EOF'
@@ -107,19 +107,19 @@ grep -q 'Apps (flatpak): 0 updated \[skipped\]' <<<"$ar" \
 
 # asking for a run further back than the history goes shows the oldest - and says it did
 crc=0
-cout="$("$UPKEEP" summary 99 2>"$TESTTMP/clamperr")" || crc=$?
+cout="$("$KEMPT" summary 99 2>"$TESTTMP/clamperr")" || crc=$?
 assert_eq "$crc" "0" "summary N past the end still succeeds"
 grep -q 'only 3 run(s) recorded' "$TESTTMP/clamperr" \
   && echo "ok: clamping says so on stderr" || { echo "FAIL: no clamp note"; _fail=1; }
 grep -q '12:00:00' <<<"$cout" && echo "ok: clamped to the oldest run" || { echo "FAIL: clamp target"; _fail=1; }
 
-# ...and so does `upkeep history`, which used to count .updated ALONE - printing "0 updated" for
+# ...and so does `kempt history`, which used to count .updated ALONE - printing "0 updated" for
 # the very run whose summary, rendered by the same command a moment earlier, says
 # "+2 installed, -1 removed". One entry, two renderers, two different truths.
 cp "$TESTTMP/ar-entry.json" "$HIST_DIR/20260824T160000.json"
 # No `| head -1`: history writes row by row, so head closing the pipe early races the writer into
 # SIGPIPE (141) and kills the whole test file under pipefail.
-hist_out="$("$UPKEEP" history)"
+hist_out="$("$KEMPT" history)"
 hrow="${hist_out%%$'\n'*}"
 assert_eq "$hrow" "2026-08-24T16:00:00+03:00  background  ok  +2 installed, -1 removed" \
   "a history row counts installs and removals, not just upgrades"
@@ -127,7 +127,7 @@ grep -q '0 updated' <<<"$hrow" \
   && { echo "FAIL: history says '0 updated' for a run that changed 3 packages"; _fail=1; } \
   || echo "ok: no phantom '0 updated' on an install/remove-only run"
 # and a run that really changed nothing says so in words, the same phrase the notification uses
-assert_eq "$("$UPKEEP" history | grep '13:00:00')" \
+assert_eq "$("$KEMPT" history | grep '13:00:00')" \
   "2026-08-24T13:00:00+03:00  background  failed  no package changes" \
   "a run that changed nothing says so"
 
@@ -145,18 +145,18 @@ cat > "$HIST_DIR/20260824T110000.json" <<'EOF'
   "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 EOF
 src=0
-sout="$("$UPKEEP" summary 2>"$TESTTMP/serr")" || src=$?
+sout="$("$KEMPT" summary 2>"$TESTTMP/serr")" || src=$?
 assert_eq "$src" "0" "corrupt newest entry does not fail the command"
 grep -q 'curl 8.17 → 8.18' <<<"$sout" && echo "ok: summary falls back to the newest READABLE entry" \
   || { echo "FAIL: summary fallback - got: $sout"; _fail=1; }
 assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/serr")" "2" "both damaged entries are named on stderr"
-assert_eq "$("$UPKEEP" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
-assert_eq "$("$UPKEEP" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
+assert_eq "$("$KEMPT" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
+assert_eq "$("$KEMPT" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
 
 # every entry damaged → the same calm no-runs answer, still rc 0
 rm -f "$HIST_DIR/20260824T110000.json"
 arc=0
-aout="$("$UPKEEP" summary 2>/dev/null)" || arc=$?
+aout="$("$KEMPT" summary 2>/dev/null)" || arc=$?
 assert_eq "$arc" "0" "all-corrupt history still exits 0"
 assert_eq "$aout" "no update runs recorded yet" "all-corrupt history degrades to the no-runs message"
 finish

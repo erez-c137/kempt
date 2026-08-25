@@ -40,7 +40,7 @@ jobs:
       # downloaded but deliberately never extracted or executed. Expect the first run to surface
       # findings that need triage rather than a clean pass.
       #
-      # -x follows `source`. bin/upkeep sources through a runtime-computed $ROOT, which shellcheck
+      # -x follows `source`. bin/kempt sources through a runtime-computed $ROOT, which shellcheck
       # cannot resolve, so --source-path points it at the two directories those files really live
       # in. Anything still unresolved comes back as SC1091 and is informational.
       - name: Lint
@@ -49,7 +49,7 @@ jobs:
             --source-path="$GITHUB_WORKSPACE" \
             --source-path="$GITHUB_WORKSPACE/lib" \
             --source-path="$GITHUB_WORKSPACE/backends" \
-            bin/upkeep lib/common.sh backends/*.sh libexec/* install.sh
+            bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
 
   tests:
     name: test suite
@@ -73,12 +73,12 @@ jobs:
 
       # KNOWN LIMITATION - the one thing the suite wants that a CI runner does not have.
       # tests/test_run.sh asserts the launch plan for the `terminal` surface, and cmd_run refuses
-      # with exit 4 when $UPKEEP_TERMINAL is not on PATH. sandbox() unsets that seam, so the
+      # with exit 4 when $KEMPT_TERMINAL is not on PATH. sandbox() unsets that seam, so the
       # default `konsole` applies and two assertions ("terminal plan", "no-auto-accept forces
       # terminal") fail on any box without KDE installed. That is the ONLY environment coupling
       # left: in the stripped-PATH run above, adding a `konsole` stub is the difference between
       # those two failures and ALL PASS across 423 assertions.
-      # The durable fix belongs in tests/test_run.sh, which should stub UPKEEP_TERMINAL the way
+      # The durable fix belongs in tests/test_run.sh, which should stub KEMPT_TERMINAL the way
       # every other seam is stubbed. Until it does, this shim keeps the job honest about why it
       # is green rather than quietly papering over a red one.
       - name: Shim the terminal emulator tests/test_run.sh expects
@@ -90,7 +90,7 @@ jobs:
 
       # Same command CONTRIBUTING.md asks for before a commit.
       - name: Syntax check
-        run: bash -n bin/upkeep lib/common.sh backends/*.sh libexec/* install.sh
+        run: bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
 
       # run_tests.sh exits non-zero on any failing file, and fails outright if it matches no test
       # files at all, so a suite that silently stopped existing cannot pass as green.

@@ -2,27 +2,27 @@
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
 <policyconfig>
-  <vendor>Upkeep</vendor>
+  <vendor>Kempt</vendor>
 
-  <action id="org.erez.upkeep.refresh">
+  <action id="io.github.erez_c137.kempt.refresh">
     <description>Refresh package metadata</description>
-    <message>Upkeep wants to refresh package metadata</message>
+    <message>Kempt wants to refresh package metadata</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/upkeep-refresh</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/kempt-refresh</annotate>
   </action>
 
-  <action id="org.erez.upkeep.apply">
+  <action id="io.github.erez_c137.kempt.apply">
     <description>Apply system updates</description>
-    <message>Upkeep wants to update the system</message>
+    <message>Kempt wants to update the system</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/upkeep-apply</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/kempt-apply</annotate>
   </action>
 </policyconfig>

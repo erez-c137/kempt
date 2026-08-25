@@ -46,11 +46,11 @@ package database, filtered to the names referenced above plus 3 extra real rows 
 version — nothing here is invented. `brandnew` was deliberately NOT added (see guard row
 above — that's the point of the guard).
 
-**Scope note (v1 decision):** Upkeep v1 handles **system-scope flatpaks only**, so the backend's
+**Scope note (v1 decision):** Kempt v1 handles **system-scope flatpaks only**, so the backend's
 real commands carry `--system` (`flatpak remote-ls --updates --system --app …` and
 `flatpak list --system --app …`). These fixtures were captured without `--system` on a box where
 the one installed app is system-scope, so their content is identical either way; the flag is a
-cross-boundary contract with `libexec/upkeep-apply`, which validates app ids against
+cross-boundary contract with `libexec/kempt-apply`, which validates app ids against
 `flatpak list --system`. A per-user app must therefore never appear in a check result. Re-capture
 with `--system` if this box ever gains per-user apps.
 
@@ -101,18 +101,25 @@ row, so a leading `#` line would break the diff instead of being skipped. Encode
 unchanged package (bash), two upgraded (kernel-core, vim-common), one removed (zsh), one added
 (newpkg).
 
-## tests/fixtures/state-*.json (widget: `upkeep check` state schema v1)
+## tests/fixtures/state-*.json (widget: `kempt check` state schema v1)
 
-The plasmoid parses `upkeep check` stdout and nothing else, so its tests are fed real CLI output
+The plasmoid parses `kempt check` stdout and nothing else, so its tests are fed real CLI output
 rather than JSON somebody typed by hand. Seven of the ten were **captured live on 2026-08-25**
-by running `bin/upkeep check` in a stub sandbox built exactly the way `tests/test_check.sh`
-builds one: a throwaway `HOME`, `UPKEEP_CONFIG_DIR`/`UPKEEP_STATE_DIR` under a tmpdir,
-`UPKEEP_PKEXEC=""`, `UPKEEP_SKIP_REFRESH=1`, a `UPKEEP_REFRESH_HELPER` stub that cats
-`dnf-check-update.txt` and exits 100, and `UPKEEP_DNF_INSTALLED_CMD` /
-`UPKEEP_FLATPAK_REMOTE_CMD` / `UPKEEP_FLATPAK_LIST_CMD` pointed at the fixtures above. Each one
+by running `bin/kempt check` in a stub sandbox built exactly the way `tests/test_check.sh`
+builds one: a throwaway `HOME`, `KEMPT_CONFIG_DIR`/`KEMPT_STATE_DIR` under a tmpdir,
+`KEMPT_PKEXEC=""`, `KEMPT_SKIP_REFRESH=1`, a `KEMPT_REFRESH_HELPER` stub that cats
+`dnf-check-update.txt` and exits 100, and `KEMPT_DNF_INSTALLED_CMD` /
+`KEMPT_FLATPAK_REMOTE_CMD` / `KEMPT_FLATPAK_LIST_CMD` pointed at the fixtures above. Each one
 got a fresh config/state pair, so no fixture inherits another's holds or history. The files are
-byte-faithful `upkeep check` stdout (jq's own formatting, trailing newline included) - re-capture
+byte-faithful `kempt check` stdout (jq's own formatting, trailing newline included) - re-capture
 by re-running the CLI the same way, never by editing the JSON.
+
+**Re-captured 2026-08-25**, after the Upkeep to Kempt rename. A sed sweep over a byte-faithful
+capture is exactly the hand-editing the rule above forbids, so all seven were produced again
+through the renamed CLI by the same recipe. Only `state-broken.json` carries the product name
+in its bytes (its `error` string names `kempt doctor`); the other six came back byte-identical
+to their pre-rename selves apart from the capture timestamps, which is the evidence that the
+rename moved names and nothing else.
 
 Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flatpak fixtures to
 3, so 10 pending in total):
@@ -139,7 +146,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   it with an inline state that keeps items under a disabled backend.
 - **state-stale.json** - captured: one successful check, a 61-second pause, then a refresh helper
   that exits 1. `status: "stale"`, the previous 10 items and counts preserved, `error: "dnf check
-  failed"`. The pause is the point: `last_success` (23:59) and `last_check` (00:00 the next day)
+  failed"`. The pause is the point: `last_success` (10:59) and `last_check` (11:00)
   land in different minutes, so a widget that showed the last ATTEMPT where it promised the last
   SUCCESS fails the test instead of passing by coincidence.
 - **state-never.json** - captured: the FIRST check on a fresh box fails (no network, no previous
@@ -159,8 +166,8 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   path does not exist and `include_flatpak=false` leaves nothing else that can answer. Result:
   `status: "stale"`, `last_success: null`, zero items in either backend, and the CLI's own
   diagnosis in `error` - "dnf check failed: root helper not installed - run ./install.sh (see:
-  upkeep doctor)". Recipe: a fresh config/state pair, `UPKEEP_REFRESH_HELPER` pointed at a
-  nonexistent path, `upkeep config set include_flatpak false`, then `upkeep check`.
+  kempt doctor)". Recipe: a fresh config/state pair, `KEMPT_REFRESH_HELPER` pointed at a
+  nonexistent path, `kempt config set include_flatpak false`, then `kempt check`.
 
   This fixture exists because of a specific near-miss. "Stale" was made deliberately calm - last
   known counts, no alarm icon - which is right for a repo that flapped once. Applied to THIS
@@ -169,7 +176,8 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   backend still answers, so items exist. The distinction the widget now draws - has it ever
   succeeded, does it know anything - is only testable against a capture that has neither.
 
-- **state-schema-v0.json** - **derived**, `jq 'del(.risky_pending)'` over state-live.json. Stands
+- **state-schema-v0.json** - **derived**, `jq 'del(.risky_pending)'` over state-live.json,
+  re-derived with it at every re-capture so the two always share a timestamp. Stands
   in for a state file written before Task 13.5 added that additive key: schema-1 readers must
   tolerate its absence, and there is no way to make today's CLI emit one.
 - **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,

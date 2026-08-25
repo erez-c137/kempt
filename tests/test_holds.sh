@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
-upkeep_init_dirs
+kempt_init_dirs
 
 hold_add dnf vim-common
 hold_add flatpak org.gimp.GIMP

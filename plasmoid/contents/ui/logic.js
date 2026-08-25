@@ -25,7 +25,7 @@ var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
 // How many session-critical families the offline recommendation names before it says ", ...".
-// Same number the CLI's notification uses (bin/upkeep).
+// Same number the CLI's notification uses (bin/kempt).
 var RISKY_FAMILIES_SHOWN = 4;
 
 // Highest number the panel badge spells out; above this it reads "999+".
@@ -39,7 +39,7 @@ var BADGE_MAX = 999;
 // shellQuote(s) -> the string as ONE shell word, safe to paste into a command line.
 //
 // This is the widget's only injection surface and it is a real one. Package names come out of
-// the CLI's JSON, and the popup builds `upkeep hold <backend>:<name>` from them - a name
+// the CLI's JSON, and the popup builds `kempt hold <backend>:<name>` from them - a name
 // containing `;` or a backtick would otherwise be a second command running as the user, from
 // inside the panel process. POSIX single quotes disable every expansion the shell has; the only
 // character that cannot appear inside them is the single quote itself, which is closed, escaped
@@ -55,7 +55,7 @@ function shellQuote(s) {
 var SURFACES = ["terminal", "popup", "background", "offline"];
 
 // isTrue(s) -> the same answer lib/common.sh's is_true() gives.
-// The settings page reads booleans back as the TEXT `upkeep config get` printed, and the two must
+// The settings page reads booleans back as the TEXT `kempt config get` printed, and the two must
 // not disagree about what "yes" means - a checkbox that renders a config value as its opposite is
 // how a user turns something off and finds it back on.
 function isTrue(value) {
@@ -64,7 +64,7 @@ function isTrue(value) {
     return s === "true" || s === "1" || s === "yes";
 }
 
-// resolveSurface(s) -> a surface the CLI recognises, mirroring bin/upkeep's resolve_surface():
+// resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
 // anything unknown is `terminal`, because that is what the CLI itself would run.
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
@@ -72,7 +72,7 @@ function resolveSurface(value) {
 }
 
 // effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use.
-// bin/upkeep's cmd_run resolves the configured surface and then overrides it: with auto_accept
+// bin/kempt's cmd_run resolves the configured surface and then overrides it: with auto_accept
 // false only a terminal can ask the confirmation question, so every other surface becomes
 // `terminal` regardless of what is stored. The popup has to apply the same rule or it will offer
 // an in-widget log pane while a terminal window is what actually opens.
@@ -80,7 +80,7 @@ function effectiveSurfaceOf(surface, autoAccept) {
     return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
 }
 
-// holdsOf(text) -> [{ id, backend, name }] from `upkeep holds` output (raw `backend:name` lines).
+// holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
 function holdsOf(text) {
@@ -113,7 +113,7 @@ function lastLinesOf(text, max) {
 }
 
 // firstLineOf(text) -> the first non-blank line, trimmed, or "".
-// `ls -1t | head -1` and `upkeep summary` both hand back text the popup shows on one line; doing
+// `ls -1t | head -1` and `kempt summary` both hand back text the popup shows on one line; doing
 // the trimming here rather than in QML is what lets a node test pin it.
 function firstLineOf(text) {
     if (typeof text !== "string") return "";
@@ -163,7 +163,7 @@ function looksLikeState(state) {
 // newestOf("a,b,c") -> "c". The CLI collapses multilib and installonly duplicates into ONE row
 // with the versions comma-joined, and its own human renderer shows the last of the set
 // (lib/common.sh: `def newest(v): v | split(",") | last`). The widget copies that rule exactly,
-// because a popup that renders a version differently from `upkeep summary` is the front-end
+// because a popup that renders a version differently from `kempt summary` is the front-end
 // disagreeing with the CLI - the one thing this design forbids.
 function newestOf(versionSet) {
     if (versionSet === null || versionSet === undefined) return "?";
@@ -253,7 +253,7 @@ function collectItems(state) {
                 from: newestOf(item.from),
                 to: newestOf(item.to),
                 held: !!item.held,
-                backend: key   // half of the `upkeep hold <backend>:<name>` argument
+                backend: key   // half of the `kempt hold <backend>:<name>` argument
             };
             if (row.held) { heldItems.push(row); heldTotal++; }
             else { pending.push(row); actionable++; }
@@ -294,7 +294,7 @@ function rowOf(item, kind) {
 // state change; the QML side holds no derived state of its own.
 //
 // cliError is the widget's own report of a check that produced nothing usable - the CLI missing
-// from PATH, say. It is NOT the same thing as the CLI reporting a problem: when `upkeep check`
+// from PATH, say. It is NOT the same thing as the CLI reporting a problem: when `kempt check`
 // runs and something inside it fails, it says so in the state's own `error` field and that comes
 // out as staleReason. This argument is only for "we could not get an answer at all".
 //
@@ -365,12 +365,12 @@ function viewModel(state, updating, cliError) {
         tooltipMain = "Updating...";
         headerText = "Updating...";
     } else if (iconState === "unknown") {
-        tooltipMain = "Upkeep";
+        tooltipMain = "Kempt";
         headerText = "No update data yet";
     } else if (iconState === "error") {
-        tooltipMain = "Upkeep";
+        tooltipMain = "Kempt";
         headerText = (cliError !== "" || neverAnswered)
-            ? "Upkeep cannot check for updates"
+            ? "Kempt cannot check for updates"
             : "Could not read the update state";
     } else {
         tooltipMain = countPhrase;
@@ -418,10 +418,10 @@ function viewModel(state, updating, cliError) {
     // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
     // nothing else to show: a CLI it could not run, or a box that has never had a successful
     // check. Deliberately NOT offered on calm staleness. Keeping quiet about a repo that flapped
-    // is the entire point of that state, and a "run upkeep doctor" line under counts that are
+    // is the entire point of that state, and a "run kempt doctor" line under counts that are
     // perfectly good is exactly the noise it exists to avoid. The CLI's own words are still
     // shown there via staleReason, which names doctor itself when that is what is wrong.
-    var remedyCommand = (cliError !== "" || neverAnswered) ? "upkeep doctor" : "";
+    var remedyCommand = (cliError !== "" || neverAnswered) ? "kempt doctor" : "";
 
     return {
         iconState: iconState,

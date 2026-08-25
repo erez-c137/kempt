@@ -2,14 +2,14 @@
 # dnf5 backend. Pure parsers take stdin/files; impure funcs go through priv_* / overridable cmds.
 # Requires lib/common.sh sourced first.
 
-UPKEEP_DNF_INSTALLED_CMD="${UPKEEP_DNF_INSTALLED_CMD:-}"
-UPKEEP_DNF_CMD="${UPKEEP_DNF_CMD:-dnf5}"
+KEMPT_DNF_INSTALLED_CMD="${KEMPT_DNF_INSTALLED_CMD:-}"
+KEMPT_DNF_CMD="${KEMPT_DNF_CMD:-dnf5}"
 
 dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
   # Both branches flow through the SAME sort tail. The seam branch used to bypass sorting
   # entirely, so a stub's row order reached collapse_versions untouched: no test could see the
   # ordering the real rpm path produces, and the version-order bug was invisible to the suite.
-  { if [[ -n "$UPKEEP_DNF_INSTALLED_CMD" ]]; then $UPKEEP_DNF_INSTALLED_CMD
+  { if [[ -n "$KEMPT_DNF_INSTALLED_CMD" ]]; then $KEMPT_DNF_INSTALLED_CMD
     else rpm -qa --queryformat '%{NAME}\t%{EVR}\n'; fi; } | sort_name_version | collapse_versions
 }
 
@@ -53,7 +53,7 @@ dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
 
 dnf_reboot_needed() {  # → prints true|false; -C = cache-only (needs-restarting otherwise does NETWORK I/O and can prompt on stdin)
   local rc=0
-  $UPKEEP_DNF_CMD -C needs-restarting </dev/null >/dev/null 2>&1 || rc=$?
+  $KEMPT_DNF_CMD -C needs-restarting </dev/null >/dev/null 2>&1 || rc=$?
   case $rc in
     1) echo true ;;
     0) echo false ;;

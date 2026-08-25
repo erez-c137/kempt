@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Upkeep shared library. Pure helpers + path setup. Sourced by bin/upkeep, backends, tests.
+# Kempt shared library. Pure helpers + path setup. Sourced by bin/kempt, backends, tests.
 set -euo pipefail
 # C.UTF-8, not C: byte-identical collation for sort/join (verified) while leaving UTF-8 bytes
 # intact in logs and package summaries instead of mangling them.
@@ -7,63 +7,63 @@ export LC_ALL=C.UTF-8
 
 # Package/app name shape. Mirrors the root helper's validation on purpose: a hold must be
 # rejected HERE, at hold time, so a bad name can never reach the privileged apply path.
-UPKEEP_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
+KEMPT_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 # Test/power-user seam for the session-critical pattern. EMPTY means "use the risky_regex config
-# key" (whose default lives in upkeep_default) - the env var still wins when set.
-UPKEEP_RISKY_RE="${UPKEEP_RISKY_RE:-}"
+# key" (whose default lives in kempt_default) - the env var still wins when set.
+KEMPT_RISKY_RE="${KEMPT_RISKY_RE:-}"
 
 # Test/power-user seam for the boot session (see current_boot_id). EMPTY means "read procfs".
-UPKEEP_BOOT_ID="${UPKEEP_BOOT_ID:-}"
+KEMPT_BOOT_ID="${KEMPT_BOOT_ID:-}"
 
-UPKEEP_CONFIG_DIR="${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
-UPKEEP_STATE_DIR="${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
-UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
-# The polkit-annotated helper paths. `exec.path` in polkit/org.erez.upkeep.policy pins these, so
-# they are the only paths root ever runs; the seams below point elsewhere in tests. `upkeep doctor`
+KEMPT_CONFIG_DIR="${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
+KEMPT_STATE_DIR="${KEMPT_STATE_DIR:-$HOME/.local/state/kempt}"
+KEMPT_PKEXEC="${KEMPT_PKEXEC-pkexec}"
+# The polkit-annotated helper paths. `exec.path` in polkit/io.github.erez_c137.kempt.policy pins these, so
+# they are the only paths root ever runs; the seams below point elsewhere in tests. `kempt doctor`
 # compares the two, because a root-ownership check on a test stub proves nothing about the install.
 # Overridable for the same reason: while these were hardcoded, doctor's ownership branches were
 # UNREACHABLE from the suite (a test stub is never the annotated path, so every run took the
 # "seam override, ownership not checked" exit instead). A test points BOTH seams at one file to
 # reach them. Nothing execs these; they are only ever compared against the helper seams.
-UPKEEP_REFRESH_HELPER_PATH="${UPKEEP_REFRESH_HELPER_PATH:-/usr/local/libexec/upkeep-refresh}"
-UPKEEP_APPLY_HELPER_PATH="${UPKEEP_APPLY_HELPER_PATH:-/usr/local/libexec/upkeep-apply}"
-UPKEEP_REFRESH_HELPER="${UPKEEP_REFRESH_HELPER:-$UPKEEP_REFRESH_HELPER_PATH}"
-UPKEEP_APPLY_HELPER="${UPKEEP_APPLY_HELPER:-$UPKEEP_APPLY_HELPER_PATH}"
-# Where install.sh puts the two polkit actions. A seam so `upkeep doctor` can be tested without
+KEMPT_REFRESH_HELPER_PATH="${KEMPT_REFRESH_HELPER_PATH:-/usr/local/libexec/kempt-refresh}"
+KEMPT_APPLY_HELPER_PATH="${KEMPT_APPLY_HELPER_PATH:-/usr/local/libexec/kempt-apply}"
+KEMPT_REFRESH_HELPER="${KEMPT_REFRESH_HELPER:-$KEMPT_REFRESH_HELPER_PATH}"
+KEMPT_APPLY_HELPER="${KEMPT_APPLY_HELPER:-$KEMPT_APPLY_HELPER_PATH}"
+# Where install.sh puts the two polkit actions. A seam so `kempt doctor` can be tested without
 # writing to /usr/share.
-UPKEEP_POLICY_FILE="${UPKEEP_POLICY_FILE:-/usr/share/polkit-1/actions/org.erez.upkeep.policy}"
-UPKEEP_NOTIFY="${UPKEEP_NOTIFY:-notify-send}"
+KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy}"
+KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
-# loudly (exit 4) instead of `upkeep run` silently doing nothing at all.
-UPKEEP_TERMINAL="${UPKEEP_TERMINAL:-konsole}"
+# loudly (exit 4) instead of `kempt run` silently doing nothing at all.
+KEMPT_TERMINAL="${KEMPT_TERMINAL:-konsole}"
 
-CONFIG_FILE="$UPKEEP_CONFIG_DIR/config"
-HOLDS_FILE="$UPKEEP_CONFIG_DIR/holds"
-STATE_FILE="$UPKEEP_STATE_DIR/state.json"
-HIST_DIR="$UPKEEP_STATE_DIR/history"
-LOG_DIR="$UPKEEP_STATE_DIR/logs"
-SNAP_DIR="$UPKEEP_STATE_DIR/snapshots"
-LAST_REFRESH_FILE="$UPKEEP_STATE_DIR/last_refresh"
-OFFLINE_MARKER="$UPKEEP_STATE_DIR/offline_staged.json"
-LOCK_FILE="$UPKEEP_STATE_DIR/lock"
+CONFIG_FILE="$KEMPT_CONFIG_DIR/config"
+HOLDS_FILE="$KEMPT_CONFIG_DIR/holds"
+STATE_FILE="$KEMPT_STATE_DIR/state.json"
+HIST_DIR="$KEMPT_STATE_DIR/history"
+LOG_DIR="$KEMPT_STATE_DIR/logs"
+SNAP_DIR="$KEMPT_STATE_DIR/snapshots"
+LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
+OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
+LOCK_FILE="$KEMPT_STATE_DIR/lock"
 
-upkeep_init_dirs() {
-  mkdir -p "$UPKEEP_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
+kempt_init_dirs() {
+  mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
   # Sweep aged orphan tmps: a crash between mktemp and mv leaks .atomic.XXXXXX forever.
   # +60min so a tmp belonging to a live concurrent writer is never eligible.
   # maxdepth 2, not 1: atomic_write puts its temp NEXT TO the destination, and the offline
   # baseline it rewrites lives in snapshots/ - depth 1 never reached those, so a crash mid-rebase
   # leaked a file nothing would ever clean up.
-  [[ -d "$UPKEEP_STATE_DIR" ]] && find "$UPKEEP_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  [[ -d "$KEMPT_STATE_DIR" ]] && find "$KEMPT_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest
-  # 50 entries (`upkeep history` stays readable and `summary N` still reaches back months) and
+  # 50 entries (`kempt history` stays readable and `summary N` still reaches back months) and
   # drop logs after 60 days (they are the failure evidence; the entry that names them is what
   # has to last). Both sweeps are best-effort: an unprunable state dir must never stop an update.
   # Process substitution, not a pipe: `ls` exits 2 on an empty history dir - the normal state on
   # a fresh install - and under pipefail that rc would propagate out of every command that calls
-  # upkeep_init_dirs.
+  # kempt_init_dirs.
   local f
   while IFS= read -r f; do [[ -n "$f" ]] && rm -f "$f"; done \
     < <(ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 || true)
@@ -102,32 +102,32 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
     END { if (prev != "") print prev "\t" vals }'
 }
 
-upkeep_default() {  # key → default ("" if unknown)
+kempt_default() {  # key → default ("" if unknown)
   case "$1" in
     include_flatpak|auto_accept) echo true ;;
     surface) echo terminal ;;
     refresh_interval_min) echo 60 ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
-    # mid-transaction (spec §Run surfaces), so Upkeep recommends the offline path first.
+    # mid-transaction (spec §Run surfaces), so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
     *) echo "" ;;
   esac
 }
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
 
-config_get() {  # key [default]; explicit default wins, else the upkeep_default table
+config_get() {  # key [default]; explicit default wins, else the kempt_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
     echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
   fi
   local v
   v="$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)"
-  printf '%s\n' "${v:-${2:-$(upkeep_default "$1")}}"
+  printf '%s\n' "${v:-${2:-$(kempt_default "$1")}}"
 }
 
 config_set() {  # key value
   [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
-  upkeep_init_dirs
+  kempt_init_dirs
   touch "$CONFIG_FILE"
   # Read-then-write: grep completes into a variable BEFORE any write begins, so a failure
   # mid-pipeline can never leave a truncated config behind. rc 1 = "no other lines", allowed.
@@ -141,8 +141,8 @@ config_set() {  # key value
 # action file is installed, pkexec falls back to an auth DIALOG - a background check would hang
 # forever waiting on a password nobody is there to type. priv_apply stays untimed on purpose:
 # there, interactive auth is the legitimate flow.
-priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
-priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
+priv_refresh() { timeout 120 ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@"; }
+priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@"; }
 
 # The tail of a captured stderr file, flattened to one line for a JSON string or a warning.
 # The trailing `sed` is not cosmetic: `tr '\n' ' '` turns the file's final newline into a SPACE,
@@ -161,20 +161,20 @@ stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing sp
 explain_helper_error() {  # stderr-tail → the tail, or the missing-helper message
   local t="$1" h
   if [[ "$t" == *"No such file"* ]]; then
-    for h in "$UPKEEP_REFRESH_HELPER" "$UPKEEP_APPLY_HELPER"; do
+    for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
-        printf '%s\n' "root helper not installed - run ./install.sh (see: upkeep doctor)"
+        printf '%s\n' "root helper not installed - run ./install.sh (see: kempt doctor)"
         return 0
       fi
     done
   fi
   printf '%s\n' "$t"
 }
-notify()       { "$UPKEEP_NOTIFY" "$@" >/dev/null 2>&1 || true; }
+notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 
 # --- passwordless polkit rule rendering ---
-# Split out of bin/upkeep so the render and its self-check are unit-testable without touching
+# Split out of bin/kempt so the render and its self-check are unit-testable without touching
 # /etc: the ONLY thing this file's caller then does is hand the result to install(1).
 render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing written
   local tmpl="$1" out="$2" u n
@@ -183,7 +183,7 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
   # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
   u="$(id -un)"
   [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || {
-    echo "unexpected username: $u - install the rules file manually; see polkit/49-upkeep.rules.in" >&2
+    echo "unexpected username: $u - install the rules file manually; see polkit/49-kempt.rules.in" >&2
     return 2; }
   awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl" > "$out" || { rm -f "$out"; return 2; }
   # Self-check BOTH halves plus the rule count. A template that lost the scope clause grants to
@@ -195,7 +195,7 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
   code="$(grep -v '^[[:space:]]*//' "$out" || true)"
   n="$(grep -c 'polkit.addRule' <<<"$code" || true)"
   if ! grep -q 'subject.active && subject.local' <<<"$code" \
-     || ! grep -q 'action.id == "org.erez.upkeep.apply"' <<<"$code" \
+     || ! grep -q 'action.id == "io.github.erez_c137.kempt.apply"' <<<"$code" \
      || [[ "$n" != 1 ]]; then
     echo "rendered rule failed scope check" >&2; rm -f "$out"; return 2
   fi
@@ -205,8 +205,8 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
 holds_all() { cat "$HOLDS_FILE" 2>/dev/null || true; }
 holds_for() { holds_all | grep "^$1:" | cut -d: -f2- || true; }
 hold_add() {  # backend name
-  [[ "$2" =~ $UPKEEP_NAME_RE ]] || { echo "invalid hold name: $2" >&2; return 2; }
-  upkeep_init_dirs; touch "$HOLDS_FILE"
+  [[ "$2" =~ $KEMPT_NAME_RE ]] || { echo "invalid hold name: $2" >&2; return 2; }
+  kempt_init_dirs; touch "$HOLDS_FILE"
   grep -qxF "$1:$2" "$HOLDS_FILE" || printf '%s:%s\n' "$1" "$2" >> "$HOLDS_FILE"
 }
 hold_remove() {  # backend name
@@ -233,7 +233,7 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
 # Qt bump into a 168-package "session-critical" scare.
 # `|| true`: grep exits 1 when it selects nothing, and "nothing risky" is the common, happy case.
 risky_names() {
-  local re="${UPKEEP_RISKY_RE:-$(config_get risky_regex)}"
+  local re="${KEMPT_RISKY_RE:-$(config_get risky_regex)}"
   jq -r '.[] | select(.held|not) | .name' \
     | grep -E "$re" \
     | grep -vE -- '-(devel|headers|static|tools|doc)($|-)|-macros' || true
@@ -295,7 +295,7 @@ state_prev_items() {  # backend → previous items array; [] for missing/corrupt
 write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
 
 maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
-  [[ -n "${UPKEEP_SKIP_REFRESH:-}" ]] && return 0
+  [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && return 0
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
@@ -335,7 +335,7 @@ metered_connection() {
 # never `8>`: the `>` form TRUNCATES on open, so the next process to merely ATTEMPT the lock
 # would erase the live holder's record before finding out it cannot have the lock.
 acquire_lock() {
-  upkeep_init_dirs
+  kempt_init_dirs
   exec 8>"$LOCK_FILE"
   flock -n 8
 }
@@ -346,19 +346,19 @@ release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; 
 # happened to the rpm database in the meantime. "unknown" (no procfs) degrades to the old
 # snapshot-comparison behaviour rather than blocking the harvest forever.
 current_boot_id() {
-  [[ -n "$UPKEEP_BOOT_ID" ]] && { printf '%s\n' "$UPKEEP_BOOT_ID"; return 0; }
+  [[ -n "$KEMPT_BOOT_ID" ]] && { printf '%s\n' "$KEMPT_BOOT_ID"; return 0; }
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown
 }
 
 # The ONE definition of "what a run changed" as a phrase. Two renderers used to carry their own
-# copy of this arithmetic and the copies drifted: `upkeep history` counted .updated alone and
+# copy of this arithmetic and the copies drifted: `kempt history` counted .updated alone and
 # printed "0 updated" for the very run whose summary, from the other copy, said
 # "+2 installed, -1 removed". A jq snippet in a variable is how one definition reaches both
 # programs, since jq has no include path here.
 # `always_updated` is their only real difference, and it is deliberate: a per-backend summary line
 # always names its update count (a backend that did nothing still gets a line reading "0 updated"),
 # while the whole-run phrase drops zero parts and degrades to "no package changes".
-UPKEEP_JQ_COUNTS='
+KEMPT_JQ_COUNTS='
   def counts_phrase(u; a; r; always_updated):
     [ (if u > 0 or always_updated then (u|tostring) + " updated"   else empty end),
       (if a > 0 then "+" + (a|tostring) + " installed" else empty end),
@@ -370,7 +370,7 @@ UPKEEP_JQ_COUNTS='
 # offline harvest's: a transaction that only installs or removes packages must never be
 # announced as "0 packages" by one surface and correctly by the other.
 run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N removed" | "no package changes"
-  jq -r "$UPKEEP_JQ_COUNTS"'
+  jq -r "$KEMPT_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
     counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
 }
@@ -378,17 +378,17 @@ run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N remo
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  jq -r "$UPKEEP_JQ_COUNTS"'
+  jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
     def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
     # a transaction that installs or removes packages changed the system just as much as one
     # that upgrades them: counting only .updated under-reports what actually happened.
-    # counts_phrase (UPKEEP_JQ_COUNTS) is the shared definition; `true` keeps the update count on
+    # counts_phrase (KEMPT_JQ_COUNTS) is the shared definition; `true` keeps the update count on
     # the line even at zero, which is what a per-backend line has always printed.
     def counts(b): counts_phrase(b.updated|length; b.added|length; b.removed|length; true);
-    "Upkeep - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
+    "Kempt - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
       + (if .status == "ok" then "✓" else "FAILED - see " + .log end),
     "System (dnf): " + counts(.backends.dnf)
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),

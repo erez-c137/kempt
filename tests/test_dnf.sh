@@ -29,7 +29,7 @@ assert_eq "$(jq -r '[.[] | select(.name != "brandnew") | .from] | any(. == "?" o
 # to skip the sort entirely, so a stub could hand collapse_versions rows in any order at all and
 # no test could notice - the exact shape that hid this.
 printf 'zsh\t5.9-11.fc44\npkg\t1.10\npkg\t1.9\n' > "$TESTTMP/unsorted.tsv"
-lookup="$(UPKEEP_DNF_INSTALLED_CMD="cat $TESTTMP/unsorted.tsv" dnf_installed_lookup)"
+lookup="$(KEMPT_DNF_INSTALLED_CMD="cat $TESTTMP/unsorted.tsv" dnf_installed_lookup)"
 assert_eq "$(awk -F'\t' '$1=="pkg"{print $2}' <<<"$lookup")" "1.9,1.10" \
   "1.9 and 1.10 collapse in version order, so the last element is the newest"
 assert_eq "$(cut -f1 <<<"$lookup" | paste -sd, -)" "pkg,zsh" \
@@ -42,7 +42,7 @@ assert_eq "$prc" "0" "parser on empty stdin exits 0"
 assert_json_eq "$empty_out" "[]" "parser on empty stdin → []"
 
 # A failure mid-pipeline (unreadable lookup) must not surface as a successful empty parse.
-# pipefail must come from lib/common.sh itself, not from tests/lib.sh: bin/upkeep sources only
+# pipefail must come from lib/common.sh itself, not from tests/lib.sh: bin/kempt sources only
 # the former, and without it a mid-pipe failure returns rc 0 + [] = a silent "nothing pending".
 rc=0
 bash -c 'set +o pipefail
@@ -57,8 +57,8 @@ cat > "$TESTTMP/refresh-stub" <<STUB
 exit 0
 STUB
 chmod +x "$TESTTMP/refresh-stub"
-export UPKEEP_REFRESH_HELPER="$TESTTMP/refresh-stub"
-export UPKEEP_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
+export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+export KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
 got="$(dnf_check)"
 assert_eq "$(jq 'length' <<<"$got")" "7" "dnf_check wires helper→parser"
 
@@ -82,21 +82,21 @@ eval "$_real_parse"
 
 # A broken installed-lookup must FAIL, not silently report every package as from="?" — an
 # all-"?" report looks plausible and would ship a fabricated update list to the user.
-_saved_installed="$UPKEEP_DNF_INSTALLED_CMD"
-export UPKEEP_DNF_INSTALLED_CMD=false
+_saved_installed="$KEMPT_DNF_INSTALLED_CMD"
+export KEMPT_DNF_INSTALLED_CMD=false
 assert_exit 1 "failing installed-lookup is loud" dnf_check
-export UPKEEP_DNF_INSTALLED_CMD="$_saved_installed"
+export KEMPT_DNF_INSTALLED_CMD="$_saved_installed"
 
-# --- reboot check: offline, non-interactive, rc-mapped (seam: UPKEEP_DNF_CMD) ---
+# --- reboot check: offline, non-interactive, rc-mapped (seam: KEMPT_DNF_CMD) ---
 for _rc in 0 1 2; do
   printf '#!/usr/bin/env bash\nexit %s\n' "$_rc" > "$TESTTMP/dnf-stub-$_rc"
   chmod +x "$TESTTMP/dnf-stub-$_rc"
 done
-export UPKEEP_DNF_CMD="$TESTTMP/dnf-stub-0"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-0"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check rc 0 → false"
-export UPKEEP_DNF_CMD="$TESTTMP/dnf-stub-1"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" "reboot check rc 1 → true"
-export UPKEEP_DNF_CMD="$TESTTMP/dnf-stub-2"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-2"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check unexpected rc → false, never a hang"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
 assert_eq "$(grep -q 'warning: reboot check failed' <<<"$_err" && echo yes || echo no)" "yes" "unexpected rc warns on stderr"

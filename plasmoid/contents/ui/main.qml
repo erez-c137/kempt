@@ -13,10 +13,10 @@ PlasmoidItem {
     id: root
 
     // --- state ---------------------------------------------------------------------------------
-    // The parsed `upkeep check` state (schema v1), or null when we have never had an answer.
+    // The parsed `kempt check` state (schema v1), or null when we have never had an answer.
     // NOT called `state`: QQuickItem already has a string property by that name, and shadowing it
     // with an object is the kind of thing that works in review and misbehaves in a real panel.
-    property var upkeepState: null
+    property var kemptState: null
     property bool updating: false          // a run WE started is in flight
     property bool checking: false          // a check is in flight; keeps checks from piling up
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
@@ -31,8 +31,8 @@ PlasmoidItem {
     // says what a run will really do, which is why the popup binds to effectiveSurface below.
     property string surface: "terminal"
     property bool autoAccept: true
-    // What `upkeep run` would actually launch: with confirmation on, only a terminal can ask the
-    // question, so everything else collapses to terminal (bin/upkeep, cmd_run).
+    // What `kempt run` would actually launch: with confirmation on, only a terminal can ask the
+    // question, so everything else collapses to terminal (bin/kempt, cmd_run).
     readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
@@ -40,33 +40,33 @@ PlasmoidItem {
     // The single derived value. Re-evaluated by the engine whenever either input changes, which is
     // why nothing below ever recomputes or caches a label. null is a first-class input here: it
     // renders as "unknown", never as "zero updates".
-    readonly property var vm: Logic.viewModel(upkeepState, updating, cliError)
+    readonly property var vm: Logic.viewModel(kemptState, updating, cliError)
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
     // in ~/.local/bin. The prefix makes the widget find it either way: from a symlink install or
-    // from a package that dropped `upkeep` in /usr/bin. The engine runs the string through a
+    // from a package that dropped `kempt` in /usr/bin. The engine runs the string through a
     // shell, so a per-command assignment is all this needs to be.
-    readonly property string upkeepCmd: "PATH=\"$HOME/.local/bin:$PATH\" upkeep"
+    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" kempt"
 
     // Where the CLI keeps its state, resolved the way lib/common.sh resolves it:
-    // UPKEEP_STATE_DIR when set, else ~/.local/state/upkeep. Deliberately NOT XDG_STATE_HOME -
+    // KEMPT_STATE_DIR when set, else ~/.local/state/kempt. Deliberately NOT XDG_STATE_HOME -
     // the CLI does not honour it, so honouring it here would point the watcher at a directory
-    // `upkeep` never writes to, and the badge would stop noticing its own runs. If the CLI ever
+    // `kempt` never writes to, and the badge would stop noticing its own runs. If the CLI ever
     // adopts XDG_STATE_HOME, this line follows it, not the other way round.
-    readonly property string stateDir: "${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
+    readonly property string stateDir: "${KEMPT_STATE_DIR:-$HOME/.local/state/kempt}"
     // ...and its config, resolved the same way (lib/common.sh line 19).
-    readonly property string configDir: "${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
+    readonly property string configDir: "${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 
     // The event-driven half of the refresh (spec: an update applied from ANY source must show up
     // within seconds). KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
     // package databases plus our own state file - three stats cost nothing and catch a manual
-    // `dnf upgrade`, a Discover run and another Upkeep run alike.
+    // `dnf upgrade`, a Discover run and another Kempt run alike.
     // The config file is watched too, and that is what makes the settings page work at all: a
     // config page is built by the shell in its own dialog, so it cannot call back into this file
-    // (there is no rootItem to reach through). It writes with `upkeep config set`, this notices
+    // (there is no rootItem to reach through). It writes with `kempt config set`, this notices
     // the file change, and the interval, the surface and the pending list are all re-read from
-    // the CLI - which also means a `upkeep config set` typed in a terminal updates the widget.
+    // the CLI - which also means a `kempt config set` typed in a terminal updates the widget.
     readonly property string watchCmd:
         "stat -c %Y /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" \""
         + configDir + "/config\" 2>/dev/null | tr '\\n' ' '"
@@ -77,7 +77,7 @@ PlasmoidItem {
     // --- flows ---------------------------------------------------------------------------------
 
     // The check. Three outcomes, and the difference between them is the whole contract:
-    //   parseable stdout            -> use it, WHATEVER the exit code was. `upkeep check` prints
+    //   parseable stdout            -> use it, WHATEVER the exit code was. `kempt check` prints
     //                                  the fresh state before it reports a persistence failure,
     //                                  so the answer is still the answer (answer-first contract).
     //   empty stdout, exit 0        -> "no data, keep the last known state". Another check held
@@ -93,11 +93,11 @@ PlasmoidItem {
         // which is the exact bug the watcher exists to prevent.
         if (checking) { recheckPending = true; return; }
         checking = true;
-        executor.run(upkeepCmd + " check", 120000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " check", 120000, function(stdout, stderr, rc) {
             root.checking = false;
             var parsed = Logic.parseState(stdout);
             if (parsed !== null) {
-                root.upkeepState = parsed;
+                root.kemptState = parsed;
                 // The CLI answered. Whatever it thinks is wrong is inside that answer now, so our
                 // own "could not run it" report has to go, or the popup would show a stale excuse
                 // next to fresh data.
@@ -148,7 +148,7 @@ PlasmoidItem {
     // The check interval is a CLI setting, not a plasmoid setting - read at load, and again after
     // the settings page applies (Task W4 calls this).
     function readInterval() {
-        executor.run(upkeepCmd + " config get refresh_interval_min", 10000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " config get refresh_interval_min", 10000, function(stdout, stderr, rc) {
             var n = parseInt(String(stdout).trim(), 10);
             if (rc === 0 && !isNaN(n) && n >= 1) root.refreshIntervalMin = n;
         });
@@ -157,16 +157,16 @@ PlasmoidItem {
     // Which surface a run will use. Only the popup surface makes the log pane worth showing - and
     // auto_accept is half of that answer, so both are read together.
     function readSurface() {
-        executor.run(upkeepCmd + " config get surface", 10000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
             if (rc === 0 && s !== "") root.surface = s;
         });
         // Guarded on emptiness exactly like the surface read above, and for a sharper reason:
-        // `upkeep config get` prints an empty line for a key it does not know, exit 0. An older
+        // `kempt config get` prints an empty line for a key it does not know, exit 0. An older
         // CLI on PATH would therefore hand us "" - and isTrue("") is false, which is the value
         // that forces terminal. The widget would quietly stop offering the in-popup log on a box
         // whose auto_accept is perfectly true. No answer means keep the CLI's own default.
-        executor.run(upkeepCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
             if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
         });
@@ -174,7 +174,7 @@ PlasmoidItem {
 
     // --- actions -------------------------------------------------------------------------------
 
-    // Update Now. `upkeep run` is the verb built for this caller: it launches the configured
+    // Update Now. `kempt run` is the verb built for this caller: it launches the configured
     // surface and RETURNS, so it gets a short timeout - the update itself is detached and never
     // occupies the executor. Putting a 40-minute dnf transaction through this queue would block
     // every check and every pin behind it, and the kill timer would only disconnect the reader
@@ -182,7 +182,7 @@ PlasmoidItem {
     function startUpdate() {
         if (updating) return;
         actionMessage = "";
-        executor.run(upkeepCmd + " run", 15000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " run", 15000, function(stdout, stderr, rc) {
             if (rc === 0) {
                 root.enterUpdating();
                 return;
@@ -195,17 +195,17 @@ PlasmoidItem {
         });
     }
 
-    // The offline recommendation, acted on. `upkeep update --surface=offline` runs the staging
+    // The offline recommendation, acted on. `kempt update --surface=offline` runs the staging
     // synchronously, so unlike `run` it has to be detached here - and detached means it must NOT
     // be waited on by the executor.
     function stageOffline() {
         if (updating) return;
         actionMessage = "";
-        // `setsid sh -c '<script>'` and not `setsid <script>`: upkeepCmd begins with a PATH=
+        // `setsid sh -c '<script>'` and not `setsid <script>`: kemptCmd begins with a PATH=
         // assignment, and setsid would try to EXECUTE a program by that name rather than set a
         // variable. The quoted script keeps the expansion for the inner shell, which is where it
         // is supposed to happen.
-        executor.run("setsid sh -c " + Logic.shellQuote(upkeepCmd + " update --surface=offline")
+        executor.run("setsid sh -c " + Logic.shellQuote(kemptCmd + " update --surface=offline")
                      + " >/dev/null 2>&1 &", 10000,
                      function(stdout, stderr, rc) {
             if (rc === 0) root.enterUpdating();
@@ -221,7 +221,7 @@ PlasmoidItem {
         holdInFlight = true;
         actionMessage = "";
         var verb = hold ? " hold " : " unhold ";
-        executor.run(upkeepCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
+        executor.run(kemptCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
                      function(stdout, stderr, rc) {
             root.holdInFlight = false;
             if (rc !== 0) {
@@ -273,7 +273,7 @@ PlasmoidItem {
     // One line saying what the run actually did, from the same renderer the terminal and the
     // notification use.
     function loadSummary() {
-        executor.run(upkeepCmd + " summary", 15000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " summary", 15000, function(stdout, stderr, rc) {
             if (rc === 0) root.actionMessage = Logic.firstLineOf(stdout);
         });
     }
@@ -327,14 +327,14 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             root.updating = false;
-            root.actionMessage = "Stopped waiting for the update to report back. Check: upkeep summary";
+            root.actionMessage = "Stopped waiting for the update to report back. Check: kempt summary";
             root.doCheck();
         }
     }
 
     // The standard panel tooltip. Both strings come from the view model, so what the tooltip says
     // is pinned by the node tests rather than assembled here.
-    toolTipMainText: vm ? vm.tooltipMain : "Upkeep"
+    toolTipMainText: vm ? vm.tooltipMain : "Kempt"
     toolTipSubText: vm ? vm.tooltipSub : ""
 
     // preferredRepresentation is deliberately NOT set. Plasma's own switch already does the right

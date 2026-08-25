@@ -1,4 +1,4 @@
-# Installing Upkeep
+# Installing Kempt
 
 ## Requirements
 
@@ -11,9 +11,9 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `jq` | Every state and history file is JSON. Without it, every command exits 3. `sudo dnf install jq` |
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are part of a base Fedora install. |
-| `flatpak` | Only when `include_flatpak` is on (the default). Turn it off with `upkeep config set include_flatpak false` on a box without Flatpak. |
+| `flatpak` | Only when `include_flatpak` is on (the default). Turn it off with `kempt config set include_flatpak false` on a box without Flatpak. |
 | `notify-send` (libnotify) | Desktop notifications from the detached surfaces. Missing, notifications are simply skipped. |
-| `konsole` | Only for the `terminal` surface. Any other emulator works: set `UPKEEP_TERMINAL` in your environment. |
+| `konsole` | Only for the `terminal` surface. Any other emulator works: set `KEMPT_TERMINAL` in your environment. |
 
 The offline surface additionally needs a dnf5 that supports staged transactions. Check with:
 
@@ -24,55 +24,55 @@ dnf5 upgrade --help | grep -- --offline
 ## Install
 
 ```bash
-git clone https://github.com/erez-c137/upkeep.git
-cd upkeep
+git clone https://github.com/erez-c137/kempt.git
+cd kempt
 ./install.sh
 ```
 
 The installer does four things, in this order:
 
-1. **Symlinks the CLI and its man page.** `~/.local/bin/upkeep` points at `bin/upkeep` inside the
-   checkout, and `~/.local/share/man/man1/upkeep.1` at the man page, so `man upkeep` works
+1. **Symlinks the CLI and its man page.** `~/.local/bin/kempt` points at `bin/kempt` inside the
+   checkout, and `~/.local/share/man/man1/kempt.1` at the man page, so `man kempt` works
    without root.
 2. **Asks for authentication once** (a single `pkexec`) and, as root, copies the two helpers and
    the polkit action out of the repo.
 3. **Tells you the checkout is load-bearing.** The CLI, its library, the backends and the
    passwordless rules template all resolve inside the repo directory. Moving or deleting it
-   breaks `upkeep`. Only the root-owned files are copies.
+   breaks `kempt`. Only the root-owned files are copies.
 4. **Offers to disable Discover's notifier** (see below). It is an offer, never silent.
 
 ### What lands where
 
 | Path | Owner | Installed by |
 | --- | --- | --- |
-| `~/.local/bin/upkeep` | you | `install.sh` (symlink into the checkout) |
-| `~/.local/share/man/man1/upkeep.1` | you | `install.sh` (symlink into the checkout), so `man upkeep` works |
-| `/usr/local/libexec/upkeep-refresh` | `root:root` 0755 | the one `pkexec` |
-| `/usr/local/libexec/upkeep-apply` | `root:root` 0755 | the one `pkexec` |
-| `/usr/share/polkit-1/actions/org.erez.upkeep.policy` | `root:root` 0644 | the one `pkexec` |
+| `~/.local/bin/kempt` | you | `install.sh` (symlink into the checkout) |
+| `~/.local/share/man/man1/kempt.1` | you | `install.sh` (symlink into the checkout), so `man kempt` works |
+| `/usr/local/libexec/kempt-refresh` | `root:root` 0755 | the one `pkexec` |
+| `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
+| `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
-| `/etc/polkit-1/rules.d/49-upkeep.rules` | `root:root` 0644 | only after `upkeep enable-passwordless` |
+| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
 
 Nothing else is written at install time. Config and state directories are created on first use:
-`~/.config/upkeep/` (config, holds) and `~/.local/state/upkeep/` (state, history, logs,
+`~/.config/kempt/` (config, holds) and `~/.local/state/kempt/` (state, history, logs,
 snapshots). See [configuration.md](configuration.md#files-and-retention).
 
-If `upkeep` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's
+If `kempt` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's
 default shell profile adds it when the directory exists, so a fresh login usually fixes it:
 
 ```bash
-command -v upkeep    # expect: /home/<you>/.local/bin/upkeep
+command -v kempt    # expect: /home/<you>/.local/bin/kempt
 ```
 
 ### If the authentication prompt is declined
 
 The installer exits 1 and tells you exactly where it stopped: the CLI symlink is in place, the
-root helpers are not, and `upkeep check` will not work yet. Re-run `./install.sh` when ready.
+root helpers are not, and `kempt check` will not work yet. Re-run `./install.sh` when ready.
 
 ### The Discover-notifier opt-out
 
-Fedora's `plasma-discover-notifier` duplicates the notifications Upkeep sends, and its
-background PackageKit activity takes the dnf5 lock at unpredictable moments, which makes Upkeep
+Fedora's `plasma-discover-notifier` duplicates the notifications Kempt sends, and its
+background PackageKit activity takes the dnf5 lock at unpredictable moments, which makes Kempt
 runs fail spuriously. The installer therefore asks:
 
 ```
@@ -97,10 +97,10 @@ consent.
 ## Verify the install
 
 ```bash
-upkeep doctor
+kempt doctor
 ```
 
-Expect `upkeep doctor: all checks passed` and exit status 0. It checks the two root helpers at
+Expect `kempt doctor: all checks passed` and exit status 0. It checks the two root helpers at
 the polkit-annotated paths (present, `root:root` 0755), the polkit action file, `jq`, your
 terminal emulator, flatpak, your config file's syntax, a writable state directory and an intact
 checkout, and it prints one line per check so a failure names itself. Run it first: if the
@@ -110,7 +110,7 @@ says so. Full detail in [usage.md](usage.md#doctor).
 Then the real answer:
 
 ```bash
-upkeep check | jq '{status, actionable, held_total}'
+kempt check | jq '{status, actionable, held_total}'
 ```
 
 Expect `status: "ok"` and a count, with **no** authentication dialog: checking metadata is the
@@ -118,13 +118,13 @@ no-dialog polkit action. To sanity-check the number against dnf itself, compare 
 count rather than the total (the total also includes Flatpak apps, and excludes anything held):
 
 ```bash
-upkeep check | jq '.backends.dnf.items | length'
+kempt check | jq '.backends.dnf.items | length'
 dnf5 --cacheonly check-update --quiet | wc -l
 ```
 
 Expect the same ballpark, not the same number. Multilib pairs such as `bash.x86_64` and
-`bash.i686` collapse into one Upkeep item, dnf5 also prints obsoleted packages that Upkeep
-filters out, and this command reads your user metadata cache while Upkeep reads the root cache
+`bash.i686` collapse into one Kempt item, dnf5 also prints obsoleted packages that Kempt
+filters out, and this command reads your user metadata cache while Kempt reads the root cache
 its own update will use (that is the point of the no-dialog refresh action).
 
 ## Passwordless updates (optional)
@@ -132,29 +132,29 @@ its own update will use (that is the point of the no-dialog refresh action).
 By default, applying updates raises one KDE authentication dialog per run. To skip it:
 
 ```bash
-upkeep enable-passwordless     # one pkexec prompt to install the rule
+kempt enable-passwordless     # one pkexec prompt to install the rule
 ```
 
-That renders `polkit/49-upkeep.rules.in` with your username, verifies the rendered result
-before installing it, and places it at `/etc/polkit-1/rules.d/49-upkeep.rules`. The rule returns
-YES for exactly one polkit action, `org.erez.upkeep.apply`, for your user, and only when your
+That renders `polkit/49-kempt.rules.in` with your username, verifies the rendered result
+before installing it, and places it at `/etc/polkit-1/rules.d/49-kempt.rules`. The rule returns
+YES for exactly one polkit action, `io.github.erez_c137.kempt.apply`, for your user, and only when your
 session is **active and local**. A remote or background session gets nothing. It is not sudo,
 and it grants nothing beyond the two upgrade verbs the apply helper implements.
 
 ```bash
-upkeep disable-passwordless    # removes the rule; saying "not enabled" is not an error
+kempt disable-passwordless    # removes the rule; saying "not enabled" is not an error
 ```
 
 The exact grant, and why it is safe to scope it this way, is in
 [security.md](security.md#passwordless-mode).
 
-## Updating Upkeep
+## Updating Kempt
 
 ```bash
-cd /path/to/upkeep && git pull
+cd /path/to/kempt && git pull
 ```
 
-The CLI updates immediately, because `~/.local/bin/upkeep` points into the checkout. Re-run
+The CLI updates immediately, because `~/.local/bin/kempt` points into the checkout. Re-run
 `./install.sh` if the root helpers or the polkit action changed - those are copies, and a stale
 copy keeps running until it is replaced.
 
@@ -169,7 +169,7 @@ find /tmp/stage -type f -o -type l
 ```
 
 This is the path the test suite uses; it is also the starting point for real packaging, which
-is the answer for distributing Upkeep to other users (the symlink install is a developer install).
+is the answer for distributing Kempt to other users (the symlink install is a developer install).
 
 ## Uninstall
 
@@ -177,19 +177,19 @@ is the answer for distributing Upkeep to other users (the symlink install is a d
 ./install.sh --uninstall
 ```
 
-Removes the `~/.local/bin/upkeep` and man-page symlinks, then asks for authentication once to
+Removes the `~/.local/bin/kempt` and man-page symlinks, then asks for authentication once to
 remove the two root helpers, the polkit action and the passwordless rule if present. Declining that prompt
 exits 1 and names the half-removed state so you can finish with a second run.
 
 Left behind on purpose:
 
-- `~/.config/upkeep/` and `~/.local/state/upkeep/` - your settings, holds and update history.
+- `~/.config/kempt/` and `~/.local/state/kempt/` - your settings, holds and update history.
 - `~/.config/autostart/org.kde.discover.notifier.desktop` - your choice about Discover's
-  notifier outlives Upkeep.
+  notifier outlives Kempt.
 
 To remove those too:
 
 ```bash
-rm -rf ~/.config/upkeep ~/.local/state/upkeep
+rm -rf ~/.config/kempt ~/.local/state/kempt
 rm -f ~/.config/autostart/org.kde.discover.notifier.desktop
 ```

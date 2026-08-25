@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
-RH="$REPO_ROOT/libexec/upkeep-refresh"
-AH="$REPO_ROOT/libexec/upkeep-apply"
+RH="$REPO_ROOT/libexec/kempt-refresh"
+AH="$REPO_ROOT/libexec/kempt-apply"
 
 # ECHO=1 on the rejection cases too (belt and braces): if an arg guard is ever removed, the
 # assertion fails loudly instead of the test reaching a real dnf5 invocation.
-assert_exit 2 "refresh: no verb"        env UPKEEP_REFRESH_ECHO=1 bash "$RH"
-assert_exit 2 "refresh: bad verb"       env UPKEEP_REFRESH_ECHO=1 bash "$RH" nuke
+assert_exit 2 "refresh: no verb"        env KEMPT_REFRESH_ECHO=1 bash "$RH"
+assert_exit 2 "refresh: bad verb"       env KEMPT_REFRESH_ECHO=1 bash "$RH" nuke
 # Extra args are never forwarded to dnf5, so they must be REFUSED rather than silently dropped —
-# `upkeep-refresh check --installroot=/foo` must not look like it honoured the flag.
+# `kempt-refresh check --installroot=/foo` must not look like it honoured the flag.
 assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
 assert_exit 2 "refresh: trailing empty arg rejected" bash "$RH" refresh ''
-# UPKEEP_REFRESH_ECHO mirrors apply's seam: print the final command instead of exec'ing it.
-assert_eq "$(UPKEEP_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
+# KEMPT_REFRESH_ECHO mirrors apply's seam: print the final command instead of exec'ing it.
+assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
   "refresh helper: check builds exact command"
-assert_eq "$(UPKEEP_REFRESH_ECHO=1 bash "$RH" refresh)" "dnf5 makecache --refresh" \
+assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "dnf5 makecache --refresh" \
   "refresh helper: refresh builds exact command"
 assert_exit 2 "apply: no verb"          bash "$AH"
 assert_exit 2 "apply: bad verb"         bash "$AH" rm-rf
 assert_exit 2 "apply: injection via exclude" bash "$AH" dnf-upgrade '--exclude=foo;rm -rf /'
 assert_exit 2 "apply: option smuggling"      bash "$AH" dnf-upgrade '--installroot=/'
 assert_exit 2 "apply: bad flatpak id"        bash "$AH" flatpak-update -y 'evil;id'
-# UPKEEP_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
-got="$(UPKEEP_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
+# KEMPT_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
+got="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
 assert_eq "$got" "dnf5 upgrade -y --exclude=vim-common --exclude=kernel-core" "dnf-upgrade builds exact command"
-got2="$(UPKEEP_APPLY_ECHO=1 bash "$AH" dnf-offline-stage -y)"
+got2="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-stage -y)"
 assert_eq "$got2" "dnf5 upgrade --offline -y" "offline stage builds exact command"
-got3="$(UPKEEP_APPLY_ECHO=1 bash "$AH" flatpak-update -y)"
+got3="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y)"
 assert_eq "$got3" "flatpak update --system --noninteractive -y" "flatpak all-apps command"
 # auto_accept=false must reach flatpak: --noninteractive is part of the -y mapping, never hardcoded,
 # or a user who turned auto-accept off would still get a silent unattended flatpak upgrade.
-got4="$(UPKEEP_APPLY_ECHO=1 bash "$AH" flatpak-update)"
+got4="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update)"
 assert_eq "$got4" "flatpak update --system" "no -y omits the auto-accept flags"
 
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
@@ -40,7 +40,7 @@ assert_eq "$got4" "flatpak update --system" "no -y omits the auto-accept flags"
 # widen and the assertion would pass for the wrong reason.
 if LC_ALL=en_US.UTF-8 bash -c '[[ "é" =~ ^[A-Za-z]$ ]]' 2>/dev/null; then
   assert_exit 2 "apply: caller locale cannot widen the name pattern" \
-    env LC_ALL=en_US.UTF-8 UPKEEP_APPLY_ECHO=1 bash "$AH" dnf-upgrade '--exclude=évil'
+    env LC_ALL=en_US.UTF-8 KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade '--exclude=évil'
 else
   echo "ok: SKIPPED locale probe (en_US.UTF-8 unavailable)"
 fi

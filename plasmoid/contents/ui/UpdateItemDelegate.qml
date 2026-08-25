@@ -1,9 +1,9 @@
 // One row in the popup: a package, the version it is moving between, and the pin that decides
 // whether it moves at all.
 //
-// The pin is the spec's Holds promise made clickable. Pinning runs `upkeep hold <backend>:<name>`
+// The pin is the spec's Holds promise made clickable. Pinning runs `kempt hold <backend>:<name>`
 // and re-checks, so the row moves down into the Held group on the next refresh - the same hold
-// the CLI would apply, written to the same file, visible to `upkeep holds`. There is no
+// the CLI would apply, written to the same file, visible to `kempt holds`. There is no
 // widget-local idea of a hold.
 import QtQuick
 import QtQuick.Layouts
@@ -39,7 +39,7 @@ RowLayout {
         PlasmaComponents.Label {
             Layout.fillWidth: true
             // logic.js has already reduced any comma-joined multilib or installonly set to the
-            // newest member, the same way `upkeep summary` renders it.
+            // newest member, the same way `kempt summary` renders it.
             text: row.from + " → " + row.to
             elide: Text.ElideRight
             opacity: 0.7

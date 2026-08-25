@@ -56,7 +56,7 @@ PlasmaExtras.Representation {
                 PlasmaComponents.ToolButton {
                     icon.name: "configure"
                     display: PlasmaComponents.AbstractButton.IconOnly
-                    text: i18n("Configure Upkeep...")
+                    text: i18n("Configure Kempt...")
                     PlasmaComponents.ToolTip.text: text
                     PlasmaComponents.ToolTip.visible: hovered
                     PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay

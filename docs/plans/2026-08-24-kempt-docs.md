@@ -1,10 +1,10 @@
-# Upkeep Documentation (Plan 1.5) Implementation Plan
+# Kempt Documentation (Plan 1.5) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship community-grade documentation for Upkeep v1 - the full set a serious open-source Linux project is expected to have - so an outside user can install and use the tool, and an outside contributor can add a backend, without reading the source.
+**Goal:** Ship community-grade documentation for Kempt v1 - the full set a serious open-source Linux project is expected to have - so an outside user can install and use the tool, and an outside contributor can add a backend, without reading the source.
 
-**Architecture:** Documentation is derived from three authoritative sources and must never contradict them: the code as built (repo, authoritative), the spec (`docs/specs/2026-08-24-upkeep-design.md`), and the plan's POST-REVIEW notes (`docs/plans/2026-08-24-upkeep-cli.md`). Where docs and code disagree, the code wins and the doc is wrong. Every command, config key, default, exit code, and JSON field documented here MUST be verified against the repo at writing time, not copied from memory.
+**Architecture:** Documentation is derived from three authoritative sources and must never contradict them: the code as built (repo, authoritative), the spec (`docs/specs/2026-08-24-kempt-design.md`), and the plan's POST-REVIEW notes (`docs/plans/2026-08-24-kempt-cli.md`). Where docs and code disagree, the code wins and the doc is wrong. Every command, config key, default, exit code, and JSON field documented here MUST be verified against the repo at writing time, not copied from memory.
 
 **Execution timing:** After Plan 1 Task 14 (install.sh) completes and the CLI surface is frozen. The widget (Plan 2) will add its own docs section later; leave clearly-marked stubs where widget content will land, never invented content.
 
@@ -16,7 +16,7 @@
 
 **Files:** Modify: `README.md`
 
-The landing page. Structure (in order): project name + one-line pitch ("One-click system updates from the KDE Plasma panel. Fedora first; built to grow into a universal Linux updater."); badges (license only for now); a "Why" paragraph (the panel-icon-to-clean-summary story, holds, offline updates); Features list (live badge with actionable count, holds/skip-but-notify, four run surfaces incl. Fedora-recommended offline staging, clean old-to-new summaries, update history, scoped polkit privileges with optional passwordless); Status section (v1 CLI complete, Plasma widget in progress - be honest); Quick start (install.sh + `upkeep check` + `upkeep update`); pointer table to docs/; Contributing pointer; License. Screenshot placeholder comment where the widget screenshot will go (Plan 2).
+The landing page. Structure (in order): project name + one-line pitch ("One-click system updates from the KDE Plasma panel. Fedora first; built to grow into a universal Linux updater."); badges (license only for now); a "Why" paragraph (the panel-icon-to-clean-summary story, holds, offline updates); Features list (live badge with actionable count, holds/skip-but-notify, four run surfaces incl. Fedora-recommended offline staging, clean old-to-new summaries, update history, scoped polkit privileges with optional passwordless); Status section (v1 CLI complete, Plasma widget in progress - be honest); Quick start (install.sh + `kempt check` + `kempt update`); pointer table to docs/; Contributing pointer; License. Screenshot placeholder comment where the widget screenshot will go (Plan 2).
 
 - [ ] Write, verify every command shown actually runs, em-dash sweep, commit: `docs: community-grade README`
 
@@ -24,7 +24,7 @@ The landing page. Structure (in order): project name + one-line pitch ("One-clic
 
 **Files:** Create: `docs/install.md`
 
-Requirements (Fedora 41+, dnf5, flatpak optional, jq, polkit - verify the actual minimums from code); what `install.sh` does step by step and WHAT LANDS WHERE (CLI symlink, two root helpers in /usr/local/libexec, policy in /usr/share/polkit-1/actions, the one pkexec prompt, the Discover-notifier opt-out and exactly what it changes and how to undo it); passwordless setup (`upkeep enable-passwordless`, what the rules file grants and its active+local scoping, how to disable); full uninstall; verifying the install (`upkeep check`).
+Requirements (Fedora 41+, dnf5, flatpak optional, jq, polkit - verify the actual minimums from code); what `install.sh` does step by step and WHAT LANDS WHERE (CLI symlink, two root helpers in /usr/local/libexec, policy in /usr/share/polkit-1/actions, the one pkexec prompt, the Discover-notifier opt-out and exactly what it changes and how to undo it); passwordless setup (`kempt enable-passwordless`, what the rules file grants and its active+local scoping, how to disable); full uninstall; verifying the install (`kempt check`).
 
 - [ ] Write from install.sh as built + spec Privileges section, verify paths, commit: `docs: install guide`
 
@@ -34,13 +34,13 @@ Requirements (Fedora 41+, dnf5, flatpak optional, jq, polkit - verify the actual
 
 Every subcommand with synopsis, behavior, examples, and EXIT CODES (the precise contracts: check exits 0 on backend failure/corrupt state, non-zero only on persistence failure after printing; update exit semantics; rc 2 usage errors; rc 3 missing jq). Sections: check (state JSON overview + pointer to architecture doc for schema), update (with --no-flatpak, --surface=), run (surface dispatch, auto_accept=false forces terminal), summary/history, hold/unhold/holds (the skip-but-notify semantics, backend:name format), config get/set, enable/disable-passwordless. A "Typical day" walkthrough tying it together.
 
-- [ ] Write, verify every example against `bin/upkeep` as built, commit: `docs: CLI usage reference`
+- [ ] Write, verify every example against `bin/kempt` as built, commit: `docs: CLI usage reference`
 
 ### Task D4: Configuration reference
 
 **Files:** Create: `docs/configuration.md`
 
-Config file location + format; a table of every key with type, default (from `upkeep_default` in code - verify), and effect (include_flatpak, auto_accept, surface, refresh_interval_min); accepted boolean spellings (is_true); the four run surfaces explained honestly incl. offline staging and the risky-transaction recommendation; holds file format; refresh cadence (cache-only checks vs the 3h metadata refresh, battery/metered skips); state/history/log file locations and retention.
+Config file location + format; a table of every key with type, default (from `kempt_default` in code - verify), and effect (include_flatpak, auto_accept, surface, refresh_interval_min); accepted boolean spellings (is_true); the four run surfaces explained honestly incl. offline staging and the risky-transaction recommendation; holds file format; refresh cadence (cache-only checks vs the 3h metadata refresh, battery/metered skips); state/history/log file locations and retention.
 
 - [ ] Write, cross-check every default against lib/common.sh, commit: `docs: configuration reference`
 
@@ -72,9 +72,9 @@ CODE_OF_CONDUCT: Contributor Covenant v2.1, standard text, contact placeholder.
 
 ### Task D8: CHANGELOG + man page
 
-**Files:** Create: `CHANGELOG.md`, `docs/man/upkeep.1`
+**Files:** Create: `CHANGELOG.md`, `docs/man/kempt.1`
 
-CHANGELOG: Keep a Changelog format, `[Unreleased]` seeded with a human summary of v1 (features, not commits). Man page: hand-written troff, standard sections (NAME, SYNOPSIS, DESCRIPTION, COMMANDS, CONFIGURATION pointer, FILES, EXIT STATUS, SEE ALSO); verify it renders with `man -l docs/man/upkeep.1`; add a line to install.sh staging it to the standard man path (coordinate with Task 14's installed file list; keep --destdir support).
+CHANGELOG: Keep a Changelog format, `[Unreleased]` seeded with a human summary of v1 (features, not commits). Man page: hand-written troff, standard sections (NAME, SYNOPSIS, DESCRIPTION, COMMANDS, CONFIGURATION pointer, FILES, EXIT STATUS, SEE ALSO); verify it renders with `man -l docs/man/kempt.1`; add a line to install.sh staging it to the standard man path (coordinate with Task 14's installed file list; keep --destdir support).
 
 - [ ] Write both, render-check the man page, commit: `docs: changelog + man page`
 
@@ -88,4 +88,4 @@ A dedicated reviewer verifies, against the repo: every documented command/flag/k
 
 ## Acceptance (whole plan)
 
-An outsider on a fresh Fedora box can: understand what Upkeep is from README alone, install it with docs/install.md, use every feature from docs/usage.md + the man page, and understand exactly what runs as root from docs/security.md. A contributor can add a backend using docs/architecture.md + CONTRIBUTING.md without asking questions the docs should have answered.
+An outsider on a fresh Fedora box can: understand what Kempt is from README alone, install it with docs/install.md, use every feature from docs/usage.md + the man page, and understand exactly what runs as root from docs/security.md. A contributor can add a backend using docs/architecture.md + CONTRIBUTING.md without asking questions the docs should have answered.

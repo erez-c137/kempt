@@ -1,34 +1,34 @@
 # Architecture
 
-Upkeep is two layers with a deliberately boring boundary between them.
+Kempt is two layers with a deliberately boring boundary between them.
 
 ```
   Plasma panel widget (QML)          thin: no package-manager knowledge at all
-        |  upkeep check / run / config          (Plan 2, not written yet)
+        |  kempt check / run / config          (Plan 2, not written yet)
         v
-  upkeep CLI (bash)                  all the logic
+  kempt CLI (bash)                  all the logic
    |-- lib/common.sh                 config, holds, snapshots, diff, state, locking
    |-- backends/dnf.sh               pure parsers + check/snapshot
    |-- backends/flatpak.sh           same shape
    |  (privilege boundary: one pkexec per polkit action)
    v
-  libexec/upkeep-refresh  (root)     metadata only, no dialog
-  libexec/upkeep-apply    (root)     the upgrade verbs, one auth per run
+  libexec/kempt-refresh  (root)     metadata only, no dialog
+  libexec/kempt-apply    (root)     the upgrade verbs, one auth per run
 ```
 
 The rule that shapes everything: **the badge count must come from the same command path that
 performs the update**. A front end that disagrees with the CLI is the defining complaint about
-every tool in this space, so `upkeep check` reads the root metadata cache the update itself will
+every tool in this space, so `kempt check` reads the root metadata cache the update itself will
 use, applies the same holds, and runs the same backends.
 
 ## Repo layout
 
 | Path | Role |
 | --- | --- |
-| `bin/upkeep` | Command dispatch and every `cmd_*` implementation |
+| `bin/kempt` | Command dispatch and every `cmd_*` implementation |
 | `lib/common.sh` | Shared library: paths, config, holds, snapshot diff, state assembly, locks, summary rendering |
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager |
-| `libexec/upkeep-refresh`, `libexec/upkeep-apply` | The only code that runs as root |
+| `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root |
 | `polkit/` | The two action definitions plus the passwordless rule template |
 | `install.sh` | Symlink install, staged install (`--destdir`), uninstall |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
@@ -59,13 +59,13 @@ work, and a new backend does not implement one today.
 Two things the spec lists as backend responsibilities are deliberately **not** per-backend in the
 build:
 
-- **update** is `libexec/upkeep-apply` plus the wiring in `cmd_update`, because applying updates
+- **update** is `libexec/kempt-apply` plus the wiring in `cmd_update`, because applying updates
   is the privileged half and must stay in one audited place.
 - **report** is `tsv_diff_updates` in `lib/common.sh`, shared by every backend.
 
 ### Why reports come from snapshots, not from history output
 
-`upkeep update` takes a `<backend>_snapshot` before the run and another after it, and diffs them.
+`kempt update` takes a `<backend>_snapshot` before the run and another after it, and diffs them.
 It does not parse `dnf5 history info` or flatpak's transaction output. That choice buys three
 things: the parsing surface stays one small function instead of one per tool, the result is
 locale-proof (no human-readable output is parsed at all), and a new backend gets reporting for
@@ -109,7 +109,7 @@ JSON keeps the whole set.
 
 ## State JSON schema v1
 
-`~/.local/state/upkeep/state.json` is a **public interface**. The widget parses it blind, and so
+`~/.local/state/kempt/state.json` is a **public interface**. The widget parses it blind, and so
 can anything else. It is frozen: fields may be added, nothing may change meaning or type without
 bumping `schema`.
 
@@ -161,7 +161,7 @@ bumping `schema`.
 
 Two rules for anything that reads this file:
 
-1. **Empty stdout from `upkeep check` with exit 0 means "no data, keep the last known state"**,
+1. **Empty stdout from `kempt check` with exit 0 means "no data, keep the last known state"**,
    never "zero updates". It happens when another check holds the lock and there is no valid
    previous state to serve.
 2. `status: "stale"` is not an error state to alarm the user with. The counts are still the best
@@ -175,8 +175,8 @@ do not know, and the totals keep working.
 Two root helpers, one per polkit action, because polkit's `auth_admin_keep` caches per action id
 and a cheap verb must never share an action with a dangerous one:
 
-- `upkeep-refresh` (`org.erez.upkeep.refresh`, no dialog): `check` and `refresh`, metadata only.
-- `upkeep-apply` (`org.erez.upkeep.apply`, one auth per run): `dnf-upgrade`,
+- `kempt-refresh` (`io.github.erez_c137.kempt.refresh`, no dialog): `check` and `refresh`, metadata only.
+- `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade`,
   `dnf-offline-stage`, `flatpak-update`.
 
 Both validate every argument before running anything, accept no free-form arguments at all, and
@@ -198,13 +198,13 @@ is the shorter of the two shipped backends.
 # apt backend SKETCH. Requires lib/common.sh sourced first.
 
 # Every impure command goes through a variable, so a test can replace it with `cat fixture`.
-UPKEEP_APT_PENDING_CMD="${UPKEEP_APT_PENDING_CMD:-apt list --upgradable}"
-UPKEEP_APT_INSTALLED_CMD="${UPKEEP_APT_INSTALLED_CMD:-}"
+KEMPT_APT_PENDING_CMD="${KEMPT_APT_PENDING_CMD:-apt list --upgradable}"
+KEMPT_APT_INSTALLED_CMD="${KEMPT_APT_INSTALLED_CMD:-}"
 
 apt_installed_lookup() {  # -> sorted TSV, one row per name, versions ascending
   # Both branches share the sort tail on purpose: a seam that bypasses it lets a stub feed
   # collapse_versions rows in any order, and the suite can never see what the real path produces.
-  { if [[ -n "$UPKEEP_APT_INSTALLED_CMD" ]]; then $UPKEEP_APT_INSTALLED_CMD
+  { if [[ -n "$KEMPT_APT_INSTALLED_CMD" ]]; then $KEMPT_APT_INSTALLED_CMD
     else dpkg-query -W -f '${Package}\t${Version}\n'; fi; } | sort_name_version | collapse_versions
 }
 
@@ -218,7 +218,7 @@ apt_parse_pending() {  # $1 = installed TSV -> items JSON
 
 apt_check() {    # -> items JSON; explicit non-zero on failure
   local out lookup prc=0
-  out="$($UPKEEP_APT_PENDING_CMD)" || return 1
+  out="$($KEMPT_APT_PENDING_CMD)" || return 1
   lookup="$(mktemp)"; apt_installed_lookup > "$lookup" || { rm -f "$lookup"; return 1; }
   apt_parse_pending "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
@@ -247,7 +247,7 @@ Rules that reviews will hold you to:
   `from: "?"`, never as an empty string. GNU `join -a1 -e '?' -o ...` is what does that; jq's
   `//` does not catch empty strings.
 
-### 2. Add a verb to `libexec/upkeep-apply`
+### 2. Add a verb to `libexec/kempt-apply`
 
 The apply helper runs as root, so a new verb is a security change. Follow the existing shape:
 match the verb, validate every argument against a strict pattern before building the command,
@@ -278,18 +278,18 @@ sketch above suggests, and a missed one fails quietly rather than loudly. The co
 
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
-| `bin/upkeep`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
+| `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
 | `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
 | `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
 | `cmd_update` | Before and after snapshots, the apply verb, per-backend status, held lists, and the history entry's `backends` object | The same set again, plus the new apply verb from step 2. |
 | `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
 | `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends | to_entries` that would make the renderer generic for good. |
 | `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key, or that entry is missing a backend the readers expect. |
-| `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `upkeep hold apt:foo` exits 2 while the backend works fine. |
+| `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `kempt hold apt:foo` exits 2 while the backend works fine. |
 | `cmd_doctor` | The per-tool check (flatpak's command, from its seam) and the checkout file list | A tool check, so a missing package manager is reported rather than showing up as a permanently stale backend. |
-| `upkeep_default` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true` | A default for `include_<name>`. Miss it and `config_get include_<name>` answers the **empty string**, `is_true` reads that as false, and the backend is silently OFF on every box whose config file has never named it. Nothing warns: the check simply reports the backend disabled, forever, and the enable gate above looks correctly wired. |
+| `kempt_default` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true` | A default for `include_<name>`. Miss it and `config_get include_<name>` answers the **empty string**, `is_true` reads that as false, and the backend is silently OFF on every box whose config file has never named it. Nothing warns: the check simply reports the backend disabled, forever, and the enable gate above looks correctly wired. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
-| **Optional:** `cmd_update`'s option loop and `usage` (`bin/upkeep`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `upkeep update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
+| **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `kempt update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
 
 What is already generic and needs nothing: the totals in `assemble_state`'s `wrap`,
 `run_counts_phrase`, and the held-items line in `render_summary`. All three iterate
@@ -366,25 +366,25 @@ destructive paths without ever running them.
 
 | Variable | Default | Used for |
 | --- | --- | --- |
-| `UPKEEP_CONFIG_DIR`, `UPKEEP_STATE_DIR` | `~/.config/upkeep`, `~/.local/state/upkeep` | Redirect config and state |
-| `UPKEEP_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
-| `UPKEEP_REFRESH_HELPER`, `UPKEEP_APPLY_HELPER` | `/usr/local/libexec/upkeep-{refresh,apply}` | Point at stub helpers |
-| `UPKEEP_REFRESH_HELPER_PATH`, `UPKEEP_APPLY_HELPER_PATH` | `/usr/local/libexec/upkeep-{refresh,apply}` | The paths polkit's `exec.path` pins. `upkeep doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
-| `UPKEEP_DNF_CMD`, `UPKEEP_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
-| `UPKEEP_FLATPAK_REMOTE_CMD`, `UPKEEP_FLATPAK_LIST_CMD` | `flatpak remote-ls/list --system --app ...` | Replace the flatpak commands |
-| `UPKEEP_NOTIFY`, `UPKEEP_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
-| `UPKEEP_RISKY_RE`, `UPKEEP_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
-| `UPKEEP_SKIP_REFRESH`, `UPKEEP_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
-| `UPKEEP_ASSUME_TTY`, `UPKEEP_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
-| `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
-| `UPKEEP_POLICY_FILE` | `/usr/share/polkit-1/actions/org.erez.upkeep.policy` | Where `upkeep doctor` looks for the installed polkit actions |
-| `UPKEEP_APPLY_ECHO`, `UPKEEP_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
-| `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
+| `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
+| `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
+| `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
+| `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
+| `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
+| `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls/list --system --app ...` | Replace the flatpak commands |
+| `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
+| `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
+| `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
+| `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
+| `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
+| `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions |
+| `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
+| `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
 
 The `*_ECHO` seams exist for tests only. The two that live in root-owned code,
-`UPKEEP_APPLY_ECHO` and `UPKEEP_REFRESH_ECHO`, are unreachable in a real privileged run: pkexec
+`KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO`, are unreachable in a real privileged run: pkexec
 sanitizes the environment, so a variable set by the caller never arrives inside the root helper.
-`UPKEEP_INSTALL_ECHO` runs on the user's side of the boundary, and all it can do is stop
+`KEMPT_INSTALL_ECHO` runs on the user's side of the boundary, and all it can do is stop
 `install.sh` from running its privileged commands.
 
 ## Known v1 decisions

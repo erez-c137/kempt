@@ -1,16 +1,16 @@
-# Upkeep Widget (Plan 2) Implementation Plan
+# Kempt Widget (Plan 2) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The Plasma 6 panel widget - the product's face. A panel icon whose badge is always truthful, a popup with the pending/held lists and one-click Update Now, a settings page over `upkeep config`, and the offline recommendation surfaced where the user can act on it.
+**Goal:** The Plasma 6 panel widget - the product's face. A panel icon whose badge is always truthful, a popup with the pending/held lists and one-click Update Now, a settings page over `kempt config`, and the offline recommendation surfaced where the user can act on it.
 
-**Architecture:** The widget is THIN. It shells out to the `upkeep` CLI for everything (the frozen contracts: state schema v1 from `upkeep check` stdout, `upkeep run`, `upkeep config get/set`, `upkeep hold/unhold/holds`, `upkeep summary`) and contains zero package-manager knowledge. All command execution goes through ONE component (`Executor.qml`) wrapping the deprecated-but-current `Plasma5Support.DataSource` executable engine - async, serialized, hard per-call timeouts, so plasmashell can never freeze on us (the Apdatifier lesson). All parsing/derivation lives in `contents/ui/logic.js`, written in ENGINE-AGNOSTIC JavaScript (no Qt APIs) so it is unit-testable with node, which exists on this box - the QML layer binds to logic.js outputs and stays declarative.
+**Architecture:** The widget is THIN. It shells out to the `kempt` CLI for everything (the frozen contracts: state schema v1 from `kempt check` stdout, `kempt run`, `kempt config get/set`, `kempt hold/unhold/holds`, `kempt summary`) and contains zero package-manager knowledge. All command execution goes through ONE component (`Executor.qml`) wrapping the deprecated-but-current `Plasma5Support.DataSource` executable engine - async, serialized, hard per-call timeouts, so plasmashell can never freeze on us (the Apdatifier lesson). All parsing/derivation lives in `contents/ui/logic.js`, written in ENGINE-AGNOSTIC JavaScript (no Qt APIs) so it is unit-testable with node, which exists on this box - the QML layer binds to logic.js outputs and stays declarative.
 
 **Code-completeness contract:** contracts and tricky mechanics below are code-complete (metadata, logic.js API + core functions, Executor.qml, install arm, tests). UI layout sections are DIRECTIVE specs - exact behavior and element inventory, layout details left to the implementer within Plasma/Kirigami idiom. The review gates hold the line either way; "looks right" is verified in the founder's morning visual gate, not overnight.
 
-**Hard overnight constraints (repeat in every dispatch):** user-level only - NEVER pkexec/sudo/dnf; never modify the panel or plasmashell config; `kpackagetool6` install/upgrade of the package IS allowed (user-scoped, does not place the widget on any panel) but only in Task W5; plasmoidviewer is NOT installed (needs plasma-sdk = root) - do not install it; probe for `qml`/`qmllint` and use them if present, otherwise structural verification is `qmljs`-free: node tests + careful review. Real HOME artifacts limited to `~/.local/share/plasma/plasmoids/org.erez.upkeep` (W5 only, removable with `kpackagetool6 -t Plasma/Applet -r org.erez.upkeep`).
+**Hard overnight constraints (repeat in every dispatch):** user-level only - NEVER pkexec/sudo/dnf; never modify the panel or plasmashell config; `kpackagetool6` install/upgrade of the package IS allowed (user-scoped, does not place the widget on any panel) but only in Task W5; plasmoidviewer is NOT installed (needs plasma-sdk = root) - do not install it; probe for `qml`/`qmllint` and use them if present, otherwise structural verification is `qmljs`-free: node tests + careful review. Real HOME artifacts limited to `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` (W5 only, removable with `kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt`).
 
-**Spec:** `docs/specs/2026-08-24-upkeep-design.md` §Layer 2. Two spec deltas this plan introduces (sync the spec in W5): (1) event-driven refresh is implemented as a 30s mtime POLL of `/var/lib/rpm` + `/var/lib/flatpak` + the state file (KDirWatch is not reachable from pure QML; a 30s stat costs nothing and meets "within seconds" for human purposes); (2) passwordless STATUS cannot be displayed - `/etc/polkit-1/rules.d` is 0750 root:polkitd, unreadable as the user (WP5 lesson) - so the settings page offers Enable/Disable actions with explanatory text and never claims current state.
+**Spec:** `docs/specs/2026-08-24-kempt-design.md` §Layer 2. Two spec deltas this plan introduces (sync the spec in W5): (1) event-driven refresh is implemented as a 30s mtime POLL of `/var/lib/rpm` + `/var/lib/flatpak` + the state file (KDirWatch is not reachable from pure QML; a 30s stat costs nothing and meets "within seconds" for human purposes); (2) passwordless STATUS cannot be displayed - `/etc/polkit-1/rules.d` is 0750 root:polkitd, unreadable as the user (WP5 lesson) - so the settings page offers Enable/Disable actions with explanatory text and never claims current state.
 
 ---
 
@@ -29,11 +29,11 @@ plasmoid/
     │   └── logic.js                  # pure JS: parse + derive (node-testable)
     └── config/
         ├── config.qml                # one category: General
-        └── main.xml                  # KConfig skeleton (no real keys - config lives in `upkeep config`)
+        └── main.xml                  # KConfig skeleton (no real keys - config lives in `kempt config`)
     # configuration page:
     └── ui/configGeneral.qml
 tests/test_widget_logic.sh            # node-driven tests for logic.js
-tests/fixtures/state-*.json           # captured `upkeep check` outputs (real + crafted)
+tests/fixtures/state-*.json           # captured `kempt check` outputs (real + crafted)
 ```
 
 ---
@@ -46,15 +46,15 @@ tests/fixtures/state-*.json           # captured `upkeep check` outputs (real + 
 ```json
 {
     "KPlugin": {
-        "Id": "org.erez.upkeep",
-        "Name": "Upkeep",
+        "Id": "io.github.erez_c137.kempt",
+        "Name": "Kempt",
         "Description": "One-click system updates with a truthful badge",
         "Icon": "system-software-update",
         "Category": "System Information",
         "Authors": [{ "Name": "Erez Avital" }],
         "License": "MIT",
         "Version": "0.1.0",
-        "Website": "https://github.com/erez-c137/upkeep"
+        "Website": "https://github.com/erez-c137/kempt"
     },
     "X-Plasma-API-Minimum-Version": "6.0",
     "KPackageStructure": "Plasma/Applet"
@@ -67,7 +67,7 @@ tests/fixtures/state-*.json           # captured `upkeep check` outputs (real + 
 // and by node (tests) via the guard at the bottom.
 
 function parseState(text) {
-    // stdin contract from `upkeep check` (state schema v1):
+    // stdin contract from `kempt check` (state schema v1):
     // empty/whitespace text => null ("no data - keep last known", NEVER zero updates)
     // invalid JSON => null; valid => the object
 }
@@ -95,11 +95,11 @@ function familiesOf(names, max) { /* shared by riskySummary */ }
 
 if (typeof module !== "undefined") { module.exports = { parseState, viewModel, newestOf, familiesOf }; }
 ```
-Fixtures: capture a REAL `upkeep check` output into `tests/fixtures/state-live.json` (stub-sandboxed, like the CLI tests do) plus crafted variants: stale-with-last_success, held-only, flatpak-disabled, risky-heavy (20 names), empty-string, garbage, schema-v0 (missing risky_pending - must not throw). Every rule above = at least one assertion. Suite hookup: the test file must run under `tests/run_tests.sh` and SKIP LOUDLY (ok-line, not failure) if node is absent.
+Fixtures: capture a REAL `kempt check` output into `tests/fixtures/state-live.json` (stub-sandboxed, like the CLI tests do) plus crafted variants: stale-with-last_success, held-only, flatpak-disabled, risky-heavy (20 names), empty-string, garbage, schema-v0 (missing risky_pending - must not throw). Every rule above = at least one assertion. Suite hookup: the test file must run under `tests/run_tests.sh` and SKIP LOUDLY (ok-line, not failure) if node is absent.
 
 - [ ] **Step 3: minimal QML stubs** - main.qml as `PlasmoidItem` with compact/full representations wired but showing placeholder text; config.qml/main.xml minimal valid. Goal: the package is structurally installable; W2/W3 fill it.
 
-- [ ] **Step 4: install.sh widget arm** - real mode: after the CLI symlinks, `kpackagetool6 -t Plasma/Applet -i "$ROOT/plasmoid" 2>/dev/null || kpackagetool6 -t Plasma/Applet -u "$ROOT/plasmoid"` (install-or-upgrade, user-level, no auth) with a clear echo; skip with a warning if kpackagetool6 absent. `--destdir`: copy the tree to `$DESTDIR$HOME/.local/share/plasma/plasmoids/org.erez.upkeep`. `--uninstall`: `kpackagetool6 -t Plasma/Applet -r org.erez.upkeep || true` (+ staged variant removes the copied tree). REAL MODE STILL NOT RUN in tests - destdir + echo seams only; extend test_install.sh (staged tree contains metadata.json + main.qml; uninstall removes it; echo mode shows the kpackagetool command).
+- [ ] **Step 4: install.sh widget arm** - real mode: after the CLI symlinks, `kpackagetool6 -t Plasma/Applet -i "$ROOT/plasmoid" 2>/dev/null || kpackagetool6 -t Plasma/Applet -u "$ROOT/plasmoid"` (install-or-upgrade, user-level, no auth) with a clear echo; skip with a warning if kpackagetool6 absent. `--destdir`: copy the tree to `$DESTDIR$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt`. `--uninstall`: `kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt || true` (+ staged variant removes the copied tree). REAL MODE STILL NOT RUN in tests - destdir + echo seams only; extend test_install.sh (staged tree contains metadata.json + main.qml; uninstall removes it; echo mode shows the kpackagetool command).
 - [ ] **Step 5:** suite ALL PASS; commit `feat(widget): package skeleton, logic layer + node tests, install arm`
 
 ### Task W2: Executor + live state + panel icon
@@ -117,10 +117,10 @@ Item {
     id: root
     property int defaultTimeoutMs: 30000
 
-    // run("upkeep check", 120000, function(stdout, stderr, rc) {...})
+    // run("kempt check", 120000, function(stdout, stderr, rc) {...})
     function run(cmd, timeoutMs, callback) {
         queue.push({ cmd: cmd, timeoutMs: timeoutMs || defaultTimeoutMs, callback: callback,
-                     tag: "#upkeep" + (++serial) });
+                     tag: "#kempt" + (++serial) });
         pump();
     }
 
@@ -169,9 +169,9 @@ Item {
 ```
 
 - [ ] **Step 2: main.qml state machine.** Properties: `state` (parsed object or null), `updating`, `vm` (re-derived via `Logic.viewModel` on every change). Flows:
-  - `doCheck()`: executor.run("upkeep check", 120000, ...) → `Logic.parseState`; null stdout with rc 0 = KEEP previous state (the spec's empty-stdout caller rule); rc != 0 with valid stdout = still use the stdout (answer-first contract).
-  - Check timer: interval from `upkeep config get refresh_interval_min` (read once at load and after every settings apply) * 60000; fires doCheck.
-  - Watcher timer, 30s: `stat -c %Y /var/lib/rpm /var/lib/flatpak ~/.local/state/upkeep/state.json 2>/dev/null | tr '\n' ' '` → if the concatenated string changed since last poll, doCheck() (this is the stale-badge killer; a change from ANY source refreshes within 30s).
+  - `doCheck()`: executor.run("kempt check", 120000, ...) → `Logic.parseState`; null stdout with rc 0 = KEEP previous state (the spec's empty-stdout caller rule); rc != 0 with valid stdout = still use the stdout (answer-first contract).
+  - Check timer: interval from `kempt config get refresh_interval_min` (read once at load and after every settings apply) * 60000; fires doCheck.
+  - Watcher timer, 30s: `stat -c %Y /var/lib/rpm /var/lib/flatpak ~/.local/state/kempt/state.json 2>/dev/null | tr '\n' ' '` → if the concatenated string changed since last poll, doCheck() (this is the stale-badge killer; a change from ANY source refreshes within 30s).
   - On load: doCheck.
 - [ ] **Step 3: CompactRepresentation** - Kirigami.Icon bound to vm.iconState mapping: uptodate `update-none`, updates `update-low`, STALE keeps a calm presentation (same icon as its last-known contents, badge preserved, tooltip carries the stale reason + last_success - a transient repo flap must never panic the panel; this is the adjudicated resolution of the plan-vs-architecture.md conflict, architecture.md wins), true error/unknown-CLI `update-high` + emblem-warning, updating shows a small BusyIndicator overlay, unknown `update-none` dimmed. Badge: small rounded Rectangle bottom-right, text vm.badgeText, visible vm.badgeVisible, highlight color, hidden when panel too small per Plasma idiom. Tooltip: mainText/subText from vm. Click toggles the popup (default PlasmoidItem behavior).
 - [ ] **Step 4:** if `qml`/`qmllint` exist (probe), lint every .qml; else document the gap for the morning gate. Node suite green. Commit `feat(widget): executor, live state, panel icon with truthful badge`
@@ -181,9 +181,9 @@ Item {
 **Files:** rewrite `FullRepresentation.qml`, create `UpdateItemDelegate.qml`.
 
 Directive spec (behavior binding, layout free within Plasma idiom):
-- [ ] Header: "N updates available" (or "Up to date" / "Checking..." / stale banner with vm.staleReason + lastSuccessText). Row of buttons: **Update Now** (runs `upkeep run`; rc 4 → inline error label with the CLI's remedy text; rc 3 → "an update is already running"), **Refresh** (doCheck with spinner), and when vm.riskySummary is non-empty an inline warning chip: the summary text + a **Stage offline instead** button → executor.run("setsid upkeep update --surface=offline >/dev/null 2>&1 &", 10000) then enter updating state. Gear icon → `Plasmoid.internalAction("configure").trigger()`.
-- [ ] Sections list (ListView, scrollable, popup height capped per Plasma idiom): System (dnf) / Apps (flatpak) from vm.sections; each row = UpdateItemDelegate: name, `from → to` (already newest-rendered by logic.js), and a PIN TOGGLE (ToolButton, icon `pin`) → `upkeep hold <backend>:<name>` / `unhold` then doCheck (row moves between sections on refresh; this is the spec's Holds UI promise). Held section below, visually muted, rows show the waiting version + unpin toggle.
-- [ ] Updating state: entered on Update Now / stage-offline / detecting `status==updating`-like conditions is NOT in schema - so: enter on our own action OR when the watcher sees state.json change while a run lock exists is overkill - keep it action-scoped. While updating: buttons disabled, BusyIndicator, and if `upkeep config get surface` == popup, a monospace log tail pane: executor.run("tail -n 25 " newest log, every 2s) (newest log = `ls -1t ~/.local/state/upkeep/logs/*.log | head -1` via executor once). Exit updating when state.json mtime changes (the CLI self-refreshes at run end) → doCheck → show a transient "last run" line: first line of `upkeep summary`.
+- [ ] Header: "N updates available" (or "Up to date" / "Checking..." / stale banner with vm.staleReason + lastSuccessText). Row of buttons: **Update Now** (runs `kempt run`; rc 4 → inline error label with the CLI's remedy text; rc 3 → "an update is already running"), **Refresh** (doCheck with spinner), and when vm.riskySummary is non-empty an inline warning chip: the summary text + a **Stage offline instead** button → executor.run("setsid kempt update --surface=offline >/dev/null 2>&1 &", 10000) then enter updating state. Gear icon → `Plasmoid.internalAction("configure").trigger()`.
+- [ ] Sections list (ListView, scrollable, popup height capped per Plasma idiom): System (dnf) / Apps (flatpak) from vm.sections; each row = UpdateItemDelegate: name, `from → to` (already newest-rendered by logic.js), and a PIN TOGGLE (ToolButton, icon `pin`) → `kempt hold <backend>:<name>` / `unhold` then doCheck (row moves between sections on refresh; this is the spec's Holds UI promise). Held section below, visually muted, rows show the waiting version + unpin toggle.
+- [ ] Updating state: entered on Update Now / stage-offline / detecting `status==updating`-like conditions is NOT in schema - so: enter on our own action OR when the watcher sees state.json change while a run lock exists is overkill - keep it action-scoped. While updating: buttons disabled, BusyIndicator, and if `kempt config get surface` == popup, a monospace log tail pane: executor.run("tail -n 25 " newest log, every 2s) (newest log = `ls -1t ~/.local/state/kempt/logs/*.log | head -1` via executor once). Exit updating when state.json mtime changes (the CLI self-refreshes at run end) → doCheck → show a transient "last run" line: first line of `kempt summary`.
 - [ ] Empty/edge states each get a friendly line (no data yet; all held; flatpak disabled shows no Apps section).
 - [ ] Node tests for any new logic.js helpers (e.g. newest-log parsing stays in QML? no - put pure string logic in logic.js and test it). Commit `feat(widget): popup with pending/held lists, update flow, offline recommendation`
 
@@ -192,18 +192,18 @@ Directive spec (behavior binding, layout free within Plasma idiom):
 **Files:** create `configGeneral.qml`; wire `config.qml`.
 
 Directive spec:
-- [ ] On open: parallel executor reads of `upkeep config get include_flatpak / auto_accept / surface / refresh_interval_min` + `upkeep holds`. Controls: two checkboxes, surface radio (Terminal/In-popup/Background/Offline), refresh-interval SpinBox (minutes, min 15), holds list with per-row remove (runs `unhold`, refreshes list). Auto-accept OFF disables the non-Terminal radios AND shows the reason inline (spec promise); if a disabled one was selected, snap to Terminal.
-- [ ] Apply: write ONLY changed keys via `upkeep config set`; then main.qml re-reads the check interval. (KConfig keys in main.xml stay empty - `upkeep config` is the single source of truth; the page sets `cfg_`-less manual apply per Plasma config-page idiom with `saveConfig`-triggering handled via the standard configurationRequired pattern - implementer picks the clean Plasma 6 way, reviewers verify no plasmoid-local shadow settings exist.)
+- [ ] On open: parallel executor reads of `kempt config get include_flatpak / auto_accept / surface / refresh_interval_min` + `kempt holds`. Controls: two checkboxes, surface radio (Terminal/In-popup/Background/Offline), refresh-interval SpinBox (minutes, min 15), holds list with per-row remove (runs `unhold`, refreshes list). Auto-accept OFF disables the non-Terminal radios AND shows the reason inline (spec promise); if a disabled one was selected, snap to Terminal.
+- [ ] Apply: write ONLY changed keys via `kempt config set`; then main.qml re-reads the check interval. (KConfig keys in main.xml stay empty - `kempt config` is the single source of truth; the page sets `cfg_`-less manual apply per Plasma config-page idiom with `saveConfig`-triggering handled via the standard configurationRequired pattern - implementer picks the clean Plasma 6 way, reviewers verify no plasmoid-local shadow settings exist.)
 - [ ] Passwordless: explanatory paragraph (what it grants, active+local scoping) + two buttons Enable... / Disable... running the CLI commands (auth dialog appears - user-initiated, correct); status is NOT displayed (unreadable as user - say so in a subtle hint). Buttons show the command's stdout/stderr tail as a result line.
-- [ ] Commit `feat(widget): settings page over upkeep config`
+- [ ] Commit `feat(widget): settings page over kempt config`
 
 ### Task W5: Integration, local install, morning gate
 
 - [ ] Probe + record: `qml`/`qmllint` availability and results over all .qml (fix findings).
-- [ ] Real user-level install: `kpackagetool6 -t Plasma/Applet -i plasmoid` (or -u). Verify with `kpackagetool6 -t Plasma/Applet -l | grep org.erez.upkeep`. This does NOT touch the panel.
+- [ ] Real user-level install: `kpackagetool6 -t Plasma/Applet -i plasmoid` (or -u). Verify with `kpackagetool6 -t Plasma/Applet -l | grep io.github.erez_c137.kempt`. This does NOT touch the panel.
 - [ ] Spec sync (§Layer 2): mtime-poll mechanism note; passwordless-status-unreadable note; anything W1-W4 changed.
 - [ ] Docs: usage.md widget stub → real section (add to panel, what each state means, settings); README screenshot placeholder stays until the founder captures one; CHANGELOG Unreleased gains the widget.
-- [ ] Append MORNING VISUAL GATE items to Plan 1's live checklist section (founder-gated): W-1 right-click panel → Add Widgets → search Upkeep → add. W-2 badge shows the real actionable count; hover tooltip truthful. W-3 popup lists match `upkeep check` JSON; pin toggle moves a row to Held and back. W-4 Update Now end-to-end from the widget (real auth dialog). W-5 settings round-trip (flip include_flatpak off/on; verify via `upkeep config get`). W-6 Spectacle screenshot → docs/ + README swap. W-7 (if staged from item 9) reboot → badge reflects harvest.
+- [ ] Append MORNING VISUAL GATE items to Plan 1's live checklist section (founder-gated): W-1 right-click panel → Add Widgets → search Kempt → add. W-2 badge shows the real actionable count; hover tooltip truthful. W-3 popup lists match `kempt check` JSON; pin toggle moves a row to Held and back. W-4 Update Now end-to-end from the widget (real auth dialog). W-5 settings round-trip (flip include_flatpak off/on; verify via `kempt config get`). W-6 Spectacle screenshot → docs/ + README swap. W-7 (if staged from item 9) reboot → badge reflects harvest.
 - [ ] Suite ALL PASS; commit `feat(widget): local install, docs, morning visual gate`
 
 ---

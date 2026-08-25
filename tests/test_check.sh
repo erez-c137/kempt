@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
-UPKEEP="$REPO_ROOT/bin/upkeep"
+KEMPT="$REPO_ROOT/bin/kempt"
 
 # stubs: dnf helper serves fixture; flatpak served via cmd overrides
 cat > "$TESTTMP/refresh-stub" <<STUB
@@ -12,42 +12,42 @@ case "\$1" in
 esac
 STUB
 chmod +x "$TESTTMP/refresh-stub"
-export UPKEEP_REFRESH_HELPER="$TESTTMP/refresh-stub"
-export UPKEEP_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
-export UPKEEP_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
-export UPKEEP_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
-export UPKEEP_SKIP_REFRESH=1   # deterministic: no metadata refresh attempts in tests
+export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+export KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+export KEMPT_SKIP_REFRESH=1   # deterministic: no metadata refresh attempts in tests
 
 # Fixture contracts (tests/fixtures/MANIFEST.md): dnf parses to 7 items, flatpak to 3.
 n_dnf=7
 n_fp=3
 
-# config defaults come from the upkeep_default table, so an unset key answers with the real
+# config defaults come from the kempt_default table, so an unset key answers with the real
 # default instead of an empty string (fresh sandbox: no config file has been written yet)
-assert_eq "$("$UPKEEP" config get surface)" "terminal" "unset key falls back to the defaults table"
-assert_eq "$("$UPKEEP" config get include_flatpak)" "true" "defaults table covers include_flatpak"
+assert_eq "$("$KEMPT" config get surface)" "terminal" "unset key falls back to the defaults table"
+assert_eq "$("$KEMPT" config get include_flatpak)" "true" "defaults table covers include_flatpak"
 
-state="$("$UPKEEP" check)"
+state="$("$KEMPT" check)"
 assert_eq "$(jq -r .status <<<"$state")" "ok" "status ok"
 assert_eq "$(jq -r .schema <<<"$state")" "1" "state schema v1"
 assert_eq "$(jq '.backends.dnf.items | length' <<<"$state")" "$n_dnf" "dnf items in state"
 assert_eq "$(jq '.backends.flatpak.items | length' <<<"$state")" "$n_fp" "flatpak items in state"
 assert_eq "$(jq .actionable <<<"$state")" "$((n_dnf + n_fp))" "actionable = all when no holds"
 assert_eq "$(jq -r '.last_success == .last_check' <<<"$state")" "true" "a successful check stamps last_success"
-assert_eq "$(jq -Sc . "$UPKEEP_STATE_DIR/state.json")" "$(jq -Sc . <<<"$state")" "state persisted atomically"
+assert_eq "$(jq -Sc . "$KEMPT_STATE_DIR/state.json")" "$(jq -Sc . <<<"$state")" "state persisted atomically"
 
 # holds: hold the first pending dnf package → actionable drops by 1, held_total=1
 first="$(jq -r '.backends.dnf.items[0].name' <<<"$state")"
-"$UPKEEP" hold "dnf:$first"
-state2="$("$UPKEEP" check)"
+"$KEMPT" hold "dnf:$first"
+state2="$("$KEMPT" check)"
 assert_eq "$(jq .held_total <<<"$state2")" "1" "held_total counts the hold"
 assert_eq "$(jq .actionable <<<"$state2")" "$((n_dnf + n_fp - 1))" "badge count excludes held"
 assert_eq "$(jq .backends.dnf.actionable <<<"$state2")" "$((n_dnf - 1))" "per-backend actionable excludes held"
 assert_eq "$(jq .backends.dnf.held <<<"$state2")" "1" "per-backend held count"
 
 # include_flatpak=false → flatpak absent, and SAID to be disabled rather than merely empty
-"$UPKEEP" config set include_flatpak false
-state3="$("$UPKEEP" check)"
+"$KEMPT" config set include_flatpak false
+state3="$("$KEMPT" check)"
 assert_eq "$(jq '.backends.flatpak.items | length' <<<"$state3")" "0" "flatpak disabled"
 assert_eq "$(jq -r .backends.flatpak.enabled <<<"$state3")" "false" "disabled flatpak is flagged, not just empty"
 assert_eq "$(jq -r .backends.dnf.enabled <<<"$state3")" "true" "dnf stays enabled"
@@ -57,7 +57,7 @@ cat > "$TESTTMP/refresh-stub" <<'STUB'
 #!/usr/bin/env bash
 exit 1
 STUB
-state4="$("$UPKEEP" check)"
+state4="$("$KEMPT" check)"
 assert_eq "$(jq -r .status <<<"$state4")" "stale" "check failure → stale"
 assert_eq "$(jq '.backends.dnf.items | length' <<<"$state4")" "$(jq '.backends.dnf.items | length' <<<"$state2")" "stale keeps previous dnf items"
 assert_eq "$(jq -r .last_success <<<"$state4")" "$(jq -r .last_success <<<"$state3")" "stale preserves the previous last_success"
@@ -65,7 +65,7 @@ assert_eq "$(jq -r '.last_success != null' <<<"$state4")" "true" "preserved last
 assert_eq "$(jq -r '.error | startswith("dnf check failed")' <<<"$state4")" "true" "stale error names the failing backend"
 
 # unhold rejects unknown backends exactly like hold does (a typo must never silently no-op)
-assert_exit 2 "unhold validates backend" "$UPKEEP" unhold apt:foo
+assert_exit 2 "unhold validates backend" "$KEMPT" unhold apt:foo
 
 # Corrupt state recovery. state.json is the fallback a failing check leans on, so a damaged one
 # used to take the whole check down with it: a truncated file fed "" to --argjson (rc 2), a
@@ -75,8 +75,8 @@ assert_exit 2 "unhold validates backend" "$UPKEEP" unhold apt:foo
 # concatenates them into one newline-joined string that reaches the widget as "Invalid Date".
 for corrupt in '' 'garbage' '{"backends":{"dnf":{"items":"nope"}}}' '{"last_success":"2020-01-01T00:00:00+00:00"}{"last_success":"2021-01-01T00:00:00+00:00"}'; do
   shape="${corrupt:-<empty file>}"
-  printf '%s' "$corrupt" > "$UPKEEP_STATE_DIR/state.json"
-  rc=0; out="$("$UPKEEP" check 2>/dev/null)" || rc=$?
+  printf '%s' "$corrupt" > "$KEMPT_STATE_DIR/state.json"
+  rc=0; out="$("$KEMPT" check 2>/dev/null)" || rc=$?
   assert_eq "$rc" "0" "corrupt state ($shape) → check still exits 0"
   assert_eq "$(jq -r .status <<<"$out")" "stale" "corrupt state ($shape) → stale"
   assert_eq "$(jq -c '.backends.dnf.items' <<<"$out")" "[]" "corrupt state ($shape) → no fabricated items"
@@ -97,15 +97,15 @@ STUB
 chmod +x "$TESTTMP/refresh-stub"
 rm -f "$TESTTMP"/conc-rc.*
 for i in 1 2 3 4 5 6 7 8 9 10; do
-  ( rc=0; "$UPKEEP" check >/dev/null 2>&1 || rc=$?; printf '%s\n' "$rc" > "$TESTTMP/conc-rc.$i" ) &
+  ( rc=0; "$KEMPT" check >/dev/null 2>&1 || rc=$?; printf '%s\n' "$rc" > "$TESTTMP/conc-rc.$i" ) &
 done
 wait
 # comma-joins the DISTINCT exit codes seen, so a failure names the rc instead of just a count
 assert_eq "$(sort -u "$TESTTMP"/conc-rc.* | paste -sd, -)" "0" "concurrent checks never collide"
-assert_exit 0 "state intact after concurrent writes" -- jq -e .actionable "$UPKEEP_STATE_DIR/state.json"
+assert_exit 0 "state intact after concurrent writes" -- jq -e .actionable "$KEMPT_STATE_DIR/state.json"
 # guards the vacuous pass: 10 runs that all serve a cached stale state would satisfy the rc
 # assertion above while proving nothing about the write path
-assert_eq "$(jq -r .status "$UPKEEP_STATE_DIR/state.json")" "ok" "concurrent block ends in real ok state"
+assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "ok" "concurrent block ends in real ok state"
 
 # Serialization, not just collision-freedom: without the check lock the last FINISHER wins, so a
 # slow check that started earlier lands ON TOP of a newer, faster one and the widget shows a
@@ -124,33 +124,33 @@ case "$1" in
 esac
 STUB
 chmod +x "$TESTTMP/slow-stub" "$TESTTMP/fast-stub"
-UPKEEP_REFRESH_HELPER="$TESTTMP/slow-stub" "$UPKEEP" check >/dev/null 2>&1 &
+KEMPT_REFRESH_HELPER="$TESTTMP/slow-stub" "$KEMPT" check >/dev/null 2>&1 &
 slow_pid=$!
 sleep 0.5
-UPKEEP_REFRESH_HELPER="$TESTTMP/fast-stub" "$UPKEEP" check >/dev/null 2>&1
+KEMPT_REFRESH_HELPER="$TESTTMP/fast-stub" "$KEMPT" check >/dev/null 2>&1
 wait "$slow_pid" || true
-assert_eq "$(jq .backends.dnf.actionable "$UPKEEP_STATE_DIR/state.json")" "0" "a slow in-flight check cannot overwrite a newer result"
+assert_eq "$(jq .backends.dnf.actionable "$KEMPT_STATE_DIR/state.json")" "0" "a slow in-flight check cannot overwrite a newer result"
 
 # --- metadata refresh gating: the only place maybe_refresh_metadata actually runs ---
 # on_battery/metered_connection read real hardware and have no seam, so skip rather than fail
 # on a laptop that happens to be unplugged or on a metered link.
-unset UPKEEP_SKIP_REFRESH
+unset KEMPT_SKIP_REFRESH
 if on_battery || metered_connection; then
   echo "ok: refresh gating skipped (box is on battery or on a metered link)"
 else
   rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
-  "$UPKEEP" check >/dev/null
+  "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "1" "cold check refreshes metadata once"
   assert_exit 0 "cold refresh stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
-  "$UPKEEP" check >/dev/null
+  "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "1" "a second check inside the 3h window does not refresh"
   touch -d '4 hours ago' "$LAST_REFRESH_FILE"
-  "$UPKEEP" check >/dev/null
+  "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "2" "refresh resumes once the 3h window lapses"
 fi
 
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
-export UPKEEP_SKIP_REFRESH=1   # back to deterministic after the gating section above
+export KEMPT_SKIP_REFRESH=1   # back to deterministic after the gating section above
 
 # risky_names is pure: prefix match on session-critical families, and a HELD package is never
 # recommended (the user already said no to it).
@@ -171,7 +171,7 @@ assert_eq "$(risky_names <<<"$_tails" | paste -sd, -)" "kwin-x11,systemd-udev" \
   "devel/headers/doc/macros tails are excluded, the session's own packages are not"
 
 # the everyday fixture has nothing session-critical: the key must be present and EMPTY, never absent
-state5="$("$UPKEEP" check)"
+state5="$("$KEMPT" check)"
 assert_eq "$(jq -c .risky_pending <<<"$state5")" "[]" "risky_pending is published even when empty"
 assert_eq "$(jq -r .schema <<<"$state5")" "1" "additive key does not bump the frozen schema"
 
@@ -183,15 +183,15 @@ cat > "$TESTTMP/risky-stub" <<STUB
 exit 0
 STUB
 chmod +x "$TESTTMP/risky-stub"
-state6="$(UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub" "$UPKEEP" check)"
+state6="$(KEMPT_REFRESH_HELPER="$TESTTMP/risky-stub" "$KEMPT" check)"
 assert_eq "$(jq -r '.risky_pending[0]' <<<"$state6")" "kernel-core" "pending session-critical package is flagged"
-"$UPKEEP" hold dnf:kernel-core
-state7="$(UPKEEP_REFRESH_HELPER="$TESTTMP/risky-stub" "$UPKEEP" check)"
+"$KEMPT" hold dnf:kernel-core
+state7="$(KEMPT_REFRESH_HELPER="$TESTTMP/risky-stub" "$KEMPT" check)"
 assert_eq "$(jq -c .risky_pending <<<"$state7")" "[]" "holding it stops the recommendation"
-"$UPKEEP" unhold dnf:kernel-core
+"$KEMPT" unhold dnf:kernel-core
 
 # the pattern is a config key, not a hardcode: a box with its own session-critical package can say so
-"$UPKEEP" config set risky_regex '^bash'
-state8="$("$UPKEEP" check)"
+"$KEMPT" config set risky_regex '^bash'
+state8="$("$KEMPT" check)"
 assert_eq "$(jq -r '.risky_pending[0]' <<<"$state8")" "bash" "risky_regex is configurable"
 finish

@@ -1,4 +1,4 @@
-# Upkeep
+# Kempt
 
 One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widget over the same engine. Built to grow into a universal Linux updater.
 
@@ -13,27 +13,27 @@ Flatpak apps are a separate command, and then reading a wall of transaction outp
 what actually changed. Discover's notifier nags about it, disagrees with what the CLI reports,
 and holds the dnf5 lock in the background while it does.
 
-Upkeep replaces that with one command. It knows what is pending because it asks the same root
+Kempt replaces that with one command. It knows what is pending because it asks the same root
 metadata cache the update itself will use, so the pending count and the update never disagree.
-`upkeep update` ends with a short summary: every package `old -> new`, apps updated, how long it
+`kempt update` ends with a short summary: every package `old -> new`, apps updated, how long it
 took, whether you need to reboot. Packages you never want touched can be **held** - still
 counted, still shown, never updated. And when the pending transaction touches session-critical
-packages (kernel, systemd, mesa, Qt/KDE), Upkeep recommends Fedora's own answer: stage the
+packages (kernel, systemd, mesa, Qt/KDE), Kempt recommends Fedora's own answer: stage the
 transaction and let it apply during the next reboot, instead of rewriting a running desktop
 underneath itself.
 
 The panel widget is the same thing with an icon in front of it. It carries no package-manager
-logic at all: the badge is the number `upkeep check` just wrote, and its Update Now button is
-`upkeep run`. That is why the count on the panel and the count in the terminal cannot drift
+logic at all: the badge is the number `kempt check` just wrote, and its Update Now button is
+`kempt run`. That is why the count on the panel and the count in the terminal cannot drift
 apart - there is only one engine, and the widget is a client of it. See **Status** for where that
 half stands today.
 
 ## Features
 
-- **Live pending count.** `upkeep check` writes a small JSON state file with everything pending,
+- **Live pending count.** `kempt check` writes a small JSON state file with everything pending,
   per backend, with the versions you have and the versions you would get.
-- **Holds: skip but still notify.** `upkeep hold dnf:kernel-core` keeps a package off every
-  Upkeep run and still reports that an update is waiting. The badge counts only actionable
+- **Holds: skip but still notify.** `kempt hold dnf:kernel-core` keeps a package off every
+  Kempt run and still reports that an update is waiting. The badge counts only actionable
   (non-held) items, and every run prints `Held (skipped): ...` so a hold is never forgotten.
 - **Four run surfaces.** Terminal (live output), in-popup (detached, tails the log), background
   (silent, notifies on completion), and offline staging - the path Fedora recommends, where the
@@ -51,25 +51,25 @@ half stands today.
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
   by the test suite in `tests/`. This is the whole engine, and it is the half that is finished.
-- **Plasma widget: landing next.** A thin QML client over `upkeep check`, `upkeep run` and
-  `upkeep config`, with no package management of its own. Everything documented here works from
+- **Plasma widget: landing next.** A thin QML client over `kempt check`, `kempt run` and
+  `kempt config`, with no package management of its own. Everything documented here works from
   a terminal whether or not the widget is on your panel yet.
 - Not yet packaged. Installation is a symlink from a git checkout (see below).
 
 ## Quick start
 
 ```bash
-git clone https://github.com/erez-c137/upkeep.git
-cd upkeep
+git clone https://github.com/erez-c137/kempt.git
+cd kempt
 ./install.sh          # one pkexec prompt: installs two root helpers + the polkit action
-upkeep doctor         # verify the install: helpers, polkit action, tools, config, state
-upkeep check          # what is pending, as JSON
-upkeep update         # run it now, ending with a summary
+kempt doctor         # verify the install: helpers, polkit action, tools, config, state
+kempt check          # what is pending, as JSON
+kempt update         # run it now, ending with a summary
 ```
 
-`install.sh` symlinks `bin/upkeep` into `~/.local/bin`, so **keep the checkout where it is** -
+`install.sh` symlinks `bin/kempt` into `~/.local/bin`, so **keep the checkout where it is** -
 the CLI runs out of it. Only the root helpers and the polkit action are copied out of the repo.
-If `upkeep` is not found right afterwards, `~/.local/bin` was not on your `PATH` when this shell
+If `kempt` is not found right afterwards, `~/.local/bin` was not on your `PATH` when this shell
 started; log out and back in. Full detail, including the Discover-notifier opt-out and how to
 undo everything, is in the [install guide](docs/install.md).
 
@@ -83,10 +83,10 @@ undo everything, is in the [install guide](docs/install.md).
 | [docs/architecture.md](docs/architecture.md) | How it is built, the state JSON schema, and how to add a backend for your distro |
 | [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
-| [docs/man/upkeep.1](docs/man/upkeep.1) | Man page: `man upkeep` once installed, or `man -l docs/man/upkeep.1` from the checkout |
+| [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed, or `man -l docs/man/kempt.1` from the checkout |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
-Design and background: [the design spec](docs/specs/2026-08-24-upkeep-design.md) and the
+Design and background: [the design spec](docs/specs/2026-08-24-kempt-design.md) and the
 [prior-art survey](docs/research/2026-08-24-similar-tools-survey.md) that shaped it.
 
 ## Contributing

@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
-POL="$REPO_ROOT/polkit/org.erez.upkeep.policy"
-RULES_IN="$REPO_ROOT/polkit/49-upkeep.rules.in"
+POL="$REPO_ROOT/polkit/io.github.erez_c137.kempt.policy"
+RULES_IN="$REPO_ROOT/polkit/49-kempt.rules.in"
 
 if command -v xmllint >/dev/null; then
   if xmllint --noout "$POL"; then echo "ok: policy XML well-formed"
   else echo "FAIL: policy XML malformed"; _fail=1; fi
 else echo "ok: xmllint unavailable, skipped"; fi
 assert_eq "$(grep -c '<action id=' "$POL")" "2" "two actions defined"
-grep -q 'org.erez.upkeep.refresh' "$POL" && echo "ok: refresh action present" || { echo "FAIL: refresh action"; _fail=1; }
-grep -q 'org.erez.upkeep.apply' "$POL" && echo "ok: apply action present" || { echo "FAIL: apply action"; _fail=1; }
+grep -q 'io.github.erez_c137.kempt.refresh' "$POL" && echo "ok: refresh action present" || { echo "FAIL: refresh action"; _fail=1; }
+grep -q 'io.github.erez_c137.kempt.apply' "$POL" && echo "ok: apply action present" || { echo "FAIL: apply action"; _fail=1; }
 grep -q '<allow_active>yes</allow_active>' "$POL" && echo "ok: refresh is no-dialog" || { echo "FAIL: allow_active"; _fail=1; }
 grep -q 'auth_admin_keep' "$POL" && echo "ok: apply is auth_admin_keep" || { echo "FAIL: auth_admin_keep"; _fail=1; }
-grep -q '/usr/local/libexec/upkeep-refresh' "$POL" && echo "ok: refresh path annotated" || { echo "FAIL: refresh path"; _fail=1; }
-grep -q '/usr/local/libexec/upkeep-apply' "$POL" && echo "ok: apply path annotated" || { echo "FAIL: apply path"; _fail=1; }
+grep -q '/usr/local/libexec/kempt-refresh' "$POL" && echo "ok: refresh path annotated" || { echo "FAIL: refresh path"; _fail=1; }
+grep -q '/usr/local/libexec/kempt-apply' "$POL" && echo "ok: apply path annotated" || { echo "FAIL: apply path"; _fail=1; }
 grep -q '@USER@' "$RULES_IN" && echo "ok: rules template has placeholder" || { echo "FAIL: placeholder"; _fail=1; }
-grep -q 'org.erez.upkeep.apply' "$RULES_IN" && echo "ok: rules scoped to apply action only" || { echo "FAIL: rules scope"; _fail=1; }
-grep -q 'org.erez.upkeep.refresh' "$RULES_IN" && { echo "FAIL: rules must NOT touch refresh"; _fail=1; } || echo "ok: refresh not in rules"
+grep -q 'io.github.erez_c137.kempt.apply' "$RULES_IN" && echo "ok: rules scoped to apply action only" || { echo "FAIL: rules scope"; _fail=1; }
+grep -q 'io.github.erez_c137.kempt.refresh' "$RULES_IN" && { echo "FAIL: rules must NOT touch refresh"; _fail=1; } || echo "ok: refresh not in rules"
 
 # --- render_passwordless_rule: what it REFUSES to hand to a root install(1) ---
 source "$REPO_ROOT/lib/common.sh"
-UPKEEP="$REPO_ROOT/bin/upkeep"
+KEMPT="$REPO_ROOT/bin/kempt"
 ME="$(id -un)"
 SCOPE='subject.active && subject.local'
 # No hostile-USERNAME render test lives here: the render takes the name from $(id -un) and refuses
@@ -42,7 +42,7 @@ assert_exit 2 "render is not fooled by a scope clause that survives only in a co
   render_passwordless_rule "$TESTTMP/tmpl-commentonly" "$TESTTMP/out-commentonly"
 
 # (b) action id swapped for a broader one → refused (this template would grant pkexec itself)
-sed 's/org.erez.upkeep.apply/org.freedesktop.policykit.exec/' "$RULES_IN" > "$TESTTMP/tmpl-badaction"
+sed 's/io.github.erez_c137.kempt.apply/org.freedesktop.policykit.exec/' "$RULES_IN" > "$TESTTMP/tmpl-badaction"
 assert_exit 2 "render refuses a template with a different action id" \
   render_passwordless_rule "$TESTTMP/tmpl-badaction" "$TESTTMP/out-badaction"
 [[ -e "$TESTTMP/out-badaction" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
@@ -68,11 +68,11 @@ grep -q '@USER@' "$TESTTMP/out-good" && { echo "FAIL: placeholder left unsubstit
 # The destination is handed to a ROOT install(1), so its shape is pinned. Both rejections happen
 # before anything is invoked; the sandbox paths mean a regression could only hit TESTTMP anyway.
 assert_exit 2 "enable rejects a destination that is not a .rules file" \
-  env UPKEEP_RULES_DST="$TESTTMP/notrules" "$UPKEEP" enable-passwordless
+  env KEMPT_RULES_DST="$TESTTMP/notrules" "$KEMPT" enable-passwordless
 assert_exit 2 "enable rejects a relative destination" \
-  env UPKEEP_RULES_DST="relative/49-upkeep.rules" "$UPKEEP" enable-passwordless
+  env KEMPT_RULES_DST="relative/49-kempt.rules" "$KEMPT" enable-passwordless
 assert_exit 2 "enable-passwordless takes no arguments" \
-  env UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" enable-passwordless --force
+  env KEMPT_RULES_DST="$TESTTMP/absent.rules" "$KEMPT" enable-passwordless --force
 
 # "absolute and ends in .rules" was too loose: it accepted ANY path under /etc, so the seam could
 # hand a root install(1) a file in /etc/cron.d, /etc/sudoers.d or any other system config
@@ -83,39 +83,39 @@ assert_exit 2 "enable-passwordless takes no arguments" \
 # ADMIN directory, or to somewhere outside every system prefix (which is what these tests use).
 # Compared after realpath -m, so `..` cannot walk out of the allowed directory.
 polkit_dst_rejected() {  # path label
-  assert_exit 2 "$2" env UPKEEP_RULES_DST="$1" "$UPKEEP" enable-passwordless
+  assert_exit 2 "$2" env KEMPT_RULES_DST="$1" "$KEMPT" enable-passwordless
   grep -q 'invalid rules destination' "$TESTTMP/last_output" \
     && echo "ok: ...and says why ($1)" || { echo "FAIL: no rejection message for $1"; _fail=1; }
 }
 polkit_dst_rejected '/etc/polkit-1/rules.d/../../cron.d/x.rules' \
   "enable rejects a destination that walks out of the polkit rules directory"
-polkit_dst_rejected '/etc/cron.d/49-upkeep.rules' \
+polkit_dst_rejected '/etc/cron.d/49-kempt.rules' \
   "enable rejects a .rules file elsewhere under /etc"
-polkit_dst_rejected '/etc/polkit-1/rules.d/sub/49-upkeep.rules' \
+polkit_dst_rejected '/etc/polkit-1/rules.d/sub/49-kempt.rules' \
   "enable rejects a subdirectory of the polkit rules directory"
-# The other three directories polkit reads. Upkeep pins the admin one; these belong to the
-# runtime and to packages, and a root-owned Upkeep rule in any of them is a grant nobody would
+# The other three directories polkit reads. Kempt pins the admin one; these belong to the
+# runtime and to packages, and a root-owned Kempt rule in any of them is a grant nobody would
 # think to look for. All three were accepted destinations before this guard.
-polkit_dst_rejected '/run/polkit-1/rules.d/49-upkeep.rules' \
+polkit_dst_rejected '/run/polkit-1/rules.d/49-kempt.rules' \
   "enable rejects polkit's runtime rules directory"
-polkit_dst_rejected '/usr/local/share/polkit-1/rules.d/49-upkeep.rules' \
+polkit_dst_rejected '/usr/local/share/polkit-1/rules.d/49-kempt.rules' \
   "enable rejects polkit's /usr/local rules directory"
 # ...and this one is not hypothetical: 50-default.rules is a file Fedora's polkit package ships,
 # so the old guard would have handed root an install(1) that OVERWRITES distribution policy.
 polkit_dst_rejected '/usr/share/polkit-1/rules.d/50-default.rules' \
   "enable rejects overwriting the polkit rules file the distribution ships"
 # A .rules file is not only a polkit thing. udev reads them too, from a root-owned directory.
-polkit_dst_rejected '/usr/lib/udev/rules.d/99-upkeep.rules' \
+polkit_dst_rejected '/usr/lib/udev/rules.d/99-kempt.rules' \
   "enable rejects a udev rules directory, which also takes .rules files"
 # ...and the real destination is still accepted: this must fail at the unprivileged install(1),
 # which is exit 1, not at the shape check, which is exit 2. Nothing is written: the real
 # /etc/polkit-1/rules.d is 0750 root:polkitd, so install cannot even create the file.
 assert_exit 1 "the real polkit rules destination passes the shape check" \
-  env UPKEEP_RULES_DST=/etc/polkit-1/rules.d/49-upkeep.rules "$UPKEEP" enable-passwordless
+  env KEMPT_RULES_DST=/etc/polkit-1/rules.d/49-kempt.rules "$KEMPT" enable-passwordless
 grep -q 'invalid rules destination' "$TESTTMP/last_output" \
   && { echo "FAIL: the shipped destination was rejected by its own guard"; _fail=1; } \
   || echo "ok: the shipped destination is not what the guard is for"
-[[ -e /etc/polkit-1/rules.d/49-upkeep.rules ]] \
+[[ -e /etc/polkit-1/rules.d/49-kempt.rules ]] \
   && { echo "FAIL: the test suite wrote a polkit rule to /etc"; _fail=1; } \
   || echo "ok: nothing reached /etc"
 # ...and so is the sandbox path every test in this file uses. This is the reason the guard is a
@@ -123,15 +123,15 @@ grep -q 'invalid rules destination' "$TESTTMP/last_output" \
 # destination cannot exercise the production path at all. (It assumes TMPDIR is outside those
 # prefixes, which is the default /tmp; a TMPDIR under /var would fail this loudly, by design.)
 assert_exit 1 "a destination outside every system prefix passes the shape check" \
-  env UPKEEP_RULES_DST="$TESTTMP/accepted.rules" "$UPKEEP" enable-passwordless
+  env KEMPT_RULES_DST="$TESTTMP/accepted.rules" "$KEMPT" enable-passwordless
 grep -q 'invalid rules destination' "$TESTTMP/last_output" \
   && { echo "FAIL: the sandbox destination was rejected by the guard"; _fail=1; } \
   || echo "ok: the sandbox destination is accepted"
 assert_exit 2 "disable-passwordless takes no arguments" \
-  env UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" disable-passwordless --force
+  env KEMPT_RULES_DST="$TESTTMP/absent.rules" "$KEMPT" disable-passwordless --force
 # Disabling something that was never enabled is not a failure, and must not raise an auth prompt
 # to discover that: nothing is invoked when the destination does not exist.
-assert_eq "$(UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" disable-passwordless)" \
+assert_eq "$(KEMPT_RULES_DST="$TESTTMP/absent.rules" "$KEMPT" disable-passwordless)" \
   "passwordless was not enabled" "disable is a clean no-op when nothing is installed"
 # ...but that no-op must never be a GUESS. The real /etc/polkit-1/rules.d is 0750 root:polkitd,
 # so an unprivileged existence test reports "absent" for a file that is really there; treating
@@ -139,7 +139,7 @@ assert_eq "$(UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" disable-password
 # never enabled. Unsearchable destination directory → proceed to the removal instead.
 mkdir -p "$TESTTMP/locked"; chmod 000 "$TESTTMP/locked"
 assert_exit 1 "disable does not guess when the destination directory cannot be searched" \
-  env UPKEEP_RULES_DST="$TESTTMP/locked/49-upkeep.rules" "$UPKEEP" disable-passwordless
+  env KEMPT_RULES_DST="$TESTTMP/locked/49-kempt.rules" "$KEMPT" disable-passwordless
 grep -q 'was not enabled' "$TESTTMP/last_output" \
   && { echo "FAIL: disable claimed 'not enabled' without being able to look"; _fail=1; } \
   || echo "ok: no false 'was not enabled' when the directory cannot be searched"
@@ -149,8 +149,8 @@ chmod 755 "$TESTTMP/locked"
 # destination and mktemp both inside TESTTMP, hostile USER in the environment. /etc is never a
 # target. The install step fails (a non-root user cannot -o root) after GNU install has already
 # written the bytes, so the sandboxed destination holds exactly what would have been installed.
-out="$(TMPDIR="$TESTTMP" UPKEEP_RULES_DST="$TESTTMP/rules-out.rules" USER='x/;s/subject.active/true/;s/QQQ/' \
-       "$UPKEEP" enable-passwordless 2>"$TESTTMP/pw-err")" || true
+out="$(TMPDIR="$TESTTMP" KEMPT_RULES_DST="$TESTTMP/rules-out.rules" USER='x/;s/subject.active/true/;s/QQQ/' \
+       "$KEMPT" enable-passwordless 2>"$TESTTMP/pw-err")" || true
 assert_eq "$out" "" "unprivileged enable-passwordless never claims success"
 [[ -f "$TESTTMP/rules-out.rules" ]] && echo "ok: production render reached the destination" \
   || { echo "FAIL: no render artifact to inspect"; _fail=1; }

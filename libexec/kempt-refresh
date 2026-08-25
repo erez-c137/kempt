@@ -1,22 +1,22 @@
 #!/bin/bash
-# Upkeep root helper - metadata only. polkit action org.erez.upkeep.refresh (allow_active=yes).
+# Kempt root helper - metadata only. polkit action io.github.erez_c137.kempt.refresh (allow_active=yes).
 # Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
 # the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8
 
-run() {  # test seam: UPKEEP_REFRESH_ECHO=1 prints the final command instead of exec'ing it
-  if [[ -n "${UPKEEP_REFRESH_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of exec'ing it
+  if [[ -n "${KEMPT_REFRESH_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
 }
 
 # Exactly one argument: extra args are never forwarded, so refusing them keeps the caller honest
 # instead of silently ignoring what it asked for.
-[[ $# -eq 1 ]] || { echo "usage: upkeep-refresh check|refresh" >&2; exit 2; }
+[[ $# -eq 1 ]] || { echo "usage: kempt-refresh check|refresh" >&2; exit 2; }
 case "$1" in
   # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
   # progress/errors on stderr - merging them would feed diagnostics into the parser.
   check)   run dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
   refresh) run dnf5 makecache --refresh ;;
-  *) echo "usage: upkeep-refresh check|refresh" >&2; exit 2 ;;
+  *) echo "usage: kempt-refresh check|refresh" >&2; exit 2 ;;
 esac

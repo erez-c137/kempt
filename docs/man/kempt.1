@@ -1,55 +1,55 @@
-.TH UPKEEP 1 "2026-08-24" "Upkeep" "User Commands"
+.TH KEMPT 1 "2026-08-24" "Kempt" "User Commands"
 .SH NAME
-upkeep \- one-click system updates for Fedora, from the terminal or the Plasma panel
+kempt \- one-click system updates for Fedora, from the terminal or the Plasma panel
 .SH SYNOPSIS
-.B upkeep
+.B kempt
 .I command
 .RI [ arguments ]
 .PP
-.B upkeep check
+.B kempt check
 .br
-.B upkeep update
+.B kempt update
 .RB [ \-\-no\-flatpak ]
 .RB [ \-\-surface=\c
 .IR surface ]
 .br
-.B upkeep run
+.B kempt run
 .RB [ \-\-dry\-run ]
 .br
-.B upkeep summary
+.B kempt summary
 .RI [ N ]
 .br
-.B upkeep history
+.B kempt history
 .br
-.B upkeep doctor
+.B kempt doctor
 .br
-.B upkeep hold
+.B kempt hold
 .IR backend : name
 .br
-.B upkeep unhold
+.B kempt unhold
 .IR backend : name
 .br
-.B upkeep holds
+.B kempt holds
 .br
-.B upkeep config get
+.B kempt config get
 .I key
 .RI [ default ]
 .br
-.B upkeep config set
+.B kempt config set
 .I key value
 .br
-.B upkeep enable\-passwordless
+.B kempt enable\-passwordless
 .br
-.B upkeep disable\-passwordless
+.B kempt disable\-passwordless
 .SH DESCRIPTION
-.B upkeep
+.B kempt
 reports and applies pending system updates from the dnf5 and Flatpak backends, and is the
-engine behind the Upkeep Plasma panel widget. It queries the same root metadata cache that the
+engine behind the Kempt Plasma panel widget. It queries the same root metadata cache that the
 update itself uses, so the pending count and the update can never disagree.
 .PP
 Packages can be
 .B held:
-excluded from every Upkeep run while still being reported as pending. When a pending
+excluded from every Kempt run while still being reported as pending. When a pending
 transaction touches session\-critical packages such as the kernel, systemd or the Qt and KDE
 stack, an interactive run recommends staging the transaction for the next reboot instead of
 rewriting a running desktop.
@@ -83,7 +83,7 @@ other than an explicit yes aborts, having changed nothing.
 .TP
 .BR run " [" \-\-dry\-run ]
 Launch
-.B upkeep update
+.B kempt update
 according to the configured surface and return immediately. This is what the widget's Update Now
 button calls.
 .B \-\-dry\-run
@@ -119,13 +119,13 @@ exiting 0 with a
 state and no items.
 .TP
 .BI hold " backend:name"
-Exclude a package or app from Upkeep runs while still reporting it as pending.
+Exclude a package or app from Kempt runs while still reporting it as pending.
 .I backend
 is
 .B dnf
 or
 .BR flatpak ;
-the colon is required. Holds are Upkeep's own list, not a system\-wide version lock.
+the colon is required. Holds are Kempt's own list, not a system\-wide version lock.
 .TP
 .BI unhold " backend:name"
 Remove a hold. Removing one that does not exist is not an error.
@@ -153,11 +153,11 @@ dialog. It covers one action id only, for that user, and only in an active local
 Remove that rule.
 .SH CONFIGURATION
 Settings live in
-.I ~/.config/upkeep/config
+.I ~/.config/kempt/config
 as
 .IR key = value
 lines and are read and written with
-.BR "upkeep config" .
+.BR "kempt config" .
 The keys are
 .BR include_flatpak " (default " true "),"
 .BR auto_accept " (default " true "),"
@@ -171,33 +171,33 @@ everything else is false. See
 in the source tree for the full reference.
 .SH FILES
 .TP
-.I ~/.config/upkeep/config
+.I ~/.config/kempt/config
 Settings.
 .TP
-.I ~/.config/upkeep/holds
+.I ~/.config/kempt/holds
 Holds, one
 .I backend:name
 per line.
 .TP
-.I ~/.local/state/upkeep/state.json
+.I ~/.local/state/kempt/state.json
 Latest check result, schema v1. A documented public interface.
 .TP
-.I ~/.local/state/upkeep/history/
+.I ~/.local/state/kempt/history/
 One JSON entry per run. The newest 50 are kept.
 .TP
-.I ~/.local/state/upkeep/logs/
+.I ~/.local/state/kempt/logs/
 Full raw output per run. Deleted after 60 days.
 .TP
-.I /usr/local/libexec/upkeep-refresh
+.I /usr/local/libexec/kempt-refresh
 Root helper: package metadata only, no authentication dialog.
 .TP
-.I /usr/local/libexec/upkeep-apply
+.I /usr/local/libexec/kempt-apply
 Root helper: the upgrade verbs, one authentication per run.
 .TP
-.I /usr/share/polkit-1/actions/org.erez.upkeep.policy
+.I /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 The two polkit actions.
 .TP
-.I /etc/polkit-1/rules.d/49-upkeep.rules
+.I /etc/polkit-1/rules.d/49-kempt.rules
 Present only while passwordless mode is enabled.
 .SH EXIT STATUS
 .TP
@@ -214,7 +214,7 @@ Usage error: unknown command, option or argument.
 .TP
 .B 3
 Cannot start: jq is missing, or another
-.B upkeep update
+.B kempt update
 holds the lock.
 .TP
 .B 4

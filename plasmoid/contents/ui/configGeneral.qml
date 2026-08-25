@@ -1,7 +1,7 @@
-// The settings page. Every value on it is read from and written to `upkeep config` - there is no
+// The settings page. Every value on it is read from and written to `kempt config` - there is no
 // plasmoid-local copy of any of these settings, and contents/config/main.xml declares no keys at
 // all. That is deliberate: a KConfig entry here would be a second copy of a setting the CLI also
-// owns, and the two would drift apart the first time somebody typed `upkeep config set` in a
+// owns, and the two would drift apart the first time somebody typed `kempt config set` in a
 // terminal. The CLI is the single source of truth; this page is a front-end to it.
 //
 // The shell builds this page in its own dialog, so it cannot reach main.qml (there is no rootItem
@@ -18,9 +18,9 @@ KCM.SimpleKCM {
     id: page
 
     // Same prefix main.qml uses: plasmashell does not reliably inherit a login shell's PATH.
-    readonly property string upkeepCmd: "PATH=\"$HOME/.local/bin:$PATH\" upkeep"
+    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" kempt"
 
-    // What `upkeep config get` said when this page opened. Apply compares against these and
+    // What `kempt config get` said when this page opened. Apply compares against these and
     // writes ONLY what actually changed - so a key the user never touched is never rewritten,
     // and a value set from the CLI that this page cannot represent is left exactly as it was.
     property var loaded: ({})
@@ -46,7 +46,7 @@ KCM.SimpleKCM {
         // The value is ours (a checkbox state, a number, one of four known surfaces) but it is
         // quoted anyway. The rule this file follows is that everything reaching a command line is
         // quoted, with no per-case judgement about which values are "obviously safe".
-        cfgExecutor.run(upkeepCmd + " config set " + key + " " + Logic.shellQuote(value), 15000,
+        cfgExecutor.run(kemptCmd + " config set " + key + " " + Logic.shellQuote(value), 15000,
                         function (stdout, stderr, rc) {
             if (rc !== 0) page.loadError = Logic.firstLineOf(stderr) || ("Could not save " + key + ".");
         });
@@ -73,10 +73,10 @@ KCM.SimpleKCM {
 
     function readKey(key, apply) {
         pendingReads++;
-        cfgExecutor.run(upkeepCmd + " config get " + key, 15000, function (stdout, stderr, rc) {
+        cfgExecutor.run(kemptCmd + " config get " + key, 15000, function (stdout, stderr, rc) {
             page.pendingReads--;
             if (rc !== 0) {
-                page.loadError = Logic.firstLineOf(stderr) || "Could not read the Upkeep settings.";
+                page.loadError = Logic.firstLineOf(stderr) || "Could not read the Kempt settings.";
                 return;
             }
             var v = Logic.firstLineOf(stdout);
@@ -87,7 +87,7 @@ KCM.SimpleKCM {
 
     function loadHolds() {
         holdsBusy = true;
-        cfgExecutor.run(upkeepCmd + " holds", 15000, function (stdout, stderr, rc) {
+        cfgExecutor.run(kemptCmd + " holds", 15000, function (stdout, stderr, rc) {
             page.holdsBusy = false;
             page.holds = rc === 0 ? Logic.holdsOf(stdout) : [];
         });
@@ -95,7 +95,7 @@ KCM.SimpleKCM {
 
     function removeHold(id) {
         holdsBusy = true;
-        cfgExecutor.run(upkeepCmd + " unhold " + Logic.shellQuote(id), 15000,
+        cfgExecutor.run(kemptCmd + " unhold " + Logic.shellQuote(id), 15000,
                         function (stdout, stderr, rc) {
             page.holdsBusy = false;
             if (rc !== 0) {
@@ -109,7 +109,7 @@ KCM.SimpleKCM {
     function runPasswordless(verb) {
         passwordlessBusy = true;
         passwordlessResult = "";
-        cfgExecutor.run(upkeepCmd + " " + verb + "-passwordless", 120000,
+        cfgExecutor.run(kemptCmd + " " + verb + "-passwordless", 120000,
                         function (stdout, stderr, rc) {
             page.passwordlessBusy = false;
             // Whatever it said, verbatim: the authentication dialog is the user's, the outcome is
@@ -120,7 +120,7 @@ KCM.SimpleKCM {
         });
     }
 
-    // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `upkeep
+    // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt
     // check`, and a settings dialog that takes two minutes to populate is a broken dialog.
     Executor { id: cfgExecutor }
 
@@ -132,7 +132,7 @@ KCM.SimpleKCM {
             var n = parseInt(v, 10);
             if (isNaN(n) || n < 1) return;
             // The dialog's own floor is 15 (below that a desktop is checking for updates more
-            // often than anyone needs). But `upkeep config set refresh_interval_min 5` is a thing
+            // often than anyone needs). But `kempt config set refresh_interval_min 5` is a thing
             // the CLI allows, and a settings page must never silently RAISE a value the user
             // chose elsewhere - so when the stored value is lower, the control lowers to meet it
             // and shows the truth instead.
@@ -274,7 +274,7 @@ KCM.SimpleKCM {
         // machine asks for a password is the wrong thing to guess about.
         QQC2.Label {
             Kirigami.FormData.label: i18n("Password prompts:")
-            text: i18n("Updates normally ask for your password once per run. You can allow Upkeep's update action to run without one - it applies only to this action, and only while you are logged in at this machine.")
+            text: i18n("Updates normally ask for your password once per run. You can allow Kempt's update action to run without one - it applies only to this action, and only while you are logged in at this machine.")
             wrapMode: Text.WordWrap
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
@@ -305,7 +305,7 @@ KCM.SimpleKCM {
         }
 
         QQC2.Label {
-            text: i18n("Upkeep cannot read whether this is currently on: the rule it writes lives in a directory only root can list. Use the buttons to set it either way.")
+            text: i18n("Kempt cannot read whether this is currently on: the rule it writes lives in a directory only root can list. Use the buttons to set it either way.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.7

@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "last_check": "2026-08-25T02:46:39+03:00",
+  "last_check": "2026-08-25T10:59:26+03:00",
   "last_success": null,
   "status": "stale",
-  "error": "dnf check failed: root helper not installed - run ./install.sh (see: upkeep doctor)",
+  "error": "dnf check failed: root helper not installed - run ./install.sh (see: kempt doctor)",
   "backends": {
     "dnf": {
       "enabled": true,
