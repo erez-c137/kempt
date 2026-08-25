@@ -21,6 +21,12 @@ The CLI is code-complete, documented, and audited. Remaining, in order:
 
 ## v1.x - ready for other people
 
+- **Panel icon choice (after the comb glyph exists)**: a small curated set, never a
+  free-for-all - (1) theme default (the icon theme's own update symbols, recolors with every
+  color scheme; the right default for almost everyone), (2) the Kempt comb (symbolic, our
+  identity), (3) a custom icon name via Plasma's standard icon picker for people who theme
+  everything. Routed through `kempt config` (`widget_icon`, default `theme`) like every other
+  setting; badge and state semantics never change with the icon.
 - **History hygiene for going public** - rewrite the six plan-prescribed commit subjects
   that carry em dashes (or accept them); final sweep of the repo.
 - **Flip the GitHub repo public** - also the moment CI becomes free: add a GitHub Actions
