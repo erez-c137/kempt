@@ -15,6 +15,7 @@
 // PlasmoidItem type, so a typed handle would be a promise the type system cannot keep.
 import QtQuick
 import QtQuick.Layouts
+import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
@@ -25,6 +26,26 @@ PlasmaExtras.Representation {
 
     required property var plasmoidItem
     required property var vm
+
+    // Whether whatever is hosting us has already drawn a heading of its own. The system tray has:
+    // the popup it puts us in comes with a title bar carrying the plasmoid's name, a pin, and a
+    // configure gear - so our own gear underneath it is the SECOND one on screen, opening the same
+    // dialog. On a panel or the desktop nothing draws that heading and ours is the only way in.
+    //
+    // `Plasmoid.containmentDisplayHints & ContainmentDrawsPlasmoidHeading` is the shipped
+    // convention for this question rather than a guess: it is the test libplasma's own
+    // BasicPlasmoidHeading uses to hide itself in the tray, and the one org.kde.plasma.vault uses
+    // to drop its footer button there.
+    //
+    // Named property rather than the expression written inline on the button, because this is the
+    // only seam a test can reach. `containmentDisplayHints` is READ-ONLY on Plasma::Applet, and
+    // outside plasmashell the attached `Plasmoid` object has no applet behind it at all - it
+    // answers undefined, which is also why the default that falls out below is the safe one (no
+    // host heading known, so keep our own gear). A probe can neither set the hint nor fake the
+    // applet, but it can overwrite this; tests/qml/probe_popup.py drives it AND pins the
+    // expression verbatim, so the drivable seam cannot drift from what the panel evaluates.
+    property bool traysHeading: (Plasmoid.containmentDisplayHints
+                                 & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
     // These are the representation-switch heuristic, not decoration: Plasma compares the space it
     // has against them to decide between the panel icon and this popup. Removing them is how a
@@ -54,6 +75,9 @@ PlasmaExtras.Representation {
                 }
 
                 PlasmaComponents.ToolButton {
+                    id: configureButton
+                    // Ours only when nobody else is offering one - see popup.traysHeading.
+                    visible: !popup.traysHeading
                     icon.name: "configure"
                     display: PlasmaComponents.AbstractButton.IconOnly
                     text: i18n("Configure Kempt...")

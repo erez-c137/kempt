@@ -305,4 +305,54 @@ if made is None:
     p.check("...naming both required properties",
             sorted(m.split()[2] for m in msgs if "Required property" in m), ["plasmoidItem", "vm"])
 
+# --- one gear, not two -------------------------------------------------------------------------
+# Inside the system tray, Plasma wraps the popup in a heading of its own - the plasmoid's name, a
+# pin, and a configure gear pointing at the very dialog our gear opens. The founder's screenshot is
+# two gears, one above the other. On a panel or the desktop nobody draws that heading and ours is
+# the only way into the settings, so this cannot simply be deleted; it has to be conditional.
+#
+# The condition is not drivable at its source: `containmentDisplayHints` is read-only on
+# Plasma::Applet, and out here the attached `Plasmoid` has no applet at all. So the file holds the
+# answer in `traysHeading`, this drives THAT, and the static pins below tie it back to the real
+# hint - together they cover what neither half proves alone.
+from PySide6.QtQml import QQmlEngine                                # noqa: E402
+
+live = full.createWithInitialProperties({"plasmoidItem": root, "vm": root.property("vm")})
+p.check("the popup builds once both its inputs are handed to it", live is not None, True)
+if live is not None:
+    QQmlEngine.setObjectOwnership(live, QQmlEngine.CppOwnership)
+    p.keep.append((full, live))
+    lev = p.evaluator(live)
+
+    # No applet behind the attached object here, exactly as on a panel where the containment draws
+    # nothing: the expression evaluates (a `False`, not the `None` an EXPR ERROR would give) and
+    # says no host heading, so the gear is ours to show.
+    p.check("the hint expression evaluates in a real engine rather than throwing",
+            lev("(Plasmoid.containmentDisplayHints"
+                " & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0"), False)
+    p.check("...and with nothing else drawing a heading, the popup says so",
+            lev("popup.traysHeading"), False)
+    p.check("...so the popup keeps its own way into the settings", lev("configureButton.visible"),
+            True)
+
+    # ...and the tray case, which is the bug.
+    lev("popup.traysHeading = true")
+    p.check("a host that draws the heading takes our duplicate gear off the screen",
+            lev("configureButton.visible"), False)
+    p.check("...and takes nothing else with it - the header still carries the buttons and the "
+            "status line, which the tray's chrome does not provide",
+            lev("popup.header.visible"), True)
+    p.check("...the status heading included, which is the pending count and not a second title",
+            lev("popup.vm.headerText === popup.plasmoidItem.vm.headerText"), True)
+
+# The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
+# from the containment's hint, or a gear whose visibility stopped being that property, would leave
+# every assertion above passing.
+_src = " ".join(open(os.path.join(harness.UI, "FullRepresentation.qml")).read().split())
+p.check("traysHeading is computed from the containment's own display hint",
+        "property bool traysHeading: (Plasmoid.containmentDisplayHints"
+        " & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0" in _src, True)
+p.check("...and the gear's visibility is that property and nothing else",
+        "visible: !popup.traysHeading" in _src, True)
+
 sys.exit(p.done())

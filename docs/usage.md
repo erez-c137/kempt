@@ -439,9 +439,11 @@ You do not have to keep the popup open. Updates keep running if you close it.
 
 ### Settings
 
-Right-click the widget > **Configure Kempt...**. Every control on that page reads and writes
-`kempt config` - there is no second copy of any setting, so a value you set in a terminal shows
-up here and vice versa.
+Right-click the widget > **Configure Kempt...**. The gear in the popup's header opens the same
+page, except in the system tray, where the tray draws its own heading with a gear in it and Kempt
+does not add a second one underneath. Every control on that page reads and writes `kempt config` -
+there is no second copy of any setting, so a value you set in a terminal shows up here and vice
+versa.
 
 Two things worth knowing:
 
