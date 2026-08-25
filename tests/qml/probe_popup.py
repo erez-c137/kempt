@@ -236,6 +236,23 @@ p.check("the popup tails it", "line three" in str(ev("root.logTail")), True)
 p.check("the log tail dispatched jobs on the tail executor", ev("tailExecutor.serial") >= 2, True)
 p.check("...and the action executor did not run them", ev("executor.serial") == action_serial, True)
 
+# ...and a tail still in flight is not joined by the next tick. Splitting the tail onto its own
+# executor stopped it delaying the ACTION queue; it did nothing about it flooding its OWN. The
+# timer ticks every two seconds, and a `tail` can outlast that - a loaded box, a log on a slow
+# disk, or the executor already sitting on its 10-second timeout - at which point every further
+# tick adds another job behind the one that has not come back. Three calls in a row, one job.
+guard_serial = ev("tailExecutor.serial")
+ev("root.pollLog(); root.pollLog(); root.pollLog()")
+p.check("ticks arriving while a tail is in flight are skipped, not queued behind it",
+        ev("tailExecutor.serial") - guard_serial, 1)
+p.check("...so nothing accumulates on the tail queue", ev("tailExecutor.queue.length"), 0)
+p.wait_idle(ev, "tailExecutor")
+p.check("...and once it comes back the queue is free again",
+        ev("tailExecutor.current === null"), True)
+ev("root.pollLog()")
+p.check("...dispatching normally", ev("tailExecutor.serial") - guard_serial, 2)
+p.wait_idle(ev, "tailExecutor")
+
 # --- auto_accept false is what cmd_run overrides the surface WITH -----------------------------
 # Only a terminal can ask the confirmation question, so the stored `popup` cannot survive it. A
 # widget that trusted the stored value alone would sit here tailing a log no run will ever write.

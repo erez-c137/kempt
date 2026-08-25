@@ -293,6 +293,13 @@ PlasmoidItem {
 
     function pollLog() {
         if (!updating || effectiveSurface !== "popup" || logPath === "") return;
+        // One tail in flight at a time. The timer ticks every 2 seconds, and a `tail` that takes
+        // longer than that - a loaded box, a log on a slow disk, an executor already sitting on
+        // its 10-second timeout - would have the next tick queued behind it before it came back,
+        // and from there the queue only grows. Skipping a tick costs nothing: another is two
+        // seconds away and reads the same file. Separating the tail onto its own Executor stopped
+        // it delaying the ACTION queue; this stops it flooding its own.
+        if (tailExecutor.current) return;
         tailExecutor.run("tail -n 25 " + Logic.shellQuote(logPath), 10000, function(stdout, stderr, rc) {
             if (rc === 0) root.logTail = stdout;
         });

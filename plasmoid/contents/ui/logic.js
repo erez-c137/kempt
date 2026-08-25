@@ -416,9 +416,10 @@ function viewModel(state, updating, cliError) {
 
     // No count, no badge. This is rule 1 of the state schema in one line: "no data" must never
     // reach the panel as a confident zero.
-    // Capped at "99+" because a four-digit badge stops being a badge and starts being a layout
-    // problem in a panel. It stays truthful - "more than 99" is a fact - and the exact number is
-    // one hover away in the tooltip, which is never capped.
+    // Capped at BADGE_MAX ("999+" - see its declaration above for why 999 and not 99) because a
+    // four-digit badge stops being a badge and starts being a layout problem in a panel. It stays
+    // truthful - "more than 999" is a fact - and the exact number is one hover away in the
+    // tooltip, which is never capped.
     var badgeText = "";
     if (usable && actionable > 0) badgeText = actionable > BADGE_MAX ? BADGE_MAX + "+" : String(actionable);
 

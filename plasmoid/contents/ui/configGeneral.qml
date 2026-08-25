@@ -45,6 +45,18 @@ KCM.SimpleKCM {
     property string passwordlessResult: ""
     property bool passwordlessBusy: false
 
+    // Writes dispatched by the current Apply that have not answered yet, and whether any of them
+    // came back non-zero. Together they decide WHEN the page is allowed to call itself saved -
+    // see saveConfig/finishWrite below.
+    property int outstandingWrites: 0
+    property bool writeFailed: false
+    // The same fact under a name worth reading: an Apply is in flight. Nothing on the page binds
+    // to it today (the controls stay live while a save runs - the values were taken at dispatch
+    // time, so editing them again is safe and the next Apply will write them). It exists because
+    // "is a write outstanding" is the question this page's whole apply path turns on, and the
+    // probes ask it by name rather than by counter arithmetic.
+    readonly property bool saving: outstandingWrites > 0
+
     // THE hook that makes the dialog's Apply button work, and it has to be spelled exactly this
     // way. AppletConfiguration.qml decides whether Apply is clickable in one line:
     //
@@ -81,13 +93,41 @@ KCM.SimpleKCM {
         // belong to the shell and are offered regardless, so the guard lives here too. Not an
         // error: the reads land in well under a second, and there is nothing yet to save.
         if (page.pendingReads > 0) return;
+        // An Apply while the previous one is still in flight would reset the counter below out
+        // from under callbacks that have not fired yet, and each of those would then decrement a
+        // fresh count. The writes already dispatched cover everything on the page anyway - the
+        // values were read at dispatch time - so there is nothing a second pass would add.
+        if (page.outstandingWrites > 0) return;
+
+        page.writeFailed = false;
+        // The sentinel. setIfChanged is dispatched four times in a row, and a naive count would
+        // pass through zero after the FIRST write answered - clearing unsavedChanges while three
+        // more were still queued. Holding one notional write open across the whole dispatch means
+        // the count can only reach zero after every setIfChanged has had its say.
+        page.outstandingWrites = 1;
         setIfChanged("include_flatpak", includeFlatpak.checked ? "true" : "false");
         setIfChanged("auto_accept", autoAccept.checked ? "true" : "false");
         setIfChanged("surface", page.selectedSurface());
         setIfChanged("refresh_interval_min", String(interval.value));
-        // Cleared once, here, rather than per write: this is the point at which everything on the
-        // page has been offered to the CLI. A write that comes back non-zero re-arms it below, so
-        // a failed save leaves Apply live for the retry instead of looking finished.
+        finishWrite();      // release the sentinel
+    }
+
+    // The ONLY place unsavedChanges is cleared, and it is reached only when the last write has
+    // landed. Clearing it at the end of saveConfig() instead - which is what this file used to do -
+    // was the page telling the shell "saved" the instant it had finished DISPATCHING: Apply greyed
+    // out, closing the dialog stopped prompting, and both happened while `kempt config set` calls
+    // were still queued behind a 15-second timeout. The user could close the dialog on a write
+    // that had not happened yet and get no warning at all.
+    //
+    // With nothing to write (nothing changed) this still runs immediately - the sentinel is the
+    // only outstanding write - so an Apply that legitimately writes nothing is clean at once.
+    function finishWrite() {
+        page.outstandingWrites--;
+        if (page.outstandingWrites > 0) return;
+        // A write that came back non-zero leaves Apply live for the retry rather than looking
+        // finished. The retry semantics behind it already exist: a failed write is not recorded
+        // as the stored value, so the next Apply attempts it again instead of comparing equal.
+        if (page.writeFailed) return;
         page.unsavedChanges = false;
     }
 
@@ -98,6 +138,9 @@ KCM.SimpleKCM {
         // moved, where the value on screen is theirs rather than a default.
         if (page.readFailed[key] && !page.touched[key]) return;
         if (page.loaded[key] === value) return;
+        // Counted before it is dispatched, and only here, past both guards above: those return
+        // without writing anything, and a write that was never made must not hold the page open.
+        page.outstandingWrites++;
         // The value is ours (a checkbox state, a number, one of four known surfaces) but it is
         // quoted anyway. The rule this file follows is that everything reaching a command line is
         // quoted, with no per-case judgement about which values are "obviously safe".
@@ -105,8 +148,10 @@ KCM.SimpleKCM {
                         function (stdout, stderr, rc) {
             if (rc !== 0) {
                 page.loadError = Logic.firstLineOf(stderr) || ("Could not save " + key + ".");
-                // Apply back on, so the retry is one click rather than a reopened dialog.
+                // Apply stays on, so the retry is one click rather than a reopened dialog.
+                page.writeFailed = true;
                 page.unsavedChanges = true;
+                page.finishWrite();
                 return;
             }
             // Recorded as the stored value only now that it IS the stored value. Recording it
@@ -115,6 +160,7 @@ KCM.SimpleKCM {
             // stayed as it was, with no second attempt possible short of changing it twice.
             page.loaded[key] = value;
             page.readFailed[key] = false;
+            page.finishWrite();
         });
     }
 
@@ -184,11 +230,22 @@ KCM.SimpleKCM {
         });
     }
 
+    // Runs on pwExecutor, NOT cfgExecutor, and that is the whole fix for it. This call sits on a
+    // 120-second timeout because it opens an authentication dialog and then waits for a human to
+    // deal with it. Sharing the settings queue meant an Apply pressed while that dialog was up
+    // went to the BACK of it: the writes were real and would eventually land, but they landed up
+    // to two minutes later, and in the meantime the page had no way to say so. Its own queue means
+    // Apply is never behind it - the two do not touch the same file, so nothing is serialised by
+    // sharing a queue except the waiting.
+    //
+    // Gating Apply on passwordlessBusy instead was the other option and is worse: the shell's OK
+    // button calls saveConfig() and then closes regardless of what it returns, so a gated save
+    // would discard the user's changes silently on OK - trading a slow write for a lost one.
     function runPasswordless(verb) {
         passwordlessBusy = true;
         passwordlessResult = "";
-        cfgExecutor.run(kemptCmd + " " + verb + "-passwordless", 120000,
-                        function (stdout, stderr, rc) {
+        pwExecutor.run(kemptCmd + " " + verb + "-passwordless", 120000,
+                       function (stdout, stderr, rc) {
             page.passwordlessBusy = false;
             // Whatever it said, verbatim: the authentication dialog is the user's, the outcome is
             // theirs to read. A declined dialog and a real failure are both worth showing.
@@ -201,6 +258,12 @@ KCM.SimpleKCM {
     // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt
     // check`, and a settings dialog that takes two minutes to populate is a broken dialog.
     Executor { id: cfgExecutor }
+
+    // And the same argument one level down: the passwordless buttons wait on a human in an
+    // authentication dialog, so they get a queue of their own rather than parking every read,
+    // write and hold on this page behind that wait. Same split, same reason as main.qml's
+    // executor/tailExecutor pair - a long job never blocks a short one.
+    Executor { id: pwExecutor }
 
     Component.onCompleted: {
         readKey("include_flatpak", function (v) { includeFlatpak.checked = Logic.isTrue(v); });

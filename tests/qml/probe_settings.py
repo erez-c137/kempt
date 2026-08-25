@@ -23,7 +23,13 @@ p = harness.Probe("probe-settings")
 VALUES = os.path.join(p.sandbox, "values")     # the stub's idea of the stored config
 FAILGET = os.path.join(p.sandbox, "failget")   # keys the stub refuses to read
 FAILSET = os.path.join(p.sandbox, "failset")   # ...and to write
-for d in (VALUES, FAILGET, FAILSET):
+# Keys the stub takes its time over. Every real `kempt config set` is a process the shell forks,
+# so a write is never instant - and "the page is saved" is a claim about a write that came BACK.
+# Without a slow seam here every write answers inside one event-loop turn, and a page that clears
+# its unsaved flag on the dispatching line looks identical to one that clears it on the callback.
+SLOWSET = os.path.join(p.sandbox, "slowset")
+PWSLOW = os.path.join(p.sandbox, "pwslow")     # ...and the passwordless action, which waits on a human
+for d in (VALUES, FAILGET, FAILSET, SLOWSET):
     os.makedirs(d)
 
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
@@ -60,14 +66,16 @@ case "$1" in
       get) [[ -e %(FG)s/"$3" ]] && { echo "kempt: cannot read $3" >&2; exit 1; }
            cat %(V)s/"$3" 2>/dev/null; exit 0 ;;
       set) [[ -e %(FS)s/"$3" ]] && { echo "kempt: cannot write $3" >&2; exit 1; }
+           [[ -e %(SS)s/"$3" ]] && sleep 2
            printf '%%s' "$4" > %(V)s/"$3"; exit 0 ;;
     esac ;;
   holds)  cat %(SB)s/holds; exit 0 ;;
   unhold) grep -vxF "$2" %(SB)s/holds > %(SB)s/h.tmp; mv %(SB)s/h.tmp %(SB)s/holds; exit 0 ;;
-  enable-passwordless)  echo "some polkit chatter"; echo "Passwordless updates enabled"; exit 0 ;;
+  enable-passwordless)  [[ -e %(PW)s ]] && sleep 3
+                        echo "some polkit chatter"; echo "Passwordless updates enabled"; exit 0 ;;
   disable-passwordless) echo "Passwordless updates disabled"; exit 0 ;;
 esac
-""" % {"FG": FAILGET, "FS": FAILSET, "V": VALUES, "SB": p.sandbox})
+""" % {"FG": FAILGET, "FS": FAILSET, "SS": SLOWSET, "PW": PWSLOW, "V": VALUES, "SB": p.sandbox})
 
 # AppletConfiguration.qml's Apply wiring, transcribed. Nothing invented: the connect is the one at
 # its line 197-199, and settingValueChanged() is its line 105 with the two hooks this page does not
@@ -383,5 +391,130 @@ p.clear_calls()
 ev7("page.saveConfig()")
 p.wait_idle(ev7, "cfgExecutor")
 p.check("...and saving without touching it does not raise it", stored("refresh_interval_min"), "5")
+
+# ==================================================================================================
+# "Saved" is a claim about writes that LANDED, not writes that were dispatched.
+# Measured: saveConfig() cleared unsavedChanges on the line after it handed four asynchronous
+# `kempt config set` calls to the executor. The shell reads that one property to decide both
+# whether Apply is clickable and whether closing the dialog prompts - so for as long as the writes
+# were in flight (up to their 15-second timeout) Apply was grey and Escape closed silently on a
+# setting that had not been written yet. The stub sleeps below to make that window observable;
+# on a real box it is a fork, an exec and a file write, every time.
+# ==================================================================================================
+for k, v in DEFAULTS:
+    setval(k, v)
+toggle_fail(SLOWSET, "include_flatpak")
+page8, ev8 = build()
+host8, hev8 = shell_for(page8)
+hev8("host.attach()")
+ev8("includeFlatpak.checked = false")
+ev8("includeFlatpak.toggled()")
+p.pump(50)
+p.clear_calls()
+ev8("page.saveConfig()")
+# Deliberately no pump between those two lines: this is the state the shell sees on the very next
+# turn after Apply, which is when it recomputes the button.
+p.check("Apply does not call the page saved on the line it dispatches the write",
+        ev8("page.unsavedChanges"), True)
+p.check("...so the dialog's Apply button stays live while the write is in flight",
+        hev8("host.applyEnabled"), True)
+p.check("...and closing the dialog in that window still ASKS",
+        hev8("host.closingWouldPrompt()"), True)
+p.check("...with the write genuinely outstanding, not merely unflagged", ev8("page.saving"), True)
+p.pump(500)
+p.check("...still unsaved half a second in, while the CLI has yet to answer",
+        ev8("page.unsavedChanges"), True)
+p.check("...and the stored value has not moved yet either", stored("include_flatpak"), "true")
+p.wait_idle(ev8, "cfgExecutor")
+p.check("once the write lands the page is clean", ev8("page.unsavedChanges"), False)
+p.check("...the button greys out THEN, and not before", hev8("host.applyEnabled"), False)
+p.check("...and what the CLI holds is what the user chose", stored("include_flatpak"), "false")
+p.check("...with nothing left outstanding", ev8("page.outstandingWrites"), 0)
+
+# A second Apply while the first round is still in flight must not start another. Its callbacks
+# would decrement a counter that had been reset under them, and the page could reach zero - and
+# report itself saved - with writes still queued.
+toggle_fail(SLOWSET, "surface")
+ev8("page.applySurface('background'); page.markChanged('surface')")
+p.pump(50)
+p.clear_calls()
+serial8 = ev8("cfgExecutor.serial")
+ev8("page.saveConfig()")
+ev8("page.saveConfig()")
+# serial counts jobs DISPATCHED, and run() pushes synchronously - so this is answerable on the
+# same turn, before the stub has been forked and long before it could log a call.
+p.check("a second Apply on top of one still running dispatches nothing extra",
+        ev8("cfgExecutor.serial") - serial8, 1)
+p.wait_idle(ev8, "cfgExecutor")
+p.check("...and the single round that ran wrote the value", stored("surface"), "background")
+p.check("...having called the CLI exactly once", p.call_count("config set surface"), 1)
+p.check("...leaving the page clean exactly once", ev8("page.unsavedChanges"), False)
+toggle_fail(SLOWSET, "include_flatpak", False)
+toggle_fail(SLOWSET, "surface", False)
+
+# The keys are written in a fixed order, so "clear it when the last callback returns" would be
+# precisely the wrong rule on its own: a failure on the FIRST key followed by a success on the
+# last would report the page saved with a setting silently dropped. Any failure keeps it armed.
+for k, v in DEFAULTS:
+    setval(k, v)
+page9, ev9 = build()
+host9, hev9 = shell_for(page9)
+hev9("host.attach()")
+toggle_fail(FAILSET, "include_flatpak")
+ev9("includeFlatpak.checked = false")
+ev9("includeFlatpak.toggled()")
+ev9("interval.value = 90")
+ev9("interval.valueModified()")
+p.pump(50)
+p.clear_calls()
+ev9("page.saveConfig()")
+p.wait_idle(ev9, "cfgExecutor")
+p.check("both changed keys are attempted",
+        sorted(c.split()[2] for c in p.calls_matching("config set")),
+        ["include_flatpak", "refresh_interval_min"])
+p.check("...the writable one lands", stored("refresh_interval_min"), "90")
+p.check("...the refused one does not", stored("include_flatpak"), "true")
+p.check("a LATER write succeeding does not clear a page whose earlier write failed",
+        ev9("page.unsavedChanges"), True)
+p.check("...so Apply is live for the retry", hev9("host.applyEnabled"), True)
+toggle_fail(FAILSET, "include_flatpak", False)
+p.clear_calls()
+ev9("page.saveConfig()")
+p.wait_idle(ev9, "cfgExecutor")
+p.check("...and the retry, once it lands, is what finally clears it",
+        ev9("page.unsavedChanges"), False)
+p.check("...having written the value that was dropped", stored("include_flatpak"), "false")
+p.check("...without rewriting the key that had already succeeded",
+        p.calls_matching("config set refresh_interval_min"), [])
+
+# ==================================================================================================
+# A settings write is never stuck behind the passwordless action.
+# runPasswordless waits on a HUMAN in an authentication dialog, and carries a 120-second timeout to
+# match. Sharing the page's one queue meant an Apply pressed meanwhile went to the back of it: the
+# write was real and would eventually land, but it could land two minutes later. Its own executor
+# is the fix - the two touch different files, so nothing was being serialised except the waiting.
+# ==================================================================================================
+for k, v in DEFAULTS:
+    setval(k, v)
+open(PWSLOW, "w").close()      # ...and now the stub waits, the way the polkit dialog does
+page10, ev10 = build()
+p.clear_calls()
+ev10('page.runPasswordless("enable")')
+p.pump(50)
+p.check("the passwordless action is in flight", ev10("page.passwordlessBusy"), True)
+p.check("...on a queue of its own", ev10("pwExecutor.current !== null"), True)
+p.check("...leaving the settings queue completely free",
+        ev10("cfgExecutor.current === null && cfgExecutor.queue.length === 0"), True)
+ev10("includeFlatpak.checked = false")
+ev10("includeFlatpak.toggled()")
+ev10("page.saveConfig()")
+p.wait_idle(ev10, "cfgExecutor")
+p.check("an Apply pressed during it writes straight away", stored("include_flatpak"), "false")
+p.check("...and the page reports itself saved as soon as that write lands",
+        ev10("page.unsavedChanges"), False)
+p.check("...all while the passwordless action is STILL running", ev10("page.passwordlessBusy"), True)
+p.wait_for(ev10, "page.passwordlessBusy", False, timeout_ms=15000)
+p.check("...which then finishes normally, with its own last words",
+        ev10("page.passwordlessResult"), "some polkit chatter Passwordless updates enabled")
 
 sys.exit(p.done())

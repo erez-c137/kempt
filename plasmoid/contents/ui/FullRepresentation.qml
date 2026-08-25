@@ -47,7 +47,7 @@ PlasmaExtras.Representation {
                 PlasmaExtras.Heading {
                     Layout.fillWidth: true
                     level: 4
-                    // Deliberately NOT the badge text: the badge caps at 99+ because a panel has
+                    // Deliberately NOT the badge text: the badge caps at 999+ because a panel has
                     // no room, and this has plenty. Someone who opened the popup wants the number.
                     text: popup.vm.headerText
                     elide: Text.ElideRight

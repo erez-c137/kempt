@@ -20,6 +20,13 @@
 
   Not the Breeze ruler (actions/22/measure): that is a hollow outlined box with
   short ticks inside it. This is a solid spine with long teeth outside it.
+
+  SHIPPED BUT UNREFERENCED, deliberately. No code loads this file: the plasmoid's
+  panel icon comes from metadata.json's "Icon": "kempt", which resolves through the
+  icon THEME (install.sh copies contents/icons/kempt.svg into hicolor), and nothing
+  names kempt-symbolic. It is here for the planned panel-icon-choice setting, which
+  will let the user pick the monochrome comb instead of the themed update icon. Do
+  not "clean up" as dead weight; do not assume a change here reaches the panel.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="22" height="22" viewBox="0 0 22 22">
     <defs id="defs3">
