@@ -51,6 +51,58 @@ function shellQuote(s) {
     return "'" + String(s).split("'").join("'\\''") + "'";
 }
 
+// The run surfaces the CLI knows, in the order the settings page offers them.
+var SURFACES = ["terminal", "popup", "background", "offline"];
+
+// isTrue(s) -> the same answer lib/common.sh's is_true() gives.
+// The settings page reads booleans back as the TEXT `upkeep config get` printed, and the two must
+// not disagree about what "yes" means - a checkbox that renders a config value as its opposite is
+// how a user turns something off and finds it back on.
+function isTrue(value) {
+    if (typeof value === "boolean") return value;
+    var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+}
+
+// resolveSurface(s) -> a surface the CLI recognises, mirroring bin/upkeep's resolve_surface():
+// anything unknown is `terminal`, because that is what the CLI itself would run.
+function resolveSurface(value) {
+    var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+    return SURFACES.indexOf(s) >= 0 ? s : "terminal";
+}
+
+// holdsOf(text) -> [{ id, backend, name }] from `upkeep holds` output (raw `backend:name` lines).
+// Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
+// colon still round-trips to the same hold the CLI would remove.
+function holdsOf(text) {
+    var out = [], lines, i, line, cut;
+    if (typeof text !== "string") return out;
+    lines = text.split("\n");
+    for (i = 0; i < lines.length; i++) {
+        line = lines[i].trim();
+        if (line === "") continue;
+        cut = line.indexOf(":");
+        if (cut <= 0 || cut === line.length - 1) continue;   // not a backend:name pair
+        out.push({ id: line, backend: line.substring(0, cut), name: line.substring(cut + 1) });
+    }
+    return out;
+}
+
+// lastLinesOf(text, max) -> the last `max` non-blank lines, trimmed and joined with " ".
+// The result line under the passwordless buttons. The LAST lines and not the first: pkexec and
+// polkit print their progress before their verdict, and the verdict is the part worth showing.
+function lastLinesOf(text, max) {
+    var kept = [], lines, i, line;
+    if (typeof text !== "string") return "";
+    if (!max || max < 1) max = 2;
+    lines = text.split("\n");
+    for (i = 0; i < lines.length; i++) {
+        line = lines[i].trim();
+        if (line !== "") kept.push(line);
+    }
+    return kept.slice(Math.max(0, kept.length - max)).join(" ");
+}
+
 // firstLineOf(text) -> the first non-blank line, trimmed, or "".
 // `ls -1t | head -1` and `upkeep summary` both hand back text the popup shows on one line; doing
 // the trimming here rather than in QML is what lets a node test pin it.
@@ -397,6 +449,10 @@ if (typeof module !== "undefined" && module.exports) {
         formatStamp: formatStamp,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
-        rowsOf: rowsOf
+        rowsOf: rowsOf,
+        isTrue: isTrue,
+        resolveSurface: resolveSurface,
+        holdsOf: holdsOf,
+        lastLinesOf: lastLinesOf
     };
 }

@@ -258,6 +258,68 @@ assert_eq "$(js 'L.shellQuote(null)')" "''" "...and so is a missing one"
 assert_eq "$(js 'L.shellQuote("$(whoami)")')" "'\$(whoami)'" "command substitution is inert inside single quotes"
 assert_eq "$(js 'L.shellQuote("`id`")')" "'\`id\`'" "so are backticks"
 
+# --- isTrue: the settings page must read a boolean the way the CLI writes one ------------------
+# The page gets these back as the TEXT `upkeep config get` printed. If the two disagreed about
+# what counts as true, a user would switch something off and find it back on.
+for t in true TRUE True 1 yes YES; do
+  assert_eq "$(js "L.isTrue(\"$t\")")" "true" "isTrue accepts $t, like lib/common.sh's is_true"
+done
+for f in false FALSE 0 no "" "  " nonsense; do
+  assert_eq "$(js "L.isTrue(\"$f\")")" "false" "isTrue rejects '$f'"
+done
+assert_eq "$(js 'L.isTrue(null)')" "false" "a missing value is not true"
+assert_eq "$(js 'L.isTrue(true)')" "true" "an actual boolean survives"
+assert_eq "$(js 'L.isTrue(" true ")')" "true" "surrounding whitespace does not change the answer"
+# The real CLI is the reference, not my reading of it: same inputs, same verdicts.
+source "$REPO_ROOT/lib/common.sh"
+for t in true TRUE True 1 yes YES false FALSE 0 no nonsense; do
+  cli=false; is_true "$t" && cli=true
+  assert_eq "$(js "L.isTrue(\"$t\")")" "$cli" "isTrue agrees with the CLI's is_true about '$t'"
+done
+
+# --- resolveSurface: unknown means terminal, exactly as bin/upkeep decides ---------------------
+for s in terminal popup background offline; do
+  assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
+done
+assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
+assert_eq "$(js 'L.resolveSurface("")')" "terminal" "so does an empty one"
+assert_eq "$(js 'L.resolveSurface(null)')" "terminal" "and a missing one"
+assert_eq "$(js 'L.resolveSurface(" POPUP ")')" "popup" "case and whitespace do not hide a real surface"
+# Same reference check: the CLI's own resolve_surface is the authority.
+for s in terminal popup background offline nonsense ""; do
+  assert_eq "$(js "L.resolveSurface(\"$s\")")" "$(bash -c "source '$REPO_ROOT/lib/common.sh'; source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/upkeep')\"; resolve_surface '$s'")" \
+    "resolveSurface agrees with the CLI about '$s'"
+done
+
+# --- holdsOf: `upkeep holds` prints raw backend:name lines -------------------------------------
+assert_eq "$(js 'L.holdsOf("dnf:vim-common\nflatpak:org.gimp.GIMP").length')" "2" "one entry per line"
+assert_eq "$(js 'L.holdsOf("dnf:vim-common")[0].backend')" "dnf" "the backend is the part before the colon"
+assert_eq "$(js 'L.holdsOf("dnf:vim-common")[0].name')" "vim-common" "...and the name is the rest"
+assert_eq "$(js 'L.holdsOf("dnf:vim-common")[0].id')" "dnf:vim-common" \
+  "...with the whole line kept, because that is the argument unhold takes"
+# Split at the FIRST colon, like cmd_hold's \${1%%:*}: a name containing one still round-trips.
+assert_eq "$(js 'L.holdsOf("flatpak:org.x:weird")[0].name')" "org.x:weird" "a colon in the name survives"
+assert_eq "$(js 'L.holdsOf("")[0]')" "undefined" "no holds, no entries"
+assert_eq "$(js 'L.holdsOf("\n  \n").length')" "0" "blank lines are skipped"
+assert_eq "$(js 'L.holdsOf("garbage-no-colon\ndnf:ok").length')" "1" "a line that is not a pair is skipped"
+assert_eq "$(js 'L.holdsOf("dnf:").length')" "0" "so is a backend with no name"
+assert_eq "$(js 'L.holdsOf(null).length')" "0" "a missing string is not an error"
+# End to end against the real CLI: what `upkeep holds` actually prints is what this parses.
+holds_out="$(UPKEEP_CONFIG_DIR="$TESTTMP/hcfg" UPKEEP_STATE_DIR="$TESTTMP/hstate" bash -c "
+  '$REPO_ROOT/bin/upkeep' hold dnf:vim-common >/dev/null
+  '$REPO_ROOT/bin/upkeep' hold flatpak:org.gimp.GIMP >/dev/null
+  '$REPO_ROOT/bin/upkeep' holds")"
+assert_eq "$(HOLDS="$holds_out" js 'L.holdsOf(process.env.HOLDS).map(function (h) { return h.id; })')" \
+  '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real `upkeep holds` prints"
+
+# --- lastLinesOf: the result line under the passwordless buttons -------------------------------
+assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 1)')" "three" "the last line is the verdict"
+assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 2)')" "two three" "a short tail joins with a space"
+assert_eq "$(js 'L.lastLinesOf("only", 2)')" "only" "fewer lines than asked for is fine"
+assert_eq "$(js 'L.lastLinesOf("a\n\n\nb\n\n", 2)')" "a b" "blank lines do not count towards the tail"
+assert_eq "$(js 'L.lastLinesOf("", 2)')" "" "nothing said, nothing shown"
+assert_eq "$(js 'L.lastLinesOf(null, 2)')" "" "and a missing string is not an error"
+
 # --- firstLineOf ------------------------------------------------------------------------------
 assert_eq "$(js 'L.firstLineOf("  hello  \nworld")')" "hello" "the first line comes back trimmed"
 assert_eq "$(js 'L.firstLineOf("\n\n  real line\nmore")')" "real line" "leading blank lines are skipped"
@@ -426,6 +488,24 @@ done
 unset EVIL
 assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
 unset HOSTILE
+
+# --- no shadow settings ------------------------------------------------------------------------
+# The settings page is a front-end to `upkeep config` and nothing else. A KConfig entry here would
+# be a second copy of a setting the CLI also owns, and the two would drift the first time somebody
+# typed `upkeep config set` in a terminal. The plasmoid must therefore declare NO keys at all.
+XML="$REPO_ROOT/plasmoid/contents/config/main.xml"
+assert_eq "$(grep -c '<entry' "$XML")" "0" "the plasmoid declares no KConfig entries of its own"
+assert_eq "$(grep -c 'cfg_' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml")" "0" \
+  "...and the settings page uses no cfg_ auto-binding, which would need them"
+assert_exit 0 "the kcfg skeleton is still well-formed XML" -- python3 -c "
+import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"
+# Every key the page writes is a key the CLI actually knows: a typo here would write a setting
+# nothing ever reads, and the page would look like it worked.
+for key in include_flatpak auto_accept surface refresh_interval_min; do
+  grep -q "setIfChanged(\"$key\"" "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
+    && echo "ok: the page writes $key" || { echo "FAIL: the page never writes $key"; _fail=1; }
+  assert_eq "$(upkeep_default "$key" | head -c 1 | wc -c)" "1" "...and the CLI has a default for $key"
+done
 
 qml_check
 finish

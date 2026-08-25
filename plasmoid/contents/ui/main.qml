@@ -50,13 +50,21 @@ PlasmoidItem {
     // `upkeep` never writes to, and the badge would stop noticing its own runs. If the CLI ever
     // adopts XDG_STATE_HOME, this line follows it, not the other way round.
     readonly property string stateDir: "${UPKEEP_STATE_DIR:-$HOME/.local/state/upkeep}"
+    // ...and its config, resolved the same way (lib/common.sh line 19).
+    readonly property string configDir: "${UPKEEP_CONFIG_DIR:-$HOME/.config/upkeep}"
 
     // The event-driven half of the refresh (spec: an update applied from ANY source must show up
     // within seconds). KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
     // package databases plus our own state file - three stats cost nothing and catch a manual
     // `dnf upgrade`, a Discover run and another Upkeep run alike.
+    // The config file is watched too, and that is what makes the settings page work at all: a
+    // config page is built by the shell in its own dialog, so it cannot call back into this file
+    // (there is no rootItem to reach through). It writes with `upkeep config set`, this notices
+    // the file change, and the interval, the surface and the pending list are all re-read from
+    // the CLI - which also means a `upkeep config set` typed in a terminal updates the widget.
     readonly property string watchCmd:
-        "stat -c %Y /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" 2>/dev/null | tr '\\n' ' '"
+        "stat -c %Y /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" \""
+        + configDir + "/config\" 2>/dev/null | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
@@ -123,6 +131,11 @@ PlasmoidItem {
             // CLI re-checks itself when it finishes, so its own write to state.json is the signal
             // that there is something new to show.
             root.leaveUpdating();
+            // Cheap enough to do unconditionally (two `config get` calls) and it is the only way
+            // a settings apply reaches this file. include_flatpak can change what is pending, so
+            // the check below has to happen either way.
+            root.readInterval();
+            root.readSurface();
             root.doCheck();
         });
     }
