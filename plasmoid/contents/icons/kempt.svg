@@ -7,15 +7,26 @@
   Tile   Lame superellipse |(x-128)/128|^4 + |(y-128)/128|^4 = 1, drawn as eight
          cubics (max deviation 0.02 px). A true squircle with transparent
          corners, not a soft octagon, and it survives a circle crop: the comb's
-         far corner sits 115.6 px from centre, inside the 128 px inscribed circle.
+         far corner sits 107.7 px from centre, inside the 128 px inscribed circle.
 
-  Comb   184 x 140 = 71.9% x 54.7% of the 256 tile, centred (x 36-220, y 58-198).
-         Spine  50 px = 36%   y 58-108, top corners r=8.
-         Teeth  90 px = 64%   y 108-198, square tips.
-         5 teeth, 16 px wide, 16 px gaps (tooth = gap), and a 20 px spine
-         overhang at each end so the spine reads as the comb's back rather than
-         a lintel over five columns.
+  Comb   144 x 160 = 56.3% x 62.5% of the 256 tile, centred (x 56-200, y 48-208).
+         Spine  56 px = 35%   y 48-104, width 144 (= tooth span), top corners r=8.
+         Teeth 104 px = 65%   y 104-208, square tips.
+         5 teeth, 16 px wide, 16 px gaps (tooth = gap), FLUSH ends: the spine
+         stops exactly where the outermost teeth stop, so the comb ends with a
+         tooth on each side, as a real comb does.
          Tooth spans x: 56-72, 88-104, 120-136, 152-168, 184-200.
+
+  Why these numbers. Only two of three can hold at once: a 16 px tooth pitch,
+  flush ends, and the old 184 px footprint. Tooth pitch 16 is the one that buys
+  pixel-crisp teeth at 32 px - every edge is a multiple of 8, so at 32 px each
+  tooth is exactly 2 px of solid cream and each gap exactly 2 px of solid slate,
+  with no antialiased half-tones anywhere in a row through the teeth. Flush ends
+  are what make the silhouette read as a comb rather than a lintel over five
+  columns. So the footprint is what gives, and the weight it took with it is
+  paid back VERTICALLY: the comb grew from 140 px to 160 px tall (y 58-198 ->
+  y 48-208), keeping the spine-to-teeth ratio on its 36/64 target and every
+  coordinate on the multiple-of-8 grid.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <path
@@ -23,11 +34,10 @@
      d="M 256 128 C 256 177.85 257.11 214.16 235.63 235.63 C 214.16 257.11 177.85 256 128 256 C 78.15 256 41.84 257.11 20.37 235.63 C -1.11 214.16 0 177.85 0 128 C 0 78.15 -1.11 41.84 20.37 20.37 C 41.84 -1.11 78.15 0 128 0 C 177.85 0 214.16 -1.11 235.63 20.37 C 257.11 41.84 256 78.15 256 128 Z" />
   <path
      fill="#F2F0E3"
-     d="M 44 58 H 212 A 8 8 0 0 1 220 66 V 108
-        H 200 V 198 H 184 V 108
-        H 168 V 198 H 152 V 108
-        H 136 V 198 H 120 V 108
-        H 104 V 198 H 88  V 108
-        H 72  V 198 H 56  V 108
-        H 36 V 66 A 8 8 0 0 1 44 58 Z" />
+     d="M 64 48 H 192 A 8 8 0 0 1 200 56 V 208
+        H 184 V 104
+        H 168 V 208 H 152 V 104
+        H 136 V 208 H 120 V 104
+        H 104 V 208 H 88  V 104
+        H 72  V 208 H 56  V 56 A 8 8 0 0 1 64 48 Z" />
 </svg>

@@ -4,22 +4,30 @@
   every edge on an integer coordinate. Never scale this drawing down to 16 px;
   use kempt-symbolic-16.svg, which is a separate hand-hinted drawing.
 
-  Glyph  16 w x 13 h   (x 2-18, y 3-16)
+  Glyph  14 w x 13 h   (x 2-16, y 3-16)
   Spine  y 3-8   (5 px)          spine : teeth = 5 : 8, near the 36/64 target
-  Teeth  y 8-16  (8 px), 2 px wide, 1 px gaps, square tips
-         x: 3-5, 6-8, 9-11, 12-14, 15-17   (1 px spine overhang each end)
+  Teeth  y 8-16  (8 px), 2 px wide, 1 px gaps, square tips, FLUSH with both ends
+         x: 2-4, 5-7, 8-10, 11-13, 14-16   (5 x 2 + 4 x 1 = 14 px exactly)
+
+  Flush ends match the full-colour icon: the spine stops exactly where the
+  outermost teeth stop, so the comb ends with a tooth on each side. That is the
+  same 14 px width the 16 px drawing already uses, and it keeps the tooth pitch
+  on the pixel grid - the thing that stops the teeth greying out at panel sizes.
 
   Badge clearance. The plasmoid draws an opaque count badge anchored to the
   bottom-right of the panel cell at 0.5 x the short side, over an icon drawn at
   0.7 x the short side and centred - which lands on exactly x>=11, y>=11 in this
-  viewBox. The glyph is therefore shifted 1 px up and 1 px left of centre, so the
-  spine and the first three teeth sit entirely clear of the badge and the comb
-  still reads with the badge shown. The teeth are deliberately left EQUAL: a
-  shortened last tooth clears nothing extra once the badge is opaque, and reads
-  as a broken comb in the badge-hidden state, which is the common one.
+  viewBox. The spine (y 3-8) and the first three teeth (x 2-4, 5-7, 8-10) sit
+  entirely clear of it, so the comb still reads with the badge shown. The teeth
+  are deliberately left EQUAL: a shortened last tooth clears nothing extra once
+  the badge is opaque, and reads as a broken comb in the badge-hidden state,
+  which is the common one.
 
   Not the Breeze ruler (actions/22/measure): that is a hollow outlined box with
-  short ticks inside it. This is a solid spine with long teeth outside it.
+  short ticks hanging INSIDE it. This is a solid spine with long teeth OUTSIDE
+  it, running past the glyph's own bottom edge. Flush ends do move the outer
+  silhouette a step closer to a rectangle, so the distinctness now rests on the
+  teeth being solid, long and open at the bottom rather than on ragged ends.
 
   SHIPPED BUT UNREFERENCED, deliberately. No code loads this file: the plasmoid's
   panel icon comes from metadata.json's "Icon": "kempt", which resolves through the
@@ -37,5 +45,5 @@
     <path
        class="ColorScheme-Text"
        fill="currentColor"
-       d="M2 3 H18 V8 H17 V16 H15 V8 H14 V16 H12 V8 H11 V16 H9 V8 H8 V16 H6 V8 H5 V16 H3 V8 H2 Z" />
+       d="M2 3 H16 V16 H14 V8 H13 V16 H11 V8 H10 V16 H8 V8 H7 V16 H5 V8 H4 V16 H2 Z" />
 </svg>
