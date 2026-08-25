@@ -367,6 +367,15 @@ KCM.SimpleKCM {
 
                 Kirigami.FormData.label: index === 0 ? i18n("Run updates in:") : ""
                 text: modelData.label
+                // Exclusivity here is the `checked` binding below and NOTHING else, so QQC2's own
+                // must be turned off. A RadioButton with autoExclusive left on joins the group of
+                // its PARENT - and a Repeater reparents its delegates to the Repeater's parent, so
+                // these four and the four panel-icon-size buttons further down are all children of
+                // the same Kirigami.FormLayout and were treated as ONE group of eight. Whichever
+                // group's `checked` binding evaluated second won: QQC2 unchecked every other
+                // button in the group, and unchecking one is a WRITE that overrides its binding
+                // for good. A fresh install opened with "Panel icon size" showing nothing at all.
+                autoExclusive: false
                 // A view of page.surfaceKey, and the only writer of it is a click.
                 checked: page.surfaceKey === surfaceKey
                 onToggled: {
@@ -423,6 +432,9 @@ KCM.SimpleKCM {
 
                 Kirigami.FormData.label: index === 0 ? i18n("Panel icon size:") : ""
                 text: modelData.label
+                // Off for the same reason as the surface radios above: these share a FormLayout
+                // parent with them, and QQC2 would otherwise run all eight as one exclusive group.
+                autoExclusive: false
                 checked: page.iconSizeKey === sizeKey
                 enabled: !page.loading
                 onToggled: {

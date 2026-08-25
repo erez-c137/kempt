@@ -66,8 +66,10 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   44 px default included - rather than filling its cell, which made it stand a head taller than
   every tray icon beside it. `widget_icon_size` (Automatic, Small, Medium, Large, also on the
   settings page) overrides that where the judgement is wrong; a size the panel cannot fit falls
-  back to Automatic, so inside the tray the tray's own slot always wins. The count badge is drawn
-  against the icon rather than the cell, so it stays legible and stays where the glyph is.
+  back to Automatic, so inside the tray the tray's own slot always wins, and Large is never smaller
+  than Automatic. The count badge is drawn against the icon rather than the cell, so it stays
+  legible and stays where the glyph is - and below the 22 px step it is left off rather than drawn
+  at a size nothing can be read at, with the tooltip carrying the exact count.
 - **An icon of its own.** A comb glyph: the application icon plus 22px and 16px symbolics ship
   inside the widget package, and `install.sh` also puts the application icon into the user's
   hicolor theme, which is what makes **Add Widgets** show it (a package-local icon name does not

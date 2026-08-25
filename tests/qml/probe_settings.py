@@ -158,6 +158,68 @@ p.check("...shown as the selected radio, not merely held in a property",
         ev0("iconSizeRepeater.itemAt(2).checked"), True)
 
 # ==================================================================================================
+# The two radio groups are INDEPENDENT of each other.
+# Measured on a fresh install: the settings page opened with NOTHING selected under "Panel icon
+# size". Both Repeaters put their delegates under the same Kirigami.FormLayout, and a QQC2
+# RadioButton with autoExclusive left on takes its exclusive group from its PARENT - so the four
+# surface buttons and the four icon-size buttons were one group of eight. Whichever group's
+# `checked` binding evaluated second had every other button in the group unchecked from C++, and
+# that uncheck is a write: the losing group's bindings did not put it back until something else
+# moved. Exclusivity here is the `checked: page.xKey === key` binding and nothing else, so QQC2's
+# own has to be off.
+# ==================================================================================================
+CHECKED = ("(function () { var n = 0, i;"
+           " for (i = 0; i < %(r)s.count; i++) if (%(r)s.itemAt(i).checked) n++;"
+           " return n; })()")
+WHICH = ("(function () { var i;"
+         " for (i = 0; i < %(r)s.count; i++) if (%(r)s.itemAt(i).checked) return i;"
+         " return -1; })()")
+
+
+def group(evx, repeater):
+    """[how many buttons are checked in this Repeater, which one]."""
+    return [evx(CHECKED % {"r": repeater}), evx(WHICH % {"r": repeater})]
+
+
+pageR, evR = None, None
+for icon_size, want in (("auto", 0), ("medium", 2)):
+    for k, v in DEFAULTS:
+        setval(k, v)
+    setval("widget_icon_size", icon_size)
+    p.clear_calls()
+    pageR, evR = build()
+    p.check("opening on widget_icon_size=%s checks exactly one panel-icon-size radio" % icon_size,
+            group(evR, "iconSizeRepeater"), [1, want])
+    p.check("...and exactly one surface radio, the stored one",
+            group(evR, "surfaceRepeater"), [1, 1])
+
+# Driven the way a user drives it, in the two steps a click really is: toggle() flips `checked`
+# through the same C++ setter the mouse goes through - which is where QQC2 would uncheck the rest
+# of an exclusive group - and then the control emits toggled(), which is the signal this page
+# listens to. Deliberately NOT `checked = true` from JS: that assignment DESTROYS the delegate's
+# `checked` binding, so the button would stay lit whatever the page property said afterwards and
+# this section would be proving nothing. The other group must not move.
+before_icon = group(evR, "iconSizeRepeater")
+evR("surfaceRepeater.itemAt(3).toggle()")
+evR("surfaceRepeater.itemAt(3).toggled()")
+p.pump(60)
+p.check("clicking a surface radio moves the surface choice", evR("page.surfaceKey"), "offline")
+p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 3])
+p.check("...and the panel-icon-size group exactly as it was",
+        group(evR, "iconSizeRepeater"), before_icon)
+p.check("...including the property behind it", evR("page.iconSizeKey"), "medium")
+
+before_surface = group(evR, "surfaceRepeater")
+evR("iconSizeRepeater.itemAt(1).toggle()")
+evR("iconSizeRepeater.itemAt(1).toggled()")
+p.pump(60)
+p.check("clicking a panel-icon-size radio moves that choice", evR("page.iconSizeKey"), "small")
+p.check("...leaving exactly one of its own buttons checked",
+        group(evR, "iconSizeRepeater"), [1, 1])
+p.check("...and the surface group untouched", group(evR, "surfaceRepeater"), before_surface)
+p.check("...including the property behind it", evR("page.surfaceKey"), "offline")
+
+# ==================================================================================================
 # The Apply button, wired the way the shell wires it.
 # ==================================================================================================
 p.clear_calls()

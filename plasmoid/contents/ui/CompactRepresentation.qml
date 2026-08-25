@@ -68,12 +68,18 @@ Item {
         Kirigami.Units.iconSizes.huge          // 64
     ])
 
-    // Below the smallest hinted step there is no room for a legible number, and Plasma widgets
-    // drop the overlay rather than draw mush. Measured against the ICON and not the cell, because
-    // the icon is now the smaller of the two: keeping the old cell-based test would have hidden
-    // the badge on a thin panel while the icon was perfectly capable of carrying it - and, worse,
-    // would have punished anyone who chose "Small" on a wide panel by silently dropping the count.
-    readonly property bool roomForBadge: compactRoot.iconSize >= Kirigami.Units.iconSizes.small
+    // Below this there is no room for a legible number, and Plasma widgets drop the overlay
+    // rather than draw mush. Measured against the ICON and not the cell, because the icon is now
+    // the smaller of the two: a cell-based test would hide the badge on a thin panel while the
+    // icon is perfectly capable of carrying it.
+    //
+    // The floor is the 22px step, not the 16px one, and that is a legibility measurement rather
+    // than a guess. The pill is 0.6 of the icon and the label 0.5 of the pill once the count runs
+    // past two characters, so a 16px icon renders "347" at FIVE pixels - a grey smudge that says
+    // something is pending without saying what, which is worse than saying nothing. At 16 the
+    // count lives in the tooltip, which is never capped and never abbreviated; the icon itself
+    // still changes (update-none -> update-low), so the panel still says there is something to do.
+    readonly property bool roomForBadge: compactRoot.iconSize >= Kirigami.Units.iconSizes.smallMedium
 
     Kirigami.Icon {
         id: mainIcon

@@ -136,6 +136,10 @@ function usableSteps(steps) {
 // still gets its own hinted artwork rather than a number this file invented.
 var ICON_SIZE_SETTINGS = { auto: -1, small: 0, medium: 1, large: 2 };
 
+// ...and the ones that must never come out SMALLER than what `auto` would have drawn. Only the
+// largest option is in here, and the asymmetry is the point: see resolveIconSize below.
+var ICON_SIZE_FLOOR_AT_AUTO = { large: true };
+
 // resolveIconSizeSetting(value) -> a setting the widget recognises, mirroring resolveSurface:
 // anything unknown is `auto`. This is the ONLY validation `widget_icon_size` gets - the CLI
 // stores whatever it is handed (config_set checks the key's shape, not the value's meaning), so
@@ -155,10 +159,19 @@ function resolveIconSize(setting, cell, steps) {
     var list = usableSteps(steps), c = Number(cell);
     var auto = snapIconSize(c, list);
     if (!isFinite(c) || c <= 0) return auto;          // no cell yet: nothing to draw into
-    var idx = ICON_SIZE_SETTINGS[resolveIconSizeSetting(setting)];
+    var key = resolveIconSizeSetting(setting);
+    var idx = ICON_SIZE_SETTINGS[key];
     if (idx < 0) return auto;
     var want = Number(list[idx]);
     if (!isFinite(want) || want <= 0) return auto;    // a step list too short to name it
+    // "Large" is a promise about size, and on a big cell the named step broke it: the auto ladder
+    // reaches 48 at a 96px cell and 64 at 192, while `large` names the third step (32) - so on a
+    // vertical dock or a HiDPI panel, choosing Large made the icon SMALLER than the one Automatic
+    // was already drawing. Floored against auto rather than renaming the options to pixel counts,
+    // which would have made every label a number the user has to translate for themselves.
+    // Small and Medium are deliberately NOT floored: they are requests to go below Automatic,
+    // which is the entire reason they exist (an ordinary 44px panel draws 22 on auto, 16 on Small).
+    if (ICON_SIZE_FLOOR_AT_AUTO[key]) want = Math.max(want, auto);
     return want > c ? auto : want;
 }
 

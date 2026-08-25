@@ -24,7 +24,9 @@ os.makedirs(p.state)
 MODE = os.path.join(p.sandbox, "mode")
 IVAL = os.path.join(p.sandbox, "interval")
 SIZE = os.path.join(p.sandbox, "iconsize")
-open(MODE, "w").write("live")
+# The first check answers with NOTHING - another check holding the lock, which is the ordinary
+# state of a fresh login and the case the bounded retry below exists for.
+open(MODE, "w").write("empty")
 open(IVAL, "w").write("15")
 open(SIZE, "w").write("auto")
 STATE_JSON = os.path.join(p.state, "state.json")
@@ -52,6 +54,56 @@ fi
        "ST": STATE_JSON})
 
 root, ev = p.create("main.qml")
+p.wait_for(ev, "root.checking", False)
+
+# --- 0. the first check answered with nothing: retry, do not sit there dim ---------------------
+# `kempt check` prints an empty line and exits 0 when another check already holds the lock. The
+# widget is right to keep its last known state - but at startup there is no last known state, so
+# the panel showed the dim "unknown" icon and had nothing to change its mind until the hourly
+# checkTimer came round: a login where the CLI's own refresh was still running left the widget
+# blank for the best part of an hour.
+p.check("a first check that answered with nothing leaves the widget without state",
+        ev("root.kemptState === null"), True)
+p.check("...and the panel says unknown rather than claiming zero updates", ev("root.vm.iconState"), "unknown")
+p.check("...with a retry armed instead of an hour of silence", ev("firstCheckRetry.running"), True)
+p.check("...at the ten seconds this ships with", ev("firstCheckRetry.interval"), 10000)
+p.check("...counted, so it can be bounded", ev("root.firstCheckRetries"), 1)
+
+# The same timer, hurried along: what is proved here is that firing it recovers the widget, and the
+# ten seconds are already pinned by the assertion above.
+ev("firstCheckRetry.interval = 250")
+open(MODE, "w").write("live")
+before = p.call_count("check")
+p.wait_for(ev, "root.kemptState !== null", True, timeout_ms=8000)
+p.check("the retry re-asks and the widget reaches a real state within seconds",
+        ev("root.kemptState !== null"), True)
+p.check("...having run exactly one more check", p.call_count("check") - before, 1)
+p.wait_for(ev, "root.checking", False)
+p.check("...and the retry disarms once there is something to show", ev("firstCheckRetry.running"), False)
+p.check("...with the counter cleared for the next time", ev("root.firstCheckRetries"), 0)
+
+# Bounded: a box whose lock is genuinely wedged must not become a widget forking a check every ten
+# seconds forever. After the last attempt it defers to checkTimer like any other check.
+open(MODE, "w").write("empty")
+ev("root.kemptState = null; root.cliError = ''; "
+   "root.firstCheckRetries = root.maxFirstCheckRetries")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.check("after the last attempt the widget stops re-asking", ev("firstCheckRetry.running"), False)
+p.check("...and does not push the count past its own bound", ev("root.firstCheckRetries"), 3)
+
+# ...and a CLI we could not run at all is an ANSWER, not a lost lock: the popup carries the error
+# already, and re-asking every ten seconds would only repeat it.
+ev("root.kemptState = null; root.cliError = 'kempt: command not found'; root.firstCheckRetries = 0")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.check("a check that could not run the CLI is not retried on a timer",
+        ev("firstCheckRetry.running"), False)
+p.check("...and nothing was counted against the retry budget", ev("root.firstCheckRetries"), 0)
+
+open(MODE, "w").write("live")
+ev("root.cliError = ''")
+ev("root.doCheck()")
 p.wait_for(ev, "root.kemptState !== null", True)
 p.wait_for(ev, "root.checking", False)
 
@@ -64,6 +116,12 @@ p.check("the check interval is read from `kempt config`", ev("root.refreshInterv
 p.check("...and the timer actually uses it", ev("checkTimer.interval"), 15 * 60000)
 p.check("the watcher has a baseline after the first check", ev("root.watchStamp !== ''"), True)
 p.check("nothing is left in flight", ev("root.checking"), False)
+# The tray claim RAN. It is one assignment inside a try/catch, and a swallowed exception looks
+# exactly like a line that was never called - so without this witness, deleting claimTrayPresence()
+# would put the widget back to being installed in the tray, enabled and invisible, with the whole
+# suite still green.
+p.check("the widget claims an active status so the system tray shows it",
+        ev("root.trayPresenceClaimed"), True)
 
 # --- 2. empty stdout, exit 0: no data, keep what we had ---------------------------------------
 open(MODE, "w").write("empty")
@@ -220,6 +278,26 @@ for size, want in sorted(expected.items()):
     p.check("a %d px panel asks the icon theme for %d px" % (size, want), got, want)
     p.check("...and Kirigami.Icon is actually given that size", cev("mainIcon().width"), want)
     p.check("...without overflowing the cell", got <= size, True)
+
+# The badge's legibility floor. The pill is 0.6 of the icon and the label half of the pill once the
+# count runs past two characters, so at the 16px step "347" renders at FIVE pixels - a smudge that
+# says something is pending without saying what. Below 22 the count lives in the tooltip, which is
+# never capped, and the icon still changes to say there is something to do.
+for txt in ("7", "347"):
+    obj, cev = cell(16, txt)
+    p.pump(60)
+    p.check("a 16px cell draws the icon at 16", cev("cr.iconSize"), 16)
+    p.check("...and drops the %s badge rather than drawing an unreadable one" % txt,
+            cev("badge().visible"), False)
+obj, cev = cell(44, "347", "small")
+p.pump(60)
+p.check("choosing Small on an ordinary panel puts the icon on the 16px step", cev("cr.iconSize"), 16)
+p.check("...so the badge goes with it", cev("badge().visible"), False)
+obj, cev = cell(22, "347")
+p.pump(60)
+p.check("the 22px step is where the badge comes back", cev("cr.iconSize"), 22)
+p.check("...and it is drawn", cev("badge().visible"), True)
+p.check("...at a size a count can be read at", cev("badge().children[0].font.pixelSize") >= 6, True)
 
 # Below the smallest hinted step there is nothing to snap to, so it must still be a whole number
 # of pixels rather than a fraction.

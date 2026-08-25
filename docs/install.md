@@ -199,6 +199,11 @@ The CLI updates immediately, because `~/.local/bin/kempt` points into the checko
 `./install.sh` if the root helpers or the polkit action changed - those are copies, and a stale
 copy keeps running until it is replaced.
 
+Re-running the installer upgrades the widget package in place, and it says so. Plasma keeps the
+QML it already loaded, so run `plasmashell --replace` (or log out and back in) afterwards to see
+the new version. The installer deliberately does **not** remove and re-install the package to
+force that: removing it would take the widget off your panel and out of your tray with it.
+
 ## Staged install (packagers and testers)
 
 `--destdir` stages every file into a prefix, unprivileged, with no `pkexec` and no prompts:

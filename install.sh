@@ -85,12 +85,27 @@ widget_install() {
   }
   # -i refuses when the package is already installed and -u is the upgrade path, so trying -i
   # first and falling back to -u makes one command cover both a first install and an update.
-  run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -i "$ROOT/plasmoid" 2>/dev/null \
-    || run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -u "$ROOT/plasmoid" \
-    || { echo "warning: could not install the panel widget - the CLI is installed and working; re-run ./install.sh to try the widget again" >&2; return 0; }
+  # WHICH of the two ran is worth remembering: only the upgrade needs the restart note below.
+  local upgraded=0
+  if run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -i "$ROOT/plasmoid" 2>/dev/null; then
+    :
+  elif run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -u "$ROOT/plasmoid"; then
+    upgraded=1
+  else
+    echo "warning: could not install the panel widget - the CLI is installed and working; re-run ./install.sh to try the widget again" >&2
+    return 0
+  fi
   icon_install
   echo "Panel widget installed. Add it: right-click the panel > Add Widgets > search for Kempt."
   echo "note: the widget is a COPY (the CLI is a symlink) - re-run ./install.sh after changing plasmoid/."
+  # An upgrade replaces the files under a plasmashell that already has the OLD ones loaded, and
+  # nothing makes it re-read them: the applet keeps running the QML it started with, and a tray
+  # entry can end up half-reloaded. Deliberately NOT solved by removing and re-installing the
+  # package - kpackagetool6 -r takes every instance of the applet off the user's panels with it,
+  # so a re-install would silently cost them the widget they had placed. Telling them how to
+  # reload the session is the honest version of that trade.
+  [[ $upgraded -eq 1 ]] && echo "note: the widget was upgraded in a running session - run 'plasmashell --replace' (or log out) so the tray entry reloads cleanly."
+  return 0
 }
 
 widget_uninstall() {

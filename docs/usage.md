@@ -381,11 +381,15 @@ follows the checkout, but the widget is a copy and does not.
 | Same as its contents, badge kept | Stale check | The last check failed (a repo flapped, the network dropped), so the counts shown are the **last known good** ones. The tooltip carries the reason and when the last successful check was. A transient repo failure is not an alarm, so the icon does not become one. |
 | Warning emblem | Error | Kempt itself could not run or could not read its state. The tooltip names the problem and points at `kempt doctor`. |
 | Spinner | Updating | A run started from the widget is in flight. |
-| Dimmed, no badge | No data yet | The first check has not answered. Deliberately not "up to date" - the widget never claims a number it does not have. |
+| Dimmed, no badge | No data yet | The first check has not answered. Deliberately not "up to date" - the widget never claims a number it does not have. If that check came back empty because another one already held the lock (common right after a login), the widget re-asks a few times about ten seconds apart instead of waiting for the next scheduled check. |
 
 The badge spells the count out exactly up to `999`, then reads `999+`. A box left alone for a few
 weeks routinely has two or three hundred updates pending, so a lower cap would be vague in the
 ordinary case rather than the extreme one. The tooltip and the popup header are never capped.
+
+Below the 22 px icon step - a very thin panel, or **Small** below - the badge is left off rather
+than drawn at a size nothing can be read at. The icon still changes to say there is something
+pending, and the tooltip carries the exact count.
 
 ### How big the icon is
 
@@ -397,6 +401,10 @@ and stood a head taller than every tray icon beside it.
 If that judgement is wrong for your panel, **Configure Kempt... > Panel icon size** offers
 **Automatic**, **Small** (16 px), **Medium** (22 px) and **Large** (32 px). Inside the system tray
 the tray sets the space, so a size larger than it allows is ignored and the icon fits its slot.
+
+**Large** is never smaller than **Automatic**: on a very thick or HiDPI panel Automatic climbs to
+48 or 64 px, and Large follows it up rather than dropping back to 32. Small and Medium are left
+alone - asking for less than Automatic is what they are for.
 
 From a terminal it is the `widget_icon_size` setting:
 

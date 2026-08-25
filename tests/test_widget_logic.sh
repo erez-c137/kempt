@@ -579,6 +579,22 @@ assert_eq "$(js 'L.resolveIconSize("large", 22)')" "22" "Large in a 22px tray sl
 assert_eq "$(js 'L.resolveIconSize("medium", 16)')" "16" "...and Medium does the same in a 16px one"
 assert_eq "$(js 'L.resolveIconSize("small", 22)')" "16" "a size that DOES fit is honoured, tray or panel"
 assert_eq "$(js 'L.resolveIconSize("large", 0)')" "0" "before the panel has sized us, nothing is drawn"
+# ...but a chosen size must never come out SMALLER than the one Automatic would have drawn, which
+# is what `large` did on any cell the ladder had already climbed past. A 96px cell (a vertical dock,
+# a HiDPI panel) autos to 48 while `large` names the 32px step, so picking Large made the icon
+# smaller - the option contradicting its own label. Floored against auto; Small and Medium are not,
+# because asking for less than Automatic is exactly what they are for.
+assert_eq "$(js 'L.resolveIconSize("auto", 96)')" "48" "a 96px cell autos to the 48px step"
+assert_eq "$(js 'L.resolveIconSize("large", 96)')" "48" "...and Large there is 48 too, never the 32 it names"
+assert_eq "$(js 'L.resolveIconSize("auto", 192)')" "64" "a 192px cell autos to the largest step"
+assert_eq "$(js 'L.resolveIconSize("large", 192)')" "64" "...and Large follows it up rather than dropping to 32"
+assert_eq "$(js 'L.resolveIconSize("large", 96) >= L.resolveIconSize("auto", 96)')" "true" \
+  "Large is never smaller than Automatic on a 96px cell"
+assert_eq "$(js 'L.resolveIconSize("large", 192) >= L.resolveIconSize("auto", 192)')" "true" \
+  "...nor on a 192px one"
+assert_eq "$(js 'L.resolveIconSize("small", 96)')" "16" "Small on a big cell still means small"
+assert_eq "$(js 'L.resolveIconSize("medium", 192)')" "22" "...and Medium still means the tray's own size"
+assert_eq "$(js 'L.resolveIconSize("large", 64)')" "32" "the floor changes nothing where auto is already below it"
 # The widget is the only validator this setting has: `kempt config set` stores whatever it is
 # handed. Every unrecognised value means the same thing - decide it automatically, say nothing.
 assert_eq "$(js 'L.resolveIconSize("bogus", 44)')" "22" "a value the widget does not know falls back to automatic"

@@ -231,12 +231,27 @@ grep -q 'COPY' "$TESTTMP/wout" && echo "ok: ...and that the widget, unlike the C
 grep -qi 'log out' "$TESTTMP/wout" && echo "ok: ...and how to get the icon to appear if the session missed the reload" \
   || { echo "FAIL: no log-out fallback after installing the icon - got: $(cat "$TESTTMP/wout")"; _fail=1; }
 
+# A first install must NOT tell anybody to restart their shell: there is nothing loaded yet.
+grep -qF -- 'plasmashell --replace' "$TESTTMP/wout" \
+  && { echo "FAIL: a first install tells the user to restart plasmashell - got: $(cat "$TESTTMP/wout")"; _fail=1; } \
+  || echo "ok: ...and a FIRST install says nothing about restarting the shell"
+
 # Re-running the installer is how a user updates: -i refuses, -u has to pick it up.
 : > "$TESTTMP/kp-calls"
-KEMPT_KPACKAGETOOL="$TESTTMP/kp-already" widget_install >/dev/null 2>&1
+KEMPT_KPACKAGETOOL="$TESTTMP/kp-already" widget_install > "$TESTTMP/uout" 2>&1
 assert_eq "$(grep -c '' "$TESTTMP/kp-calls")" "2" "an already-installed widget falls back to the upgrade path"
 assert_eq "$(sed -n 2p "$TESTTMP/kp-calls")" "-t Plasma/Applet -u $REPO_ROOT/plasmoid" \
   "...and the fallback is -u against the same tree"
+# An upgrade swaps the files under a plasmashell that already has the old ones loaded, and nothing
+# makes it re-read them - the applet keeps running the QML it started with. The alternative (remove
+# then install) would take every placed instance of the widget off the user's panels, so the fix is
+# to say so. Only on the upgrade path: the assertion above pins that a first install stays quiet.
+grep -qF -- "plasmashell --replace" "$TESTTMP/uout" \
+  && echo "ok: ...and an upgrade says how to reload the running session" \
+  || { echo "FAIL: an upgrade gives no restart hint - got: $(cat "$TESTTMP/uout")"; _fail=1; }
+grep -qF -- "the widget was upgraded in a running session" "$TESTTMP/uout" \
+  && echo "ok: ...saying plainly that this was an upgrade, not a fresh install" \
+  || { echo "FAIL: the upgrade hint does not say what happened - got: $(cat "$TESTTMP/uout")"; _fail=1; }
 
 # The CLI is the product. A box with no kpackagetool6 (no Plasma at all, or a KDE-less server)
 # must still finish the install, and must SAY the widget was skipped rather than imply it worked.

@@ -22,6 +22,14 @@ PlasmoidItem {
     property bool checking: false          // a check is in flight; keeps checks from piling up
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
     property bool holdInFlight: false      // a hold/unhold is running; the pins go inert meanwhile
+    // How many times we have re-asked after a check that answered with NOTHING. `kempt check`
+    // prints an empty line and exits 0 when another check already holds the lock, and on a fresh
+    // login that is the ordinary case rather than the exotic one: the CLI's own refresh is very
+    // often still running when plasmashell starts us. The answer to that is "keep the last known
+    // state" - but at startup there is no last known state, so the panel sat dim, said "no data
+    // yet", and had nothing to change its mind until the hourly checkTimer came round.
+    property int firstCheckRetries: 0
+    readonly property int maxFirstCheckRetries: 3
 
     // Our OWN report of a check that produced nothing usable - the CLI missing from PATH, say.
     // Distinct from the CLI reporting a problem, which arrives inside the state as `error`.
@@ -137,7 +145,23 @@ PlasmoidItem {
             if (root.recheckPending) {
                 root.recheckPending = false;
                 root.doCheck();
+                return;
             }
+            // Still nothing to show, and nothing of our OWN to report either (a missing CLI sets
+            // cliError and the popup says so - that is an answer, and re-asking would not change
+            // it). An empty answer is a lock we lost, so ask again shortly instead of leaving the
+            // panel dim for an hour. Bounded on purpose: a box where the lock is genuinely wedged
+            // must not turn into a widget forking a check every ten seconds forever, so after the
+            // last attempt this defers to checkTimer like any other check.
+            if (root.kemptState === null && root.cliError === "") {
+                if (root.firstCheckRetries < root.maxFirstCheckRetries) {
+                    root.firstCheckRetries++;
+                    firstCheckRetry.restart();
+                }
+                return;
+            }
+            root.firstCheckRetries = 0;
+            firstCheckRetry.stop();
         });
     }
 
@@ -355,6 +379,15 @@ PlasmoidItem {
         onTriggered: root.doCheck()
     }
 
+    // The bounded retry described on firstCheckRetries above. One-shot: doCheck arms it, and only
+    // an empty answer arms it again.
+    Timer {
+        id: firstCheckRetry
+        interval: 10000
+        repeat: false
+        onTriggered: root.doCheck()
+    }
+
     Timer {
         id: watchTimer
         interval: 30000
@@ -432,11 +465,23 @@ PlasmoidItem {
     // outside plasmashell there is no applet, so main.qml stops instantiating and every QML probe
     // dies with it. The value never changes, so one assignment is exactly equivalent - and it runs
     // last, after the reads above, so the catch below can only ever swallow this one line.
+    //
+    // The try/catch is why this needs a witness. A swallowed exception and a line that was never
+    // called look identical from outside, so deleting the call below - or letting the assignment
+    // start throwing after a Plasma API change - would silently put the widget back to being
+    // installed in the tray, enabled, and invisible. This property is set INSIDE the try, after
+    // the assignment, so the probe can assert the claim was actually made.
+    property bool trayPresenceClaimed: false
+
     function claimTrayPresence() {
         try {
             Plasmoid.status = PlasmaCore.Types.ActiveStatus;
+            root.trayPresenceClaimed = true;
         } catch (e) {
-            // No applet behind us: a test harness, not a panel. Nothing to tell a tray about.
+            // No applet behind us: a test harness, not a panel. Nothing to tell a tray about -
+            // but say so, because the same catch would swallow a real Plasma API change and the
+            // only symptom in a panel is a tray entry that never appears.
+            console.warn("kempt: could not claim tray presence:", e);
         }
     }
 
