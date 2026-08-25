@@ -80,6 +80,53 @@ function effectiveSurfaceOf(surface, autoAccept) {
     return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
 }
 
+// --- the watcher stamp -----------------------------------------------------------------------
+// main.qml polls the mtimes of four paths every 30 seconds and compares the result with the last
+// one. WHICH of them moved is the part that matters, and the reason is dnf: /var/lib/rpm is
+// rewritten continuously all the way through a transaction. Comparing the stamp as one string
+// says only "something changed", which during a run of ours is true every 30 seconds - so the
+// widget declared the run finished a few seconds in, printed a summary of the run before it,
+// and started a `kempt check` that wanted the same dnf lock the transaction was holding.
+// Only OUR state file says a run ended. These field names are that distinction, and they are
+// here rather than in QML so node can pin them.
+var WATCH_FIELDS = 4;
+var WATCH_STATE_FIELD = 2;      // the order in main.qml's watchCmd: rpm, flatpak, state, config
+var WATCH_CONFIG_FIELD = 3;
+
+// watchChange(prev, next) -> { any, packages, state, config, comparable }
+// `comparable` is false when either stamp is not the four fields main.qml asks for - an older
+// widget's stamp left in place across a reload, say. In that case the answer degrades to the old
+// whole-string comparison (every category true) rather than guessing which column is which:
+// wrong-but-noisy beats wrong-and-silent when what is at stake is noticing a finished run.
+function watchChange(prev, next) {
+    var a = watchFieldsOf(prev), b = watchFieldsOf(next), i;
+    var out = { any: false, packages: false, state: false, config: false, comparable: false };
+    if (a.length !== WATCH_FIELDS || b.length !== WATCH_FIELDS) {
+        out.any = a.length > 0 && b.length > 0 && a.join(" ") !== b.join(" ");
+        out.packages = out.any;
+        out.state = out.any;
+        out.config = out.any;
+        return out;
+    }
+    out.comparable = true;
+    for (i = 0; i < WATCH_FIELDS; i++) {
+        if (a[i] === b[i]) continue;
+        out.any = true;
+        if (i === WATCH_STATE_FIELD) out.state = true;
+        else if (i === WATCH_CONFIG_FIELD) out.config = true;
+        else out.packages = true;
+    }
+    return out;
+}
+
+function watchFieldsOf(stamp) {
+    var raw = String(stamp === undefined || stamp === null ? "" : stamp).trim(), out = [], i;
+    if (raw === "") return out;
+    raw = raw.split(/\s+/);
+    for (i = 0; i < raw.length; i++) if (raw[i] !== "") out.push(raw[i]);
+    return out;
+}
+
 // holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
@@ -465,6 +512,9 @@ if (typeof module !== "undefined" && module.exports) {
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
         holdsOf: holdsOf,
-        lastLinesOf: lastLinesOf
+        lastLinesOf: lastLinesOf,
+        watchChange: watchChange,
+        watchFieldsOf: watchFieldsOf,
+        WATCH_FIELDS: WATCH_FIELDS
     };
 }

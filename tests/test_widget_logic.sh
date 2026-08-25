@@ -530,13 +530,114 @@ unset EVIL
 assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
 unset HOSTILE
 
+# --- the watcher stamp: WHICH path moved, not merely that one did -------------------------------
+# main.qml polls four mtimes every 30 seconds: /var/lib/rpm, /var/lib/flatpak, our state file, our
+# config file - in that order. Comparing the stamp as ONE string says only that something moved,
+# and /var/lib/rpm moves continuously all the way through a dnf transaction. So a run of ours
+# "finished" about thirty seconds after it started: the spinner stopped, a summary of the PREVIOUS
+# run appeared, and a `kempt check` went off to queue for the dnf lock the transaction was holding.
+# Only field 2 - our own state file, which the CLI rewrites on its way out of a run - ends a run.
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 4").any')" "false" \
+  "an unchanged stamp is not a change"
+assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 3 4").state')" "false" \
+  "the rpm database moving does NOT mean a run ended"
+assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 3 4").packages')" "true" \
+  "...it is a package-database change, which is what it is"
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 9 3 4").state')" "false" \
+  "...and neither does flatpak's"
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 9 4").state')" "true" \
+  "our own state file moving DOES mean a run ended"
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 9 4").packages')" "false" \
+  "...and it is not reported as a package change"
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 9").config')" "true" \
+  "the config file moving is a config change - the settings page's only way in"
+assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 9").state')" "false" \
+  "...and does not end a run either"
+assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 9 4").state')" "true" \
+  "a transaction that ALSO wrote state.json still ends the run"
+assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 9 4").packages')" "true" \
+  "...and still reports the package change alongside it"
+# The padding in watchCmd is what makes those field numbers mean anything: `stat` prints NOTHING
+# for a path that does not exist, so an unpadded stamp on a box with no flatpak has three fields
+# and state.json is read in the flatpak column - every state write attributed to the package
+# database, and every dnf write read as the end of a run.
+assert_exit 0 "the watch command pads every path, so a missing one cannot shift the fields" -- \
+  grep -q 'stat -c %Y .* || echo 0' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "...and the watcher compares those fields rather than the whole string" -- \
+  grep -q 'Logic.watchChange(' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").comparable')" "false" \
+  "a stamp that is not four fields is not compared field-wise"
+assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").state')" "true" \
+  "...it degrades to the old any-change answer instead of guessing which column is which"
+assert_eq "$(js 'L.watchChange("","1 2 3 4").any')" "false" "no baseline is not a change"
+assert_eq "$(js 'L.watchChange("1 2 3 4",undefined).any')" "false" "...and no answer is not one either"
+assert_eq "$(js 'L.watchFieldsOf("  1   2  3 4  ").length')" "4" \
+  "runs of whitespace between the mtimes do not invent fields"
+
+# --- the settings page's apply path -------------------------------------------------------------
+# These are structural rather than behavioural - the page needs a real QML engine to drive, which
+# the suite does not have. Each one pins a fix whose absence is silent: the page still opens, still
+# looks right, and quietly does the wrong thing.
+CFG="$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml"
+# A comment-stripped copy for the assertions below that say a thing must NOT be there. Each of
+# those things is explained in a comment where it used to be - which is the point of the comment -
+# and a grep that cannot tell an explanation from code would forbid explaining anything.
+CFGCODE="$TESTTMP/configGeneral.code.qml"
+sed 's://.*::' "$CFG" > "$CFGCODE"
+# The dialog enables Apply on `cfg_<key>Changed`, `configurationChanged` or `unsavedChanges`, and
+# this page has no cfg_ properties by design - so without the third hook Apply is permanently grey
+# and closing the dialog discards everything without asking.
+assert_exit 0 "the page declares the unsavedChanges property the config dialog reads" -- \
+  grep -q '^ *property bool unsavedChanges' "$CFG"
+assert_exit 0 "...and every control arms it through markChanged()" -- \
+  grep -q 'function markChanged(' "$CFG"
+for h in 'onToggled: page.markChanged("include_flatpak")' \
+         'onToggled: page.markChanged("auto_accept")' \
+         'page.markChanged("surface")' \
+         'onValueModified: page.markChanged("refresh_interval_min")'; do
+  grep -qF "$h" "$CFG" && echo "ok: a user change arms Apply: $h" \
+    || { echo "FAIL: no handler arms Apply for: $h"; _fail=1; }
+done
+# Apply before the async reads land would write the page's own defaults over the stored settings.
+assert_exit 0 "saveConfig refuses to write while the settings are still being read" -- \
+  grep -q 'if (page.pendingReads > 0) return;' "$CFG"
+assert_exit 0 "...and the controls are disabled until they land" -- \
+  grep -q 'readonly property bool loading: pendingReads > 0' "$CFG"
+# A read that failed leaves a control showing a default. Writing that over an unread stored value
+# is the same bug by another route.
+assert_exit 0 "a failed read is remembered, not just reported" -- \
+  grep -q 'page.readFailed\[key\] = true;' "$CFG"
+assert_exit 0 "...and an untouched key that was never read is not written" -- \
+  grep -q 'if (page.readFailed\[key\] && !page.touched\[key\]) return;' "$CFG"
+# `config set` is remembered as the stored value only once the CLI says it worked. Recorded before
+# the call - as it was - a FAILED write is remembered as a success: the next Apply compares equal,
+# writes nothing, and the setting silently stays as it was with no retry possible.
+_set_ln="$(grep -n 'config set " + key' "$CFG" | head -1 | cut -d: -f1)"
+_rec_ln="$(grep -n 'page.loaded\[key\] = value;' "$CFG" | head -1 | cut -d: -f1)"
+_fail_ln="$(awk -v s="${_set_ln:-0}" 'NR > s && /if \(rc !== 0\) \{/ { print NR; exit }' "$CFG")"
+if [[ -n "$_set_ln" && -n "$_rec_ln" && -n "$_fail_ln" && "$_rec_ln" -gt "$_fail_ln" ]]; then
+  echo "ok: the stored value is recorded only after the CLI answered, past the failure branch"
+else
+  echo "FAIL: setIfChanged records the stored value before knowing the write worked"
+  echo "    (config set line=${_set_ln:-none} rc-check=${_fail_ln:-none} record=${_rec_ln:-none})"
+  _fail=1
+fi
+# The stored surface is a preference, not a run-time decision. Collapsing it to terminal here
+# rewrote a setting the user never touched (bin/kempt's cmd_run applies the lock at run time).
+assert_exit 1 "Apply stores the surface the user chose, lock or no lock" -- \
+  grep -q 'surfacesLocked ? "terminal"' "$CFGCODE"
+assert_exit 1 "...and switching confirmation on does not discard that choice" -- \
+  grep -q 'onSurfacesLockedChanged' "$CFGCODE"
+
 # --- no shadow settings ------------------------------------------------------------------------
 # The settings page is a front-end to `kempt config` and nothing else. A KConfig entry here would
 # be a second copy of a setting the CLI also owns, and the two would drift the first time somebody
 # typed `kempt config set` in a terminal. The plasmoid must therefore declare NO keys at all.
 XML="$REPO_ROOT/plasmoid/contents/config/main.xml"
 assert_eq "$(grep -c '<entry' "$XML")" "0" "the plasmoid declares no KConfig entries of its own"
-assert_eq "$(grep -c 'cfg_' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml")" "0" \
+# The comment-stripped copy again: the page's header explains WHY it has no cfg_ properties (they
+# are one of the three hooks the shell watches to enable Apply, and this page uses the third).
+assert_eq "$(grep -c 'cfg_' "$CFGCODE")" "0" \
   "...and the settings page uses no cfg_ auto-binding, which would need them"
 assert_exit 0 "the kcfg skeleton is still well-formed XML" -- python3 -c "
 import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"

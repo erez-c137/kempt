@@ -67,9 +67,19 @@ PlasmoidItem {
     // (there is no rootItem to reach through). It writes with `kempt config set`, this notices
     // the file change, and the interval, the surface and the pending list are all re-read from
     // the CLI - which also means a `kempt config set` typed in a terminal updates the widget.
+    // That back-channel is this 30-second poll, so a settings apply reaches the widget within 30
+    // seconds rather than instantly. Deliberate, and the whole latency budget of the settings
+    // page: nothing there waits on the widget having noticed.
+    //
+    // One field per path, ALWAYS. `stat` prints nothing at all for a path that does not exist, so
+    // a bare `stat -c %Y a b c d` on a box without flatpak returns THREE numbers and every field
+    // after the missing one shifts left - state.json would then be read in the flatpak column,
+    // and the field-wise comparison below (Logic.watchChange) would attribute our own state
+    // writes to the package database and dnf's writes to us. `|| echo 0` keeps the columns
+    // aligned; a machine without flatpak is the ordinary case, not the exotic one.
     readonly property string watchCmd:
-        "stat -c %Y /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" \""
-        + configDir + "/config\" 2>/dev/null | tr '\\n' ' '"
+        "for p in /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" \"" + configDir
+        + "/config\"; do stat -c %Y \"$p\" 2>/dev/null || echo 0; done | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
@@ -129,13 +139,31 @@ PlasmoidItem {
         executor.run(watchCmd, 10000, function(stdout, stderr, rc) {
             var stamp = String(stdout).trim();
             if (stamp === "") return;              // stat found nothing: learn nothing, change nothing
-            var changed = (root.watchStamp !== "" && stamp !== root.watchStamp);
+            var previous = root.watchStamp;
             root.watchStamp = stamp;
-            if (!changed || !triggerCheck) return;
-            // A change we did not make. If a run of ours is in flight, this is how it ends: the
-            // CLI re-checks itself when it finishes, so its own write to state.json is the signal
-            // that there is something new to show.
-            root.leaveUpdating();
+            if (previous === "" || !triggerCheck) return;
+            // WHICH path moved, not merely that one did. See Logic.watchChange.
+            var delta = Logic.watchChange(previous, stamp);
+            if (!delta.any) return;
+            // A run of ours ends when the CLI writes state.json - it re-checks itself on the way
+            // out, and that write is the signal there is something new to show. Nothing else is:
+            // /var/lib/rpm is rewritten all the way THROUGH a dnf transaction, so ending the
+            // updating state on any watched change meant the spinner stopped and a summary of the
+            // PREVIOUS run appeared about thirty seconds into this one.
+            if (delta.state) root.leaveUpdating();
+
+            // ...and for the same reason, a package database moving while a run of OURS is still
+            // in flight is not news - it IS the run. Checking on it would put `kempt check` in a
+            // queue for the dnf lock the transaction is holding, every 30 seconds, for the length
+            // of it. The config file is the one exception worth acting on meanwhile: it is the
+            // settings page's only way into this file, and two `config get` calls take no locks.
+            // (A run that just ENDED left `updating` false on the line above, so it falls past
+            // this and gets the full re-read.)
+            if (root.updating) {
+                if (delta.config) { root.readInterval(); root.readSurface(); }
+                return;
+            }
+
             // Cheap enough to do unconditionally (two `config get` calls) and it is the only way
             // a settings apply reaches this file. include_flatpak can change what is pending, so
             // the check below has to happen either way.
