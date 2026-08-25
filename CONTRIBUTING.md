@@ -23,6 +23,11 @@ You need bash 4+, `jq` and GNU coreutils. You do **not** need dnf, flatpak, polk
 work on Kempt: every impure command goes through an environment seam, and the suite stubs all of
 them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the full list.
 
+Two optional tools unlock the widget's coverage, and the suite says loudly when they are missing
+rather than passing quietly: `node` runs the derivation tests over `logic.js`, and `python3` with
+PySide6 (`python3-pyside6`) runs the probes that execute the real QML. Without them you still get
+a green suite, minus 516 of its 1049 assertions.
+
 Syntax-check everything before you commit:
 
 ```bash
@@ -79,6 +84,33 @@ green suite for exactly that reason.
 - **Guard rows are mandatory.** Every fixture carries at least one row that fails the test when a
   guard is deleted: a pending package missing from the installed lookup, a duplicate name at a
   divergent version, and whatever headers or indented sections the real tool emits.
+
+## Working on the widget
+
+The plasmoid lives in `plasmoid/` and is installed as a **copy**, so re-run `./install.sh` after
+every change to it (the CLI is a symlink and needs no such thing). There is no build step here
+either.
+
+- **Rules go in `logic.js`, bindings go in QML.** The badge number, the icon state, the tooltip,
+  the popup rows, the watcher comparison: all of it is derived in `plasmoid/contents/ui/logic.js`,
+  which must stay engine-agnostic JavaScript - no Qt, no `i18n`, no filesystem, no network, and
+  old-school syntax that runs in whatever JS engine the installed Plasma ships. That is what lets
+  `tests/test_widget_logic.sh` load the same file under node and pin every rule. A decision made
+  in a QML binding is a decision no test can reach.
+- **Quote everything that came from outside.** Package names arrive in the CLI's JSON and go back
+  out on a command line, so they go through `Logic.shellQuote` with no exceptions. See
+  [docs/security.md](docs/security.md#the-panel-widget).
+- **Nothing starts a process except `Executor.qml`.** Add a caller to an existing queue only if it
+  has a similar shape; a fast periodic caller must not share a queue with a slow occasional one.
+  A fourth Executor instance is cheaper than a cleverer queue.
+- **The QML probes run strictly one at a time.** `tests/test_widget_qml.sh` supervises each one
+  through `tests/qml/safe_probe.py` and asserts afterwards that no probe process survived. That
+  discipline is not ceremony: an earlier version with no working timeout left ~2,200 wedged Qt
+  processes and OOM-killed the machine. If the process-count assertion ever fails, stop and fix
+  it rather than re-running.
+- **A setting the widget shows is a setting `kempt config` owns.** `contents/config/main.xml`
+  declares no keys on purpose. Adding a KConfig entry would create a second copy of a value the
+  CLI already owns, and the two would drift the first time somebody used a terminal.
 
 ## Shell conventions
 

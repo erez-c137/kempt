@@ -4,7 +4,10 @@ One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widg
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-<!-- SCREENSHOT PLACEHOLDER: Plasma panel icon with pending-count badge + open popup. Added with the widget (Plan 2). -->
+<!-- SCREENSHOT PLACEHOLDER: Plasma panel icon with pending-count badge + open popup.
+     The widget is built and installed; this is a Spectacle capture of it on a real panel, which
+     only the founder's visual gate can take (checklist item W-6). Swap this comment for the image
+     then, and nothing else on this page changes. -->
 
 ## Why
 
@@ -46,11 +49,20 @@ half stands today.
   argument before running anything. Metadata refresh needs no dialog; applying updates asks
   once per run. Optional passwordless mode is a single polkit rule for the apply action,
   scoped to your active local session - not blanket sudo.
+- **A panel widget that says what it knows.** The badge is the actionable count `kempt check`
+  just wrote, no data reads as "no data" rather than zero, and a check that failed keeps the last
+  known numbers with the reason in the tooltip instead of raising an alarm. Pending and held
+  lists, one-click updates, per-row pins, and a settings page that is a front-end to
+  `kempt config`.
+- **A checkup that says what is wrong.** `kempt doctor` reports the helpers, the polkit action,
+  your tools, your config file and your state directory, one line per check, because everything
+  else here degrades quietly rather than crashing.
 
 ## Status
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
-  by the test suite in `tests/`. This is the whole engine, and it is the half that is finished.
+  by the test suite in `tests/` (15 files, 1049 assertions, and it needs neither dnf nor flatpak
+  nor root to run). This is the whole engine, and it is the half that is finished.
 - **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold` and
   `kempt config`, with no package management of its own: a panel icon whose badge is the real
   actionable count, a popup with the pending and held lists, one-click Update Now, the offline
@@ -64,10 +76,10 @@ half stands today.
 ```bash
 git clone https://github.com/erez-c137/kempt.git
 cd kempt
-./install.sh          # one pkexec prompt: installs two root helpers + the polkit action
-kempt doctor         # verify the install: helpers, polkit action, tools, config, state
-kempt check          # what is pending, as JSON
-kempt update         # run it now, ending with a summary
+./install.sh          # one pkexec prompt: root helpers + polkit action, then the panel widget
+kempt doctor          # verify the install: helpers, polkit action, tools, config, state
+kempt check           # what is pending, as JSON
+kempt update          # run it now, ending with a summary
 ```
 
 `install.sh` symlinks `bin/kempt` into `~/.local/bin`, so **keep the checkout where it is** -
@@ -88,6 +100,9 @@ undo everything, is in the [install guide](docs/install.md).
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed, or `man -l docs/man/kempt.1` from the checkout |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, the test-harness rules reviews enforce, shell and docs conventions |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability privately, and what is in scope |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 |
 
 Design and background: [the design spec](docs/specs/2026-08-24-kempt-design.md) and the
 [prior-art survey](docs/research/2026-08-24-similar-tools-survey.md) that shaped it.

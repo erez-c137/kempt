@@ -4,8 +4,10 @@ Kempt is two layers with a deliberately boring boundary between them.
 
 ```
   Plasma panel widget (QML)          thin: no package-manager knowledge at all
-        |  kempt check / run / config          (Plan 2, not written yet)
-        v
+   |-- contents/ui/logic.js          every derivation rule, in engine-agnostic JS
+   |-- contents/ui/Executor.qml      the only place the widget starts a process
+   |  kempt check / run / hold / config  (it shells out; there is no other path)
+   v
   kempt CLI (bash)                  all the logic
    |-- lib/common.sh                 config, holds, snapshots, diff, state, locking
    |-- backends/dnf.sh               pure parsers + check/snapshot
@@ -220,6 +222,9 @@ needs to be:
   page's apply path, the popup's actions, the state machine, the executor.
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
+
+The whole suite is 15 files and 1049 assertions, 516 of them in the two widget files, and it runs
+green with no package manager, no polkit and no desktop present.
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
 own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the

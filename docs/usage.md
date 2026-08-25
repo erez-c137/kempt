@@ -378,8 +378,11 @@ Click the icon. The header says how many updates are available; below it are the
 grouped **System (dnf)** and **Apps (flatpak)**, each showing `from -> to`, and a muted **Held**
 group underneath.
 
-- **Update Now** runs `kempt run`, which opens whatever surface you configured. If it cannot
-  start, the widget shows the CLI's own message, including its remedy.
+- **Update Now** runs `kempt run`, which opens whatever surface you configured. It is greyed out
+  when there is nothing actionable to run, and if a run cannot start, the widget shows the CLI's
+  own message, including its remedy. With the surface set to **In this widget**, the popup shows
+  the run's live log while it works; on the other surfaces the output goes where you chose, and
+  the popup just says so.
 - **Refresh** re-checks now instead of waiting for the timer.
 - **The pin on each row** holds or unholds that package - the same `kempt hold` as the CLI. The
   row moves between the pending list and the Held group on the next refresh.
@@ -408,10 +411,12 @@ Two things worth knowing:
 because only a terminal window can ask you the question. Your choice is remembered - untick the
 confirmation box and it comes straight back.
 
-**Password prompts** offers Enable and Disable buttons but never claims which one is currently
-active. That is not an oversight: the polkit rules directory is readable only by root, so a widget
-running as you genuinely cannot tell. Guessing about whether your machine asks for a password is
-the wrong thing to guess about.
+**Password prompts** offers **Allow without password...** and **Require a password...**, which run
+`kempt enable-passwordless` and `kempt disable-passwordless` for you (each raises its own
+authentication dialog, and whatever the command said comes back under the buttons). The page never
+claims which one is currently active. That is not an oversight: the polkit rules directory is
+readable only by root, so a widget running as you genuinely cannot tell. Guessing about whether
+your machine asks for a password is the wrong thing to guess about.
 
 Holds you have set are listed at the bottom with a remove button each.
 

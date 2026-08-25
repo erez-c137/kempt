@@ -1,4 +1,4 @@
-.TH KEMPT 1 "2026-08-24" "Kempt" "User Commands"
+.TH KEMPT 1 "2026-08-25" "Kempt" "User Commands"
 .SH NAME
 kempt \- one-click system updates for Fedora, from the terminal or the Plasma panel
 .SH SYNOPSIS
@@ -199,6 +199,18 @@ The two polkit actions.
 .TP
 .I /etc/polkit-1/rules.d/49-kempt.rules
 Present only while passwordless mode is enabled.
+.TP
+.I ~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/
+The Plasma panel widget, installed by
+.B install.sh
+with
+.BR kpackagetool6 .
+Unlike the CLI it is a copy, not a symlink, so re-run
+.B install.sh
+after changing it. Installing it does not add it to a panel; that is Add Widgets.
+.TP
+.I ~/.local/share/icons/hicolor/scalable/apps/kempt.svg
+The widget's icon, in the user's icon theme, which is how its name resolves in Add Widgets.
 .SH EXIT STATUS
 .TP
 .B 0

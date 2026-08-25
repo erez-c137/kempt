@@ -14,6 +14,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `flatpak` | Only when `include_flatpak` is on (the default). Turn it off with `kempt config set include_flatpak false` on a box without Flatpak. |
 | `notify-send` (libnotify) | Desktop notifications from the detached surfaces. Missing, notifications are simply skipped. |
 | `konsole` | Only for the `terminal` surface. Any other emulator works: set `KEMPT_TERMINAL` in your environment. |
+| KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. Missing, the installer says so and installs everything else; the CLI does not need it. |
 
 The offline surface additionally needs a dnf5 that supports staged transactions. Check with:
 
@@ -36,10 +37,15 @@ The installer does four things, in this order:
    without root.
 2. **Asks for authentication once** (a single `pkexec`) and, as root, copies the two helpers and
    the polkit action out of the repo.
-3. **Tells you the checkout is load-bearing.** The CLI, its library, the backends and the
-   passwordless rules template all resolve inside the repo directory. Moving or deleting it
-   breaks `kempt`. Only the root-owned files are copies.
+3. **Installs the panel widget and its icon** with `kpackagetool6`, needing no authentication at
+   all. It comes after the root step deliberately: a widget installed against missing root
+   helpers would sit in the panel showing its error state forever, so a declined authentication
+   dialog skips it and says so.
 4. **Offers to disable Discover's notifier** (see below). It is an offer, never silent.
+
+It also tells you the checkout is load-bearing: the CLI, its library, the backends and the
+passwordless rules template all resolve inside the repo directory, so moving or deleting it
+breaks `kempt`. Only the root-owned files and the widget are copies.
 
 ### What lands where
 

@@ -50,10 +50,15 @@ The interesting attack surface, in the order it is worth your time:
 3. `polkit/49-kempt.rules.in` and `render_passwordless_rule` in `lib/common.sh` - the rendered
    rule, its self-check, and anything that could get an unverified rule past it.
 4. The privileged block in `install.sh`.
+5. The panel widget's command building (`shellQuote` in `plasmoid/contents/ui/logic.js`, and its
+   callers). The widget runs as you and never as root, but it turns package names out of the
+   CLI's JSON into shell command lines, so a value that reaches a shell unquoted would run as
+   your user from inside `plasmashell`.
 
 Anything that lets an unprivileged user run an unintended command as root, widen the polkit
-grant beyond `io.github.erez_c137.kempt.apply` for an active local session, or get an arbitrary argument
-into a root helper is in scope.
+grant beyond `io.github.erez_c137.kempt.apply` for an active local session, get an arbitrary
+argument into a root helper, or get an unquoted value onto a command line from the widget is in
+scope.
 
 Out of scope:
 

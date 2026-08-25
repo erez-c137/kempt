@@ -149,6 +149,25 @@ Both helpers `export PATH=/usr/sbin:/usr/bin:/sbin:/bin`. Exported, not merely s
 lookup order also applies to the children dnf5 spawns - rpm scriptlets run as root too. This is
 defense in depth: pkexec already sanitizes the environment.
 
+## The panel widget
+
+The widget adds no privilege of its own. It runs inside `plasmashell`, as you, and every single
+thing it does is a `kempt` command: `check`, `run`, `hold`/`unhold`, `config get`/`set`, a `tail`
+of the run log and a `stat` of the watched files. It never calls a root helper, never touches
+polkit, and holds no credential. So the privileged boundary above is exactly the same one whether
+you type the commands or click them.
+
+What it does own is a shell command line, and that is a real surface: package names arrive from
+`kempt check`'s JSON and go back out as `kempt hold <backend>:<name>`. Every value that came from
+outside is wrapped in POSIX single quotes (`shellQuote` in `logic.js`) before it reaches a command
+line - names, app ids, log paths, without exception and with no per-case judgement about which
+values look safe. Only shell expressions the widget wrote itself are left unquoted, and those
+contain no external data.
+
+Two buttons on its settings page run `kempt enable-passwordless` and `kempt disable-passwordless`.
+Those are the same commands documented below, with the same `pkexec` dialog and the same rendered,
+self-checked rule: the widget is a launcher for them, not a second path into `/etc/polkit-1`.
+
 ## What pkexec sanitizes
 
 pkexec does not pass the caller's environment through. It resets to a minimal, sanitized set, so

@@ -13,16 +13,6 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 
 ### Added
 
-- **A panel widget that tells the truth.** A Plasma 6 applet whose badge is the CLI's own
-  actionable count and never a guess: no data reads as "no data", not as zero, and a failed check
-  keeps the last known numbers with the reason in the tooltip instead of raising an alarm about a
-  repo that flapped once. The popup lists what is pending and what is held, updates in one click,
-  offers the offline staging recommendation where you can act on it, and pins packages in place.
-  Its settings page is a front-end to `kempt config` with no second copy of any setting, so the
-  panel and the terminal can never disagree. The widget shells out to the CLI for everything and
-  contains no package-manager knowledge of its own; every command it runs goes through one
-  component with a hard timeout, so a slow `dnf` can never freeze the panel.
-
 - **One command that knows what is pending.** `kempt check` queries dnf5 and Flatpak and writes
   a documented JSON state file (schema v1) listing every pending item, the version installed and
   the version it would move to. It reads the same root metadata cache the update itself uses, so
@@ -40,7 +30,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   proceed. The same list is published to the state file as `risky_pending`.
 - **Summaries built from before-and-after package snapshots**, not from parsing transaction
   output: old to new versions, installs, removals, held items, duration and a reboot verdict,
-  rendered identically for the terminal, notifications and (later) the widget.
+  rendered by one renderer for the terminal, the notifications and the widget alike.
 - **History and logs.** One JSON entry and one raw log per run, pruned automatically: the newest
   50 entries are kept and logs are dropped after 60 days.
 - **Scoped root privileges.** Two polkit actions and two argument-validating root helpers, so a
@@ -55,13 +45,32 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   writable state directory and an intact checkout; exit 1 if anything failed. It exists because
   everything else degrades instead of crashing: with the root helpers missing, `check` exits 0
   with a stale state and nothing pending, which reads as "up to date".
+- **A panel widget that tells the truth.** A Plasma 6 applet whose badge is the CLI's own
+  actionable count and never a guess: no data reads as "no data", not as zero, and a failed check
+  keeps the last known numbers with the reason in the tooltip instead of raising an alarm about a
+  repo that flapped once. The popup lists what is pending and what is held, updates in one click,
+  offers the offline staging recommendation where you can act on it, and pins packages in place.
+  Its settings page is a front-end to `kempt config` with no second copy of any setting, so the
+  panel and the terminal can never disagree; a change made either way reaches the other within 30
+  seconds. The widget shells out to the CLI for everything and contains no package-manager
+  knowledge of its own; every command it runs goes through one component with a hard timeout, so
+  a slow `dnf` can never freeze the panel. `install.sh` installs and removes it, and adding it to
+  a panel stays your decision.
+- **An icon of its own.** A comb glyph: the application icon plus 22px and 16px symbolics ship
+  inside the widget package, and `install.sh` also puts the application icon into the user's
+  hicolor theme, which is what makes **Add Widgets** show it (a package-local icon name does not
+  resolve from the theme). The panel states themselves stay on the desktop's own update icons for
+  now, deliberately, so Kempt looks like the rest of Plasma; the symbolics are there for the icon
+  choice on the roadmap.
 - **A man page**, installed into the user's man hierarchy: `man kempt`.
 - **Documentation**: README, install guide, usage reference, configuration reference,
-  architecture guide with a walkthrough for adding a backend, security model, contributing
-  guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** Every impure call goes through an
-  environment seam, so the parsers run against recorded fixtures and the privileged paths are
-  tested without dnf, flatpak, polkit or root.
+  architecture guide with a walkthrough for adding a backend, security model, roadmap,
+  contributing guide, security policy and code of conduct.
+- **A test suite that needs none of the tools it drives.** 15 files and 1049 assertions: every
+  impure call goes through an environment seam, so the parsers run against recorded fixtures and
+  the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
+  twice over - every derivation rule under node, and the real QML executed against a stubbed CLI
+  by supervised PySide6 probes.
 
 ### Changed
 
@@ -79,8 +88,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   walkthrough for it is [docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro).
 - Flatpak support is system scope only. A system-wide `flatpak update` also updates runtimes,
   which the summary does not itemize, so a run can change slightly more than it reports.
-- Installation is a symlink into the git checkout, which stays load-bearing. Proper packaging is
-  future work.
+- Installation is a symlink into the git checkout, which stays load-bearing. The widget is the
+  one exception: `kpackagetool6` copies it, so re-run `./install.sh` after changing `plasmoid/`.
+  Proper packaging is future work.
 - The dnf pending check parses text output. Migrating it to `dnf5 check-update --json` is the
   designated next upgrade for that backend.
-- The Plasma widget is not built yet.
+- Nothing has been released yet, and the live verification on real hardware (a real install, a
+  real update, the widget on a real panel) is the remaining gate. See
+  [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -11,8 +11,8 @@ surface=terminal
 ```
 
 It is created the first time something writes to it and rewritten atomically, one line per key.
-`kempt config` is the supported way in and out, and the only way the Plasma widget will touch
-it, so the CLI and the widget can never drift:
+`kempt config` is the supported way in and out, and the only way the Plasma widget touches it -
+its settings page keeps no copy of any value - so the CLI and the widget can never drift:
 
 ```bash
 kempt config get surface
@@ -21,6 +21,11 @@ kempt config set surface offline
 
 Hand-editing works too. If a key somehow appears twice, the last line wins.
 
+A change made anywhere reaches the panel within 30 seconds: the widget notices settings by
+watching this file's timestamp, and it looks every 30 seconds. That is true in both directions -
+`kempt config set` in a terminal and the widget's own settings page write the same file the same
+way.
+
 ## Keys
 
 | Key | Type | Default | Effect |
@@ -28,7 +33,7 @@ Hand-editing works too. If a key somehow appears twice, the last line wins.
 | `include_flatpak` | boolean | `true` | Include Flatpak apps in checks and updates. `kempt update --no-flatpak` overrides it for one run. With it off, the `flatpak` backend reports `enabled: false` and contributes nothing to the counts. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). With it off, the run is forced onto the `terminal` surface with live output, because no other surface can answer a prompt. |
 | `surface` | `terminal`, `popup`, `background`, `offline` | `terminal` | Where `kempt run` sends the update. An unrecognized value logs a warning and falls back to `terminal`. |
-| `refresh_interval_min` | integer (minutes) | `60` | How often the Plasma widget re-runs `kempt check`. Stored here so the CLI and widget share one setting; the CLI itself schedules nothing. |
+| `refresh_interval_min` | integer (minutes) | `60` | How often the Plasma widget re-runs `kempt check`. Stored here so the CLI and widget share one setting; the CLI itself schedules nothing. The widget clamps what it reads to 1..1440 minutes; its settings page offers 15 upwards, and lowers its own floor to meet a smaller value you set from the CLI rather than silently raising it. |
 | `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical, driving the offline recommendation and `risky_pending`. |
 
 Unknown keys can be stored (any key matching `^[a-z][a-z0-9_]+$` is accepted) but nothing reads

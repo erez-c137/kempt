@@ -6,27 +6,34 @@ meets the bar of the one before it. Deferred-item details live in the spec's v2 
 
 ## Now - finish v1.0 (the product as designed)
 
-The CLI is code-complete, documented, and audited. Remaining, in order:
+Both halves are built: the CLI is code-complete, documented and audited, and the Plasma widget
+is written, installed by `install.sh` and covered by the suite. Everything left needs a human at
+the keyboard, in this order:
 
-1. **Live verification on real hardware** (founder-gated): the 11-item checklist in
-   `docs/plans/2026-08-24-kempt-cli.md` - real install, real update, the interactive
-   auto-accept-off path, offline staging across a reboot, the declined-auth uninstall.
+1. **Live verification on real hardware** (founder-gated): the checklist in
+   `docs/plans/2026-08-24-kempt-cli.md` - items 1 to 11 for the engine (real install, real
+   update, the interactive auto-accept-off path, offline staging across a reboot, the
+   declined-auth uninstall), then the morning visual gate W-1 to W-7 for the widget (add it to
+   a panel, badge against `kempt check | jq .actionable`, popup and pin toggles against the
+   JSON, Update Now end to end, the settings round-trip through Apply *and* OK). The engine
+   items come first: until item 1 has run there is no CLI for the widget to be a client of.
 2. **Merge `build/cli-v1` to `main`** once the checklist passes.
-3. **The Plasma widget (Plan 2)** - the actual point of the project: panel icon with a
-   truthful badge, popup with pending/held lists and per-row pin toggles, settings page
-   over `kempt config`, event-driven refresh watching the rpm/flatpak databases (the
-   stale-badge killer), offline recommendation surfaced with one click. Builds against
-   the frozen state schema v1; adds the `kpackagetool6` step to install.sh and the real
-   screenshot to the README.
+3. **The screenshot** (gate item W-6): Spectacle the panel badge plus the open popup, save it
+   into `docs/`, and swap it for the placeholder comment in the README. It is the one thing on
+   this page that nothing automated can produce.
 
 ## v1.x - ready for other people
 
-- **Panel icon choice (after the comb glyph exists)**: a small curated set, never a
-  free-for-all - (1) theme default (the icon theme's own update symbols, recolors with every
-  color scheme; the right default for almost everyone), (2) the Kempt comb (symbolic, our
-  identity), (3) a custom icon name via Plasma's standard icon picker for people who theme
-  everything. Routed through `kempt config` (`widget_icon`, default `theme`) like every other
-  setting; badge and state semantics never change with the icon.
+- **Panel icon choice.** The comb glyph now exists and ships: `plasmoid/contents/icons/` carries
+  the app icon plus 16px and 22px symbolics, and `install.sh` puts the app icon into the user's
+  hicolor theme, which is what makes **Add Widgets** show it. What it does *not* do yet is drive
+  the panel: the compact representation still uses Breeze's `update-none` / `update-low` /
+  `update-high`, deliberately, so Kempt looks like the rest of the desktop. The choice is a small
+  curated set, never a free-for-all - (1) theme default (the icon theme's own update symbols,
+  recolors with every color scheme; the right default for almost everyone), (2) the Kempt comb
+  (symbolic, our identity), (3) a custom icon name via Plasma's standard icon picker for people
+  who theme everything. Routed through `kempt config` (`widget_icon`, default `theme`) like every
+  other setting; badge and state semantics never change with the icon.
   - When the comb option lands, the QML picks **`kempt-symbolic-16.svg` vs `kempt-symbolic.svg`
     by the snapped icon size** (`Logic.snapIconSize` already computes it: 16 gets the 16px
     artwork, everything larger gets the 22px one). `plasmoid/contents/icons/` is a FLAT directory
@@ -35,14 +42,16 @@ The CLI is code-complete, documented, and audited. Remaining, in order:
     (`.../icons/hicolor/{16x16,22x22,scalable}/apps/`) and letting `QIcon::fromTheme` pick the
     size itself - more machinery, but it is the route the metadata icon already takes, since a
     package-local icon name does not resolve from the theme (measured on Plasma 6.7).
-- **History hygiene for going public** - rewrite the six plan-prescribed commit subjects
-  that carry em dashes (or accept them); final sweep of the repo.
-- **Flip the GitHub repo public** - also the moment CI becomes free: add a GitHub Actions
-  workflow (shellcheck + the 14-file suite) on the public runners.
+- **History hygiene for going public** - the commit history is already clean (no subject or body
+  carries an em dash). What is left is a decision about the working archives: `docs/plans`,
+  `docs/specs` and `docs/research` are deliberately outside the published-docs standard, and
+  going public means either publishing them as they are or moving them.
+- **Flip the GitHub repo public** - also the moment CI becomes free. The workflow is already
+  written and deliberately dormant (`.github/workflows/ci.yml`: shellcheck plus the 15-file
+  suite, `workflow_dispatch` only, because Actions on a private repo costs money). Going public
+  is a one-block edit of its `on:` trigger, plus triage of shellcheck's first real run.
 - **Voice pass** on CHANGELOG / release notes / announcement posts using the founder's
   voice guides (owed - see memory reminder).
-- **A comb glyph icon** (Breeze symbolic + full-colour) to replace the borrowed
-  `system-software-update` - concepts in `docs/research/brand/`.
 - **KDE Store listing** for the widget; **RPM/COPR packaging** for the CLI - packaging
   retires the load-bearing-checkout install and is the real on-ramp for strangers.
 
