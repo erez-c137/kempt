@@ -39,6 +39,33 @@ for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
 done
 assert_exit 2 "doctor takes no arguments" "$UPKEEP" doctor --all
 
+# --- the ownership branches, which nothing could reach before ---
+# doctor checks root:root 0755 only when the helper it was handed IS the path polkit's exec.path
+# pins, because that ownership is the whole point: a root-ownership check on a test stub proves
+# nothing about the install. That also made BOTH branches unreachable from the suite - every stub
+# is a seam override, so every run took the "ownership not checked" exit. The annotated path is
+# therefore a seam of its own, and a test reaches the real check by setting it equal to the
+# helper seam. Nothing is executed here; doctor only stats the path.
+ME_U="$(id -un)"; ME_G="$(id -gn)"
+assert_exit 0 "a helper that IS root:root 0755 at the annotated path passes" \
+  env UPKEEP_REFRESH_HELPER=/usr/bin/ls UPKEEP_REFRESH_HELPER_PATH=/usr/bin/ls "$UPKEEP" doctor
+grep -qF 'ok    root helper (refresh): /usr/bin/ls (root:root 0755)' "$TESTTMP/last_output" \
+  && echo "ok: ...and the ok line reports the ownership it actually verified" \
+  || { echo "FAIL: no verified-ownership ok line - got: $(grep 'root helper (refresh)' "$TESTTMP/last_output")"; _fail=1; }
+
+# The other half: a helper sitting at the annotated path that root does not own is the shape a
+# broken or tampered install has, and it must be a FAIL that names what it found.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/wrong-owner-helper"
+chmod 644 "$TESTTMP/wrong-owner-helper"
+assert_exit 1 "a helper at the annotated path that is not root:root 0755 fails the checkup" \
+  env UPKEEP_APPLY_HELPER="$TESTTMP/wrong-owner-helper" \
+      UPKEEP_APPLY_HELPER_PATH="$TESTTMP/wrong-owner-helper" "$UPKEEP" doctor
+grep -qF "root helper (apply) is $ME_U:$ME_G 644, expected root:root 755" "$TESTTMP/last_output" \
+  && echo "ok: ...and the FAIL line names the owner and the mode it found" \
+  || { echo "FAIL: ownership mismatch not named - got: $(grep 'root helper (apply)' "$TESTTMP/last_output")"; _fail=1; }
+grep -q 're-run ./install.sh' "$TESTTMP/last_output" \
+  && echo "ok: ...and says how to fix it" || { echo "FAIL: no remedy in the ownership message"; _fail=1; }
+
 # --- the trap itself: a check that looks like good news, and the command that explains it ---
 export UPKEEP_SKIP_REFRESH=1
 export UPKEEP_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
@@ -70,6 +97,20 @@ astate="$(UPKEEP_REFRESH_HELPER="$TESTTMP/angry-refresh" "$UPKEEP" check 2>/dev/
 grep -q 'Errors during downloading metadata' <<<"$(jq -r .error <<<"$astate")" \
   && echo "ok: an ordinary backend failure still reports its own message" \
   || { echo "FAIL: real backend error lost - got: $(jq -r .error <<<"$astate")"; _fail=1; }
+# ...and it reports it EXACTLY, with no trailing space. The stderr tail is flattened to one line
+# for the JSON string, and `tr '\n' ' '` turns the file's final newline into a space that command
+# substitution does not strip - so every error state.json carried used to end in one, for every
+# reader to render. Two lines here, so this also pins the flattening it is named for.
+cat > "$TESTTMP/two-line-refresh" <<'STUB'
+#!/usr/bin/env bash
+echo "first line" >&2
+echo "second line" >&2
+exit 1
+STUB
+chmod +x "$TESTTMP/two-line-refresh"
+tstate="$(UPKEEP_REFRESH_HELPER="$TESTTMP/two-line-refresh" "$UPKEEP" check 2>/dev/null)"
+assert_eq "$(jq -r .error <<<"$tstate")" "dnf check failed: first line second line" \
+  "the stale error joins lines with single spaces and ends with no trailing space"
 
 assert_exit 1 "...while doctor fails and names the missing helper" \
   env UPKEEP_REFRESH_HELPER="$TESTTMP/nope-refresh" "$UPKEEP" doctor
@@ -118,6 +159,19 @@ grep -q '^info .*flatpak' "$TESTTMP/last_output" \
   && echo "ok: a disabled backend is information, not a failure" \
   || { echo "FAIL: expected an info line for the disabled backend"; _fail=1; }
 "$UPKEEP" config set include_flatpak true
+
+# The settings count pluralizes itself, and docs/usage.md's sample output is pinned to this
+# wording: "(2 settings)", never "(2 setting(s))".
+: > "$CONFIG_FILE"; "$UPKEEP" config set surface terminal
+"$UPKEEP" doctor > "$TESTTMP/doctor-1key" 2>&1 || true
+grep -qF "config file: $CONFIG_FILE (1 setting)" "$TESTTMP/doctor-1key" \
+  && echo "ok: one key reads '1 setting'" \
+  || { echo "FAIL: singular count - got: $(grep 'config file:' "$TESTTMP/doctor-1key")"; _fail=1; }
+"$UPKEEP" config set auto_accept true
+"$UPKEEP" doctor > "$TESTTMP/doctor-2keys" 2>&1 || true
+grep -qF "config file: $CONFIG_FILE (2 settings)" "$TESTTMP/doctor-2keys" \
+  && echo "ok: two keys read '2 settings', the sample docs/usage.md prints" \
+  || { echo "FAIL: plural count - got: $(grep 'config file:' "$TESTTMP/doctor-2keys")"; _fail=1; }
 
 # A config file is read by every command with `grep "^key="`, so a line that is not key=value is
 # silently ignored forever - the setting the user thinks they wrote never applies.

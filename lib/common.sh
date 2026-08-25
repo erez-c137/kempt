@@ -22,8 +22,12 @@ UPKEEP_PKEXEC="${UPKEEP_PKEXEC-pkexec}"
 # The polkit-annotated helper paths. `exec.path` in polkit/org.erez.upkeep.policy pins these, so
 # they are the only paths root ever runs; the seams below point elsewhere in tests. `upkeep doctor`
 # compares the two, because a root-ownership check on a test stub proves nothing about the install.
-UPKEEP_REFRESH_HELPER_PATH=/usr/local/libexec/upkeep-refresh
-UPKEEP_APPLY_HELPER_PATH=/usr/local/libexec/upkeep-apply
+# Overridable for the same reason: while these were hardcoded, doctor's ownership branches were
+# UNREACHABLE from the suite (a test stub is never the annotated path, so every run took the
+# "seam override, ownership not checked" exit instead). A test points BOTH seams at one file to
+# reach them. Nothing execs these; they are only ever compared against the helper seams.
+UPKEEP_REFRESH_HELPER_PATH="${UPKEEP_REFRESH_HELPER_PATH:-/usr/local/libexec/upkeep-refresh}"
+UPKEEP_APPLY_HELPER_PATH="${UPKEEP_APPLY_HELPER_PATH:-/usr/local/libexec/upkeep-apply}"
 UPKEEP_REFRESH_HELPER="${UPKEEP_REFRESH_HELPER:-$UPKEEP_REFRESH_HELPER_PATH}"
 UPKEEP_APPLY_HELPER="${UPKEEP_APPLY_HELPER:-$UPKEEP_APPLY_HELPER_PATH}"
 # Where install.sh puts the two polkit actions. A seam so `upkeep doctor` can be tested without
@@ -139,6 +143,15 @@ config_set() {  # key value
 # there, interactive auth is the legitimate flow.
 priv_refresh() { timeout 120 ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_REFRESH_HELPER" "$@"; }
 priv_apply()   { ${UPKEEP_PKEXEC:+$UPKEEP_PKEXEC} "$UPKEEP_APPLY_HELPER" "$@"; }
+
+# The tail of a captured stderr file, flattened to one line for a JSON string or a warning.
+# The trailing `sed` is not cosmetic: `tr '\n' ' '` turns the file's final newline into a SPACE,
+# and command substitution strips newlines but not spaces, so every error this produced ended in
+# one - which then sat inside state.json's `error` for every reader to render.
+# One definition, because all three callers used to carry their own copy of the pipeline.
+stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing space
+  tail -c 200 "$1" | tr '\n' ' ' | sed 's/ *$//'
+}
 
 # A stderr tail from a privileged call, turned into something a human can act on. `timeout`
 # reports a MISSING helper as "timeout: failed to run command '<path>': No such file or
@@ -337,31 +350,44 @@ current_boot_id() {
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown
 }
 
+# The ONE definition of "what a run changed" as a phrase. Two renderers used to carry their own
+# copy of this arithmetic and the copies drifted: `upkeep history` counted .updated alone and
+# printed "0 updated" for the very run whose summary, from the other copy, said
+# "+2 installed, -1 removed". A jq snippet in a variable is how one definition reaches both
+# programs, since jq has no include path here.
+# `always_updated` is their only real difference, and it is deliberate: a per-backend summary line
+# always names its update count (a backend that did nothing still gets a line reading "0 updated"),
+# while the whole-run phrase drops zero parts and degrades to "no package changes".
+UPKEEP_JQ_COUNTS='
+  def counts_phrase(u; a; r; always_updated):
+    [ (if u > 0 or always_updated then (u|tostring) + " updated"   else empty end),
+      (if a > 0 then "+" + (a|tostring) + " installed" else empty end),
+      (if r > 0 then "-" + (r|tostring) + " removed"   else empty end) ]
+    | if length == 0 then "no package changes" else join(", ") end;
+'
+
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
 # offline harvest's: a transaction that only installs or removes packages must never be
 # announced as "0 packages" by one surface and correctly by the other.
 run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N removed" | "no package changes"
-  jq -r '
+  jq -r "$UPKEEP_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
-    [ (if tot("updated") > 0 then (tot("updated")|tostring) + " updated" else empty end),
-      (if tot("added")   > 0 then "+" + (tot("added")|tostring)   + " installed" else empty end),
-      (if tot("removed") > 0 then "-" + (tot("removed")|tostring) + " removed"   else empty end) ]
-    | if length == 0 then "no package changes" else join(", ") end' "$1"
+    counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
 }
 
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  jq -r '
+  jq -r "$UPKEEP_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
     def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
     # a transaction that installs or removes packages changed the system just as much as one
     # that upgrades them: counting only .updated under-reports what actually happened.
-    def counts(b): (b.updated|length|tostring) + " updated"
-      + (if (b.added|length)   > 0 then ", +" + (b.added|length|tostring)   + " installed" else "" end)
-      + (if (b.removed|length) > 0 then ", -" + (b.removed|length|tostring) + " removed"   else "" end);
+    # counts_phrase (UPKEEP_JQ_COUNTS) is the shared definition; `true` keeps the update count on
+    # the line even at zero, which is what a per-backend line has always printed.
+    def counts(b): counts_phrase(b.updated|length; b.added|length; b.removed|length; true);
     "Upkeep - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
       + (if .status == "ok" then "✓" else "FAILED - see " + .log end),
     "System (dnf): " + counts(.backends.dnf)

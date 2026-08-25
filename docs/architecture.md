@@ -273,8 +273,8 @@ name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrad
 ### 2b. Wire it in: every place that names a backend
 
 There is no registry and no discovery. Backends are named literally, in more places than the
-sketch above suggests, and a missed one fails quietly rather than loudly. The complete list, so
-nobody has to find it by grep:
+sketch above suggests, and a missed one fails quietly rather than loudly. The complete list is
+**twelve places, one of them optional**, so nobody has to find it by grep:
 
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
@@ -287,7 +287,9 @@ nobody has to find it by grep:
 | `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key, or that entry is missing a backend the readers expect. |
 | `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `upkeep hold apt:foo` exits 2 while the backend works fine. |
 | `cmd_doctor` | The per-tool check (flatpak's command, from its seam) and the checkout file list | A tool check, so a missing package manager is reported rather than showing up as a permanently stale backend. |
+| `upkeep_default` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true` | A default for `include_<name>`. Miss it and `config_get include_<name>` answers the **empty string**, `is_true` reads that as false, and the backend is silently OFF on every box whose config file has never named it. Nothing warns: the check simply reports the backend disabled, forever, and the enable gate above looks correctly wired. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
+| **Optional:** `cmd_update`'s option loop and `usage` (`bin/upkeep`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `upkeep update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
 
 What is already generic and needs nothing: the totals in `assemble_state`'s `wrap`,
 `run_counts_phrase`, and the held-items line in `render_summary`. All three iterate
@@ -367,13 +369,14 @@ destructive paths without ever running them.
 | `UPKEEP_CONFIG_DIR`, `UPKEEP_STATE_DIR` | `~/.config/upkeep`, `~/.local/state/upkeep` | Redirect config and state |
 | `UPKEEP_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
 | `UPKEEP_REFRESH_HELPER`, `UPKEEP_APPLY_HELPER` | `/usr/local/libexec/upkeep-{refresh,apply}` | Point at stub helpers |
+| `UPKEEP_REFRESH_HELPER_PATH`, `UPKEEP_APPLY_HELPER_PATH` | `/usr/local/libexec/upkeep-{refresh,apply}` | The paths polkit's `exec.path` pins. `upkeep doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
 | `UPKEEP_DNF_CMD`, `UPKEEP_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
 | `UPKEEP_FLATPAK_REMOTE_CMD`, `UPKEEP_FLATPAK_LIST_CMD` | `flatpak remote-ls/list --system --app ...` | Replace the flatpak commands |
 | `UPKEEP_NOTIFY`, `UPKEEP_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `UPKEEP_RISKY_RE`, `UPKEEP_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `UPKEEP_SKIP_REFRESH`, `UPKEEP_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
 | `UPKEEP_ASSUME_TTY`, `UPKEEP_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
-| `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` or outside `/etc` altogether |
+| `UPKEEP_RULES_DST` | `/etc/polkit-1/rules.d/49-upkeep.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `UPKEEP_POLICY_FILE` | `/usr/share/polkit-1/actions/org.erez.upkeep.policy` | Where `upkeep doctor` looks for the installed polkit actions |
 | `UPKEEP_APPLY_ECHO`, `UPKEEP_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `UPKEEP_INSTALL_ECHO`, `UPKEEP_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |

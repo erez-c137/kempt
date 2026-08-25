@@ -76,8 +76,11 @@ assert_exit 2 "enable-passwordless takes no arguments" \
 
 # "absolute and ends in .rules" was too loose: it accepted ANY path under /etc, so the seam could
 # hand a root install(1) a file in /etc/cron.d, /etc/sudoers.d or any other system config
-# directory that tolerates an unexpected filename. The destination is now pinned to the one
-# directory polkit reads, or to somewhere outside /etc entirely (which is what these tests use).
+# directory that tolerates an unexpected filename. Fencing /etc was not enough either: polkit
+# reads FOUR rules directories (polkit(8)), and the three outside /etc were all still accepted,
+# along with every other system location - including /usr/share/polkit-1/rules.d/50-default.rules,
+# a file Fedora ships, and /usr/lib/udev/rules.d. The destination is now pinned to the polkit
+# ADMIN directory, or to somewhere outside every system prefix (which is what these tests use).
 # Compared after realpath -m, so `..` cannot walk out of the allowed directory.
 polkit_dst_rejected() {  # path label
   assert_exit 2 "$2" env UPKEEP_RULES_DST="$1" "$UPKEEP" enable-passwordless
@@ -90,6 +93,20 @@ polkit_dst_rejected '/etc/cron.d/49-upkeep.rules' \
   "enable rejects a .rules file elsewhere under /etc"
 polkit_dst_rejected '/etc/polkit-1/rules.d/sub/49-upkeep.rules' \
   "enable rejects a subdirectory of the polkit rules directory"
+# The other three directories polkit reads. Upkeep pins the admin one; these belong to the
+# runtime and to packages, and a root-owned Upkeep rule in any of them is a grant nobody would
+# think to look for. All three were accepted destinations before this guard.
+polkit_dst_rejected '/run/polkit-1/rules.d/49-upkeep.rules' \
+  "enable rejects polkit's runtime rules directory"
+polkit_dst_rejected '/usr/local/share/polkit-1/rules.d/49-upkeep.rules' \
+  "enable rejects polkit's /usr/local rules directory"
+# ...and this one is not hypothetical: 50-default.rules is a file Fedora's polkit package ships,
+# so the old guard would have handed root an install(1) that OVERWRITES distribution policy.
+polkit_dst_rejected '/usr/share/polkit-1/rules.d/50-default.rules' \
+  "enable rejects overwriting the polkit rules file the distribution ships"
+# A .rules file is not only a polkit thing. udev reads them too, from a root-owned directory.
+polkit_dst_rejected '/usr/lib/udev/rules.d/99-upkeep.rules' \
+  "enable rejects a udev rules directory, which also takes .rules files"
 # ...and the real destination is still accepted: this must fail at the unprivileged install(1),
 # which is exit 1, not at the shape check, which is exit 2. Nothing is written: the real
 # /etc/polkit-1/rules.d is 0750 root:polkitd, so install cannot even create the file.
@@ -101,6 +118,15 @@ grep -q 'invalid rules destination' "$TESTTMP/last_output" \
 [[ -e /etc/polkit-1/rules.d/49-upkeep.rules ]] \
   && { echo "FAIL: the test suite wrote a polkit rule to /etc"; _fail=1; } \
   || echo "ok: nothing reached /etc"
+# ...and so is the sandbox path every test in this file uses. This is the reason the guard is a
+# system-prefix DENY list rather than "/etc/polkit-1/rules.d only": a suite that cannot name a
+# destination cannot exercise the production path at all. (It assumes TMPDIR is outside those
+# prefixes, which is the default /tmp; a TMPDIR under /var would fail this loudly, by design.)
+assert_exit 1 "a destination outside every system prefix passes the shape check" \
+  env UPKEEP_RULES_DST="$TESTTMP/accepted.rules" "$UPKEEP" enable-passwordless
+grep -q 'invalid rules destination' "$TESTTMP/last_output" \
+  && { echo "FAIL: the sandbox destination was rejected by the guard"; _fail=1; } \
+  || echo "ok: the sandbox destination is accepted"
 assert_exit 2 "disable-passwordless takes no arguments" \
   env UPKEEP_RULES_DST="$TESTTMP/absent.rules" "$UPKEEP" disable-passwordless --force
 # Disabling something that was never enabled is not a failure, and must not raise an auth prompt

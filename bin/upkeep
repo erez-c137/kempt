@@ -35,12 +35,12 @@ cmd_check() {
     # explain_helper_error only rewrites the one case the raw text gets WRONG (a missing root
     # helper reported by `timeout` as a failure to run a command, which reads as a timeout).
     # This is the dnf branch on purpose: it is the only check path that goes through a root helper.
-    serr="$(explain_helper_error "$(tail -c 200 "$errf" | tr '\n' ' ')")"
+    serr="$(explain_helper_error "$(stderr_tail "$errf")")"
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
   if is_true "$(config_get include_flatpak)"; then
     if fp_items="$(flatpak_check 2>"$errf")"; then :; else
-      serr="$(tail -c 200 "$errf" | tr '\n' ' ')"
+      serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
   else
@@ -143,7 +143,7 @@ cmd_update() {
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
-      echo "warning: could not check for session-critical updates: $(explain_helper_error "$(tail -c 200 "$rerr" | tr '\n' ' ')")" >&2
+      echo "warning: could not check for session-critical updates: $(explain_helper_error "$(stderr_tail "$rerr")")" >&2
     }
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
@@ -608,7 +608,14 @@ cmd_doctor() {
         keys=$(( keys + 1 ))
       fi
     done < "$CONFIG_FILE"
-    if [[ $bad -eq 0 ]]; then doctor_ok "config file: $CONFIG_FILE ($keys setting(s))"; fi
+    # "1 setting" / "2 settings", the same way the problem count below pluralizes itself. The
+    # `if` form, not `[[ ... ]] && x=y`: a false test as the last command of a branch returns 1
+    # and errexit would kill the checkup halfway through.
+    if [[ $bad -eq 0 ]]; then
+      local sword=settings
+      if [[ $keys -eq 1 ]]; then sword=setting; fi
+      doctor_ok "config file: $CONFIG_FILE ($keys $sword)"
+    fi
   fi
 
   # "Writable" means "can be written OR created": on a fresh install nothing has run yet, and a
@@ -654,11 +661,19 @@ cmd_doctor() {
 RULES_DST="${UPKEEP_RULES_DST:-/etc/polkit-1/rules.d/49-upkeep.rules}"
 
 # The destination is a path this command hands to a ROOT install(1), so its shape is pinned.
-# "Absolute and ending in .rules" was too loose: it accepted any path under /etc, which would let
-# this command plant a root-owned file in another tool's config directory (/etc/cron.d,
-# /etc/sudoers.d, anywhere that tolerates an unexpected filename). polkit reads exactly one
-# directory, so that is the only place under /etc a rules file may go; outside /etc is left open
-# because that is what the test seam uses and nothing there is system policy.
+# "Absolute and ending in .rules" was too loose, and so was the /etc-only fence that replaced it:
+# either one would let this command plant a root-owned file in another tool's configuration
+# directory (/etc/cron.d, /etc/sudoers.d, /usr/lib/udev/rules.d - anywhere that tolerates an
+# unexpected filename).
+# polkit reads FOUR rules directories, not one (polkit(8)): /etc/polkit-1/rules.d,
+# /run/polkit-1/rules.d, /usr/local/share/polkit-1/rules.d and /usr/share/polkit-1/rules.d.
+# Upkeep pins the ADMINISTRATOR's one, /etc/polkit-1/rules.d, because the other three belong to
+# packages and to the runtime. Fencing only /etc left all three of those open, plus every other
+# system directory: /usr/share/polkit-1/rules.d/50-default.rules is a file Fedora actually ships,
+# and it was an accepted destination for a root install(1).
+# So: the polkit admin directory is accepted by name, every system prefix is refused outright,
+# and what is left (a /tmp path, which is what the test seam uses) is accepted so the suite can
+# exercise the production path without ever touching system policy.
 # The comparison is on the realpath -m form (it resolves `..` without requiring the path to
 # exist), so a destination cannot walk out of the directory it claims to be in.
 check_rules_dst() {
@@ -668,8 +683,8 @@ check_rules_dst() {
     echo "invalid rules destination: $RULES_DST" >&2; exit 2
   fi
   if [[ "$p" =~ ^/etc/polkit-1/rules\.d/[^/]+\.rules$ ]]; then return 0; fi
-  if [[ "$p" == /etc/* ]]; then
-    echo "invalid rules destination: $RULES_DST - under /etc, only /etc/polkit-1/rules.d/*.rules" >&2
+  if [[ "$p" =~ ^(/etc|/run|/usr|/var|/boot|/opt)/ ]]; then
+    echo "invalid rules destination: $RULES_DST - system directory; only /etc/polkit-1/rules.d/*.rules" >&2
     exit 2
   fi
   return 0

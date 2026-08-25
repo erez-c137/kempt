@@ -197,12 +197,26 @@ substitution could quietly break:
   is written and the command exits 2. That catches the three ways a broken template turns into a
   broken grant: losing the scope test (grants to inactive and remote sessions), losing the action
   id (grants **every** polkit action), or gaining a second rule block that could say anything.
-- The destination is pinned before use, because that path is handed to a root `install(1)`. It
-  must be an absolute path ending in `.rules`, and either inside `/etc/polkit-1/rules.d/` (the
-  one directory polkit reads) or outside `/etc` entirely (which is what the test seam uses). A
-  `.rules` file anywhere else under `/etc` is refused: that would only ever plant a root-owned
-  file in another tool's configuration directory. The comparison runs on the `realpath -m` form,
-  so `..` cannot walk a destination out of the directory it claims to be in.
+- The destination is pinned before use, because that path is handed to a root `install(1)`.
+  polkit reads **four** rules directories, in this order (polkit(8)):
+
+  ```
+  /etc/polkit-1/rules.d
+  /run/polkit-1/rules.d
+  /usr/local/share/polkit-1/rules.d
+  /usr/share/polkit-1/rules.d
+  ```
+
+  Upkeep pins the administrator's one, `/etc/polkit-1/rules.d`, because the other three belong to
+  the runtime and to packages. So the destination must be an absolute path ending in `.rules`,
+  and either inside `/etc/polkit-1/rules.d/` or outside every system prefix (`/etc`, `/run`,
+  `/usr`, `/var`, `/boot`, `/opt`) - the last case being what the test seam uses. Anything else
+  is refused: it would only ever plant a root-owned file somewhere that reads it. Fencing `/etc`
+  alone was not enough, and this is the bug that made the list explicit: it left the other three
+  polkit directories open, including `/usr/share/polkit-1/rules.d/50-default.rules`, a file
+  Fedora actually ships, as well as unrelated `.rules` consumers such as
+  `/usr/lib/udev/rules.d/`. The comparison runs on the `realpath -m` form, so `..` cannot walk a
+  destination out of the directory it claims to be in.
 - Installation is a single `pkexec install -m 0644 -o root -g root`.
 
 `upkeep disable-passwordless` removes the file. It reports "not enabled" only when it can
