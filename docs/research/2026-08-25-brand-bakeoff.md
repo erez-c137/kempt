@@ -1,5 +1,7 @@
 # Brand bake-off: Kanso vs Kempt
 
+> Housekeeping (2026-08-25, after the decision): the three Kanso concept SVGs were removed from `brand/`; the two legibility sheets that show them beside the Kempt concepts remain as the evidence for this decision.
+
 Date: 2026-08-25. Status: research only. Nothing is renamed by this document. It exists to close
 the last open question from `docs/research/2026-08-25-naming.md`: of the two finalists, which one
 **brands** better, given that the next two artefacts are an icon and a public GitHub page.
