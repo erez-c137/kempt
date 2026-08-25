@@ -4,10 +4,9 @@ One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widg
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-<!-- SCREENSHOT PLACEHOLDER: Plasma panel icon with pending-count badge + open popup.
-     The widget is built and installed; this is a Spectacle capture of it on a real panel, which
-     only the founder's visual gate can take (checklist item W-6). Swap this comment for the image
-     then, and nothing else on this page changes. -->
+![Kempt in the Plasma system tray, popup open](docs/images/kempt-tray-popup.png)
+
+*Kempt as a system-tray entry on Plasma 6, with the popup open on a fully updated box. The tray icon follows your icon theme (this one is kora).*
 
 ## Why
 
