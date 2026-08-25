@@ -27,8 +27,13 @@ PlasmoidItem {
     property string cliError: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
-    // Configured run surface, read from the CLI. Decides whether the popup tails the log.
+    // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
+    // says what a run will really do, which is why the popup binds to effectiveSurface below.
     property string surface: "terminal"
+    property bool autoAccept: true
+    // What `upkeep run` would actually launch: with confirmation on, only a terminal can ask the
+    // question, so everything else collapses to terminal (bin/upkeep, cmd_run).
+    readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
 
@@ -149,11 +154,21 @@ PlasmoidItem {
         });
     }
 
-    // Which surface a run will use. Only the popup surface makes the log pane worth showing.
+    // Which surface a run will use. Only the popup surface makes the log pane worth showing - and
+    // auto_accept is half of that answer, so both are read together.
     function readSurface() {
         executor.run(upkeepCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
             if (rc === 0 && s !== "") root.surface = s;
+        });
+        // Guarded on emptiness exactly like the surface read above, and for a sharper reason:
+        // `upkeep config get` prints an empty line for a key it does not know, exit 0. An older
+        // CLI on PATH would therefore hand us "" - and isTrue("") is false, which is the value
+        // that forces terminal. The widget would quietly stop offering the in-popup log on a box
+        // whose auto_accept is perfectly true. No answer means keep the CLI's own default.
+        executor.run(upkeepCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
+            var v = Logic.firstLineOf(stdout);
+            if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
         });
     }
 
@@ -224,7 +239,7 @@ PlasmoidItem {
         logTail = "";
         logPath = "";
         updateGuard.restart();
-        if (surface === "popup") findLog();
+        if (effectiveSurface === "popup") findLog();
     }
 
     function leaveUpdating() {
@@ -249,7 +264,7 @@ PlasmoidItem {
     }
 
     function pollLog() {
-        if (!updating || surface !== "popup" || logPath === "") return;
+        if (!updating || effectiveSurface !== "popup" || logPath === "") return;
         tailExecutor.run("tail -n 25 " + Logic.shellQuote(logPath), 10000, function(stdout, stderr, rc) {
             if (rc === 0) root.logTail = stdout;
         });
@@ -298,7 +313,7 @@ PlasmoidItem {
         repeat: true
         // Only while a run is actually in flight AND the output is meant to land here. On any
         // other surface this never starts, so there is no tail process at all.
-        running: root.updating && root.surface === "popup" && root.expanded
+        running: root.updating && root.effectiveSurface === "popup" && root.expanded
         onTriggered: root.pollLog()
     }
 

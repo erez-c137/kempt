@@ -123,8 +123,9 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   version rendering has something to collapse, and `brandnew` / `com.example.NotInstalled` carry
   `from: "?"`.
 
-  All six captured files were **re-captured after `fix: version-sort collapsed sets so last always
-  means newest`** (654546e). That commit made collapsed sets ascending, so the last element is now
+  All seven captured files postdate `fix: version-sort collapsed sets so last always means
+  newest` (654546e): the original six were **re-captured against it**, and state-broken.json was
+  first captured after it. That commit made collapsed sets ascending, so the last element is now
   genuinely the newest - which is what both `render_summary`'s `newest()` and the widget's
   `newestOf()` take. Captured before it, this fixture's `bash` set read
   `5.3.10-1.fc44,5.3.9-4.fc44` and the widget faithfully rendered the OLDER build, agreeing with

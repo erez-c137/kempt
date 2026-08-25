@@ -1,8 +1,18 @@
 // The popup. What is pending, what is held, and the two buttons that act on it.
 //
 // Like the panel icon, this file decides nothing: every string and every list comes from the view
-// model main.qml derives in logic.js, and every action is a call back into main.qml. Both inputs
-// are `required`, so a wiring mistake refuses to be created rather than rendering a plausible lie.
+// model main.qml derives in logic.js, and every action is a call back into main.qml.
+//
+// EVERY reference to the widget goes through `plasmoidItem`, never through main.qml's `root` id.
+// That distinction is not style. A representation whose required properties are all satisfied is
+// created successfully; if it then reaches for an id from a context it does not have, each such
+// binding throws a ReferenceError and silently evaluates to undefined - so `!undefined.updating`
+// is true, every button enables itself, and the popup renders a confident, permanently-updating
+// lie. The required properties only protect what actually flows through them.
+//
+// `plasmoidItem` is typed `var` and not `PlasmoidItem` on purpose: most of what this file needs
+// (updating, actionMessage, setHold, ...) is declared in main.qml's QML body, not on the C++
+// PlasmoidItem type, so a typed handle would be a promise the type system cannot keep.
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
@@ -13,7 +23,7 @@ import org.kde.kirigami as Kirigami
 PlasmaExtras.Representation {
     id: popup
 
-    required property PlasmoidItem plasmoidItem
+    required property var plasmoidItem
     required property var vm
 
     // These are the representation-switch heuristic, not decoration: Plasma compares the space it
@@ -50,7 +60,13 @@ PlasmaExtras.Representation {
                     PlasmaComponents.ToolTip.text: text
                     PlasmaComponents.ToolTip.visible: hovered
                     PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                    onClicked: Plasmoid.internalAction("configure").trigger()
+                    onClicked: {
+                        // The action is registered by the shell, and a plasmoid can be built in
+                        // contexts where it is not there yet. Calling trigger() on null takes the
+                        // whole binding down with it.
+                        const a = Plasmoid.internalAction("configure");
+                        if (a) a.trigger();
+                    }
                 }
             }
 
@@ -58,7 +74,7 @@ PlasmaExtras.Representation {
             // not an alarm - the counts under it are still the best known truth.
             PlasmaComponents.Label {
                 Layout.fillWidth: true
-                visible: popup.vm.stale && !root.updating
+                visible: popup.vm.stale && !popup.plasmoidItem.updating
                 text: popup.vm.staleReason.length > 0
                       ? i18n("%1 (last successful check: %2)", popup.vm.staleReason, popup.vm.lastSuccessText)
                       : ""
@@ -71,7 +87,7 @@ PlasmaExtras.Representation {
             // session-critical packages; the widget's job is to make acting on it one click.
             RowLayout {
                 Layout.fillWidth: true
-                visible: popup.vm.riskySummary.length > 0 && !root.updating
+                visible: popup.vm.riskySummary.length > 0 && !popup.plasmoidItem.updating
                 spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Icon {
@@ -88,8 +104,8 @@ PlasmaExtras.Representation {
                 PlasmaComponents.Button {
                     text: i18n("Stage offline instead")
                     icon.name: "system-reboot"
-                    enabled: !root.updating
-                    onClicked: root.stageOffline()
+                    enabled: !popup.plasmoidItem.updating
+                    onClicked: popup.plasmoidItem.stageOffline()
                 }
             }
 
@@ -102,18 +118,18 @@ PlasmaExtras.Representation {
                     icon.name: "system-software-update"
                     // Nothing to do is not the same as cannot: an up-to-date box has no run to
                     // start, and a box whose CLI we could not reach has nothing to start it with.
-                    enabled: !root.updating && popup.vm.actionable > 0
-                    onClicked: root.startUpdate()
+                    enabled: !popup.plasmoidItem.updating && popup.vm.actionable > 0
+                    onClicked: popup.plasmoidItem.startUpdate()
                 }
                 PlasmaComponents.Button {
                     text: i18n("Refresh")
                     icon.name: "view-refresh"
-                    enabled: !root.checking && !root.updating
-                    onClicked: root.doCheck()
+                    enabled: !popup.plasmoidItem.checking && !popup.plasmoidItem.updating
+                    onClicked: popup.plasmoidItem.doCheck()
                 }
                 Item { Layout.fillWidth: true }
                 PlasmaComponents.BusyIndicator {
-                    running: root.checking || root.updating
+                    running: popup.plasmoidItem.checking || popup.plasmoidItem.updating
                     visible: running
                     Layout.preferredWidth: Kirigami.Units.iconSizes.small
                     Layout.preferredHeight: Kirigami.Units.iconSizes.small
@@ -123,8 +139,8 @@ PlasmaExtras.Representation {
             // What the last action did or failed to do. Cleared by main.qml on the next action.
             PlasmaComponents.Label {
                 Layout.fillWidth: true
-                visible: root.actionMessage.length > 0
-                text: root.actionMessage
+                visible: popup.plasmoidItem.actionMessage.length > 0
+                text: popup.plasmoidItem.actionMessage
                 wrapMode: Text.WordWrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.8
@@ -137,7 +153,7 @@ PlasmaExtras.Representation {
     // lazily, so a box with 1200 pending updates costs what a box with six costs.
     PlasmaComponents.ScrollView {
         anchors.fill: parent
-        visible: popup.vm.rows.length > 0 && !root.updating
+        visible: popup.vm.rows.length > 0 && !popup.plasmoidItem.updating
 
         ListView {
             id: rowsView
@@ -169,8 +185,8 @@ PlasmaExtras.Representation {
                         to: modelData.to
                         held: modelData.held
                         backend: modelData.backend
-                        busy: root.holdInFlight
-                        onToggleHold: (backend, name, hold) => root.setHold(backend, name, hold)
+                        busy: popup.plasmoidItem.holdInFlight
+                        onToggleHold: (backend, name, hold) => popup.plasmoidItem.setHold(backend, name, hold)
                     }
                 }
             }
@@ -183,7 +199,7 @@ PlasmaExtras.Representation {
     PlasmaExtras.PlaceholderMessage {
         anchors.centerIn: parent
         width: parent.width - Kirigami.Units.gridUnit * 4
-        visible: popup.vm.rows.length === 0 && !root.updating && text.length > 0
+        visible: popup.vm.rows.length === 0 && !popup.plasmoidItem.updating && text.length > 0
         iconName: popup.vm.iconState === "error" ? "dialog-error"
                   : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
         text: popup.vm.emptyStateText
@@ -198,33 +214,55 @@ PlasmaExtras.Representation {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
-        visible: root.updating
+        visible: popup.plasmoidItem.updating
         spacing: Kirigami.Units.smallSpacing
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: root.surface === "popup" ? i18n("Updating...") : i18n("Updating in the %1 surface...", root.surface)
+            text: popup.plasmoidItem.effectiveSurface === "popup" ? i18n("Updating...") : i18n("Updating in the %1 surface...", popup.plasmoidItem.effectiveSurface)
             wrapMode: Text.WordWrap
         }
 
-        PlasmaComponents.ScrollView {
+        // A tail, so it stays at the tail. The text is replaced wholesale every two seconds, and
+        // any view that keeps its own scroll position across that jumps back to the first line
+        // each time - which is precisely useless for watching an update run. So: a plain
+        // Flickable, re-pinned to the bottom whenever the content grows.
+        // `stickToBottom` is what keeps it from fighting the user: scroll up to read something and
+        // it stops following, scroll back down and it resumes.
+        Flickable {
+            id: logFlick
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: root.surface === "popup"
+            visible: popup.plasmoidItem.effectiveSurface === "popup"
+            clip: true
+            contentWidth: logText.paintedWidth
+            contentHeight: logText.paintedHeight
+            boundsBehavior: Flickable.StopAtBounds
 
-            PlasmaComponents.TextArea {
-                readOnly: true
-                text: root.logTail
+            property bool stickToBottom: true
+            function pin() {
+                if (stickToBottom) contentY = Math.max(0, contentHeight - height);
+            }
+            onContentHeightChanged: pin()
+            onHeightChanged: pin()
+            onMovementEnded: stickToBottom = (contentY >= contentHeight - height - Kirigami.Units.gridUnit)
+
+            PlasmaComponents.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+
+            Text {
+                id: logText
+                text: popup.plasmoidItem.logTail
+                color: Kirigami.Theme.textColor
                 // The theme's own fixed-width font, not a hardcoded "monospace": dnf output is
                 // column-aligned and the user's chosen mono font is the one that will render it.
                 font: Kirigami.Theme.fixedWidthFont
-                wrapMode: TextEdit.NoWrap
+                wrapMode: Text.NoWrap
             }
         }
 
         Item {
             Layout.fillHeight: true
-            visible: root.surface !== "popup"
+            visible: popup.plasmoidItem.effectiveSurface !== "popup"
         }
     }
 }

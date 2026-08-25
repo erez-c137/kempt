@@ -238,9 +238,12 @@ assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").emptyStateText')" 
 # but the remedy is still offered, because the CLI named it. (The other case, where the helpers
 # were never there and nothing is known, is the error family tested further down.)
 helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed - run ./install.sh (see: upkeep doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
-assert_eq "$(js "$helper_missing.remedyCommand")" "upkeep doctor" \
-  "a missing root helper offers doctor even though the CLI itself answered"
-assert_eq "$(js "$helper_missing.iconState")" "stale" "...while staying calm about it, because the counts still stand"
+assert_eq "$(js "$helper_missing.iconState")" "stale" "a missing root helper stays calm while the counts still stand"
+# ...and calm means QUIET. A "run upkeep doctor" line under counts that are perfectly good is the
+# exact noise calm-stale exists to avoid; the CLI's own text below still names doctor itself.
+assert_eq "$(js "$helper_missing.remedyCommand")" "" "...offering no remedy line of its own"
+assert_eq "$(js "$helper_missing.staleReason.indexOf(\"upkeep doctor\") >= 0")" "true" \
+  "...while still showing the CLI's own words, which name doctor"
 assert_eq "$(js 'V("live",false).remedyCommand')" "" "a healthy box is told to run nothing"
 
 # --- shellQuote: the widget's one injection surface --------------------------------------------
@@ -275,6 +278,30 @@ source "$REPO_ROOT/lib/common.sh"
 for t in true TRUE True 1 yes YES false FALSE 0 no nonsense; do
   cli=false; is_true "$t" && cli=true
   assert_eq "$(js "L.isTrue(\"$t\")")" "$cli" "isTrue agrees with the CLI's is_true about '$t'"
+done
+
+# --- effectiveSurfaceOf: what a run will ACTUALLY do, not what is merely stored ----------------
+# cmd_run resolves the stored surface and then overrides it: with confirmation on, only a terminal
+# can ask the question. A popup that trusted the stored value alone would open an in-widget log
+# pane while a terminal window is what actually appeared.
+assert_eq "$(js 'L.effectiveSurfaceOf("popup", true)')" "popup" "with confirmation off, the stored surface stands"
+assert_eq "$(js 'L.effectiveSurfaceOf("popup", false)')" "terminal" "with confirmation on, popup collapses to terminal"
+assert_eq "$(js 'L.effectiveSurfaceOf("background", false)')" "terminal" "...so does background"
+assert_eq "$(js 'L.effectiveSurfaceOf("offline", false)')" "terminal" "...and offline"
+assert_eq "$(js 'L.effectiveSurfaceOf("terminal", false)')" "terminal" "terminal is already terminal"
+assert_eq "$(js 'L.effectiveSurfaceOf("nonsense", true)')" "terminal" "an unknown surface still falls back"
+assert_eq "$(js 'L.effectiveSurfaceOf("popup", "false")')" "terminal" "the flag is read as the CLI writes it, as text"
+assert_eq "$(js 'L.effectiveSurfaceOf("popup", "yes")')" "popup" "...including yes"
+# The CLI is the reference: cmd_run does resolve_surface, then `is_true "$auto" || surface=terminal`.
+for surf in terminal popup background offline nonsense; do
+  for auto in true false; do
+    want="$(bash -c "
+      source '$REPO_ROOT/lib/common.sh'
+      source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/upkeep')\"
+      s=\"\$(resolve_surface '$surf')\"; is_true '$auto' || s=terminal; printf '%s' \"\$s\"")"
+    assert_eq "$(js "L.effectiveSurfaceOf(\"$surf\", \"$auto\")")" "$want" \
+      "effectiveSurfaceOf agrees with cmd_run for surface=$surf auto_accept=$auto"
+  done
 done
 
 # --- resolveSurface: unknown means terminal, exactly as bin/upkeep decides ---------------------
@@ -329,6 +356,20 @@ assert_eq "$(js 'L.firstLineOf(null)')" "" "nor a missing string"
 
 # --- rows: the popup's flat model --------------------------------------------------------------
 # A ListView over a flat model creates delegates lazily, so 1200 pending updates cost what six do.
+# --- backend routing: the half of every hold command that decides WHICH package manager --------
+# A dnf hardcode here is invisible in the rendered popup and catastrophic in the command: pinning
+# a Flatpak app would run `upkeep hold dnf:org.gimp.GIMP`, holding nothing and reporting success.
+assert_eq "$(js 'V("live",false).sections[1].items[0].backend')" "flatpak" \
+  "a row in the Apps group carries the flatpak backend, not dnf"
+assert_eq "$(js 'V("live",false).sections.map(function (s) { return s.items[0].backend; })')" \
+  '["dnf","flatpak"]' "each group's rows carry that group's own backend"
+assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "item"; }).map(function (r) { return r.backend; }).filter(function (b, i, a) { return a.indexOf(b) === i; }).sort()')" \
+  '["dnf","flatpak"]' "...and the flat model keeps both backends, not one repeated"
+assert_eq "$(js 'V("held-only",false).heldItems.map(function (h) { return h.backend; }).filter(function (b, i, a) { return a.indexOf(b) === i; }).sort()')" \
+  '["dnf","flatpak"]' "held rows keep both backends too - unpinning must undo the right hold"
+assert_eq "$(js 'V("held-only",false).rows.filter(function (r) { return r.kind === "item" && r.name.indexOf("org.") === 0; })[0].backend')" \
+  "flatpak" "a held Flatpak app is still a flatpak hold, not a dnf one"
+
 assert_eq "$(js 'V("live",false).rows[0].kind')" "header" "the list starts with a section header"
 assert_eq "$(js 'V("live",false).rows[0].title')" "System (dnf)" "...naming the first group"
 assert_eq "$(js 'V("live",false).rows[1].kind')" "item" "the group's items follow it"

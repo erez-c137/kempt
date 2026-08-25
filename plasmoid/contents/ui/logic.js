@@ -71,6 +71,15 @@ function resolveSurface(value) {
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
 }
 
+// effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use.
+// bin/upkeep's cmd_run resolves the configured surface and then overrides it: with auto_accept
+// false only a terminal can ask the confirmation question, so every other surface becomes
+// `terminal` regardless of what is stored. The popup has to apply the same rule or it will offer
+// an in-widget log pane while a terminal window is what actually opens.
+function effectiveSurfaceOf(surface, autoAccept) {
+    return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
+}
+
 // holdsOf(text) -> [{ id, backend, name }] from `upkeep holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
@@ -406,11 +415,13 @@ function viewModel(state, updating, cliError) {
         emptyStateText = stale ? "No updates in the last known state." : "Everything is up to date.";
     }
 
-    // The one thing a stuck user can usefully be told to type. `upkeep doctor` is the CLI's own
-    // diagnosis command, and its name reaching the popup is not a guess: when the root helpers are
-    // missing the CLI says so itself, in the state's error field, and names doctor in the text.
-    var remedyCommand = "";
-    if (cliError !== "" || staleReason.indexOf("upkeep doctor") >= 0) remedyCommand = "upkeep doctor";
+    // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
+    // nothing else to show: a CLI it could not run, or a box that has never had a successful
+    // check. Deliberately NOT offered on calm staleness. Keeping quiet about a repo that flapped
+    // is the entire point of that state, and a "run upkeep doctor" line under counts that are
+    // perfectly good is exactly the noise it exists to avoid. The CLI's own words are still
+    // shown there via staleReason, which names doctor itself when that is what is wrong.
+    var remedyCommand = (cliError !== "" || neverAnswered) ? "upkeep doctor" : "";
 
     return {
         iconState: iconState,
@@ -452,6 +463,7 @@ if (typeof module !== "undefined" && module.exports) {
         rowsOf: rowsOf,
         isTrue: isTrue,
         resolveSurface: resolveSurface,
+        effectiveSurfaceOf: effectiveSurfaceOf,
         holdsOf: holdsOf,
         lastLinesOf: lastLinesOf
     };
