@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Kanso concept A: the enso - a ring left deliberately open.
+       "Complete through omission". The gap is where the pending-count badge sits. -->
+  <path fill="none" stroke="currentColor" stroke-width="2"
+        d="M 12.9 4.2 A 6 6 0 1 0 13.4 10.6"/>
+</svg>
