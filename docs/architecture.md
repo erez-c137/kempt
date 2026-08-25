@@ -30,8 +30,11 @@ use, applies the same holds, and runs the same backends.
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root |
 | `polkit/` | The two action definitions plus the passwordless rule template |
+| `plasmoid/` | The Plasma 6 panel widget: a client of the CLI with no package-manager knowledge |
+| `plasmoid/contents/ui/logic.js` | The widget's whole derivation layer, in engine-agnostic JS so node can test it |
 | `install.sh` | Symlink install, staged install (`--destdir`), uninstall |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
+| `tests/qml/` | PySide6 probes that execute the real QML against a stubbed CLI (see below) |
 
 ## The backend contract
 
@@ -182,6 +185,48 @@ and a cheap verb must never share an action with a dangerous one:
 Both validate every argument before running anything, accept no free-form arguments at all, and
 pin `PATH` and `LC_ALL`. The full model, including what passwordless mode grants, is in
 [security.md](security.md).
+
+## The widget's one command path
+
+Everything the widget runs - every check, every hold, every `config get`, the log tail, the
+watcher's `stat` - goes through `Executor.qml`. It wraps the executable data engine
+(`Plasma5Support.DataSource`, a deprecated shim KDE plans to drop) behind a queue that is
+serialized, always asynchronous, and hard-timed-out per call. That isolation is the point: the
+eventual swap when KDE removes the shim is a one-file change, and nothing anywhere else in the
+widget is allowed to start a process.
+
+**ONE component, three instances.** The file is one; the queues are deliberately not.
+
+| Instance | Lives in | Carries | Why it is separate |
+| --- | --- | --- | --- |
+| `executor` | `main.qml` | checks, holds, `run`, `summary`, config reads, the watcher poll | The actions. A `kempt check` can take two minutes. |
+| `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is strictly FIFO, so a 2-second tail sharing it with a 120-second check would put ~60 tails ahead of every button press and the Refresh button would look dead for two minutes. |
+| `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog is built by the shell in its own object tree and cannot reach `main.qml` at all. Even if it could, a settings dialog that takes two minutes to populate because a check is running is a broken dialog. |
+
+The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
+that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
+
+### Why the widget is testable at all
+
+A plasmoid cannot be executed in a bash suite, so the widget is split so that almost none of it
+needs to be:
+
+- `logic.js` holds every derivation - badge number, icon state, tooltip, popup rows, the watcher
+  comparison, the icon-size snap - in engine-agnostic JavaScript with a CommonJS guard at the
+  bottom. `tests/test_widget_logic.sh` loads that same file with node and pins every rule.
+- The QML that remains is bindings. `tests/test_widget_logic.sh` compiles every `.qml` against
+  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs four
+  probes that instantiate the real files against a stubbed `kempt` on a real `PATH` - the settings
+  page's apply path, the popup's actions, the state machine, the executor.
+- Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
+  dependency of Kempt itself.
+
+The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
+own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the
+probe process itself. That is not ceremony: a PySide6 process wedged in Qt teardown never reaches
+a SIGTERM handler, and an earlier version of this kit with no working timeout reached ~2,200
+resident Qt processes in one afternoon and OOM-killed the box. `tests/test_widget_qml.sh` asserts
+the process count afterwards.
 
 ## Adding a backend for your distro
 
@@ -379,6 +424,7 @@ destructive paths without ever running them.
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
+| `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |
 | `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
 
 The `*_ECHO` seams exist for tests only. The two that live in root-owned code,

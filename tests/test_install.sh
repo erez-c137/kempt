@@ -27,6 +27,17 @@ assert_eq "$(jq -r .KPlugin.Id "$P/metadata.json")" "io.github.erez_c137.kempt" 
 # does either: the widget is the one part of the install that is genuinely a copy.
 assert_exit 0 "the staged widget is a copy, not a symlink into the checkout" -- test ! -L "$P"
 
+# The application icon, in the USER'S ICON THEME rather than only inside the package.
+# metadata.json asks for it by name ("kempt"), and a name is resolved by the XDG icon theme, not
+# by KPackage: measured on Plasma 6.7 with Breeze loaded, an icon that lives only in the installed
+# package's contents/icons/ does not resolve from its name at all. Without this file the widget
+# shows a generic placeholder in Add Widgets, which looks like nothing being wrong.
+ICON="$D$HOME/.local/share/icons/hicolor/scalable/apps/kempt.svg"
+assert_exit 0 "the app icon is staged into the user's hicolor theme, where a name resolves" -- test -f "$ICON"
+[[ -f "$P/contents/icons/kempt.svg" ]] && echo "ok: ...and still ships inside the package too" \
+  || { echo "FAIL: the package lost its own copy of the icon"; _fail=1; }
+assert_eq "$(head -c 5 "$ICON" 2>/dev/null)" "<?xml" "...and what was staged is the SVG, not a stub"
+
 # The helpers are the only COPIES: they must be byte-identical to what the repo reviewed, and
 # the policy has to be world-readable or polkit ignores the action.
 assert_exit 0 "staged refresh helper matches the repo" -- cmp -s "$REPO_ROOT/libexec/kempt-refresh" "$D/usr/local/libexec/kempt-refresh"
@@ -65,6 +76,7 @@ assert_exit 0 "uninstall removes the staged policy" -- test ! -e "$D/usr/share/p
 assert_exit 0 "uninstall removes the staged CLI symlink" -- test ! -e "$D$HOME/.local/bin/kempt"
 assert_exit 0 "uninstall removes the staged man page symlink" -- test ! -e "$D$HOME/.local/share/man/man1/kempt.1"
 assert_exit 0 "uninstall removes the staged widget package" -- test ! -e "$P"
+assert_exit 0 "...and the icon it put in the user's theme" -- test ! -e "$ICON"
 assert_exit 0 "uninstall leaves the config alone" -- test -s "$KEMPT_CONFIG_DIR/config"
 assert_exit 0 "uninstall leaves the holds alone" -- test -s "$KEMPT_CONFIG_DIR/holds"
 

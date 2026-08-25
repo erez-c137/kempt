@@ -342,12 +342,78 @@ What exactly is granted is documented in [security.md](security.md#passwordless-
 
 ## The Plasma widget
 
-<!-- WIDGET STUB: replaced with the widget's own usage section when the Plasma applet ships (Plan 2). -->
+The widget is a thin client over the commands above and nothing else: `kempt check` for the
+badge, `kempt run` for Update Now, `kempt hold`/`unhold` for the pins, `kempt config` for every
+setting in its dialog. It contains no package-manager knowledge of its own, so everything on this
+page stays true from the panel, and anything you do in a terminal shows up in the widget.
 
-The panel widget is not built yet. When it lands, it will be a thin client over the commands
-above: `kempt check` for the badge, `kempt run` for the Update Now button, and `kempt config`
-for every setting in its dialog. Nothing in the widget will do package management of its own,
-so anything documented here stays true from the panel.
+### Adding it to your panel
+
+`./install.sh` installs the widget for your user (no authentication - it is a copy into
+`~/.local/share/plasma/plasmoids/`). Installing it does **not** put it on a panel; you do that:
+
+> Right-click the panel > **Add Widgets...** > search for **Kempt** > drag it onto the panel.
+
+If you changed anything under `plasmoid/`, re-run `./install.sh`: the CLI is a symlink and
+follows the checkout, but the widget is a copy and does not.
+
+### What the panel icon means
+
+| Icon | State | What it is telling you |
+|---|---|---|
+| Update icon with a count badge | Updates pending | The number is the **actionable** count - what a run right now would actually change. Held packages are not in it. |
+| Plain update icon, no badge | Up to date | Nothing to do. If you hold packages, the tooltip still says how many are held. |
+| Same as its contents, badge kept | Stale check | The last check failed (a repo flapped, the network dropped), so the counts shown are the **last known good** ones. The tooltip carries the reason and when the last successful check was. A transient repo failure is not an alarm, so the icon does not become one. |
+| Warning emblem | Error | Kempt itself could not run or could not read its state. The tooltip names the problem and points at `kempt doctor`. |
+| Spinner | Updating | A run started from the widget is in flight. |
+| Dimmed, no badge | No data yet | The first check has not answered. Deliberately not "up to date" - the widget never claims a number it does not have. |
+
+The badge spells the count out exactly up to `999`, then reads `999+`. A box left alone for a few
+weeks routinely has two or three hundred updates pending, so a lower cap would be vague in the
+ordinary case rather than the extreme one. The tooltip and the popup header are never capped.
+
+### The popup
+
+Click the icon. The header says how many updates are available; below it are the pending items
+grouped **System (dnf)** and **Apps (flatpak)**, each showing `from -> to`, and a muted **Held**
+group underneath.
+
+- **Update Now** runs `kempt run`, which opens whatever surface you configured. If it cannot
+  start, the widget shows the CLI's own message, including its remedy.
+- **Refresh** re-checks now instead of waiting for the timer.
+- **The pin on each row** holds or unholds that package - the same `kempt hold` as the CLI. The
+  row moves between the pending list and the Held group on the next refresh.
+- **"N session-critical pending"** appears when the transaction would rewrite things a running
+  desktop is using (the kernel, the graphics stack, Qt). Next to it, **Stage offline instead**
+  hands the whole transaction to the next reboot. This is the same recommendation `kempt check`
+  publishes as `risky_pending`.
+
+You do not have to keep the popup open. Updates keep running if you close it.
+
+### Settings
+
+Right-click the widget > **Configure Kempt...**. Every control on that page reads and writes
+`kempt config` - there is no second copy of any setting, so a value you set in a terminal shows
+up here and vice versa.
+
+Two things worth knowing:
+
+- **Apply vs OK.** Both save. **Apply** writes your changes and leaves the dialog open;
+  **OK** writes them and closes. If you close the dialog with unsaved changes, it asks first.
+- **Changes reach the panel within 30 seconds.** The widget notices a settings change by watching
+  the config file, and it looks every 30 seconds. So the badge or the check interval may take up
+  to half a minute to catch up after you press Apply. Nothing is lost in the meantime.
+
+**Run updates in** is greyed out when *"Apply updates without asking for confirmation"* is off,
+because only a terminal window can ask you the question. Your choice is remembered - untick the
+confirmation box and it comes straight back.
+
+**Password prompts** offers Enable and Disable buttons but never claims which one is currently
+active. That is not an oversight: the polkit rules directory is readable only by root, so a widget
+running as you genuinely cannot tell. Guessing about whether your machine asks for a password is
+the wrong thing to guess about.
+
+Holds you have set are listed at the bottom with a remove button each.
 
 ## A typical day
 

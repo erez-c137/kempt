@@ -19,6 +19,13 @@ PLASMOID_ID=io.github.erez_c137.kempt
 # Test seam, same shape as the others: point it at a stub to exercise the widget arm without a
 # desktop, or at a missing path to exercise the "not installed" branch.
 KEMPT_KPACKAGETOOL="${KEMPT_KPACKAGETOOL:-kpackagetool6}"
+# metadata.json asks for the icon by NAME ("kempt"), and a name is resolved through the XDG icon
+# theme - NOT through the package. Measured on Plasma 6.7 with Breeze loaded: an icon sitting in
+# the installed package's contents/icons/ does not resolve from its name at all; it only resolves
+# if something has added that directory to QIcon's fallback search paths, and nothing does. So the
+# same SVG is also installed into the user's hicolor theme, which is the standard route and the
+# one that actually makes the icon appear in Add Widgets. User-level, no authentication.
+ICON_THEME_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 # The system autostart entry the opt-out overrides. A seam so the copy source can be a fixture:
 # with the real path hardcoded, every call re-copied the live system file over the test's own,
 # and the "an existing Hidden= is replaced" case could never actually run.
@@ -72,14 +79,27 @@ widget_install() {
   run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -i "$ROOT/plasmoid" 2>/dev/null \
     || run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -u "$ROOT/plasmoid" \
     || { echo "warning: could not install the panel widget - the CLI is installed and working; re-run ./install.sh to try the widget again" >&2; return 0; }
+  icon_install
   echo "Panel widget installed. Add it: right-click the panel > Add Widgets > search for Kempt."
   echo "note: the widget is a COPY (the CLI is a symlink) - re-run ./install.sh after changing plasmoid/."
 }
 
 widget_uninstall() {
+  icon_uninstall
   command -v "$KEMPT_KPACKAGETOOL" >/dev/null 2>&1 || return 0
   # A widget that was never installed must not stop the rest of the uninstall.
   run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -r "$PLASMOID_ID" 2>/dev/null || true
+}
+
+# The application icon in the user's own hicolor theme - see ICON_THEME_DIR above for why the copy
+# inside the package is not enough. A plain file install, so it needs no seam and no `run`.
+icon_install() {
+  [[ -f "$ROOT/plasmoid/contents/icons/kempt.svg" ]] || return 0
+  install -D -m 644 "$ROOT/plasmoid/contents/icons/kempt.svg" "$ICON_THEME_DIR/kempt.svg"
+}
+
+icon_uninstall() {
+  rm -f "$ICON_THEME_DIR/kempt.svg"
 }
 
 main() {
@@ -106,6 +126,7 @@ main() {
             "$DESTDIR$ACTIONS_DIR/$POLICY" "$DESTDIR$RULES_FILE" "$DESTDIR$HOME/.local/bin/kempt" \
             "$DESTDIR$MAN1_DIR/kempt.1"
       rm -rf "$DESTDIR$PLASMOID_DIR"
+      rm -f "$DESTDIR$ICON_THEME_DIR/kempt.svg"
       echo "removed the staged install under $DESTDIR"
       exit 0
     fi
@@ -136,6 +157,9 @@ main() {
     rm -rf "$DESTDIR$PLASMOID_DIR"
     mkdir -p "$(dirname "$DESTDIR$PLASMOID_DIR")"
     cp -a "$ROOT/plasmoid" "$DESTDIR$PLASMOID_DIR"
+    # ...and the icon in the hicolor theme, which is what makes metadata.json's "kempt" resolve.
+    [[ -f "$ROOT/plasmoid/contents/icons/kempt.svg" ]] \
+      && install -D -m 644 "$ROOT/plasmoid/contents/icons/kempt.svg" "$DESTDIR$ICON_THEME_DIR/kempt.svg"
     echo "staged into $DESTDIR"
     exit 0
   fi

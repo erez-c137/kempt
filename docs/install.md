@@ -50,8 +50,23 @@ The installer does four things, in this order:
 | `/usr/local/libexec/kempt-refresh` | `root:root` 0755 | the one `pkexec` |
 | `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
+| `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6` - no authentication) |
+| `~/.local/share/icons/hicolor/scalable/apps/kempt.svg` | you | `install.sh`, so the widget's icon resolves by name in Add Widgets |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
+
+The panel widget is the one part of the install that is a **copy** rather than a symlink, because
+that is what `kpackagetool6` does. So after changing anything under `plasmoid/`, re-run
+`./install.sh` - the CLI follows the checkout, the widget does not. Installing the widget does not
+put it on a panel: right-click the panel > **Add Widgets...** > search for **Kempt**.
+
+The icon is installed twice on purpose. `metadata.json` asks for it by name (`kempt`), and a name
+is resolved through the XDG icon theme, not through the package - measured on Plasma 6.7, an icon
+that lives only inside the installed package does not resolve from its name at all. The copy in
+`~/.local/share/icons/hicolor/` is the one Add Widgets actually finds.
+
+If `kpackagetool6` is missing (no Plasma, or a minimal install), the widget is skipped with a note
+and everything else installs normally. The CLI is the product; the widget is a client of it.
 
 Nothing else is written at install time. Config and state directories are created on first use:
 `~/.config/kempt/` (config, holds) and `~/.local/state/kempt/` (state, history, logs,
@@ -177,7 +192,8 @@ is the answer for distributing Kempt to other users (the symlink install is a de
 ./install.sh --uninstall
 ```
 
-Removes the `~/.local/bin/kempt` and man-page symlinks, then asks for authentication once to
+Removes the `~/.local/bin/kempt` and man-page symlinks, removes the panel widget and its icon
+(no authentication - `kpackagetool6 -r` plus one file), then asks for authentication once to
 remove the two root helpers, the polkit action and the passwordless rule if present. Declining that prompt
 exits 1 and names the half-removed state so you can finish with a second run.
 

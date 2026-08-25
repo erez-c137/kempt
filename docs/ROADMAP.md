@@ -27,6 +27,14 @@ The CLI is code-complete, documented, and audited. Remaining, in order:
   identity), (3) a custom icon name via Plasma's standard icon picker for people who theme
   everything. Routed through `kempt config` (`widget_icon`, default `theme`) like every other
   setting; badge and state semantics never change with the icon.
+  - When the comb option lands, the QML picks **`kempt-symbolic-16.svg` vs `kempt-symbolic.svg`
+    by the snapped icon size** (`Logic.snapIconSize` already computes it: 16 gets the 16px
+    artwork, everything larger gets the 22px one). `plasmoid/contents/icons/` is a FLAT directory
+    and matches by file name only, so this is an explicit choice in the binding, not something
+    the icon loader does. The alternative is installing the comb into a proper hicolor tree
+    (`.../icons/hicolor/{16x16,22x22,scalable}/apps/`) and letting `QIcon::fromTheme` pick the
+    size itself - more machinery, but it is the route the metadata icon already takes, since a
+    package-local icon name does not resolve from the theme (measured on Plasma 6.7).
 - **History hygiene for going public** - rewrite the six plan-prescribed commit subjects
   that carry em dashes (or accept them); final sweep of the repo.
 - **Flip the GitHub repo public** - also the moment CI becomes free: add a GitHub Actions

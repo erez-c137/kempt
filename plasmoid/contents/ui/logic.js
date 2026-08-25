@@ -80,6 +80,27 @@ function effectiveSurfaceOf(surface, autoAccept) {
     return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
 }
 
+// snapIconSize(cell, steps) -> the largest of `steps` that fits `cell`.
+// Icon themes hint their glyphs at specific pixel sizes - Breeze draws a 16px symbolic and a 22px
+// symbolic as SEPARATE artwork, with the strokes aligned to the pixel grid at that size. Ask for
+// 15px, or 24px, and the renderer scales one of them by a fraction and every hinted stroke lands
+// between pixels: the icon goes soft in exactly the place a panel icon is smallest and most
+// needs not to be. Snapping the REQUEST down to a hinted step renders it 1:1 and leaves the few
+// spare pixels as padding, which nobody can see.
+// Falls back to a whole number of pixels when the cell is smaller than the smallest step - there
+// is no hinted size to snap to down there, so scaling is the only option left.
+function snapIconSize(cell, steps) {
+    var c = Number(cell), best = 0, i, s;
+    if (!isFinite(c) || c <= 0) return 0;
+    if (!steps || !steps.length) return Math.floor(c);
+    for (i = 0; i < steps.length; i++) {
+        s = Number(steps[i]);
+        if (!isFinite(s) || s <= 0) continue;
+        if (s <= c && s > best) best = s;
+    }
+    return best > 0 ? best : Math.floor(c);
+}
+
 // --- the watcher stamp -----------------------------------------------------------------------
 // main.qml polls the mtimes of four paths every 30 seconds and compares the result with the last
 // one. WHICH of them moved is the part that matters, and the reason is dnf: /var/lib/rpm is
@@ -513,6 +534,7 @@ if (typeof module !== "undefined" && module.exports) {
         effectiveSurfaceOf: effectiveSurfaceOf,
         holdsOf: holdsOf,
         lastLinesOf: lastLinesOf,
+        snapIconSize: snapIconSize,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,
         WATCH_FIELDS: WATCH_FIELDS

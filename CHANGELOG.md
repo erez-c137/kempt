@@ -9,9 +9,19 @@ release.
 ## [Unreleased]
 
 The first working version of Kempt: the complete command-line tool, its root helpers, its
-installer and its documentation. The Plasma panel widget is not part of this yet.
+installer and its documentation, and the Plasma panel widget that sits on top of them.
 
 ### Added
+
+- **A panel widget that tells the truth.** A Plasma 6 applet whose badge is the CLI's own
+  actionable count and never a guess: no data reads as "no data", not as zero, and a failed check
+  keeps the last known numbers with the reason in the tooltip instead of raising an alarm about a
+  repo that flapped once. The popup lists what is pending and what is held, updates in one click,
+  offers the offline staging recommendation where you can act on it, and pins packages in place.
+  Its settings page is a front-end to `kempt config` with no second copy of any setting, so the
+  panel and the terminal can never disagree. The widget shells out to the CLI for everything and
+  contains no package-manager knowledge of its own; every command it runs goes through one
+  component with a hard timeout, so a slow `dnf` can never freeze the panel.
 
 - **One command that knows what is pending.** `kempt check` queries dnf5 and Flatpak and writes
   a documented JSON state file (schema v1) listing every pending item, the version installed and

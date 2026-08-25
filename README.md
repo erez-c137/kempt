@@ -51,9 +51,12 @@ half stands today.
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
   by the test suite in `tests/`. This is the whole engine, and it is the half that is finished.
-- **Plasma widget: landing next.** A thin QML client over `kempt check`, `kempt run` and
-  `kempt config`, with no package management of its own. Everything documented here works from
-  a terminal whether or not the widget is on your panel yet.
+- **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold` and
+  `kempt config`, with no package management of its own: a panel icon whose badge is the real
+  actionable count, a popup with the pending and held lists, one-click Update Now, the offline
+  recommendation where you can act on it, and a settings page that is a front-end to
+  `kempt config` rather than a second copy of it. `./install.sh` installs it; you add it to a
+  panel yourself. Everything documented here works from a terminal whether or not it is there.
 - Not yet packaged. Installation is a symlink from a git checkout (see below).
 
 ## Quick start

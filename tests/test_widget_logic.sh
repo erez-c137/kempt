@@ -337,7 +337,7 @@ holds_out="$(KEMPT_CONFIG_DIR="$TESTTMP/hcfg" KEMPT_STATE_DIR="$TESTTMP/hstate" 
   '$REPO_ROOT/bin/kempt' hold flatpak:org.gimp.GIMP >/dev/null
   '$REPO_ROOT/bin/kempt' holds")"
 assert_eq "$(HOLDS="$holds_out" js 'L.holdsOf(process.env.HOLDS).map(function (h) { return h.id; })')" \
-  '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real `kempt holds` prints"
+  '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real kempt holds prints"
 
 # --- lastLinesOf: the result line under the passwordless buttons -------------------------------
 assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 1)')" "three" "the last line is the verdict"
@@ -529,6 +529,29 @@ done
 unset EVIL
 assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
 unset HOSTILE
+
+# --- snapIconSize: the panel icon is asked for a size the theme actually hints ------------------
+# Icon themes draw 16px and 22px symbolics as SEPARATE artwork, each aligned to the pixel grid at
+# that size. Asking for 15px or 24px scales one of them by a fraction and every hinted stroke lands
+# between pixels - soft, muddy, and worst exactly where a panel icon is smallest. The panel cell is
+# whatever the user's panel happens to be, so the REQUEST is what gets snapped.
+STEPS='[16,22,32,48,64,128]'
+assert_eq "$(js "L.snapIconSize(22, $STEPS)")" "22" "a 22px panel asks for the hinted 22px icon, 1:1"
+assert_eq "$(js "L.snapIconSize(24, $STEPS)")" "22" "24px snaps DOWN to 22 rather than scaling 32 in"
+assert_eq "$(js "L.snapIconSize(28, $STEPS)")" "22" "...and so does 28"
+assert_eq "$(js "L.snapIconSize(32, $STEPS)")" "32" "32px lands exactly on the next hinted step"
+assert_eq "$(js "L.snapIconSize(36, $STEPS)")" "32" "36px snaps down to 32"
+assert_eq "$(js "L.snapIconSize(44, $STEPS)")" "32" "...and 44 is still 32, not a stretched 48"
+assert_eq "$(js "L.snapIconSize(64, $STEPS)")" "64" "64px is its own step"
+assert_eq "$(js "L.snapIconSize(200, $STEPS)")" "128" "past the largest step it stops at the largest"
+# Below the smallest hinted size there is nothing to snap to, so a whole number of pixels is the
+# best available answer - a fractional icon size is a Qt layout warning as well as a blurry icon.
+assert_eq "$(js "L.snapIconSize(12, $STEPS)")" "12" "a cell below the smallest step gets whole pixels"
+assert_eq "$(js "L.snapIconSize(12.7, $STEPS)")" "12" "...floored, never fractional"
+assert_eq "$(js 'L.snapIconSize(40, [])')" "40" "no steps at all is not a crash"
+assert_eq "$(js "L.snapIconSize(0, $STEPS)")" "0" "a cell with no size asks for nothing"
+assert_eq "$(js "L.snapIconSize(-5, $STEPS)")" "0" "...and neither does a negative one"
+assert_eq "$(js "L.snapIconSize(undefined, $STEPS)")" "0" "a missing size is not an error"
 
 # --- the watcher stamp: WHICH path moved, not merely that one did -------------------------------
 # main.qml polls four mtimes every 30 seconds: /var/lib/rpm, /var/lib/flatpak, our state file, our

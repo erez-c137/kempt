@@ -10,6 +10,7 @@ import QtQuick
 import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
+import "logic.js" as Logic
 
 Item {
     id: compactRoot
@@ -26,9 +27,30 @@ Item {
     readonly property real shortSide: Math.min(width, height)
     readonly property bool roomForBadge: shortSide >= Kirigami.Units.iconSizes.small * 1.5
 
+    // The size the ICON is asked for, which is not the same as the size of the cell it sits in.
+    // Icon themes hint their glyphs at specific pixel sizes - Breeze ships 16px and 22px symbolics
+    // as separate artwork, each aligned to the pixel grid at that size. A panel 22px tall handed
+    // straight to Kirigami.Icon used to ask for whatever fraction the layout produced, and every
+    // hinted stroke landed between pixels: soft, muddy, worst exactly where the icon is smallest.
+    // Snapping the request DOWN to a hinted step renders it 1:1 and spends the two or three spare
+    // pixels on padding nobody can see. The badge below still measures itself against the CELL,
+    // not against this - the badge is drawn geometry, has nothing hinted about it, and shrinking
+    // it to the icon's step would make it smaller than the space actually available.
+    readonly property int iconSize: Logic.snapIconSize(compactRoot.shortSide, [
+        Kirigami.Units.iconSizes.small,        // 16
+        Kirigami.Units.iconSizes.smallMedium,  // 22
+        Kirigami.Units.iconSizes.medium,       // 32
+        Kirigami.Units.iconSizes.large,        // 48
+        Kirigami.Units.iconSizes.huge,         // 64
+        Kirigami.Units.iconSizes.enormous      // 128
+    ])
+
     Kirigami.Icon {
         id: mainIcon
-        anchors.fill: parent
+        // Centred at a hinted size rather than stretched to fill: see iconSize above.
+        anchors.centerIn: parent
+        width: compactRoot.iconSize
+        height: compactRoot.iconSize
         active: mouseArea.containsMouse
         // update-none / update-low / update-high are the Breeze update icons the rest of Plasma
         // uses for exactly this, so the panel stays visually consistent with Discover's notifier.

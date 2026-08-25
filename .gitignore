@@ -2,3 +2,5 @@
 docs/research/brand/candidates/legibility/tiles/
 docs/research/brand/candidates/legibility/strips/
 docs/research/brand/candidates/legibility/mono/
+__pycache__/
+*.pyc

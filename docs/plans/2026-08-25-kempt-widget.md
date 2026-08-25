@@ -82,6 +82,9 @@ function viewModel(state, updating) {
     // Rules (each one is a test):
     //  - null state + !updating => "unknown", no badge, tooltip says no data yet
     //  - actionable 0 + held>0 => "uptodate" icon, tooltip notes "N held" (spec Holds promise)
+    //  - badge cap: RATIFIED at 999+ during W5, not 99 - a box left alone a few weeks routinely
+    //    has two or three hundred pending, so 99 would be vague in the ORDINARY case. The
+    //    tooltip and the popup header are never capped. (spec §Layer 2 carries the same note.)
     //  - status stale => "stale", badge shows LAST KNOWN actionable, tooltipSub carries
     //    "last successful check: <last_success>" or "never"
     //  - version display: newestOf() both sides (installonly comma-sets render newest)
@@ -172,9 +175,10 @@ Item {
   - `doCheck()`: executor.run("kempt check", 120000, ...) → `Logic.parseState`; null stdout with rc 0 = KEEP previous state (the spec's empty-stdout caller rule); rc != 0 with valid stdout = still use the stdout (answer-first contract).
   - Check timer: interval from `kempt config get refresh_interval_min` (read once at load and after every settings apply) * 60000; fires doCheck.
   - Watcher timer, 30s: `stat -c %Y /var/lib/rpm /var/lib/flatpak ~/.local/state/kempt/state.json 2>/dev/null | tr '\n' ' '` → if the concatenated string changed since last poll, doCheck() (this is the stale-badge killer; a change from ANY source refreshes within 30s).
+    - **AS BUILT (W4 review finding B-5, and this block is superseded):** the config file is watched too (it is the settings page's only back-channel), every path is padded (`stat -c %Y "$p" 2>/dev/null || echo 0` per path) so a missing one cannot shift the fields, and the stamp is compared FIELD-WISE. Comparing the whole string was wrong in a way that only showed up during a real transaction: `/var/lib/rpm` is rewritten continuously throughout a dnf run, so "something changed" was true every 30 seconds and the widget declared the run finished a few seconds in. Only the state-file field ends the updating state; while a run of ours is in flight a package-database change starts no check at all. See spec §Layer 2.
   - On load: doCheck.
 - [ ] **Step 3: CompactRepresentation** - Kirigami.Icon bound to vm.iconState mapping: uptodate `update-none`, updates `update-low`, STALE keeps a calm presentation (same icon as its last-known contents, badge preserved, tooltip carries the stale reason + last_success - a transient repo flap must never panic the panel; this is the adjudicated resolution of the plan-vs-architecture.md conflict, architecture.md wins), true error/unknown-CLI `update-high` + emblem-warning, updating shows a small BusyIndicator overlay, unknown `update-none` dimmed. Badge: small rounded Rectangle bottom-right, text vm.badgeText, visible vm.badgeVisible, highlight color, hidden when panel too small per Plasma idiom. Tooltip: mainText/subText from vm. Click toggles the popup (default PlasmoidItem behavior).
-- [ ] **Step 4:** if `qml`/`qmllint` exist (probe), lint every .qml; else document the gap for the morning gate. Node suite green. Commit `feat(widget): executor, live state, panel icon with truthful badge`
+- [ ] **Step 4:** if `qml`/`qmllint` exist (probe), lint every .qml; else document the gap for the morning gate. **W5 result: neither exists on this box** (they ship in `qt6-qtdeclarative-devel`, which is not installed and would need root) - the standing substitute is the PySide6 compile gate in `tests/test_widget_logic.sh` plus the four executing probes in `tests/test_widget_qml.sh`. Node suite green. Commit `feat(widget): executor, live state, panel icon with truthful badge`
 
 ### Task W3: The popup
 
