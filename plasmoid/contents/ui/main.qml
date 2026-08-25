@@ -6,6 +6,7 @@
 // here runs a command directly either: that is Executor.qml, which serializes and hard-timeouts
 // every call so a slow dnf can never block the panel process.
 import QtQuick
+import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import "logic.js" as Logic
 
@@ -36,6 +37,13 @@ PlasmoidItem {
     readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
+    // How big the panel icon should be: `auto`, or one of the three named steps. Validated HERE
+    // rather than by the CLI - `kempt config set` checks that a key looks like a key and stores
+    // whatever value it is given, so a typo, an older CLI that answers with an empty line, and a
+    // value written by a future version all arrive the same way. Logic.resolveIconSizeSetting
+    // turns every one of them into `auto` without a word of complaint, which is the right
+    // behaviour for a panel icon: it draws, at a sensible size, no matter what the file says.
+    property string iconSizeSetting: "auto"
 
     // The single derived value. Re-evaluated by the engine whenever either input changes, which is
     // why nothing below ever recomputes or caches a label. null is a first-class input here: it
@@ -160,7 +168,7 @@ PlasmoidItem {
             // (A run that just ENDED left `updating` false on the line above, so it falls past
             // this and gets the full re-read.)
             if (root.updating) {
-                if (delta.config) { root.readInterval(); root.readSurface(); }
+                if (delta.config) { root.readInterval(); root.readSurface(); root.readIconSize(); }
                 return;
             }
 
@@ -169,6 +177,7 @@ PlasmoidItem {
             // the check below has to happen either way.
             root.readInterval();
             root.readSurface();
+            root.readIconSize();
             root.doCheck();
         });
     }
@@ -197,6 +206,18 @@ PlasmoidItem {
         executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
             if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
+        });
+    }
+
+    // The panel icon's size preference. Read on the same schedule as the two above - at load, and
+    // again whenever the config file moves - so the settings page reaches the panel icon through
+    // the same 30-second back-channel as everything else, and so does `kempt config set` typed in
+    // a terminal. A read that fails or answers with nothing leaves the current setting alone;
+    // anything it does answer is put through the validator before it can reach a binding.
+    function readIconSize() {
+        executor.run(kemptCmd + " config get widget_icon_size", 10000, function(stdout, stderr, rc) {
+            var v = Logic.firstLineOf(stdout);
+            if (rc === 0 && v !== "") root.iconSizeSetting = Logic.resolveIconSizeSetting(v);
         });
     }
 
@@ -372,6 +393,7 @@ PlasmoidItem {
     toolTipMainText: vm ? vm.tooltipMain : "Kempt"
     toolTipSubText: vm ? vm.tooltipSub : ""
 
+
     // preferredRepresentation is deliberately NOT set. Plasma's own switch already does the right
     // thing - the icon in a panel, the popup on the desktop - by comparing the available space
     // with the full representation's Layout.minimumWidth/Height. (Worth knowing: the
@@ -384,15 +406,45 @@ PlasmoidItem {
     compactRepresentation: CompactRepresentation {
         plasmoidItem: root
         vm: root.vm
+        iconSizeSetting: root.iconSizeSetting
     }
     fullRepresentation: FullRepresentation {
         plasmoidItem: root
         vm: root.vm
     }
 
+    // What the system tray does with this entry when the user leaves it on "Auto". The tray reads
+    // this and nothing else: PassiveStatus tucks an entry away behind the expander arrow, and an
+    // applet that never sets a status is lower than passive - so without this the widget would
+    // install into the tray, be enabled there, and appear to do nothing at all.
+    //
+    // Always active, deliberately, and that is a product decision rather than a technical one.
+    // Kempt's whole promise is a badge that is simply THERE and truthful, so hiding the icon on
+    // the days there is nothing to report would be the widget disappearing exactly when it is
+    // telling you the good news. NeedsAttentionStatus is the other tempting value and is worse:
+    // it makes the tray force the entry back into view even when the user has deliberately hidden
+    // it, which is not a thing an update notifier should do to somebody. A user who wants it out
+    // of the way sets this entry to Hidden in the tray's own settings, and that choice sticks.
+    //
+    // Assigned once here rather than declared as `Plasmoid.status:` above, and the reason is the
+    // test kit rather than taste. `Plasmoid` is an ATTACHED object backed by a real Plasma applet;
+    // a declarative assignment makes creating it a precondition of creating this file at all, and
+    // outside plasmashell there is no applet, so main.qml stops instantiating and every QML probe
+    // dies with it. The value never changes, so one assignment is exactly equivalent - and it runs
+    // last, after the reads above, so the catch below can only ever swallow this one line.
+    function claimTrayPresence() {
+        try {
+            Plasmoid.status = PlasmaCore.Types.ActiveStatus;
+        } catch (e) {
+            // No applet behind us: a test harness, not a panel. Nothing to tell a tray about.
+        }
+    }
+
     Component.onCompleted: {
         readInterval();
         readSurface();
+        readIconSize();
         doCheck();
+        claimTrayPresence();
     }
 }

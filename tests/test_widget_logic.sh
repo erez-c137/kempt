@@ -530,28 +530,73 @@ unset EVIL
 assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
 unset HOSTILE
 
-# --- snapIconSize: the panel icon is asked for a size the theme actually hints ------------------
-# Icon themes draw 16px and 22px symbolics as SEPARATE artwork, each aligned to the pixel grid at
-# that size. Asking for 15px or 24px scales one of them by a fraction and every hinted stroke lands
-# between pixels - soft, muddy, and worst exactly where a panel icon is smallest. The panel cell is
-# whatever the user's panel happens to be, so the REQUEST is what gets snapped.
-STEPS='[16,22,32,48,64,128]'
-assert_eq "$(js "L.snapIconSize(22, $STEPS)")" "22" "a 22px panel asks for the hinted 22px icon, 1:1"
-assert_eq "$(js "L.snapIconSize(24, $STEPS)")" "22" "24px snaps DOWN to 22 rather than scaling 32 in"
-assert_eq "$(js "L.snapIconSize(28, $STEPS)")" "22" "...and so does 28"
-assert_eq "$(js "L.snapIconSize(32, $STEPS)")" "32" "32px lands exactly on the next hinted step"
-assert_eq "$(js "L.snapIconSize(36, $STEPS)")" "32" "36px snaps down to 32"
-assert_eq "$(js "L.snapIconSize(44, $STEPS)")" "32" "...and 44 is still 32, not a stretched 48"
-assert_eq "$(js "L.snapIconSize(64, $STEPS)")" "64" "64px is its own step"
-assert_eq "$(js "L.snapIconSize(200, $STEPS)")" "128" "past the largest step it stops at the largest"
+# --- the panel icon's size: `auto`, and the setting that overrides it ---------------------------
+# Two rules, and they answer different questions. snapIconSize is `auto` - how big should this be
+# when nobody said - and resolveIconSize is the whole answer, including what the user asked for.
+#
+# The rungs are pinned to what the SYSTEM TRAY draws, not to "the largest that fits". That is the
+# change: a 44px panel fits a 32px icon, so the widget asked for 32 and stood in a row of 22px tray
+# entries looking like a mistake. The tray does not fill its cell either. Anything from a 22px
+# panel to a 47px one now asks for 22, which is what the tray asks for across that whole range.
+STEPS='[16,22,32,48,64]'
+assert_eq "$(js "L.snapIconSize(16, $STEPS)")" "16" "a 16px panel asks for the hinted 16px icon"
+assert_eq "$(js "L.snapIconSize(21, $STEPS)")" "16" "...and so does 21, one pixel below the next rung"
+assert_eq "$(js "L.snapIconSize(22, $STEPS)")" "22" "22px is where the tray's own size takes over"
+assert_eq "$(js "L.snapIconSize(24, $STEPS)")" "22" "...and 24 stays there"
+assert_eq "$(js "L.snapIconSize(32, $STEPS)")" "22" "a 32px panel matches the tray at 22, it does not fill itself"
+assert_eq "$(js "L.snapIconSize(36, $STEPS)")" "22" "...nor does 36, the ordinary panel"
+assert_eq "$(js "L.snapIconSize(44, $STEPS)")" "22" "...nor 44, the Plasma default - THE bug this fixes"
+assert_eq "$(js "L.snapIconSize(47, $STEPS)")" "22" "...right up to 47"
+assert_eq "$(js "L.snapIconSize(48, $STEPS)")" "32" "48 is where a panel stops being an ordinary panel"
+assert_eq "$(js "L.snapIconSize(64, $STEPS)")" "32" "...and 64 is still 32"
+assert_eq "$(js "L.snapIconSize(95, $STEPS)")" "32" "...to the top of that rung"
+assert_eq "$(js "L.snapIconSize(96, $STEPS)")" "48" "96 steps up to 48"
+assert_eq "$(js "L.snapIconSize(191, $STEPS)")" "48" "...and holds it"
+assert_eq "$(js "L.snapIconSize(192, $STEPS)")" "64" "192 reaches the largest step"
+assert_eq "$(js "L.snapIconSize(2000, $STEPS)")" "64" "past it, it stops there rather than inventing a size"
 # Below the smallest hinted size there is nothing to snap to, so a whole number of pixels is the
 # best available answer - a fractional icon size is a Qt layout warning as well as a blurry icon.
 assert_eq "$(js "L.snapIconSize(12, $STEPS)")" "12" "a cell below the smallest step gets whole pixels"
 assert_eq "$(js "L.snapIconSize(12.7, $STEPS)")" "12" "...floored, never fractional"
-assert_eq "$(js 'L.snapIconSize(40, [])')" "40" "no steps at all is not a crash"
+assert_eq "$(js 'L.snapIconSize(40, [])')" "22" "an empty step list falls back to the built-in ladder, not to a stretched glyph"
+assert_eq "$(js 'L.snapIconSize(44)')" "22" "...and so does calling it with no steps at all"
 assert_eq "$(js "L.snapIconSize(0, $STEPS)")" "0" "a cell with no size asks for nothing"
 assert_eq "$(js "L.snapIconSize(-5, $STEPS)")" "0" "...and neither does a negative one"
 assert_eq "$(js "L.snapIconSize(undefined, $STEPS)")" "0" "a missing size is not an error"
+
+# The named sizes are INDEXES into the theme's own step list, never literal pixel counts - a theme
+# whose "small" is not 16 still gets its own hinted artwork rather than a number logic.js invented.
+assert_eq "$(js 'L.resolveIconSize("small", 44)')" "16" "Small on an ordinary panel is the 16px step"
+assert_eq "$(js 'L.resolveIconSize("medium", 44)')" "22" "Medium is 22, the same size the tray draws"
+assert_eq "$(js 'L.resolveIconSize("large", 44)')" "32" "Large is 32 - what the widget used to do by accident"
+assert_eq "$(js 'L.resolveIconSize("auto", 44)')" "22" "Automatic defers to the ladder"
+assert_eq "$(js 'L.resolveIconSize("small", 44, [10,20,30,40,50])')" "10" \
+  "a theme with its own steps supplies the pixels, not this file"
+# A chosen size the cell cannot hold falls back to automatic rather than overflowing. This is what
+# makes the system tray's cell win: the tray hands each entry a slot at ITS icon size, and an
+# entry that drew 32px into a 22px slot would push every other tray icon around.
+assert_eq "$(js 'L.resolveIconSize("large", 22)')" "22" "Large in a 22px tray slot gives way to the slot"
+assert_eq "$(js 'L.resolveIconSize("medium", 16)')" "16" "...and Medium does the same in a 16px one"
+assert_eq "$(js 'L.resolveIconSize("small", 22)')" "16" "a size that DOES fit is honoured, tray or panel"
+assert_eq "$(js 'L.resolveIconSize("large", 0)')" "0" "before the panel has sized us, nothing is drawn"
+# The widget is the only validator this setting has: `kempt config set` stores whatever it is
+# handed. Every unrecognised value means the same thing - decide it automatically, say nothing.
+assert_eq "$(js 'L.resolveIconSize("bogus", 44)')" "22" "a value the widget does not know falls back to automatic"
+assert_eq "$(js 'L.resolveIconSize("", 44)')" "22" "...and so does an empty answer from an older CLI"
+assert_eq "$(js 'L.resolveIconSizeSetting("auto")')" "auto" "the four settings survive the validator"
+assert_eq "$(js 'L.resolveIconSizeSetting("small")')" "small" "...small"
+assert_eq "$(js 'L.resolveIconSizeSetting("medium")')" "medium" "...medium"
+assert_eq "$(js 'L.resolveIconSizeSetting("large")')" "large" "...large"
+assert_eq "$(js 'L.resolveIconSizeSetting("  LARGE  ")')" "large" "...case and whitespace and all"
+assert_eq "$(js 'L.resolveIconSizeSetting("enormous")')" "auto" "an unknown value is auto"
+assert_eq "$(js 'L.resolveIconSizeSetting("")')" "auto" "an empty value is auto"
+assert_eq "$(js 'L.resolveIconSizeSetting(null)')" "auto" "a missing value is auto"
+assert_eq "$(js 'L.resolveIconSizeSetting(undefined)')" "auto" "...and so is no value at all"
+# Object.prototype keys are not settings. `toString` is a property of every object in JavaScript,
+# so a naive `key in table` lookup answers yes for it - and the index it would then read is a
+# function, which reaches Kirigami as an icon size.
+assert_eq "$(js 'L.resolveIconSizeSetting("toString")')" "auto" "an inherited property name is not a setting"
+assert_eq "$(js 'L.resolveIconSize("toString", 44)')" "22" "...and does not reach the icon as a size"
 
 # --- the watcher stamp: WHICH path moved, not merely that one did -------------------------------
 # main.qml polls four mtimes every 30 seconds: /var/lib/rpm, /var/lib/flatpak, our state file, our
@@ -666,11 +711,60 @@ assert_exit 0 "the kcfg skeleton is still well-formed XML" -- python3 -c "
 import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"
 # Every key the page writes is a key the CLI actually knows: a typo here would write a setting
 # nothing ever reads, and the page would look like it worked.
-for key in include_flatpak auto_accept surface refresh_interval_min; do
-  grep -q "setIfChanged(\"$key\"" "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
-    && echo "ok: the page writes $key" || { echo "FAIL: the page never writes $key"; _fail=1; }
-  assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "...and the CLI has a default for $key"
+#
+# The list is READ OUT OF THE PAGE rather than repeated here. A hardcoded list only proves the
+# keys somebody remembered to add to it, and the failure it is meant to catch - a new control
+# writing a key the CLI has no default for - is exactly the case where nobody remembers.
+PAGE_KEYS="$(grep -o 'setIfChanged("[a-z_]*"' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
+             | cut -d'"' -f2 | sort -u)"
+assert_eq "$(wc -l <<<"$PAGE_KEYS")" "5" "the settings page writes five settings"
+for key in $PAGE_KEYS; do
+  assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "the CLI has a default for $key, which the page writes"
 done
+# ...and every key it writes, it also READS - so the page opens on the stored value instead of on
+# a QML default, and Apply has something real to compare against. A write-only key is how a
+# settings page quietly replaces a setting the user made somewhere else.
+for key in $PAGE_KEYS; do
+  { grep -q "readKey(\"$key\"" "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
+    || grep -q "config get $key" "$REPO_ROOT/plasmoid/contents/ui/main.qml"; } \
+    && echo "ok: $key is read back before it is written" \
+    || { echo "FAIL: $key is written but never read"; _fail=1; }
+done
+# The panel icon's size is the one setting BOTH files need: the page writes it, and main.qml has
+# to re-read it or the icon would not change until plasmashell restarted.
+grep -q "config get widget_icon_size" "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
+  && echo "ok: the panel icon re-reads its own size setting" \
+  || { echo "FAIL: main.qml never reads widget_icon_size"; _fail=1; }
+
+# --- the system tray entry ----------------------------------------------------------------------
+# What makes the widget offerable INSIDE the system tray rather than only as a standalone panel
+# item. The tray builds its Entries list by listing every Plasma/Applet package and keeping the
+# ones that declare a notification-area category; nothing else about the package changes.
+META="$REPO_ROOT/plasmoid/metadata.json"
+assert_exit 0 "the package metadata is still valid JSON" -- jq -e . "$META"
+assert_eq "$(jq -r '.["X-Plasma-NotificationAreaCategory"] // ""' "$META")" "SystemServices" \
+  "the widget declares itself a system-tray entry under System Services"
+assert_eq "$(jq -r '.["X-Plasma-NotificationArea"] // ""' "$META")" "true" \
+  "...and carries the older boolean too, which is what every shipped tray applet still does"
+assert_eq "$(jq -r '.KPlugin.EnabledByDefault' "$META")" "true" \
+  "...and is on by default there, so installing it is all a user has to do"
+# Both keys are TOP-LEVEL. Inside KPlugin they parse fine, mean nothing, and the widget simply
+# never appears in the tray - a failure with no error message anywhere.
+assert_eq "$(jq -r '.KPlugin | has("X-Plasma-NotificationAreaCategory")' "$META")" "false" \
+  "...declared at the top level, where the tray reads them, not inside KPlugin"
+# Checked against what this box actually ships rather than against a remembered convention: if
+# Plasma's own tray-capable widgets are installed here, ours must spell the key the way they do
+# and pick a category one of them uses.
+KDE_TRAY_META="$(grep -l 'X-Plasma-NotificationAreaCategory' /usr/share/plasma/plasmoids/*/metadata.json 2>/dev/null || true)"
+if [[ -z "$KDE_TRAY_META" ]]; then
+  echo "ok: SKIPPED - no Plasma tray applet on this box to compare the metadata convention against"
+else
+  # shellcheck disable=SC2086
+  KDE_CATEGORIES="$(jq -r '.["X-Plasma-NotificationAreaCategory"]' $KDE_TRAY_META | sort -u)"
+  grep -qx "$(jq -r '.["X-Plasma-NotificationAreaCategory"]' "$META")" <<<"$KDE_CATEGORIES" \
+    && echo "ok: the category is one Plasma's own tray applets use on this box" \
+    || { echo "FAIL: category not among $(tr '\n' ' ' <<<"$KDE_CATEGORIES")"; _fail=1; }
+fi
 
 qml_check
 finish

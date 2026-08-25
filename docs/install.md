@@ -58,6 +58,7 @@ breaks `kempt`. Only the root-owned files and the widget are copies.
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
 | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6` - no authentication) |
 | `~/.local/share/icons/hicolor/scalable/apps/kempt.svg` | you | `install.sh`, so the widget's icon resolves by name in Add Widgets |
+| (no file) a `org.kde.KIconLoader.iconChanged` signal on your session bus | - | `install.sh`, right after the icon, so a running Plasma notices it |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
 
@@ -70,6 +71,25 @@ The icon is installed twice on purpose. `metadata.json` asks for it by name (`ke
 is resolved through the XDG icon theme, not through the package - measured on Plasma 6.7, an icon
 that lives only inside the installed package does not resolve from its name at all. The copy in
 `~/.local/share/icons/hicolor/` is the one Add Widgets actually finds.
+
+Installing that file is not quite enough on its own, so `install.sh` also emits one D-Bus signal:
+
+```
+dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0
+```
+
+plasmashell works out its icon theme's directory list **once, at startup**. If your session
+started before `~/.local/share/icons/hicolor/` existed - which is the ordinary case the first time
+you install Kempt - that directory is not in the list, and Add Widgets draws the unknown-icon
+placeholder even though `kiconfinder6 kempt` finds the file perfectly in a fresh process. The
+signal above is the standard broadcast that tells every running `KIconLoader` to look again; KDE's
+own installers emit it for the same reason. It is best-effort: no session bus, or a shell that
+ignores it, costs nothing, and **if the widget picker still shows a placeholder icon, log out and
+back in.** The installer prints that line too.
+
+The `hicolor` directory deliberately gets **no `index.theme`** of its own. hicolor is merged into
+whatever icon theme is loaded rather than being selected on its own, so it needs no theme file -
+and writing one would be Kempt describing a theme it does not own.
 
 If `kpackagetool6` is missing (no Plasma, or a minimal install), the widget is skipped with a note
 and everything else installs normally. The CLI is the product; the widget is a client of it.

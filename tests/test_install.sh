@@ -225,6 +225,11 @@ grep -q 'Add Widgets' "$TESTTMP/wout" && echo "ok: and it says how to actually p
   || { echo "FAIL: no instruction after install - got: $(cat "$TESTTMP/wout")"; _fail=1; }
 grep -q 'COPY' "$TESTTMP/wout" && echo "ok: ...and that the widget, unlike the CLI, is a copy" \
   || { echo "FAIL: does not say the widget is a copy - got: $(cat "$TESTTMP/wout")"; _fail=1; }
+# The icon is installed into a theme directory that a plasmashell started before it existed will
+# not have in its search list. The signal below fixes that for a running session; the way out when
+# it does not (no session bus, a shell that ignores it) is a log-out, and the user has to be told.
+grep -qi 'log out' "$TESTTMP/wout" && echo "ok: ...and how to get the icon to appear if the session missed the reload" \
+  || { echo "FAIL: no log-out fallback after installing the icon - got: $(cat "$TESTTMP/wout")"; _fail=1; }
 
 # Re-running the installer is how a user updates: -i refuses, -u has to pick it up.
 : > "$TESTTMP/kp-calls"
@@ -264,4 +269,21 @@ wout="$(KEMPT_KPACKAGETOOL="$TESTTMP/kp-ok" KEMPT_INSTALL_ECHO=1 bash "$INSTALL"
 grep -qF -- "$TESTTMP/kp-ok -t Plasma/Applet -i $REPO_ROOT/plasmoid" <<<"$wout" \
   && echo "ok: echo mode prints the kpackagetool command" || { echo "FAIL: widget arm missing from echo mode - got: $wout"; _fail=1; }
 assert_eq "$(grep -c '' "$TESTTMP/kp-calls" || true)" "0" "echo mode PRINTS the widget install without running it"
+
+# The icon-cache reload. plasmashell computes its icon theme's directory list once, at startup, so
+# a session that was already running when ~/.local/share/icons/hicolor first appeared goes on
+# drawing the unknown-icon placeholder in Add Widgets even though `kiconfinder6 kempt` resolves
+# perfectly in a fresh process. This signal is the standard way to tell it to look again.
+grep -qF -- "--session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0" <<<"$wout" \
+  && echo "ok: installing the icon signals running KIconLoaders to re-scan the theme" \
+  || { echo "FAIL: no icon-cache reload signal in echo mode - got: $wout"; _fail=1; }
+# ...through dbus-send by default. The suite points KEMPT_DBUS_SEND at /usr/bin/true (lib.sh), so
+# the line above proves the SHAPE of the command and this proves what really sends it.
+grep -q 'KEMPT_DBUS_SEND:-dbus-send' "$INSTALL" \
+  && echo "ok: ...and the default sender is dbus-send" \
+  || { echo "FAIL: install.sh no longer defaults KEMPT_DBUS_SEND to dbus-send"; _fail=1; }
+# hicolor is MERGED into whatever icon theme is loaded, so it needs no index.theme of its own -
+# and shipping one would be this project describing a theme it does not own.
+assert_exit 1 "the installer adds no index.theme to hicolor, which merges without one" \
+  -- test -e "$D$HOME/.local/share/icons/hicolor/index.theme"
 finish

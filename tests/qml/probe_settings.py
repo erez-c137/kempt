@@ -33,7 +33,8 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
     os.makedirs(d)
 
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
-            ("surface", "popup"), ("refresh_interval_min", "60"))
+            ("surface", "popup"), ("refresh_interval_min", "60"),
+            ("widget_icon_size", "medium"))
 
 
 def setval(k, v):
@@ -145,9 +146,16 @@ p.check("an Apply before the settings have been read writes NOTHING", p.calls_ma
 p.check("...so the stored surface is untouched", stored("surface"), "popup")
 p.check("...and the stored interval", stored("refresh_interval_min"), "60")
 p.check("...and the boolean the QML default disagrees with", stored("include_flatpak"), "true")
+# The icon size is the sharpest version of this: the page's own default is "auto" and the stored
+# value is "medium", so an Apply that ran on the page's defaults would be visible immediately.
+p.check("...and the stored panel icon size", stored("widget_icon_size"), "medium")
 p.wait_for(ev0, "page.pendingReads", 0)
 p.check("once the reads land the controls come back", ev0("includeFlatpak.enabled"), True)
 p.check("...and the page holds the stored values, not its defaults", ev0("interval.value"), 60)
+p.check("...including the panel icon size it was never told to guess", ev0("page.iconSizeKey"),
+        "medium")
+p.check("...shown as the selected radio, not merely held in a property",
+        ev0("iconSizeRepeater.itemAt(2).checked"), True)
 
 # ==================================================================================================
 # The Apply button, wired the way the shell wires it.
@@ -195,6 +203,36 @@ p.clear_calls()
 ev("page.saveConfig()")
 p.wait_idle(ev, "cfgExecutor")
 p.check("saving twice does not rewrite what it just wrote", p.calls_matching("config set"), [])
+
+# The panel icon size. Same shape as the surface radios - the selection lives in a page property
+# and the delegates are a view of it - and the same failure if it did not: a Repeater whose
+# delegates are not realised reports nothing checked, and Apply would write the first option over
+# whatever the user has.
+ev("iconSizeRepeater.itemAt(3).checked = true")
+ev("iconSizeRepeater.itemAt(3).toggled()")
+p.pump(50)
+p.check("choosing a panel icon size arms Apply", hev("host.applyEnabled"), True)
+p.check("...and the page holds the choice, not the delegate", ev("page.iconSizeKey"), "large")
+p.clear_calls()
+ev("page.saveConfig()")
+p.wait_idle(ev, "cfgExecutor")
+p.check("...and Apply writes exactly that one key",
+        sorted(c.split()[2] for c in p.calls_matching("config set")), ["widget_icon_size"])
+p.check("...with the value the widget reads back", stored("widget_icon_size"), "large")
+p.check("the interval was not rewritten alongside it", stored("refresh_interval_min"), "120")
+p.check("...nor the surface", stored("surface"), "popup")
+p.clear_calls()
+ev("page.saveConfig()")
+p.wait_idle(ev, "cfgExecutor")
+p.check("...and a second Apply writes nothing at all", p.calls_matching("config set"), [])
+# Back to Automatic, which is a real choice and not just the absence of one.
+ev("iconSizeRepeater.itemAt(0).checked = true")
+ev("iconSizeRepeater.itemAt(0).toggled()")
+p.pump(50)
+p.clear_calls()
+ev("page.saveConfig()")
+p.wait_idle(ev, "cfgExecutor")
+p.check("Automatic is stored as a value like any other", stored("widget_icon_size"), "auto")
 
 # ==================================================================================================
 # The surface lock is a RUN-time fact, not an edit.
@@ -333,9 +371,10 @@ for k, v in DEFAULTS:
     setval(k, v)
 p.clear_calls()
 page6, ev6 = build()
-p.check("all four settings are read on open",
+p.check("all five settings are read on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "refresh_interval_min", "surface"])
+        ["auto_accept", "include_flatpak", "refresh_interval_min", "surface",
+         "widget_icon_size"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
 p.check("the stored surface is the selected radio", ev6("page.selectedSurface()"), "popup")

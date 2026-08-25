@@ -54,19 +54,33 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   panel and the terminal can never disagree; a change made either way reaches the other within 30
   seconds. The widget shells out to the CLI for everything and contains no package-manager
   knowledge of its own; every command it runs goes through one component with a hard timeout, so
-  a slow `dnf` can never freeze the panel. `install.sh` installs and removes it, and adding it to
-  a panel stays your decision.
+  a slow `dnf` can never freeze the panel. `install.sh` installs and removes it, and where it
+  lives stays your decision.
+- **It sits in the system tray, next to everything else that watches your machine.** Kempt
+  declares itself a tray entry under *System Services* and is enabled there by default, so
+  installing it is all it takes - no dragging it onto a panel, and inside the tray it is exactly
+  the size of its neighbours. Adding it to a panel directly still works and is still supported;
+  the tray is simply where an update notifier belongs.
+- **A panel icon sized to match its neighbours.** Standalone on a panel, the icon is drawn at the
+  size the system tray uses for that panel thickness - 22 px on every ordinary panel, Plasma's
+  44 px default included - rather than filling its cell, which made it stand a head taller than
+  every tray icon beside it. `widget_icon_size` (Automatic, Small, Medium, Large, also on the
+  settings page) overrides that where the judgement is wrong; a size the panel cannot fit falls
+  back to Automatic, so inside the tray the tray's own slot always wins. The count badge is drawn
+  against the icon rather than the cell, so it stays legible and stays where the glyph is.
 - **An icon of its own.** A comb glyph: the application icon plus 22px and 16px symbolics ship
   inside the widget package, and `install.sh` also puts the application icon into the user's
   hicolor theme, which is what makes **Add Widgets** show it (a package-local icon name does not
-  resolve from the theme). The panel states themselves stay on the desktop's own update icons for
+  resolve from the theme) - followed by the standard `org.kde.KIconLoader.iconChanged` signal,
+  because a plasmashell that started before that directory existed will otherwise go on drawing
+  the placeholder until you log out. The panel states themselves stay on the desktop's own update icons for
   now, deliberately, so Kempt looks like the rest of Plasma; the symbolics are there for the icon
   choice on the roadmap.
 - **A man page**, installed into the user's man hierarchy: `man kempt`.
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 15 files and 1049 assertions: every
+- **A test suite that needs none of the tools it drives.** 15 files and 1165 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI

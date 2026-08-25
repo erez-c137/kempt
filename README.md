@@ -61,7 +61,7 @@ half stands today.
 ## Status
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
-  by the test suite in `tests/` (15 files, 1049 assertions, and it needs neither dnf nor flatpak
+  by the test suite in `tests/` (15 files, 1165 assertions, and it needs neither dnf nor flatpak
   nor root to run). This is the whole engine, and it is the half that is finished.
 - **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold` and
   `kempt config`, with no package management of its own: a panel icon whose badge is the real

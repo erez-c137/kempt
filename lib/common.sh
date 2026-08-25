@@ -107,6 +107,13 @@ kempt_default() {  # key → default ("" if unknown)
     include_flatpak|auto_accept) echo true ;;
     surface) echo terminal ;;
     refresh_interval_min) echo 60 ;;
+    # Panel-icon size for the Plasma widget: auto|small|medium|large. Stored here so the widget
+    # and `kempt config` share one place, exactly like refresh_interval_min - the CLI itself has
+    # no icons and never reads this. The VALUE is not validated here on purpose: config_set
+    # checks that a key looks like a key, and the widget turns anything it does not recognise
+    # into `auto` rather than refusing to draw. A CLI that rejected values would be a second
+    # opinion about a Plasma detail it cannot see.
+    widget_icon_size) echo auto ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction (spec §Run surfaces), so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;

@@ -347,12 +347,27 @@ badge, `kempt run` for Update Now, `kempt hold`/`unhold` for the pins, `kempt co
 setting in its dialog. It contains no package-manager knowledge of its own, so everything on this
 page stays true from the panel, and anything you do in a terminal shows up in the widget.
 
-### Adding it to your panel
+### Where it lives: the system tray, or the panel itself
 
 `./install.sh` installs the widget for your user (no authentication - it is a copy into
-`~/.local/share/plasma/plasmoids/`). Installing it does **not** put it on a panel; you do that:
+`~/.local/share/plasma/plasmoids/`). There are two places it can then live, and you can use
+either or both.
+
+**In the system tray** (the default). Kempt declares itself a tray entry under *System Services*
+and is enabled there out of the box, so after installing it appears in your tray alongside the
+volume and network icons - no dragging required. It may take a plasmashell restart or a log-out
+to show up the first time. The tray decides how big every entry is, so inside it Kempt is exactly
+the size of its neighbours. To turn it off or move it behind the expander arrow:
+
+> Right-click the tray > **Configure System Tray...** > **Entries** > find **Kempt**.
+
+**As a standalone panel item.** Useful if you want it somewhere specific, or larger than a tray
+icon:
 
 > Right-click the panel > **Add Widgets...** > search for **Kempt** > drag it onto the panel.
+
+Doing both gives you two Kempt icons, which is legal and probably not what you want - pick one
+and disable the other.
 
 If you changed anything under `plasmoid/`, re-run `./install.sh`: the CLI is a symlink and
 follows the checkout, but the widget is a copy and does not.
@@ -371,6 +386,27 @@ follows the checkout, but the widget is a copy and does not.
 The badge spells the count out exactly up to `999`, then reads `999+`. A box left alone for a few
 weeks routinely has two or three hundred updates pending, so a lower cap would be vague in the
 ordinary case rather than the extreme one. The tooltip and the popup header are never capped.
+
+### How big the icon is
+
+By default the panel icon is drawn at the size the **system tray** uses for your panel: 22 px on
+anything from a 22 px panel up to a 47 px one, which is every ordinary panel including Plasma's
+default. That is deliberate - a standalone Kempt on a 44 px panel used to fill its cell at 32 px
+and stood a head taller than every tray icon beside it.
+
+If that judgement is wrong for your panel, **Configure Kempt... > Panel icon size** offers
+**Automatic**, **Small** (16 px), **Medium** (22 px) and **Large** (32 px). Inside the system tray
+the tray sets the space, so a size larger than it allows is ignored and the icon fits its slot.
+
+From a terminal it is the `widget_icon_size` setting:
+
+```bash
+kempt config set widget_icon_size large
+```
+
+Anything the widget does not recognize means **Automatic**. The setting is not validated when it
+is stored - the widget is the only thing that reads it, and it would rather draw at a sensible
+size than refuse to draw.
 
 ### The popup
 

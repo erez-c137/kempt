@@ -109,6 +109,7 @@ KCM.SimpleKCM {
         setIfChanged("auto_accept", autoAccept.checked ? "true" : "false");
         setIfChanged("surface", page.selectedSurface());
         setIfChanged("refresh_interval_min", String(interval.value));
+        setIfChanged("widget_icon_size", page.iconSizeKey);
         finishWrite();      // release the sentinel
     }
 
@@ -189,6 +190,15 @@ KCM.SimpleKCM {
 
     function applySurface(key) {
         page.surfaceKey = Logic.resolveSurface(key);
+    }
+
+    // The chosen panel icon size, held here for the same reason surfaceKey is: a Repeater whose
+    // delegates are not currently realised reports nothing as checked, and Apply would then write
+    // this file's first option over whatever the user actually has stored.
+    property string iconSizeKey: "auto"
+
+    function applyIconSize(key) {
+        page.iconSizeKey = Logic.resolveIconSizeSetting(key);
     }
 
     function readKey(key, apply) {
@@ -280,6 +290,7 @@ KCM.SimpleKCM {
             if (n < interval.from) interval.from = n;
             interval.value = n;
         });
+        readKey("widget_icon_size", function (v) { page.applyIconSize(v); });
         loadHolds();
     }
 
@@ -389,6 +400,45 @@ KCM.SimpleKCM {
             onValueModified: page.markChanged("refresh_interval_min")
             textFromValue: function (value) { return i18np("%1 minute", "%1 minutes", value); }
             valueFromText: function (text) { return parseInt(text, 10) || interval.value; }
+        }
+
+        Item { Kirigami.FormData.isSection: true }
+
+        // --- how big the panel icon is --------------------------------------------------------------
+        // Automatic is the shipping answer and matches what the system tray draws at ordinary panel
+        // thicknesses; the three named sizes are for panels where that judgement is wrong.
+        Repeater {
+            id: iconSizeRepeater
+            model: [
+                { key: "auto",   label: i18n("Automatic") },
+                { key: "small",  label: i18n("Small") },
+                { key: "medium", label: i18n("Medium") },
+                { key: "large",  label: i18n("Large") }
+            ]
+
+            QQC2.RadioButton {
+                required property var modelData
+                required property int index
+                readonly property string sizeKey: modelData.key
+
+                Kirigami.FormData.label: index === 0 ? i18n("Panel icon size:") : ""
+                text: modelData.label
+                checked: page.iconSizeKey === sizeKey
+                enabled: !page.loading
+                onToggled: {
+                    if (!checked) return;
+                    page.iconSizeKey = sizeKey;
+                    page.markChanged("widget_icon_size");
+                }
+            }
+        }
+
+        QQC2.Label {
+            text: i18n("Inside the system tray the tray sets the space, so a size larger than it allows is ignored.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
         Item { Kirigami.FormData.isSection: true }

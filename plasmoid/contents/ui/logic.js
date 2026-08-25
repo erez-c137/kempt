@@ -80,25 +80,86 @@ function effectiveSurfaceOf(surface, autoAccept) {
     return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
 }
 
-// snapIconSize(cell, steps) -> the largest of `steps` that fits `cell`.
-// Icon themes hint their glyphs at specific pixel sizes - Breeze draws a 16px symbolic and a 22px
-// symbolic as SEPARATE artwork, with the strokes aligned to the pixel grid at that size. Ask for
-// 15px, or 24px, and the renderer scales one of them by a fraction and every hinted stroke lands
-// between pixels: the icon goes soft in exactly the place a panel icon is smallest and most
-// needs not to be. Snapping the REQUEST down to a hinted step renders it 1:1 and leaves the few
-// spare pixels as padding, which nobody can see.
-// Falls back to a whole number of pixels when the cell is smaller than the smallest step - there
-// is no hinted size to snap to down there, so scaling is the only option left.
+// --- how big the panel icon is asked to be -----------------------------------------------------
+// Two rules live here, and they answer different questions. snapIconSize answers "how big should
+// this be when nobody said" (the `auto` setting); resolveIconSize answers "how big is it, given
+// what the user asked for".
+//
+// The hinted sizes an icon theme actually draws, smallest first. Breeze ships a 16px symbolic and
+// a 22px symbolic as SEPARATE artwork, each with its strokes aligned to the pixel grid AT THAT
+// SIZE. Ask for 15px, or 24px, and the renderer scales one of them by a fraction and every hinted
+// stroke lands between pixels: the icon goes soft exactly where a panel icon is smallest and can
+// least afford it. Every size below is one of these steps, never an arithmetic result.
+// The QML passes Kirigami's own values in this order; node uses these when it does not.
+var ICON_STEPS = [16, 22, 32, 48, 64];
+
+// The cell thickness at which each step takes over, paired by index with the steps above.
+//
+// This ladder is NOT "the largest icon that fits", which is what it used to be, and the difference
+// is the whole bug: a 44px panel fits a 32px icon, so the widget asked for 32 and sat next to a
+// system tray whose entries were all 22. It looked like a mistake because it was one - the tray
+// does not fill its cell either, and an icon that does is simply bigger than everything around it.
+// So the rungs are pinned to what the tray does at ordinary panel thicknesses: anything from a
+// 22px panel up to a 47px one asks for 22, which is what the tray asks for over that whole range.
+// 48 is where a panel stops being an ordinary panel and a bigger glyph stops looking out of place.
+var ICON_CELL_MIN = [16, 22, 48, 96, 192];
+
+// snapIconSize(cell, steps) -> the hinted size an `auto` icon asks for in a cell this thick.
+// Below the first rung there is no hinted size to snap to, so it falls back to a whole number of
+// pixels: scaling is the only option left down there, but it can at least be scaled to an integer.
 function snapIconSize(cell, steps) {
-    var c = Number(cell), best = 0, i, s;
+    var c = Number(cell), list = usableSteps(steps), chosen = 0, i;
     if (!isFinite(c) || c <= 0) return 0;
-    if (!steps || !steps.length) return Math.floor(c);
+    for (i = 0; i < list.length && i < ICON_CELL_MIN.length; i++) {
+        if (c >= ICON_CELL_MIN[i]) chosen = list[i];
+    }
+    // Never wider than the cell holding it, whatever a caller's step list says.
+    return chosen > 0 ? Math.min(chosen, Math.floor(c)) : Math.floor(c);
+}
+
+// The step list a caller supplied, cleaned - or the built-in one when they supplied nothing usable.
+// Falling back to ICON_STEPS rather than to raw pixels is deliberate: an empty list is a caller
+// that could not read its theme, and the right answer to that is still a hinted size. It is also
+// what lets node call snapIconSize(44) with no second argument and get the shipping answer.
+function usableSteps(steps) {
+    var out = [], i, s;
+    if (!steps || !steps.length) return ICON_STEPS.slice();
     for (i = 0; i < steps.length; i++) {
         s = Number(steps[i]);
-        if (!isFinite(s) || s <= 0) continue;
-        if (s <= c && s > best) best = s;
+        if (isFinite(s) && s > 0) out.push(s);
     }
-    return best > 0 ? best : Math.floor(c);
+    return out.length ? out : ICON_STEPS.slice();
+}
+
+// The `widget_icon_size` values the settings page offers, and the step each one names. They are
+// INDEXES into the step list rather than literal pixel counts, so a theme whose "small" is not 16
+// still gets its own hinted artwork rather than a number this file invented.
+var ICON_SIZE_SETTINGS = { auto: -1, small: 0, medium: 1, large: 2 };
+
+// resolveIconSizeSetting(value) -> a setting the widget recognises, mirroring resolveSurface:
+// anything unknown is `auto`. This is the ONLY validation `widget_icon_size` gets - the CLI
+// stores whatever it is handed (config_set checks the key's shape, not the value's meaning), so
+// a typo, an older CLI answering with an empty line, or a value from a future version all land
+// here and all mean the same thing: decide it automatically, say nothing.
+function resolveIconSizeSetting(value) {
+    var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
+}
+
+// resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
+// A chosen size that the cell cannot hold falls back to `auto` rather than overflowing: inside the
+// system tray the cell is the tray's to decide, and a widget that drew 32px into a 22px tray slot
+// would push every other tray entry around. The panel always wins; the setting is a preference
+// within what it allows.
+function resolveIconSize(setting, cell, steps) {
+    var list = usableSteps(steps), c = Number(cell);
+    var auto = snapIconSize(c, list);
+    if (!isFinite(c) || c <= 0) return auto;          // no cell yet: nothing to draw into
+    var idx = ICON_SIZE_SETTINGS[resolveIconSizeSetting(setting)];
+    if (idx < 0) return auto;
+    var want = Number(list[idx]);
+    if (!isFinite(want) || want <= 0) return auto;    // a step list too short to name it
+    return want > c ? auto : want;
 }
 
 // --- the watcher stamp -----------------------------------------------------------------------
@@ -536,6 +597,9 @@ if (typeof module !== "undefined" && module.exports) {
         holdsOf: holdsOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,
+        resolveIconSize: resolveIconSize,
+        resolveIconSizeSetting: resolveIconSizeSetting,
+        ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,
         WATCH_FIELDS: WATCH_FIELDS

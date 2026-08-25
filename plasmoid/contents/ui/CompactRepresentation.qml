@@ -7,6 +7,8 @@
 // required property cannot be forgotten: the component refuses to be created at all. This is the
 // pattern KDE's own widgets use (see org.kde.kdeconnect's CompactRepresentation).
 import QtQuick
+import QtQuick.Layouts
+import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
@@ -17,33 +19,61 @@ Item {
 
     required property PlasmoidItem plasmoidItem   // for expanding the popup on click
     required property var vm                      // the derived view model, never null
+    required property string iconSizeSetting      // `widget_icon_size`, straight from `kempt config`
 
     readonly property string iconState: compactRoot.vm.iconState
     readonly property string badgeText: compactRoot.vm.badgeText
     readonly property bool badgeVisible: compactRoot.vm.badgeVisible
 
-    // A panel a few pixels tall cannot show a legible number; Plasma widgets drop the overlay
-    // rather than draw mush.
+    // What the containment is allowed to squeeze this to. Copied from the shell's own
+    // DefaultCompactRepresentation.qml (contents/applet/) rather than invented, because the system
+    // tray is a containment too: it hands each entry a square cell at ITS icon size, and a compact
+    // representation that asks for more than that pushes every other tray entry around. Asking for
+    // a square - the panel's thickness in the direction it is NOT thick - is what both a panel and
+    // a tray already want to give, so this constrains nothing and fights nothing.
+    Layout.minimumWidth: {
+        switch (Plasmoid.formFactor) {
+        case PlasmaCore.Types.Vertical:   return 0;
+        case PlasmaCore.Types.Horizontal: return height;
+        default:                          return Kirigami.Units.gridUnit * 3;
+        }
+    }
+    Layout.minimumHeight: {
+        switch (Plasmoid.formFactor) {
+        case PlasmaCore.Types.Vertical:   return width;
+        case PlasmaCore.Types.Horizontal: return 0;
+        default:                          return Kirigami.Units.gridUnit * 3;
+        }
+    }
+
     readonly property real shortSide: Math.min(width, height)
-    readonly property bool roomForBadge: shortSide >= Kirigami.Units.iconSizes.small * 1.5
 
     // The size the ICON is asked for, which is not the same as the size of the cell it sits in.
     // Icon themes hint their glyphs at specific pixel sizes - Breeze ships 16px and 22px symbolics
     // as separate artwork, each aligned to the pixel grid at that size. A panel 22px tall handed
     // straight to Kirigami.Icon used to ask for whatever fraction the layout produced, and every
     // hinted stroke landed between pixels: soft, muddy, worst exactly where the icon is smallest.
-    // Snapping the request DOWN to a hinted step renders it 1:1 and spends the two or three spare
-    // pixels on padding nobody can see. The badge below still measures itself against the CELL,
-    // not against this - the badge is drawn geometry, has nothing hinted about it, and shrinking
-    // it to the icon's step would make it smaller than the space actually available.
-    readonly property int iconSize: Logic.snapIconSize(compactRoot.shortSide, [
+    //
+    // Which step it lands on is Logic.resolveIconSize, and the ladder there is pinned to what the
+    // system tray does at ordinary panel thicknesses rather than to "the biggest that fits" - the
+    // whole reason this changed is that a 44px panel fits 32px, and a 32px icon standing in a row
+    // of 22px tray entries reads as a mistake. Kirigami's own values are passed in so a theme
+    // whose steps are not Breeze's still gets its own artwork.
+    readonly property int iconSize: Logic.resolveIconSize(compactRoot.iconSizeSetting,
+                                                          compactRoot.shortSide, [
         Kirigami.Units.iconSizes.small,        // 16
         Kirigami.Units.iconSizes.smallMedium,  // 22
         Kirigami.Units.iconSizes.medium,       // 32
         Kirigami.Units.iconSizes.large,        // 48
-        Kirigami.Units.iconSizes.huge,         // 64
-        Kirigami.Units.iconSizes.enormous      // 128
+        Kirigami.Units.iconSizes.huge          // 64
     ])
+
+    // Below the smallest hinted step there is no room for a legible number, and Plasma widgets
+    // drop the overlay rather than draw mush. Measured against the ICON and not the cell, because
+    // the icon is now the smaller of the two: keeping the old cell-based test would have hidden
+    // the badge on a thin panel while the icon was perfectly capable of carrying it - and, worse,
+    // would have punished anyone who chose "Small" on a wide panel by silently dropping the count.
+    readonly property bool roomForBadge: compactRoot.iconSize >= Kirigami.Units.iconSizes.small
 
     Kirigami.Icon {
         id: mainIcon
@@ -74,35 +104,45 @@ Item {
     // Bottom LEFT, because the count badge owns the bottom right.
     // ONLY for a real error - a state we cannot read, or a CLI we could not run. Staleness does
     // not get one: see the icon mapping above.
+    //
+    // Anchored to the ICON, not to the cell. Everything in this file used to measure itself
+    // against the cell, which was the same thing back when the icon filled it. It no longer does:
+    // on a 44px panel the icon is 22, so a cell-anchored emblem floated in a corner 11 pixels away
+    // from the glyph it is supposed to be marking, at nearly the glyph's own size.
     Kirigami.Icon {
         id: warningEmblem
         visible: compactRoot.iconState === "error"
         source: "emblem-warning"
-        width: Math.round(compactRoot.shortSide * 0.45)
+        width: Math.round(compactRoot.iconSize * 0.45)
         height: width
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
+        anchors.left: mainIcon.left
+        anchors.bottom: mainIcon.bottom
     }
 
     PlasmaComponents.BusyIndicator {
         id: busy
         visible: compactRoot.iconState === "updating"
         running: visible                     // never animate an invisible spinner in the panel process
-        anchors.centerIn: parent
-        width: Math.round(compactRoot.shortSide * 0.7)
+        anchors.centerIn: mainIcon
+        width: Math.round(compactRoot.iconSize * 0.9)
         height: width
     }
 
     Rectangle {
         id: badge
         visible: compactRoot.badgeVisible && compactRoot.roomForBadge
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: Math.round(compactRoot.shortSide * 0.5)
+        anchors.right: mainIcon.right
+        anchors.bottom: mainIcon.bottom
+        // 0.6 of the ICON, where it used to be 0.5 of the cell. Both numbers came out around the
+        // same size while the icon filled the cell; now that it does not, 0.5 of a 22px icon is an
+        // 11px pill and a two-digit count inside it is a smudge. Six tenths of the glyph is the
+        // proportion Plasma's own tray badges read as, and at the 22px step that is a 13px pill -
+        // legible, and still inside a cell twice as tall.
+        height: Math.round(compactRoot.iconSize * 0.6)
         // Grows for a longer count instead of clipping it, never narrower than a circle, and
         // never wider than the icon it sits on. The cap is 999+, so four characters is the most
         // this ever has to hold.
-        width: Math.min(compactRoot.width,
+        width: Math.min(compactRoot.iconSize,
                         Math.max(height, badgeLabel.implicitWidth + Kirigami.Units.smallSpacing))
         radius: height / 2
         color: Kirigami.Theme.highlightColor

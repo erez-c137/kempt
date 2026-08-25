@@ -208,6 +208,38 @@ widget is allowed to start a process.
 The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
 that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
 
+### Where the widget lives, and the two lines that decide it
+
+Three facts in `plasmoid/metadata.json` and `main.qml` put Kempt in the system tray, and each one
+fails silently on its own:
+
+- `"X-Plasma-NotificationAreaCategory": "SystemServices"`, **top level**, not inside `KPlugin`.
+  This is the key the tray actually reads: verified on Plasma 6.7.4, the system tray applet
+  (`/usr/lib64/qt6/plugins/plasma/applets/org.kde.plasma.systemtray.so`) contains this string and
+  the category names beside it, builds its Entries list by listing every `Plasma/Applet` package
+  and keeping the ones that declare a category. Inside `KPlugin` the key parses fine, means
+  nothing, and the widget simply never appears in the tray.
+- `"X-Plasma-NotificationArea": "true"`, also top level. The older boolean. That same binary does
+  **not** reference it any more, so on 6.7 the category alone is what counts - but every shipped
+  tray applet still carries both (`/usr/share/plasma/plasmoids/org.kde.plasma.vault`,
+  `.../org.kde.kdeconnect`), so Kempt does too rather than betting on one Plasma version.
+- `Plasmoid.status = ActiveStatus`, set from `main.qml`. The tray reads nothing else to decide
+  whether an entry on "Auto" is shown or tucked behind the expander arrow, and an applet that
+  never sets a status is *below* passive. Without it the widget installs into the tray, shows as
+  enabled, and appears to do nothing at all. It is assigned in `Component.onCompleted` rather than
+  declared as a binding on purpose: `Plasmoid` is an attached object backed by a real applet, and
+  a declarative assignment makes creating it a precondition of creating `main.qml`, which no QML
+  probe can satisfy. The value never changes, so one assignment is equivalent.
+
+`KPlugin.EnabledByDefault: true` is what makes it appear without being asked for - the tray reads
+it through `KPluginMetaData::isEnabledByDefault()` when it meets a plugin it has not seen before.
+
+Inside the tray, the containment hands each entry a square cell at its own icon size, so the
+compact representation must not ask for more: its `Layout.minimumWidth/Height` are the shell's
+own `DefaultCompactRepresentation.qml` rule (the panel's thickness in the direction it is not
+thick), and `Logic.resolveIconSize` falls back to automatic whenever a chosen size does not fit
+the cell. Both are what keeps a Kempt entry from shoving the rest of somebody's tray sideways.
+
 ### Why the widget is testable at all
 
 A plasmoid cannot be executed in a bash suite, so the widget is split so that almost none of it
@@ -223,7 +255,7 @@ needs to be:
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 15 files and 1049 assertions, 516 of them in the two widget files, and it runs
+The whole suite is 15 files and 1165 assertions, 628 of them in the two widget files, and it runs
 green with no package manager, no polkit and no desktop present.
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its

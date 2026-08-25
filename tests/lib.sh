@@ -14,6 +14,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_STATE_DIR="$TESTTMP/state"
   export KEMPT_PKEXEC=""
   export KEMPT_NOTIFY="true"   # /usr/bin/true — notifications are no-ops in tests
+  # Same shape: the installer's icon-cache signal must never reach the real session bus from a
+  # test run. The suite asserts the SHAPE of the command install.sh builds, not its delivery.
+  export KEMPT_DBUS_SEND="true"
   export KEMPT_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
   export KEMPT_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
   unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \

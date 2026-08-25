@@ -23,14 +23,17 @@ p = harness.Probe("probe-state")
 os.makedirs(p.state)
 MODE = os.path.join(p.sandbox, "mode")
 IVAL = os.path.join(p.sandbox, "interval")
+SIZE = os.path.join(p.sandbox, "iconsize")
 open(MODE, "w").write("live")
 open(IVAL, "w").write("15")
+open(SIZE, "w").write("auto")
 STATE_JSON = os.path.join(p.state, "state.json")
 
 p.stub("""
 mode="$(cat %(MODE)s)"
 if [[ "$1 $2" == "config get" ]]; then
   [[ "$3" == refresh_interval_min ]] && cat %(IVAL)s
+  [[ "$3" == widget_icon_size ]] && cat %(SIZE)s
   exit 0
 fi
 if [[ "$1" == check ]]; then
@@ -45,7 +48,8 @@ if [[ "$1" == check ]]; then
   esac
   exit 0
 fi
-""" % {"MODE": MODE, "IVAL": IVAL, "FIX": harness.FIXTURES, "ST": STATE_JSON})
+""" % {"MODE": MODE, "IVAL": IVAL, "SIZE": SIZE, "FIX": harness.FIXTURES,
+       "ST": STATE_JSON})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
@@ -145,7 +149,11 @@ PlasmoidItem {
     id: shell
     width: %d; height: %d
     property var vm: ({ iconState: "updates", badgeText: "%s", badgeVisible: true })
-    CompactRepresentation { id: cr; anchors.fill: parent; plasmoidItem: shell; vm: shell.vm }
+    property string sizeSetting: "%s"
+    CompactRepresentation {
+        id: cr; anchors.fill: parent; plasmoidItem: shell; vm: shell.vm
+        iconSizeSetting: shell.sizeSetting
+    }
     function badge() {
         for (var i = 0; i < cr.children.length; i++)
             if (cr.children[i].radius !== undefined) return cr.children[i];
@@ -161,15 +169,24 @@ PlasmoidItem {
         }
         return null;
     }
+    function busyWidth() {
+        for (var i = 0; i < cr.children.length; i++)
+            if (cr.children[i].running !== undefined) return cr.children[i].width;
+        return -1;
+    }
     readonly property int steps0: Kirigami.Units.iconSizes.small
     readonly property int steps1: Kirigami.Units.iconSizes.smallMedium
     readonly property int steps2: Kirigami.Units.iconSizes.medium
 }
 """
 
+_serial = [0]
 
-def cell(size, text="7"):
-    return p.create_inline(CELL % (size, size, text), "cell-%d.qml" % size)
+
+def cell(size, text="7", setting="auto"):
+    _serial[0] += 1
+    return p.create_inline(CELL % (size, size, text, setting),
+                           "cell-%d-%d.qml" % (size, _serial[0]))
 
 
 # The badge must fit its label AND stay inside the panel cell at every size and every count the
@@ -186,14 +203,16 @@ for size in (22, 32, 44, 64):
 p.check("the badge fits its count and stays inside the panel cell at every size", overflow, 0)
 
 # The icon is requested at a size the theme hints, so a hinted symbolic renders 1:1 instead of
-# being scaled by a fraction and going soft. Snapping is Logic.snapIconSize; this proves the
-# binding actually feeds Kirigami.Icon the snapped number at real panel thicknesses.
+# being scaled by a fraction and going soft. WHICH step it lands on is Logic.resolveIconSize, and
+# its ladder is pinned to what the system tray draws rather than to "the largest that fits" - the
+# founder's screenshot was a 32px Kempt icon standing in a row of 22px tray entries. This proves
+# the binding actually feeds Kirigami.Icon the laddered number at real panel thicknesses.
 obj, cev = cell(32)
 small, smallmed, medium = cev("shell.steps0"), cev("shell.steps1"), cev("shell.steps2")
 p.check("the Kirigami steps this box reports are the usual ones",
         [small, smallmed, medium], [16, 22, 32])
-expected = {22: smallmed, 24: smallmed, 28: smallmed, 32: medium,
-            36: medium, 44: medium, 64: 64}
+expected = {16: small, 21: small, 22: smallmed, 24: smallmed, 32: smallmed,
+            36: smallmed, 44: smallmed, 47: smallmed, 48: medium, 64: medium}
 for size, want in sorted(expected.items()):
     obj, cev = cell(size)
     p.pump(40)
@@ -208,5 +227,68 @@ obj, cev = cell(12)
 p.pump(40)
 p.check("a cell smaller than the smallest hinted icon still gets a whole number of pixels",
         cev("cr.iconSize"), 12)
+
+# --- the widget_icon_size setting, bound ------------------------------------------------------
+# The three named sizes and the automatic one, on the SAME 44px panel - the ordinary Plasma
+# default, and the thickness the founder was actually looking at.
+for setting, want in (("auto", smallmed), ("small", small), ("medium", smallmed),
+                      ("large", medium)):
+    obj, cev = cell(44, "7", setting)
+    p.pump(40)
+    p.check("widget_icon_size=%s on a 44px panel draws at %d px" % (setting, want),
+            cev("cr.iconSize"), want)
+    p.check("...and the Kirigami.Icon is given exactly that", cev("mainIcon().width"), want)
+# A value the widget does not recognise must draw, not vanish or throw: `kempt config set` stores
+# whatever it is handed, so this is the only place a typo is ever caught.
+obj, cev = cell(44, "7", "enormous")
+p.pump(40)
+p.check("an unrecognised setting falls back to automatic rather than breaking the icon",
+        cev("cr.iconSize"), smallmed)
+# ...and a size the cell cannot hold gives way to the cell. This is what makes the system tray's
+# slot win over the setting: the tray hands each entry a square at its own icon size.
+obj, cev = cell(22, "7", "large")
+p.pump(40)
+p.check("a chosen size larger than the cell gives way to the cell", cev("cr.iconSize"), smallmed)
+p.check("...and never overflows it", cev("cr.iconSize") <= 22, True)
+
+# The badge is drawn against the ICON now, not the cell. While the icon filled its cell the two
+# were the same thing; on a 44px panel the icon is 22, and a cell-anchored badge sat eleven pixels
+# away from the glyph it belongs to, at nearly the glyph's own size.
+obj, cev = cell(44)
+p.pump(60)
+p.check("the badge is no taller than the icon it marks",
+        cev("badge().height") <= cev("cr.iconSize"), True)
+p.check("...and sits at the icon's corner, not the cell's",
+        cev("badge().y + badge().height"), cev("mainIcon().y + mainIcon().height"))
+p.check("...with a pill tall enough to read a count in", cev("badge().height") >= 12, True)
+p.check("the busy spinner is sized off the icon too",
+        cev("busyWidth()") <= cev("cr.iconSize"), True)
+
+# ...and main.qml really reads the setting out of the CLI. Everything above proves the compact
+# representation obeys the value it is handed; this proves where that value comes from. A widget
+# that never re-read it would keep whatever it had at startup until plasmashell restarted.
+p.check("a fresh widget starts on the CLI's default", ev("root.iconSizeSetting"), "auto")
+open(SIZE, "w").write("large")
+ev("root.readIconSize()")
+p.wait_for(ev, "root.iconSizeSetting", "large")
+p.check("changing widget_icon_size in the CLI reaches the panel icon", ev("root.iconSizeSetting"),
+        "large")
+# The widget is the ONLY validator this setting has - `kempt config set` stores whatever it is
+# handed - so a value it does not know must land on `auto` rather than on an undefined size.
+open(SIZE, "w").write("gargantuan")
+ev("root.readIconSize()")
+p.wait_for(ev, "root.iconSizeSetting", "auto")
+p.check("a value the widget does not know falls back to automatic", ev("root.iconSizeSetting"),
+        "auto")
+# An empty answer is an OLDER CLI that has never heard of the key, and that must leave the
+# widget's current setting alone rather than reset it.
+open(SIZE, "w").write("medium")
+ev("root.readIconSize()")
+p.wait_for(ev, "root.iconSizeSetting", "medium")
+open(SIZE, "w").write("")
+ev("root.readIconSize()")
+p.pump(400)
+p.check("an older CLI that answers with nothing does not reset the setting",
+        ev("root.iconSizeSetting"), "medium")
 
 sys.exit(p.done())

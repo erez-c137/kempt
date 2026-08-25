@@ -77,7 +77,7 @@ jobs:
       # default `konsole` applies and two assertions ("terminal plan", "no-auto-accept forces
       # terminal") fail on any box without KDE installed. That is the ONLY environment coupling
       # left: in the stripped-PATH run above, adding a `konsole` stub is the difference between
-      # those two failures and ALL PASS across 1049 assertions (15 files; the QML probes skip without PySide6).
+      # those two failures and ALL PASS across 1165 assertions (15 files; the QML probes skip without PySide6).
       # The durable fix belongs in tests/test_run.sh, which should stub KEMPT_TERMINAL the way
       # every other seam is stubbed. Until it does, this shim keeps the job honest about why it
       # is green rather than quietly papering over a red one.

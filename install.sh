@@ -26,6 +26,15 @@ KEMPT_KPACKAGETOOL="${KEMPT_KPACKAGETOOL:-kpackagetool6}"
 # same SVG is also installed into the user's hicolor theme, which is the standard route and the
 # one that actually makes the icon appear in Add Widgets. User-level, no authentication.
 ICON_THEME_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+# ...and the signal that makes a RUNNING desktop notice it. Measured on this box: after the SVG
+# above was installed, `kiconfinder6 kempt` resolved it immediately in a fresh process, while
+# plasmashell - started days earlier, before ~/.local/share/icons/hicolor existed - went on
+# drawing the unknown-icon placeholder in Add Widgets. It computes its icon theme's directory
+# list once at startup. org.kde.KIconLoader.iconChanged is the standard broadcast that tells
+# every KIconLoader in the session to rebuild that list; KDE's own installers emit it for the
+# same reason. Best-effort and never fatal: a box with no session bus still installs fine, it
+# just needs a log-out to see the icon. A seam so the suite never signals the real desktop.
+KEMPT_DBUS_SEND="${KEMPT_DBUS_SEND:-dbus-send}"
 # The system autostart entry the opt-out overrides. A seam so the copy source can be a fixture:
 # with the real path hardcoded, every call re-copied the live system file over the test's own,
 # and the "an existing Hidden= is replaced" case could never actually run.
@@ -96,10 +105,23 @@ widget_uninstall() {
 icon_install() {
   [[ -f "$ROOT/plasmoid/contents/icons/kempt.svg" ]] || return 0
   install -D -m 644 "$ROOT/plasmoid/contents/icons/kempt.svg" "$ICON_THEME_DIR/kempt.svg"
+  icon_reload
+  echo "note: if the widget picker still shows a placeholder icon, log out and back in."
 }
 
 icon_uninstall() {
   rm -f "$ICON_THEME_DIR/kempt.svg"
+  icon_reload
+}
+
+# Tell every running KIconLoader in the session to re-scan the icon theme - see KEMPT_DBUS_SEND
+# above for what this is really fixing. Deliberately NOT `hicolor/index.theme`: hicolor is merged
+# into whatever theme is loaded, so the directory needs no theme file of its own and adding one
+# would be a second, competing description of a theme this project does not own.
+icon_reload() {
+  command -v "$KEMPT_DBUS_SEND" >/dev/null 2>&1 || return 0
+  run "$KEMPT_DBUS_SEND" --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0 \
+    || true
 }
 
 main() {
