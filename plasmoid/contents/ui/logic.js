@@ -957,9 +957,15 @@ function viewModel(state, updating, cliError, opts) {
         cliError: cliError,
         emptyStateText: emptyStateText,
         remedyCommand: remedyCommand,
+        // isArray, not a duck-typed length check. A STRING has a numeric length and indexes into
+        // its own characters, so `risky_pending: "kernel-core"` used to walk out of here as
+        // "11 session-critical pending (c, e, k, l, ...)" - eleven package families invented out
+        // of one word - while riskyMessage below, which already checks properly, said nothing at
+        // all. Two answers about the same key, contradicting each other inside one returned
+        // object. The state file is JSON from another program and a schema-1 reader has to
+        // tolerate a key of the wrong type; tolerating it means ignoring it, not iterating it.
         riskySummary: riskySummaryOf(
-            usable && state.risky_pending && typeof state.risky_pending.length === "number"
-                ? state.risky_pending : []),
+            usable && isArray(state.risky_pending) ? state.risky_pending : []),
         // What to DO about that risky set, which is a different question from how big it is.
         riskyMessage: riskyMessageOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),

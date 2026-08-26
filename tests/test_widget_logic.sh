@@ -1021,6 +1021,21 @@ assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
   "a state written before risky_pending existed raises none either"
 assert_eq "$(js 'L.viewModel(null,false).riskyMessage')" "" "and neither does no state at all"
 
+# ...and the two answers in this one returned object have to agree about what a list IS.
+# risky_pending arriving as a STRING is not a list of one name: a duck-typed length check accepts
+# it and iterates its CHARACTERS into fake families, so "kernel-core" used to come back as
+# "11 session-critical pending (c, e, k, l, ...)" beside a riskyMessage of "" - one popup
+# contradicting itself in a single glance. Same for anything else that merely has a length.
+RPS='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:"kernel-core"}'
+RPO='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:{length:3}}'
+assert_eq "$(js "L.viewModel($RPS,false).riskySummary")" "" "a string risky_pending is not a list of names"
+assert_eq "$(js "L.viewModel($RPS,false).riskyMessage")" "" "...and the message already refused it"
+assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
+  "...nor is an object that merely carries a length"
+# The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
+  "2 session-critical pending (glibc, kernel)" "a genuine array still derives the summary it always did"
+
 # --- the copy table -----------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
