@@ -19,6 +19,8 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt summary
 .RI [ N ]
 .br
+.B kempt summary \-\-json
+.br
 .B kempt history
 .br
 .B kempt log
@@ -99,6 +101,14 @@ A successful launch says nothing about the update's outcome: poll the state file
 Render one run as human\-readable text.
 .I N
 counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
+.TP
+.B summary \-\-json
+Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated
+before any of it is printed, and a damaged newest entry falls back to the next\-newest with a
+warning on stderr. Takes no
+.IR N .
+With no runs recorded, or with every entry damaged, it prints nothing and exits 0: empty output
+means "no data", never an empty run.
 .TP
 .B history
 List past runs, newest first: timestamp, surface, status and what the run changed. The last

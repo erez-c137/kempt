@@ -197,6 +197,7 @@ code as "updated".
 
 ```
 kempt summary [N]
+kempt summary --json
 kempt history
 ```
 
@@ -221,6 +222,25 @@ Reboot: needed
 
 With no runs recorded, `summary` prints `no update runs recorded yet` and exits 0. A damaged
 history entry is skipped with a warning on stderr and the next-newest is rendered instead.
+
+`--json` prints the newest run's history entry verbatim and nothing else, which is what the
+widget reads rather than parsing the human text back into numbers. The entry is validated first,
+so a caller is never handed corrupt bytes under exit 0, and a damaged newest entry falls back to
+the next-newest with the same warning on stderr. It takes no `N`: `kempt summary --json 2` is a
+usage error rather than a silently ignored argument. **With no runs recorded, or with every entry
+damaged, it prints nothing and exits 0** - empty stdout means "no data", never an empty run.
+
+```bash
+kempt summary --json | jq '{timestamp, status, reboot_needed}'
+```
+
+```json
+{
+  "timestamp": "2026-08-24T21:05:11+03:00",
+  "status": "ok",
+  "reboot_needed": true
+}
+```
 
 `history` lists past runs, newest first: timestamp, surface, status, and what the run changed.
 That last column is the same phrase the notifications use, so a run that only installed or

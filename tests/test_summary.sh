@@ -9,6 +9,10 @@ kempt_init_dirs
 assert_exit 0 "summary with no runs exits clean" "$KEMPT" summary
 assert_eq "$("$KEMPT" summary)" "no update runs recorded yet" "empty history says so in words"
 assert_eq "$("$KEMPT" history)" "" "empty history lists nothing"
+# --json's "no data" answer is EMPTY stdout under exit 0, never a fabricated empty run - the same
+# rule the state file lays down for `kempt check`. Only the human mode says it in words.
+assert_exit 0 "summary --json with no runs exits clean" "$KEMPT" summary --json
+assert_eq "$("$KEMPT" summary --json)" "" "no runs recorded: --json prints nothing at all"
 
 cat > "$HIST_DIR/20260824T120000.json" <<'EOF'
 {"timestamp":"2026-08-24T12:00:00+03:00","surface":"terminal","status":"ok","duration_sec":192,
@@ -89,6 +93,29 @@ assert_eq "$("$KEMPT" history | wc -l)" "3" "history lists every run"
 assert_eq "$("$KEMPT" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
 assert_exit 2 "summary rejects a non-numeric N" "$KEMPT" summary abc
 
+# --- summary --json: the last run as data ------------------------------------------------------
+# The popup needs what the last run did, and re-deriving it from the human text would be a second,
+# lossier copy of render_summary's rules living in the widget. So --json hands over the entry.
+newest="$(ls -1 "$HIST_DIR"/*.json | sort -r | head -1)"
+"$KEMPT" summary --json > "$TESTTMP/sj.json"
+assert_exit 0 "summary --json exits 0 with runs recorded" "$KEMPT" summary --json
+assert_eq "$(jq -r .timestamp "$TESTTMP/sj.json")" "2026-08-24T14:00:00+03:00" \
+  "--json serves the NEWEST run, the same one plain summary defaults to"
+# Byte-identical, not merely equivalent: it prints the file rather than re-rendering it, so a
+# reader gets exactly what the run recorded - including any field this build has never heard of.
+assert_eq "$(cmp -s "$TESTTMP/sj.json" "$newest" && echo same || echo differs)" "same" \
+  "--json output is the history entry itself, byte for byte"
+# N would have to mean something --json does not offer, and an ignored argument would hand a
+# reader the WRONG run under exit 0. Both orders, because either one is somebody being reasonable.
+assert_exit 2 "--json takes no N" "$KEMPT" summary --json 2
+assert_exit 2 "...in either order" "$KEMPT" summary 2 --json
+# ...and the human command is untouched by any of it.
+hs="$("$KEMPT" summary)"
+assert_eq "$(grep -c 'System (dnf)' <<<"$hs")" "1" "plain kempt summary still renders the human text"
+assert_eq "$(jq -e . <<<"$hs" >/dev/null 2>&1 && echo json || echo text)" "text" \
+  "...which is text, and was never quietly turned into JSON"
+assert_eq "$("$KEMPT" summary 2 | head -1 | grep -c '13:00:00')" "1" "...and summary N still walks back"
+
 # A run that installed and removed packages changed the system as much as one that upgraded them.
 cat > "$TESTTMP/ar-entry.json" <<'EOF'
 {"timestamp":"2026-08-24T16:00:00+03:00","surface":"background","status":"ok","duration_sec":9,
@@ -153,10 +180,25 @@ assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/serr")" "2" "both damaged
 assert_eq "$("$KEMPT" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
 assert_eq "$("$KEMPT" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
 
+# --json must never hand a reader corrupt bytes under exit 0, so it validates before printing and
+# walks back exactly like the human mode. The newest file here is the ZERO-BYTE one, which is the
+# nastier shape: jq exits 0 on it having printed nothing, so a validation that only checked the
+# exit code would serve an empty document as a successful answer.
+jrc=0
+"$KEMPT" summary --json > "$TESTTMP/fallback.json" 2>"$TESTTMP/jerr" || jrc=$?
+assert_eq "$jrc" "0" "--json survives a corrupt newest entry"
+assert_eq "$(jq -r .timestamp "$TESTTMP/fallback.json")" "2026-08-24T11:00:00+03:00" \
+  "--json falls back to the newest READABLE entry"
+assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/jerr")" "2" "...naming both damaged entries on stderr"
+
 # every entry damaged → the same calm no-runs answer, still rc 0
 rm -f "$HIST_DIR/20260824T110000.json"
 arc=0
 aout="$("$KEMPT" summary 2>/dev/null)" || arc=$?
 assert_eq "$arc" "0" "all-corrupt history still exits 0"
 assert_eq "$aout" "no update runs recorded yet" "all-corrupt history degrades to the no-runs message"
+ajrc=0
+ajout="$("$KEMPT" summary --json 2>/dev/null)" || ajrc=$?
+assert_eq "$ajrc" "0" "all-corrupt history still exits 0 under --json"
+assert_eq "$ajout" "" "...and prints nothing, rather than inventing an empty run"
 finish
