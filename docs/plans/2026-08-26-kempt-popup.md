@@ -83,3 +83,48 @@ Why Refresh is on OUR heading row and not the tray's: there is no API. `BasicPla
 
 ### Review gates
 Two-stage per task (spec reviewer, then quality reviewer with an EXECUTED probe per claim). Founder visual gate at the end: tray popup in both states, screenshot for the README.
+
+---
+
+## Founder amendments, 2026-08-26 (in scope for this run, not a follow-up)
+
+### A1 - The restart reminder must be something a user can turn off (P1/P2/P3 + settings page)
+
+- New config key `restart_reminder`, default `true`, owned by the CLI like every other key:
+  the `kempt_default` table in `lib/common.sh`, the key table in `docs/configuration.md`, the
+  man page, and the settings section of `docs/usage.md`.
+- The settings page gains a checkbox **Remind me when a restart is needed**, wired with the same
+  read / compare / write pattern as `include_flatpak`, using the durable-write form, with node
+  and probe tests.
+- **On:** the `Kirigami.InlineMessage` carrying `Restart…` shows in every state as planned, and
+  it has a close button. Closing it hides it for the rest of this plasmashell session. Nothing
+  is persisted; document that explicitly so the behaviour is not mistaken for a bug.
+- **Off:** no message, no button, no nag. The footer status line still carries the two-word fact
+  `· restart pending`, so the popup never lies. That is a fact, not a reminder.
+- The footer text derivation in `logic.js` is node-tested for all three cases: reminder off,
+  reminder on, reminder on but dismissed this session.
+- The desktop notification the CLI already sends after a run (which mentions a needed reboot) is
+  unchanged.
+
+### A2 - The P5 documentation sweep is explicit, not best-effort
+
+- `docs/ROADMAP.md`: the **Now** section is rewritten to reflect what is actually shipped at
+  HEAD (the CLI, the tray widget, the six-tooth icon, `kempt log`, durable settings writes, and
+  this popup redesign), with the remaining v1.0 items listed truthfully: founder visual gate,
+  README screenshot, merge to main, public flip. **v1.x** gains the three panel items already in
+  the plan, plus "restart reminder dismissal persisted across sessions" if the dismissal stays
+  session-only.
+- Sweep, and make truthful: `README.md` (feature list, commands, screenshot note),
+  `docs/usage.md` (popup anatomy in both states, the settings section with the new key, the log
+  section already there), `docs/configuration.md`, `docs/architecture.md` (the `reboot_needed`
+  state key, and where the popup gets its last-run data), `docs/man/kempt.1`, `CHANGELOG.md`
+  Unreleased, and `docs/specs/2026-08-24-kempt-design.md` (a short "Plan 3 deltas" note in the
+  same shape as the existing Plan 2 deltas).
+- Grep every doc for the strings this plan retires and fix them: `Stage offline instead`,
+  `held back`, the old two-button row description, and the ISO summary line.
+
+### A3 - P6: a shorter code of conduct (own commit, `docs: shorter code of conduct`)
+
+The Contributor Covenant was excessive for a project this size. `CODE_OF_CONDUCT.md` is replaced
+with a short document, and every reference to the old template or to its section anchors is updated
+so nothing points at text that no longer exists.
