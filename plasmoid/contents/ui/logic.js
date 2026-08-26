@@ -25,7 +25,7 @@ var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
 // --- the copy table ----------------------------------------------------------------------------
-// Every user-facing string the popup redesign introduces, in ONE place, so the wording is decided
+// Every user-facing string the QML writes as a literal, in ONE place, so the wording is decided
 // once and a node test can pin it. House rules, from the KDE HIG review in
 // docs/research/2026-08-26-popup-panel/hig-review.md:
 //   * Title Case for buttons, sentence case for messages.
@@ -42,6 +42,18 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // widget. So this table is the SPECIFICATION and the place the wording is agreed and tested; the
 // QML repeats the same literal, and a later task adds a test asserting every value here appears
 // verbatim in the .qml files. Do not "fix" that duplication by routing these through i18n().
+//
+// So what this table holds is exactly one category, and it is worth being plain about the
+// category it does NOT hold, because the omission is structural rather than an oversight.
+// footerText, lastRunText, postRunLine and relativeTime ASSEMBLE sentences here - "Checked 4 min
+// ago", "Last update 3 days ago", "Updated 7 packages in 41s", "no package changes" - and hand
+// the finished string to a QML binding. QML cannot wrap an assembled string in i18n() at all, so
+// those words are not translatable today and moving their fragments into this table would not
+// make them so: a fragment is not a translatable unit, and the plural and word-order rules that
+// would make it one do not exist in this widget. That is a real design question for a later
+// release (a message-format layer with its own plural handling), not something to improvise into
+// a copy table. What IS available without one is an exact test of every assembled shape, and
+// tests/test_widget_logic.sh has one for each of the four functions above.
 var COPY = {
     // Header, and the placeholder under it. Deliberately NOT the same sentence: the popup would
     // otherwise say the same words twice in one glance (user panel, redundancy finding).
@@ -441,6 +453,12 @@ function riskySummaryOf(names) {
 // the set at all.
 function riskyMessageOf(names) {
     if (!isArray(names) || names.length === 0) return "";
+    // The 0 is a cap of NONE and has to stay one. This is a LOOKUP, not a list being shown to
+    // anybody: RISKY_FAMILIES_SHOWN caps what riskySummaryOf PRINTS, and passing it here - the
+    // obvious-looking tidy-up, since four is the number the other call uses - would make the
+    // kernel warning depend on where "kernel" falls in an alphabetical sort. Four families
+    // ahead of it (akmod, alsa, atk, bash is an ordinary Fedora transaction, not a contrived
+    // one) and the most important sentence this popup has silently stops being said.
     if (familiesOf(names, 0).shown.indexOf("kernel") < 0) return riskySummaryOf(names);
     for (var i = 0; i < names.length; i++) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
@@ -727,8 +745,15 @@ function postRunLine(run) {
 
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar (one
-// package, seven packages, none at all) around a number, not a wording decision; the decision the
-// copy table owns is the shape of the line, which is what this file's tests pin.
+// package, seven packages) around a number, not a wording decision; the decision the copy table
+// owns is the shape of the line, which is what this file's tests pin.
+// The zero case is the exception, and it is not grammar. "no package changes" is the CLI's
+// wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and the popup is quoting the
+// terminal rather than choosing words of its own; it is lowercase because it sits mid sentence
+// after the dot, not because the popup disagrees with COPY.noPackageChanges about capitals.
+// Do NOT reword it here alone. That is the run_counts_phrase bug this project already has a scar
+// from - two renderers carrying one fact and drifting - so the tests tie all three spellings
+// together: lib/common.sh's emission, the copy table, and this line.
 function lastRunText(run, nowMs) {
     if (!run) return "";
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
