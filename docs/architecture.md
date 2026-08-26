@@ -182,7 +182,8 @@ bumping `schema`.
   },
   "actionable": 10,
   "held_total": 0,
-  "risky_pending": []
+  "risky_pending": [],
+  "reboot_needed": false
 }
 ```
 
@@ -200,6 +201,7 @@ bumping `schema`.
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
 | `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
+| `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it, because the underlying check has documented kernel false negatives ([dnf5#2562](https://github.com/rpm-software-management/dnf5/issues/2562)) and answers `false` whenever it could not work the answer out. |
 
 Two rules for anything that reads this file:
 
@@ -408,7 +410,7 @@ name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrad
 
 There is no registry and no discovery. Backends are named literally, in more places than the
 sketch above suggests, and a missed one fails quietly rather than loudly. The complete list is
-**twelve places, one of them optional**, so nobody has to find it by grep:
+**thirteen places, one of them optional**, so nobody has to find it by grep:
 
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
@@ -417,6 +419,7 @@ sketch above suggests, and a missed one fails quietly rather than loudly. The co
 | `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
 | `cmd_update` | Before and after snapshots, the apply verb, per-backend status, held lists, and the history entry's `backends` object | The same set again, plus the new apply verb from step 2. |
 | `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
+| `dnf_reboot_needed` in `cmd_check` | Called unconditionally too, to write the state file's `reboot_needed` | Nothing, today, and for the same reason. There is no `include_dnf` key to gate it on: `assemble_state` hardcodes `dnf: ($dnf | wrap(true))`, so a gate would be a gate on a constant. **The rule:** the day dnf gains an `include_<name>` gate, this call goes behind it, next to the flatpak one. |
 | `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends | to_entries` that would make the renderer generic for good. |
 | `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key, or that entry is missing a backend the readers expect. |
 | `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `kempt hold apt:foo` exits 2 while the backend works fine. |

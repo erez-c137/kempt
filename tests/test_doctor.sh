@@ -22,6 +22,13 @@ export KEMPT_POLICY_FILE="$TESTTMP/policy.xml"
 # the flatpak check asks whether the command the BACKEND runs exists, so the backend's own seam
 # answers it: first word `cat`, which exists everywhere the suite runs.
 export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+# doctor's own checks never touch dnf5, but three of the cases below run `kempt check`, which
+# now asks the backend whether a restart is owed - and sandbox() unsets KEMPT_DNF_CMD. Without
+# this stub those checks would shell out to the REAL dnf5 on whatever box runs the suite, which
+# is both slow and dependent on whether that box happens to be owed a restart. exit 0 = no.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
+chmod +x "$TESTTMP/dnf-reboot-no"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 
 assert_exit 0 "healthy install: doctor exits 0" "$KEMPT" doctor
 grep -q 'all checks passed' "$TESTTMP/last_output" \

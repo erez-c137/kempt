@@ -180,6 +180,20 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   re-derived with it at every re-capture so the two always share a timestamp. Stands
   in for a state file written before Task 13.5 added that additive key: schema-1 readers must
   tolerate its absence, and there is no way to make today's CLI emit one.
+- **state-reboot-needed.json** - **derived**, `jq '. + {reboot_needed: true}'` over
+  state-live.json, so the two are identical field for field apart from that one key (and it lands
+  in the position `assemble_state` really writes it, last). Derived rather than captured on
+  purpose: the test it guards asserts that the whole view model comes out UNCHANGED, which only
+  means anything if the pair differs by nothing else - a fresh capture would differ by its
+  timestamps as well, and the assertion would have to be weakened to survive it. Re-derive it
+  from state-live.json at every re-capture, the same way state-schema-v0.json is re-derived.
+
+  It stands in for a state written by a build that records whether a restart is owed right now.
+  Note that every CAPTURED fixture above predates that key, so between them the set proves the
+  additive-key rule in both directions: readers tolerate its absence, and readers this build
+  ships ignore its presence. The restart banner that will consume it is a later task, so today
+  the fixture's job is to prove that nothing derives anything from it yet.
+
 - **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,
   `{"schema": 1, "last_check": "2026-08-2`) - **hand-written**, because no CLI can produce them:
   the first is the "empty stdout, exit 0" case the state schema defines as "no data, keep the

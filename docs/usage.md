@@ -67,6 +67,12 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 comma-joined for packages that keep several versions installed at once, such as `kernel-core`.
 Comma-joined sets are ordered oldest to newest, so a reader that wants to show one version takes
 the last element.
+Every check also records `reboot_needed`, whether a restart is owed **right now** - a fresh,
+cache-only, local-only question, not a memory of the last run - so it clears itself once you have
+restarted and it notices a `sudo dnf5 upgrade` you ran by hand. Read it as a one-way signal:
+`true` means say so, `false` means there is nothing to say and never "no restart needed", because
+the underlying check answers `false` both when it is sure and when it could not tell.
+
 The full field-by-field schema is in
 [architecture.md](architecture.md#state-json-schema-v1).
 

@@ -53,8 +53,25 @@ cmd_check() {
   # rule. dnf only: a flatpak app cannot take the session down mid-transaction.
   local risky
   risky="$(risky_names <<<"$dnf_items" | jq -Rn '[inputs]')"
+  # Whether a restart is owed RIGHT NOW, as opposed to the history entry's reboot_needed, which
+  # records whether one was owed when a particular run finished. That distinction is the whole
+  # point: a history entry keeps claiming a restart long after the user has performed one, and it
+  # says nothing at all when the restart is owed because of a `sudo dnf5 upgrade` typed in a
+  # terminal. Rewritten by every check, this clears itself and it notices what Kempt did not do.
+  # Cheap and safe to ask on this path: dnf_reboot_needed is cache-only, repo-less and closes its
+  # own stdin, so it neither touches the network nor can prompt (do NOT add a second redirect
+  # here - it would fight the one the backend already applies).
+  # Called unconditionally, like the one in cmd_update, and for the same reason: there is no
+  # include_dnf key in this CLI - assemble_state hardcodes `dnf: ($dnf | wrap(true))` - so a gate
+  # on it today would be a gate on a constant. THE RULE: if dnf ever gains an include_<name>
+  # gate, this call goes behind it, right next to the flatpak one above.
+  local reboot
+  reboot="$(dnf_reboot_needed)"
+  # Same shape guard as cmd_update: a surprise value reaching --argjson fails jq and would lose
+  # the entire check - every pending package - over a reboot verdict nobody asked for.
+  [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check. The two outcomes cmd_check actually has are the two it records: `ok` with

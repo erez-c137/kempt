@@ -366,9 +366,10 @@ tsv_diff_updates() {  # before_file after_file
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional)
   jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
-        --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" --arg now "$(now_iso)" '
+        --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
+        --argjson reboot "${8:-false}" --arg now "$(now_iso)" '
     def wrap(e): {enabled: e,
                   actionable: ([.[] | select(.held|not)] | length),
                   held:       ([.[] | select(.held)] | length),
@@ -379,7 +380,8 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      backends: {dnf: ($dnf | wrap(true)), flatpak: ($fp | wrap($fpe))},
      actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
-     risky_pending: $risky}'
+     risky_pending: $risky,
+     reboot_needed: $reboot}'
 }
 
 # Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach

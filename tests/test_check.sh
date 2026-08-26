@@ -18,6 +18,26 @@ export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
 export KEMPT_SKIP_REFRESH=1   # deterministic: no metadata refresh attempts in tests
 
+# cmd_check asks the backend whether a restart is owed, and sandbox() unsets KEMPT_DNF_CMD - so
+# without a stub every `kempt check` below would shell out to the REAL dnf5 on whatever box is
+# running the suite. That is slow, and worse, its answer depends on whether that box happens to
+# be owed a restart today, which is not something a test may depend on. Default here is "no";
+# the block at the bottom drives both verdicts deliberately. rc 1 PLUS the package list on
+# stdout is the real command's "yes" shape (see dnf_reboot_needed).
+cat > "$TESTTMP/dnf-reboot-yes" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Core libraries or services have been updated since boot-up:
+  * kernel-core
+
+Reboot is required to fully utilize these updates.
+OUT
+exit 1
+STUB
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
+chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
+
 # Fixture contracts (tests/fixtures/MANIFEST.md): dnf parses to 7 items, flatpak to 3.
 n_dnf=7
 n_fp=3
@@ -194,4 +214,36 @@ assert_eq "$(jq -c .risky_pending <<<"$state7")" "[]" "holding it stops the reco
 "$KEMPT" config set risky_regex '^bash'
 state8="$("$KEMPT" check)"
 assert_eq "$(jq -r '.risky_pending[0]' <<<"$state8")" "bash" "risky_regex is configurable"
+
+# --- reboot_needed: a fact about NOW, live in the state file -----------------------------------
+# The popup's restart banner reads this key rather than the last run's history entry, because a
+# history entry answers a different question: it says a restart was owed WHEN THAT RUN FINISHED.
+# It keeps saying so after the user has restarted, and it says nothing at all when the restart is
+# owed because of a `sudo dnf5 upgrade` somebody typed in a terminal. The state key is rewritten
+# by every check, so it clears itself and it notices updates Kempt did not apply.
+rb_no="$("$KEMPT" check)"
+assert_eq "$(jq -r '.reboot_needed' <<<"$rb_no")" "false" "a check with no restart owed records false"
+rb_yes="$(KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes" "$KEMPT" check)"
+assert_eq "$(jq -r '.reboot_needed' <<<"$rb_yes")" "true" "...and true when the backend says one is owed"
+assert_eq "$(jq -r '.reboot_needed' "$KEMPT_STATE_DIR/state.json")" "true" \
+  "...written to the state file, not merely printed"
+assert_eq "$(jq -r '.schema' <<<"$rb_yes")" "1" "an additive key does not bump the frozen schema"
+# ...and it goes back to false on its own, which is the whole reason it is not read from history.
+assert_eq "$(jq -r '.reboot_needed' <<<"$("$KEMPT" check)")" "false" \
+  "the next check clears it, the way a real restart would"
+
+# A surprise value must never reach --argjson: jq would fail and take the WHOLE check with it,
+# losing a perfectly good pending-updates answer over a reboot verdict nobody asked for.
+cat > "$TESTTMP/dnf-weird" <<'STUB'
+#!/usr/bin/env bash
+echo "no idea"
+exit 7
+STUB
+chmod +x "$TESTTMP/dnf-weird"
+rb_weird="$(KEMPT_DNF_CMD="$TESTTMP/dnf-weird" "$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -r '.reboot_needed' <<<"$rb_weird")" "false" \
+  "an unusable reboot verdict degrades to false instead of losing the check"
+assert_eq "$(jq -r '.status' <<<"$rb_weird")" "ok" "...and the check it rode in on is still ok"
+assert_eq "$(jq '.actionable' <<<"$rb_weird")" "$(jq '.actionable' <<<"$rb_no")" \
+  "...still carrying exactly the pending items a healthy check reports"
 finish

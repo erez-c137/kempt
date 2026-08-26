@@ -483,12 +483,35 @@ assert_eq "$(js 'V("live",false).iconState')" "updates" "schema 1 is of course s
 assert_eq "$(js 'L.viewModel({hello:"world"},false).badgeVisible')" "false" "...and it badges nothing"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...and lists nothing"
 
+# --- an additive key this build has never heard of changes nothing --------------------------
+# `reboot_needed` is written by `kempt check` as of this build, and the restart banner that reads
+# it is a LATER task. Until then it is exactly the case schema v1's additive-key rule promises to
+# survive: state-reboot-needed.json is state-live.json plus that one key, so the whole view model
+# it derives must come out identical, field for field. Compared inside ONE node process, because
+# a whole-object comparison is the only form that catches a key quietly changing something far
+# from where it was added.
+assert_eq "$(js 'JSON.stringify(V("reboot-needed",false)) === JSON.stringify(V("live",false))')" \
+  "true" "an unknown additive key leaves the entire view model untouched"
+# ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
+for _prop in badgeText badgeVisible iconState tooltipMain tooltipSub headerText actionable heldTotal; do
+  assert_eq "$(js "V(\"reboot-needed\",false).$_prop")" "$(js "V(\"live\",false).$_prop")" \
+    "reboot_needed does not disturb $_prop"
+done
+assert_eq "$(js 'V("reboot-needed",false).rows.length')" "$(js 'V("live",false).rows.length')" \
+  "reboot_needed does not disturb the row count"
+# The fixture must really carry the key, or every assertion above passes vacuously.
+assert_eq "$(jq -r '.reboot_needed' "$FIXTURES/state-reboot-needed.json")" "true" \
+  "fixture guard: state-reboot-needed.json really does carry the key"
+assert_eq "$(js 'V("reboot-needed",false).rebootNeeded')" "undefined" \
+  "and this build derives nothing from it yet: the banner is a later task"
+
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
 keys='["actionable","badgeText","badgeVisible","cliError","emptyStateText","headerText","heldItems","heldTotal","iconState","lastSuccessText","remedyCommand","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
+            'V("reboot-needed",false)' \
             'L.viewModel({hello:"world"},false)' 'L.viewModel(null,false,"boom")'; do
   assert_eq "$(js "Object.keys($case).sort()")" "$keys" "$case returns the whole view model"
 done
