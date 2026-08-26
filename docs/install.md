@@ -61,8 +61,8 @@ breaks `kempt`. Only the root-owned files and the widget are copies.
 | `~/.local/share/icons/hicolor/64x64/apps/kempt.svg` | you | `install.sh` - same name, the drawing that survives 64 px |
 | `~/.local/share/icons/hicolor/48x48/apps/kempt.svg` | you | `install.sh` - same drawing as 64x64 |
 | `~/.local/share/icons/hicolor/32x32/apps/kempt.svg` | you | `install.sh` - the six-tooth drawing |
-| `~/.local/share/icons/hicolor/22x22/apps/kempt.svg` | you | `install.sh` - same drawing as 32x32 |
-| `~/.local/share/icons/hicolor/16x16/apps/kempt.svg` | you | `install.sh` - same drawing as 32x32 |
+| `~/.local/share/icons/hicolor/22x22/apps/kempt.svg` | you | `install.sh` - hand-hinted on the 22 px grid |
+| `~/.local/share/icons/hicolor/16x16/apps/kempt.svg` | you | `install.sh` - hand-hinted on the 16 px grid |
 | (no file) a `org.kde.KIconLoader.iconChanged` signal on your session bus | - | `install.sh`, right after the icon, so a running Plasma notices it |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
@@ -77,10 +77,12 @@ The icon is installed outside the package on purpose. `metadata.json` asks for i
 on Plasma 6.7, an icon that lives only inside the installed package does not resolve from its name
 at all. The copies in `~/.local/share/icons/hicolor/` are the ones Add Widgets actually finds.
 
-There are six of them because the icon is a **size ladder**, the way Breeze ships one: three
+There are six of them because the icon is a **size ladder**, the way Breeze ships one: five
 different drawings of the same comb, each hinted for the sizes it serves. The fine 17-tooth comb
 reads beautifully at 128 px and turns to grey mush at 32, so smaller sizes get progressively
-simpler drawings. All six are installed under the one name `kempt`, and the theme picks the
+simpler drawings - 17 teeth, then 7, 6, 5, 5. The two smallest are drawn on the 22 px and 16 px
+pixel grids themselves, because nothing drawn on the shared 256 unit grid lands on whole pixels
+down there. All six are installed under the one name `kempt`, and the theme picks the
 directory matching the requested size - a fixed-size directory always beats `scalable/`. Which
 drawing serves which size, and the measurements behind each, are in
 `docs/research/brand/README.md`.

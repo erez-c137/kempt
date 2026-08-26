@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - full-colour application icon, 16 px rung of the hicolor size ladder.
+  A separate HAND-HINTED drawing on the 16 px pixel grid, not a scaled copy of anything:
+  the viewBox IS 16 units, so every edge below is a whole device pixel at the served size
+  (and still whole at 2x on a HiDPI screen). Two flat colours only: slate #1F5885 tile,
+  cream #F2F0E3 comb. No gradient, no bevel, no shadow.
+
+  Comb geometry taken WHOLESALE from kempt-symbolic-16.svg, which already proved this grid
+  works in a 16 px box. Only the colours and the tile are new:
+
+  Comb   14 w x 10 h, centred (x 1-15, y 3-13)
+  Spine  y 3-6  (3 px)
+  Teeth  y 6-13 (7 px), 2 px wide, 1 px gaps, square tips, FLUSH with the spine ends
+         x: 1-3, 4-6, 7-9, 10-12, 13-15
+  5 teeth at 2 px + 4 gaps at 1 px = 14 px exactly, so the pitch never lands off-grid.
+
+  Why this file exists. The six-tooth drawing (kempt-32.svg) is exact at 32 px and collapses
+  below it: its 176 grid units of comb map to 11 device pixels for 11 elements at 16 px, all
+  on half-pixel boundaries, which blends to ONE FLAT BAR - a minus sign, the worst possible
+  misread for an updater. No arrangement of a 256-unit grid fixes that at 16 px; only drawing
+  on the 16 px grid itself does. Same reason the symbolic glyphs are hand-hinted per size.
+
+  Why the comb runs nearly edge to edge (14 of 16 px). A 2 px tooth is the floor - 1 px is the
+  hairline failure this whole redraw exists to fix - and five of them with 1 px gaps is 14 px.
+  There is no narrower five-tooth comb. Small icons filling more of their box than large ones
+  is normal optical sizing; Breeze's own 16 px drawings do it.
+
+  No end taper and no rounded tips, unlike kempt.svg and kempt-48.svg: at 2 px per tooth there
+  is nothing to cut into or round off. Flush ends, square tips, exactly as kempt-32.svg does.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path
+     fill="#1F5885"
+     d="M 16 8 C 16 11.11562 16.06938 13.385 14.72687 14.72687 C 13.385 16.06938 11.11562 16 8 16 C 4.88438 16 2.615 16.06938 1.27313 14.72687 C -0.06938 13.385 0 11.11562 0 8 C 0 4.88438 -0.06938 2.615 1.27313 1.27313 C 2.615 -0.06938 4.88438 0 8 0 C 11.11562 0 13.385 -0.06938 14.72687 1.27313 C 16.06938 2.615 16 4.88438 16 8 Z" />
+  <path
+     fill="#F2F0E3"
+     d="M1 3 H15 V13 H13 V6 H12 V13 H10 V6 H9 V13 H7 V6 H6 V13 H4 V6 H3 V13 H1 Z" />
+</svg>

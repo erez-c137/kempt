@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Kempt - full-colour application icon, SMALL rung of the hicolor size ladder.
-  Installed at 32x32, 22x22 and 16x16. UNCHANGED geometry: this is the drawing that
-  shipped as kempt.svg before 2026-08-26, kept exactly as it was because it is the only
-  one of the three whose teeth survive 32 px. See docs/research/brand/README.md.
+  Kempt - full-colour application icon, 32 px rung of the hicolor size ladder.
+  Installed at 32x32 only. UNCHANGED geometry: this is the drawing that shipped as
+  kempt.svg before 2026-08-26, kept exactly as it was because 32 px is the size it is
+  EXACT at - 176 grid units of comb map to 22 device pixels, so every tooth is 2 px of
+  solid cream. It does not survive below that (11 elements into 15 or 11 device pixels,
+  all on half-pixel boundaries), which is why 22 and 16 px have their own hand-hinted
+  drawings rather than this one. See docs/research/brand/README.md.
   Hand-authored. Two flat colours only: slate #1F5885 tile, cream #F2F0E3 comb.
   No gradient, no bevel, no shadow.
 

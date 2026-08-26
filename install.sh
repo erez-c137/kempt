@@ -31,7 +31,11 @@ ICON_THEME_BASE="$HOME/.local/share/icons/hicolor"
 # read as a comb at 256 px is grey mush at 32, so each band gets the drawing that survives it:
 #   scalable  the 17-element fine comb, a measured redraw of the founder's reference photo
 #   64 + 48   the same comb at 7 teeth, the most that hold 2 solid device pixels at 48 px
-#   32/22/16  the older six-tooth drawing, unchanged
+#   32        the six-tooth drawing, exact on the 32 px grid
+#   22 + 16   hand-hinted five-tooth drawings authored on the 22 and 16 px grids themselves
+#             (viewBox 22 and 16, not 256), because no arrangement of a 256-unit grid lands on
+#             whole device pixels at those sizes - the same reason the symbolic glyphs are
+#             hand-hinted per size, and they share those glyphs' 2 px tooth / 1 px gap grid.
 # One name, "kempt", resolves to all of them: an XDG icon theme picks the directory whose size
 # matches the request, and hicolor's index.theme lists every fixed-size dir before scalable/apps,
 # so an exact-size dir wins. Verified on this box with kiconfinder6 - see
@@ -42,8 +46,8 @@ ICON_LADDER=(
   "64x64:kempt-48.svg"
   "48x48:kempt-48.svg"
   "32x32:kempt-32.svg"
-  "22x22:kempt-32.svg"
-  "16x16:kempt-32.svg"
+  "22x22:kempt-22.svg"
+  "16x16:kempt-16.svg"
 )
 # ...and the signal that makes a RUNNING desktop notice it. Measured on this box: after the SVG
 # above was installed, `kiconfinder6 kempt` resolved it immediately in a fresh process, while

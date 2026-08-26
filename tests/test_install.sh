@@ -32,15 +32,15 @@ assert_exit 0 "the staged widget is a copy, not a symlink into the checkout" -- 
 # by KPackage: measured on Plasma 6.7 with Breeze loaded, an icon that lives only in the installed
 # package's contents/icons/ does not resolve from its name at all. Without this file the widget
 # shows a generic placeholder in Add Widgets, which looks like nothing being wrong.
-# It goes in as a SIZE LADDER (2026-08-26), the way Breeze ships one: the fine 17-element comb is
-# the scalable drawing, a 7-tooth redraw of the same comb serves 64 and 48, and the older
-# six-tooth drawing serves 32, 22 and 16 - because a comb fine enough to read as a comb at 256 px
-# is grey mush at 32. Every rung is asserted, and asserted by CONTENT: a size directory that is
-# merely present, or present with the wrong drawing in it, fails nowhere at runtime. It just
-# quietly serves the wrong artwork at that size, which is the exact bug the ladder exists to fix.
+# It goes in as a SIZE LADDER (2026-08-26), the way Breeze ships one: five drawings of the same
+# comb, each hinted for the sizes it serves, because a comb fine enough to read as a comb at
+# 256 px is grey mush at 32 and a flat bar at 16. Every rung is asserted, and asserted by
+# CONTENT: a size directory that is merely present, or present with the wrong drawing in it,
+# fails nowhere at runtime. It just quietly serves the wrong artwork at that size, which is the
+# exact bug the ladder exists to fix.
 ICONS="$D$HOME/.local/share/icons/hicolor"
 ICON="$ICONS/scalable/apps/kempt.svg"
-LADDER="scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg 32x32:kempt-32.svg 22x22:kempt-32.svg 16x16:kempt-32.svg"
+LADDER="scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg 32x32:kempt-32.svg 22x22:kempt-22.svg 16x16:kempt-16.svg"
 for _rung in $LADDER; do
   _dir="${_rung%%:*}"; _src="${_rung#*:}"
   assert_exit 0 "the app icon is staged into hicolor/$_dir/apps, where a name resolves" \
@@ -57,6 +57,18 @@ assert_exit 1 "the scalable and the 48 drawing are genuinely different artwork" 
   -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-48.svg"
 assert_exit 1 "...and so are the 48 and the 32 drawing" \
   -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt-48.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-32.svg"
+assert_exit 1 "...and so are the 32 and the 22 drawing" \
+  -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt-32.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-22.svg"
+assert_exit 1 "...and so are the 22 and the 16 drawing" \
+  -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt-22.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-16.svg"
+# The two smallest rungs are hand-hinted on their OWN pixel grid, and that is the entire point of
+# them: a viewBox of 256 cannot put a tooth edge on a whole device pixel at 22 or 16 px. If one
+# of these ever gets "tidied up" onto the 256 grid the teeth silently blur back into a flat bar,
+# and nothing else in the suite would notice.
+assert_exit 0 "the 22 px rung is authored on the 22 px grid, not the 256 one" \
+  -- grep -q 'viewBox="0 0 22 22"' "$REPO_ROOT/plasmoid/contents/icons/kempt-22.svg"
+assert_exit 0 "the 16 px rung is authored on the 16 px grid, not the 256 one" \
+  -- grep -q 'viewBox="0 0 16 16"' "$REPO_ROOT/plasmoid/contents/icons/kempt-16.svg"
 # The symbolic panel glyphs are NOT part of this ladder and must not be dragged into it: they are
 # monochrome currentColor drawings for the system tray, resolved by their own names.
 assert_exit 1 "the ladder does not install a symbolic glyph under the 'kempt' name" \

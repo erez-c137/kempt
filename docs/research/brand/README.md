@@ -5,18 +5,21 @@ everything in `docs/research/brand/` is the reasoning, the measurements and the 
 
 ## What ships, and where
 
-`plasmoid/contents/icons/` is a flat directory with five hand-authored SVGs.
+`plasmoid/contents/icons/` is a flat directory with seven hand-authored SVGs.
 
 | File | What it is | Installed as |
 | --- | --- | --- |
 | `kempt.svg` | full-colour app icon, fine comb, 17 elements | `~/.local/share/icons/hicolor/scalable/apps/kempt.svg` |
 | `kempt-48.svg` | full-colour app icon, mid comb, 7 elements | `.../hicolor/64x64/apps/kempt.svg` and `.../48x48/apps/kempt.svg` |
-| `kempt-32.svg` | full-colour app icon, six-tooth drawing | `.../hicolor/32x32/`, `22x22/` and `16x16/apps/kempt.svg` |
+| `kempt-32.svg` | full-colour app icon, six-tooth drawing | `.../hicolor/32x32/apps/kempt.svg` |
+| `kempt-22.svg` | full-colour app icon, hand-hinted on the 22 px grid, five teeth | `.../hicolor/22x22/apps/kempt.svg` |
+| `kempt-16.svg` | full-colour app icon, hand-hinted on the 16 px grid, five teeth | `.../hicolor/16x16/apps/kempt.svg` |
 | `kempt-symbolic.svg` | monochrome panel glyph, 22 px, five teeth | resolved by its own name, not part of the ladder |
 | `kempt-symbolic-16.svg` | monochrome panel glyph, 16 px, five teeth | resolved by its own name, not part of the ladder |
 
-`install.sh` installs the three full-colour drawings, all under the single name `kempt`, and
-removes all six files on `--uninstall`. `--destdir` stages the same ladder under a prefix.
+`install.sh` installs the five full-colour drawings, all under the single name `kempt`, and
+removes all six installed files on `--uninstall`. `--destdir` stages the same ladder under a
+prefix.
 
 ## The ladder
 
@@ -26,8 +29,8 @@ removes all six files on `--uninstall`. `--destdir` stages the same ladder under
 | 64 px | `64x64/apps` | `kempt-48.svg` | 5 fine + 2 tapered ends | crisp, zero half-tones |
 | 48 px | `48x48/apps` | `kempt-48.svg` | 5 fine + 2 tapered ends | even, 2 solid px per tooth and gap |
 | 32 px | `32x32/apps` | `kempt-32.svg` | 6, flush ends | crisp, zero half-tones |
-| 22 px | `22x22/apps` | `kempt-32.svg` | 6, flush ends | smeared, see the open problem below |
-| 16 px | `16x16/apps` | `kempt-32.svg` | 6, flush ends | collapses to a flat bar, see below |
+| 22 px | `22x22/apps` | `kempt-22.svg` | 5, flush ends | crisp, zero half-tones |
+| 16 px | `16x16/apps` | `kempt-16.svg` | 5, flush ends | crisp, zero half-tones |
 
 **One name resolves to all of them.** An XDG icon theme picks the directory whose declared size
 matches the request, and `/usr/share/icons/hicolor/index.theme` lists every fixed-size directory
@@ -38,8 +41,9 @@ taken on faith. Verified on this box (Fedora 44, Plasma 6.7):
   scalable file, at its default lookup size.
 - `QIcon.fromTheme("kempt")` reports `availableSizes` of 16, 22, 32, 48, 64, 128 (the 128 is the
   `Size=128` that `hicolor` declares for `scalable/apps`), and the pixmap it returns at each size
-  is byte-for-byte the render of the drawing named in the table above: 16, 22 and 24 px get
-  `kempt-32.svg`, 48 and 64 get `kempt-48.svg`, and 96, 128 and 256 get `kempt.svg`.
+  is byte-for-byte the render of the drawing named in the table above: 16 px gets `kempt-16.svg`,
+  22 and 24 px get `kempt-22.svg`, 32 gets `kempt-32.svg`, 48 and 64 get `kempt-48.svg`, and 96,
+  128 and 256 get `kempt.svg`.
 - Breeze itself is laid out the same way: `/usr/share/icons/breeze/apps/` holds `16`, `22`, `24`,
   `32`, `48` and `64` as separate directories of separate drawings, which is the pattern this
   ladder copies.
@@ -50,7 +54,12 @@ taken on faith. Verified on this box (Fedora 44, Plasma 6.7):
 the six-tooth pictogram where pixels force it.** This supersedes the assumption behind the earlier
 work, which was that one drawing would serve every size. It does not: a comb fine enough to read
 as a comb at 128 px has 1 px teeth at 32, and the six-tooth drawing that is exact at 32 px is a
-coarse fence at 256.
+coarse fence at 256 and a flat bar at 16.
+
+The tooth count falls monotonically down the ladder, and each step is the most the pixel grid at
+that size can hold: **17 elements** (96 px and up), **7** (64 and 48), **6** (32), **5** (22 and
+16). Nothing below 32 px can be drawn on the 256 unit grid at all, which is why the last two rungs
+are authored on their own.
 
 The founder's reference is `candidates/source-comb-slate-cream.jpg`, and the reason he chose it is
 **the ends**: the spine cuts diagonally down to the outermost teeth, so a wedge of slate opens
@@ -121,22 +130,64 @@ their box than its 64 px ones.
 - `candidates/` - the raw generated explorations, including the three source images. Nothing in
   that folder ships; see `candidates/README.md`.
 
-## Open problem: 22 and 16 px
+## How 22 and 16 px were fixed (2026-08-26, same day)
 
 The six-tooth drawing is **exact** at 32 px: its 176 units of comb map to 22 device pixels, so
 every tooth is 2 px of solid cream and every gap 2 px of solid slate, with no antialiased
 half-tone anywhere in a row through the teeth.
 
-It does not survive the two sizes below that. At 22 px the same comb maps to 15.1 px for 11
-elements and at 16 px to 11 px for 11 elements - one device pixel per element, landing on
-half-pixel boundaries, which blends to a single flat bar. A row through the teeth at 16 px reads
-`242` all the way across: the teeth are gone.
+It did not survive the two sizes below that, and for a while it was serving them anyway. At 22 px
+that comb maps to 15.1 px for 11 elements and at 16 px to 11.0 px for 11 elements - one device
+pixel per element, landing on half-pixel boundaries. A row through the teeth at 16 px read `242`
+all the way across: one flat bar, the MINUS-SIGN misread that the verdict document calls the worst
+possible outcome for an updater.
 
-This is **not a regression**. Before the ladder the scalable file *was* the six-tooth drawing, so a
-16 px request already rendered exactly like this. It is also not what the system tray shows: the
-tray uses `kempt-symbolic.svg` / `kempt-symbolic-16.svg`, which are hand-hinted for 22 and 16 px
-(five teeth, 2 px wide with 1 px gaps) and are untouched by the ladder.
+**No arrangement of the 256 unit grid fixes that**, because the arithmetic does not divide: 16/256
+and 22/256 put a 176 unit comb on fractional device pixels whatever the tooth count. The fix is
+the one the symbolic panel glyphs already use - author the drawing on the target pixel grid
+itself. `kempt-22.svg` has `viewBox="0 0 22 22"` and `kempt-16.svg` has `viewBox="0 0 16 16"`, so
+every edge in them is a whole device pixel by construction (and still whole at 2x on a HiDPI
+screen).
 
-Fixing it needs a fourth rung: a hand-hinted small drawing on the same principle as the symbolic
-glyphs. That is a new drawing, not an edit to the six-tooth one, and it was out of scope for the
-2026-08-26 decision.
+The comb geometry is lifted from `kempt-symbolic-16.svg` and `kempt-symbolic.svg`, which had
+already proved this grid at these sizes:
+
+| | `kempt-16.svg` | `kempt-22.svg` |
+| --- | --- | --- |
+| Comb | 14 x 10 px at x 1-15, y 3-13 | 14 x 14 px at x 4-18, y 4-18 |
+| Spine | 3 px (y 3-6) | 5 px (y 4-9) |
+| Teeth | 7 px (y 6-13) | 9 px (y 9-18) |
+| Teeth | 5, 2 px wide, 1 px gaps, square tips, flush ends | same |
+| Tooth spans | x 1-3, 4-6, 7-9, 10-12, 13-15 | x 4-6, 7-9, 10-12, 13-15, 16-18 |
+| Tile margin | 1 px left/right, 3 px top/bottom | 4 px on all four sides |
+
+Measured rows through the teeth, red channel, at native size:
+
+```
+kempt-22.svg @ 22   31  31  31  31 242 242  31 242 242  31 242 242  31 242 242  31 242 242  31  31  31  31
+kempt-16.svg @ 16   31 242 242  31 242 242  31 242 242  31 242 242  31 242 242  31
+```
+
+Solid 242 and solid 31, nothing in between: five teeth of exactly 2 px separated by exactly 1 px
+of slate, at both sizes.
+
+Two deliberate departures from the symbolic glyphs, both because a tile is not a panel:
+
+- **`kempt-22.svg` is centred** (x 4-18, y 4-18). The symbolic glyph is pushed up and left to keep
+  the plasmoid's opaque count badge off the comb; nothing draws a badge over an application icon,
+  and an off-centre comb inside a symmetric squircle is visible.
+- **Its teeth are 9 px rather than 8.** A 13 px comb cannot centre on an integer in a 22 px box
+  ((22-13)/2 = 4.5), which would put every horizontal edge on a half pixel. 14 can. The extra
+  pixel went to the teeth, landing the spine-to-teeth split on 5:9 = 35.7/64.3, closer to the
+  37.5/62.5 the rest of the ladder holds than the glyph's own 5:8.
+
+**One cosmetic cost, at 16 px only.** Five 2 px teeth with 1 px gaps is 14 px and there is no
+narrower five-tooth comb, so the tile frame there is 1 px at the sides against 3 px top and
+bottom. The comb edges are perfectly crisp - the render shows a full-value slate column at x=0 and
+x=15, nothing anti-aliased - but the frame is visibly thinner than on the 22 and 32 rungs. The
+alternative, a four-tooth comb at 11 px, frames better and cannot centre on an integer in a 16 px
+box (margins would be 2 px and 3 px), so it was not taken. If the founder prefers the framing to
+the fifth tooth, that is the swap.
+
+The symbolic glyphs themselves are untouched and are still not part of the ladder: the tray
+resolves `kempt-symbolic.svg` and `kempt-symbolic-16.svg` by their own names.

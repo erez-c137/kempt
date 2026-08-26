@@ -109,8 +109,8 @@ comparison-ends.png` (the earlier overhang-vs-flush pair, kept for the ends half
 **One drawing does not serve every size, and this document assumed it would.** Everything above
 still holds for the drawing it describes - the flush ends, the six teeth, the 176 x 128 footprint,
 the tooth pitch of 16 that cannot give. What changes is the scope of that drawing: it is now the
-SMALL rung of a three-rung ladder, `plasmoid/contents/icons/kempt-32.svg`, serving 32, 22 and
-16 px, and its geometry is byte-identical to what shipped as `kempt.svg` before this date.
+32 px rung of a five-rung ladder, `plasmoid/contents/icons/kempt-32.svg`, serving 32 px only, and
+its geometry is byte-identical to what shipped as `kempt.svg` before this date.
 
 The reason is arithmetic that this document half-anticipated and then set aside. A tooth pitch of
 16 units is what makes the drawing exact at 32 px, and it is also what makes it a coarse fence at
@@ -119,13 +119,16 @@ founder's own reference photo, `candidates/source-comb-slate-cream.jpg`, is a fi
 about 16 elements, and at 128 px and above there is no reason not to draw it.
 
 **Founder decision, 2026-08-26: the icon should look like that photo at the sizes where it can,
-and stay the six-tooth pictogram where pixels force it.** Three drawings, one name:
+and stay the six-tooth pictogram where pixels force it.** Five drawings, one name, the tooth count
+falling monotonically as the pixel grid runs out:
 
 | Rung | File | Serves | Comb |
 | --- | --- | --- | --- |
 | fine | `kempt.svg` | 96 px and up, via `scalable/apps` | 176 x 56, 15 fine teeth + 2 tapered ends |
 | mid | `kempt-48.svg` | 64 and 48 px | 224 x 64, 5 fine teeth + 2 tapered ends |
-| small | `kempt-32.svg` | 32, 22 and 16 px | 176 x 128, 6 teeth, THIS document's drawing |
+| 32 | `kempt-32.svg` | 32 px | 176 x 128, 6 teeth, THIS document's drawing |
+| 22 | `kempt-22.svg` | 22 px | 14 x 14 on a 22 px viewBox, 5 teeth |
+| 16 | `kempt-16.svg` | 16 px | 14 x 10 on a 16 px viewBox, 5 teeth |
 
 **The founder's stated reason for choosing that photo is the ENDS**, and it is worth recording
 precisely because this document got the ends half right. Flush ends were the right fix for the
@@ -146,13 +149,27 @@ there is nothing to cut into.
 teeth, are still the only drawings hand-hinted for 16 and 22 px, and are not part of the ladder -
 the tray resolves them by their own names.
 
-**One thing this ladder does not fix.** The six-tooth drawing is exact at 32 px and collapses
-below it: at 16 px its 11 elements map to 11 device pixels on half-pixel boundaries and blend to
-one flat bar, which is the MINUS-sign misread this document names as the worst possible outcome
-for an updater. That was already true before the ladder, because the scalable file was this same
-drawing, and the panel is safe because it uses the symbolic glyphs. Fixing it needs a fourth,
-hand-hinted rung on the symbolic glyphs' principle. It is recorded as an open problem in
-`README.md` rather than solved here.
+**The thing this document warned about, finally fixed.** The six-tooth drawing is exact at 32 px
+and collapses below it: at 16 px its 11 elements map to 11 device pixels on half-pixel boundaries
+and blend to one flat bar, which is the MINUS-sign misread this document names as the worst
+possible outcome for an updater. That was true before the ladder too, because the scalable file
+was this same drawing.
+
+It is now fixed, on this document's own principle. The redraw specification above already said the
+panel glyph must be **"two hand-hinted drawings, 16 px and 22 px, never one scaled"**, and gave
+the grid that works: a 14 px glyph of five teeth at 2 px with 1 px gaps. `kempt-22.svg` and
+`kempt-16.svg` apply exactly that to the full-colour icon - the same five-tooth comb, in cream on
+the slate squircle, authored on a 22 and a 16 unit viewBox so every edge is a whole device pixel
+by construction. Measured rows through the teeth are solid 242 and solid 31 with no value in
+between at either size. The tooth-count ladder therefore reads 17, 7, 6, 5, 5 from top to bottom,
+each the most its pixel grid can hold.
+
+The one cosmetic cost is at 16 px: five 2 px teeth with 1 px gaps is 14 px, so the tile frame is
+1 px at the sides against 3 px top and bottom. The comb edges are crisp; the frame is just thin.
+`README.md` records the four-tooth alternative that frames better and cannot centre.
+
+**The symbolic glyphs stay exactly as this document specified them** and are still outside the
+ladder: five teeth, `currentColor`, no tile, resolved by their own names for the tray.
 
 Evidence: `2026-08-26-icon-ladder-sheet.png` - the whole ladder at true size on both Breeze
 backgrounds, the source photo beside the redraw at 128 px, a matched-scale side-by-side of the end
