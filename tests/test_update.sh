@@ -37,8 +37,18 @@ export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
 export KEMPT_SKIP_REFRESH=1
 # The reboot check is the backend's (dnf_reboot_needed), so it is stubbed through the backend's
-# own seam: KEMPT_DNF_CMD, exit 1 = reboot needed, exit 0 = not needed.
-printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/dnf-reboot-yes"
+# own seam: KEMPT_DNF_CMD. "Reboot needed" is rc 1 PLUS the package list on stdout - rc 1 with an
+# empty stdout is how the real command reports that it could not answer, and answers false.
+cat > "$TESTTMP/dnf-reboot-yes" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Core libraries or services have been updated since boot-up:
+  * kernel-core
+
+Reboot is required to fully utilize these updates.
+OUT
+exit 1
+STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"

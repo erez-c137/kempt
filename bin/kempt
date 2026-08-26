@@ -291,10 +291,10 @@ cmd_update() {
       echo "warning: flatpak snapshot after the run failed - summary incomplete" | tee -a "$log" >&2
     fi
   fi
-  # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the rc mapping and the
-  # -C / </dev/null hardening (an uncached needs-restarting does network I/O and can prompt on
-  # stdin, and this runs from detached surfaces where nobody can answer). Its seam is
-  # KEMPT_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
+  # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the verdict rule and the
+  # -C / --disablerepo / </dev/null hardening (an uncached needs-restarting does network I/O and
+  # can prompt on stdin, and this runs from detached surfaces where nobody can answer). Its seam
+  # is KEMPT_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
   # would lose the history entry of a run that already changed the system.
   reboot="$(dnf_reboot_needed)"
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false

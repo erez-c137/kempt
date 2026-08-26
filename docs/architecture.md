@@ -56,8 +56,15 @@ the whole per-backend contract: three functions in one file.
 One more function exists and is deliberately **not** per-backend: `dnf_reboot_needed`, in
 `backends/dnf.sh`. `cmd_update` calls it unconditionally at the end of every run, whatever
 backends took part, because "does this machine need a reboot" is a property of the machine and
-not of one package manager. On a box without dnf5 it degrades rather than failing the run:
-`dnf5 -C needs-restarting` errors, the function warns on stderr and answers `false`. That is the
+not of one package manager. The command it runs is `dnf5 -C --disablerepo='*' needs-restarting`:
+cache-only so it never touches the network or waits on stdin, and every repo disabled because the
+answer is purely local (rpm install times against boot time) and needs no repo metadata at all.
+Without the second flag, a box whose user cache has never been filled - the default, since
+`kempt-refresh` fills root's cache - gets an error and exit 1 on every check, which by exit code
+alone reads as "a restart is owed", forever. So "a restart is owed" requires the package list on
+stdout as well; anything else warns on stderr and answers `false`, which throughout Kempt means
+"nothing to say" rather than "no restart needed". On a box without dnf5 the same path degrades
+rather than failing the run: the command errors and the function answers `false`. That is the
 one part of this contract that is still honestly dnf-shaped; a per-backend reboot verdict is v2
 work, and a new backend does not implement one today.
 

@@ -88,18 +88,62 @@ assert_exit 1 "failing installed-lookup is loud" dnf_check
 export KEMPT_DNF_INSTALLED_CMD="$_saved_installed"
 
 # --- reboot check: offline, non-interactive, rc-mapped (seam: KEMPT_DNF_CMD) ---
-for _rc in 0 1 2; do
-  printf '#!/usr/bin/env bash\nexit %s\n' "$_rc" > "$TESTTMP/dnf-stub-$_rc"
-  chmod +x "$TESTTMP/dnf-stub-$_rc"
-done
+# rc 1 alone is not evidence. `dnf5 -C needs-restarting` exits 1 both when a restart really is
+# owed and when it could not work the answer out at all, and the second shape is the everyday one
+# on a fresh install (cold user cache - see the silent stub below). So the stub that stands in for
+# a real "yes" prints what the real command prints, because that output is now half the verdict.
+cat > "$TESTTMP/dnf-stub-1" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Core libraries or services have been updated since boot-up:
+  * kernel
+  * kernel-core
+
+Reboot is required to fully utilize these updates.
+OUT
+exit 1
+STUB
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-stub-0"
+printf '#!/usr/bin/env bash\nexit 2\n' > "$TESTTMP/dnf-stub-2"
+# The cold-cache shape, byte-faithful: the complaint goes to stderr, stdout stays empty, rc is 1.
+cat > "$TESTTMP/dnf-stub-1-silent" <<'STUB'
+#!/usr/bin/env bash
+echo 'Cache-only enabled but no cache for repository "fedora"' >&2
+exit 1
+STUB
+chmod +x "$TESTTMP/dnf-stub-0" "$TESTTMP/dnf-stub-1" "$TESTTMP/dnf-stub-2" "$TESTTMP/dnf-stub-1-silent"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-0"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check rc 0 → false"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1"
-assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" "reboot check rc 1 → true"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" "reboot check rc 1 WITH the package list → true"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-2"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check unexpected rc → false, never a hang"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
 assert_eq "$(grep -q 'warning: reboot check failed' <<<"$_err" && echo yes || echo no)" "yes" "unexpected rc warns on stderr"
+
+# The regression this whole shape exists for. Before `--disablerepo='*'`, a box whose user cache
+# had never been filled (the default: kempt-refresh fills root's, not the user's) got exactly this
+# from dnf5 on every single check, and the old rc mapping read it as "a restart is owed" - forever.
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-silent"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "rc 1 with NOTHING on stdout → false: it could not answer"
+_err="$(dnf_reboot_needed 2>&1 >/dev/null)"
+assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+  "...and says so, rather than answering false silently"
+
+# The two flags are the verdict's foundation, and a seam that quietly stopped passing them would
+# leave every assertion above passing while the real command went back to needing a warm cache
+# (or, without -C, to doing network I/O on the widget's hourly path). So assert the argv itself.
+cat > "$TESTTMP/dnf-argv" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TESTTMP/dnf-argv-out"
+exit 0
+STUB
+chmod +x "$TESTTMP/dnf-argv"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-argv"
+dnf_reboot_needed >/dev/null 2>&1
+assert_eq "$(grep -cx -- '-C' "$TESTTMP/dnf-argv-out")" "1" "the reboot check really is cache-only"
+assert_eq "$(grep -cx -- "--disablerepo=\*" "$TESTTMP/dnf-argv-out")" "1" "...and really does disable every repo"
+assert_eq "$(grep -cx -- 'needs-restarting' "$TESTTMP/dnf-argv-out")" "1" "...on the needs-restarting verb"
 
 # Helper failure (exit 1, not 100) → dnf_check exits non-zero
 cat > "$TESTTMP/refresh-stub" <<'STUB'

@@ -51,11 +51,29 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
 
-dnf_reboot_needed() {  # → prints true|false; -C = cache-only (needs-restarting otherwise does NETWORK I/O and can prompt on stdin)
-  local rc=0
-  $KEMPT_DNF_CMD -C needs-restarting </dev/null >/dev/null 2>&1 || rc=$?
+dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm install times vs boot time)
+  # -C keeps it offline: an uncached needs-restarting does NETWORK I/O and can prompt on stdin,
+  # and this runs from detached surfaces where nobody is there to answer.
+  #
+  # --disablerepo='*' is what makes -C honest. Kempt never fills the USER's ~/.cache/libdnf5 -
+  # kempt-refresh runs `dnf5 makecache --refresh` as root, into /var/cache/libdnf5 - so a cold
+  # user cache is the DEFAULT on a fresh install, not an edge case. In that state plain
+  # `dnf5 -C needs-restarting` prints `Cache-only enabled but no cache for repository "fedora"`
+  # on stderr, nothing at all on stdout, and exits 1. Mapped by exit code alone that reads as
+  # "a restart is owed", on every box that has never checked as this user - a permanent false
+  # positive, and the first thing a reader of the state key would show a human. Disabling every
+  # repo is not a workaround for it: this question needs no repo metadata whatsoever, so the
+  # verdict is the same verdict, and it is available on a completely cold cache in ~0.25s.
+  #
+  # rc 1 therefore requires POSITIVE evidence - the package list on stdout. rc 1 with an empty
+  # stdout is the command saying it could not work the answer out, and `false` here means
+  # "nothing to say", never "no restart needed" (needs-restarting has known kernel false
+  # negatives too, dnf5#2562), so the two collapse safely onto the same answer plus a warning.
+  local out rc=0
+  out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting </dev/null 2>/dev/null)" || rc=$?
   case $rc in
-    1) echo true ;;
+    1) if [[ -n "$out" ]]; then echo true
+       else echo "warning: reboot check could not answer (rc=1, no output)" >&2; echo false; fi ;;
     0) echo false ;;
     *) echo "warning: reboot check failed (rc=$rc)" >&2; echo false ;;
   esac
