@@ -236,6 +236,7 @@ assert_newest_rejected() {
     "$what: --json names the damaged entry on stderr"
   # parity: the human path already refused these, and refusing in only one mode is the bug
   "$KEMPT" summary >/dev/null 2>"$TESTTMP/shape.herr" || hrc=$?
+  assert_eq "$hrc" "0" "$what: the human path still exits 0 too"
   assert_eq "$(grep -c "corrupt history entry: $bad" "$TESTTMP/shape.herr")" "1" \
     "$what: the human path refuses the same bytes"
 }
