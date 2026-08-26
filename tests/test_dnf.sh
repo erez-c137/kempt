@@ -4,7 +4,7 @@ source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/dnf.sh"
 
 # Pure parser: fixture lines + installed lookup → items JSON
-# Fixture contract (tests/fixtures/MANIFEST.md): parses to exactly 7 items — the
+# Fixture contract (tests/fixtures/MANIFEST.md): parses to exactly 7 items - the
 # bash.i686/bash.x86_64 multilib pair collapses despite DIVERGENT EVRs, the indented
 # "Obsoleting Packages" row and its header are filtered, brandnew is absent from rpm-installed.tsv.
 out="$(dnf_parse_check_update "$FIXTURES/rpm-installed.tsv" < "$FIXTURES/dnf-check-update.txt")"
@@ -63,7 +63,7 @@ got="$(dnf_check)"
 assert_eq "$(jq 'length' <<<"$got")" "7" "dnf_check wires helper→parser"
 
 # Fully up-to-date box: check-update prints nothing and exits 0 (not 100). Normal state, not a
-# failure — Task 8 must not read the most common state on a maintained box as "stale".
+# failure - Task 8 must not read the most common state on a maintained box as "stale".
 cat > "$TESTTMP/refresh-stub" <<'STUB'
 #!/usr/bin/env bash
 [[ "$1" == "check" ]] || exit 2
@@ -80,7 +80,7 @@ dnf_parse_check_update() { return 3; }
 assert_exit 3 "parser failure propagates past cleanup rm" dnf_check
 eval "$_real_parse"
 
-# A broken installed-lookup must FAIL, not silently report every package as from="?" — an
+# A broken installed-lookup must FAIL, not silently report every package as from="?" - an
 # all-"?" report looks plausible and would ship a fabricated update list to the user.
 _saved_installed="$KEMPT_DNF_INSTALLED_CMD"
 export KEMPT_DNF_INSTALLED_CMD=false
@@ -129,6 +129,22 @@ assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "rc 1 with NOTHING on stdou
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
 assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
   "...and says so, rather than answering false silently"
+
+# Blank stdout is not a package list either. Nobody has seen the real dnf5 emit this - it is here
+# because the rc-1 branch promises POSITIVE evidence, and "non-empty" is a weaker test than that
+# promise: $( ) strips trailing newlines but not the spaces before them, so three spaces used to
+# read as a full reboot verdict. Hardening the promise, not chasing an observed bug.
+cat > "$TESTTMP/dnf-stub-1-blank" <<'STUB'
+#!/usr/bin/env bash
+printf '   \n\n'
+exit 1
+STUB
+chmod +x "$TESTTMP/dnf-stub-1-blank"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-blank"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "rc 1 with only whitespace on stdout → false: still no evidence"
+_err="$(dnf_reboot_needed 2>&1 >/dev/null)"
+assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+  "...and warns, exactly as the empty-stdout case does"
 
 # The two flags are the verdict's foundation, and a seam that quietly stopped passing them would
 # leave every assertion above passing while the real command went back to needing a warm cache

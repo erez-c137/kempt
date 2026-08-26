@@ -73,10 +73,15 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   # described two paragraphs up: this command can exit non-zero having computed no verdict at
   # all, so a reader who treats its `false` as an affirmative "no restart is owed" is reading a
   # failure as an answer. The two therefore collapse safely onto the same answer plus a warning.
+  #
+  # "Evidence" means a package list, so the test strips whitespace before asking: $( ) removes
+  # trailing newlines but not the spaces in front of them, and three spaces are not a package
+  # list. No real dnf5 has been seen doing that - this is the promise in the paragraph above
+  # being held to its word, not a bug anybody has observed.
   local out rc=0
   out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting </dev/null 2>/dev/null)" || rc=$?
   case $rc in
-    1) if [[ -n "$out" ]]; then echo true
+    1) if [[ -n "${out//[[:space:]]/}" ]]; then echo true
        else echo "warning: reboot check could not answer (rc=1, no output)" >&2; echo false; fi ;;
     0) echo false ;;
     *) echo "warning: reboot check failed (rc=$rc)" >&2; echo false ;;
