@@ -105,7 +105,7 @@ undo everything, is in the [install guide](docs/install.md).
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, the test-harness rules reviews enforce, shell and docs conventions |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately, and what is in scope |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | A short conduct policy: be respectful, stay on topic, and how to report a problem |
 
 Design and background: [the design spec](docs/specs/2026-08-24-kempt-design.md) and the
 [prior-art survey](docs/research/2026-08-24-similar-tools-survey.md) that shaped it.

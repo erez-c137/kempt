@@ -66,7 +66,7 @@ The community on-ramp. Two-layer design (CLI owns all logic, widget is thin); th
 **Files:** Create: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
 
 CONTRIBUTING: dev setup (clone, no build step, `tests/run_tests.sh`); the test harness rules that reviews enforce (sandbox first, never install your own EXIT trap, stub the seams, fixtures byte-faithful with provenance in MANIFEST.md, guard rows required, tests must be proven to bind - fail against the defect); TDD expectation; shell conventions (set -euo pipefail, explicit status returns from backends, validate-before-exec in anything privileged); how to propose a backend (pointer to architecture doc); commit style; "run the em-dash sweep on docs".
-CODE_OF_CONDUCT: Contributor Covenant v2.1, standard text, contact placeholder.
+CODE_OF_CONDUCT: Contributor Covenant v2.1, standard text, contact placeholder. Superseded 2026-08-26 by a short custom document - see Task P6 in `docs/plans/2026-08-26-kempt-popup.md`. (This line records what was written then; it is not a claim about the current policy.)
 
 - [ ] Write, commit: `docs: contributing guide + code of conduct`
 
