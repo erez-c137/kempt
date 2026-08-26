@@ -522,6 +522,25 @@ assert_eq "$(js 'L.riskyMessageOf(undefined)')" "" "...and a missing one is not 
 assert_eq "$(js 'L.riskyMessageOf(null)')" "" "...nor a null one"
 assert_eq "$(js 'L.riskyMessageOf("kernel-core")')" "" "a string is not a list of names"
 
+# The kernel lookup is UNCAPPED, and these are the assertions that keep it that way. Handing it
+# RISKY_FAMILIES_SHOWN - the tidy-looking edit, since four is what the summary phrase shows -
+# silently drops the kernel sentence whenever four families sort alphabetically before "kernel",
+# which on a Fedora transaction is ordinary rather than exotic. Every other riskyMessageOf
+# assertion here uses a one or two name set, so the cap would never bite in any of them, and even
+# the captured risky-heavy fixture misses it by luck (its kernel sorts third). The two sets below
+# put kernel FIFTH on purpose. This is the most safety-relevant sentence the popup has: the one
+# telling somebody the kernel they are running is about to be replaced.
+DEEP_K='["alsa-lib","atk","bash","dbus-broker","kernel-core","kernel-modules"]'
+DEEP_KN='["akmod-nvidia-open","alsa-lib","atk","bash","kernel-core","kernel-modules"]'
+assert_eq "$(js "L.familiesOf($DEEP_K, 0).shown.indexOf(\"kernel\")")" "4" \
+  "set guard: kernel really is the FIFTH family here, past any cap of four"
+assert_eq "$(js "L.riskyMessageOf($DEEP_K)")" "$(js 'L.COPY.kernelRestart')" \
+  "a kernel that sorts fifth is still a kernel update"
+assert_eq "$(js "L.familiesOf($DEEP_KN, 0).shown.indexOf(\"kernel\")")" "4" \
+  "set guard: fifth here too, with the driver in the set"
+assert_eq "$(js "L.riskyMessageOf($DEEP_KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" \
+  "...and the driver sentence survives the same sort order"
+
 
 # --- timestamps: never show the user "Invalid Date" ---
 assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45+03:00")')" "2026-08-24 22:11" "an ISO stamp renders short"
@@ -580,6 +599,41 @@ assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+00:00\", $T + $DAY)")" "21
 # time would need the very Date parsing this function exists to avoid), and the CLI's now_iso
 # always writes one, so this is a foreign-file case rather than an everyday one.
 assert_eq "$(js "L.relativeTime(\"2026-08-26T09:00:00\", $T)")" "just now" "a stamp with no offset is read as UTC"
+
+# Half-hour and quarter-hour zones. Not a curiosity: India, Iran, Nepal, Newfoundland, Adelaide
+# and the Chatham Islands are all on one, and every offset asserted above happens to end in :00 -
+# so arithmetic that read only the hours would pass all of them and then be exactly thirty
+# minutes wrong, forever, for every user in those places. Worse than wrong, in the +05:30 case:
+# the stamp reads as being in the FUTURE for half an hour after each check, which is the branch
+# that shows no relative time at all. All three stamps below are the same instant as T.
+assert_eq "$(js "L.relativeTime(\"2026-08-26T14:30:00+05:30\", $T)")" "just now" \
+  "a half-hour zone is the same instant as any other: India's +05:30"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T14:30:00+05:30\", $T + 10 * $MIN)")" "10 min ago" \
+  "...and ten minutes later it says ten, not a fallback to the absolute stamp"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T05:30:00-03:30\", $T)")" "just now" \
+  "...a NEGATIVE half-hour zone too: Newfoundland's -03:30"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T05:30:00-03:30\", $T + 10 * $MIN)")" "10 min ago" \
+  "...where reading only the hours would land thirty minutes EARLY rather than late"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T14:45:00+0545\", $T)")" "just now" \
+  "...and a quarter-hour zone written without the colon: Nepal's +0545"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T14:45:00+0545\", $T + 45 * $MIN)")" "45 min ago" \
+  "...counted from the right instant, not from a whole-hour approximation of it"
+
+# ISO_STAMP_RE is anchored at BOTH ends, and the closing anchor is what makes "one strict shape"
+# true rather than aspirational. Without it a stamp with anything after the offset parses as if
+# the junk were not there, and the popup does arithmetic on a string it does not understand.
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+03:00 (cached)\", $T)")" "$STAMP" \
+  "trailing junk after the offset is not a timestamp, however parseable its prefix looks"
+
+# The calendar guard inside stampMs, which the regex cannot do for it: the regex proves the digits
+# are digits, and Date.UTC rolls month 13 into next January and day 0 back into last month without
+# complaint. The clocks below are chosen to sit five minutes after the ROLLED instant, because
+# that is the shape of the failure - not a visible error, a confident wrong number where the
+# absolute stamp belonged.
+assert_eq "$(js "L.relativeTime(\"2026-13-26T12:00:00+03:00\", Date.UTC(2027,0,26,9,5,0))")" \
+  "2026-13-26 12:00" "a thirteenth month is not a date, and must not become next January"
+assert_eq "$(js "L.relativeTime(\"2026-08-00T12:00:00+03:00\", Date.UTC(2026,6,31,9,5,0))")" \
+  "2026-08-00 12:00" "...and a zeroth day is not one either, and must not become last July"
 
 # Every way of not knowing falls back to the absolute stamp, which is formatStamp's own answer.
 # "in -3 minutes" would be worse than a date, so a stamp from the future falls back too - and a
@@ -730,6 +784,18 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2
   "Last update 1 min ago · no package changes" "a run that changed nothing says so in words"
 assert_eq "$(js "L.lastRunText(null, $W)")" "" "no run, no row"
 assert_eq "$(js "L.lastRunText(undefined, $W)")" "" "...and no argument is not an error"
+# "no package changes" is not this file's wording to pick: it is the CLI's, emitted verbatim by
+# KEMPT_JQ_COUNTS in lib/common.sh, and the popup is echoing the terminal. That is the exact
+# run_counts_phrase bug class this project already carries a scar from - two renderers holding
+# the same fact and drifting apart - so it is pinned in both directions here rather than by two
+# separate literals that a maintainer would helpfully update together.
+NOCHANGE="$(js 'L.COPY.noPackageChanges.charAt(0).toLowerCase() + L.COPY.noPackageChanges.substring(1)')"
+assert_eq "$NOCHANGE" "no package changes" "the copy table says the CLI's phrase, capitalised"
+assert_eq "$(grep -c 'then "no package changes" else' "$REPO_ROOT/lib/common.sh")" "1" \
+  "...and lib/common.sh still emits that phrase, so there is one wording to echo"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · $NOCHANGE" \
+  "...and the row's lowercase form is those same words: rewording one of the two fails here"
 
 # --- shouldRefreshOnOpen: the popup asks for fresh counts when the ones it has are old ----------
 # The rule is "the smaller of the configured interval and five minutes". Five is a CEILING, not an
@@ -763,6 +829,25 @@ assert_eq "$(js "$S(\"\", 60, $T)")" "true" "no stamp at all means ask"
 assert_eq "$(js "$S(null, 60, $T)")" "true" "...and so does a missing one"
 assert_eq "$(js "$S(\"never\", 60, $T)")" "true" "...and an unparseable one"
 assert_eq "$(js "$S(\"2026-08-26\", 60, $T)")" "true" "...a date with no time is not a stamp either"
+# The same three not-a-stamp shapes relativeTime pins, at the other reader of stampMs. The
+# failure here is quieter and worse than a wrong relative time: a stamp that reads as being in
+# the FUTURE is not stale, so the popup simply stops auto-refreshing on open and never says why.
+assert_eq "$(js "$S(\"2026-08-26T12:00:00+03:00 (cached)\", 60, $T)")" "true" \
+  "...nor is a stamp with junk after its offset, so there is no age to be fresh"
+assert_eq "$(js "$S(\"2026-13-26T12:00:00+03:00\", 60, $T)")" "true" \
+  "...nor a month that does not exist, whatever Date.UTC would roll it into"
+assert_eq "$(js "$S(\"2026-08-00T12:00:00+03:00\", 60, $T)")" "true" "...nor a zeroth day"
+# Half-hour zones through this reader too. A +05:30 box whose offset were read as five whole
+# hours would see every fresh check as half an hour in the future and refuse to refresh on open
+# for that whole half hour, on every single check.
+assert_eq "$(js "$S(\"2026-08-26T14:30:00+05:30\", 60, $T + 4 * $MIN)")" "false" \
+  "four minutes after a +05:30 check is fresh"
+assert_eq "$(js "$S(\"2026-08-26T14:30:00+05:30\", 60, $T + 10 * $MIN)")" "true" \
+  "...and ten minutes after it is past the ceiling, so the popup asks"
+assert_eq "$(js "$S(\"2026-08-26T05:30:00-03:30\", 60, $T + 10 * $MIN)")" "true" \
+  "a -03:30 check is read from the same instant"
+assert_eq "$(js "$S(\"2026-08-26T14:45:00+0545\", 60, $T + 10 * $MIN)")" "true" \
+  "...and so is a +0545 one"
 # ...but never fire a command off a clock we cannot read. An unusable `now` is a caller bug, and
 # the answer to a caller bug is not to start running package-manager commands on every popup open.
 # That rule is checked FIRST, which is why a missing stamp does not override it.
