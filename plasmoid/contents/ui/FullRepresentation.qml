@@ -1,7 +1,18 @@
-// The popup. What is pending, what is held, and the two buttons that act on it.
+// The popup: what is pending, what is held, what needs saying about it, and the one button that
+// acts on it.
 //
 // Like the panel icon, this file decides nothing: every string and every list comes from the view
 // model main.qml derives in logic.js, and every action is a call back into main.qml.
+//
+// The SHAPE is Plasma's own, and each of the three rows is a decision with evidence behind it in
+// docs/research/2026-08-26-popup-panel/hig-review.md:
+//   header  - the pending count and a refresh icon. Nothing else. A PlasmoidHeading is a
+//             T.ToolBar, and a toolbar is for flat controls, not for messages.
+//   content - a Kirigami.InlineMessage per thing that needs saying, then the list, then what the
+//             last run did. Every message that used to be stacked in the header lives here now.
+//   footer  - the status line and Update Now. The heading is the row Plasma's contract lets the
+//             containment REPLACE; the footer is not, and Update Now is the one control in this
+//             widget that must exist on every host, in every containment.
 //
 // EVERY reference to the widget goes through `plasmoidItem`, never through main.qml's `root` id.
 // That distinction is not style. A representation whose required properties are all satisfied is
@@ -20,6 +31,7 @@ import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
+import "logic.js" as Logic
 
 PlasmaExtras.Representation {
     id: popup
@@ -44,6 +56,10 @@ PlasmaExtras.Representation {
     // host heading known, so keep our own gear). A probe can neither set the hint nor fake the
     // applet, but it can overwrite this; tests/qml/probe_popup.py drives it AND pins the
     // expression verbatim, so the drivable seam cannot drift from what the panel evaluates.
+    //
+    // ONE control reads this, and it must stay one: the gear, because the tray genuinely offers a
+    // second one. Vault gates its whole footer this way and Kempt must not copy that - a host that
+    // draws its own heading would then take Update Now away with it.
     property bool traysHeading: (Plasmoid.containmentDisplayHints
                                  & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
@@ -57,179 +73,435 @@ PlasmaExtras.Representation {
 
     collapseMarginsHint: true
 
+    // --- the header ------------------------------------------------------------------------------
+    // One row, and that is the whole change here: the count, the refresh icon, the gear. The stale
+    // explanation, the risky warning and the last action's report all used to be stacked in this
+    // toolbar; three of them were messages rather than controls, and they are InlineMessages in the
+    // content area now (hig-review.md P2).
     header: PlasmaExtras.PlasmoidHeading {
-        contentItem: ColumnLayout {
+        contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
-            RowLayout {
+            PlasmaExtras.Heading {
+                // fillWidth is what pushes the two buttons to the trailing edge, so it does the job
+                // Bluetooth's `Item { Layout.fillWidth: true }` spacer does in a row whose leading
+                // control has no width of its own.
                 Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
+                level: 4
+                // Deliberately NOT the badge text: the badge caps at 999+ because a panel has
+                // no room, and this has plenty. Someone who opened the popup wants the number.
+                text: popup.vm.headerText
+                elide: Text.ElideRight
+            }
 
-                PlasmaExtras.Heading {
-                    Layout.fillWidth: true
-                    level: 4
-                    // Deliberately NOT the badge text: the badge caps at 999+ because a panel has
-                    // no room, and this has plenty. Someone who opened the popup wants the number.
-                    text: popup.vm.headerText
-                    elide: Text.ElideRight
-                }
+            // Refresh, in Bluetooth's Header.qml shape (hig-review.md 2.2) with one deliberate
+            // difference: Bluetooth hides this button in the tray, and Kempt does not. Bluetooth
+            // can afford to because the tray's More-actions menu carries the same entry; a refresh
+            // that costs two clicks and a menu is not worth having. Kempt registers the contextual
+            // action AS WELL (main.qml), so both routes exist and neither depends on the other.
+            Item {
+                implicitWidth: refreshButton.implicitWidth
+                implicitHeight: refreshButton.implicitHeight
+                Layout.preferredWidth: implicitWidth
+                Layout.preferredHeight: implicitHeight
 
                 PlasmaComponents.ToolButton {
-                    id: configureButton
-                    // Ours only when nobody else is offering one - see popup.traysHeading.
-                    visible: !popup.traysHeading
-                    icon.name: "configure"
+                    id: refreshButton
+                    anchors.fill: parent
+                    // The spinner takes this button's place rather than sitting somewhere else in
+                    // the row: one spinner in the popup, on the control the user pressed. Hidden
+                    // rather than merely covered, because a control that is invisible and still
+                    // clickable is a trap - and the cell keeps its width either way, since
+                    // implicitWidth is computed whether an item is visible or not.
+                    visible: !refreshBusy.running
+                    icon.name: "view-refresh"
                     display: PlasmaComponents.AbstractButton.IconOnly
-                    text: i18n("Configure Kempt...")
+                    text: i18n("Check for Updates")
+                    // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8).
+                    Accessible.description: i18n("Check for Updates")
                     PlasmaComponents.ToolTip.text: text
                     PlasmaComponents.ToolTip.visible: hovered
                     PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                    onClicked: {
-                        // The action is registered by the shell, and a plasmoid can be built in
-                        // contexts where it is not there yet. Calling trigger() on null takes the
-                        // whole binding down with it.
-                        const a = Plasmoid.internalAction("configure");
-                        if (a) a.trigger();
-                    }
-                }
-            }
-
-            // Stale: what went wrong and how old the numbers below therefore are. An explanation,
-            // not an alarm - the counts under it are still the best known truth.
-            PlasmaComponents.Label {
-                Layout.fillWidth: true
-                visible: popup.vm.stale && !popup.plasmoidItem.updating
-                text: popup.vm.staleReason.length > 0
-                      ? i18n("%1 (last successful check: %2)", popup.vm.staleReason, popup.vm.lastSuccessText)
-                      : ""
-                wrapMode: Text.WordWrap
-                font: Kirigami.Theme.smallFont
-                opacity: 0.8
-            }
-
-            // The offline recommendation. The CLI has already decided this transaction touches
-            // session-critical packages; the widget's job is to make acting on it one click.
-            RowLayout {
-                Layout.fillWidth: true
-                visible: popup.vm.riskySummary.length > 0 && !popup.plasmoidItem.updating
-                spacing: Kirigami.Units.smallSpacing
-
-                Kirigami.Icon {
-                    source: "emblem-warning"
-                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                }
-                PlasmaComponents.Label {
-                    Layout.fillWidth: true
-                    text: popup.vm.riskySummary
-                    wrapMode: Text.WordWrap
-                    font: Kirigami.Theme.smallFont
-                }
-                PlasmaComponents.Button {
-                    text: i18n("Stage offline instead")
-                    icon.name: "system-reboot"
-                    enabled: !popup.plasmoidItem.updating
-                    onClicked: popup.plasmoidItem.stageOffline()
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents.Button {
-                    text: i18n("Update Now")
-                    icon.name: "system-software-update"
-                    // Nothing to do is not the same as cannot: an up-to-date box has no run to
-                    // start, and a box whose CLI we could not reach has nothing to start it with.
-                    enabled: !popup.plasmoidItem.updating && popup.vm.actionable > 0
-                    onClicked: popup.plasmoidItem.startUpdate()
-                }
-                PlasmaComponents.Button {
-                    text: i18n("Refresh")
-                    icon.name: "view-refresh"
-                    enabled: !popup.plasmoidItem.checking && !popup.plasmoidItem.updating
                     onClicked: popup.plasmoidItem.doCheck()
                 }
-                Item { Layout.fillWidth: true }
+
                 PlasmaComponents.BusyIndicator {
+                    id: refreshBusy
+                    anchors.centerIn: parent
                     running: popup.plasmoidItem.checking || popup.plasmoidItem.updating
                     visible: running
-                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    implicitWidth: Kirigami.Units.iconSizes.small
+                    implicitHeight: Kirigami.Units.iconSizes.small
                 }
             }
 
-            // What the last action did or failed to do. Cleared by main.qml on the next action.
+            PlasmaComponents.ToolButton {
+                id: configureButton
+                // Ours only when nobody else is offering one - see popup.traysHeading.
+                visible: !popup.traysHeading
+                icon.name: "configure"
+                display: PlasmaComponents.AbstractButton.IconOnly
+                // A real ellipsis, because this opens a dialog. Three ASCII dots are the one
+                // typographic tell that a widget was not written by KDE (hig-review.md P5).
+                text: i18n("Configure Kempt…")
+                PlasmaComponents.ToolTip.text: text
+                PlasmaComponents.ToolTip.visible: hovered
+                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                onClicked: {
+                    // The action is registered by the shell, and a plasmoid can be built in
+                    // contexts where it is not there yet. Calling trigger() on null takes the
+                    // whole binding down with it.
+                    const a = Plasmoid.internalAction("configure");
+                    if (a) a.trigger();
+                }
+            }
+        }
+    }
+
+    // --- the content -----------------------------------------------------------------------------
+    // A ColumnLayout rather than the anchored siblings this used to be, because the message stack
+    // has to PUSH the list down rather than float over it. PlasmaExtras.Representation is a Page
+    // whose default property is contentData, so this is reparented into the content area and the
+    // footer below can never overlap it.
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: Kirigami.Units.smallSpacing
+        // A run of ours replaces this whole pane with the log tail below.
+        visible: !popup.plasmoidItem.updating
+
+        // --- the message stack -------------------------------------------------------------------
+        // Kirigami.InlineMessage each, with their own `actions:` list rather than a hand-rolled
+        // RowLayout, so they wrap correctly at popup width and get consistent iconography. Shipped
+        // precedent inside a plasmoid: org.kde.desktopcontainment's FolderView.qml.
+
+        // The restart. Shown in EVERY state, including up to date: you can owe a restart and have
+        // twelve updates pending at once, and you can owe one with nothing pending at all
+        // (hig-review.md 1c). Bound to vm.restartMessageVisible, which has already folded in the
+        // `restart_reminder` setting and this session's dismissal - binding it to either half
+        // separately would be a second copy of that rule.
+        Kirigami.InlineMessage {
+            id: restartMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            showCloseButton: true
+            // Both reasons this can be hidden are written into this one expression, and the handler
+            // below re-evaluates the SAME expression. See there for why that matters.
+            visible: popup.vm.restartMessageVisible && !popup.plasmoidItem.updating
+            // A prompt that could not be opened says so HERE, where the user pressed. Silence is
+            // the worst outcome available: a button that appears to do nothing is indistinguishable
+            // from one that did something invisible.
+            text: popup.plasmoidItem.restartError.length > 0
+                  ? i18n("Restart to apply installed updates") + "\n" + popup.plasmoidItem.restartError
+                  : i18n("Restart to apply installed updates")
+            actions: [
+                Kirigami.Action {
+                    // A real ellipsis: this opens KDE's own confirmation screen, and Kempt never
+                    // restarts anything itself.
+                    text: i18n("Restart…")
+                    icon.name: "system-reboot"
+                    onTriggered: source => popup.plasmoidItem.promptRestart()
+                }
+            ]
+
+            // Kirigami's close button does exactly one thing:
+            //     onClicked: root.visible = false
+            // (/usr/lib64/qt6/qml/org/kde/kirigami/templates/InlineMessage.qml, line 448). That is
+            // an ASSIGNMENT, and assigning to a property destroys the binding on it for good - so
+            // without this the message would not merely close, it would never come back when the
+            // machine's answer changed. This turns that assignment into the call it was meant to
+            // be and puts the binding back.
+            //
+            // The guard re-evaluates the whole visibility expression rather than reading a cached
+            // flag, and THAT is the load-bearing part: this handler also fires when an ancestor
+            // hides, which happens every time a run starts. A guard that only asked "does the view
+            // model still want this?" would read a run beginning as the user closing the message,
+            // and an update would quietly switch the reminder off for the rest of the session.
+            onVisibleChanged: {
+                if (visible) return;
+                if (!(popup.vm.restartMessageVisible && !popup.plasmoidItem.updating)) return;
+                popup.plasmoidItem.dismissRestart();
+                visible = Qt.binding(function () {
+                    return popup.vm.restartMessageVisible && !popup.plasmoidItem.updating;
+                });
+            }
+        }
+
+        // The offline recommendation. The CLI has already decided this transaction touches
+        // session-critical packages; the widget's job is to make acting on it one click.
+        //
+        // vm.riskyMessage and NOT vm.riskySummary, and only ever one of them: with no kernel in the
+        // set riskyMessageOf falls back to the very sentence riskySummary holds, so rendering both
+        // would print the same words twice inside one message.
+        Kirigami.InlineMessage {
+            id: riskyMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            text: popup.vm.riskyMessage
+            visible: popup.vm.riskyMessage.length > 0
+            actions: [
+                Kirigami.Action {
+                    // Named for what it does to the user rather than for the dnf5 flag behind it.
+                    text: i18n("Install on Next Restart")
+                    icon.name: "system-reboot"
+                    tooltip: i18n("Applies the update during a restart, so nothing changes underneath your running desktop.")
+                    onTriggered: source => popup.plasmoidItem.stageOffline()
+                }
+            ]
+        }
+
+        // Stale: what went wrong, and how old the numbers below it therefore are. Information and
+        // not Warning, deliberately - the counts under it are still the best known truth, and this
+        // is an explanation rather than an alarm.
+        Kirigami.InlineMessage {
+            id: staleMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            visible: popup.vm.stale && popup.vm.staleReason.length > 0
+            text: i18n("%1 (last successful check: %2)", popup.vm.staleReason, popup.vm.lastSuccessText)
+        }
+
+        // What the run that just finished did, once. main.qml clears this when the popup closes or
+        // the next check starts, and while it is on screen the persistent Last update row below
+        // stays away: one event, one line at a time.
+        Kirigami.InlineMessage {
+            id: postRunMessage
+            Layout.fillWidth: true
+            // A failed run is an error whatever its counts say. The counts come from the same
+            // entry, so the two can never disagree about which run this was.
+            type: (popup.plasmoidItem.lastRun && popup.plasmoidItem.lastRun.failed)
+                  ? Kirigami.MessageType.Error : Kirigami.MessageType.Positive
+            text: popup.plasmoidItem.postRunLine
+            visible: popup.plasmoidItem.postRunLine.length > 0
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Show Log")
+                    icon.name: "text-x-generic"
+                    // A history entry old enough - or damaged enough - to have no log is an
+                    // ordinary event, and an action that cannot do anything should not be offered.
+                    enabled: !!popup.plasmoidItem.lastRun
+                             && popup.plasmoidItem.lastRun.logPath.length > 0
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
+                }
+            ]
+        }
+
+        // All that is left of the old label under the buttons: a button press that failed and has
+        // something to say. main.qml clears it on the next press.
+        Kirigami.InlineMessage {
+            id: actionFailureMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Error
+            text: popup.plasmoidItem.actionMessage
+            visible: popup.plasmoidItem.actionMessage.length > 0
+        }
+
+        // --- the list, and what stands in for it when there is none --------------------------------
+        // One Item holding both, so the placeholder is centred in the space the list would have
+        // occupied rather than in the whole popup.
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            // One flat model with header rows in it, built by logic.js. A ListView creates
+            // delegates lazily, so a box with 1200 pending updates costs what a box with six costs.
+            PlasmaComponents.ScrollView {
+                anchors.fill: parent
+                visible: popup.vm.rows.length > 0
+
+                ListView {
+                    id: rowsView
+                    model: popup.vm.rows
+                    clip: true
+                    reuseItems: true
+
+                    delegate: Loader {
+                        width: rowsView.width
+                        required property var modelData
+                        sourceComponent: modelData.kind === "header" ? headerComponent : itemComponent
+
+                        Component {
+                            id: headerComponent
+                            // Plasma's own section header rather than a bare Heading: it brings the
+                            // theme's SVG separator, it is what makes this read as a Plasma list,
+                            // and its trailing slot is where a per-section action would go later.
+                            PlasmaExtras.ListSectionHeader { label: modelData.title }
+                        }
+
+                        Component {
+                            id: itemComponent
+                            UpdateItemDelegate {
+                                width: rowsView.width
+                                name: modelData.name
+                                from: modelData.from
+                                to: modelData.to
+                                held: modelData.held
+                                backend: modelData.backend
+                                busy: popup.plasmoidItem.holdInFlight
+                                onToggleHold: (backend, name, hold) => popup.plasmoidItem.setHold(backend, name, hold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Up to date, no data yet, or a CLI we could not run. The third one is the only one
+            // that owes the user an instruction, and it gets the CLI's own words plus the command
+            // that diagnoses it. Note what it is NOT shown for: a box whose only pending updates
+            // are held has rows, so the Held group carries the truth instead and "everything is up
+            // to date" is never said over the top of it.
+            PlasmaExtras.PlaceholderMessage {
+                id: placeholder
+                anchors.centerIn: parent
+                width: parent.width - Kirigami.Units.gridUnit * 4
+                visible: popup.vm.rows.length === 0 && text.length > 0
+                iconName: popup.vm.iconState === "error" ? "dialog-error"
+                          : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
+                text: popup.vm.emptyStateText
+                explanation: popup.vm.remedyCommand.length > 0
+                             ? i18n("Run `%1` in a terminal to find out why.", popup.vm.remedyCommand)
+                             : ""
+            }
+        }
+
+        // --- what the last run did -------------------------------------------------------------
+        // PlasmaExtras.ExpandableListItem is hard-coupled to being a ListView delegate: it reads
+        // `ListView.view.highlightResizeDuration` in a BINDING, reaches for
+        // `ListView.view.currentIndex` in half its handlers, and its own width comment says
+        // "Assume that we will be used as a delegate, not placed in a layout". Standing it in this
+        // ColumnLayout throws on the first frame. So it gets a ListView of its own, one item long -
+        // which also leaves the main list's `rows.length === 0` empty-state guard undisturbed, and
+        // that matters: the up-to-date state has to show the placeholder AND this row at once.
+        ListView {
+            id: lastRunView
+            Layout.fillWidth: true
+            Layout.preferredHeight: contentHeight
+            // ...but never more than half the popup. An ordinary weekly Fedora update installs
+            // fifty to two hundred packages, and this row expands to ALL of them: without a
+            // ceiling, one click on the expander would hand the whole popup to a history entry and
+            // squeeze the pending list, which is what the popup is for, down to nothing.
+            Layout.maximumHeight: Math.round(popup.height / 2)
+            clip: true
+            // Which makes the row's own view scrollable exactly when it overflows and inert when
+            // it does not, so a one-line row never eats a wheel event meant for the list above it.
+            interactive: contentHeight > height
+            boundsBehavior: Flickable.StopAtBounds
+            // One event, one line at a time: while the transient post-run message is up there, this
+            // is the same fact told twice.
+            visible: popup.plasmoidItem.lastRun !== null && popup.plasmoidItem.postRunLine.length === 0
+            model: 1
+
+            delegate: PlasmaExtras.ExpandableListItem {
+                // Stated rather than injected. The component declares `index` as a property of its
+                // own, which shadows the one a view hands its delegates, and its click handling
+                // writes that value into the view's currentIndex. One item, so it is 0.
+                index: 0
+                icon: "documentinfo"
+                title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs)
+                // Only a failure earns a second line here, and it is logic.js's own sentence about
+                // that run rather than a new one written in QML. Deliberately NOT the entry's
+                // reboot_needed: that is a fact about the moment the run ended, and the state
+                // file's live answer is what the restart message above is bound to. Repeating the
+                // history entry here would go on claiming a restart after the user had done it.
+                subtitle: (popup.plasmoidItem.lastRun && popup.plasmoidItem.lastRun.failed)
+                          ? Logic.postRunLine(popup.plasmoidItem.lastRun) : ""
+                subtitleCanWrap: true
+                customExpandedViewContent: lastRunPackages
+                contextualActions: [
+                    Kirigami.Action {
+                        text: i18n("Show Log")
+                        icon.name: "text-x-generic"
+                        enabled: !!popup.plasmoidItem.lastRun
+                                 && popup.plasmoidItem.lastRun.logPath.length > 0
+                        onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
+                    }
+                ]
+            }
+
+            // The run's own package list, exactly as the CLI recorded it. Not a second reading of
+            // the pending list: these are the versions that were actually installed.
+            Component {
+                id: lastRunPackages
+                ColumnLayout {
+                    spacing: 0
+                    Repeater {
+                        model: popup.plasmoidItem.lastRun ? popup.plasmoidItem.lastRun.items : []
+                        delegate: RowLayout {
+                            id: historyRow
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            PlasmaComponents.Label {
+                                Layout.fillWidth: true
+                                text: historyRow.modelData.name
+                                elide: Text.ElideRight
+                                font: Kirigami.Theme.smallFont
+                            }
+                            PlasmaComponents.Label {
+                                text: historyRow.modelData.from + " → " + historyRow.modelData.to
+                                opacity: 0.7
+                                font: Kirigami.Theme.smallFont
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- the footer ------------------------------------------------------------------------------
+    // PlasmoidHeading again: it branches internally on `position === T.ToolBar.Footer` for its
+    // margins and its SVG prefix, so the same component is both header and footer, and a Page
+    // assigns that position itself.
+    //
+    // NOT gated on the containment hint, and this is the whole argument for the row existing.
+    // org.kde.plasma.vault gates its footer that way, and copying it would put the primary action
+    // back on the one piece of ground Plasma reserves for itself: every shipped applet treats
+    // heading contents as expendable because the contract says the host may replace them
+    // (hig-review.md 3). Update Now must exist on every host, in every containment. A footer also
+    // keeps it in reach while a 1200-row list scrolls.
+    footer: PlasmaExtras.PlasmoidHeading {
+        contentItem: RowLayout {
+            spacing: Kirigami.Units.smallSpacing
+
             PlasmaComponents.Label {
+                id: footerLabel
                 Layout.fillWidth: true
-                visible: popup.plasmoidItem.actionMessage.length > 0
-                text: popup.plasmoidItem.actionMessage
-                wrapMode: Text.WordWrap
+                text: popup.vm.footerText
+                elide: Text.ElideRight
                 font: Kirigami.Theme.smallFont
                 opacity: 0.8
-            }
-        }
-    }
 
-    // --- the list ------------------------------------------------------------------------------
-    // One flat model with header rows in it, built by logic.js. A ListView creates delegates
-    // lazily, so a box with 1200 pending updates costs what a box with six costs.
-    PlasmaComponents.ScrollView {
-        anchors.fill: parent
-        visible: popup.vm.rows.length > 0 && !popup.plasmoidItem.updating
-
-        ListView {
-            id: rowsView
-            model: popup.vm.rows
-            clip: true
-            reuseItems: true
-
-            delegate: Loader {
-                width: rowsView.width
-                required property var modelData
-                sourceComponent: modelData.kind === "header" ? headerComponent : itemComponent
-
-                Component {
-                    id: headerComponent
-                    PlasmaExtras.Heading {
-                        level: 5
-                        text: modelData.title
-                        opacity: 0.8
-                        topPadding: Kirigami.Units.smallSpacing
-                    }
-                }
-
-                Component {
-                    id: itemComponent
-                    UpdateItemDelegate {
-                        width: rowsView.width
-                        name: modelData.name
-                        from: modelData.from
-                        to: modelData.to
-                        held: modelData.held
-                        backend: modelData.backend
-                        busy: popup.plasmoidItem.holdInFlight
-                        onToggleHold: (backend, name, hold) => popup.plasmoidItem.setHold(backend, name, hold)
-                    }
+                // The relative time in the line is the convenience; the absolute stamp is the
+                // truth, and people compare the two (hig-review.md P6). A HoverHandler rather than
+                // a control's `hovered`, because a Label is not a control.
+                HoverHandler { id: footerHover }
+                PlasmaComponents.ToolTip {
+                    id: footerToolTip
+                    text: popup.vm.footerTooltip
+                    // Empty until a check has ever succeeded, and an empty tooltip is worse than
+                    // none: it flickers a bare frame under the pointer.
+                    visible: footerHover.hovered && text.length > 0
+                    delay: Kirigami.Units.toolTipDelay
                 }
             }
-        }
-    }
 
-    // --- the empty state -----------------------------------------------------------------------
-    // Up to date, no data yet, or a CLI we could not run. The third one is the only one that owes
-    // the user an instruction, and it gets the CLI's own words plus the command that diagnoses it.
-    PlasmaExtras.PlaceholderMessage {
-        anchors.centerIn: parent
-        width: parent.width - Kirigami.Units.gridUnit * 4
-        visible: popup.vm.rows.length === 0 && !popup.plasmoidItem.updating && text.length > 0
-        iconName: popup.vm.iconState === "error" ? "dialog-error"
-                  : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
-        text: popup.vm.emptyStateText
-        explanation: popup.vm.remedyCommand.length > 0
-                     ? i18n("Run `%1` in a terminal to find out why.", popup.vm.remedyCommand)
-                     : ""
+            PlasmaComponents.Button {
+                id: updateButton
+                text: i18n("Update Now")
+                icon.name: "system-software-update"
+                // A raised Button and not a ToolButton: this is the primary action and it is not in
+                // a toolbar any more.
+                //
+                // HIDDEN and not disabled when there is nothing to do. A greyed-out primary button
+                // over "Everything is up to date" was the founder's original complaint about this
+                // popup, and it is the correct call: an up-to-date box has no run to start, so
+                // there is no action to offer rather than an action being refused.
+                visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
+                onClicked: popup.plasmoidItem.startUpdate()
+            }
+        }
     }
 
     // --- the updating state ----------------------------------------------------------------------

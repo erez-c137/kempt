@@ -676,20 +676,488 @@ if live is not None:
     lev("popup.traysHeading = true")
     p.check("a host that draws the heading takes our duplicate gear off the screen",
             lev("configureButton.visible"), False)
-    p.check("...and takes nothing else with it - the header still carries the buttons and the "
-            "status line, which the tray's chrome does not provide",
+    p.check("...and takes nothing else with it - the header still carries the count and the "
+            "refresh button, which the tray's chrome does not provide",
             lev("popup.header.visible"), True)
+    p.check("...the refresh button included: Bluetooth may hide its own because the tray "
+            "duplicates that action, and a refresh costing two clicks and a menu is not worth "
+            "having (hig-review.md 2.3)", lev("refreshButton.visible"), True)
     p.check("...the status heading included, which is the pending count and not a second title",
             lev("popup.vm.headerText === popup.plasmoidItem.vm.headerText"), True)
+
+    # ==============================================================================================
+    # P3b: the layout - the message stack, the list, the Last update row and the footer.
+    # ==============================================================================================
+    # This one line is the difference between a test and a decoration. createWithInitialProperties
+    # above assigns a VALUE; main.qml writes `vm: root.vm`, which is a BINDING that re-reads the
+    # view model every time the state changes. Without this, every assertion below would be
+    # measuring one frozen view model from the moment the popup was built - every state driven
+    # through the stubbed CLI would look identical, and every assertion would pass anyway.
+    lev("popup.vm = Qt.binding(function () { return popup.plasmoidItem.vm; })")
+
+    def fixture(name):
+        return os.path.join(harness.FIXTURES, name)
+
+    def state(path):
+        """Point the stubbed CLI at a state document and let the widget go and read it."""
+        open(CHECKSRC, "w").write(path)
+        ev("root.doCheck()")
+        settle()
+
+    def uptodate_from(source, name):
+        """A real capture with nothing left pending - the one shape no fixture carries.
+
+        Derived here rather than added to tests/fixtures/ on purpose: it is the shipped capture
+        with its item lists emptied, so it cannot drift away from the real document shape.
+        """
+        doc = json.load(open(fixture(source)))
+        for backend in doc["backends"].values():
+            backend["items"] = []
+            backend["actionable"] = 0
+            backend["held"] = 0
+        doc["actionable"] = 0
+        doc["held_total"] = 0
+        path = os.path.join(p.sandbox, name)
+        open(path, "w").write(json.dumps(doc))
+        return path
+
+    UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
+    UPTODATE_REBOOT = uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json")
+
+    MESSAGES = [("restartMessage", "the restart message"),
+                ("riskyMessage", "the session-critical warning"),
+                ("staleMessage", "the stale explanation"),
+                ("postRunMessage", "the post-run line"),
+                ("actionFailureMessage", "the failed-action message")]
+
+    def stack(situation, *shown):
+        """Assert the WHOLE stack for one real state: what is up, and what is not."""
+        for name, prose in MESSAGES:
+            want = name in shown
+            p.check("%s, %s is %s" % (situation, prose, "shown" if want else "not shown"),
+                    lev(name + ".visible"), want)
+
+    ev("root.restartDismissed = false")
+    ev('root.actionMessage = ""')
+
+    state(fixture("state-live.json"))
+    ev('root.postRunLine = ""')
+    stack("with updates pending and nothing else to say")
+
+    state(fixture("state-reboot-needed.json"))
+    stack("with a restart owed", "restartMessage")
+
+    state(fixture("state-risky-heavy.json"))
+    stack("with a session-critical transaction pending", "riskyMessage")
+
+    state(fixture("state-stale.json"))
+    stack("with the last check failed over known counts", "staleMessage")
+
+    state(UPTODATE)
+    stack("with nothing at all pending")
+
+    # hig-review.md P1, and the single easiest thing in this redesign to get wrong: a pending
+    # restart is a fact about the machine, not an "up to date" fact. You can owe one with twelve
+    # updates pending, and you can owe one with nothing pending at all.
+    state(UPTODATE_REBOOT)
+    stack("up to date and still owing a restart", "restartMessage")
+
+    state(fixture("state-held-only.json"))
+    stack("with every pending update held")
+
+    state(fixture("state-live.json"))
+    ev('root.actionMessage = "Could not change the hold on bash."')
+    p.pump(50)
+    stack("after a button press that failed", "actionFailureMessage")
+    p.check("...saying what failed, in the words main.qml was given",
+            lev("actionFailureMessage.text"), "Could not change the hold on bash.")
+    ev('root.actionMessage = ""')
+    p.pump(50)
+
+    # --- what the up-to-date state actually shows ---------------------------------------------------
+    state(UPTODATE)
+    p.check("up to date: the header says so", lev("popup.vm.headerText"), "Up to date")
+    p.check("...the placeholder carries the sentence", lev("placeholder.visible"), True)
+    p.check("...in different words, so the popup never says the same thing twice in one glance",
+            lev("placeholder.text") != lev("popup.vm.headerText"), True)
+    p.check("...and Update Now is GONE rather than greyed out - a dead primary button in this "
+            "exact state was the founder's original complaint", lev("updateButton.visible"), False)
+    p.check("...while the footer still dates the counts",
+            str(lev("footerLabel.text")).startswith("Checked "), True)
+
+    # Held is the one state where "everything is up to date" would be a lie by omission: nothing is
+    # actionable, but there ARE pending updates and the Held group is on screen saying so.
+    state(fixture("state-held-only.json"))
+    p.check("held only: the Held group carries the truth, so the placeholder stays away",
+            lev("placeholder.visible"), False)
+    p.check("...there really are rows for it to carry", lev("popup.vm.rows.length") > 0, True)
+    p.check("...nothing is actionable, so there is still no Update Now",
+            lev("updateButton.visible"), False)
+    p.check("...and the footer counts them", "10 held" in str(lev("footerLabel.text")), True)
+
+    # No answer at all is not "nothing to update". vm.actionable is null there rather than 0, and a
+    # visibility test written as `!== 0` would have put a live primary button over a popup that has
+    # no idea what is pending.
+    ev("root.kemptState = null")
+    p.pump(50)
+    p.check("with no answer at all there is nothing to offer, so no Update Now",
+            lev("updateButton.visible"), False)
+    p.check("...and the popup says it has no data rather than claiming zero updates",
+            lev("placeholder.visible"), True)
+
+    # --- the refresh icon, and the one spinner ---------------------------------------------------------
+    state(fixture("state-live.json"))
+    before_check = p.call_count("check")
+    lev("refreshButton.clicked()")
+    settle()
+    p.check("the refresh icon runs the same check the menu entry does",
+            p.call_count("check") - before_check, 1)
+    ev("root.checking = true")
+    p.pump(50)
+    p.check("a check in flight puts the spinner on the control that started it",
+            lev("refreshBusy.running"), True)
+    p.check("...taking the refresh icon's place rather than standing next to it",
+            lev("refreshButton.visible"), False)
+    ev("root.checking = false")
+    p.pump(50)
+    p.check("...and handing the button back when it is done", lev("refreshButton.visible"), True)
+
+    # --- the primary action, and the row nobody can take away ----------------------------------------
+    state(fixture("state-live.json"))
+    p.check("with updates pending, Update Now is on screen", lev("updateButton.visible"), True)
+    p.check("...under the icon Plasma uses for an update", lev("updateButton.icon.name"),
+            "system-software-update")
+    before_run = p.call_count("run")
+    lev("updateButton.clicked()")
+    p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+    settle()
+    p.check("...and pressing it starts the run", p.call_count("run") - before_run, 1)
+    p.check("...at which point it is gone, not disabled", lev("updateButton.visible"), False)
+    ev("root.updating = false")
+    p.pump(50)
+
+    # The footer is the whole reason the primary action moved out of the heading row: the heading is
+    # the row Plasma's contract lets the containment replace, and org.kde.plasma.vault gates its own
+    # footer on exactly that hint. Copying vault verbatim would put Update Now back on the one piece
+    # of ground Plasma reserves for itself (hig-review.md 3).
+    lev("popup.traysHeading = true")
+    p.check("a host that draws its own heading does not take the footer with it",
+            lev("popup.footer.visible"), True)
+    p.check("...nor the primary action inside it", lev("updateButton.visible"), True)
+    lev("popup.traysHeading = false")
+    p.check("the footer's tooltip is the absolute stamp people compare the relative one against",
+            lev("footerToolTip.text"), ev("root.vm.footerTooltip"))
+
+    # --- a run hides the stack, and that is the trap the close handler has to survive -----------------
+    # Kirigami's close button hides its message by ASSIGNING visible = false, so the handler that
+    # turns a close into dismissRestart() sees the same signal when an ancestor hides. A handler
+    # that only asked "does the view model still want this?" would read a run starting as the user
+    # closing the message, and an update would silently switch the reminder off for the session.
+    state(fixture("state-reboot-needed.json"))
+    ev("root.restartDismissed = false")
+    p.check("the restart message is up before the run", lev("restartMessage.visible"), True)
+    ev("root.updating = true")
+    p.pump(50)
+    p.check("...and a run in flight puts the whole message stack away",
+            lev("restartMessage.visible"), False)
+    ev("root.updating = false")
+    p.pump(50)
+    p.check("...without that being mistaken for the user closing it",
+            ev("root.restartDismissed"), False)
+    p.check("...so it is back when the run ends", lev("restartMessage.visible"), True)
+
+    # --- closing the restart message ------------------------------------------------------------------
+    # Kirigami's close button does exactly one thing:
+    #     onClicked: root.visible = false
+    # (/usr/lib64/qt6/qml/org/kde/kirigami/templates/InlineMessage.qml line 448), so driving that
+    # assignment IS pressing the button. The assignment is also the hazard: assigning to a property
+    # destroys the binding on it, and a message that did not intercept this would go away for good
+    # and never come back when the machine's answer changed.
+    p.check("the message offers a close button at all", lev("restartMessage.showCloseButton"), True)
+    p.check("the footer is not repeating the fact while the message is on screen",
+            "restart pending" in str(lev("footerLabel.text")), False)
+    lev("restartMessage.visible = false")
+    p.pump(50)
+    p.check("closing the restart message tells main.qml rather than merely hiding an item",
+            ev("root.restartDismissed"), True)
+    p.check("...so it stays closed", lev("restartMessage.visible"), False)
+    p.check("...and the footer picks the fact up instead, because the popup still must not lie",
+            "restart pending" in str(lev("footerLabel.text")), True)
+    ev("root.restartDismissed = false")
+    p.pump(50)
+    p.check("...and the message can come back at all, which the raw assignment would have prevented",
+            lev("restartMessage.visible"), True)
+    p.check("...with the footer quiet about it again",
+            "restart pending" in str(lev("footerLabel.text")), False)
+
+    # A prompt that could not be opened is said HERE, where the user pressed. Silence is the worst
+    # outcome of all: a button that appears to do nothing looks exactly like one that did something
+    # invisible.
+    ev('root.restartError = "Could not open the restart prompt."')
+    p.pump(50)
+    p.check("a restart prompt that would not open says so inside the message itself",
+            "Could not open the restart prompt." in str(lev("restartMessage.text")), True)
+    p.check("...without losing the message's own sentence",
+            "Restart to apply installed updates" in str(lev("restartMessage.text")), True)
+    ev('root.restartError = ""')
+    p.pump(50)
+    p.check("...and the message is itself again once the error clears",
+            lev("restartMessage.text"), "Restart to apply installed updates")
+
+    dbus_before = len(records("dbus-send"))
+    lev("restartMessage.actions[0].trigger()")
+    settle()
+    p.check("the message's own action is what opens KDE's prompt",
+            len(records("dbus-send")) - dbus_before, 1)
+    p.check("...labelled with a real ellipsis, KDE's mark for an action that opens something else",
+            lev("restartMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
+
+    # --- the session-critical recommendation ----------------------------------------------------------
+    state(fixture("state-risky-heavy.json"))
+    p.check("the session-critical message says what to DO about it",
+            lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
+    p.check("...and not the count sentence as well, which for a kernel-free set is the same words",
+            lev("riskyMessage.text") == ev("root.vm.riskySummary"), False)
+    p.check("...offering the offline install under a name that is not dnf jargon",
+            lev("riskyMessage.actions[0].text"), ev("Logic.COPY.installOnNextRestart"))
+    p.check("...with the argument for choosing it in the tooltip",
+            lev("riskyMessage.actions[0].tooltip"), ev("Logic.COPY.installOnNextRestartTooltip"))
+    before_update = p.call_count("update")
+    lev("riskyMessage.actions[0].trigger()")
+    p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+    p.check("...and pressing it stages the update for the next restart",
+            p.call_count("update") - before_update, 1)
+    ev("root.leaveUpdating()")
+    settle()
+    ev('root.postRunLine = ""')
+
+    # --- the stale explanation --------------------------------------------------------------------------
+    state(fixture("state-stale.json"))
+    p.check("the stale message is an explanation, not an alarm",
+            lev("staleMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...carrying the CLI's own reason and the age of the counts under it",
+            lev("staleMessage.text"), "dnf check failed (last successful check: 2026-08-25 10:59)")
+
+    # --- the post-run line -------------------------------------------------------------------------------
+    state(fixture("state-live.json"))
+    ev("root.loadLastRun()")
+    settle()
+    ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
+    p.pump(50)
+    p.check("a run that worked reports as a positive message",
+            lev("postRunMessage.type"), lev("Kirigami.MessageType.Positive"))
+    p.check("...saying what the run actually did", lev("postRunMessage.text"),
+            "Updated 4 packages in 2s")
+    xdg_before = len(records("xdg-open"))
+    lev("postRunMessage.actions[0].trigger()")
+    settle()
+    p.check("...and its Show Log opens that run's own log", last_record("xdg-open"),
+            [LAST_RUN["log"]])
+
+    failed = dict(LAST_RUN)
+    failed["status"] = "failed"
+    failed["error"] = "dnf5 exited 1 - could not resolve the transaction"
+    open(RUNJSON, "w").write(json.dumps(failed))
+    ev("root.loadLastRun()")
+    settle()
+    ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
+    p.pump(50)
+    p.check("a run that failed reports as an error instead",
+            lev("postRunMessage.type"), lev("Kirigami.MessageType.Error"))
+    p.check("...in the CLI's own worked-out reason", lev("postRunMessage.text"),
+            "Update failed: dnf5 exited 1 - could not resolve the transaction")
+
+    nolog = dict(LAST_RUN)
+    nolog["log"] = ""
+    open(RUNJSON, "w").write(json.dumps(nolog))
+    ev("root.loadLastRun()")
+    settle()
+    ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
+    p.pump(50)
+    p.check("a run old enough to have lost its log offers no Show Log to press",
+            lev("postRunMessage.actions[0].visible"), False)
+    open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+    ev("root.loadLastRun()")
+    settle()
+
+    # --- the Last update row ------------------------------------------------------------------------------
+    ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
+    p.pump(50)
+    p.check("one event, one line: the persistent row stays off while the transient line is up",
+            lev("lastRunView.visible"), False)
+    ev('root.postRunLine = ""')
+    p.pump(50)
+    p.check("...and takes over the moment that clears", lev("lastRunView.visible"), True)
+    p.check("...from inside a ListView, the only shape ExpandableListItem tolerates: it reads "
+            "ListView.view in a BINDING, so a ColumnLayout would throw on the first frame",
+            "ListView" in str(lev("String(lastRunView)")), True)
+
+    # Nothing here has a window, so a ListView is never polished and lays nothing out. forceLayout()
+    # is the documented way to make it build its items anyway.
+    #
+    # The message handler is a net rather than the guard. MEASURED 2026-08-26 by standing this
+    # delegate outside a ListView on purpose: the probe reported no warning at all, because the
+    # binding that reaches for ListView.view is only evaluated by a layout pass and there is none
+    # here. So the wrong parent is caught by the structural assertion above, and this catches
+    # everything ELSE a freshly built delegate can say - a binding loop, a type error, an undefined
+    # property - none of which any ordinary assertion would notice.
+    from PySide6.QtCore import qInstallMessageHandler                  # noqa: E402
+    _noise = []
+    qInstallMessageHandler(lambda mode, ctx, msg: _noise.append(msg))
+    lev("lastRunView.width = 400; lastRunView.height = 200; lastRunView.forceLayout()")
+    p.pump(100)
+    _built = lev("lastRunView.itemAtIndex(0) !== null")
+    qInstallMessageHandler(None)
+    p.check("the row is really built", _built, True)
+    p.check("...saying nothing at all on the way, warnings included", _noise, [])
+    p.check("...titled by logic.js rather than by a second copy of that rule written here",
+            lev("lastRunView.itemAtIndex(0).title"),
+            ev("Logic.lastRunText(root.lastRun, root.nowMs)"))
+    p.check("...and expandable, so the run's package list is one click away",
+            lev("lastRunView.itemAtIndex(0).hasExpandableContent"), True)
+    p.check("...with that run's own log reachable from the row",
+            lev("lastRunView.itemAtIndex(0).contextualActions[0].text"), ev("Logic.COPY.showLog"))
+    p.check("...and the packages it installed under it",
+            lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
+
+    ev("root.lastRun = null")
+    p.pump(50)
+    p.check("a box that has never updated shows no Last update row rather than an empty one",
+            lev("lastRunView.visible"), False)
+    ev("root.loadLastRun()")
+    settle()
+
+    # --- the rows themselves --------------------------------------------------------------------------------
+    # The delegates are built directly rather than scrolled into view: with no window the main list
+    # is never laid out either, and building the real delegate from a real model row is the same
+    # code path with the geometry left out.
+    def row(model, expr):
+        return lev('(function () {'
+                   ' var loader = rowsView.delegate.createObject(rowsView, {"modelData": %s});'
+                   ' if (loader === null) return "THE DELEGATE WOULD NOT BUILD";'
+                   ' var it = loader.item;'
+                   ' if (it === null) return "THE DELEGATE LOADED NOTHING";'
+                   ' var answer = (%s);'
+                   ' loader.destroy();'
+                   ' return answer; })()' % (json.dumps(model), expr))
+
+    def labelled(predicate):
+        """The first descendant whose `text` satisfies `predicate` (written against `o`)."""
+        return ('(function walk(o) {'
+                ' if (o.text !== undefined && (%s)) return o;'
+                ' for (var i = 0; i < o.children.length; i++) {'
+                '  var hit = walk(o.children[i]); if (hit !== null) return hit; }'
+                ' return null; })(it)' % predicate)
+
+    HEADER_ROW = {"kind": "header", "title": "System (dnf)"}
+    p.check("a group header is Plasma's own ListSectionHeader, not a bare Heading",
+            row(HEADER_ROW, 'String(it).indexOf("ListSectionHeader") >= 0'), True)
+    p.check("...carrying the group's name in the property that component documents",
+            row(HEADER_ROW, "it.label"), "System (dnf)")
+
+    # What a power user compares between two machines: the epoch, the release and the vendor tag all
+    # carry meaning, and eliding the tail throws away exactly the half that differs.
+    FROM = "2:24.19.0-1nodesource"
+    TO = "2:24.20.0-1nodesource"
+    ITEM_ROW = {"kind": "item", "name": "nodejs", "from": FROM, "to": TO,
+                "held": False, "backend": "dnf"}
+    version = labelled('String(o.text).indexOf("1nodesource") >= 0')
+    name = labelled('String(o.text) === "nodejs"')
+    p.check("a full version string with an epoch and a vendor tag reaches the row untouched",
+            row(ITEM_ROW, "(%s).text" % version), FROM + " → " + TO)
+    p.check("...and is never elided, whatever the popup's width",
+            row(ITEM_ROW, "(%s).elide === Text.ElideNone" % version), True)
+    p.check("...wrapping instead, which is what makes that possible",
+            row(ITEM_ROW, "(%s).wrapMode !== Text.NoWrap" % version), True)
+    p.check("...while the package name still elides, so a long one cannot push the pin off the row",
+            row(ITEM_ROW, "(%s).elide === Text.ElideRight" % name), True)
 
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
 # every assertion above passing.
 _src = " ".join(open(os.path.join(harness.UI, "FullRepresentation.qml")).read().split())
+
+
+def _code(name):
+    """One .qml file with its comments removed, on one line.
+
+    The counting pins below are about what the popup EVALUATES, and these files are unusually
+    heavily commented - the prose explains why the containment hint is consulted exactly once, and
+    naming it there would make the pin count two. Nothing under plasmoid/contents/ui/ has a `//`
+    inside a string literal, so cutting each line at the first one is enough.
+    """
+    lines = [ln.split("//")[0] for ln in open(os.path.join(harness.UI, name))]
+    return " ".join(" ".join(lines).split())
+
+
+_code_src = _code("FullRepresentation.qml")
 p.check("traysHeading is computed from the containment's own display hint",
         "property bool traysHeading: (Plasmoid.containmentDisplayHints"
         " & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0" in _src, True)
 p.check("...and the gear's visibility is that property and nothing else",
         "visible: !popup.traysHeading" in _src, True)
+
+# ...and that the footer never learns the same trick. org.kde.plasma.vault gates its footer on the
+# containment hint, and copying it verbatim would put the primary action back on the one row
+# Plasma's contract lets the host replace - the exact bug moving it here exists to prevent
+# (hig-review.md 3). Counted rather than searched, because "the string is not next to the word
+# footer" is a pin that a reformatting would satisfy.
+p.check("the containment hint is consulted exactly once in the whole popup",
+        _code_src.count("ContainmentDrawsPlasmoidHeading"), 1)
+p.check("...and the answer it computes is read exactly once, by the gear - so the footer, its "
+        "button and the refresh icon cannot be taken away by a host",
+        _code_src.count("popup.traysHeading"), 1)
+
+# The group header's property. `label` is what ListSectionHeader documents and what its own example
+# uses; the pin is here because this is a one-word seam that a reviewer cannot see from the popup.
+p.check("the group header sets the property ListSectionHeader documents",
+        "PlasmaExtras.ListSectionHeader { label: modelData.title }" in _src, True)
+
+# Founder amendment A1: the message a person can turn off must also be one they can close.
+p.check("the restart message carries a close button", "showCloseButton: true" in _src, True)
+
+# Geometry, which nothing in this file can measure: with no window the popup is never laid out. The
+# ceiling matters anyway - the expanded history row would otherwise be two hundred packages tall
+# and would squeeze the pending list out of the popup entirely - so it is pinned where it lives.
+p.check("the Last update row cannot grow past half the popup",
+        "Layout.maximumHeight: Math.round(popup.height / 2)" in _code_src, True)
+p.check("...and scrolls within that rather than clipping what it cannot show",
+        "interactive: contentHeight > height" in _code_src, True)
+
+# --- the copy table is the specification, and the QML has to repeat it verbatim ---------------------
+# logic.js's COPY is where the wording is decided and node-tested, but the QML cannot READ it:
+# translation extraction works on literals, and `i18n(Logic.COPY.updateNow)` extracts nothing at all
+# and ships an untranslatable widget. So the QML writes the same literal, and this is what stops the
+# two drifting.
+#
+# Only the LABEL entries are pinned. The rest are ingredients logic.js assembles its own sentences
+# from - they reach the popup through the view model as DATA, and a QML file that wrote them as
+# literals would be the second copy this arrangement exists to prevent. Every key must be in one
+# bucket or the other, so a new entry cannot slip in unclassified.
+_QML_SRC = ""
+for _name in sorted(os.listdir(harness.UI)):
+    if _name.endswith(".qml"):
+        _QML_SRC += " " + " ".join(open(os.path.join(harness.UI, _name)).read().split())
+
+_ASSEMBLED_IN_LOGIC = {
+    "upToDate",             # -> countPhrase -> vm.headerText
+    "everythingUpToDate",   # -> vm.emptyStateText
+    "restartFailed",        # -> root.restartError, rendered inside the restart message
+    "kernelRestart",        # -> riskyMessageOf -> vm.riskyMessage
+    "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.riskyMessage
+    "held",                 # -> vm.footerText and vm.tooltipSub
+    "restartPending",       # -> vm.footerText
+    "noSuccessfulCheckYet",  # -> vm.footerText
+    "noPackageChanges",     # -> postRunLine
+    "updateFailed",         # -> postRunLine
+}
+_COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
+p.check("every string said to be assembled in logic.js is still in the copy table",
+        sorted(k for k in _ASSEMBLED_IN_LOGIC if k not in _COPY), [])
+for _key in sorted(_COPY):
+    if _key in _ASSEMBLED_IN_LOGIC:
+        continue
+    p.check("the widget writes the agreed `%s` as a literal a translator can extract" % _key,
+            'i18n("%s")' % _COPY[_key] in _QML_SRC, True)
 
 sys.exit(p.done())

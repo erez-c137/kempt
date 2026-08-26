@@ -31,6 +31,9 @@ RowLayout {
         PlasmaComponents.Label {
             Layout.fillWidth: true
             text: row.name
+            // The name is the line that gives way. It elides on purpose: a package name long
+            // enough to need the whole row would otherwise push the pin off the end of it, and a
+            // truncated name is still recognisable in a way a truncated version string is not.
             elide: Text.ElideRight
             // A held row is still legible, just visibly out of the running.
             opacity: row.held ? 0.7 : 1.0
@@ -41,7 +44,13 @@ RowLayout {
             // logic.js has already reduced any comma-joined multilib or installonly set to the
             // newest member, the same way `kempt summary` renders it.
             text: row.from + " → " + row.to
-            elide: Text.ElideRight
+            // FULL, always. This is the line a person compares between two machines, and the
+            // epoch, the release and the vendor tag all carry meaning - `2:24.19.0-1nodesource`
+            // says something `2:24.19.0-1no…` does not. Eliding throws away the tail, which is
+            // precisely the half that differs. So it wraps onto a second line instead: the row
+            // gets taller, and nothing is lost.
+            elide: Text.ElideNone
+            wrapMode: Text.Wrap
             opacity: 0.7
             font: Kirigami.Theme.smallFont
         }
