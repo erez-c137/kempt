@@ -223,8 +223,17 @@ assert_eq "$(jq -r '.schema' <<<"$rb_yes")" "1" "an additive key does not bump t
 assert_eq "$(jq -r '.reboot_needed' <<<"$("$KEMPT" check)")" "false" \
   "the next check clears it, the way a real restart would"
 
-# A surprise value must never reach --argjson: jq would fail and take the WHOLE check with it,
-# losing a perfectly good pending-updates answer over a reboot verdict nobody asked for.
+# An unusable reboot verdict must not cost the user the whole check. What this stub actually
+# drives is the BACKEND's fallback: rc 7 with a line of prose on stdout lands in
+# dnf_reboot_needed's `*)` branch, which answers a well-shaped `false` - so what is asserted is
+# that the check survives the trip with its pending-updates answer intact.
+#
+# It is NOT coverage of the shape guard at bin/kempt:70-72. Replacing that guard and its twin in
+# cmd_update with `:` leaves this file at 62/62 and test_update at 126/126, because
+# dnf_reboot_needed's output alphabet is exactly {true,false} for every rc-and-stdout combination
+# there is: no stub reachable through KEMPT_DNF_CMD can put a third value in front of --argjson.
+# The guard is a boundary on the backend contract, and reaching it would need a seam that existed
+# only for the test.
 cat > "$TESTTMP/dnf-weird" <<'STUB'
 #!/usr/bin/env bash
 echo "no idea"

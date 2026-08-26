@@ -69,6 +69,11 @@ cmd_check() {
   reboot="$(dnf_reboot_needed)"
   # Same shape guard as cmd_update: a surprise value reaching --argjson fails jq and would lose
   # the entire check - every pending package - over a reboot verdict nobody asked for.
+  # Unreachable today, and deliberately kept: dnf_reboot_needed answers true or false for every
+  # rc-and-stdout combination it has, so no stub a test can put behind KEMPT_DNF_CMD gets a third
+  # value this far, and deleting both guards leaves the whole suite green. It is a boundary on
+  # the backend contract rather than a live branch - a backend that later grows a third answer
+  # degrades to false here instead of taking the check down with it.
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   local state
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot")"
@@ -312,7 +317,8 @@ cmd_update() {
   # -C / --disablerepo / </dev/null hardening (an uncached needs-restarting does network I/O and
   # can prompt on stdin, and this runs from detached surfaces where nobody can answer). Its seam
   # is KEMPT_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
-  # would lose the history entry of a run that already changed the system.
+  # would lose the history entry of a run that already changed the system. Same standing as its
+  # twin in cmd_check, including the part where nothing can reach it today - see the note there.
   reboot="$(dnf_reboot_needed)"
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
 
@@ -906,7 +912,8 @@ usage: kempt <command>
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--dry-run]       launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
-  summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet)
+  summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
+                        or if every entry is damaged)
   history               list past runs
   log [-n N]            recent events: what Kempt did, when, and from where (default 30)
   doctor                check this install: helpers, polkit action, tools, config, state
