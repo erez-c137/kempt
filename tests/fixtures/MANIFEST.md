@@ -199,3 +199,39 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   the first is the "empty stdout, exit 0" case the state schema defines as "no data, keep the
   last known state" (never "zero updates"), and the second is what a write killed halfway leaves
   behind. Both must parse to null and neither may throw.
+
+## tests/fixtures/run-last.json (widget: `kempt summary --json`, one history entry)
+
+**Captured live 2026-08-26**, by running the real `bin/kempt update` and then
+`bin/kempt summary --json` in a throwaway sandbox built the way `tests/test_update.sh` builds
+one: a fresh `HOME`/`KEMPT_CONFIG_DIR`/`KEMPT_STATE_DIR` under a tmpdir, `KEMPT_PKEXEC=""`,
+`KEMPT_SKIP_REFRESH=1`, a refresh helper that cats `dnf-check-update.txt` and exits 100, an
+apply helper that "upgrades" by swapping `snap-before.tsv` for `snap-after.tsv`, and a
+`KEMPT_DNF_CMD` stub in the rc-1-plus-a-package-list shape that means a restart is owed. Written
+by `cmd_update` itself, so the field names, the nesting and the shapes of updated/added/removed
+are the CLI's own, not a hand-made approximation of them - which is the entire point, since what
+the popup consumes is that output and nothing else. Re-capture by re-running the CLI the same
+way; never by editing the JSON.
+
+What it carries, and why each part is in it:
+
+- **2 updated, 1 added, 1 removed** (`kernel-core`, `vim-common`; `newpkg`; `zsh`). The counts
+  differ from each other on purpose: a popup that counted only upgrades would announce
+  "Updated 2 packages" after a transaction that also installed one and removed one, which is the
+  front-end disagreeing with the CLI's own `run_counts_phrase`. The widget's contract is
+  `changedCount == 4`.
+- **`duration_sec: 2`** - real, not edited in. The apply stub sleeps, so the CLI measured a
+  duration it could put in the entry; a stub that does no work records `0`, and a post-run line
+  reading "in 0s" would have pinned nothing about the seconds ever arriving.
+- **`reboot_needed: true`** - a fact about THAT RUN, which the widget must not render as a fact
+  about now (the state file's own `reboot_needed` is the live answer). The fixture exists partly
+  so that rule has something to be tested against.
+- **A log path under `/tmp/kempt-capture.*`** that no longer exists. Deliberately left as
+  captured: it is what a real entry's `log` field looks like, and nothing in the widget may
+  assume a shape for it. `tests/qml/probe_popup.py` reads the path OUT of this file rather than
+  repeating it, and hands it to a stubbed `xdg-open`.
+
+Guards: `main.qml`'s `loadLastRun()` (the popup's Last update row and its post-run line come from
+`kempt summary --json` through `Logic.lastRunOf`, never from the human `kempt summary`, whose
+first line is an ISO timestamp), and `showLog()` passing a path from the CLI's JSON back to a
+command line as exactly one argument.
