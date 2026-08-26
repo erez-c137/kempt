@@ -125,6 +125,7 @@ Kempt never re-downloads metadata faster than dnf itself would.
 | `~/.local/state/kempt/state.json` | Latest check result (schema v1, the widget's API) |
 | `~/.local/state/kempt/history/<timestamp>.json` | One entry per run |
 | `~/.local/state/kempt/logs/<timestamp>.log` | Full raw output of that run |
+| `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, mode 0600 (`kempt log`) |
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
 | `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged transaction awaiting a reboot |
@@ -137,6 +138,10 @@ Retention is automatic and best effort, swept whenever the CLI initializes its d
 
 - **History: the newest 50 entries** are kept.
 - **Logs: deleted after 60 days.** The history entry that names a log outlives the log itself.
+- **The event log: past 2500 lines it is rewritten to the last 2000.** Checked on write rather
+  than on a timer, so it happens once every 500 events. No date-based cutoff: an event log is
+  only useful as far back as it reaches, and a line count is a bound you can reason about
+  without knowing how busy the machine has been.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 
@@ -152,6 +157,7 @@ supported user-facing surface; these are for scripts, tests and power users.
 | `KEMPT_NOTIFY` | `notify-send` | Notification command. |
 | `KEMPT_RETRY_DELAY` | `10` | Seconds between retries when another tool holds the package lock. |
 | `KEMPT_SKIP_REFRESH` | (unset) | Any value disables the metadata refresh. |
+| `KEMPT_VIA` | (unset) | `widget` marks an event-log line as coming from the Plasma widget, which sets it on every command it runs. Anything else, including unset, is recorded as `cli`. Read by nothing except the event log. |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Move config and state, for example to test against a scratch directory. |
 
 The full set, including the seams the test suite uses to stub privileged commands, is listed in

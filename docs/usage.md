@@ -8,6 +8,7 @@ update                run the update now (options from config; --no-flatpak, --s
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 history               list past runs
+log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
 unhold <same>         remove a hold
@@ -217,7 +218,9 @@ history entry is skipped with a warning on stderr and the next-newest is rendere
 
 `history` lists past runs, newest first: timestamp, surface, status, and what the run changed.
 That last column is the same phrase the notifications use, so a run that only installed or
-removed packages is never listed as "0 updated", and a run that changed nothing says so.
+removed packages is never listed as "0 updated", and a run that changed nothing says so. A failed
+run also carries its reason in brackets, taken from its own log: the same sentence the summary,
+the notification and `kempt log` give it.
 
 ```bash
 kempt history
@@ -226,8 +229,72 @@ kempt history
 ```
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
-2026-08-22T18:12:55+03:00  background  failed  no package changes
+2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication declined or cancelled)
 ```
+
+## log
+
+```
+kempt log [-n N]
+```
+
+One line per thing Kempt did, newest last. `-n` chooses how many lines to show; the default is
+30. With nothing recorded yet it prints `No events recorded yet.` on stdout and exits 0.
+
+```bash
+kempt log -n 6
+```
+
+```
+2026-08-26T20:58:03+03:00 cli refresh ok
+2026-08-26T20:58:11+03:00 cli check ok actionable=7 held=1
+2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
+2026-08-26T21:11:02+03:00 widget run start surface=background
+2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
+2026-08-26T21:14:41+03:00 widget check ok actionable=0 held=1
+```
+
+Every line is `<timestamp> <via> <what happened>`. `via` is `widget` when the command came from
+the Plasma widget and `cli` for everything else: a terminal, a script, a timer. That column is
+most of the point of the file. It is what separates "the box I just ticked did that" from
+"something else changed it while I was not looking".
+
+The vocabulary is fixed, so the file is worth grepping:
+
+| Line | Written when |
+| --- | --- |
+| `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when the key had no stored value. |
+| `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
+| `check ok actionable=<n> held=<n>` | A check succeeded. The numbers are the ones the badge is about to show. |
+| `check stale <reason>` | A check failed. The reason names the backend, for example `dnf check failed: authentication declined or cancelled`. |
+| `refresh ok` / `refresh failed` | The metadata refresh ran. It runs at most every three hours, and only on mains power over an unmetered connection. |
+| `run start surface=<surface>` | A run is about to change the system. Nothing is recorded for a run that aborted before that. |
+| `run done rc=0 updated=<n> reboot=needed\|no` | A run finished cleanly. |
+| `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
+| `offline staged <n>` | A transaction was staged for the next reboot. `<n>` is what the last check said dnf had pending. |
+| `harvest applied (<counts>)` | The check after a reboot found the staged transaction applied and wrote it into history. |
+| `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
+| `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
+
+The file is `~/.local/state/kempt/events.log`, mode 0600. Nothing else ever deletes from it, so
+it prunes itself: past 2500 lines it is rewritten to the last 2000.
+
+### Which question, which file
+
+Kempt writes four things, and they answer different questions. Reaching for the wrong one is why
+"why did that not work?" used to be hard to answer:
+
+| What you want to know | Where to look |
+| --- | --- |
+| What happened, when, and whether it came from the widget | `kempt log` |
+| What exactly the package manager printed during a run | the run log, `~/.local/state/kempt/logs/<stamp>.log`. `kempt summary` prints its path for a failed run, and every history entry carries it in `log`. |
+| A machine-readable summary of one run: versions, counts, held items, duration | `~/.local/state/kempt/history/<stamp>.json`, listed by `kempt history` |
+| What is pending right now | `~/.local/state/kempt/state.json`, rewritten by `kempt check` |
+| Widget-side errors: QML warnings, a settings page that will not load | `journalctl --user -b | grep -i kempt` (plasmashell prints QML warnings there), plus the error label the settings page shows in place |
+
+A run that failed because somebody closed the authentication dialog says
+`authentication declined or cancelled` in all of the first four. The raw pkexec wording is kept
+in the run log and nowhere else, because that file is evidence rather than a summary.
 
 ## doctor
 
@@ -252,6 +319,12 @@ ok    flatpak: /usr/bin/flatpak
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
+
+Recent events (kempt log):
+  2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
+  2026-08-26T21:11:02+03:00 widget run start surface=background
+  2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
+
 kempt doctor: all checks passed
 ```
 
@@ -276,6 +349,11 @@ What it checks, and what each failure means:
 
 Lines are `ok`, `info` or `FAIL`. Only `FAIL` affects the exit code, and every check runs even
 after one fails, so one pass shows every problem.
+
+The last five events are printed after the checks, indented so nothing there can be mistaken for
+a report line. They are not a check and never affect the exit code: the question that follows
+"is this install sound?" is usually "then why did my change not take effect?", and the answer is
+worth having in the same output.
 
 ## hold, unhold, holds
 

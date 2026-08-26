@@ -57,6 +57,18 @@ cmd_check() {
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
+  # One line per check. The two outcomes cmd_check actually has are the two it records: `ok` with
+  # the numbers the badge is about to show, and `stale` with the reason, which already names the
+  # backend that failed ("dnf check failed: ..."). The lock-timeout return above records nothing
+  # on purpose - it served a previous answer and looked at nothing, so there is no event.
+  if [[ "$status" == "ok" ]]; then
+    local counts
+    counts="$(jq -r '"actionable=\(.actionable) held=\(.held_total)"' <<<"$state" 2>/dev/null)" \
+      || counts="actionable=? held=?"
+    log_event "check ok $counts"
+  else
+    log_event "check $status $error"
+  fi
 }
 
 KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
@@ -201,6 +213,12 @@ cmd_update() {
       || preflight_abort "cannot read the installed flatpak set - aborting before any change"
   fi
 
+  # Recorded here and not a line earlier: everything above can still decline to run without
+  # touching the system - the risky recommendation's abort, a lock someone else holds, a
+  # pre-flight snapshot that will not read - and a "run start" for a run that never started is
+  # exactly the kind of line that makes a log untrustworthy. Past this point the system changes.
+  log_event "run start surface=$surface"
+
   # dnf
   local yflag=() excl=() dnf_status="ok"
   is_true "$auto" && yflag=(-y)
@@ -295,20 +313,48 @@ cmd_update() {
       '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot}' > "$OFFLINE_MARKER"
   fi
 
+  # Why it failed, worked out ONCE and then handed to everything that renders it: the history
+  # entry (and through it the summary), the notification, and the event log. Before this, all
+  # three said only "see <log>", which is not an answer when the log is four hundred lines of dnf
+  # progress and the real cause was that somebody closed the authentication dialog.
+  local reason=""
+  [[ "$status" == "ok" ]] || reason="$(run_failure_reason "$log")"
+
   # history entry
   local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json"
   held_dnf_json="$(holds_for dnf | jq -Rn '[inputs]')"
   held_fp_json="$(holds_for flatpak | jq -Rn '[inputs]')"
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
         --arg log "$log" --argjson dur "$(( $(date +%s) - start ))" \
-        --argjson reboot "$reboot" \
+        --argjson reboot "$reboot" --arg error "$reason" \
         --argjson dnf "$dnf_report" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --argjson fp "$fp_report" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
-     reboot_needed:$reboot, log:$log,
+     reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
+
+  # What the run did, in the event log's fixed vocabulary. A successful OFFLINE run gets its own
+  # line rather than "run done", because nothing has been applied yet - the transaction is waiting
+  # for a reboot, and the harvest is what will report it. N there is what the last check said dnf
+  # had actionable: the staged set cannot be read back out of dnf5 without a second privileged
+  # call, and it is the number the user was looking at when they chose to stage.
+  if [[ "$status" == "ok" ]]; then
+    if [[ "$surface" == "offline" ]]; then
+      local staged
+      staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
+      log_event "offline staged ${staged:-?}"
+    else
+      local upd
+      upd="$(jq -r '[.backends[].updated | length] | add // 0' "$hist" 2>/dev/null)" || upd="?"
+      log_event "run done rc=0 updated=$upd reboot=$([[ "$reboot" == true ]] && echo needed || echo no)"
+    fi
+  else
+    # rc 1 is what this command exits with on a failed run (the return at the bottom), so the
+    # line and the shell agree.
+    log_event "run failed rc=1: $reason"
+  fi
 
   # tell the human
   render_summary "$hist"
@@ -322,7 +368,9 @@ cmd_update() {
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
-      notify "Kempt" "Update FAILED - see $log"
+      # The same reason the summary and the event line carry. A notification that says only
+      # "see the log" is a notification that has told you nothing you can act on.
+      notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log"
     fi
   fi
   # A PENDING offline stage has to survive a live run. The staged transaction applies only on
@@ -423,7 +471,7 @@ cmd_history() {
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
-  local phrase
+  local phrase err
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, and must not take the
     # whole listing down with it - every other run is still perfectly readable.
@@ -433,7 +481,12 @@ cmd_history() {
     if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
        && [[ -n "$row" ]] \
        && phrase="$(run_counts_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
-      printf '%s  %s\n' "$row" "$phrase"
+      # The reason, on the rows that have one. A listing whose failed rows say "failed, no
+      # package changes" and nothing else sends the reader to a log file to learn that the
+      # authentication dialog was closed. Entries written before the field existed have no
+      # .error, and `// ""` keeps them rendering exactly as they did.
+      err="$(jq -r '.error // ""' "$f" 2>/dev/null || true)"
+      printf '%s  %s%s\n' "$row" "$phrase" "${err:+  ($err)}"
     else
       echo "warning: corrupt history entry: $f" >&2
     fi
@@ -460,11 +513,15 @@ harvest_offline() {
   pre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
   # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
   # pointer on every check for the rest of time.
-  [[ -n "$pre" && -f "$pre" ]] || { rm -f "$OFFLINE_MARKER"; return 0; }
+  [[ -n "$pre" && -f "$pre" ]] || {
+    rm -f "$OFFLINE_MARKER"
+    log_event "harvest cleared stale marker"
+    return 0; }
   now_snap="$(mktemp)"
   # never take the check down with it - a failed harvest must still leave a working check
   dnf_snapshot > "$now_snap" \
-    || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2; return 0; }
+    || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2
+         log_event "harvest skipped snapshot failed"; return 0; }
   if cmp -s "$pre" "$now_snap"; then rm -f "$now_snap"; return 0; fi   # not applied yet
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
@@ -482,7 +539,11 @@ harvest_offline() {
   rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
   # Same counts phrase as a live run's notification: a staged transaction that only installed or
   # removed packages must not be announced as "0 packages".
-  notify "Kempt" "Staged updates were applied on reboot - $(run_counts_phrase "$hist")"
+  local harvested; harvested="$(run_counts_phrase "$hist")"
+  # The one harvest outcome that changed something, and the only place the reboot's own result is
+  # ever recorded: the run that staged it ended hours and one boot ago.
+  log_event "harvest applied ($harvested)"
+  notify "Kempt" "Staged updates were applied on reboot - $harvested"
 }
 
 cmd_config() {
@@ -500,15 +561,42 @@ cmd_hold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  # Separate statements, not `hold_add ... && log_event ...`: an AND list would swallow hold_add's
+  # exit status and report a rejected name as exit 1 instead of the 2 the contract promises. This
+  # way errexit ends the command with the helper's own rc and no event is written.
   hold_add "$b" "$n"
+  log_event "hold $b:$n"
 }
 cmd_unhold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   hold_remove "$b" "$n"
+  log_event "unhold $b:$n"
 }
 cmd_holds()  { holds_all; }
+
+# `kempt log` - the event log, newest last, the way a log reads.
+# Deliberately the plainest command here: no filtering, no formatting, no colour. The file is
+# already one fact per line in a fixed vocabulary, and the answer to "did my OK land?" is the
+# last three lines of it. Anything more would be a second opinion about text that is meant to be
+# read with grep.
+cmd_log() {
+  local n=30
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "usage: kempt log [-n N]  (N >= 1)" >&2; exit 2; }
+          n="$2"; shift 2 ;;
+      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N]" >&2; exit 2 ;;
+    esac
+  done
+  # No file yet is the ordinary state of a fresh install, not an error - the same answer shape
+  # `kempt summary` gives a box with no runs: a sentence on STDOUT and exit 0, so a script that
+  # reads this command does not have to tell "nothing happened" apart from "something broke".
+  [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
+  tail -n "$n" "$EVENTS_FILE"
+}
 
 # --- kempt doctor ---
 # The trap this closes: with the root helpers missing, `kempt check` exits 0 with status "stale"
@@ -648,6 +736,19 @@ cmd_doctor() {
     doctor_fail "checkout incomplete: missing ${missing[*]} (in $ROOT)"
   fi
 
+  # Not a check, and deliberately below every check that is: doctor answers "is this install
+  # sound", and the next question a person asks after that is "then why did my change not take
+  # effect?". The last five events answer it in place, without anyone needing to know that
+  # `kempt log` exists. Indented, so nothing here can be mistaken for a report line.
+  echo
+  echo "Recent events (kempt log):"
+  if [[ -s "$EVENTS_FILE" ]]; then
+    tail -n 5 "$EVENTS_FILE" | sed 's/^/  /'
+  else
+    echo "  none"
+  fi
+  echo
+
   if [[ $DOCTOR_FAILS -eq 0 ]]; then
     echo "kempt doctor: all checks passed"
     return 0
@@ -696,13 +797,21 @@ cmd_enable_passwordless() {
   tmp="$(mktemp)"
   # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result;
   # it writes nothing on failure, so an unverified rule can never reach install(1).
-  if ! render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in" "$tmp"; then rm -f "$tmp"; exit 2; fi
+  # One event per invocation, carrying the exit status this command ends with - so a grant that
+  # was refused at the authentication dialog is recorded as plainly as one that succeeded. This
+  # is the setting with the largest security consequence Kempt can change, and it was the only
+  # one that left no trace at all of having been attempted.
+  if ! render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in" "$tmp"; then
+    rm -f "$tmp"; log_event "passwordless enable rc=2"; exit 2
+  fi
   # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty KEMPT_PKEXEC means "no wrapper" (test
   # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
   if ! ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} install -m 0644 -o root -g root "$tmp" "$RULES_DST"; then
-    rm -f "$tmp"; echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
+    rm -f "$tmp"; log_event "passwordless enable rc=1"
+    echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
   fi
   rm -f "$tmp"
+  log_event "passwordless enable rc=0"
   echo "Passwordless updates ENABLED for $(id -un) ($RULES_DST)"
 }
 
@@ -713,9 +822,15 @@ cmd_disable_passwordless() {
   # /etc/polkit-1/rules.d is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for
   # a file that exists - claiming "not enabled" there would leave a live grant in place.
   if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
+    log_event "passwordless disable rc=0"
     echo "passwordless was not enabled"; return 0
   fi
-  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} rm -f "$RULES_DST"
+  local rc=0
+  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} rm -f "$RULES_DST" || rc=$?
+  log_event "passwordless disable rc=$rc"
+  # The rc is still the command's own: captured only so the event can name it, then handed
+  # straight back. errexit used to do this and its behaviour is preserved exactly.
+  [[ $rc -eq 0 ]] || return $rc
   echo "Passwordless updates disabled"
 }
 
@@ -734,6 +849,7 @@ usage: kempt <command>
   run [--dry-run]       launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
   history               list past runs
+  log [-n N]            recent events: what Kempt did, when, and from where (default 30)
   doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
   unhold <same>         remove a hold
@@ -749,6 +865,7 @@ case "${1:-help}" in
   run)     shift; cmd_run "$@" ;;
   summary) shift; cmd_summary "$@" ;;
   history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
+  log)     shift; cmd_log "$@" ;;
   doctor)  shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_doctor ;;
   config)  shift; cmd_config "$@" ;;
   hold)    shift; cmd_hold "$@" ;;

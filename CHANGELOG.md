@@ -33,6 +33,21 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   rendered by one renderer for the terminal, the notifications and the widget alike.
 - **History and logs.** One JSON entry and one raw log per run, pruned automatically: the newest
   50 entries are kept and logs are dropped after 60 days.
+- **An event log, and `kempt log` to read it.** One line per thing Kempt did - a setting changed
+  and what it replaced, a hold added or removed, a check and its counts, a metadata refresh, a
+  run starting and how it ended, a transaction staged, a staged transaction harvested after the
+  reboot, a passwordless grant attempted - each stamped `widget` or `cli` so a change made in the
+  panel is distinguishable from one typed in a terminal. The per-run logs say what the package
+  manager printed and the history says what a run changed; nothing said whether the thing you
+  just did actually happened, which is the question people actually ask. Mode 0600, self-pruning
+  past 2500 lines, and the last five lines are appended to `kempt doctor`.
+- **A refused authentication says so.** When a run or a check fails because the authentication
+  dialog was declined or closed, the summary, the notification, `kempt history`, the state file
+  and the event log all say `authentication declined or cancelled` instead of pkexec's
+  "Error executing command as another user: Not authorized", which reads as a broken install.
+  The raw wording is kept in the run log, which is evidence rather than a summary. Failed runs
+  now carry their reason in the history entry, so a summary explains the failure instead of
+  pointing at a log file.
 - **Scoped root privileges.** Two polkit actions and two argument-validating root helpers, so a
   cheap metadata refresh can never share a cached authorization with a system upgrade. Optional
   passwordless mode is a single rule for a single action, limited to an active local session.

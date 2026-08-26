@@ -110,6 +110,29 @@ or update system Flatpak apps, without asking you. It cannot install a package o
 pass an arbitrary flag, run an arbitrary command, or reach anything outside those three verbs.
 That is the bound. It is a real one, and it is smaller than "sudo", but it is not "nothing".
 
+## What the event log contains
+
+`~/.local/state/kempt/events.log` is created mode **0600** by whichever command logs first, and
+the retention rewrite goes through `atomic_write`, whose temp file is 0600 too, so the mode
+survives every replace.
+
+What is in it: package and app names you hold or unhold, config keys and **their values**, the
+pending and held counts each check produced, run outcomes, and the exit status of an
+`enable-passwordless` or `disable-passwordless` attempt. In other words the same class of
+information as the config file and the state file sitting beside it, in one place and with
+timestamps.
+
+What is never in it: a password, a token, a polkit cookie or any other credential. Kempt never
+handles one - authentication is entirely polkit's, and the CLI only ever sees an exit status.
+Nor does it capture command output: a failed run contributes one line, capped at 120 characters,
+taken from its own log file; the log file itself is not copied.
+
+The line most worth knowing about is the config one, `config set <key>=<value> (was <old>)`,
+because it records values rather than just key names. That is deliberate - a log that said only
+"a setting changed" would not answer the question it exists to answer - and it is why the file is
+0600 rather than 0644. If you paste `kempt log` output into a bug report, it is your settings you
+are pasting.
+
 ## What bounds a malicious update
 
 Everything above is about *who* may start an upgrade and *what* may be said to the package

@@ -112,6 +112,36 @@ The same collapse runs on the pending side, where the problem is multilib rather
 as a user is concerned. Human-facing output shows the newest version of a comma-joined set; the
 JSON keeps the whole set.
 
+## Where Kempt writes
+
+Everything lives under `~/.config/kempt` and `~/.local/state/kempt` (both redirectable, see
+[Environment seams](#environment-seams)). Nothing is written anywhere else by an unprivileged
+command, and nothing is written outside these two trees by a privileged one either.
+
+| Path | What it is | Who prunes it |
+| --- | --- | --- |
+| `~/.config/kempt/config` | `key=value` settings, one per line, the only place a setting is stored | Nothing; it is yours |
+| `~/.config/kempt/holds` | One `backend:name` per line | Nothing; it is yours |
+| `~/.local/state/kempt/state.json` | What is pending right now, schema v1, a public interface | Rewritten by every check |
+| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, reboot verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
+| `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
+| `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
+| `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
+| `~/.local/state/kempt/offline_staged.json` | The marker for a transaction waiting on a reboot | Consumed by the harvest |
+| `~/.local/state/kempt/{lock,check.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+
+The event log is the newest of these and the one that answers a different kind of question. The
+other files describe **state** and **runs**; nothing recorded that a setting was changed, a
+package was held, or a check happened at all, so "did the change I just made land?" had no answer
+anywhere on the box. `log_event` in `lib/common.sh` writes it, `kempt log` reads it, and it is
+best-effort by contract: it returns 0 whatever happens, never blocks, and a state directory that
+cannot be written simply gets no events rather than an error on every command.
+
+The `via` column comes from `KEMPT_VIA`, which the widget sets to `widget` on every command it
+runs (see [The widget's one command path](#the-widgets-one-command-path)). Anything else is
+`cli`. It is read in exactly one place - `log_event` - and changes nothing else about how the
+CLI behaves.
+
 ## State JSON schema v1
 
 `~/.local/state/kempt/state.json` is a **public interface**. The widget parses it blind, and so
@@ -197,6 +227,21 @@ serialized, always asynchronous, and hard-timed-out per call. That isolation is 
 eventual swap when KDE removes the shim is a one-file change, and nothing anywhere else in the
 widget is allowed to start a process.
 
+Every command it builds is prefixed `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`. The
+PATH assignment is there because plasmashell does not reliably inherit a login shell's one and
+`install.sh` puts the CLI in `~/.local/bin`; `KEMPT_VIA` is read by `log_event` and by nothing
+else, and is what makes `kempt log` able to say a change came from the panel.
+
+**The settings page's writes are durable, and that is not cosmetic.** Plasma runs its OK button
+as `applyAction.trigger(); configDialog.close()`, and the close destroys the page, its Executor
+and the DataSource behind it - which deletes the KProcess, whose destructor SIGKILLs the `sh`
+still running the command. A 10 ms `kempt config set` against a teardown two event-loop hops away
+is a race, and it was lost in practice. So every write that page dispatches goes through
+`page.durable()`, which appends `& wait $!`: the work forks into a background job the SIGKILL
+never reaches, while `wait $!` still returns the job's real exit status so the page's error
+handling is unchanged. It is applied to writes only, and never to `main.qml`'s executor, whose
+timeout has to be able to kill a wedged `kempt check` outright.
+
 **ONE component, three instances.** The file is one; the queues are deliberately not.
 
 | Instance | Lives in | Carries | Why it is separate |
@@ -255,7 +300,7 @@ needs to be:
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 15 files and 1212 assertions, 672 of them in the two widget files, and it runs
+The whole suite is 17 files and 1310 assertions, 693 of them in the two widget files, and it runs
 green with no package manager, no polkit and no desktop present.
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
@@ -457,6 +502,7 @@ destructive paths without ever running them.
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
+| `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to exactly that, `cli` otherwise. The widget sets it on every command it runs. Read by `log_event` and by nothing else, so it can never change what a command does |
 | `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions |

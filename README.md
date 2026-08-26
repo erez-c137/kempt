@@ -44,6 +44,10 @@ half stands today.
   installs, removals, held items and a reboot verdict. Same renderer for the terminal, the
   notification and the widget popup.
 - **Update history.** Every run is a JSON entry plus a full raw log, kept and pruned for you.
+- **An event log that answers "did that land?"** `kempt log` prints one line per thing Kempt did,
+  each marked `widget` or `cli`: settings changed and what they replaced, holds, checks and their
+  counts, runs and how they ended. A run refused at the authentication dialog says
+  `authentication declined or cancelled` rather than quoting pkexec at you.
 - **Scoped root privileges.** Two polkit actions, two small root helpers that validate every
   argument before running anything. Metadata refresh needs no dialog; applying updates asks
   once per run. Optional passwordless mode is a single polkit rule for the apply action,
@@ -60,7 +64,7 @@ half stands today.
 ## Status
 
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
-  by the test suite in `tests/` (15 files, 1212 assertions, and it needs neither dnf nor flatpak
+  by the test suite in `tests/` (17 files, 1310 assertions, and it needs neither dnf nor flatpak
   nor root to run). This is the whole engine, and it is the half that is finished.
 - **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold` and
   `kempt config`, with no package management of its own: a panel icon whose badge is the real

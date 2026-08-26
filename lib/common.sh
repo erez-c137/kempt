@@ -47,6 +47,7 @@ SNAP_DIR="$KEMPT_STATE_DIR/snapshots"
 LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
+EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -68,6 +69,51 @@ kempt_init_dirs() {
   while IFS= read -r f; do [[ -n "$f" ]] && rm -f "$f"; done \
     < <(ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 || true)
   find "$LOG_DIR" -name '*.log' -mtime +60 -delete 2>/dev/null || true
+  return 0
+}
+
+# --- the event log ---
+# The three files Kempt already wrote answered three questions and left the fourth one open:
+# logs/<stamp>.log says what the package manager printed, history/<stamp>.json says what a run
+# changed, state.json says what is pending now. NOTHING recorded that a setting was changed, a
+# package was held, or a check ran at all - so "did the change I just made in the widget land?"
+# had no answer anywhere on the box. This is that answer: one line per thing Kempt did, appended,
+# read back with `kempt log`.
+#
+# Best-effort by construction, and that is a contract, not a shrug. It returns 0 whatever happens,
+# because a log line is never worth changing the exit status of the command that emitted it, and
+# it never blocks: a short line appended with >> is written atomically by the kernel, so
+# overlapping writers interleave whole lines instead of corrupting each other, and no lock is
+# needed to say so. A state directory that cannot be written simply gets no events.
+log_event() {  # text
+  local via=cli
+  # The widget prefixes every command it runs with KEMPT_VIA=widget (plasmoid main.qml and
+  # configGeneral.qml). Anything else - a terminal, a script, a timer - is `cli`. Two answers on
+  # purpose: this exists to separate "I clicked that" from "something else did".
+  [[ "${KEMPT_VIA:-}" == widget ]] && via=widget
+  {
+    # `|| return 0` is also what keeps errexit out of here: a function called on the left of ||
+    # runs with errexit suspended, so a failing mkdir inside it can never take the caller down.
+    kempt_init_dirs || return 0
+    # 0600 from the moment the file exists. It names packages you hold and the values of your
+    # settings, and whichever command happens to log first is the one that creates it.
+    if [[ ! -e "$EVENTS_FILE" ]]; then
+      : > "$EVENTS_FILE" || return 0
+      chmod 600 "$EVENTS_FILE" || true
+    fi
+    printf '%s %s %s\n' "$(now_iso)" "$via" "$1" >> "$EVENTS_FILE" || return 0
+    # Retention, checked on write because there is no timer to check it on. The rewrite keeps the
+    # last 2000 of 2500, so it runs once every 500 events rather than on every append, and it goes
+    # through atomic_write: a reader (`kempt log`, `kempt doctor`) must never see a half-rewritten
+    # file. mktemp creates its temp 0600, so the mode survives the replace. No date-based
+    # retention here on purpose - an event log is only useful as far back as it reaches, and a
+    # count is a bound a human can reason about without knowing how busy the box has been.
+    local n
+    n="$(wc -l < "$EVENTS_FILE")" || return 0
+    if (( n > 2500 )); then
+      tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
+    fi
+  } 2>/dev/null || true
   return 0
 }
 
@@ -136,12 +182,23 @@ config_set() {  # key value
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
   kempt_init_dirs
   touch "$CONFIG_FILE"
+  # The outgoing value, read BEFORE anything is written, because "(was false)" is half of what
+  # makes the event line worth having: it turns "auto_accept=true" into evidence that the click
+  # changed something. Same read config_get does, and it shares config_get's one ambiguity - a
+  # stored empty value is indistinguishable from an absent key, and both are reported as `unset`.
+  local old
+  old="$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)"
   # Read-then-write: grep completes into a variable BEFORE any write begins, so a failure
   # mid-pipeline can never leave a truncated config behind. rc 1 = "no other lines", allowed.
   local out rc=0
   out="$(grep -v "^$1=" "$CONFIG_FILE")" || rc=$?
   [[ $rc -le 1 ]] || return $rc
-  printf '%s%s=%s\n' "${out:+$out$'\n'}" "$1" "$2" | atomic_write "$CONFIG_FILE"
+  rc=0
+  printf '%s%s=%s\n' "${out:+$out$'\n'}" "$1" "$2" | atomic_write "$CONFIG_FILE" || rc=$?
+  # Only a write that happened is an event, and the caller's exit status is the WRITE's - never
+  # log_event's, which is always 0.
+  [[ $rc -eq 0 ]] && log_event "config set $1=$2 (was ${old:-unset})"
+  return $rc
 }
 
 # timeout: metadata refresh runs from background checks. Once polkit exists but before the
@@ -165,7 +222,7 @@ stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing sp
 # directory", which reads as "the update check timed out" and sends the reader hunting a network
 # problem they do not have. The real cause is that install.sh has never run. Anything else is
 # passed through untouched: a genuine repo or metadata error must still speak for itself.
-explain_helper_error() {  # stderr-tail → the tail, or the missing-helper message
+explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or the declined-auth one
   local t="$1" h
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
@@ -175,7 +232,43 @@ explain_helper_error() {  # stderr-tail → the tail, or the missing-helper mess
       fi
     done
   fi
-  printf '%s\n' "$t"
+  # The missing-helper rewrite goes first because it is the more specific claim (it matches a
+  # helper path in the text). Everything else that is only pkexec saying no goes through the one
+  # mapping below; anything genuinely from a package manager still passes through untouched.
+  friendly_error "$t"
+}
+
+# The ONE place a refused authentication becomes words a human is meant to read, used by every
+# surface that renders a failure reason: state.json's `error`, the run summary, the notification,
+# `kempt history` and the event log. pkexec's own wording is unreadable in any of them - "Error
+# executing command as another user: Not authorized" reads as a broken installation, when what
+# happened is that the person at the keyboard closed the dialog. The raw text is never lost: it
+# stays in the run log, which is where you go when the friendly sentence is not enough.
+# Three markers, all pkexec's: polkit's refusal, a dismissed dialog, and the prefix pkexec wraps
+# both of them in.
+KEMPT_AUTH_DECLINED='authentication declined or cancelled'
+friendly_error() {  # raw text → the same text, or the declined-auth sentence
+  case "$1" in
+    *"Not authorized"*|*dismissed*|*"Error executing command as another user"*)
+      printf '%s\n' "$KEMPT_AUTH_DECLINED" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Why a run failed, in one line, for the four places that render it. All four used to say only
+# "see <log>", which is not an answer when the log is four hundred lines of dnf progress.
+# The first line that NAMES a failure, not the first line: a package manager's log opens with
+# repository chatter, and reporting "Updating repositories" as the reason is worse than silence.
+# Nothing matched → the last non-empty line, which is where a terse failure lands. Indentation is
+# stripped and the result capped at 120 characters, because this ends up in a notification body.
+run_failure_reason() {  # log-file → one line, possibly empty
+  local line=""
+  [[ -r "$1" ]] || { printf '\n'; return 0; }
+  line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
+  [[ -n "$line" ]] || line="$(grep -v '^[[:space:]]*$' "$1" | tail -1 || true)"
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="$(friendly_error "$line")"
+  printf '%s\n' "${line:0:120}"
 }
 notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
@@ -310,7 +403,19 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   (( now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
-  priv_refresh refresh >/dev/null 2>&1 && touch "$LAST_REFRESH_FILE" || true
+  # Logged as its own step, because a failure here is invisible everywhere else: the check that
+  # follows carries on against the cached metadata and reports status "ok", so a box whose
+  # metadata has not refreshed for a week looks exactly like one that is up to date. The two
+  # skipped paths above emit nothing - nothing was attempted, so there is nothing to report.
+  # Its stderr stays discarded: this is a background best-effort step, and the consequence a user
+  # can act on is reported by the next check, not by this line.
+  if priv_refresh refresh >/dev/null 2>&1; then
+    touch "$LAST_REFRESH_FILE" || true
+    log_event "refresh ok"
+  else
+    log_event "refresh failed"
+  fi
+  return 0
 }
 
 on_battery() {
@@ -395,8 +500,12 @@ render_summary() {  # history-json-file → human text
     # counts_phrase (KEMPT_JQ_COUNTS) is the shared definition; `true` keeps the update count on
     # the line even at zero, which is what a per-backend line has always printed.
     def counts(b): counts_phrase(b.updated|length; b.added|length; b.removed|length; true);
+    # `.error // ""`: entries written before the field existed have no .error at all, and a
+    # summary of an old run must still render rather than printing "null".
     "Kempt - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
-      + (if .status == "ok" then "✓" else "FAILED - see " + .log end),
+      + (if .status == "ok" then "✓"
+         else "FAILED - see " + .log
+              + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),
     "System (dnf): " + counts(.backends.dnf)
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),

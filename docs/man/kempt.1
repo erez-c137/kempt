@@ -21,6 +21,10 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .br
 .B kempt history
 .br
+.B kempt log
+.RB [ \-n
+.IR N ]
+.br
 .B kempt doctor
 .br
 .B kempt hold
@@ -102,6 +106,25 @@ column counts upgrades, installs and removals in the same words the notification
 .RB ( "3 updated, +1 installed" ", " "no package changes" ),
 so a run that only installed or removed packages is never listed as "0 updated".
 .TP
+.BR log " [" \-n " " \c
+.IR N ]
+Print the event log, oldest of the shown lines first.
+.I N
+defaults to 30. Each line is
+.IR "timestamp via text" ,
+where
+.I via
+is
+.B widget
+when the command came from the Plasma widget and
+.B cli
+for anything else, and the text comes from a fixed vocabulary: config changes with the value
+they replaced, holds, check outcomes with their counts, metadata refreshes, run start and run
+result, offline staging, harvests and passwordless attempts. With nothing recorded yet it prints
+.B "No events recorded yet."
+and exits 0. This is the file to read when the question is "did the change I just made land?",
+which the per-run logs and the history cannot answer.
+.TP
 .B doctor
 Check this installation and print one line per check, prefixed
 .BR ok ", " info " or " FAIL :
@@ -109,6 +132,8 @@ both root helpers at the polkit\-annotated paths and owned by root, the polkit a
 .BR jq ,
 the terminal emulator, flatpak, the configuration file's syntax, a writable state directory and
 an intact checkout. Every check runs even after one fails. Exit status 1 when anything failed.
+The last five lines of the event log are printed after the checks; they are not a check and never
+affect the exit status.
 Worth running when
 .B check
 reports nothing pending on a machine that cannot possibly be up to date: a missing root helper
@@ -186,7 +211,14 @@ Latest check result, schema v1. A documented public interface.
 One JSON entry per run. The newest 50 are kept.
 .TP
 .I ~/.local/state/kempt/logs/
-Full raw output per run. Deleted after 60 days.
+Full raw output per run. Deleted after 60 days. Evidence, never rewritten: a failure that a
+summary reports as
+.B "authentication declined or cancelled"
+appears here in the authentication helper's own words.
+.TP
+.I ~/.local/state/kempt/events.log
+The event log, mode 0600. One line per thing Kempt did. Past 2500 lines it is rewritten to the
+last 2000; nothing else deletes from it.
 .TP
 .I /usr/local/libexec/kempt-refresh
 Root helper: package metadata only, no authentication dialog.
