@@ -63,7 +63,9 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   # "a restart is owed", on every box that has never checked as this user - a permanent false
   # positive, and the first thing a reader of the state key would show a human. Disabling every
   # repo is not a workaround for it: this question needs no repo metadata whatsoever, so the
-  # verdict is the same verdict, and it is available on a completely cold cache in ~0.25s.
+  # verdict is the same verdict, and it is available on a completely cold cache in about half a
+  # second (measured on this box, Fedora 44 / dnf5, six runs against six fresh empty HOMEs:
+  # 0.48-0.54s). A warm plain -C takes about three times that, and answers no better.
   #
   # rc 1 therefore requires POSITIVE evidence - the package list on stdout. rc 1 with an empty
   # stdout is the command saying it could not work the answer out, and `false` here means
