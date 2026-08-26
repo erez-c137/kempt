@@ -1,0 +1,85 @@
+# Kempt Popup Redesign (Plan 3) Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** The popup tells the truth a person needs in the first second (is it clean, as of when, does it need a restart, what changed last) and offers exactly one primary action. Today it shows a greyed-out primary button in the up-to-date state, a CLI summary header with an ISO timestamp as its post-run line, and nothing at all about a restart that the CLI already knows is owed.
+
+**Provenance:** founder review 2026-08-26 (the ISO line and the button row questioned), a six-persona simulated user panel (`~/scratch/kempt-popup-panel/user-panel.md`) and a Plasma HIG review that read Plasma 6.7.4's own plasmoids off this box (`~/scratch/kempt-popup-panel/hig-review.md`). Copy both into `docs/research/2026-08-26-popup-panel/` as Task P0 so the reasoning survives `~/scratch` cleanup.
+
+**Decisions (founder, 2026-08-26):** Restart button = YES (opens KDE's own prompt, never automatic). Refresh = icon. Persistent last-update line = YES. Primary action = footer (HIG reviewer's evidence, see below).
+
+**Hard constraints (repeat in every dispatch):** user-level only - never pkexec/sudo/dnf writes; the test suite runs serially (`tests/qml/safe_probe.py` for probes, never a fan-out); one heavy job on this box at a time; throwaway files in `~/scratch/`; no em dashes in any user-facing string or doc; no AI attribution in commits; plain conventional commit subjects; state schema v1 stays backward compatible (additive keys only, readers tolerate absence); the widget stays THIN (all knowledge in the CLI, all derivation in `logic.js`, all commands through `Executor.qml`).
+
+---
+
+## Layout (directive)
+
+Both states share one skeleton: `PlasmaExtras.Representation` with `header`, `contentItem`, `footer`.
+
+```
+header  : [ 3 updates available                              ] [↻]
+content : InlineMessage stack (only the ones that apply, in this order):
+            ⚠ Restart to apply installed updates          [Restart…]
+            ⚠ This includes a kernel update. Restart when it finishes.   [Install on Next Restart]
+            ⓘ <stale reason> (last successful check: <stamp>)
+            ✓ Updated 1 package in 38s  /  ✗ Update failed: <first line>  [Show Log]   (transient, post-run)
+          System (dnf)                                  <- PlasmaExtras.ListSectionHeader
+            nodejs     2:24.19.0-1nodesource → 2:24.20.0-1nodesource    [📌]
+          Apps (flatpak)
+            Firefox    140 → 141                                        [📌]
+          Held
+            kernel     6.15.1 → 6.15.3                                  [📌]
+          Last update 18 min ago · 1 package                        [▾]   <- ExpandableListItem, expands to the history entry's package list
+footer  : Checked 4 min ago · 1 held                          [ Update Now ]
+```
+
+Up-to-date state: header `Up to date`; content = InlineMessage stack (restart, stale) + `PlaceholderMessage` `Everything is up to date` (no full stop; when something is held the placeholder is NOT shown, the Held group is, so the state is never a lie by omission) + the Last update row; footer `Checked 4 min ago · 1 held` and **no Update Now button** (hidden, not disabled). Updating state: unchanged from today (log tail for the popup surface, one-line notice otherwise).
+
+Why footer and not the heading row for the primary action: Plasma's contract lets the containment replace the heading (`ContainmentDrawsPlasmoidHeading`), every shipped applet treats heading contents as expendable, `PlasmoidHeading` is a `ToolBar` (flat controls only), and the KDE HIG puts the primary action bottom-right. `org.kde.plasma.vault` is the precedent (`footer:` with its primary button). A footer also keeps Update Now visible while a long list scrolls.
+
+Why Refresh is on OUR heading row and not the tray's: there is no API. `BasicPlasmoidHeading.extraControls` is hidden in the tray by design, `Plasmoid` exposes no heading slot, and the tray's ExpandedRepresentation is compiled into the systemtray plugin. The shipped shape is Bluetooth's `Header.qml`: spacer, icon-only `ToolButton` (`view-refresh`), `text: i18n("Check for Updates")`, ToolTip bound to it, `Accessible.description`. NOT gated on the containment hint. Additionally registered as a `PlasmaCore.Action` in `Plasmoid.contextualActions` so the tray's "More actions" menu and the icon's right-click menu carry it for free (`org.kde.plasma.vault` precedent).
+
+---
+
+## Tasks
+
+### P0 - Research provenance (docs only)
+- [ ] Copy the two panel reports into `docs/research/2026-08-26-popup-panel/` (`user-panel.md`, `hig-review.md`), add a 10-line `README.md` there with the decisions above and links.
+
+### P1 - CLI: live `reboot_needed` in the state file (fix the data, not the surface)
+- [ ] `cmd_check` writes an additive `reboot_needed: true|false` into state JSON using the existing `dnf_reboot_needed` (cache-only `dnf5 -C needs-restarting`, no network, no stdin). History keeps its own `reboot_needed` (a fact about that run); the state key is the fact about NOW, so it clears on its own after a restart and also turns on when a plain `sudo dnf5 upgrade` in a terminal owed one.
+- [ ] Schema doc: `docs/architecture.md` state schema table gains the key with the rule "readers must tolerate its absence; `false` means nothing to say, never render 'no restart needed'" (needs-restarting has known kernel false negatives, dnf5#2562).
+- [ ] `kempt summary` unchanged. `kempt check` cost: one extra cache-only dnf5 call; measure and record it in the commit body.
+- [ ] Tests: state contains the key for both values (use the dnf echo seam), corrupt/missing key tolerated by `viewModel` (node test), fixture `state-reboot-needed.json` added with MANIFEST provenance.
+
+### P2 - logic.js: view model for the new surfaces (node-tested, engine-agnostic)
+- [ ] `vm.rebootNeeded` (bool; false when absent).
+- [ ] `vm.footerText`: `Checked <relative> ago` joined with ` · N held` when held > 0. Relative time computed in `logic.js` in the same defensive style as `formatStamp` (never "Invalid Date", never a timezone shift, falls back to the absolute stamp on anything unexpected); absolute stamp exposed as `vm.footerTooltip`. Ticks: a 30 s `Timer` in the popup re-evaluates while expanded.
+- [ ] `countPhrase` shortened in `logic.js` (shared by header and tooltip; node tests pinned): `3 updates available` stays as is unless width forces it; do not fork the string in QML.
+- [ ] `lastRunOf(historyJson)`: `{ when, updatedCount, failed, items:[{name,from,to}], logPath, rebootNeeded }` from `kempt summary --json` if it exists, else from the newest history file read through `kempt history --json`/`--last` (check which exists; if neither, add `kempt summary --json` to the CLI as the smallest addition and document it).
+- [ ] Post-run transient line: `Updated N packages in Ns` / `No package changes` / `Update failed: <first stderr line>` (with `Show Log`). Replaces the CLI summary header verbatim. Rule: while the transient line is visible the persistent Last update row is hidden (one event, one line at a time); once the transient clears (popup closed or next check), the persistent row shows.
+- [ ] Copy table (all strings live in one place, node-tested): `Up to date`, `Everything is up to date`, `Restart to apply installed updates`, `Restart…` (U+2026), `Check for Updates`, `Update Now`, `Install on Next Restart` (tooltip: `Applies the update during a restart, so nothing changes underneath your running desktop.`), `This includes a kernel update. Restart when it finishes.` (when `akmod-nvidia`/`nvidia` is in `risky_pending`: `This includes a kernel update and the NVIDIA driver. Restart when it finishes.`), `N held` (never "held back"), `Last update <relative> · N packages`, `Show Log`, `Configure Kempt…` (real ellipsis). Title case for buttons, sentence case for messages.
+
+### P3 - QML: header / message area / list / footer
+- [ ] `header`: our `PlasmoidHeading` with `Heading` (vm.headerText) left, spacer, Refresh `ToolButton` right (BusyIndicator overlays or replaces the icon while a check runs; one spinner only). Gear stays conditional on `ContainmentDrawsPlasmoidHeading` exactly as today.
+- [ ] `Plasmoid.contextualActions` gains `Check for Updates` (same `doCheck()` as the button).
+- [ ] Refresh-on-open: when `expanded` turns true and `last_success` is older than the configured interval (or 5 min, whichever is smaller), call `doCheck()`; never a blocking call; never more than one in flight (Executor already serializes).
+- [ ] Content top: `Kirigami.InlineMessage` per message with `actions:`; restart message `type: Warning`, action `Restart…` runs (through the action Executor) `dbus-send --session --dest=org.kde.LogoutPrompt --type=method_call /LogoutPrompt org.kde.LogoutPrompt.promptReboot` (service is D-Bus activatable: `/usr/share/dbus-1/services/org.kde.LogoutPrompt.service`). NEVER `org.kde.Shutdown.logoutAndReboot`. Failure to reach the prompt shows in the message's own text (`Could not open the restart prompt.`), never silent. Shown in EVERY state when `vm.rebootNeeded`.
+- [ ] Risky/offline message: moves out of the header into the stack; `Install on Next Restart` is its action (same `runOffline()` as today). Stale explanation: `type: Information` in the stack.
+- [ ] Group headers become `PlasmaExtras.ListSectionHeader`. Version strings stay FULL and untruncated (power users compare epoch/vendor tags; two machines are compared by eye).
+- [ ] Last update row: `PlasmaExtras.ExpandableListItem` (title `Last update 18 min ago · 1 package`, subtitle reboot/failed if so, expanded content = the package list from `lastRunOf`, plus `Show Log` action). Hidden while the transient post-run line is visible.
+- [ ] `footer`: `PlasmoidHeading` footer variant; `Label` (vm.footerText, tooltip absolute stamp) left, spacer, `Update Now` `Button` right (icon `system-software-update`), `visible: vm.actionable > 0 && !updating`.
+- [ ] Remove: the old button row, the `actionMessage` ISO line, the duplicate "Up to date" heading in the empty state (header keeps `Up to date`; the placeholder carries the sentence; never both at once with the same words - node test pins that headerText and emptyStateText are not equal).
+
+### P4 - Keyboard and accessibility (today: zero `Keys.`/`focus` in the widget)
+- [ ] Focus lands on `Update Now` when the popup opens (on Refresh when there is nothing to update). Tab order: Update Now, list rows (pin reachable), message actions, Refresh. `Keys.onEscapePressed` closes the popup (Klipper precedent).
+- [ ] `Accessible.description` on every icon-only button (Refresh, pin: reuse the pin's existing `text`), `Accessible.role: Button` where needed. Restart/stale/risky messages announce via `Accessible.name` on the InlineMessage.
+- [ ] Probe: focus item after expand for both states; tab sequence; Escape closes.
+
+### P5 - Tests, docs, install
+- [ ] Node tests for every P2 function and the copy table; QML probes for both states and the message stack (with the fixtures: pending, pending+risky, up-to-date, up-to-date+held, reboot-needed, stale, post-run success, post-run failure); screenshot probe if the kit supports it, else structural.
+- [ ] Docs: `docs/usage.md` popup section rewritten with the new anatomy (annotated ASCII, both states), the restart behaviour (`Restart…` opens KDE's own prompt; nothing restarts on its own; if you never press it, the updates are still applied), refresh-on-open, `Install on Next Restart` naming; README screenshot retaken by the founder (note as an owed item, do not fake). CHANGELOG Unreleased. `docs/ROADMAP.md`: add to v1.x "Remind me later / tonight / Wi-Fi only" (panel finding #2), "download size next to Update Now, from the update transaction, never from check" (finding #1 and HIG P9), "spoken result after an action" (a11y).
+- [ ] `kpackagetool6 -t Plasma/Applet -u plasmoid`; leave the hicolor icon alone; do not restart plasmashell (tell the founder the popup needs `plasmashell --replace` or a re-login to pick up QML changes if it does not on its own).
+
+### Review gates
+Two-stage per task (spec reviewer, then quality reviewer with an EXECUTED probe per claim). Founder visual gate at the end: tray popup in both states, screenshot for the README.
