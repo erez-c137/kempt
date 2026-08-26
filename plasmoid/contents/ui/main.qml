@@ -63,7 +63,12 @@ PlasmoidItem {
     // in ~/.local/bin. The prefix makes the widget find it either way: from a symlink install or
     // from a package that dropped `kempt` in /usr/bin. The engine runs the string through a
     // shell, so a per-command assignment is all this needs to be.
-    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" kempt"
+    //
+    // KEMPT_VIA=widget rides along on the same assignment. It changes nothing about what the CLI
+    // does - it is read in exactly one place, lib/common.sh's log_event, which stamps each line
+    // of `kempt log` with `widget` or `cli`. That is the difference between "did my click land?"
+    // and "something changed this setting at 21:10", and it costs one word per command.
+    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" KEMPT_VIA=widget kempt"
 
     // Where the CLI keeps its state, resolved the way lib/common.sh resolves it:
     // KEMPT_STATE_DIR when set, else ~/.local/state/kempt. Deliberately NOT XDG_STATE_HOME -

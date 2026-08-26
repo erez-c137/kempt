@@ -618,4 +618,72 @@ p.wait_for(ev10, "page.passwordlessBusy", False, timeout_ms=15000)
 p.check("...which then finishes normally, with its own last words",
         ev10("page.passwordlessResult"), "some polkit chatter Passwordless updates enabled")
 
+# ==================================================================================================
+# Every write this page dispatches outlives the dialog that dispatched it.
+#
+# The measured failure: the founder ticked "Apply updates without asking for confirmation",
+# pressed OK, and `kempt config get auto_accept` still read the old value. Plasma's OK is
+# `applyAction.trigger(); configDialog.close()` (AppletConfiguration.qml, acceptAction) - so
+# saveConfig() DISPATCHES and the close in the same turn destroys the page, cfgExecutor and its
+# DataSource. The engine drops the unused container, deletes the KProcess behind it, and a
+# KProcess destructor SIGKILLs its child: the `sh` running the command. A 10ms write against a
+# teardown two event-loop hops away is a race, and Apply never had it because nothing is
+# destroyed when Apply is pressed.
+#
+# The fix is a string, so what is asserted here is the string. That `<cmd> & wait $!` actually
+# survives the SIGKILL - and that the plain form does not - is proved without a QML engine in
+# tests/test_config_durable_write.sh.
+#
+# The slow-write seam is what makes the command readable: the stub sleeps, so the job is still
+# in flight (`cfgExecutor.current`) when the assertions run instead of having answered already.
+# ==================================================================================================
+for k, v in DEFAULTS:
+    setval(k, v)
+setval("auto_accept", "false")            # so the user's move here is the one that writes `true`
+toggle_fail(SLOWSET, "auto_accept")
+page11, ev11 = build()
+p.check("the page opened on the stored value", ev11("autoAccept.checked"), False)
+ev11("autoAccept.checked = true")
+ev11("autoAccept.toggled()")
+p.pump(50)
+p.clear_calls()
+ev11("page.saveConfig()")
+cmd11 = ev11("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
+src11 = ev11("cfgExecutor.current ? cfgExecutor.current.source : ''")
+p.check("the write is stamped as the widget's, which is what `kempt log` reports",
+        "KEMPT_VIA=widget kempt config set" in cmd11, True)
+p.check("...carries the value quoted by Logic.shellQuote",
+        "config set auto_accept 'true'" in cmd11, True)
+p.check("...and ends in the durable form, so a SIGKILL at the shell cannot lose it",
+        cmd11.endswith(" & wait $!"), True)
+p.check("...with Executor's dedup tag after it, where sh reads it as a comment",
+        src11 == cmd11 + " #kempt" + str(ev11("cfgExecutor.serial")), True)
+p.wait_idle(ev11, "cfgExecutor", timeout_ms=20000)
+p.check("...and the write still lands the way it always did", stored("auto_accept"), "true")
+p.check("...leaving the page clean, so `wait $!` did carry the exit status back",
+        ev11("page.unsavedChanges"), False)
+toggle_fail(SLOWSET, "auto_accept", False)
+
+# Removing a hold is the page's other write, and it sits on the same dying dialog.
+p.clear_calls()
+ev11('page.removeHold("flatpak:org.gimp.GIMP")')
+cmdh = ev11("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
+p.check("removing a hold is dispatched durably too",
+        cmdh.endswith("unhold 'flatpak:org.gimp.GIMP' & wait $!"), True)
+p.check("...with the same widget stamp", "KEMPT_VIA=widget kempt unhold" in cmdh, True)
+p.wait_for(ev11, "page.holdsBusy", False)
+p.wait_idle(ev11, "cfgExecutor")
+p.check("...and it still removes the hold", p.argv("unhold"), ["unhold", "flatpak:org.gimp.GIMP"])
+
+# The reads are deliberately NOT durable. Losing a `config get` to the teardown costs nothing -
+# the page asking for it is gone - and the blanket version of this change would be the one that
+# matters: main.qml's `kempt check` must stay killable by its own timeout.
+p.clear_calls()
+page12, ev12 = build(wait=False)
+readcmd = ev12("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
+p.check("a read carries the widget stamp", "KEMPT_VIA=widget kempt config get" in readcmd, True)
+p.check("...but is dispatched plainly: only writes need to outlive the dialog",
+        readcmd.endswith(" & wait $!"), False)
+p.wait_idle(ev12, "cfgExecutor")
+
 sys.exit(p.done())

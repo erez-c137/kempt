@@ -22,8 +22,40 @@ import "logic.js" as Logic
 KCM.SimpleKCM {
     id: page
 
-    // Same prefix main.qml uses: plasmashell does not reliably inherit a login shell's PATH.
-    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" kempt"
+    // Same prefix main.qml uses: plasmashell does not reliably inherit a login shell's PATH, and
+    // the same KEMPT_VIA=widget stamp, so a setting changed here is distinguishable in `kempt
+    // log` from one typed in a terminal.
+    readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" KEMPT_VIA=widget kempt"
+
+    // Every write this page dispatches goes through here, and this is why.
+    //
+    // The dialog's OK button is `applyAction.trigger(); configDialog.close()`
+    // (AppletConfiguration.qml, the acceptAction handler). trigger() calls saveConfig() below,
+    // which DISPATCHES the writes and returns; close() then runs in the same turn.
+    // PlasmaQuick::ConfigView deletes itself on hide, and that takes this page, cfgExecutor and
+    // its DataSource with it. The engine then drops the container nobody is connected to any
+    // more, deleting the KProcess behind it - and a KProcess destructor SIGKILLs its child. The
+    // child is the `sh` running our command.
+    //
+    // So an OK press is a race between a `kempt config set` (about 10 ms) and a teardown that is
+    // a couple of event-loop hops away, and the founder lost it: a ticked box, OK, and `kempt
+    // config get auto_accept` still reading the old value. Apply never had the problem, because
+    // nothing is destroyed when Apply is pressed.
+    //
+    // `<cmd> & wait $!` settles it. The work is forked into a background job, so the SIGKILL that
+    // arrives for the `sh` pid reaches a shell that is doing nothing but waiting - the job itself
+    // is never signalled and finishes on its own. `wait $!` (not a bare `&`) keeps the normal
+    // path intact: it propagates the job's real exit status, so the rc handling in setIfChanged,
+    // the "Apply stays lit on a failed write" behaviour and the error label all still see what
+    // the CLI actually said. Executor appends its ` #kemptN` dedup tag after this; `#kemptN`
+    // begins a word, so sh reads it as a comment exactly as it does today.
+    //
+    // Deliberately NOT applied to the reads on this page (a lost `config get` costs nothing - the
+    // page is gone), and never to main.qml's action executor, whose timeout has to be able to
+    // kill a wedged `kempt check` outright. See Executor.qml's header.
+    function durable(cmd) {
+        return cmd + " & wait $!";
+    }
 
     // What `kempt config get` said when this page opened. Apply compares against these and
     // writes ONLY what actually changed - so a key the user never touched is never rewritten,
@@ -145,8 +177,8 @@ KCM.SimpleKCM {
         // The value is ours (a checkbox state, a number, one of four known surfaces) but it is
         // quoted anyway. The rule this file follows is that everything reaching a command line is
         // quoted, with no per-case judgement about which values are "obviously safe".
-        cfgExecutor.run(kemptCmd + " config set " + key + " " + Logic.shellQuote(value), 15000,
-                        function (stdout, stderr, rc) {
+        cfgExecutor.run(page.durable(kemptCmd + " config set " + key + " " + Logic.shellQuote(value)),
+                        15000, function (stdout, stderr, rc) {
             if (rc !== 0) {
                 page.loadError = Logic.firstLineOf(stderr) || ("Could not save " + key + ".");
                 // Apply stays on, so the retry is one click rather than a reopened dialog.
@@ -229,7 +261,9 @@ KCM.SimpleKCM {
 
     function removeHold(id) {
         holdsBusy = true;
-        cfgExecutor.run(kemptCmd + " unhold " + Logic.shellQuote(id), 15000,
+        // Durable, for the same reason the config writes are: this button lives on the settings
+        // page, so an unhold pressed just before OK is dispatched into the same teardown.
+        cfgExecutor.run(page.durable(kemptCmd + " unhold " + Logic.shellQuote(id)), 15000,
                         function (stdout, stderr, rc) {
             page.holdsBusy = false;
             if (rc !== 0) {
