@@ -52,18 +52,9 @@ STUB
 chmod +x "$TESTTMP/apply-stub" "$TESTTMP/apply-declined" "$TESTTMP/refresh-stub" \
          "$TESTTMP/refresh-declined" "$TESTTMP/notify-stub"
 # rc 1 PLUS the package list = reboot needed; rc 1 alone is the real command's "cannot answer".
-cat > "$TESTTMP/dnf-reboot-yes" <<'STUB'
-#!/usr/bin/env bash
-cat <<'OUT'
-Core libraries or services have been updated since boot-up:
-  * kernel-core
-
-Reboot is required to fully utilize these updates.
-OUT
-exit 1
-STUB
+write_reboot_stub "$TESTTMP/dnf-reboot-yes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
-chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
+chmod +x "$TESTTMP/dnf-reboot-no"
 
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-stub"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"

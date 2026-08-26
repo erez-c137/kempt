@@ -27,6 +27,29 @@ sandbox() {  # fresh dirs per test file; call first
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 
+# A dnf5 stand-in that reports a restart IS owed. Four test files drive that verdict, and each
+# used to carry its own copy of this heredoc - which had already drifted (one grew a second
+# kernel line). The drift matters here in a way it would not for most stubs: dnf_reboot_needed
+# reads rc 1 as "yes" ONLY when a package list is actually on stdout, because rc 1 with an empty
+# stdout is how the real command reports that it could not work the answer out at all (the
+# cold-cache case). The stub's shape is therefore half the verdict every one of those files
+# asserts, so it gets one definition. The rc-0 "no restart owed" stub stays inline where it is
+# used: it is a bare `exit 0` with no output to get wrong.
+write_reboot_stub() {  # path → an executable dnf5 stand-in printing the real command's "yes"
+  cat > "$1" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Core libraries or services have been updated since boot-up:
+  * kernel
+  * kernel-core
+
+Reboot is required to fully utilize these updates.
+OUT
+exit 1
+STUB
+  chmod +x "$1"
+}
+
 assert_eq() {  # got expected label
   if [[ "$1" != "$2" ]]; then echo "FAIL: $3"; echo "  expected: $2"; echo "  got:      $1"; _fail=1
   else echo "ok: $3"; fi

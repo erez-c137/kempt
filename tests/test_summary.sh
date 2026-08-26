@@ -82,7 +82,7 @@ grep -q 'pkg 1.9 → 1.10' <<<"$vs" && echo "ok: an ascending set renders newest
 
 m="$(render_summary "$HIST_DIR/20260824T140000.json")"
 grep -q 'kernel-core 6.15.2-200.fc44 → 6.15.4-200.fc44' <<<"$m" && echo "ok: installonly set renders newest → newest" \
-  || { echo "FAIL: newest() display — got: $m"; _fail=1; }
+  || { echo "FAIL: newest() display - got: $m"; _fail=1; }
 grep -q '6.15.1' <<<"$m" && { echo "FAIL: superseded version leaked into the human summary"; _fail=1; } \
   || echo "ok: superseded versions stay in the JSON, out of the summary"
 

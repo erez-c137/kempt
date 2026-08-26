@@ -24,18 +24,9 @@ export KEMPT_SKIP_REFRESH=1   # deterministic: no metadata refresh attempts in t
 # be owed a restart today, which is not something a test may depend on. Default here is "no";
 # the block at the bottom drives both verdicts deliberately. rc 1 PLUS the package list on
 # stdout is the real command's "yes" shape (see dnf_reboot_needed).
-cat > "$TESTTMP/dnf-reboot-yes" <<'STUB'
-#!/usr/bin/env bash
-cat <<'OUT'
-Core libraries or services have been updated since boot-up:
-  * kernel-core
-
-Reboot is required to fully utilize these updates.
-OUT
-exit 1
-STUB
+write_reboot_stub "$TESTTMP/dnf-reboot-yes"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
-chmod +x "$TESTTMP/dnf-reboot-yes" "$TESTTMP/dnf-reboot-no"
+chmod +x "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 
 # Fixture contracts (tests/fixtures/MANIFEST.md): dnf parses to 7 items, flatpak to 3.

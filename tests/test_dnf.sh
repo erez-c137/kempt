@@ -92,17 +92,7 @@ export KEMPT_DNF_INSTALLED_CMD="$_saved_installed"
 # owed and when it could not work the answer out at all, and the second shape is the everyday one
 # on a fresh install (cold user cache - see the silent stub below). So the stub that stands in for
 # a real "yes" prints what the real command prints, because that output is now half the verdict.
-cat > "$TESTTMP/dnf-stub-1" <<'STUB'
-#!/usr/bin/env bash
-cat <<'OUT'
-Core libraries or services have been updated since boot-up:
-  * kernel
-  * kernel-core
-
-Reboot is required to fully utilize these updates.
-OUT
-exit 1
-STUB
+write_reboot_stub "$TESTTMP/dnf-stub-1"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-stub-0"
 printf '#!/usr/bin/env bash\nexit 2\n' > "$TESTTMP/dnf-stub-2"
 # The cold-cache shape, byte-faithful: the complaint goes to stderr, stdout stays empty, rc is 1.
@@ -111,7 +101,7 @@ cat > "$TESTTMP/dnf-stub-1-silent" <<'STUB'
 echo 'Cache-only enabled but no cache for repository "fedora"' >&2
 exit 1
 STUB
-chmod +x "$TESTTMP/dnf-stub-0" "$TESTTMP/dnf-stub-1" "$TESTTMP/dnf-stub-2" "$TESTTMP/dnf-stub-1-silent"
+chmod +x "$TESTTMP/dnf-stub-0" "$TESTTMP/dnf-stub-2" "$TESTTMP/dnf-stub-1-silent"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-0"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check rc 0 → false"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1"
