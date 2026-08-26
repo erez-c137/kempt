@@ -69,8 +69,10 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   #
   # rc 1 therefore requires POSITIVE evidence - the package list on stdout. rc 1 with an empty
   # stdout is the command saying it could not work the answer out, and `false` here means
-  # "nothing to say", never "no restart needed" (needs-restarting has known kernel false
-  # negatives too, dnf5#2562), so the two collapse safely onto the same answer plus a warning.
+  # "nothing to say", never "no restart needed". The evidence for that reading is the case
+  # described two paragraphs up: this command can exit non-zero having computed no verdict at
+  # all, so a reader who treats its `false` as an affirmative "no restart is owed" is reading a
+  # failure as an answer. The two therefore collapse safely onto the same answer plus a warning.
   local out rc=0
   out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting </dev/null 2>/dev/null)" || rc=$?
   case $rc in
