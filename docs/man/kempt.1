@@ -200,15 +200,18 @@ The keys are
 .BR refresh_interval_min " (default " 60 "),"
 .BR restart_reminder " (default " true ") and"
 .BR risky_regex .
+A value counts as true when it is
+.BR true ", " 1 " or " yes ;
+everything else is false.
+.PP
 .B restart_reminder
 governs the Plasma widget's popup only: with it on, a popup opened while a restart is owed shows a
 message saying so and offers a button that opens KDE's own restart prompt; with it off there is no
 message and no button, and the popup's status line still ends
 .BR "restart pending" .
 Nothing ever restarts on its own either way.
-A value counts as true when it is
-.BR true ", " 1 " or " yes ;
-everything else is false. See
+.PP
+See
 .I docs/configuration.md
 in the source tree for the full reference.
 .SH FILES
