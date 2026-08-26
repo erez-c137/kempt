@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test helpers. Source me. Each test file runs in its own sandboxed HOME (a throwaway
-# $TESTTMP/home — the real $HOME is never touched; see sandbox()).
+# $TESTTMP/home - the real $HOME is never touched; see sandbox()).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES="$REPO_ROOT/tests/fixtures"
@@ -13,7 +13,7 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_CONFIG_DIR="$TESTTMP/config"
   export KEMPT_STATE_DIR="$TESTTMP/state"
   export KEMPT_PKEXEC=""
-  export KEMPT_NOTIFY="true"   # /usr/bin/true — notifications are no-ops in tests
+  export KEMPT_NOTIFY="true"   # /usr/bin/true - notifications are no-ops in tests
   # Same shape: the installer's icon-cache signal must never reach the real session bus from a
   # test run. The suite asserts the SHAPE of the command install.sh builds, not its delivery.
   export KEMPT_DBUS_SEND="true"

@@ -122,7 +122,7 @@ cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
 
 # A flatpak hold switches the whole backend to PER-APP updates, and that list is pre-filtered to
 # apps that are actually installed: com.example.NotInstalled is pending in the remote fixture but
-# absent from the installed list, and the root helper's installed-set check is only a BACKSTOP —
+# absent from the installed list, and the root helper's installed-set check is only a BACKSTOP -
 # it must never be what stops it, or a normal run would die on "not installed".
 : > "$WORLD/apply-calls"
 "$KEMPT" hold flatpak:org.gimp.GIMP
@@ -175,7 +175,7 @@ grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says s
 # The run is over the moment the helper returns: a report step that dies afterwards would take the
 # HISTORY ENTRY and the notification down with it, leaving a system that changed and a CLI that
 # says nothing happened. Fail the AFTER-snapshot only (2nd call in a run) and demand a clean,
-# honest, empty report instead of a crash — and never a report claiming everything was removed.
+# honest, empty report instead of a crash - and never a report claiming everything was removed.
 # Fails only AFTER the apply has run - i.e. the after-snapshot, whatever else a run happens to
 # look up first. Binding to the MEANING and not to a call index: a new lookup elsewhere in
 # cmd_update (the risky-transaction check added one) must not silently re-point this probe at
@@ -392,7 +392,7 @@ assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")
 # --- offline harvest: the staged transaction applies during a reboot, and the next check has to
 # notice and turn it into a normal history entry + notification.
 # The marker OWNS its pre-snapshot copy and harvest deletes it, so a marker must never point at a
-# shared file — pointing this one at tests/fixtures/ would delete a repo fixture.
+# shared file - pointing this one at tests/fixtures/ would delete a repo fixture.
 pre_copy="$KEMPT_STATE_DIR/snapshots/offline-pre-harvest.tsv"
 cp "$FIXTURES/snap-before.tsv" "$pre_copy"
 jq -n --arg snap "$pre_copy" '{staged_at:"x", pre_snapshot:$snap}' > "$KEMPT_STATE_DIR/offline_staged.json"
@@ -428,13 +428,13 @@ grep -q NOTIFY "$WORLD/notifications" && echo "ok: harvest notifies" || { echo "
 "$KEMPT" check >/dev/null
 assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" "harvest does not repeat"
 
-# cmd_update prints the rendered summary on stdout — that is the terminal surface's whole point
+# cmd_update prints the rendered summary on stdout - that is the terminal surface's whole point
 # ($out was captured from the very first run, before the stub renderer was replaced)
 grep -q 'kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44' <<<"$out" && echo "ok: update printed a rendered summary" \
-  || { echo "FAIL: update printed no summary — got: $out"; _fail=1; }
+  || { echo "FAIL: update printed no summary - got: $out"; _fail=1; }
 
 # --- a LIVE run must not let its own closing self-refresh mis-harvest a PENDING offline stage.
-# The staged transaction applies only on reboot, but a live run moves the rpm snapshot too — so
+# The staged transaction applies only on reboot, but a live run moves the rpm snapshot too - so
 # the self-refresh saw "the installed set changed", harvested immediately, labelled the LIVE
 # delta "offline (applied on reboot)" and consumed the marker. The staged transaction then
 # applied at the next reboot and was never reported at all. Three distinct worlds below:

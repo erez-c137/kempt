@@ -81,7 +81,7 @@ assert_exit 2 "unhold validates backend" "$KEMPT" unhold apt:foo
 # Corrupt state recovery. state.json is the fallback a failing check leans on, so a damaged one
 # used to take the whole check down with it: a truncated file fed "" to --argjson (rc 2), a
 # wrong-shaped .items fed a STRING into an array concat (rc 5). Every shape must degrade to [].
-# (dnf stub is still the failing one from the stale section above — that is the point.)
+# (dnf stub is still the failing one from the stale section above - that is the point.)
 # The multi-doc shape carries last_success in BOTH documents on purpose: a per-document read
 # concatenates them into one newline-joined string that reaches the widget as "Invalid Date".
 for corrupt in '' 'garbage' '{"backends":{"dnf":{"items":"nope"}}}' '{"last_success":"2020-01-01T00:00:00+00:00"}{"last_success":"2021-01-01T00:00:00+00:00"}'; do
@@ -95,7 +95,7 @@ for corrupt in '' 'garbage' '{"backends":{"dnf":{"items":"nope"}}}' '{"last_succ
 done
 
 # Concurrency: the widget guarantees overlapping checks (timer + event watch + post-run check).
-# A fixed tmp name in write_state made them race — one process's mv stole another's tmp file and
+# A fixed tmp name in write_state made them race - one process's mv stole another's tmp file and
 # the loser died with "mv: cannot stat" (measured: 19/80 non-zero). Restore the working stub
 # first; the stale section above left it exiting 1.
 cat > "$TESTTMP/refresh-stub" <<STUB
@@ -121,7 +121,7 @@ assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "ok" "concurrent bloc
 # Serialization, not just collision-freedom: without the check lock the last FINISHER wins, so a
 # slow check that started earlier lands ON TOP of a newer, faster one and the widget shows a
 # pending count that was already obsolete when it was written. Slow serves 7 pending; fast serves
-# zero pending and starts later — the only correct final state is the fast one's.
+# zero pending and starts later - the only correct final state is the fast one's.
 cat > "$TESTTMP/slow-stub" <<STUB
 #!/usr/bin/env bash
 case "\$1" in
