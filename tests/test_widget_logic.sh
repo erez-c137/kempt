@@ -978,9 +978,19 @@ assert_eq "$(vm "{nowMs:$NOW}" '' 1 'footerText')" "Checked 4 min ago · 1 held"
 assert_eq "$(js "L.viewModel({schema:1,status:\"stale\",error:\"x\",actionable:1,held_total:0,last_check:\"2026-08-26T23:00:00+03:00\",last_success:\"2026-08-26T12:00:00+03:00\",backends:{}},false,\"\",{nowMs:$NOW + 60000}).footerText")" \
   "Checked 5 min ago" "the footer reads last_success, never the newer last_check"
 assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerText")" \
-  "Not checked yet" "a box with no successful check says so rather than inventing an age"
-assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "Not checked yet" \
+  "No successful check yet" "a box with no successful check says so rather than inventing an age"
+assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "No successful check yet" \
   "...and so does a popup with no state at all"
+# ...and the same line for a box that HAS checked, repeatedly, and never once succeeded. That is
+# a different fact from never having checked, and the fallback used to claim the wrong one of the
+# two inside the very block that draws the last_success / last_check distinction. It is not a
+# hypothetical box either: a fresh install behind a broken repo or with the root helpers missing
+# looks exactly like this, and it is the box most likely to have the popup open.
+FAILED_ALWAYS='{schema:1,status:"stale",error:"repository metadata unavailable",actionable:0,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{}}'
+assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).footerText")" \
+  "No successful check yet" "a box that has checked and never succeeded says exactly that"
+assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).headerText")" \
+  "Kempt cannot check for updates" "...while the header says what is actually wrong with it"
 assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00" \
   "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
 
@@ -1059,7 +1069,8 @@ assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
   "copy: and the one that names the driver too"
 assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
 assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
-assert_eq "$(js 'L.COPY.notCheckedYet')" "Not checked yet" "copy: a box that has never checked"
+assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
+  "copy: a box with no successful check, which is not the same claim as a box that never checked"
 assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
 assert_eq "$(js 'L.COPY.noPackageChanges')" "No package changes" "copy: a run that changed nothing"
 assert_eq "$(js 'L.COPY.updateFailed')" "Update failed" "copy: a run that failed"

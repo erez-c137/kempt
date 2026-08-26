@@ -90,7 +90,12 @@ var COPY = {
     // a sentence because the same word has to serve the tooltip, which was already saying it.
     held: "held",
     restartPending: "restart pending",
-    notCheckedYet: "Not checked yet",
+    // What the footer says instead of a date. "No SUCCESSFUL check", not "not checked": the
+    // footer's whole job is to date the counts by last_success, so its fallback has to be a
+    // statement about last_success too. A box whose every check since install has failed HAS
+    // checked, and "Not checked yet" was false there - on the one box, a fresh install behind a
+    // broken repo, most likely to be reading this line.
+    noSuccessfulCheckYet: "No successful check yet",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
@@ -926,10 +931,15 @@ function viewModel(state, updating, cliError, opts) {
     // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
     // are as of the last check that actually told us something. A check that failed has the stale
     // message to explain itself; dating the counts by it would put a fresh time on stale numbers.
+    // The fallback is worded off last_success as well, for the same reason: this line is a
+    // DATELINE for the counts, and when no check has ever succeeded there are no counts of any
+    // age to date. "Not checked yet" would have conflated that with a box that never ran a check
+    // at all - and the two differ precisely on the bad day, where a stale state carries a
+    // last_check and an empty last_success.
     var footerParts = [];
     footerParts.push(everSucceeded
         ? "Checked " + relativeTime(state.last_success, opts.nowMs)
-        : COPY.notCheckedYet);
+        : COPY.noSuccessfulCheckYet);
     if (heldTotal > 0) footerParts.push(heldTotal + " " + COPY.held);
     // Founder amendment A1: the two-word fact, and ONLY when the message is not already carrying
     // it. With the reminder switched off (or dismissed for this session) there is no message and
@@ -975,7 +985,7 @@ function viewModel(state, updating, cliError, opts) {
         footerText: footerParts.join(DOT),
         // The relative time in footerText is the convenience; this is the truth, and people
         // compare the two. Empty rather than "never" when there has been no successful check: the
-        // footer already says "Not checked yet" in words, and a tooltip saying "never" under it
+        // footer already says there has been none in words, and a tooltip saying "never" under it
         // would be the same nothing said twice.
         footerTooltip: everSucceeded ? lastSuccessText : ""
     };
