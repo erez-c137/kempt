@@ -991,6 +991,14 @@ assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).footerText"
   "No successful check yet" "a box that has checked and never succeeded says exactly that"
 assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).headerText")" \
   "Kempt cannot check for updates" "...while the header says what is actually wrong with it"
+# ...and this is the state that settles the wording, because here the header does NOT carry the
+# fact. Stale, counts known, last_success still empty: the header shows a count phrase, so
+# "the header says what is wrong" is no defence for a footer line that is false on its own.
+STALE_NO_SUCCESS='{schema:1,status:"stale",error:"repo flapped",actionable:5,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
+assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "5 updates available" \
+  "a stale state with known counts heads the popup with a count, not with a warning"
+assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerText")" \
+  "No successful check yet" "...so the footer beneath it has to be true standing alone"
 assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00" \
   "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
 
