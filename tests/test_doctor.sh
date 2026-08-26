@@ -22,10 +22,11 @@ export KEMPT_POLICY_FILE="$TESTTMP/policy.xml"
 # the flatpak check asks whether the command the BACKEND runs exists, so the backend's own seam
 # answers it: first word `cat`, which exists everywhere the suite runs.
 export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
-# doctor's own checks never touch dnf5, but three of the cases below run `kempt check`, which
-# now asks the backend whether a restart is owed - and sandbox() unsets KEMPT_DNF_CMD. Without
-# this stub those checks would shell out to the REAL dnf5 on whatever box runs the suite, which
-# is both slow and dependent on whether that box happens to be owed a restart. exit 0 = no.
+# Two things need this stub. Doctor now reports on the dnf command itself, and three of the
+# cases below run `kempt check`, which asks the backend whether a restart is owed - and
+# sandbox() unsets KEMPT_DNF_CMD. Without the stub both would reach for the REAL dnf5 on
+# whatever box runs the suite, which is slow and depends on whether that box happens to be owed
+# a restart today. exit 0 = no restart owed.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
@@ -40,7 +41,7 @@ grep -q '^FAIL' "$TESTTMP/last_output" \
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
 for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
-            'terminal emulator' 'flatpak' 'config file' 'state dir' 'checkout'; do
+            'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout'; do
   grep -E '^(ok|info|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done
@@ -166,6 +167,32 @@ grep -q '^info .*flatpak' "$TESTTMP/last_output" \
   && echo "ok: a disabled backend is information, not a failure" \
   || { echo "FAIL: expected an info line for the disabled backend"; _fail=1; }
 "$KEMPT" config set include_flatpak true
+
+# --- the command behind the reboot verdict -----------------------------------------------------
+# `kempt check` is the hourly, detached path, so when this command cannot run its
+# "warning: reboot check failed (rc=127)" goes to a stderr nobody is attached to, and the event
+# log records nothing about it either. reboot_needed then answers false on every check forever,
+# which is the safe direction and is also indistinguishable from "no restart is owed". Doctor is
+# where a permanently broken check becomes visible instead.
+#
+# info, not FAIL: nothing else in Kempt runs this command. The pending list and the update itself
+# both go through the root helper, so updates keep working exactly as they did - one derived
+# answer degrades, and it degrades safely.
+assert_exit 0 "a missing dnf command does not fail doctor" \
+  env KEMPT_DNF_CMD=kempt-no-such-dnf "$KEMPT" doctor
+grep -q "^info .*dnf command 'kempt-no-such-dnf' not found" "$TESTTMP/last_output" \
+  && echo "ok: the info line names the missing dnf command" \
+  || { echo "FAIL: no dnf info line"; _fail=1; }
+grep '^info .*dnf command' "$TESTTMP/last_output" | grep -q 'restart' \
+  && echo "ok: ...and says which answer degrades, not merely that a file is missing" \
+  || { echo "FAIL: the dnf info line does not say what stops working"; _fail=1; }
+# The healthy line names the command the BACKEND would run - first word of the seam - so a seam
+# carrying arguments is still resolved rather than reported as one long missing filename.
+assert_exit 0 "a dnf command carrying arguments still resolves" \
+  env KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no --setopt=keepcache=1" "$KEMPT" doctor
+grep -qF "ok    dnf: $TESTTMP/dnf-reboot-no" "$TESTTMP/last_output" \
+  && echo "ok: the ok line names the resolved dnf command" \
+  || { echo "FAIL: no dnf ok line"; _fail=1; }
 
 # The settings count pluralizes itself, and docs/usage.md's sample output is pinned to this
 # wording: "(2 settings)", never "(2 setting(s))".

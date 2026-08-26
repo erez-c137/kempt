@@ -739,6 +739,22 @@ cmd_doctor() {
     doctor_info "flatpak command '$fp_cmd' not found - include_flatpak=false, so it is not needed"
   fi
 
+  # The reboot verdict is the one thing Kempt asks a dnf command directly - the pending list and
+  # the update itself both go through the root helper - and it is asked on the hourly DETACHED
+  # path, where dnf_reboot_needed's "reboot check failed (rc=127)" goes to a stderr nobody is
+  # attached to and the event log records nothing at all. A permanently broken check therefore
+  # looks exactly like a permanently answered one: reboot_needed false, forever. This line is
+  # where it becomes visible. Asked of the first word of the backend's seam, like the flatpak
+  # check above, so a seam carrying arguments still resolves to a command name.
+  # info, not FAIL: updates are untouched and the key degrades in the safe direction, so this is
+  # worth saying out loud and not worth exiting 1 over.
+  local dnf_cmd; dnf_cmd="${KEMPT_DNF_CMD%% *}"
+  if command -v "$dnf_cmd" >/dev/null; then
+    doctor_ok "dnf: $(command -v "$dnf_cmd")"
+  else
+    doctor_info "dnf command '$dnf_cmd' not found - updates still work (they go through the root helper), but reboot_needed answers false on every check whether or not a restart is owed; install dnf5, or point KEMPT_DNF_CMD at the right command"
+  fi
+
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored
   # forever: the setting the user believes they wrote never applies, silently. Validated exactly
   # as config_set validates, so doctor accepts precisely what `kempt config set` writes.
