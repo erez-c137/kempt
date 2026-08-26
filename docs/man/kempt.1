@@ -197,8 +197,15 @@ The keys are
 .BR include_flatpak " (default " true "),"
 .BR auto_accept " (default " true "),"
 .BR surface " (default " terminal "),"
-.BR refresh_interval_min " (default " 60 ") and"
+.BR refresh_interval_min " (default " 60 "),"
+.BR restart_reminder " (default " true ") and"
 .BR risky_regex .
+.B restart_reminder
+governs the Plasma widget's popup only: with it on, a popup opened while a restart is owed shows a
+message saying so and offers a button that opens KDE's own restart prompt; with it off there is no
+message and no button, and the popup's status line still ends
+.BR "restart pending" .
+Nothing ever restarts on its own either way.
 A value counts as true when it is
 .BR true ", " 1 " or " yes ;
 everything else is false. See

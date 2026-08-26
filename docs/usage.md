@@ -561,6 +561,17 @@ Two things worth knowing:
 because only a terminal window can ask you the question. Your choice is remembered - untick the
 confirmation box and it comes straight back.
 
+**Restart reminders** are the `restart_reminder` setting, on by default. When a restart is owed -
+because updates have been installed that the running system is still ignoring - the popup shows a
+message saying so and offers a button that opens KDE's own restart prompt. Closing that message
+puts it away until the next Plasma session; nothing is written down. With the setting off there is
+no message and no button, and the popup's status line still ends `restart pending`, because that is
+a fact about your machine rather than a reminder. **Nothing ever restarts on its own either way.**
+
+```bash
+kempt config set restart_reminder false   # the fact stays, the nagging stops
+```
+
 **Password prompts** offers **Allow without password...** and **Require a password...**, which run
 `kempt enable-passwordless` and `kempt disable-passwordless` for you (each raises its own
 authentication dialog, and whatever the command said comes back under the buttons). The page never

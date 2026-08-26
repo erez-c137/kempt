@@ -160,6 +160,16 @@ kempt_default() {  # key → default ("" if unknown)
     # into `auto` rather than refusing to draw. A CLI that rejected values would be a second
     # opinion about a Plasma detail it cannot see.
     widget_icon_size) echo auto ;;
+    # Whether the Plasma widget's popup offers to open KDE's restart prompt when a restart is
+    # owed. Like widget_icon_size, a widget setting kept here so `kempt config` remains the one
+    # way in and out; the CLI itself renders no popup and never reads this.
+    # Default TRUE, and the default is the whole point of the entry: the widget asks the CLI for
+    # the key and runs the answer through is_true(). A key with no default answers with the empty
+    # string, which is_true reads as false - so a missing entry here would not mean "no opinion",
+    # it would silently switch the reminder OFF on every box whose config file has never named it,
+    # with nothing anywhere to say so. Same failure mode as a missing include_<backend> default
+    # (docs/architecture.md, the backend wiring table).
+    restart_reminder) echo true ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction (spec §Run surfaces), so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;

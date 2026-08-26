@@ -23,6 +23,25 @@ assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surf
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
 assert_eq "$(grep -c '' "$KEMPT_CONFIG_DIR/config")" "2" "rejected writes added no lines"
 
+# --- restart_reminder: a default that must exist, or the reminder is silently off --------------
+# The widget asks the CLI for this key and reads the answer with is_true(). A key with no entry in
+# kempt_default answers with the EMPTY STRING, is_true reads that as false, and the restart
+# reminder is off on every box whose config file has never named it - which is every box, since
+# nothing writes a key until somebody changes it. That is the same silent-off bug the wiring table
+# in docs/architecture.md describes for include_<backend>, so the default is asserted from BOTH
+# ends: the table itself, and the config_get fallback a reader actually goes through.
+assert_eq "$(kempt_default restart_reminder)" "true" "the defaults table knows restart_reminder"
+assert_eq "$(config_get restart_reminder)" "true" \
+  "an untouched restart_reminder reads as true, not as an empty string"
+assert_eq "$(is_true "$(config_get restart_reminder)" && echo on || echo off)" "on" \
+  "...and a reader that runs it through is_true gets the reminder ON"
+config_set restart_reminder false
+assert_eq "$(config_get restart_reminder)" "false" "turning the reminder off round-trips"
+assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
+  "...as exactly one line, like every other key"
+config_set restart_reminder true
+assert_eq "$(config_get restart_reminder)" "true" "and back on again"
+
 # --- retention. History and logs grow forever otherwise, and the widget triggers a run on a
 # timer: one entry plus one log per run, on a box that never gets tidied by hand.
 # 55 entries with distinct mtimes, oldest first, so "newest 50" is a claim the test can check.
