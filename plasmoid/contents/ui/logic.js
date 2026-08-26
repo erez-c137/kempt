@@ -24,6 +24,76 @@
 var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
+// --- the copy table ----------------------------------------------------------------------------
+// Every user-facing string the popup redesign introduces, in ONE place, so the wording is decided
+// once and a node test can pin it. House rules, from the KDE HIG review in
+// docs/research/2026-08-26-popup-panel/hig-review.md:
+//   * Title Case for buttons, sentence case for messages.
+//   * A real ellipsis (U+2026) on a label that opens something else, never three ASCII dots -
+//     P5 of that review calls the three dots the one typographic tell that a widget was not
+//     written by KDE.
+//   * No em dashes anywhere (project rule).
+//   * "held", never "held back": the CLI's section is Held, the command is `kempt hold`, and the
+//     tooltip already says "N held". One vocabulary across the widget and the terminal.
+//
+// IMPORTANT, and it is not what it looks like: the QML side does NOT read these at runtime. It
+// keeps writing the literal, `i18n("Update Now")`, because translation extraction works on
+// LITERALS - `i18n(Logic.COPY.updateNow)` extracts nothing at all and ships an untranslatable
+// widget. So this table is the SPECIFICATION and the place the wording is agreed and tested; the
+// QML repeats the same literal, and a later task adds a test asserting every value here appears
+// verbatim in the .qml files. Do not "fix" that duplication by routing these through i18n().
+var COPY = {
+    // Header, and the placeholder under it. Deliberately NOT the same sentence: the popup would
+    // otherwise say the same words twice in one glance (user panel, redundancy finding).
+    upToDate: "Up to date",
+    everythingUpToDate: "Everything is up to date",
+
+    // The restart message and its button. `restartMessage` states a fact about the machine;
+    // `restartAction` opens KDE's own logout/restart prompt and nothing else - Kempt never
+    // restarts anything itself, in any state, with any setting.
+    restartMessage: "Restart to apply installed updates",
+    restartAction: "Restart…",
+    restartFailed: "Could not open the restart prompt.",
+
+    // The two actions. Refresh is icon-only in the header, so this is its tooltip and its
+    // accessible name as well as its entry in the contextual-actions menu.
+    checkForUpdates: "Check for Updates",
+    updateNow: "Update Now",
+
+    // The offline path, named for what it does to the user rather than for the dnf5 flag that
+    // implements it. The tooltip is the whole argument for choosing it.
+    installOnNextRestart: "Install on Next Restart",
+    installOnNextRestartTooltip:
+        "Applies the update during a restart, so nothing changes underneath your running desktop.",
+
+    // What a session-critical transaction is told to do about it. Two sentences, because a box
+    // with the NVIDIA driver in the set has a second, worse failure mode (a kernel module built
+    // against a kernel that is not the running one), and naming it is what makes the advice
+    // credible to the person it happens to.
+    kernelRestart: "This includes a kernel update. Restart when it finishes.",
+    kernelNvidiaRestart:
+        "This includes a kernel update and the NVIDIA driver. Restart when it finishes.",
+
+    // Status-line vocabulary. `held` is a suffix to a number ("3 held"); it is a word rather than
+    // a sentence because the same word has to serve the tooltip, which was already saying it.
+    held: "held",
+    restartPending: "restart pending",
+    notCheckedYet: "Not checked yet",
+
+    // The last run: its expander action, and the two phrases that stand in for a package list.
+    showLog: "Show Log",
+    noPackageChanges: "No package changes",
+    updateFailed: "Update failed",
+
+    // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
+    configure: "Configure Kempt…"
+};
+
+// The separator between the facts on one line: MIDDLE DOT (U+00B7) with a space on each side, the
+// same one the plan's layout draws. One constant, because the footer's status line and the Last
+// update row both use it and two of them would drift apart the first time one was edited.
+var DOT = " \u00b7 ";
+
 // How many session-critical families the offline recommendation names before it says ", ...".
 // Same number the CLI's notification uses (bin/kempt).
 var RISKY_FAMILIES_SHOWN = 4;
@@ -50,6 +120,11 @@ function shellQuote(s) {
     if (s === undefined || s === null) return "''";
     return "'" + String(s).split("'").join("'\\''") + "'";
 }
+
+// Is this really an array? `typeof v.length === "number"` is not enough: a STRING has a length,
+// and iterating one yields characters that would render as packages.
+function isArray(v) { return Object.prototype.toString.call(v) === "[object Array]"; }
+function arrayOf(v) { return isArray(v) ? v : []; }
 
 // The run surfaces the CLI knows, in the order the settings page offers them.
 var SURFACES = ["terminal", "popup", "background", "offline"];
@@ -347,6 +422,32 @@ function riskySummaryOf(names) {
         + fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "") + ")";
 }
 
+// riskyMessageOf(names) -> what to DO about a session-critical transaction, in one sentence.
+//
+// riskySummaryOf above answers "how much of this is risky". This answers the question the person
+// actually has next, and a kernel changes the answer: staging it offline does not help, because
+// the kernel you are running keeps running until you restart either way.
+//
+// The two ingredient tests are deliberately different shapes:
+//   * KERNEL is a FAMILY test. kernel-core, kernel-modules and kernel.x86_64 are one decision, and
+//     collapsing them is exactly what familiesOf exists for (the name up to its first - or .). It
+//     also keeps kernelcare, which merely starts with the same letters, out of it.
+//   * NVIDIA is a SUBSTRING test, because the driver arrives under families with nothing in
+//     common: akmod-nvidia is the "akmod" family, xorg-x11-drv-nvidia is "xorg", nvidia-settings
+//     is "nvidia". A family test would catch one of the three and miss the two that matter most.
+//     Case-insensitive, because the packaging of that driver is not consistent about it.
+// NVIDIA without a kernel says nothing special: the extra sentence is about a kernel module built
+// against a kernel that is about to stop being the running one, which needs the kernel to be in
+// the set at all.
+function riskyMessageOf(names) {
+    if (!isArray(names) || names.length === 0) return "";
+    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) return riskySummaryOf(names);
+    for (var i = 0; i < names.length; i++) {
+        if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
+    }
+    return COPY.kernelRestart;
+}
+
 // formatStamp(iso) -> "2026-08-24 22:11", or "never" when there is no stamp.
 // Textual, not Date-based, on purpose: it cannot print "Invalid Date", it cannot shift a
 // timestamp into another timezone, and it survives the recorded corruption where two state
@@ -357,6 +458,102 @@ function formatStamp(iso) {
     if (s === "") return "never";
     var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(s);
     return m ? m[1] + " " + m[2] : s;
+}
+
+// The one strict shape relativeTime will do arithmetic on: YYYY-MM-DDTHH:MM:SS, optionally with a
+// fractional part, optionally with Z or an offset (+HH:MM or +HHMM - `date -Iseconds` writes the
+// colon, some other producers do not). Anything else is not a timestamp as far as this file is
+// concerned, and the answer to "not a timestamp" is always the absolute stamp.
+var ISO_STAMP_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+// stampMs(iso) -> the stamp as UTC milliseconds, or NaN when it is not a timestamp.
+// The one place a stamp is turned into a number, shared by relativeTime and shouldRefreshOnOpen so
+// the two can never disagree about what counts as a readable stamp.
+function stampMs(iso) {
+    if (typeof iso !== "string") return NaN;
+    var m = ISO_STAMP_RE.exec(iso.split("\n")[0].trim());
+    if (!m) return NaN;
+
+    var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    var h = Number(m[4]), mi = Number(m[5]), s = Number(m[6]);
+    // The regex proves the digits are digits, not that they are a date: Date.UTC happily rolls
+    // month 13 into next January and would answer with a confident wrong number.
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) return NaN;
+
+    var off = 0, zone = m[7];
+    // No zone at all is read as UTC. It is the only reading available without Date's own string
+    // parsing (local time is a property of the machine, not of the text), and the CLI's now_iso
+    // always writes an offset - so this is a foreign-file case, not an everyday one.
+    if (zone && zone !== "Z") {
+        var digits = zone.substring(1).replace(":", "");
+        off = (Number(digits.substring(0, 2)) * 60 + Number(digits.substring(2))) * 60000;
+        if (zone.charAt(0) === "-") off = -off;
+    }
+    // The offset says how far AHEAD of UTC the wall clock is, so it comes off to get UTC.
+    return Date.UTC(y, mo - 1, d, h, mi, s) - off;
+}
+
+// relativeTime(iso, nowMs) -> "4 min ago", or the absolute stamp when it cannot be sure.
+//
+// The popup's status line, and the same deliberate design as formatStamp above: NO Date parsing.
+// Date.UTC is pure arithmetic - it takes six numbers and returns a millisecond count, with no
+// locale, no local timezone and no string parsing anywhere in it - which is what keeps the three
+// guarantees formatStamp makes: it cannot print "Invalid Date", it cannot shift a stamp into
+// another timezone, and it survives the recorded corruption where two state documents arrive
+// newline-joined (first line, same as formatStamp).
+//
+// The clock is an ARGUMENT rather than a call to Date.now(): it makes the function pure, so every
+// bucket boundary is something a node test can assert exactly instead of racing.
+//
+// Everything it cannot be sure about hands back to formatStamp, on purpose. A relative time is a
+// convenience; the absolute stamp is the truth, and showing the truth is never the wrong answer.
+// A NEGATIVE age falls back too: a stamp from the future means the clock moved (or the state came
+// from another machine), and "in -3 minutes" is worse than a date in every way.
+function relativeTime(iso, nowMs) {
+    var at = stampMs(iso);
+    if (!isFinite(at) || typeof nowMs !== "number" || !isFinite(nowMs)) return formatStamp(iso);
+
+    var age = nowMs - at;
+    if (age < 0) return formatStamp(iso);
+    if (age < 60000) return "just now";
+    var n = Math.floor(age / 60000);
+    if (n < 60) return n === 1 ? "1 min ago" : n + " min ago";
+    n = Math.floor(age / 3600000);
+    if (n < 24) return n === 1 ? "1 hour ago" : n + " hours ago";
+    n = Math.floor(age / 86400000);
+    // A week is the last age at which counting days still answers "when?" better than the date
+    // does. Past it, "23 days ago" makes a person do the arithmetic the stamp would have saved.
+    if (n <= 7) return n === 1 ? "1 day ago" : n + " days ago";
+    return formatStamp(iso);
+}
+
+// The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
+// alternative to the configured interval: somebody who set the interval to an hour still opened
+// the popup to LOOK at the counts, and counts an hour old are not what they came to see. Somebody
+// who set two minutes gets two, because the smaller of the two always wins.
+var REFRESH_ON_OPEN_CEILING_MS = 5 * 60000;
+
+// shouldRefreshOnOpen(lastSuccessIso, intervalMin, nowMs) -> should the popup re-check now?
+//
+// Note the order of the guards, because two of the rules overlap and only one of them can win:
+// an unusable clock is checked FIRST, so it beats "we know nothing, so ask". Firing a check is
+// running a package-manager command, and doing that on every single popup open because an
+// argument was undefined is a worse failure than simply not auto-refreshing - the Refresh button
+// is right there. A missing stamp with a usable clock still asks: a box that has never had a
+// successful check is exactly the one whose counts are worth going and getting.
+function shouldRefreshOnOpen(lastSuccessIso, intervalMin, nowMs) {
+    if (typeof nowMs !== "number" || !isFinite(nowMs)) return false;
+    var at = stampMs(lastSuccessIso);
+    if (!isFinite(at)) return true;
+    var age = nowMs - at;
+    if (age < 0) return false;      // a stamp from the future is a moved clock, not a due check
+    // Number(), because the widget reads config values back as the TEXT `kempt config get`
+    // printed: "15" is the ordinary shape of this argument, not an edge case.
+    var mins = Number(intervalMin);
+    var limit = (isFinite(mins) && mins > 0)
+        ? Math.min(mins * 60000, REFRESH_ON_OPEN_CEILING_MS)
+        : REFRESH_ON_OPEN_CEILING_MS;
+    return age > limit;             // OLDER than the limit; exactly at it is not yet stale
 }
 
 // Backend iteration order: the two we know, then anything else the CLI grew since this widget
@@ -432,8 +629,126 @@ function rowOf(item, kind) {
              held: item.held, backend: item.backend };
 }
 
-// viewModel(state, updating, cliError) -> everything the QML layer binds to. Called on every
+// --- the last run --------------------------------------------------------------------------------
+// Everything below reads ONE history entry, as `kempt summary --json` hands it over. The CLI
+// serves that entry byte for byte rather than re-rendering it, so what arrives here is exactly
+// what cmd_update wrote:
+//   {timestamp, surface, status, duration_sec, reboot_needed, log, error,
+//    backends: {<name>: {updated:[{name,from,to}], added:[{name,to}], removed:[{name,from}],
+//                        status, skipped_held:[]}}}
+// Re-deriving any of this from the human summary text would be a second, lossier copy of
+// render_summary's rules living in the widget, and the two would drift. Hence --json.
+
+// lastRunOf(text) -> the last run as data, or null.
+//
+// null means "no last run", and every caller must render NOTHING for it - never a fabricated empty
+// run. That is the same contract `kempt summary --json` itself keeps: with no history it prints
+// empty stdout under exit 0 rather than an empty object, because a box that has never updated has
+// not "updated 0 packages".
+//
+// Every field tolerates absence. History entries outlive the build that wrote them (the newest 50
+// are kept, and this widget is a COPY that a `git pull` leaves older than the CLI), so an entry
+// missing a key this build expects is an ordinary event, not corruption. The one field that is
+// deliberately NOT optimistic is `failed`: a status we cannot read is not a success, because the
+// cost of the two mistakes is not symmetric.
+function lastRunOf(text) {
+    // The same tolerant parse the state file gets, reused deliberately: empty, whitespace,
+    // truncated, a bare number and a JSON array all mean "we learned nothing", and there is no
+    // reason for this file to hold two opinions about that.
+    var entry = parseState(text);
+    if (entry === null) return null;
+
+    var backends = (entry.backends && typeof entry.backends === "object") ? entry.backends : {};
+    var keys = backendKeys(backends);
+    var items = [], updated = 0, added = 0, removed = 0, i, j, backend, up, item;
+    for (i = 0; i < keys.length; i++) {
+        backend = backends[keys[i]];
+        if (!backend || typeof backend !== "object") continue;
+        up = arrayOf(backend.updated);
+        for (j = 0; j < up.length; j++) {
+            item = up[j] || {};
+            // newestOf on both sides, because a multilib pair or an installonly kernel set arrives
+            // comma-joined and the popup's own rows already render the last element. A run's
+            // expanded list that showed the set differently would be the same package rendered two
+            // ways on one screen.
+            items.push({ name: item.name === undefined || item.name === null ? "" : String(item.name),
+                         from: newestOf(item.from), to: newestOf(item.to) });
+        }
+        updated += up.length;
+        added += arrayOf(backend.added).length;
+        removed += arrayOf(backend.removed).length;
+    }
+
+    var status = typeof entry.status === "string" ? entry.status : "";
+    var when = typeof entry.timestamp === "string" ? entry.timestamp : "";
+    return {
+        when: when,
+        whenStamp: formatStamp(when),
+        surface: typeof entry.surface === "string" ? entry.surface : "",
+        status: status,
+        failed: status !== "ok",
+        error: typeof entry.error === "string" ? entry.error : "",
+        durationSec: (typeof entry.duration_sec === "number" && isFinite(entry.duration_sec))
+            ? entry.duration_sec : 0,
+        updatedCount: updated,
+        addedCount: added,
+        removedCount: removed,
+        // Installs and removals changed the machine as much as upgrades did, and the CLI counts
+        // them (run_counts_phrase: "0 updated, +2 installed, -1 removed"). A popup that counted
+        // only upgrades would announce "No package changes" after a transaction that added two.
+        changedCount: updated + added + removed,
+        items: items,
+        logPath: typeof entry.log === "string" ? entry.log : "",
+        // Strictly the boolean. This entry's reboot_needed is a fact about THAT RUN, not about now
+        // - the state file carries the live answer - so nothing renders an affirmative from it.
+        rebootNeeded: entry.reboot_needed === true
+    };
+}
+
+// postRunLine(run) -> the transient line shown once, right after a run finishes.
+// It replaces what the popup used to paste there: the first line of `kempt summary`, which is an
+// ISO timestamp. True, and no answer at all to "what just happened?".
+// A failed run is reported as failed WHATEVER its counts say: a transaction that upgraded four
+// packages and then died is a failure, and "Updated 4 packages" would be the worst thing this
+// popup could say about it.
+function postRunLine(run) {
+    if (!run) return "";
+    if (run.failed) {
+        // The CLI's own worked-out reason (run_failure_reason), not a generic apology - its first
+        // line only, because a panel is one line wide and the log is one click away.
+        var why = firstLineOf(run.error);
+        return why === "" ? COPY.updateFailed : COPY.updateFailed + ": " + why;
+    }
+    var n = typeof run.changedCount === "number" ? run.changedCount : 0;
+    if (n === 0) return COPY.noPackageChanges;
+    var secs = typeof run.durationSec === "number" ? run.durationSec : 0;
+    return "Updated " + n + (n === 1 ? " package" : " packages") + " in " + secs + "s";
+}
+
+// lastRunText(run, nowMs) -> the persistent Last update row's title.
+// The counting phrases are built here rather than kept in COPY because they are grammar (one
+// package, seven packages, none at all) around a number, not a wording decision; the decision the
+// copy table owns is the shape of the line, which is what this file's tests pin.
+function lastRunText(run, nowMs) {
+    if (!run) return "";
+    var n = typeof run.changedCount === "number" ? run.changedCount : 0;
+    var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
+    return "Last update " + relativeTime(run.when, nowMs) + DOT + what;
+}
+
+// viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
 // state change; the QML side holds no derived state of its own.
+//
+// `opts` is OPTIONAL and every field in it is optional, so the three-argument call every existing
+// caller makes keeps working unchanged. It carries the facts that are not in the state file:
+//   nowMs            - the clock, for the relative times. Absent means "no clock", and every
+//                      relative time falls back to its absolute stamp rather than guessing.
+//   restartReminder  - the `restart_reminder` config value. ABSENT is not false: it means the
+//                      caller did not say, and the CLI's default for that key is true, so an
+//                      unstated reminder is on. Present, it is read with isTrue, because the
+//                      widget gets config values back as the text `kempt config get` printed.
+//   restartDismissed - whether the restart message was closed in THIS plasmashell session.
+//                      Nothing persists it; that is deliberate and documented.
 //
 // cliError is the widget's own report of a check that produced nothing usable - the CLI missing
 // from PATH, say. It is NOT the same thing as the CLI reporting a problem: when `kempt check`
@@ -452,9 +767,10 @@ function rowOf(item, kind) {
 // user does not need alarming about a repo that flapped, so the panel keeps rendering the
 // CONTENTS (a count badge, or nothing) and the explanation goes in the tooltip. Only a genuine
 // "we cannot read this at all" earns a warning emblem.
-function viewModel(state, updating, cliError) {
+function viewModel(state, updating, cliError, opts) {
     updating = !!updating;
     cliError = firstLineOf(typeof cliError === "string" ? cliError : "");
+    opts = (opts && typeof opts === "object") ? opts : {};
     var usable = looksLikeState(state);
     var counted = collectItems(usable ? state : null);
     var stale = usable && state.status === "stale";
@@ -499,7 +815,7 @@ function viewModel(state, updating, cliError) {
 
     var countPhrase = "";
     if (usable) {
-        countPhrase = actionable === 0 ? "Up to date"
+        countPhrase = actionable === 0 ? COPY.upToDate
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 
@@ -539,7 +855,7 @@ function viewModel(state, updating, cliError) {
     else {
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
-        if (heldTotal > 0) subParts.push(heldTotal + " held");
+        if (heldTotal > 0) subParts.push(heldTotal + " " + COPY.held);
         // Staleness is a tooltip fact, not an icon alarm - so the tooltip has to actually carry
         // BOTH halves: what went wrong, and how old the numbers above it therefore are. Without
         // the reason, "last successful check: yesterday" leaves the user guessing why.
@@ -555,7 +871,7 @@ function viewModel(state, updating, cliError) {
     else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
-        emptyStateText = stale ? "No updates in the last known state." : "Everything is up to date.";
+        emptyStateText = stale ? "No updates in the last known state." : COPY.everythingUpToDate;
     }
 
     // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
@@ -565,6 +881,37 @@ function viewModel(state, updating, cliError) {
     // perfectly good is exactly the noise it exists to avoid. The CLI's own words are still
     // shown there via staleReason, which names doctor itself when that is what is wrong.
     var remedyCommand = (cliError !== "" || neverAnswered) ? "kempt doctor" : "";
+
+    // --- the restart, and what the popup is allowed to say about it -----------------------------
+    // Strictly the boolean, and only out of a state this build can read. In this schema `false`
+    // means "nothing to say", NEVER "no restart needed", and that is not a theoretical caution:
+    // backends/dnf.sh's dnf_reboot_needed answers false plus a warning whenever the command could
+    // not work the verdict out - rc 1 with an empty stdout (a cold user cache, the DEFAULT state
+    // on a fresh install) and every unexpected rc both land there. So a false is indistinguishable
+    // from "we could not tell", and nothing here renders an affirmative from it: a message when it
+    // is true, silence otherwise. docs/architecture.md's state schema table states the same rule
+    // for every reader.
+    var rebootNeeded = usable && state.reboot_needed === true;
+    // Absent is not false: the caller simply did not say, and the CLI's default is true.
+    var restartReminder = (opts.restartReminder === undefined || opts.restartReminder === null)
+        ? true : isTrue(opts.restartReminder);
+    var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
+
+    // --- the footer status line ------------------------------------------------------------------
+    // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
+    // are as of the last check that actually told us something. A check that failed has the stale
+    // message to explain itself; dating the counts by it would put a fresh time on stale numbers.
+    var footerParts = [];
+    footerParts.push(everSucceeded
+        ? "Checked " + relativeTime(state.last_success, opts.nowMs)
+        : COPY.notCheckedYet);
+    if (heldTotal > 0) footerParts.push(heldTotal + " " + COPY.held);
+    // Founder amendment A1: the two-word fact, and ONLY when the message is not already carrying
+    // it. With the reminder switched off (or dismissed for this session) there is no message and
+    // no button, but the popup still says a restart is pending - a popup that hides that is lying
+    // to the person looking at it. With the message on screen, repeating it would be the same fact
+    // twice in one small window.
+    if (rebootNeeded && !restartMessageVisible) footerParts.push(COPY.restartPending);
 
     return {
         iconState: iconState,
@@ -588,7 +935,18 @@ function viewModel(state, updating, cliError) {
         riskySummary: riskySummaryOf(
             usable && state.risky_pending && typeof state.risky_pending.length === "number"
                 ? state.risky_pending : []),
-        lastSuccessText: lastSuccessText
+        // What to DO about that risky set, which is a different question from how big it is.
+        riskyMessage: riskyMessageOf(
+            usable && isArray(state.risky_pending) ? state.risky_pending : []),
+        lastSuccessText: lastSuccessText,
+        rebootNeeded: rebootNeeded,
+        restartMessageVisible: restartMessageVisible,
+        footerText: footerParts.join(DOT),
+        // The relative time in footerText is the convenience; this is the truth, and people
+        // compare the two. Empty rather than "never" when there has been no successful check: the
+        // footer already says "Not checked yet" in words, and a tooltip saying "never" under it
+        // would be the same nothing said twice.
+        footerTooltip: everSucceeded ? lastSuccessText : ""
     };
 }
 
@@ -596,11 +954,18 @@ function viewModel(state, updating, cliError) {
 // no-op there; typeof on an undeclared name is safe in every engine.
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
+        COPY: COPY,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,
         familiesOf: familiesOf,
         formatStamp: formatStamp,
+        relativeTime: relativeTime,
+        shouldRefreshOnOpen: shouldRefreshOnOpen,
+        riskyMessageOf: riskyMessageOf,
+        lastRunOf: lastRunOf,
+        postRunLine: postRunLine,
+        lastRunText: lastRunText,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         rowsOf: rowsOf,

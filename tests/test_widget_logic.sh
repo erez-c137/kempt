@@ -188,6 +188,29 @@ assert_eq "$(js "$calm_empty.iconState")" "stale" "a flap after a real success s
 assert_eq "$(js "$calm_empty.emptyStateText")" "No updates in the last known state." \
   "...and says the count is the LAST KNOWN one"
 
+# --- the empty state: one sentence, said once ---------------------------------------------------
+# No full stop. KDE's own placeholders do not carry one ("No paired devices" in KDE Connect,
+# "No Vaults have been set up" in Vault), and hig-review.md P5 names the trailing dot as one of the
+# tells that a widget was not written by KDE.
+clean='L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false)'
+assert_eq "$(js "$clean.emptyStateText")" "Everything is up to date" \
+  "an up-to-date box says so in the placeholder, with no full stop"
+assert_eq "$(js "$clean.emptyStateText")" "$(js 'L.COPY.everythingUpToDate')" \
+  "...in the copy table's own words, not a second copy of them"
+# The popup must never say the same thing twice in the same breath: the header already carries
+# "Up to date", so the placeholder underneath has to be a DIFFERENT sentence (plan P3, "never both
+# at once with the same words").
+assert_eq "$(js "$clean.headerText === $clean.emptyStateText")" "false" \
+  "the header and the placeholder never say the identical words"
+assert_eq "$(js "$clean.headerText")" "Up to date" "...the header being the short one"
+# A held-only box is the case where the placeholder would be an outright lie by omission: there IS
+# something pending, it is just held. So the placeholder stays away and the Held group carries the
+# truth instead. (This already fell out of nothingKnown; pinned here because nothing pinned it.)
+assert_eq "$(js 'V("held-only",false).emptyStateText')" "" \
+  "a held-only box shows no up-to-date placeholder - the Held group is the truth there"
+assert_eq "$(js 'V("held-only",false).rows.length > 0')" "true" \
+  "...and it has rows to show instead"
+
 # --- the other family: never succeeded, nothing known. NOT calm. -------------------------------
 # This is what a box looks like when install.sh never ran: the check cannot run at all, so there
 # is no count, no history and nothing to be reassuring about. Rendering "Up to date" here - which
@@ -460,6 +483,46 @@ assert_eq "$(js 'L.familiesOf(["e","d","c","b","a"],0).shown.length')" "5" "max 
 assert_eq "$(js 'L.familiesOf([],4).total')" "0" "no names, no families"
 assert_eq "$(js 'L.familiesOf(undefined,4).total')" "0" "a missing list is not an error"
 
+# --- riskyMessageOf: what a session-critical transaction is actually told to DO -----------------
+# riskySummaryOf answers "how much of this is risky" and is unchanged (its assertions are above).
+# This answers the next question, which is the one a person has: what do I do about it? A kernel
+# in the set has one honest answer, and it is not "stage it offline" - it is that the running
+# kernel stays running until you restart.
+K='["kernel-core","kernel-modules"]'
+KN='["kernel-core","akmod-nvidia"]'
+assert_eq "$(js "L.riskyMessageOf($K)")" "This includes a kernel update. Restart when it finishes." \
+  "a kernel in the set names the kernel"
+assert_eq "$(js "L.riskyMessageOf($K)")" "$(js 'L.COPY.kernelRestart')" "...in the copy table's words"
+assert_eq "$(js "L.riskyMessageOf($KN)")" \
+  "This includes a kernel update and the NVIDIA driver. Restart when it finishes." \
+  "a kernel plus the NVIDIA driver names both"
+assert_eq "$(js "L.riskyMessageOf($KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" "...in the copy table's words too"
+# The two tests are shaped DIFFERENTLY on purpose, and this is what pins the difference.
+# "kernel" is a FAMILY test: kernel-core, kernel-modules and kernel.x86_64 are one decision, which
+# is precisely what familiesOf already exists to collapse (name up to the first - or .).
+assert_eq "$(js 'L.riskyMessageOf(["kernel.x86_64"])')" "$(js 'L.COPY.kernelRestart')" \
+  "an arch-suffixed kernel is the same family, so the same message"
+assert_eq "$(js 'L.riskyMessageOf(["kernelcare"]).indexOf("kernel update")')" "-1" \
+  "...while a package that merely STARTS with kernel is a different family and not a kernel update"
+# "nvidia" is a SUBSTRING test, because the driver arrives under families that have nothing in
+# common: akmod-nvidia is the "akmod" family, xorg-x11-drv-nvidia is "xorg", nvidia-settings is
+# "nvidia". A family test would catch one of the three and miss the two that matter most.
+for n in akmod-nvidia xorg-x11-drv-nvidia nvidia-settings NVIDIA-settings kmod-nvidia-open; do
+  assert_eq "$(js "L.riskyMessageOf([\"kernel-core\",\"$n\"])")" "$(js 'L.COPY.kernelNvidiaRestart')" \
+    "$n is the NVIDIA driver whatever family its name falls into"
+done
+# NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
+# the count-and-families phrase, which is what the popup showed before this existed.
+assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" "1 session-critical pending (akmod)" \
+  "the driver without a kernel gets the ordinary summary, not a kernel sentence"
+assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" "2 session-critical pending (dbus, glibc)" \
+  "a risky set with no kernel in it keeps the summary phrase"
+assert_eq "$(js 'L.riskyMessageOf([])')" "" "no risky set, no message"
+assert_eq "$(js 'L.riskyMessageOf(undefined)')" "" "...and a missing one is not an error"
+assert_eq "$(js 'L.riskyMessageOf(null)')" "" "...nor a null one"
+assert_eq "$(js 'L.riskyMessageOf("kernel-core")')" "" "a string is not a list of names"
+
+
 # --- timestamps: never show the user "Invalid Date" ---
 assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45+03:00")')" "2026-08-24 22:11" "an ISO stamp renders short"
 assert_eq "$(js 'L.formatStamp(null)')" "never" "a null last_success reads as never"
@@ -469,6 +532,247 @@ assert_eq "$(js 'L.formatStamp("2020-01-01T00:00:00+00:00\n2021-01-01T00:00:00+0
   "a multi-document state (the recorded corruption) cannot leak a newline into the tooltip"
 assert_eq "$(js 'L.formatStamp("junk\nmore junk").indexOf("\n") >= 0')" "false" \
   "...and the verbatim fallback stays single-line too"
+
+# --- relativeTime: "4 min ago", and the absolute stamp whenever it cannot be sure ---------------
+# The popup's status line. Same defensive shape as formatStamp and for the same reasons: no Date
+# PARSING anywhere (Date.UTC is pure arithmetic, with no locale and no local timezone in it), so
+# it cannot print "Invalid Date", cannot shift a stamp into another timezone, and survives the
+# recorded corruption where two state documents arrive newline-joined.
+#
+# The clock is passed in from the test, not read: `now` is an argument precisely so every bucket
+# boundary below is an exact assertion rather than a race. T is 2026-08-26T12:00:00+03:00 as UTC
+# milliseconds, and the stamps are written with the offsets a real state file carries.
+T='Date.UTC(2026,7,26,9,0,0)'
+ISO='"2026-08-26T12:00:00+03:00"'
+STAMP="2026-08-26 12:00"
+MIN=60000; HOUR=3600000; DAY=86400000
+assert_eq "$(js "L.relativeTime($ISO, $T)")" "just now" "the moment it happened is just now"
+assert_eq "$(js "L.relativeTime($ISO, $T + $MIN - 1)")" "just now" "...right up to the last millisecond under a minute"
+assert_eq "$(js "L.relativeTime($ISO, $T + $MIN)")" "1 min ago" "a minute exactly is 1 min ago, singular"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $MIN - 1)")" "1 min ago" "...and stays singular until two"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $MIN)")" "2 min ago" "two minutes is plural"
+assert_eq "$(js "L.relativeTime($ISO, $T + 4 * $MIN + 30000)")" "4 min ago" "minutes round DOWN, never up"
+assert_eq "$(js "L.relativeTime($ISO, $T + $HOUR - 1)")" "59 min ago" "the last minute before the hour is still minutes"
+assert_eq "$(js "L.relativeTime($ISO, $T + $HOUR)")" "1 hour ago" "an hour exactly is 1 hour ago"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $HOUR - 1)")" "1 hour ago" "...singular until two"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $HOUR)")" "2 hours ago" "two hours is plural"
+assert_eq "$(js "L.relativeTime($ISO, $T + $DAY - 1)")" "23 hours ago" "the last hour before a day is still hours"
+assert_eq "$(js "L.relativeTime($ISO, $T + $DAY)")" "1 day ago" "a day exactly is 1 day ago"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $DAY - 1)")" "1 day ago" "...singular until two"
+assert_eq "$(js "L.relativeTime($ISO, $T + 2 * $DAY)")" "2 days ago" "two days is plural"
+# A week is the last age a count of days still answers "when?" usefully. Past it the date itself
+# is more use than the arithmetic, so it hands back to the absolute stamp.
+assert_eq "$(js "L.relativeTime($ISO, $T + 7 * $DAY)")" "7 days ago" "seven days is the last relative answer"
+assert_eq "$(js "L.relativeTime($ISO, $T + 8 * $DAY)")" "$STAMP" "beyond that, the absolute stamp"
+assert_eq "$(js "L.relativeTime($ISO, $T + 400 * $DAY)")" "$STAMP" "...however far beyond"
+
+# The offsets a real stamp can carry. now_iso writes +03:00 here, but a box in UTC writes Z and
+# `date -Iseconds` on some systems writes +0300 with no colon, so all three are parsed - and the
+# arithmetic must actually SUBTRACT the offset rather than ignore it, which is what the last two
+# assertions prove (the same wall-clock time in three zones is three different instants).
+assert_eq "$(js "L.relativeTime(\"2026-08-26T09:00:00Z\", $T)")" "just now" "a Z stamp is UTC"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+0300\", $T)")" "just now" "an offset without a colon parses too"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T05:00:00-04:00\", $T)")" "just now" "...and a negative offset"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T09:00:00.123456+00:00\", $T)")" "just now" "a fractional second is tolerated"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+00:00\", $T + $DAY)")" "21 hours ago" \
+  "the offset is subtracted, not ignored: noon UTC is three hours later than noon +03:00"
+# A stamp with no offset at all is read as UTC. It is the only Date-free reading available (local
+# time would need the very Date parsing this function exists to avoid), and the CLI's now_iso
+# always writes one, so this is a foreign-file case rather than an everyday one.
+assert_eq "$(js "L.relativeTime(\"2026-08-26T09:00:00\", $T)")" "just now" "a stamp with no offset is read as UTC"
+
+# Every way of not knowing falls back to the absolute stamp, which is formatStamp's own answer.
+# "in -3 minutes" would be worse than a date, so a stamp from the future falls back too - and a
+# clock that has been dragged backwards is exactly how that happens on a real desktop.
+assert_eq "$(js "L.relativeTime($ISO, $T - 1)")" "$STAMP" "a stamp one millisecond in the future falls back"
+assert_eq "$(js "L.relativeTime($ISO, $T - 5 * $DAY)")" "$STAMP" "...and one five days in the future"
+assert_eq "$(js "L.relativeTime($ISO, undefined)")" "$STAMP" "no clock at all falls back to the stamp"
+assert_eq "$(js "L.relativeTime($ISO, NaN)")" "$STAMP" "...so does a NaN clock"
+assert_eq "$(js "L.relativeTime($ISO, Infinity)")" "$STAMP" "...and an infinite one"
+assert_eq "$(js "L.relativeTime($ISO, \"1756200000000\")")" "$STAMP" "...and a clock handed over as text"
+assert_eq "$(js "L.relativeTime(\"not a date\", $T)")" "not a date" "an unparseable stamp is shown verbatim, exactly as formatStamp shows it"
+assert_eq "$(js "L.relativeTime(\"2026-08-26\", $T)")" "2026-08-26" "a date with no time is not a timestamp"
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00\", $T)")" "2026-08-26 12:00" "...and neither is one without seconds"
+assert_eq "$(js "L.relativeTime(null, $T)")" "never" "a missing stamp reads as never, like everywhere else"
+assert_eq "$(js "L.relativeTime(\"\", $T)")" "never" "so does an empty one"
+assert_eq "$(js "L.relativeTime(undefined, undefined)")" "never" "neither argument usable is still not an error"
+assert_eq "$(js "L.relativeTime(42, $T)")" "never" "a stamp that is not even a string is not a date"
+# The recorded corruption: two state documents concatenated, so a per-document read hands us both.
+# The first line is the stamp; the second must not leak into the popup, and must not make the
+# whole thing unparseable either.
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+03:00\n2026-08-27T12:00:00+03:00\", $T + 5 * $MIN)")" \
+  "5 min ago" "a newline-joined pair of stamps is read as the first one"
+assert_eq "$(js "L.relativeTime(\"junk\nmore junk\", $T).indexOf(\"\n\") >= 0")" "false" \
+  "...and the verbatim fallback stays single-line"
+
+# --- lastRunOf: what the last run DID, from `kempt summary --json` ------------------------------
+# The entry below was captured from a real `kempt summary --json` on 2026-08-26, run in a sandbox
+# through the same seams tests/test_update.sh uses (dnf-check fixture in, apply stub swapping the
+# rpm snapshot). Two fields are edited to realistic values the fake run could not produce: the log
+# path, and duration_sec, which was 0 because the stub does no work. Everything else - the field
+# names, the nesting, the shapes of updated/added/removed - is exactly what cmd_update writes.
+# Inline rather than in tests/fixtures/ because what is under test is the CLI's OUTPUT SHAPE, and
+# keeping it here means the assertion and the bytes it describes are read together.
+export RUN_JSON='{"timestamp":"2026-08-26T22:24:06+03:00","surface":"terminal","status":"ok","duration_sec":38,"reboot_needed":false,"log":"/home/u/.local/state/kempt/logs/20260826T222406.log","error":"","backends":{"dnf":{"updated":[{"name":"kernel-core","from":"6.15.3-200.fc44","to":"6.15.4-200.fc44"},{"name":"vim-common","from":"2:9.1.900-1.fc44","to":"2:9.1.1000-1.fc44"}],"added":[{"name":"newpkg","to":"1.0-1.fc44"}],"removed":[{"name":"zsh","from":"5.9-11.fc44"}],"status":"ok","skipped_held":[]},"flatpak":{"updated":[],"added":[],"removed":[],"status":"ok","skipped_held":[]}}}'
+R='L.lastRunOf(process.env.RUN_JSON)'
+assert_eq "$(js "$R.when")" "2026-08-26T22:24:06+03:00" "the run's own timestamp comes through verbatim"
+assert_eq "$(js "$R.whenStamp")" "2026-08-26 22:24" "...and its absolute stamp is formatStamp's"
+assert_eq "$(js "$R.surface")" "terminal" "the surface the run used"
+assert_eq "$(js "$R.status")" "ok" "the status it recorded"
+assert_eq "$(js "$R.failed")" "false" "an ok run did not fail"
+assert_eq "$(js "$R.durationSec")" "38" "how long it took"
+assert_eq "$(js "$R.updatedCount")" "2" "two packages upgraded"
+assert_eq "$(js "$R.addedCount")" "1" "one installed"
+assert_eq "$(js "$R.removedCount")" "1" "one removed"
+# A run that installed and removed changed the machine as much as one that upgraded, which is the
+# same rule the CLI's own run_counts_phrase applies - a popup saying "0 packages" after a
+# transaction that added two and removed one would be the front-end disagreeing with the CLI.
+assert_eq "$(js "$R.changedCount")" "4" "changedCount counts everything the run changed, not just upgrades"
+assert_eq "$(js "$R.items.length")" "2" "the expandable list is the UPGRADED packages"
+assert_eq "$(js "$R.items[0].name")" "kernel-core" "...in the entry's own order"
+assert_eq "$(js "$R.items[0].from")" "6.15.3-200.fc44" "...with the version it came from"
+assert_eq "$(js "$R.items[0].to")" "6.15.4-200.fc44" "...and the one it went to"
+assert_eq "$(js "$R.logPath")" "/home/u/.local/state/kempt/logs/20260826T222406.log" "the log Show Log opens"
+assert_eq "$(js "$R.rebootNeeded")" "false" "and whether that run left a restart owed"
+assert_eq "$(js "$R.error")" "" "a successful run has no error text"
+
+# Nothing to report is NULL, never a fabricated empty run - the same rule the CLI itself follows
+# (`kempt summary --json` with no history prints nothing at all under exit 0). A caller that
+# rendered an empty object would put "Last update never" in the popup of a box that has simply
+# never run one.
+assert_eq "$(js 'L.lastRunOf("")')" "null" "no runs recorded: empty stdout is no last run"
+assert_eq "$(js 'L.lastRunOf("   \n  ")')" "null" "...and so is whitespace"
+assert_eq "$(js 'L.lastRunOf("not json at all")')" "null" "garbage is not a run"
+assert_eq "$(js 'L.lastRunOf("{\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"backends\":{\"dnf\":{\"upda")')" \
+  "null" "a truncated entry is not a run either"
+assert_eq "$(js 'L.lastRunOf("[1,2]")')" "null" "a JSON array is valid JSON and is not a run"
+assert_eq "$(js 'L.lastRunOf("42")')" "null" "neither is a number"
+assert_eq "$(js 'L.lastRunOf(null)')" "null" "a missing string is not an error"
+assert_eq "$(js 'L.lastRunOf(undefined)')" "null" "nor no string at all"
+
+# Every field tolerates absence, because a history entry can be older than this build (or damaged
+# in a way that still parses). The one thing that must NOT be optimistic is `failed`: a status we
+# cannot read is not a success.
+BARE='L.lastRunOf("{\"timestamp\":\"2026-08-26T22:24:06+03:00\"}")'
+assert_eq "$(js "$BARE === null")" "false" "an entry with only a timestamp is still an entry"
+assert_eq "$(js "$BARE.failed")" "true" "...and a run with no status is NOT counted as a success"
+assert_eq "$(js "$BARE.changedCount")" "0" "...it changed nothing we know of"
+assert_eq "$(js "$BARE.items.length")" "0" "...listed nothing"
+assert_eq "$(js "$BARE.logPath")" "" "...has no log to open"
+assert_eq "$(js "$BARE.durationSec")" "0" "...and took no time we can name"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").backends')" "undefined" \
+  "an entry missing backends entirely derives no backends key"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").items.length')" "0" "...and no items"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").changedCount')" "0" "...and no counts"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").failed')" "false" "...while an ok status is still ok"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"failed\",\"error\":\"boom\"}").failed')" "true" "a failed status fails"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"partial\"}").failed')" "true" "so does anything that is not exactly ok"
+# reboot_needed is a BOOLEAN in the schema. The string "true" is what a shell would produce if
+# somebody built the entry with --arg instead of --argjson, and it must not read as a restart.
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\",\"reboot_needed\":\"true\"}").rebootNeeded')" "false" \
+  "the string \"true\" is not the boolean true"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\",\"reboot_needed\":1}").rebootNeeded')" "false" "nor is 1"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\",\"reboot_needed\":true}").rebootNeeded')" "true" "the boolean is"
+
+# Backend order, and a backend this build has never heard of. Same rule as backendKeys: the two we
+# know first, then whatever the CLI grew since - never silently dropped.
+export MIXED_JSON='{"status":"ok","backends":{"apt":{"updated":[{"name":"z","from":"1","to":"2"}]},"flatpak":{"updated":[{"name":"f","from":"1","to":"2"}]},"dnf":{"updated":[{"name":"d","from":"1","to":"2"}]}}}'
+assert_eq "$(js 'L.lastRunOf(process.env.MIXED_JSON).items.map(function (i) { return i.name; })')" \
+  '["d","f","z"]' "items come out dnf, flatpak, then any backend this build does not know"
+assert_eq "$(js 'L.lastRunOf(process.env.MIXED_JSON).updatedCount')" "3" "...and all of them are counted"
+# The comma-joined multilib/installonly set again: the expanded list has to render versions the
+# way the popup rows and `kempt summary` do, or one screen contradicts the other two.
+export MULTI_JSON='{"status":"ok","backends":{"dnf":{"updated":[{"name":"kernel","from":"6.15.1,6.15.3","to":"6.15.3,6.15.4"},{"name":"nameless"}]}}}'
+assert_eq "$(js 'L.lastRunOf(process.env.MULTI_JSON).items[0].from')" "6.15.3" \
+  "a comma-joined set renders its newest, exactly like every other version in the widget"
+assert_eq "$(js 'L.lastRunOf(process.env.MULTI_JSON).items[0].to')" "6.15.4" "...on both sides"
+assert_eq "$(js 'L.lastRunOf(process.env.MULTI_JSON).items[1].from')" "?" \
+  "an item with no versions keeps the not-installed marker rather than rendering undefined"
+assert_eq "$(js 'L.lastRunOf(process.env.MULTI_JSON).items[1].name')" "nameless" "...and keeps its name"
+
+# --- postRunLine: the transient line that replaces the CLI's ISO summary header -----------------
+# The old popup pasted `kempt summary`'s first line in here, which is an ISO timestamp: true, and
+# no answer to "what just happened?". These are.
+assert_eq "$(js 'L.postRunLine(null)')" "" "no run, no line"
+assert_eq "$(js 'L.postRunLine(undefined)')" "" "...and no argument is not an error"
+assert_eq "$(js "L.postRunLine($R)")" "Updated 4 packages in 38s" "a real run says what it changed and how long it took"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package in 38s" "one package is singular"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":9}"))')" \
+  "No package changes" "a run that changed nothing says so, rather than \"0 packages\""
+# A failed run's first stderr line, which is the CLI's own worked-out reason (run_failure_reason),
+# not a generic apology. Multi-line, because that reason can arrive with a log tail behind it.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"authentication declined or cancelled\"}"))')" \
+  "Update failed: authentication declined or cancelled" "a failure names the reason"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"first line\\nsecond line\"}"))')" \
+  "Update failed: first line" "...its FIRST line only, never a paragraph in a panel"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"\"}"))')" \
+  "Update failed" "a failure with nothing to say still says it failed"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
+  "Update failed" "...and so does one with no error field at all"
+# Failure wins over the counts. A run that upgraded four packages and then failed is a failed run,
+# and saying "Updated 4 packages" about it would be the popup's worst possible lie.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
+  "Update failed: dnf exited 1" "a partial transaction that failed is reported as failed"
+
+# --- lastRunText: the persistent row's title ---------------------------------------------------
+# The separator is U+00B7 with spaces, the same middle dot the footer uses.
+W='Date.UTC(2026,7,26,19,24,6)'   # 2026-08-26T22:24:06+03:00, the captured run, in UTC ms
+assert_eq "$(js "L.lastRunText($R, $W + 18 * $MIN)")" "Last update 18 min ago · 4 packages" \
+  "the last run, in the words the plan drew"
+assert_eq "$(js "L.lastRunText($R, $W + 3 * $DAY)")" "Last update 3 days ago · 4 packages" \
+  "...however long ago it was"
+assert_eq "$(js "L.lastRunText($R, undefined)")" "Last update 2026-08-26 22:24 · 4 packages" \
+  "...falling back to the absolute stamp when the clock is unusable, like relativeTime everywhere"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}'), $W + $MIN)")" \
+  "Last update 1 min ago · 1 package" "one package is singular here too"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · no package changes" "a run that changed nothing says so in words"
+assert_eq "$(js "L.lastRunText(null, $W)")" "" "no run, no row"
+assert_eq "$(js "L.lastRunText(undefined, $W)")" "" "...and no argument is not an error"
+
+# --- shouldRefreshOnOpen: the popup asks for fresh counts when the ones it has are old ----------
+# The rule is "the smaller of the configured interval and five minutes". Five is a CEILING, not an
+# alternative: somebody who set the interval to an hour still opened the popup to look at the
+# counts, and counts an hour old are not what they came for. Somebody who set it to two minutes
+# gets two.
+S='L.shouldRefreshOnOpen'
+FRESH='"2026-08-26T12:00:00+03:00"'   # = T in UTC ms, defined with the relativeTime tests above
+assert_eq "$(js "$S($FRESH, 60, $T + 5 * $MIN - 1)")" "false" "just under five minutes is fresh enough"
+assert_eq "$(js "$S($FRESH, 60, $T + 5 * $MIN)")" "false" "exactly five minutes is not yet OLDER than five"
+assert_eq "$(js "$S($FRESH, 60, $T + 5 * $MIN + 1)")" "true" "a millisecond past it, ask again"
+assert_eq "$(js "$S($FRESH, 60, $T + $HOUR)")" "true" "...and an hour later, certainly"
+assert_eq "$(js "$S($FRESH, 2, $T + 2 * $MIN)")" "false" "a two-minute interval is not stale at two minutes"
+assert_eq "$(js "$S($FRESH, 2, $T + 2 * $MIN + 1)")" "true" "...and is one millisecond later"
+assert_eq "$(js "$S($FRESH, 2, $T + 4 * $MIN)")" "true" "a smaller interval wins over the five-minute ceiling"
+assert_eq "$(js "$S($FRESH, 1440, $T + 6 * $MIN)")" "true" "...and the ceiling wins over a huge one"
+# The widget reads config values back as the TEXT `kempt config get` printed, so a numeric string
+# is the ORDINARY shape of this argument, not an edge case - it has to be honoured, or every box
+# would silently get the ceiling.
+assert_eq "$(js "$S($FRESH, \"2\", $T + 3 * $MIN)")" "true" "an interval that arrives as text is still an interval"
+assert_eq "$(js "$S($FRESH, 2, $T + 3 * $MIN)")" "true" "...answering exactly as the number does"
+# An interval we cannot use at all is not a reason to invent one: fall back to the ceiling. Three
+# minutes tells the two apart - stale under a 2-minute interval, fresh under the 5-minute ceiling.
+for bad in 0 -5 NaN Infinity '"abc"' '""' undefined null; do
+  assert_eq "$(js "$S($FRESH, $bad, $T + 3 * $MIN)")" "false" "interval $bad falls back to the ceiling: three minutes is fresh"
+  assert_eq "$(js "$S($FRESH, $bad, $T + 6 * $MIN)")" "true" "...and six is not"
+done
+# Nothing known at all: ask. A box that has never had a successful check is exactly the box whose
+# counts are worth refreshing, and there is no age to compare.
+assert_eq "$(js "$S(\"\", 60, $T)")" "true" "no stamp at all means ask"
+assert_eq "$(js "$S(null, 60, $T)")" "true" "...and so does a missing one"
+assert_eq "$(js "$S(\"never\", 60, $T)")" "true" "...and an unparseable one"
+assert_eq "$(js "$S(\"2026-08-26\", 60, $T)")" "true" "...a date with no time is not a stamp either"
+# ...but never fire a command off a clock we cannot read. An unusable `now` is a caller bug, and
+# the answer to a caller bug is not to start running package-manager commands on every popup open.
+# That rule is checked FIRST, which is why a missing stamp does not override it.
+assert_eq "$(js "$S($FRESH, 60, undefined)")" "false" "an unusable clock never fires a check"
+assert_eq "$(js "$S($FRESH, 60, NaN)")" "false" "...NaN included"
+assert_eq "$(js "$S($FRESH, 60, \"1756200000000\")")" "false" "...and a clock handed over as text"
+assert_eq "$(js "$S(\"\", 60, undefined)")" "false" "no stamp AND no clock still does not fire"
+# A last_success in the future is a clock that moved, not a check that is due.
+assert_eq "$(js "$S($FRESH, 60, $T - 1)")" "false" "a stamp from the future is not stale"
+assert_eq "$(js "$S($FRESH, 60, $T - 5 * $DAY)")" "false" "...however far into it"
 
 # --- a state object that is not schema v1: say so, never invent a count ---
 assert_eq "$(js 'L.viewModel({hello:"world"},false).iconState')" "error" "an unrecognisable state object => error"
@@ -483,15 +787,14 @@ assert_eq "$(js 'V("live",false).iconState')" "updates" "schema 1 is of course s
 assert_eq "$(js 'L.viewModel({hello:"world"},false).badgeVisible')" "false" "...and it badges nothing"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...and lists nothing"
 
-# --- an additive key this build has never heard of changes nothing --------------------------
-# `reboot_needed` is written by `kempt check` as of this build, and the restart banner that reads
-# it is a LATER task. Until then it is exactly the case schema v1's additive-key rule promises to
-# survive: state-reboot-needed.json is state-live.json plus that one key, so the whole view model
-# it derives must come out identical, field for field. Compared inside ONE node process, because
-# a whole-object comparison is the only form that catches a key quietly changing something far
-# from where it was added.
-assert_eq "$(js 'JSON.stringify(V("reboot-needed",false)) === JSON.stringify(V("live",false))')" \
-  "true" "an unknown additive key leaves the entire view model untouched"
+# --- reboot_needed: the additive key, now that it has a reader -------------------------------
+# state-reboot-needed.json is state-live.json plus that one key, which makes the pair a controlled
+# experiment: the key must move the restart surfaces and NOTHING else. Compared with those two
+# fields removed, inside ONE node process, because a whole-object comparison is the only form that
+# catches a key quietly changing something far from where it was added.
+STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; return JSON.stringify(v); }'
+assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
+  "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
 # ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
 for _prop in badgeText badgeVisible iconState tooltipMain tooltipSub headerText actionable heldTotal; do
   assert_eq "$(js "V(\"reboot-needed\",false).$_prop")" "$(js "V(\"live\",false).$_prop")" \
@@ -502,12 +805,188 @@ assert_eq "$(js 'V("reboot-needed",false).rows.length')" "$(js 'V("live",false).
 # The fixture must really carry the key, or every assertion above passes vacuously.
 assert_eq "$(jq -r '.reboot_needed' "$FIXTURES/state-reboot-needed.json")" "true" \
   "fixture guard: state-reboot-needed.json really does carry the key"
-assert_eq "$(js 'V("reboot-needed",false).rebootNeeded')" "undefined" \
-  "and this build derives nothing from it yet: the banner is a later task"
+assert_eq "$(js 'V("reboot-needed",false).rebootNeeded')" "true" \
+  "...and the popup now reads it: a restart really is owed on that box"
+assert_eq "$(js 'V("live",false).rebootNeeded')" "false" \
+  "...while the same state without the key owes nothing"
+
+# --- the fourth argument: an OPTIONS object, and three-argument callers keep working -----------
+# viewModel(state, updating, cliError) is what main.qml and every assertion above call. The popup's
+# new surfaces need three more facts - the clock, and the two halves of the restart reminder - and
+# they arrive in ONE optional object rather than as three more positional arguments, so a caller
+# that wants only the clock does not have to know what comes after it.
+LIVE3='L.viewModel(S("live"),false,"")'
+assert_eq "$(js "JSON.stringify($LIVE3) === JSON.stringify(L.viewModel(S(\"live\"),false,\"\",{}))")" "true" \
+  "a three-argument call is exactly a call with an empty options object"
+assert_eq "$(js "JSON.stringify($LIVE3) === JSON.stringify(L.viewModel(S(\"live\"),false,\"\",undefined))")" "true" \
+  "...and so is one that passes undefined"
+assert_eq "$(js "JSON.stringify($LIVE3) === JSON.stringify(L.viewModel(S(\"live\"),false,\"\",\"nonsense\"))")" "true" \
+  "...and options that are not an object at all fall back to the defaults rather than throwing"
+assert_eq "$(js "JSON.stringify($LIVE3) === JSON.stringify(L.viewModel(S(\"live\"),false,\"\",null))")" "true" \
+  "...null included"
+
+# One schema-v1 state with a known last_success, plus whatever the case under test adds, so every
+# assertion below differs from its neighbour in exactly one thing.
+#   st  <extra state fields> <held_total>                  -> the state literal
+#   vm  <opts literal> <extra state fields> <held_total> <property>  -> that state through viewModel
+# Options come first because they are what most of these assertions vary; all four are positional
+# and all four are given, so nothing here depends on remembering a default.
+st() { echo "{schema:1,status:\"ok\",actionable:0,held_total:${2:-0},last_success:\"2026-08-26T12:00:00+03:00\",backends:{}${1:-}}"; }
+vm() { js "L.viewModel($(st "${2:-}" "${3:-0}"),false,\"\",${1:-{\}}).$4"; }
+
+# --- vm.rebootNeeded: strictly the boolean ------------------------------------------------------
+# `false` in this schema means "nothing to say", NEVER "no restart needed". backends/dnf.sh's
+# dnf_reboot_needed answers false plus a warning whenever the command could not work the verdict
+# out at all - rc 1 with an empty stdout (a cold user cache, which is the default on a fresh
+# install) and any unexpected rc both land there - so a false is indistinguishable from "we could
+# not tell", and nothing may render an affirmative from it. Same rule as the state schema table in
+# docs/architecture.md.
+assert_eq "$(vm '{}' ',reboot_needed:true' 0 'rebootNeeded')" "true" "the boolean true means a restart is owed"
+assert_eq "$(vm '{}' ',reboot_needed:false' 0 'rebootNeeded')" "false" "the boolean false says nothing"
+assert_eq "$(vm '{}' '' 0 'rebootNeeded')" "false" "an absent key says nothing either"
+assert_eq "$(vm '{}' ',reboot_needed:null' 0 'rebootNeeded')" "false" "...nor does null"
+assert_eq "$(vm '{}' ',reboot_needed:"true"' 0 'rebootNeeded')" "false" \
+  "the STRING \"true\" is not the boolean, and must not raise a restart message"
+assert_eq "$(vm '{}' ',reboot_needed:1' 0 'rebootNeeded')" "false" "neither is 1"
+assert_eq "$(vm '{}' ',reboot_needed:"yes"' 0 'rebootNeeded')" "false" "nor yes"
+# A state this build cannot read is not a state to take a restart claim from either: the same
+# reason the badge refuses a future schema, applied to the one key that would still parse.
+assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:0,held_total:0,backends:{},reboot_needed:true},false).rebootNeeded')" \
+  "false" "a schema this build does not know contributes no restart claim"
+
+# --- the restart message, and founder amendment A1 ----------------------------------------------
+# On: the message shows, and the footer does NOT repeat it - one fact, one place on the screen.
+# Off, or dismissed for this session: no message, and the footer picks the fact up instead, because
+# a popup that hides a pending restart is lying to the person looking at it.
+RB=',reboot_needed:true'
+assert_eq "$(vm '{}' "$RB" 0 'restartMessageVisible')" "true" "reminder on: the message shows"
+assert_eq "$(vm '{restartReminder:false}' "$RB" 0 'restartMessageVisible')" "false" "reminder off: no message"
+assert_eq "$(vm '{restartDismissed:true}' "$RB" 0 'restartMessageVisible')" "false" \
+  "dismissed this session: no message"
+assert_eq "$(vm '{}' '' 0 'restartMessageVisible')" "false" "no restart owed: nothing to show"
+assert_eq "$(vm '{restartReminder:true,restartDismissed:true}' "$RB" 0 'restartMessageVisible')" "false" \
+  "a dismissal beats the setting for this session"
+# The reminder arrives from `kempt config get`, which prints TEXT. "false" is what the widget will
+# actually be holding, and reading it as truthy would leave the message on for somebody who turned
+# it off - the exact bug is_true/isTrue exist to prevent.
+assert_eq "$(vm '{restartReminder:"false"}' "$RB" 0 'restartMessageVisible')" "false" \
+  "the setting is read the way the CLI writes it, as text"
+assert_eq "$(vm '{restartReminder:"true"}' "$RB" 0 'restartMessageVisible')" "true" "...in both directions"
+assert_eq "$(vm '{restartReminder:"nonsense"}' "$RB" 0 'restartMessageVisible')" "false" \
+  "...and anything that is not a yes is a no, exactly like the CLI's is_true"
+# Absent is not false. A missing option means the caller did not say, and the CLI's default for
+# restart_reminder is true - so an unstated reminder is ON, or the widget would ship with the
+# setting silently inverted.
+assert_eq "$(vm '{restartReminder:undefined}' "$RB" 0 'restartMessageVisible')" "true" \
+  "an unstated reminder follows the CLI's default, which is on"
+
+# --- vm.footerText: the status line -------------------------------------------------------------
+# "Checked ..." is derived from last_success, NOT last_check: the counts on screen are as of the
+# last check that actually told us something, and a failed check has the stale message to explain
+# itself. Pinning that here because the two keys differ only on a bad day, which is the day it
+# would matter.
+NOW='Date.UTC(2026,7,26,9,4,0)'   # four minutes after the fixture's last_success
+assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerText')" "Checked 4 min ago" "the plain case is one fact"
+assert_eq "$(vm "{nowMs:$NOW}" '' 2 'footerText')" "Checked 4 min ago · 2 held" \
+  "held items are named in the footer, never as \"held back\""
+assert_eq "$(vm "{nowMs:$NOW}" '' 1 'footerText')" "Checked 4 min ago · 1 held" "...singular or not, one word"
+assert_eq "$(js "L.viewModel({schema:1,status:\"stale\",error:\"x\",actionable:1,held_total:0,last_check:\"2026-08-26T23:00:00+03:00\",last_success:\"2026-08-26T12:00:00+03:00\",backends:{}},false,\"\",{nowMs:$NOW + 60000}).footerText")" \
+  "Checked 5 min ago" "the footer reads last_success, never the newer last_check"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerText")" \
+  "Not checked yet" "a box with no successful check says so rather than inventing an age"
+assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "Not checked yet" \
+  "...and so does a popup with no state at all"
+assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00" \
+  "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
+
+# A1, all three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
+# is not carrying it - never both at once, and never neither.
+assert_eq "$(vm "{nowMs:$NOW}" "$RB" 1 'footerText')" "Checked 4 min ago · 1 held" \
+  "reminder ON: the message carries the restart, so the footer does not repeat it"
+assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" "$RB" 1 'footerText')" \
+  "Checked 4 min ago · 1 held · restart pending" \
+  "reminder OFF: no message, so the footer carries the fact - the popup never hides it"
+assert_eq "$(vm "{nowMs:$NOW,restartDismissed:true}" "$RB" 1 'footerText')" \
+  "Checked 4 min ago · 1 held · restart pending" \
+  "reminder on but DISMISSED this session: the fact stays, the nagging goes"
+assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" '' 1 'footerText')" "Checked 4 min ago · 1 held" \
+  "...and with no restart owed, switching the reminder off adds nothing at all"
+assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" "$RB" 1 'footerText')" \
+  "$(js "L.viewModel($(st "$RB" 1),false,\"\",{nowMs:$NOW,restartReminder:false}).footerText")" \
+  "the footer is built once and read the same way twice"
+
+# --- vm.footerTooltip: the exact stamp under the convenient one ---------------------------------
+# The relative time is the convenience; the stamp is the truth, and people compare the two.
+assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "2026-08-26 12:00" "the tooltip is the absolute stamp"
+assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "$(vm "{nowMs:$NOW}" '' 0 'lastSuccessText')" \
+  "...the same one the tooltip and the stale banner already use"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerTooltip")" \
+  "" "no successful check, no stamp to show - never the word never in a tooltip with no context"
+assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "...and nothing at all with no state"
+
+# --- vm.riskyMessage: the message the offline recommendation actually shows ----------------------
+# riskySummary is unchanged and still exported: its own assertions above pin it, and the QML that
+# reads it today keeps working.
+assert_eq "$(js 'V("risky-heavy",false).riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
+  "a captured risky transaction with kernel-core in it names the kernel"
+assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("session-critical pending") >= 0')" "true" \
+  "...while riskySummary keeps its own, unchanged phrasing"
+assert_eq "$(js 'V("live",false).riskyMessage')" "" "an everyday transaction raises no message"
+assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
+  "a state written before risky_pending existed raises none either"
+assert_eq "$(js 'L.viewModel(null,false).riskyMessage')" "" "and neither does no state at all"
+
+# --- the copy table -----------------------------------------------------------------------------
+# One place where the wording is decided, so a change is one edit and a node test can pin it. The
+# QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
+# nothing at all, so routing these through i18n() at runtime would ship an untranslatable widget.
+assert_eq "$(js 'L.COPY.upToDate')" "Up to date" "copy: the header in the clean state"
+assert_eq "$(js 'L.COPY.everythingUpToDate')" "Everything is up to date" "copy: the placeholder under it"
+assert_eq "$(js 'L.COPY.restartMessage')" "Restart to apply installed updates" "copy: the restart message"
+assert_eq "$(js 'L.COPY.restartAction')" "Restart…" "copy: the restart button"
+assert_eq "$(js 'L.COPY.restartFailed')" "Could not open the restart prompt." \
+  "copy: what a restart prompt that would not open says, in the message itself, never silently"
+assert_eq "$(js 'L.COPY.checkForUpdates')" "Check for Updates" "copy: the refresh action"
+assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
+assert_eq "$(js 'L.COPY.installOnNextRestart')" "Install on Next Restart" "copy: the offline action"
+assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
+  "Applies the update during a restart, so nothing changes underneath your running desktop." \
+  "copy: and what it does, which is the whole argument for choosing it"
+assert_eq "$(js 'L.COPY.kernelRestart')" "This includes a kernel update. Restart when it finishes." \
+  "copy: the kernel sentence"
+assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
+  "This includes a kernel update and the NVIDIA driver. Restart when it finishes." \
+  "copy: and the one that names the driver too"
+assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
+assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
+assert_eq "$(js 'L.COPY.notCheckedYet')" "Not checked yet" "copy: a box that has never checked"
+assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
+assert_eq "$(js 'L.COPY.noPackageChanges')" "No package changes" "copy: a run that changed nothing"
+assert_eq "$(js 'L.COPY.updateFailed')" "Update failed" "copy: a run that failed"
+assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
+# Nothing empty, nothing that is not a string: an undefined COPY key reaches a QML binding as a
+# blank label, which is a button with no words on it rather than an error anyone would see.
+assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return typeof L.COPY[k] !== "string" || L.COPY[k] === ""; })')" \
+  "[]" "every entry in the copy table is a non-empty string"
+# No em dashes, anywhere, ever: they read as machine-written English (project rule). Written as the
+# escape rather than the character so that the repo-wide grep for em dashes stays empty - a test
+# file that carries one to forbid it would trip the very check it exists to support.
+assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return L.COPY[k].indexOf("\u2014") >= 0; })')" \
+  "[]" "no copy string contains an em dash (U+2014)"
+# A real ellipsis, U+2026, on the two labels that open something else. hig-review.md P5 calls three
+# ASCII dots the one typographic tell that a widget was not written by KDE.
+for _k in restartAction configure; do
+  assert_eq "$(js "L.COPY.$_k.charCodeAt(L.COPY.$_k.length - 1)")" "8230" \
+    "copy: $_k ends in a real ellipsis (U+2026)"
+  assert_eq "$(js "L.COPY.$_k.indexOf(\"...\")")" "-1" "copy: ...and not in three ASCII dots"
+done
+# KDE's own placeholders carry no full stop ("No paired devices", "No Vaults have been set up").
+assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.length - 1)')" "e" \
+  "copy: the placeholder has no trailing full stop"
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","emptyStateText","headerText","heldItems","heldTotal","iconState","lastSuccessText","remedyCommand","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
