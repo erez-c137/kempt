@@ -32,11 +32,35 @@ assert_exit 0 "the staged widget is a copy, not a symlink into the checkout" -- 
 # by KPackage: measured on Plasma 6.7 with Breeze loaded, an icon that lives only in the installed
 # package's contents/icons/ does not resolve from its name at all. Without this file the widget
 # shows a generic placeholder in Add Widgets, which looks like nothing being wrong.
-ICON="$D$HOME/.local/share/icons/hicolor/scalable/apps/kempt.svg"
-assert_exit 0 "the app icon is staged into the user's hicolor theme, where a name resolves" -- test -f "$ICON"
-[[ -f "$P/contents/icons/kempt.svg" ]] && echo "ok: ...and still ships inside the package too" \
-  || { echo "FAIL: the package lost its own copy of the icon"; _fail=1; }
+# It goes in as a SIZE LADDER (2026-08-26), the way Breeze ships one: the fine 17-element comb is
+# the scalable drawing, a 7-tooth redraw of the same comb serves 64 and 48, and the older
+# six-tooth drawing serves 32, 22 and 16 - because a comb fine enough to read as a comb at 256 px
+# is grey mush at 32. Every rung is asserted, and asserted by CONTENT: a size directory that is
+# merely present, or present with the wrong drawing in it, fails nowhere at runtime. It just
+# quietly serves the wrong artwork at that size, which is the exact bug the ladder exists to fix.
+ICONS="$D$HOME/.local/share/icons/hicolor"
+ICON="$ICONS/scalable/apps/kempt.svg"
+LADDER="scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg 32x32:kempt-32.svg 22x22:kempt-32.svg 16x16:kempt-32.svg"
+for _rung in $LADDER; do
+  _dir="${_rung%%:*}"; _src="${_rung#*:}"
+  assert_exit 0 "the app icon is staged into hicolor/$_dir/apps, where a name resolves" \
+    -- test -f "$ICONS/$_dir/apps/kempt.svg"
+  assert_exit 0 "...and hicolor/$_dir/apps got the $_src drawing" \
+    -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/$_src" "$ICONS/$_dir/apps/kempt.svg"
+  [[ -f "$P/contents/icons/$_src" ]] && echo "ok: ...and $_src still ships inside the package too" \
+    || { echo "FAIL: the package lost its copy of $_src"; _fail=1; }
+done
 assert_eq "$(head -c 5 "$ICON" 2>/dev/null)" "<?xml" "...and what was staged is the SVG, not a stub"
+# Three DIFFERENT drawings is the whole point. If a future edit ever copies one file over the
+# others, the ladder still installs six files and every assertion above still passes.
+assert_exit 1 "the scalable and the 48 drawing are genuinely different artwork" \
+  -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-48.svg"
+assert_exit 1 "...and so are the 48 and the 32 drawing" \
+  -- cmp -s "$REPO_ROOT/plasmoid/contents/icons/kempt-48.svg" "$REPO_ROOT/plasmoid/contents/icons/kempt-32.svg"
+# The symbolic panel glyphs are NOT part of this ladder and must not be dragged into it: they are
+# monochrome currentColor drawings for the system tray, resolved by their own names.
+assert_exit 1 "the ladder does not install a symbolic glyph under the 'kempt' name" \
+  -- test -e "$ICONS/22x22/apps/kempt-symbolic.svg"
 
 # The helpers are the only COPIES: they must be byte-identical to what the repo reviewed, and
 # the policy has to be world-readable or polkit ignores the action.
@@ -76,7 +100,13 @@ assert_exit 0 "uninstall removes the staged policy" -- test ! -e "$D/usr/share/p
 assert_exit 0 "uninstall removes the staged CLI symlink" -- test ! -e "$D$HOME/.local/bin/kempt"
 assert_exit 0 "uninstall removes the staged man page symlink" -- test ! -e "$D$HOME/.local/share/man/man1/kempt.1"
 assert_exit 0 "uninstall removes the staged widget package" -- test ! -e "$P"
-assert_exit 0 "...and the icon it put in the user's theme" -- test ! -e "$ICON"
+# ...and EVERY rung of the icon ladder, not just the scalable one. An uninstall that left five
+# stale drawings behind in the size dirs would keep serving a "kempt" icon for a program that is
+# no longer installed - and the next install would silently inherit them.
+for _rung in $LADDER; do
+  assert_exit 0 "uninstall removes the staged icon from hicolor/${_rung%%:*}/apps" \
+    -- test ! -e "$ICONS/${_rung%%:*}/apps/kempt.svg"
+done
 assert_exit 0 "uninstall leaves the config alone" -- test -s "$KEMPT_CONFIG_DIR/config"
 assert_exit 0 "uninstall leaves the holds alone" -- test -s "$KEMPT_CONFIG_DIR/holds"
 

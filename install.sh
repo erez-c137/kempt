@@ -25,7 +25,26 @@ KEMPT_KPACKAGETOOL="${KEMPT_KPACKAGETOOL:-kpackagetool6}"
 # if something has added that directory to QIcon's fallback search paths, and nothing does. So the
 # same SVG is also installed into the user's hicolor theme, which is the standard route and the
 # one that actually makes the icon appear in Add Widgets. User-level, no authentication.
-ICON_THEME_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+ICON_THEME_BASE="$HOME/.local/share/icons/hicolor"
+# ...and it is installed as a SIZE LADDER, the way Breeze ships one (breeze/apps/16, /22, /32,
+# /48, /64 are five different drawings, not one file scaled five ways). A comb fine enough to
+# read as a comb at 256 px is grey mush at 32, so each band gets the drawing that survives it:
+#   scalable  the 17-element fine comb, a measured redraw of the founder's reference photo
+#   64 + 48   the same comb at 7 teeth, the most that hold 2 solid device pixels at 48 px
+#   32/22/16  the older six-tooth drawing, unchanged
+# One name, "kempt", resolves to all of them: an XDG icon theme picks the directory whose size
+# matches the request, and hicolor's index.theme lists every fixed-size dir before scalable/apps,
+# so an exact-size dir wins. Verified on this box with kiconfinder6 - see
+# docs/research/brand/README.md for the queries and their output.
+# "<hicolor size dir>:<drawing under plasmoid/contents/icons/>"
+ICON_LADDER=(
+  "scalable:kempt.svg"
+  "64x64:kempt-48.svg"
+  "48x48:kempt-48.svg"
+  "32x32:kempt-32.svg"
+  "22x22:kempt-32.svg"
+  "16x16:kempt-32.svg"
+)
 # ...and the signal that makes a RUNNING desktop notice it. Measured on this box: after the SVG
 # above was installed, `kiconfinder6 kempt` resolved it immediately in a fresh process, while
 # plasmashell - started days earlier, before ~/.local/share/icons/hicolor existed - went on
@@ -115,18 +134,38 @@ widget_uninstall() {
   run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -r "$PLASMOID_ID" 2>/dev/null || true
 }
 
-# The application icon in the user's own hicolor theme - see ICON_THEME_DIR above for why the copy
-# inside the package is not enough. A plain file install, so it needs no seam and no `run`.
-icon_install() {
-  [[ -f "$ROOT/plasmoid/contents/icons/kempt.svg" ]] || return 0
-  install -D -m 644 "$ROOT/plasmoid/contents/icons/kempt.svg" "$ICON_THEME_DIR/kempt.svg"
+# The application icon in the user's own hicolor theme - see ICON_THEME_BASE above for why the
+# copy inside the package is not enough, and ICON_LADDER for why there are six of them. A plain
+# file install, so it needs no seam and no `run`. The optional argument is a DESTDIR prefix: with
+# one, this is staging a tree for a test or a package and must not touch the running session, so
+# the reload signal and the log-out note are skipped.
+icon_install() {  # [destdir prefix]
+  local prefix="${1:-}" entry dir src installed=0
+  for entry in "${ICON_LADDER[@]}"; do
+    dir="${entry%%:*}"; src="${entry#*:}"
+    [[ -f "$ROOT/plasmoid/contents/icons/$src" ]] || continue
+    install -D -m 644 "$ROOT/plasmoid/contents/icons/$src" \
+      "$prefix$ICON_THEME_BASE/$dir/apps/kempt.svg"
+    installed=1
+  done
+  # Staging a DESTDIR tree must not touch the running session: no signal, no advice about it.
+  # `if` rather than `[[ ... ]] && return`, which under `set -e` is a foot-gun the moment somebody
+  # adds a line after it.
+  if [[ -n "$prefix" || $installed -eq 0 ]]; then return 0; fi
   icon_reload
   echo "note: if the widget picker still shows a placeholder icon, log out and back in."
+  return 0
 }
 
-icon_uninstall() {
-  rm -f "$ICON_THEME_DIR/kempt.svg"
+icon_uninstall() {  # [destdir prefix]
+  local prefix="${1:-}" entry dir
+  for entry in "${ICON_LADDER[@]}"; do
+    dir="${entry%%:*}"
+    rm -f "$prefix$ICON_THEME_BASE/$dir/apps/kempt.svg"
+  done
+  if [[ -n "$prefix" ]]; then return 0; fi
   icon_reload
+  return 0
 }
 
 # Tell every running KIconLoader in the session to re-scan the icon theme - see KEMPT_DBUS_SEND
@@ -163,7 +202,7 @@ main() {
             "$DESTDIR$ACTIONS_DIR/$POLICY" "$DESTDIR$RULES_FILE" "$DESTDIR$HOME/.local/bin/kempt" \
             "$DESTDIR$MAN1_DIR/kempt.1"
       rm -rf "$DESTDIR$PLASMOID_DIR"
-      rm -f "$DESTDIR$ICON_THEME_DIR/kempt.svg"
+      icon_uninstall "$DESTDIR"
       echo "removed the staged install under $DESTDIR"
       exit 0
     fi
@@ -194,9 +233,9 @@ main() {
     rm -rf "$DESTDIR$PLASMOID_DIR"
     mkdir -p "$(dirname "$DESTDIR$PLASMOID_DIR")"
     cp -a "$ROOT/plasmoid" "$DESTDIR$PLASMOID_DIR"
-    # ...and the icon in the hicolor theme, which is what makes metadata.json's "kempt" resolve.
-    [[ -f "$ROOT/plasmoid/contents/icons/kempt.svg" ]] \
-      && install -D -m 644 "$ROOT/plasmoid/contents/icons/kempt.svg" "$DESTDIR$ICON_THEME_DIR/kempt.svg"
+    # ...and the icon ladder in the hicolor theme, which is what makes metadata.json's "kempt"
+    # resolve - at every size, not just the scalable one.
+    icon_install "$DESTDIR"
     echo "staged into $DESTDIR"
     exit 0
   fi

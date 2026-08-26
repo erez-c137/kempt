@@ -57,7 +57,12 @@ breaks `kempt`. Only the root-owned files and the widget are copies.
 | `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
 | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6` - no authentication) |
-| `~/.local/share/icons/hicolor/scalable/apps/kempt.svg` | you | `install.sh`, so the widget's icon resolves by name in Add Widgets |
+| `~/.local/share/icons/hicolor/scalable/apps/kempt.svg` | you | `install.sh`, so the widget's icon resolves by name in Add Widgets (96 px and up) |
+| `~/.local/share/icons/hicolor/64x64/apps/kempt.svg` | you | `install.sh` - same name, the drawing that survives 64 px |
+| `~/.local/share/icons/hicolor/48x48/apps/kempt.svg` | you | `install.sh` - same drawing as 64x64 |
+| `~/.local/share/icons/hicolor/32x32/apps/kempt.svg` | you | `install.sh` - the six-tooth drawing |
+| `~/.local/share/icons/hicolor/22x22/apps/kempt.svg` | you | `install.sh` - same drawing as 32x32 |
+| `~/.local/share/icons/hicolor/16x16/apps/kempt.svg` | you | `install.sh` - same drawing as 32x32 |
 | (no file) a `org.kde.KIconLoader.iconChanged` signal on your session bus | - | `install.sh`, right after the icon, so a running Plasma notices it |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
@@ -67,10 +72,18 @@ that is what `kpackagetool6` does. So after changing anything under `plasmoid/`,
 `./install.sh` - the CLI follows the checkout, the widget does not. Installing the widget does not
 put it on a panel: right-click the panel > **Add Widgets...** > search for **Kempt**.
 
-The icon is installed twice on purpose. `metadata.json` asks for it by name (`kempt`), and a name
-is resolved through the XDG icon theme, not through the package - measured on Plasma 6.7, an icon
-that lives only inside the installed package does not resolve from its name at all. The copy in
-`~/.local/share/icons/hicolor/` is the one Add Widgets actually finds.
+The icon is installed outside the package on purpose. `metadata.json` asks for it by name
+(`kempt`), and a name is resolved through the XDG icon theme, not through the package - measured
+on Plasma 6.7, an icon that lives only inside the installed package does not resolve from its name
+at all. The copies in `~/.local/share/icons/hicolor/` are the ones Add Widgets actually finds.
+
+There are six of them because the icon is a **size ladder**, the way Breeze ships one: three
+different drawings of the same comb, each hinted for the sizes it serves. The fine 17-tooth comb
+reads beautifully at 128 px and turns to grey mush at 32, so smaller sizes get progressively
+simpler drawings. All six are installed under the one name `kempt`, and the theme picks the
+directory matching the requested size - a fixed-size directory always beats `scalable/`. Which
+drawing serves which size, and the measurements behind each, are in
+`docs/research/brand/README.md`.
 
 Installing that file is not quite enough on its own, so `install.sh` also emits one D-Bus signal:
 

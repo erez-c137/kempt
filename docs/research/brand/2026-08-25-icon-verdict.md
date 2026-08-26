@@ -103,3 +103,58 @@ Nothing in that comparison ever rested on the ends being ragged or on the comb b
 Evidence: `candidates/legibility/kempt-svg/final-sheet.png` (the shipped drawing at 128/64/48/32
 on Breeze light and dark, plus nearest-neighbour zooms) and `candidates/legibility/kempt-svg/
 comparison-ends.png` (the earlier overhang-vs-flush pair, kept for the ends half of the decision).
+
+## Appendix: the size ladder (2026-08-26)
+
+**One drawing does not serve every size, and this document assumed it would.** Everything above
+still holds for the drawing it describes - the flush ends, the six teeth, the 176 x 128 footprint,
+the tooth pitch of 16 that cannot give. What changes is the scope of that drawing: it is now the
+SMALL rung of a three-rung ladder, `plasmoid/contents/icons/kempt-32.svg`, serving 32, 22 and
+16 px, and its geometry is byte-identical to what shipped as `kempt.svg` before this date.
+
+The reason is arithmetic that this document half-anticipated and then set aside. A tooth pitch of
+16 units is what makes the drawing exact at 32 px, and it is also what makes it a coarse fence at
+256, where the same six teeth sit in a 256 px tile with 16 px of cream between 16 px gaps. The
+founder's own reference photo, `candidates/source-comb-slate-cream.jpg`, is a fine comb with
+about 16 elements, and at 128 px and above there is no reason not to draw it.
+
+**Founder decision, 2026-08-26: the icon should look like that photo at the sizes where it can,
+and stay the six-tooth pictogram where pixels force it.** Three drawings, one name:
+
+| Rung | File | Serves | Comb |
+| --- | --- | --- | --- |
+| fine | `kempt.svg` | 96 px and up, via `scalable/apps` | 176 x 56, 15 fine teeth + 2 tapered ends |
+| mid | `kempt-48.svg` | 64 and 48 px | 224 x 64, 5 fine teeth + 2 tapered ends |
+| small | `kempt-32.svg` | 32, 22 and 16 px | 176 x 128, 6 teeth, THIS document's drawing |
+
+**The founder's stated reason for choosing that photo is the ENDS**, and it is worth recording
+precisely because this document got the ends half right. Flush ends were the right fix for the
+20 px lintel overhang. But the photo does something further: the spine cuts *diagonally* down to
+the outermost teeth, so a wedge of slate opens beside each end tooth. Measured off the JPEG, the
+end tooth is 2.43 x a fine tooth where it leaves the spine, its outer edge runs straight down for
+52% of the tooth length, and then cuts inward 12 px over 45 rows - 14.93 degrees off vertical -
+ending 1.22 x a fine tooth wide at the tip. The inner edge never moves. `kempt.svg` reproduces
+that angle exactly, at 4 units over 15. That cut is the difference between a comb and a fence, and
+it is why "flush ends" alone was not the whole answer.
+
+`kempt-48.svg` keeps the cut but steepens it to 45 degrees on integer coordinates, because at
+48 px a 15 degree cut moves less than one device pixel and disappears. `kempt-32.svg` keeps flush
+ends with no cut at all, as specified above: at 32 px the end tooth is 2 device pixels wide and
+there is nothing to cut into.
+
+**The symbolic glyphs are unaffected.** `kempt-symbolic.svg` and `kempt-symbolic-16.svg` keep five
+teeth, are still the only drawings hand-hinted for 16 and 22 px, and are not part of the ladder -
+the tray resolves them by their own names.
+
+**One thing this ladder does not fix.** The six-tooth drawing is exact at 32 px and collapses
+below it: at 16 px its 11 elements map to 11 device pixels on half-pixel boundaries and blend to
+one flat bar, which is the MINUS-sign misread this document names as the worst possible outcome
+for an updater. That was already true before the ladder, because the scalable file was this same
+drawing, and the panel is safe because it uses the symbolic glyphs. Fixing it needs a fourth,
+hand-hinted rung on the symbolic glyphs' principle. It is recorded as an open problem in
+`README.md` rather than solved here.
+
+Evidence: `2026-08-26-icon-ladder-sheet.png` - the whole ladder at true size on both Breeze
+backgrounds, the source photo beside the redraw at 128 px, a matched-scale side-by-side of the end
+taper, and the pixel rows behind every claim. Measurements and the deliberate deviations from the
+source are tabulated in `README.md`.

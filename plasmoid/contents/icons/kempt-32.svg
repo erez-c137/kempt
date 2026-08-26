@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - full-colour application icon, SMALL rung of the hicolor size ladder.
+  Installed at 32x32, 22x22 and 16x16. UNCHANGED geometry: this is the drawing that
+  shipped as kempt.svg before 2026-08-26, kept exactly as it was because it is the only
+  one of the three whose teeth survive 32 px. See docs/research/brand/README.md.
+  Hand-authored. Two flat colours only: slate #1F5885 tile, cream #F2F0E3 comb.
+  No gradient, no bevel, no shadow.
+
+  Tile   Lame superellipse |(x-128)/128|^4 + |(y-128)/128|^4 = 1, drawn as eight
+         cubics (max deviation 0.02 px). A true squircle with transparent
+         corners, not a soft octagon, and it survives a circle crop: the comb's
+         far corner sits 108.8 px from centre, inside the 128 px inscribed circle.
+
+  Comb   176 x 128 = 68.75% x 50% of the 256 tile, centred (x 40-216, y 64-192).
+         A comb is WIDER THAN TALL. Six teeth at pitch 16 is what buys that at
+         this pitch: 6 x 16 teeth + 5 x 16 gaps = 176 px of width against 128 px
+         of height, a 1.375:1 landscape silhouette.
+         Spine  48 px = 37.5%   y 64-112, width 176 (= tooth span), top corners r=8.
+         Teeth  80 px = 62.5%   y 112-192, square tips.
+         6 teeth, 16 px wide, 16 px gaps (tooth = gap), FLUSH ends: the spine
+         stops exactly where the outermost teeth stop, so the comb ends with a
+         tooth on each side, as a real comb does.
+         Tooth spans x: 40-56, 72-88, 104-120, 136-152, 168-184, 200-216.
+
+  Why these numbers. Three things want to hold at once - a 16 px tooth pitch,
+  flush ends, and a wide comb - and a FIVE-tooth comb can only have two of them.
+  Five teeth at pitch 16 is 144 px wide, which next to a comb tall enough to
+  carry weight is roughly square, and a square comb does not read as a comb.
+  Adding the sixth tooth is what releases the constraint: it buys 32 px of width
+  without touching the pitch, so the footprint goes to 176 and the height can
+  drop back to 128 and still hold its 37.5/62.5 spine-to-teeth split.
+
+  Tooth pitch 16 is the term that cannot give. Every edge is a multiple of 8, so
+  at 32 px each tooth is exactly 2 px of solid cream and each gap exactly 2 px of
+  solid slate, with no antialiased half-tone anywhere in a row through the teeth,
+  and the spine ends land hard on the same columns as the outer teeth. Stretching
+  the pitch to keep a footprint puts tooth edges on half-pixels and greys them out
+  at exactly the size the panel uses.
+
+  The symbolic glyphs keep FIVE teeth. At 16 and 22 px a tooth is 2 px with a 1 px
+  gap, and a sixth tooth does not fit in the glyph box - see kempt-symbolic.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <path
+     fill="#1F5885"
+     d="M 256 128 C 256 177.85 257.11 214.16 235.63 235.63 C 214.16 257.11 177.85 256 128 256 C 78.15 256 41.84 257.11 20.37 235.63 C -1.11 214.16 0 177.85 0 128 C 0 78.15 -1.11 41.84 20.37 20.37 C 41.84 -1.11 78.15 0 128 0 C 177.85 0 214.16 -1.11 235.63 20.37 C 257.11 41.84 256 78.15 256 128 Z" />
+  <path
+     fill="#F2F0E3"
+     d="M 48 64 H 208 A 8 8 0 0 1 216 72 V 192
+        H 200 V 112
+        H 184 V 192 H 168 V 112
+        H 152 V 192 H 136 V 112
+        H 120 V 192 H 104 V 112
+        H 88  V 192 H 72  V 112
+        H 56  V 192 H 40  V 72 A 8 8 0 0 1 48 64 Z" />
+</svg>

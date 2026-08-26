@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kempt - full-colour application icon, MID rung of the hicolor size ladder.
+  Installed at 64x64 and 48x48. The same comb as kempt.svg, redrawn at the density
+  48 px can actually hold. Hand-authored. Two flat colours only: slate #1F5885 tile,
+  cream #F2F0E3 comb. No gradient, no bevel, no shadow.
+
+  Tile   identical to kempt.svg - the same eight-cubic Lame squircle.
+
+  Comb   224 x 64 = 87.5% x 25% of the 256 tile, centred (x 16-240, y 96-160).
+         Aspect 3.5 : 1 (source 3.01 : 1, scalable rung 3.14 : 1).
+         Spine  24 px = 37.5% of the comb height (source 33.8%), y 96-120, full
+                224 px width, FLUSH ends, top corners r=8.
+         Teeth  40 px = 62.5%, y 120-160, semicircular tips.
+         7 elements: 5 fine teeth 16 px wide at pitch 32 (gap 16), plus one tapered
+                END TOOTH at each side, 24 px wide at the spine.
+         Fine tooth spans x: 56, 88, 120, 152, 184 (each 16 px wide).
+         END TAPER: the outer edge runs straight down to y=142 - 55% of the way down
+                the teeth, source 52% - then cuts inward 12 px over 12 px to y=154,
+                a 45 degree edge on integer coordinates. The end tooth is 24 px at
+                the spine and 12 px at the tip.
+
+  Why seven teeth and not fifteen. 48 px is 3/16 of the 256 grid, so a coordinate is a
+  whole device pixel only when it is a multiple of 16, and an element narrower than
+  16 units cannot show 2 solid device pixels. 16-unit teeth with 16-unit gaps is
+  therefore the floor, and a 224 px comb holds exactly seven of them. Measured at 48 px:
+  every tooth is 2 px of solid cream between two identical 53% edge pixels, and every
+  gap is 2 px of solid slate - the same even edge on both sides of every tooth, so the
+  comb never goes lopsided. At 64 px the scale is exactly 1/4 and every coordinate here
+  is a multiple of 8, so a row through the teeth is 4 px of solid cream and 4 px of
+  solid slate with NO half-tone at all.
+
+  Why the comb is wider than on the scalable rung (87.5% vs 68.75%). Optical sizing:
+  the teeth cannot get finer at 48 px, so the comb gets wider to fit more of them. This
+  is the same thing Breeze does when its 16 px drawings fill more of their box than its
+  64 px ones.
+
+  Why the taper is 45 degrees and not the source's 15. A 15 degree cut at 48 px moves
+  the edge less than one device pixel and disappears. 12 px over 12 px is the smallest
+  cut that still opens a visible slate wedge beside the end tooth at 48, and the founder
+  authorised the steeper angle for exactly this rung (2026-08-26). The cost is that the
+  end tooth tapers to 0.75x a fine tooth here where the source tapers to 1.22x.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <path
+     fill="#1F5885"
+     d="M 256 128 C 256 177.85 257.11 214.16 235.63 235.63 C 214.16 257.11 177.85 256 128 256 C 78.15 256 41.84 257.11 20.37 235.63 C -1.11 214.16 0 177.85 0 128 C 0 78.15 -1.11 41.84 20.37 20.37 C 41.84 -1.11 78.15 0 128 0 C 177.85 0 214.16 -1.11 235.63 20.37 C 257.11 41.84 256 78.15 256 128 Z" />
+  <path
+     fill="#F2F0E3"
+     d="M 24 96
+        H 232 A 8 8 0 0 1 240 104
+        V 142 L 228 154 A 6 6 0 0 1 216 154 V 120
+        H 200 V 152 A 8 8 0 0 1 184 152 V 120
+        H 168 V 152 A 8 8 0 0 1 152 152 V 120
+        H 136 V 152 A 8 8 0 0 1 120 152 V 120
+        H 104 V 152 A 8 8 0 0 1 88 152 V 120
+        H 72  V 152 A 8 8 0 0 1 56 152 V 120
+        H 40  V 154 A 6 6 0 0 1 28 154
+        L 16 142
+        V 104 A 8 8 0 0 1 24 96 Z" />
+</svg>

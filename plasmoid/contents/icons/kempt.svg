@@ -1,42 +1,58 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Kempt - full-colour application icon (store, GitHub avatar, README).
+  Kempt - full-colour application icon, SCALABLE rung of the hicolor size ladder.
+  Installed into scalable/apps, so it serves every size the fixed dirs do not: 96 px
+  and up, which is where the store listing, the GitHub avatar and the README live.
   Hand-authored. Two flat colours only: slate #1F5885 tile, cream #F2F0E3 comb.
   No gradient, no bevel, no shadow.
 
   Tile   Lame superellipse |(x-128)/128|^4 + |(y-128)/128|^4 = 1, drawn as eight
-         cubics (max deviation 0.02 px). A true squircle with transparent
-         corners, not a soft octagon, and it survives a circle crop: the comb's
-         far corner sits 108.8 px from centre, inside the 128 px inscribed circle.
+         cubics (max deviation 0.02 px). A true squircle with transparent corners,
+         not a soft octagon, and it survives a circle crop: the comb's far corner
+         sits 92.3 px from centre, well inside the 128 px inscribed circle.
 
-  Comb   176 x 128 = 68.75% x 50% of the 256 tile, centred (x 40-216, y 64-192).
-         A comb is WIDER THAN TALL. Six teeth at pitch 16 is what buys that at
-         this pitch: 6 x 16 teeth + 5 x 16 gaps = 176 px of width against 128 px
-         of height, a 1.375:1 landscape silhouette.
-         Spine  48 px = 37.5%   y 64-112, width 176 (= tooth span), top corners r=8.
-         Teeth  80 px = 62.5%   y 112-192, square tips.
-         6 teeth, 16 px wide, 16 px gaps (tooth = gap), FLUSH ends: the spine
-         stops exactly where the outermost teeth stop, so the comb ends with a
-         tooth on each side, as a real comb does.
-         Tooth spans x: 40-56, 72-88, 104-120, 136-152, 168-184, 200-216.
+  Comb   A FAITHFUL REDRAW of docs/research/brand/candidates/source-comb-slate-cream.jpg,
+         the founder's reference: a wide, fine-toothed comb with a thin spine whose
+         ends taper diagonally down to the outermost teeth, so slate shows in the
+         wedge beside each end tooth. That taper is the detail that makes it read as
+         a comb rather than a fence, and it is mandatory here (founder, 2026-08-26).
+         Every proportion below was MEASURED off that JPEG with PIL, not eyeballed;
+         the measurements and the deliberate deviations are tabulated in
+         docs/research/brand/README.md.
 
-  Why these numbers. Three things want to hold at once - a 16 px tooth pitch,
-  flush ends, and a wide comb - and a FIVE-tooth comb can only have two of them.
-  Five teeth at pitch 16 is 144 px wide, which next to a comb tall enough to
-  carry weight is roughly square, and a square comb does not read as a comb.
-  Adding the sixth tooth is what releases the constraint: it buys 32 px of width
-  without touching the pitch, so the footprint goes to 176 and the height can
-  drop back to 128 and still hold its 37.5/62.5 spine-to-teeth split.
+         176 x 56 = 68.75% x 21.88% of the 256 tile, centred (x 40-216, y 100-156).
+         Aspect 3.14 : 1 (source 3.01 : 1). A comb is much wider than it is tall.
+         Spine  20 px = 35.7% of the comb height (source 33.8%), y 100-120,
+                full 176 px width, FLUSH ends, top corners r=5 (source r/comb-h 9.1%,
+                this 8.9%).
+         Teeth  36 px = 64.3%, y 120-156, semicircular tips (r = half the tooth width,
+                as measured on the source).
+         17 elements: 15 fine teeth 4 px wide at pitch 10 (gap 6), plus one tapered
+                END TOOTH at each side, 10 px wide at the spine.
+         Fine tooth spans x: 56, 66, 76, 86, 96, 106, 116, 126, 136, 146, 156, 166,
+                176, 186, 196 (each 4 px wide).
+         END TAPER, measured: the end tooth's outer edge runs straight down from the
+                spine to y=138 - 50% of the way down the teeth, source 52% - and then
+                cuts inward 4 px to y=153, where the tip cap begins. That is
+                atan(4/15) = 14.93 degrees off vertical; the source measures
+                atan(12/45) = 14.93 degrees. The end tooth is 10 px at the spine and
+                6 px at the tip, so a slate wedge 4 px wide opens beside it.
 
-  Tooth pitch 16 is the term that cannot give. Every edge is a multiple of 8, so
-  at 32 px each tooth is exactly 2 px of solid cream and each gap exactly 2 px of
-  solid slate, with no antialiased half-tone anywhere in a row through the teeth,
-  and the spine ends land hard on the same columns as the outer teeth. Stretching
-  the pitch to keep a footprint puts tooth edges on half-pixels and greys them out
-  at exactly the size the panel uses.
+  Why these numbers and not the source's exactly. Two things are wanted at once: the
+  source's proportions, and tooth edges that land on whole pixels at 128 px (where the
+  scale is exactly 0.5, so every even coordinate is a whole pixel and every odd one is
+  a smeared half). Every coordinate here is even, which is why a row through the teeth
+  at 128 px is 2 px of solid cream and 3 px of solid slate, fifteen times over, with no
+  antialiased half-tone anywhere. The price is that pitch 10 makes the gap 1.5x the
+  tooth where the source measures 1.87x, and that the comb is 68.75% of the tile wide
+  where the source is 65.7%: 176 is what fits 15 teeth at pitch 10 with end teeth
+  2.5x a fine tooth (source 2.43x) on an even grid, and it is also the footprint the
+  32/22/16 drawing already uses.
 
-  The symbolic glyphs keep FIVE teeth. At 16 and 22 px a tooth is 2 px with a 1 px
-  gap, and a sixth tooth does not fit in the glyph box - see kempt-symbolic.svg.
+  The other two rungs. kempt-48.svg (48 and 64 px) redraws the same comb at 7 teeth,
+  which is the most that hold 2 solid device pixels of cream and 2 of slate at 48 px.
+  kempt-32.svg (32, 22, 16 px) is the older six-tooth drawing, unchanged. The symbolic
+  panel glyphs keep five teeth - see kempt-symbolic.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <path
@@ -44,11 +60,25 @@
      d="M 256 128 C 256 177.85 257.11 214.16 235.63 235.63 C 214.16 257.11 177.85 256 128 256 C 78.15 256 41.84 257.11 20.37 235.63 C -1.11 214.16 0 177.85 0 128 C 0 78.15 -1.11 41.84 20.37 20.37 C 41.84 -1.11 78.15 0 128 0 C 177.85 0 214.16 -1.11 235.63 20.37 C 257.11 41.84 256 78.15 256 128 Z" />
   <path
      fill="#F2F0E3"
-     d="M 48 64 H 208 A 8 8 0 0 1 216 72 V 192
-        H 200 V 112
-        H 184 V 192 H 168 V 112
-        H 152 V 192 H 136 V 112
-        H 120 V 192 H 104 V 112
-        H 88  V 192 H 72  V 112
-        H 56  V 192 H 40  V 72 A 8 8 0 0 1 48 64 Z" />
+     d="M 45 100
+        H 211 A 5 5 0 0 1 216 105
+        V 138 L 212 153 A 3 3 0 0 1 206 153 V 120
+        H 200 V 154 A 2 2 0 0 1 196 154 V 120
+        H 190 V 154 A 2 2 0 0 1 186 154 V 120
+        H 180 V 154 A 2 2 0 0 1 176 154 V 120
+        H 170 V 154 A 2 2 0 0 1 166 154 V 120
+        H 160 V 154 A 2 2 0 0 1 156 154 V 120
+        H 150 V 154 A 2 2 0 0 1 146 154 V 120
+        H 140 V 154 A 2 2 0 0 1 136 154 V 120
+        H 130 V 154 A 2 2 0 0 1 126 154 V 120
+        H 120 V 154 A 2 2 0 0 1 116 154 V 120
+        H 110 V 154 A 2 2 0 0 1 106 154 V 120
+        H 100 V 154 A 2 2 0 0 1 96 154 V 120
+        H 90  V 154 A 2 2 0 0 1 86 154 V 120
+        H 80  V 154 A 2 2 0 0 1 76 154 V 120
+        H 70  V 154 A 2 2 0 0 1 66 154 V 120
+        H 60  V 154 A 2 2 0 0 1 56 154 V 120
+        H 50  V 153 A 3 3 0 0 1 44 153
+        L 40 138
+        V 105 A 5 5 0 0 1 45 100 Z" />
 </svg>
