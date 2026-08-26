@@ -52,11 +52,59 @@ PlasmoidItem {
     // turns every one of them into `auto` without a word of complaint, which is the right
     // behaviour for a panel icon: it draws, at a sensible size, no matter what the file says.
     property string iconSizeSetting: "auto"
+    // Whether the popup may REMIND the user that a restart is owed (`restart_reminder`, default
+    // true). Not whether a restart is owed - that is the state file's `reboot_needed`, and it is a
+    // fact rather than a reminder: with this off the message and its button disappear and the
+    // status line still ends "restart pending". Read from the CLI like every other setting.
+    property bool restartReminder: true
+
+    // ...and whether the user closed that message in THIS plasmashell session.
+    //
+    // Deliberately not persisted, and this is the whole argument for it: a dismissal written to
+    // disk is a promise to remember something across a restart, and a restart is the exact event
+    // that makes the underlying fact go away. The user would come back from the reboot they were
+    // being reminded about to a widget that had carefully remembered not to mention it - and if
+    // the same box owed a restart again a week later, the reminder they never turned off would
+    // stay silent. Session-only means the answer is always about the machine as it is now.
+    // Somebody who never wants the message turns the setting off; that IS the durable answer.
+    property bool restartDismissed: false
+
+    // Our own report of a restart prompt that could not be opened. Empty means nothing to say.
+    // Kept apart from actionMessage because it belongs to the restart message rather than to the
+    // buttons: the popup shows it where the user pressed, which is the only place they are
+    // looking. Silence here would be the worst outcome of all - a button that appears to do
+    // nothing is indistinguishable from a button that did something invisible.
+    property string restartError: ""
+
+    // The newest history entry as DATA (`kempt summary --json` through Logic.lastRunOf), or null
+    // on a box that has never run an update. null is a first-class value: it renders as no last
+    // run at all, never as a fabricated empty one that claims a run which changed no packages.
+    property var lastRun: null
+
+    // The transient line about a run WE started - "Updated 4 packages in 2s", or why it failed.
+    // Replaces what this file used to paste into actionMessage: the first line of the human
+    // `kempt summary`, which is an ISO timestamp and no answer to "what just happened?".
+    // The rule it lives under is one event, one line at a time: while this is on screen the
+    // persistent Last update row is hidden, and it clears when the popup closes or a check starts.
+    property string postRunLine: ""
+
+    // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
+    // popup is open and never while it is shut. 0 means "no clock yet", which logic.js answers by
+    // falling back to the absolute stamp - never a wrong relative time.
+    property double nowMs: 0
 
     // The single derived value. Re-evaluated by the engine whenever either input changes, which is
     // why nothing below ever recomputes or caches a label. null is a first-class input here: it
     // renders as "unknown", never as "zero updates".
-    readonly property var vm: Logic.viewModel(kemptState, updating, cliError)
+    //
+    // The three extras are the facts that are NOT in the state file: the clock, and the two halves
+    // of the restart reminder. They go in as an object rather than as more positional arguments so
+    // that a caller who does not know about one of them (the node tests' three-argument calls)
+    // keeps working, and so that adding the next one is not a signature change.
+    readonly property var vm: Logic.viewModel(kemptState, updating, cliError,
+                                              { nowMs: nowMs,
+                                                restartReminder: restartReminder,
+                                                restartDismissed: restartDismissed })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -117,6 +165,17 @@ PlasmoidItem {
     //   nothing usable, non-zero rc -> leave the state alone as well; the CLI reports its own
     //                                  failures inside the state as `status: "stale"`.
     function doCheck() {
+        // A check is the next event, so the last one's line has had its moment. Cleared BEFORE the
+        // coalesce guard on purpose: a Refresh pressed while a check is already running is still
+        // the user asking for the next thing, and a transient line that survived it would sit
+        // there over counts it no longer describes.
+        //
+        // Ordering with leaveUpdating(), because the two run back to back at the end of every run
+        // and the wrong order would mean the post-run line NEVER appeared. leaveUpdating queues
+        // `summary --json` and doCheck runs its clear synchronously, so the clear happens first
+        // and the callback that sets the line lands after it. The Executor's queue is strictly
+        // first-in-first-out, which is what makes that a rule rather than a race.
+        postRunLine = "";
         // Asked again while one is running: coalesce, never drop. Dropping looks harmless because
         // the running check will finish anyway - but its answer was read BEFORE the change that
         // asked for this one, and the re-baseline below would then swallow that change as if we
@@ -133,6 +192,11 @@ PlasmoidItem {
                 // own "could not run it" report has to go, or the popup would show a stale excuse
                 // next to fresh data.
                 root.cliError = "";
+                // ...and the last run may not be the one we knew about. A `kempt update` typed in
+                // a terminal writes a history entry and then re-checks itself, and that state
+                // write is what brought us here - so this is the moment the Last update row would
+                // otherwise start lying about a run it never saw.
+                root.loadLastRun();
             } else if (rc !== 0) {
                 // Nothing usable AND a failure: this is the one case where the widget itself has
                 // something to report - the CLI is missing, or it could not start at all.
@@ -197,7 +261,10 @@ PlasmoidItem {
             // (A run that just ENDED left `updating` false on the line above, so it falls past
             // this and gets the full re-read.)
             if (root.updating) {
-                if (delta.config) { root.readInterval(); root.readSurface(); root.readIconSize(); }
+                if (delta.config) {
+                    root.readInterval(); root.readSurface(); root.readIconSize();
+                    root.readRestartReminder();
+                }
                 return;
             }
 
@@ -207,6 +274,7 @@ PlasmoidItem {
             root.readInterval();
             root.readSurface();
             root.readIconSize();
+            root.readRestartReminder();
             root.doCheck();
         });
     }
@@ -247,6 +315,18 @@ PlasmoidItem {
         executor.run(kemptCmd + " config get widget_icon_size", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
             if (rc === 0 && v !== "") root.iconSizeSetting = Logic.resolveIconSizeSetting(v);
+        });
+    }
+
+    // Whether the popup may remind the user about an owed restart. Same schedule and same guard as
+    // the three above: an older CLI prints an empty line and exits 0 for a key it has never heard
+    // of, and isTrue("") is false - which is the value that would silently switch the reminder off
+    // on a box whose setting is true. No answer means keep what we have, which at load is the
+    // CLI's own default.
+    function readRestartReminder() {
+        executor.run(kemptCmd + " config get restart_reminder", 10000, function(stdout, stderr, rc) {
+            var v = Logic.firstLineOf(stdout);
+            if (rc === 0 && v !== "") root.restartReminder = Logic.isTrue(v);
         });
     }
 
@@ -310,6 +390,71 @@ PlasmoidItem {
         });
     }
 
+    // The restart, ASKED FOR and never performed.
+    //
+    // `org.kde.LogoutPrompt.promptReboot` opens KDE's own confirmation screen: it is cancellable,
+    // running sessions get the chance to object and save, and it honours whatever the user has set
+    // about confirming logouts. `/usr/bin/plasma-shutdown` carries a SECOND family of methods that
+    // take no answer and simply reboot - and Kempt must NEVER restart anybody's machine. The
+    // introspection XML for both was read off this box (`/usr/libexec/ksmserver-logout-greeter`)
+    // and is quoted in docs/research/2026-08-26-popup-panel/hig-review.md section 1a; the
+    // difference between them is one service name and one method name.
+    //
+    // Neither of those two names appears anywhere under plasmoid/contents/ui/, and tests/qml/
+    // probe_popup.py asserts exactly that by grepping this directory - so they are spelled out
+    // there, in the test that forbids them, and deliberately not here. A pin that tolerated the
+    // strings in a comment is a pin that a future edit can satisfy by writing a comment.
+    //
+    // The service is D-Bus activatable (/usr/share/dbus-1/services/org.kde.LogoutPrompt.service),
+    // so nothing has to be running first. Ten seconds is a generous timeout for a call that
+    // returns as soon as the prompt has been ASKED for - it does not wait for an answer, and it
+    // must not: the user may sit and think about it, and the executor queue is shared.
+    function promptRestart() {
+        restartError = "";
+        executor.run("dbus-send --session --dest=org.kde.LogoutPrompt --type=method_call"
+                     + " /LogoutPrompt org.kde.LogoutPrompt.promptReboot", 10000,
+                     function(stdout, stderr, rc) {
+            if (rc !== 0) root.restartError = Logic.COPY.restartFailed;
+        });
+    }
+
+    // Closing the restart message. Session-only by design - see restartDismissed above for why
+    // persisting it would be a promise this widget cannot honour. Nothing is written, nothing is
+    // asked of the CLI, and logic.js turns the flag into a message that is gone and a status line
+    // that now ends "restart pending", so the popup stops nagging without starting to lie.
+    function dismissRestart() {
+        restartDismissed = true;
+    }
+
+    // Show Log. The desktop's own handler opens it, so the user gets whatever they have chosen for
+    // a text file rather than whatever this widget would have picked.
+    //
+    // The path came out of the CLI's JSON and is going back onto a command line, which puts it in
+    // the same class as a package name: through Logic.shellQuote, no exceptions. xdg-open is used
+    // on the log path and on nothing else in this file - it is a "open this with whatever is
+    // registered" verb, and the set of things it is allowed to be pointed at should stay this
+    // small and this obvious.
+    function showLog(path) {
+        actionMessage = "";
+        var target = String(path === undefined || path === null ? "" : path).trim();
+        // A history entry old enough (or damaged enough) to have no log is an ordinary event, not
+        // corruption - and `xdg-open ''` opens the user's home directory, which is a confusing
+        // answer to "show me that log".
+        if (target === "") {
+            actionMessage = "That run did not record a log file.";
+            return;
+        }
+        executor.run("xdg-open " + Logic.shellQuote(target), 10000, function(stdout, stderr, rc) {
+            // The path is in the message on purpose: whatever went wrong with the handler, the
+            // user can still open that file themselves, and nothing else the widget could say
+            // would be as useful.
+            if (rc !== 0) {
+                root.actionMessage = "Could not open " + target
+                    + (Logic.firstLineOf(stderr) !== "" ? " - " + Logic.firstLineOf(stderr) : ".");
+            }
+        });
+    }
+
     // --- the updating state ----------------------------------------------------------------------
 
     function enterUpdating() {
@@ -324,7 +469,11 @@ PlasmoidItem {
         if (!updating) return;
         updating = false;
         updateGuard.stop();
-        loadSummary();
+        // The transient line is DERIVED from the entry, so the entry has to arrive first. The
+        // executor is callback-based, so "first" means inside the callback - setting the line
+        // after the call would read the PREVIOUS run's entry every single time, and on a box
+        // whose first run this is, no entry at all.
+        loadLastRun(function(run) { root.postRunLine = Logic.postRunLine(run); });
     }
 
     // The newest log file, found once per run.
@@ -355,12 +504,76 @@ PlasmoidItem {
         });
     }
 
-    // One line saying what the run actually did, from the same renderer the terminal and the
-    // notification use.
-    function loadSummary() {
-        executor.run(kemptCmd + " summary", 15000, function(stdout, stderr, rc) {
-            if (rc === 0) root.actionMessage = Logic.firstLineOf(stdout);
+    // What the last run DID, as data. `--json` and not the human `kempt summary`, because the
+    // human form is a rendering (`render_summary` in lib/common.sh) and re-deriving counts from a
+    // rendered line would put a second, lossier copy of those rules in the widget. This asks the
+    // CLI the question the popup actually has: which packages, how many, how long, which log.
+    //
+    // `kempt summary --json` prints NOTHING at all under exit 0 on a box with no history, and
+    // Logic.lastRunOf answers null for that. null is the answer, and it must stay null all the way
+    // to the screen: "no last run" is a true thing to show, an empty run is not.
+    //
+    // `done` is optional, runs after lastRun is set, and is handed THIS call's run - which is how
+    // the post-run line gets the run that just finished rather than the one before it.
+    //
+    // The three-way contract is doCheck's, for the same reason: a usable answer wins whatever the
+    // exit code was; "nothing, exit 0" is the CLI saying there are no runs and is a real answer;
+    // "nothing, non-zero" means we could not ask, and the row keeps showing the last run we do
+    // know about instead of blanking. `done` still fires in that case, with null - so a run that
+    // ended while the CLI was unreachable says nothing at all rather than describing the run
+    // before it.
+    function loadLastRun(done) {
+        executor.run(kemptCmd + " summary --json", 15000, function(stdout, stderr, rc) {
+            var run = Logic.lastRunOf(stdout);
+            if (run !== null || rc === 0) root.lastRun = run;
+            if (done) done(run);
         });
+    }
+
+    // --- the popup opening and closing -------------------------------------------------------------
+
+    // One read of the wall clock, shared by the tick and by the open below so there is only ever
+    // one place the relative times get their "now" from.
+    function refreshClock() {
+        nowMs = Date.now();
+    }
+
+    // The popup came on screen.
+    //
+    // The clock first, so the very first frame says "4 min ago" rather than whatever was true up
+    // to thirty seconds before the user looked.
+    //
+    // Then the refresh: Plasma's own popups mostly have no Refresh button at all because they
+    // refresh themselves on open (the NetworkManager and Bluetooth applets ship no such string),
+    // and answering "are these numbers current?" before the user has to ask is the whole reason.
+    // The staleness guard is what keeps it from being dnfdragora's blocking re-index on open: it
+    // fires only when the last SUCCESSFUL check is older than the smaller of the configured
+    // interval and five minutes, and refuses on a clock that has moved. All of that lives in
+    // Logic.shouldRefreshOnOpen where node pins every boundary of it.
+    //
+    // No second in-flight guard here. doCheck already coalesces through `checking`/`recheckPending`
+    // - and a second guard that could disagree with the first is how a popup ends up unable to
+    // refresh at all after some sequence nobody tested.
+    function popupOpened() {
+        refreshClock();
+        var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
+            ? kemptState.last_success : "";
+        if (Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now())) doCheck();
+    }
+
+    // ...and it went away. The transient post-run line was about one event and it has now been
+    // seen, so the persistent Last update row takes over: one event, one line at a time.
+    function popupClosed() {
+        postRunLine = "";
+    }
+
+    // `expanded` is the engine's own property and the only honest source for this. It is also the
+    // reason both branches are named functions: AppletQuickItem's setter dereferences the applet
+    // with no null check, so outside plasmashell WRITING this property segfaults the process - a
+    // probe cannot drive the popup open. It drives these two instead, and pins this line.
+    onExpandedChanged: {
+        if (root.expanded) root.popupOpened();
+        else root.popupClosed();
     }
 
     // --- wiring --------------------------------------------------------------------------------
@@ -391,6 +604,22 @@ PlasmoidItem {
         interval: 10000
         repeat: false
         onTriggered: root.doCheck()
+    }
+
+    // The clock behind "Checked 4 min ago". Without it that line is a lie within a minute of being
+    // drawn: the popup stays open, nothing re-evaluates, and it still says "4 min ago" when
+    // the honest answer is twenty.
+    //
+    // Only while the popup is open, and that is not an optimisation: this is a panel process, and
+    // a widget that wakes every thirty seconds to recompute text nobody is looking at is a widget
+    // that costs battery for nothing. The counts have their own timer; this one is about the
+    // wording of a line that only exists on screen.
+    Timer {
+        id: clockTimer
+        interval: 30000
+        repeat: true
+        running: root.expanded
+        onTriggered: root.refreshClock()
     }
 
     Timer {
@@ -490,11 +719,59 @@ PlasmoidItem {
         }
     }
 
+    // Check for Updates, as a menu entry rather than a button.
+    //
+    // The popup's own Refresh button is one click, and it is the one a user reaches for while the
+    // popup is open. This is the other route: a QAction in Plasmoid.contextualActions lands in the
+    // system tray heading's "More actions" menu AND in the tray icon's right-click menu, which is
+    // where a Plasma user's hand goes first and is the only channel a plasmoid HAS into the tray's
+    // chrome (there is no API for putting a control in that heading - BasicPlasmoidHeading's
+    // extraControls is hidden in the tray by its own design). org.kde.plasma.vault ships exactly
+    // this pairing: one action, registered here and offered as a button too.
+    //
+    // The literal is repeated from Logic.COPY.checkForUpdates rather than read out of it, because
+    // translation extraction works on literals - see the note at the top of logic.js. The probe
+    // asserts the two are identical, which is the half a human would get wrong.
+    PlasmaCore.Action {
+        id: checkAction
+        text: i18n("Check for Updates")
+        icon.name: "view-refresh"
+        onTriggered: root.doCheck()
+    }
+
+    // Assigned imperatively, in a try, with a witness - the same shape and the same reason as
+    // claimTrayPresence above. `Plasmoid` is an attached object backed by a real Plasma applet;
+    // a declarative `Plasmoid.contextualActions:` makes creating that applet a precondition of
+    // creating this file at all, and outside plasmashell there is no applet, so every QML probe
+    // would die with it. Measured out here: `Plasmoid.contextualActions` reads back undefined and
+    // the assignment is a silent no-op, exactly like the status assignment - which is why the
+    // witness exists. A swallowed exception and a line that was never called look identical from
+    // outside, and the only symptom in a real panel is an entry missing from a menu.
+    //
+    // Array assignment rather than `.push()`: push is what org.kde.desktopcontainment uses, but it
+    // needs the list property to already be readable, and here it throws before anything is
+    // registered at all.
+    property bool contextualActionsClaimed: false
+
+    function claimContextualActions() {
+        try {
+            Plasmoid.contextualActions = [checkAction];
+            root.contextualActionsClaimed = true;
+        } catch (e) {
+            console.warn("kempt: could not register the contextual action:", e);
+        }
+    }
+
     Component.onCompleted: {
         readInterval();
         readSurface();
         readIconSize();
+        readRestartReminder();
+        // Before any run happens in this session, so the popup's Last update row has something
+        // true to say the first time it is opened rather than filling in after the first check.
+        loadLastRun();
         doCheck();
         claimTrayPresence();
+        claimContextualActions();
     }
 }
