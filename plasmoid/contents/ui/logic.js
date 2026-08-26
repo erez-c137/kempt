@@ -43,17 +43,17 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // QML repeats the same literal, and a later task adds a test asserting every value here appears
 // verbatim in the .qml files. Do not "fix" that duplication by routing these through i18n().
 //
-// So what this table holds is exactly one category, and it is worth being plain about the
-// category it does NOT hold, because the omission is structural rather than an oversight.
-// footerText, lastRunText, postRunLine and relativeTime ASSEMBLE sentences here - "Checked 4 min
-// ago", "Last update 3 days ago", "Updated 7 packages in 41s", "no package changes" - and hand
-// the finished string to a QML binding. QML cannot wrap an assembled string in i18n() at all, so
-// those words are not translatable today and moving their fragments into this table would not
-// make them so: a fragment is not a translatable unit, and the plural and word-order rules that
-// would make it one do not exist in this widget. That is a real design question for a later
-// release (a message-format layer with its own plural handling), not something to improvise into
-// a copy table. What IS available without one is an exact test of every assembled shape, and
-// tests/test_widget_logic.sh has one for each of the four functions above.
+// So what this table holds is exactly one category, and it is worth being plain about the one it
+// does NOT hold, because that omission is structural rather than an oversight. viewModel's
+// footerText, and lastRunText, postRunLine and relativeTime, ASSEMBLE sentences right here -
+// "Checked 4 min ago", "Last update 3 days ago", "Updated 7 packages in 41s", "no package
+// changes" - and hand the finished string to a QML binding. QML cannot wrap an assembled string
+// in i18n() at all, so those words are not translatable today, and moving their fragments into
+// this table would not make them so: a fragment is not a translatable unit, and the plural and
+// word-order rules that would turn it into one do not exist in this widget. Building them is a
+// real design question for a later release (a message-format layer, with its own plural
+// handling), not something to improvise into a copy table. What IS available without one is an
+// exact test of every assembled shape, and tests/test_widget_logic.sh has one for each.
 var COPY = {
     // Header, and the placeholder under it. Deliberately NOT the same sentence: the popup would
     // otherwise say the same words twice in one glance (user panel, redundancy finding).
