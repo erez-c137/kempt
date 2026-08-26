@@ -492,18 +492,30 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   fi
   for (( ; i < ${#files[@]}; i++ )); do
     # One damaged entry must not be the last word the user gets: warn, fall back to the next
-    # newest. EMPTY output counts as damaged - jq exits 0 on a zero-byte file, so "rendered
-    # nothing" would otherwise pass for a successful render (the same empty-stdout-is-not-data
-    # trap as `kempt check`). Both modes obey that rule, which is why the -n test is on the
-    # VALIDATION output in the --json branch rather than on jq's exit code alone.
+    # newest. The two modes need different guards to decide "damaged", because they fail in
+    # different ways - see each branch.
     if [[ "$json" == true ]]; then
       # Validated before a single byte reaches the caller, the way cmd_check validates the
       # previous state it serves: never hand a reader corrupt bytes under exit 0. Then `cat`,
       # not jq's rendering of the file, so what the caller parses is exactly what the run
-      # recorded - every field, including ones this build has never heard of.
-      if out="$(jq -e . "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
+      # recorded - every field, including ones this build has never heard of. That last choice
+      # is why the guard has to be this strict: `cat` prints the file, so whatever the guard
+      # waves through is what the widget's JSON.parse receives.
+      #   [inputs] | length == 1   the house idiom from prev_ls and state_prev_items above, here
+      #     for the same bug: a MULTI-DOCUMENT file is perfectly valid input to jq, so `jq -e .`
+      #     passed it and `cat` then emitted two documents - one JSON.parse throw, out of the
+      #     one command that promises a caller is never handed corrupt bytes under exit 0.
+      #   .[0] | type == "object"  `jq -e` fails only on null and false, so `[]`, `42` and
+      #     `"a string"` all counted as valid entries here while render_summary below refused
+      #     them - two modes disagreeing about the same file.
+      # The expression answers true or false and nothing else, so jq's exit code is the entire
+      # verdict; a test on its output would add nothing.
+      if jq -e -n '[inputs] | length == 1 and (.[0]|type == "object")' "${files[$i]}" >/dev/null 2>&1; then
         cat "${files[$i]}"; return 0
       fi
+    # The human branch does need the -n test: render_summary exits 0 having printed NOTHING for a
+    # zero-byte entry, and "rendered nothing" must not pass for a successful render (the same
+    # empty-stdout-is-not-data trap as `kempt check`).
     elif out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
       printf '%s\n' "$out"; return 0
     fi

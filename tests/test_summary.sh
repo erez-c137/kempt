@@ -181,9 +181,12 @@ assert_eq "$("$KEMPT" history 2>/dev/null | wc -l)" "1" "history skips damaged r
 assert_eq "$("$KEMPT" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
 
 # --json must never hand a reader corrupt bytes under exit 0, so it validates before printing and
-# walks back exactly like the human mode. The newest file here is the ZERO-BYTE one, which is the
-# nastier shape: jq exits 0 on it having printed nothing, so a validation that only checked the
-# exit code would serve an empty document as a successful answer.
+# walks back exactly like the human mode. The newest file here is the ZERO-BYTE one: a file with
+# no JSON document in it at all. Each mode refuses it for its own reason, and neither reason is
+# `jq .`'s exit code, which is 0 on such a file having printed nothing. --json refuses it on its
+# guard's own answer (`[inputs] | length == 1` is false when there are no documents); the human
+# branch refuses it on render_summary's OUTPUT, which is empty for exactly the same reason, and
+# that is the one place in this command where an exit code genuinely is not enough.
 jrc=0
 "$KEMPT" summary --json > "$TESTTMP/fallback.json" 2>"$TESTTMP/jerr" || jrc=$?
 assert_eq "$jrc" "0" "--json survives a corrupt newest entry"
@@ -201,4 +204,46 @@ ajrc=0
 ajout="$("$KEMPT" summary --json 2>/dev/null)" || ajrc=$?
 assert_eq "$ajrc" "0" "all-corrupt history still exits 0 under --json"
 assert_eq "$ajout" "" "...and prints nothing, rather than inventing an empty run"
+# --- valid JSON that is not a history entry ----------------------------------------------------
+# `jq -e .` looked like a validator and was not one. It accepts a MULTI-DOCUMENT file (and `cat`
+# then hands the caller both documents, which is exactly the "one value per document" trap that
+# state_prev_items and cmd_check's prev_ls already carry the [inputs] idiom for), and its -e test
+# rejects only `null` and `false`, so an array, a number or a bare string all passed for "valid".
+# The human path rejects every shape below on its own, because render_summary asks these files for
+# fields they do not have. So the two modes disagreed about the same bytes, and the widget's
+# JSON.parse was the thing that found out. Each shape is asserted on BOTH modes for that reason.
+_good_entry='{"timestamp":"2026-08-24T11:00:00+03:00","surface":"background","status":"ok","duration_sec":12,
+ "reboot_needed":false,"log":"/tmp/z.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[{"name":"curl","from":"8.17","to":"8.18"}],"added":[],"removed":[]},
+  "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}'
+
+# newest-entry-bytes label → asserts both readers walk back to the readable entry underneath
+assert_newest_rejected() {
+  local bytes="$1" what="$2" rc=0 hrc=0 bad="$HIST_DIR/20260824T170000.json"
+  rm -f "$HIST_DIR"/*.json
+  printf '%s\n' "$_good_entry" > "$HIST_DIR/20260824T110000.json"
+  printf '%s\n' "$bytes" > "$bad"
+  "$KEMPT" summary --json > "$TESTTMP/shape.json" 2>"$TESTTMP/shape.err" || rc=$?
+  assert_eq "$rc" "0" "$what: --json still exits 0"
+  # the widget's JSON.parse, standing in: ONE document, or it throws. [inputs] counts documents,
+  # which is the only thing a plain `jq .` on the output could never tell us.
+  assert_eq "$(jq -e -n '[inputs] | length == 1' "$TESTTMP/shape.json" >/dev/null 2>&1 && echo one || echo "not-one")" \
+    "one" "$what: --json emits exactly one JSON document"
+  assert_eq "$(jq -r .timestamp "$TESTTMP/shape.json" 2>/dev/null)" "2026-08-24T11:00:00+03:00" \
+    "$what: --json falls back to the newest READABLE entry"
+  assert_eq "$(grep -c "corrupt history entry: $bad" "$TESTTMP/shape.err")" "1" \
+    "$what: --json names the damaged entry on stderr"
+  # parity: the human path already refused these, and refusing in only one mode is the bug
+  "$KEMPT" summary >/dev/null 2>"$TESTTMP/shape.herr" || hrc=$?
+  assert_eq "$(grep -c "corrupt history entry: $bad" "$TESTTMP/shape.herr")" "1" \
+    "$what: the human path refuses the same bytes"
+}
+
+# Two whole documents in one file: what an interleaved or resumed write leaves behind.
+assert_newest_rejected "$_good_entry
+{\"timestamp\":\"2026-08-24T17:30:00+03:00\"}" "multi-document entry"
+assert_newest_rejected '[]'         "array entry"
+assert_newest_rejected '42'         "bare number entry"
+assert_newest_rejected '"a string"' "bare string entry"
 finish
