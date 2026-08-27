@@ -36,7 +36,12 @@ sandbox() {  # fresh dirs per test file; call first
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.
   export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/UNSTUBBED-flatpak-update"
-  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
+  # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
+  # is only ever READ from, never run, and a test that cares drives both branches of its guard by
+  # setting it itself. Unset here so a value exported in a developer's shell cannot decide which
+  # branch the rest of the suite takes.
+  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_DNF_SYSTEM_CACHE \
+        KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_AUTOSTART_SRC KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \

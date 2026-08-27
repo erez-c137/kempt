@@ -224,6 +224,13 @@ and never with "up to", which would claim a ceiling it does not have:
   routinely a fraction of the published `download-size`. This is the largest single over-count.
   A transaction Kempt has already staged offline is over-counted the same way: it is on disk, and
   repoquery still reports the full size.
+- **It reads the system cache, `/var/cache/libdnf5`, not the user's.** The size has to come from
+  the same metadata the check was answered from - `kempt check` lists the updates through the root
+  helper against that cache, and nothing in Kempt ever fills `~/.cache/libdnf5` - because a user
+  cache that has drifted returns no row for a package the check is reporting, and one missing row
+  is what makes the coverage rule above drop the figure entirely. Where the system cache is
+  unreadable the query falls back to whatever dnf5 gives the user, and partial coverage stays
+  hidden exactly as it is anywhere else.
 
 Two rules for anything that reads this file:
 
@@ -248,7 +255,7 @@ fetch happens in one place, under one policy.**
 | `dnf5 -C --disablerepo='*' needs-restarting` (`dnf_reboot_needed`) | No |
 | `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
-| `dnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
+| `dnf5 --setopt=cachedir=/var/cache/libdnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
 | `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes** - that is what a run is |
@@ -635,7 +642,8 @@ destructive paths without ever running them.
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
 | `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
-| `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Its own seam rather than a reuse of `KEMPT_DNF_CMD`, which four test files already point at a `needs-restarting` stub. `tests/lib.sh` points it at a path that does not exist, so no test file runs a real repoquery |
+| `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 --setopt=cachedir=... -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Its own seam rather than a reuse of `KEMPT_DNF_CMD`, which four test files already point at a `needs-restarting` stub. `tests/lib.sh` points it at a path that does not exist, so no test file runs a real repoquery |
+| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The dnf5 metadata cache `dnf_sizes` is pointed at, so a size comes from the same metadata the check did. Read, never run: when it is not readable the query drops the `--setopt` and falls back. Point it at a directory that does not exist to drive that branch |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network to *read*. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), which also runs as the user and never through `pkexec`. `tests/lib.sh` poisons it the same way, and for a louder reason: unstubbed, it would update the machine running the suite |

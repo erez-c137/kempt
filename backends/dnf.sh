@@ -7,6 +7,10 @@ KEMPT_DNF_CMD="${KEMPT_DNF_CMD:-dnf5}"
 # Its own seam rather than a reuse of KEMPT_DNF_CMD, because four test files already point that one
 # at a needs-restarting stub and this query has nothing to do with restarts.
 KEMPT_DNF_SIZES_CMD="${KEMPT_DNF_SIZES_CMD:-}"
+# Which dnf5 metadata cache the size query reads. A seam because it is the only way a hermetic test
+# can drive both branches of the readability guard in dnf_sizes; the shipped value is the one
+# `kempt-refresh refresh` keeps current as root, and is the only one Kempt maintains at all.
+KEMPT_DNF_SYSTEM_CACHE="${KEMPT_DNF_SYSTEM_CACHE:-/var/cache/libdnf5}"
 
 dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
   # Both branches flow through the SAME sort tail. The seam branch used to bypass sorting
@@ -83,9 +87,27 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
 # every size silently disappears - which the coverage rule then hides as "unknown". The seam
 # tests feed real tabs and cannot see this; the live check on 2026-08-27 did (four updates, no
 # figure). test_dnf.sh pins the literal's spelling for that reason.
+#
+# And --setopt=cachedir, for the same class of reason one layer down: the size must be read from
+# the SAME metadata the check was answered from, or names go missing from the answer. This is the
+# root-vs-user cache split dnf_reboot_needed's comment describes at length, arriving from the other
+# side. `kempt check` lists the updates through the ROOT helper (libexec/kempt-refresh check),
+# against /var/cache/libdnf5, which `kempt-refresh refresh` keeps current; dnf_sizes runs as the
+# USER, whose ~/.cache/libdnf5 nothing in Kempt ever fills. There a COLD user cache produced a
+# false verdict; here a STALE one produces a missing row. Measured on this box 2026-08-28: the user
+# cache's newest brave-browser was 1.93.138 while the system cache had 1.94.117, so the size query
+# returned no row for a name the check was reporting, the coverage rule correctly refused to
+# publish a partial total, and the popup showed no figure at all beside five pending updates.
 dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY on any failure. rc 0.
+  # An ARRAY, so an empty one contributes no argument at all and a path with a space in it stays
+  # one. Guarded on readability rather than assumed: the directory is root-owned, and a container
+  # or a differently-packaged box may have no system cache to read. Unreadable falls back to the
+  # plain query, which answers from whatever the user cache holds - and the coverage rule keeps
+  # hiding partial answers exactly as it does today, which is the honest degradation.
+  local cache=()
+  [[ -r "$KEMPT_DNF_SYSTEM_CACHE" ]] && cache=(--setopt=cachedir="$KEMPT_DNF_SYSTEM_CACHE")
   { if [[ -n "$KEMPT_DNF_SIZES_CMD" ]]; then $KEMPT_DNF_SIZES_CMD
-    else timeout 60 $KEMPT_DNF_CMD -C repoquery --upgrades --latest-limit 1 \
+    else timeout 60 $KEMPT_DNF_CMD "${cache[@]}" -C repoquery --upgrades --latest-limit 1 \
            --qf $'%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n' 2>/dev/null; fi; } \
   | awk -F'\t' '$4 ~ /^[0-9]+$/ && $4 > 0 { s[$1] += $4 }
                 END { for (n in s) print n "\t" s[n] }' \

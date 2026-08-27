@@ -256,4 +256,50 @@ assert_eq "$([[ "$default_sizes_cmd" == *"downloadsize"* ]] && echo yes || echo 
   "the default size query asks for the tag that exists"
 assert_eq "$([[ "$default_sizes_cmd" == *"timeout "* ]] && echo yes || echo no)" "yes" \
   "the default size query cannot block a check forever"
+
+# --- and WHICH cache it reads --------------------------------------------------------------------
+# The size must come from the same metadata the CHECK was answered from, or names go missing.
+# `kempt check` lists updates through the ROOT helper against /var/cache/libdnf5, which
+# `kempt-refresh refresh` keeps current; dnf_sizes runs as the USER, and nothing in Kempt ever
+# fills ~/.cache/libdnf5. On 2026-08-28 the two disagreed on this box: the user cache's newest
+# brave-browser was 1.93.138 while the system cache had 1.94.117, so the size query returned NO
+# ROW for a name the check was reporting. The coverage rule then correctly refused to publish a
+# total, and the popup showed no figure at all beside five pending updates.
+assert_eq "$([[ "$default_sizes_cmd" == *"--setopt=cachedir="* ]] && echo yes || echo no)" "yes" \
+  "the default size query is pointed at a cache, not left on whichever one dnf5 picks for the user"
+assert_eq "$([[ "$default_sizes_cmd" == *"KEMPT_DNF_SYSTEM_CACHE"* ]] && echo yes || echo no)" "yes" \
+  "...and the cache it is pointed at is the documented seam, so this is testable at all"
+
+# The static check above cannot see the readability guard, which is the half that has to degrade
+# quietly: the directory is root-owned, and a container or a differently-packaged box may not have
+# one. So drive both branches through a stub that records its own argv, the same way the reboot
+# check's flags are pinned above. KEMPT_DNF_SIZES_CMD is unset here, so this really is the shipped
+# command being built.
+cat > "$TESTTMP/sizes-argv" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TESTTMP/sizes-argv-out"
+exit 0
+STUB
+chmod +x "$TESTTMP/sizes-argv"
+export KEMPT_DNF_CMD="$TESTTMP/sizes-argv"
+# Empty, not unset. The seam's default is the empty string (`${KEMPT_DNF_SIZES_CMD:-}` at the top
+# of the backend), and `set -u` is on: the `unset` above serves the static `declare -f` reads and
+# would make every CALL below abort on an unbound variable before reaching the stub.
+export KEMPT_DNF_SIZES_CMD=""
+
+KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/syscache"; mkdir -p "$KEMPT_DNF_SYSTEM_CACHE"
+dnf_sizes >/dev/null
+# grep -cx, not a substring match: the path must arrive as ONE argument, so a cache directory
+# containing a space cannot split into two and silently point dnf5 somewhere else.
+assert_eq "$(grep -cx -- "--setopt=cachedir=$TESTTMP/syscache" "$TESTTMP/sizes-argv-out")" "1" \
+  "a readable system cache is passed to the size query as one argument"
+assert_eq "$(grep -cx -- '-C' "$TESTTMP/sizes-argv-out")" "1" \
+  "...and pointing it at that cache does not cost the query its offline guarantee"
+
+KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/no-such-cache-dir"
+dnf_sizes >/dev/null
+assert_eq "$(grep -c -- '--setopt=cachedir=' "$TESTTMP/sizes-argv-out")" "0" \
+  "an unreadable system cache falls back to the plain query, never points dnf5 at nothing"
+assert_eq "$(grep -cx -- 'repoquery' "$TESTTMP/sizes-argv-out")" "1" \
+  "...and the fallback is the same query, so a box without a system cache still gets what it can"
 finish
