@@ -72,14 +72,14 @@ Why Refresh is on OUR heading row and not the tray's: there is no API. `BasicPla
 - [x] Remove: the old button row, the `actionMessage` ISO line, the duplicate "Up to date" heading in the empty state (header keeps `Up to date`; the placeholder carries the sentence; never both at once with the same words - node test pins that headerText and emptyStateText are not equal).
 
 ### P4 - Keyboard and accessibility (today: zero `Keys.`/`focus` in the widget)
-- [ ] Focus lands on `Update Now` when the popup opens (on Refresh when there is nothing to update). Tab order: Update Now, list rows (pin reachable), message actions, Refresh. `Keys.onEscapePressed` closes the popup (Klipper precedent).
-- [ ] `Accessible.description` on every icon-only button (Refresh, pin: reuse the pin's existing `text`), `Accessible.role: Button` where needed. Restart/stale/risky messages announce via `Accessible.name` on the InlineMessage.
-- [ ] Probe: focus item after expand for both states; tab sequence; Escape closes.
+- [x] Focus lands on `Update Now` when the popup opens (on Refresh when there is nothing to update). Tab order: Update Now, list rows (pin reachable), message actions, Refresh. `Keys.onEscapePressed` closes the popup (Klipper precedent).
+- [x] `Accessible.description` on every icon-only button (Refresh, pin: reuse the pin's existing `text`), `Accessible.role: Button` where needed. Restart/stale/risky messages announce via `Accessible.name` on the InlineMessage.
+- [x] Probe: focus item after expand for both states; tab sequence; Escape closes.
 
 ### P5 - Tests, docs, install
 - [x] Node tests for every P2 function and the copy table; QML probes for both states and the message stack (with the fixtures: pending, pending+risky, up-to-date, up-to-date+held, reboot-needed, stale, post-run success, post-run failure); screenshot probe if the kit supports it, else structural.
-- [ ] Docs: `docs/usage.md` popup section rewritten with the new anatomy (annotated ASCII, both states), the restart behaviour (`Restart…` opens KDE's own prompt; nothing restarts on its own; if you never press it, the updates are still applied), refresh-on-open, `Install on Next Restart` naming; README screenshot retaken by the founder (note as an owed item, do not fake). CHANGELOG Unreleased. `docs/ROADMAP.md`: add to v1.x "Remind me later / tonight / Wi-Fi only" (panel finding #2), "download size next to Update Now, from the update transaction, never from check" (finding #1 and HIG P9), "spoken result after an action" (a11y).
-- [ ] `kpackagetool6 -t Plasma/Applet -u plasmoid`; leave the hicolor icon alone; do not restart plasmashell (tell the founder the popup needs `plasmashell --replace` or a re-login to pick up QML changes if it does not on its own).
+- [x] Docs: `docs/usage.md` popup section rewritten with the new anatomy (annotated ASCII, both states), the restart behaviour (`Restart…` opens KDE's own prompt; nothing restarts on its own; if you never press it, the updates are still applied), refresh-on-open, `Install on Next Restart` naming; README screenshot retaken by the founder (note as an owed item, do not fake). CHANGELOG Unreleased. `docs/ROADMAP.md`: add to v1.x "Remind me later / tonight / Wi-Fi only" (panel finding #2), "download size next to Update Now, from the update transaction, never from check" (finding #1 and HIG P9), "spoken result after an action" (a11y).
+- [x] `kpackagetool6 -t Plasma/Applet -u plasmoid`; leave the hicolor icon alone; do not restart plasmashell (tell the founder the popup needs `plasmashell --replace` or a re-login to pick up QML changes if it does not on its own).
 
 ### Review gates
 Two-stage per task (spec reviewer, then quality reviewer with an EXECUTED probe per claim). Founder visual gate at the end: tray popup in both states, screenshot for the README.
@@ -147,3 +147,33 @@ ticked item was grepped in the file it claims to live in. What that audit found:
 - **P4 (keyboard and accessibility) had not started.** Zero `Keys.` and one
   `Accessible.description` in the whole widget.
 - **P5 is half done.** The tests are there; the documentation sweep (A2) is not.
+
+## Closed, 2026-08-27
+
+All twenty-six boxes are ticked and the suite is green: **17 files, 1932 assertions,
+0 failures**, run serially, probes one at a time under `safe_probe.py`, nothing left
+resident afterwards. The widget is 1221 of those (640 derivation rules under node, 581
+across five QML probes). `kpackagetool6 -t Plasma/Applet -u plasmoid` has run and
+`diff -rq` between the repo and the installed package is empty.
+
+What the last stretch changed beyond the plan's own words:
+
+- **A1's guard was written to match its comment.** The settings page described a guard
+  for a `kempt` too old to know `restart_reminder` and did not have one. Five probe
+  assertions were failing on it; a six-mutation pass now stands behind the fix.
+- **P4 shipped the plan's INTENT, not its literal tab order.** Qt's focus chain is
+  creation order, and the plan's sequence would need `KeyNavigation` links into a list
+  delegate that comes and goes with scrolling and into the private buttons inside a
+  Kirigami InlineMessage. The measured ring is Update Now, Refresh, Configure, the
+  message actions, every pin in list order, Last update, and back. It is asserted stop
+  by stop with real Tab keys in an offscreen window, and the reasoning is in 9540705.
+- **Measuring the keyboard found two real defects**, both fixed: a ListView builds only
+  the delegates near its viewport, so 7 of 24 pins could not be reached by keyboard at
+  all; and `reuseItems` left recycled rows in their original place among the view's
+  children, which threw the user out of an 80-package list and back through the header.
+- **The vocabulary sweep reached the settings page too**: "Held back" became "Held" in
+  three places, and the two password buttons that open an authentication dialog got a
+  real ellipsis.
+
+Owed, and founder-only: the visual gate on real hardware, and the README screenshot,
+which still shows the pre-redesign popup and says so on the page.
