@@ -69,6 +69,8 @@ echo "-- FullRepresentation.qml: popup actions, log tail, run-end watcher"
 run_probe probe_popup
 echo "-- configGeneral.qml: the settings page's apply path"
 run_probe probe_settings
+echo "-- the keyboard and the screen reader: focus on open, the tab ring, Escape"
+run_probe probe_a11y
 
 # Nothing may survive the battery. +2 is slack for an unrelated python3 that started while this
 # ran (the box runs other things); anything more than that is a probe that did not die.
