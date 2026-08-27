@@ -534,8 +534,20 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: kempt summary [N]  (N >= 1, 1 = latest)" >&2; exit 2; }
   # newest first. `|| true`: an empty history dir makes ls exit 2, and under pipefail that would
   # kill the whole command before it could say the friendly thing. No runs yet is NOT an error.
+  #
+  # LC_ALL=C on the sort, and it is not redundant with the pin at the top of lib/common.sh. Which
+  # entry is "newest" here is decided by BYTE ORDER, and glibc's collating locales do not order
+  # these names the same way: history filenames are per-second, so a harvest that fires in the
+  # same second as a run takes the `-offline` suffix, and `20260827T120000-offline.json` sorts
+  # BELOW `20260827T120000.json` under C (`-` is 0x2D, `.` is 0x2E) but ABOVE it under
+  # en_US.UTF-8, which ignores punctuation at the first level. Verified on this box: the same two
+  # files, the same `sort -r`, two different winners. The global pin happens to prevent that
+  # today, and it was declared for an unrelated reason - byte-identical collation for the package
+  # pipelines' sort/join - so this line says what IT needs rather than inheriting it from 470
+  # lines away. Determinism is the whole promise: --json answers about one run, and which run it
+  # names must not depend on the user's locale.
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
-    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
+    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   # Nothing recorded is not an error in either mode. --json says it with EMPTY stdout, this
   # project's own convention for "no data" (the same one the state schema states for `kempt
   # check`), never a fabricated empty run that a reader would count as a real one.
@@ -603,7 +615,7 @@ cmd_history() {
   local f row files=()
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
-    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | sort -r || true)
+    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   local phrase err
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, and must not take the

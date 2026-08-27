@@ -291,4 +291,51 @@ assert_newest_rejected "$_good_entry
 assert_newest_rejected '[]'         "array entry"
 assert_newest_rejected '42'         "bare number entry"
 assert_newest_rejected '"a string"' "bare string entry"
+
+# --- which run is "newest" must not depend on the user's locale --------------------------------
+# History filenames are per-second, and a harvest that fires in the same second as a live run
+# takes the `-offline` suffix rather than overwriting it (bin/kempt, harvest_offline). So two
+# entries can differ only by that suffix - and glibc does not order them the same way in every
+# locale. Under C, `-` is 0x2D and `.` is 0x2E, so `...T120000-offline.json` sorts BELOW
+# `...T120000.json`; under en_US.UTF-8, which ignores punctuation at the first level, it sorts
+# ABOVE. Same two files, same `sort -r`, two different winners - measured on this box:
+#
+#   LC_ALL=C           sort -r | head -1  ->  20260827T120000.json
+#   LC_ALL=en_US.UTF-8 sort -r | head -1  ->  20260827T120000-offline.json
+#
+# `kempt summary --json` answers about ONE run, and the widget renders it as "the run that just
+# finished". Which run that is may not be a function of the user's language.
+rm -f "$KEMPT_STATE_DIR"/history/*.json
+hist_entry() {  # path label
+  printf '{"timestamp":"%s","surface":"background","status":"ok","duration_sec":1,' "$2" > "$1"
+  printf '"backends":{"dnf":{"updated":[],"added":[],"removed":[],"skipped_held":[],"status":"ok"},' >> "$1"
+  printf '"flatpak":{"updated":[],"added":[],"removed":[],"skipped_held":[],"status":"ok"}},' >> "$1"
+  printf '"reboot_needed":false,"log":"/dev/null","error":""}\n' >> "$1"
+}
+hist_entry "$KEMPT_STATE_DIR/history/20260827T120000.json"         PLAIN
+hist_entry "$KEMPT_STATE_DIR/history/20260827T120000-offline.json" OFFLINE
+
+# The premise, asserted rather than asserted-about: an UNPINNED sort really does disagree with
+# itself across locales. If a future glibc stopped doing this the guard below would still pass and
+# would quietly be testing nothing, so the hazard gets its own assertion.
+_c_pick="$(cd "$KEMPT_STATE_DIR/history" && ls -1 ./*.json | LC_ALL=C sort -r | head -1)"
+if _en_pick="$(cd "$KEMPT_STATE_DIR/history" && LC_ALL=en_US.UTF-8 ls -1 ./*.json 2>/dev/null | LC_ALL=en_US.UTF-8 sort -r | head -1)" \
+   && locale -a 2>/dev/null | grep -qi '^en_US.utf-\?8$'; then
+  assert_eq "$([[ "$_c_pick" != "$_en_pick" ]] && echo differs || echo same)" "differs" \
+    "premise: an unpinned sort picks a different entry under en_US.UTF-8"
+else
+  echo "ok: SKIPPED premise (en_US.UTF-8 is not installed on this box)"
+fi
+
+# The guard. Every locale must get the same answer, and it must be the byte-order one.
+for _loc in C C.UTF-8 en_US.UTF-8 he_IL.UTF-8 tr_TR.UTF-8; do
+  assert_eq "$(LC_ALL="$_loc" "$KEMPT" summary --json | jq -r .timestamp)" "PLAIN" \
+    "summary --json picks the same entry under LC_ALL=$_loc"
+done
+# `kempt summary` and `kempt history` walk the same list, so they must agree about the order.
+assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" summary 1 | head -1 | grep -c PLAIN)" "1" \
+  "the human summary picks the same entry too"
+assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" history | head -1 | grep -c PLAIN)" "1" \
+  "...and so does the top of kempt history"
+rm -f "$KEMPT_STATE_DIR"/history/*.json
 finish
