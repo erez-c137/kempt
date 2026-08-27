@@ -562,7 +562,7 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 ```
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
-available`, or `Up to date`, `Updating...`, `No update data yet` before the first check has
+available`, or `Up to date`, `Updating…`, `No update data yet` before the first check has
 answered, or `Kempt cannot check for updates` when the CLI itself could not be run. It is
 never capped - the badge on the panel stops at `999+` because a panel has no room, and the
 popup has plenty.

@@ -639,7 +639,7 @@ PlasmaExtras.Representation {
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: popup.plasmoidItem.effectiveSurface === "popup" ? i18n("Updating...") : i18n("Updating in the %1 surface...", popup.plasmoidItem.effectiveSurface)
+            text: popup.plasmoidItem.effectiveSurface === "popup" ? i18n("Updating…") : i18n("Updating in the %1 surface…", popup.plasmoidItem.effectiveSurface)
             wrapMode: Text.WordWrap
         }
 

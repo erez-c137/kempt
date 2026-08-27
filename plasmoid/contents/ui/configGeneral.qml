@@ -373,7 +373,7 @@ KCM.SimpleKCM {
         QQC2.Label {
             Kirigami.FormData.isSection: false
             visible: page.loading
-            text: i18n("Reading your settings...")
+            text: i18n("Reading your settings…")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8
@@ -551,7 +551,7 @@ KCM.SimpleKCM {
         QQC2.Label {
             Kirigami.FormData.label: i18n("Held:")
             visible: page.holds.length === 0
-            text: page.holdsBusy ? i18n("Loading...") : i18n("Nothing is being held.")
+            text: page.holdsBusy ? i18n("Loading…") : i18n("Nothing is being held.")
             font: Kirigami.Theme.smallFont
             opacity: 0.8
         }

@@ -934,8 +934,8 @@ function viewModel(state, updating, cliError, opts) {
 
     var tooltipMain, headerText;
     if (updating) {
-        tooltipMain = "Updating...";
-        headerText = "Updating...";
+        tooltipMain = "Updating…";
+        headerText = "Updating…";
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
         headerText = "No update data yet";

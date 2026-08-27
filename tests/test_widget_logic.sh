@@ -109,7 +109,8 @@ assert_eq "$(js 'L.viewModel(null,false).lastSuccessText')" "" "unknown state ha
 assert_eq "$(js 'L.viewModel(null,true).iconState')" "updating" "null state + updating => updating"
 assert_eq "$(js 'V("live",true).iconState')" "updating" "updating overrides an updates-available state"
 assert_eq "$(js 'V("live",true).badgeText')" "10" "the badge keeps the last known count while a run is in flight"
-assert_eq "$(js 'V("live",true).headerText')" "Updating..." "the popup header says what is happening"
+assert_eq "$(js 'V("live",true).headerText')" "Updating…" \
+  "the popup header says what is happening, with a real ellipsis"
 
 # --- the everyday case ---
 assert_eq "$(js 'V("live",false).iconState')" "updates" "pending updates => updates"
@@ -1523,6 +1524,34 @@ else
     && echo "ok: the category is one Plasma's own tray applets use on this box" \
     || { echo "FAIL: category not among $(tr '\n' ' ' <<<"$KDE_CATEGORIES")"; _fail=1; }
 fi
+
+# --- no three ASCII dots anywhere a person can read ---------------------------------------------
+# KDE's own convention, and the one typographic tell that a widget was not written by KDE
+# (docs/research/2026-08-26-popup-panel/hig-review.md P5): an ellipsis is U+2026, not three
+# periods. The popup already got this right on the configure button and wrong in four other
+# places, which is exactly the shape a convention takes when nothing enforces it - so this is the
+# enforcement rather than another round of finding them by eye.
+#
+# Comments are stripped first (`sed 's://.*::'`) because they are not user-facing and this file's
+# comments are full of "...". The one allowed literal is logic.js's `", ..."`: it MIRRORS the
+# CLI's notification text, which is plain ASCII by choice, and the two must not drift apart.
+ELLIPSIS_ALLOW='? ", ..." :'
+ellipsis_hits="$(
+  find "$REPO_ROOT/plasmoid" \( -name '*.qml' -o -name '*.js' \) -print0 \
+  | while IFS= read -r -d "" f; do
+      sed 's://.*::' "$f" | grep -n '\.\.\.' | sed "s|^|${f#"$REPO_ROOT/"}:|"
+    done | grep -vF "$ELLIPSIS_ALLOW" || true
+)"
+if [[ -z "$ellipsis_hits" ]]; then
+  echo "ok: no three-dot ellipsis in any string the widget shows a person"
+else
+  echo "FAIL: three ASCII dots in a user-facing string - use U+2026"
+  sed 's/^/    /' <<<"$ellipsis_hits"
+  _fail=1
+fi
+# ...and the guard has to be able to SEE one, or it is a test that passes because it looks nowhere.
+assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.')" "1" \
+  "the ellipsis scan finds three dots in a line it is given"
 
 qml_check
 finish
