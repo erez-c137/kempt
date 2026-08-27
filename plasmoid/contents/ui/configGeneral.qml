@@ -578,7 +578,11 @@ KCM.SimpleKCM {
                 QQC2.ToolButton {
                     icon.name: "edit-delete-remove"
                     enabled: !page.holdsBusy
-                    text: i18n("Stop holding %1 back", modelData.name)
+                    // "Stop holding %1", not "...back": nothing is being held BACK. A hold is
+                    // the user's own decision to keep a package at its current version, and the
+                    // popup's own pin says it in exactly these words (UpdateItemDelegate.qml).
+                    // Two spellings of one action is one too many.
+                    text: i18n("Stop holding %1", modelData.name)
                     display: QQC2.AbstractButton.IconOnly
                     // Icon-only, so `text` is never drawn and the tooltip is only for a pointer.
                     // The same rule as the popup's pin: every icon-only button in this widget says

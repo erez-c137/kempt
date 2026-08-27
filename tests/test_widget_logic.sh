@@ -1525,6 +1525,27 @@ else
     || { echo "FAIL: category not among $(tr '\n' ' ' <<<"$KDE_CATEGORIES")"; _fail=1; }
 fi
 
+# ui_grep <extended-regex> -> every line under plasmoid/ matching it, COMMENTS STRIPPED, prefixed
+# `path:lineno:`. Comments come out first (`sed 's://.*::'`) because they are not user-facing and
+# this project's comments talk about the very wordings these scans forbid.
+ui_grep() {
+  find "$REPO_ROOT/plasmoid" \( -name '*.qml' -o -name '*.js' \) -print0 \
+  | while IFS= read -r -d "" f; do
+      sed 's://.*::' "$f" | grep -nE "$1" | sed "s|^|${f#"$REPO_ROOT/"}:|"
+    done
+}
+
+# --- one action, one sentence: unholding --------------------------------------------------------
+# The popup's pin and the settings page's remove button do the same thing - `kempt unhold` on one
+# package - and said it in two different sentences: "Stop holding %1" on the pin, "Stop holding %1
+# back" on the page. Nothing is held BACK. A hold is the user's own decision to keep a package
+# where it is, and the footer's held count is worded off the same rule ("1 held", never "held
+# back"). Two spellings of one action is one too many, so both are pinned to the same literal.
+assert_eq "$(ui_grep 'i18n\("Stop holding %1", ' | wc -l)" "2" \
+  "the pin and the settings page say Stop holding in exactly the same words"
+assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
+  "...and nothing in the widget tells a person their packages are being held BACK"
+
 # --- no three ASCII dots anywhere a person can read ---------------------------------------------
 # KDE's own convention, and the one typographic tell that a widget was not written by KDE
 # (docs/research/2026-08-26-popup-panel/hig-review.md P5): an ellipsis is U+2026, not three
@@ -1532,16 +1553,11 @@ fi
 # places, which is exactly the shape a convention takes when nothing enforces it - so this is the
 # enforcement rather than another round of finding them by eye.
 #
-# Comments are stripped first (`sed 's://.*::'`) because they are not user-facing and this file's
+# Comments are stripped by ui_grep above, because they are not user-facing and this project's
 # comments are full of "...". The one allowed literal is logic.js's `", ..."`: it MIRRORS the
 # CLI's notification text, which is plain ASCII by choice, and the two must not drift apart.
 ELLIPSIS_ALLOW='? ", ..." :'
-ellipsis_hits="$(
-  find "$REPO_ROOT/plasmoid" \( -name '*.qml' -o -name '*.js' \) -print0 \
-  | while IFS= read -r -d "" f; do
-      sed 's://.*::' "$f" | grep -n '\.\.\.' | sed "s|^|${f#"$REPO_ROOT/"}:|"
-    done | grep -vF "$ELLIPSIS_ALLOW" || true
-)"
+ellipsis_hits="$(ui_grep '\.\.\.' | grep -vF "$ELLIPSIS_ALLOW" || true)"
 if [[ -z "$ellipsis_hits" ]]; then
   echo "ok: no three-dot ellipsis in any string the widget shows a person"
 else
