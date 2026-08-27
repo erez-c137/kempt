@@ -169,8 +169,11 @@ bumping `schema`.
       "enabled": true,
       "actionable": 7,
       "held": 0,
+      "actionable": 7,
+      "download_bytes": 11978084,
       "items": [
-        { "name": "curl", "from": "8.18.0-8.fc44", "to": "8.18.0-9.fc44", "held": false }
+        { "name": "curl", "from": "8.18.0-8.fc44", "to": "8.18.0-9.fc44", "held": false,
+          "size_bytes": 245706 }
       ]
     },
     "flatpak": {
@@ -203,7 +206,24 @@ bumping `schema`.
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
 | `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
+| `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name (multilib twins are both fetched). **Absent means not known, never zero.** Additive key: readers must tolerate its absence. |
+| `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item in it has a `size_bytes`** - partial coverage omits the key rather than publishing a total that is quietly short. Additive key. |
+| `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A backend switched off contributes nothing and does not suppress it. Additive key. |
 | `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
+
+The download figure is **an estimate, and it is wrong in both directions.** State it with a "~"
+and never with "up to", which would claim a ceiling it does not have:
+
+- **It excludes held items.** Kempt passes `--exclude=` for them, so their bytes are never
+  fetched - but it also means the figure is not "what is pending", it is "what a run would fetch".
+- **It omits dependencies.** `dnf5 repoquery --upgrades` lists the packages being upgraded, not
+  the new packages a real transaction would pull in alongside them. Only a depsolve knows those,
+  and a depsolve is exactly what this feature refuses to run: it can block on the rpm transaction
+  lock, which is the failure dnfdragora and Discover both inherit.
+- **It ignores Flatpak static deltas.** Flatpak transfers ostree deltas, so the real download is
+  routinely a fraction of the published `download-size`. This is the largest single over-count.
+  A transaction Kempt has already staged offline is over-counted the same way: it is on disk, and
+  repoquery still reports the full size.
 
 Two rules for anything that reads this file:
 
@@ -228,6 +248,7 @@ fetch happens in one place, under one policy.**
 | `dnf5 -C --disablerepo='*' needs-restarting` (`dnf_reboot_needed`) | No |
 | `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
+| `dnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
 | `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes** - that is what a run is |
@@ -614,6 +635,7 @@ destructive paths without ever running them.
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
 | `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
+| `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Its own seam rather than a reuse of `KEMPT_DNF_CMD`, which four test files already point at a `needs-restarting` stub. `tests/lib.sh` points it at a path that does not exist, so no test file runs a real repoquery |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network to *read*. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), which also runs as the user and never through `pkexec`. `tests/lib.sh` poisons it the same way, and for a louder reason: unstubbed, it would update the machine running the suite |

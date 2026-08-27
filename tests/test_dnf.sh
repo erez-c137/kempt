@@ -196,4 +196,54 @@ cat > "$TESTTMP/refresh-stub" <<'STUB'
 exit 1
 STUB
 assert_exit 1 "dnf_check propagates failure" dnf_check
+
+# --- download sizes ------------------------------------------------------------------------------
+# Fixture provenance is in MANIFEST.md: real `downloadsize` values this box reports today, in the
+# captured repoquery format, for the names already in dnf-check-update.txt - plus the live glibc
+# multilib pair, and deliberately NO row for `brandnew`.
+export KEMPT_DNF_SIZES_CMD="cat $FIXTURES/dnf-repoquery-sizes.tsv"
+sizes="$(dnf_sizes)"
+
+# THE reason sizes are summed per name before anything joins. `--latest-limit 1` is per name.arch,
+# and multilib twins are BOTH downloaded, so glibc costs the x86_64 build plus the i686 one. The
+# item pipeline strips the arch and collapses the pair, so a size joined onto the collapsed item
+# would silently drop 2282613 bytes - a 48% under-count on this package.
+assert_eq "$(awk -F'\t' '$1=="glibc"{print $2}' <<<"$sizes")" "4765890" \
+  "a multilib pair sums to the bytes BOTH arches would download"
+assert_eq "$(awk -F'\t' '$1=="bash"{print $2}' <<<"$sizes")" "4005217" \
+  "...and so does the pending multilib twin the check fixture carries"
+assert_eq "$(awk -F'\t' '$1=="curl"{print $2}' <<<"$sizes")" "245706" "a single-arch package is itself"
+# One row per NAME, never per name.arch: attach_sizes joins on name and would otherwise see two.
+assert_eq "$(cut -f1 <<<"$sizes" | sort -u | wc -l)" "$(grep -c . <<<"$sizes")" "one row per name"
+assert_eq "$(cut -f1 <<<"$sizes" | LC_ALL=C sort -c && echo sorted)" "sorted" "rows come out sorted by name"
+# `brandnew` is pending and unpriced on purpose, so the coverage guard downstream has something to
+# fire on. A size table that invented a row for it would hide that.
+assert_eq "$(awk -F'\t' '$1=="brandnew"' <<<"$sizes" | wc -l)" "0" "an unpriced package gets no row"
+
+# Installed packages report downloadsize 0 - the rpmdb does not keep the figure - so any row that
+# resolved to @System is worthless. Counting it would report a package as free to download.
+assert_eq "$(KEMPT_DNF_SIZES_CMD="printf 'zero\tx86_64\t1.0-1\t0\n'" dnf_sizes | wc -l)" "0" \
+  "a zero-byte row is dropped, not counted as free"
+# Anything non-numeric in the size column is a format that changed under us, not a size.
+assert_eq "$(KEMPT_DNF_SIZES_CMD="printf 'junk\tx86_64\t1.0-1\t%%{download_size}\n'" dnf_sizes | wc -l)" "0" \
+  "a literal tag name (the wrong %{download_size} spelling) is not a size"
+# The whole point of the non-fatal contract: a failed size query is silence, never an error.
+assert_eq "$(KEMPT_DNF_SIZES_CMD=false dnf_sizes | wc -c)" "0" "a failed size command yields no rows"
+assert_exit 0 "...and exits clean, because a check must answer without it" -- \
+  env KEMPT_DNF_SIZES_CMD=false bash -c 'source "'"$REPO_ROOT"'/lib/common.sh"; source "'"$REPO_ROOT"'/backends/dnf.sh"; dnf_sizes'
+assert_eq "$(KEMPT_DNF_SIZES_CMD=true dnf_sizes | wc -c)" "0" "nothing pending yields no rows"
+
+# The shipped default must stay cache-only and must keep --latest-limit 1. Without the limit,
+# `--upgrades` returns one row PER newer candidate version (27 for nodejs on a box a few releases
+# behind), and a naive sum counts the same package several times over.
+unset KEMPT_DNF_SIZES_CMD
+default_sizes_cmd="$(declare -f dnf_sizes)"
+assert_eq "$([[ "$default_sizes_cmd" == *"--latest-limit 1"* ]] && echo yes || echo no)" "yes" \
+  "the default size query keeps --latest-limit 1"
+assert_eq "$([[ "$default_sizes_cmd" == *" -C repoquery"* ]] && echo yes || echo no)" "yes" \
+  "the default size query is cache-only"
+assert_eq "$([[ "$default_sizes_cmd" == *"downloadsize"* ]] && echo yes || echo no)" "yes" \
+  "the default size query asks for the tag that exists"
+assert_eq "$([[ "$default_sizes_cmd" == *"timeout "* ]] && echo yes || echo no)" "yes" \
+  "the default size query cannot block a check forever"
 finish

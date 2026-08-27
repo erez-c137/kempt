@@ -263,3 +263,61 @@ written into:
   reported as a failure whatever the counts say, and a hand-made failed entry could not show that
   because its counts would be invented too. The same trick with `log` emptied covers a history
   entry too old, or too damaged, to have a log to show.
+
+## tests/fixtures/dnf-repoquery-sizes.tsv
+**Hand-written in the captured format, with real sizes.** Format is the one `dnf_sizes` asks
+for, `name<TAB>arch<TAB>evr<TAB>downloadsize`. The `downloadsize` values are the REAL figures this
+box reported on 2026-08-27 via
+
+```bash
+dnf5 -C repoquery --qf $'%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n' --latest-limit 1 \
+  bash curl git-core tar vim-minimal aajohan-comfortaa-fonts glibc
+```
+
+The EVRs are the ones already in `dnf-check-update.txt`, so the two fixtures describe one
+consistent pending set; the sizes are real, the EVRs they are paired with are that file's
+hand-written bumps. Three deliberate properties:
+
+- **`glibc` x86_64 2483277 + i686 2282613.** The live multilib pair on this box, and the only
+  rows here with no matching item in `dnf-check-update.txt`. They exercise the per-name sum
+  (4765890) on real data, and prove a size row for a package that is not pending is harmless.
+- **`bash` on two arches**, matching that file's deliberately divergent multilib twin. The
+  x86_64 size (1985877) is real; the i686 one (2019340) is HAND-WRITTEN, because this box's
+  repos carry no `bash.i686` to capture. It is what makes the summed figure reach an actual
+  item: bash's `size_bytes` is 4005217, not 1985877.
+- **No row for `brandnew`**, which is pending in `dnf-check-update.txt`. That absence is what
+  fires the coverage guard, so `backends.dnf.download_bytes` is omitted until it is held.
+
+`%{download_size}` is NOT a tag: dnf5 echoes it back literally. The tags are `downloadsize` and
+`installsize` (`dnf5 repoquery --querytags`), and tabs need `$'...'` quoting.
+
+## tests/fixtures/flatpak-remote-ls-sizes.tsv
+**Captured size strings on hand-written rows.** The app ids and versions match
+`flatpak-remote-ls.txt` so both fixtures describe one pending set; the size column carries real
+strings captured from flathub on 2026-08-27:
+
+```bash
+flatpak remote-ls flathub --system --app --cached --columns=application,version,download-size
+```
+
+The separator between number and unit is the point of this fixture, and it is **not the same for
+every unit**. Verified with `cat -A` (`^I` is TAB, `M-BM- ` is the two bytes of U+00A0 NO-BREAK
+SPACE):
+
+```
+net.mkiol.SpeechNote^I4.8.5^I1.2M-BM- GB$
+org.gimp.GIMP^I3.0.4^I99.7M-BM- MB$
+com.example.NotInstalled^I9.9^I847 bytes$
+org.example.NoSize^I1.0^I$
+org.example.Unknown^I2.0^I?$
+```
+
+kB, MB and GB use U+00A0; `bytes` uses an ORDINARY space. A fixture written with ordinary spaces
+throughout would pass a parser that cannot read a single real flathub row, which is why
+`tests/test_flatpak.sh` also asserts the file contains exactly two U+00A0 bytes. Units across all
+3474 flathub apps on this box: 3106 MB, 331 kB, 34 GB, 3 bytes - SI decimal with a lowercase k,
+matching `g_format_size`.
+
+The last two rows are hand-written guards: an **empty** size column and a literal **`?`**, both of
+which must yield no size row at all rather than a zero, so "not known" stays distinguishable from
+"free".

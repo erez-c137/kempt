@@ -26,6 +26,13 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   `kempt -V`) prints the release, and `kempt doctor` opens with it and the checkout it came from.
   One `VERSION` file is the source of truth: the panel widget is pinned to it by the test suite,
   so the CLI and the widget cannot report different releases of the same install.
+- **How big the download is, next to the button that starts it.** The popup footer reads
+  `Checked 4 min ago · ~140 MB` and the tooltip says `~140 MB to download`, so pressing Update
+  Now on a metered link is an informed decision. The figure comes from metadata already on disk -
+  no dependency resolution, no network, nothing on popup open - and it is honest about being an
+  estimate: it says `~`, never "up to", it excludes held packages, it omits dependencies dnf will
+  pull in, and it over-counts Flatpak, which transfers less than it advertises. When the number
+  is not known the surfaces show nothing at all rather than `0 MB`.
 - **Holds that skip but still notify.** `kempt hold dnf:kernel-core` keeps a package out of
   every Kempt run while it stays visible as pending, out of the actionable count, and named in
   each run's `Held (skipped)` line.

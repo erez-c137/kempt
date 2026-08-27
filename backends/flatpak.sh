@@ -14,7 +14,7 @@
 # every captive portal. With it, the same query answered from the local summary, rc 0, network
 # blackholed (measured 2026-08-27, flatpak 1.18.1). That leaves the check where dnf's already is:
 # read-only against a local cache, filled by a separate step under one policy.
-KEMPT_FLATPAK_REMOTE_CMD="${KEMPT_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --system --app --cached --columns=application,version}"
+KEMPT_FLATPAK_REMOTE_CMD="${KEMPT_FLATPAK_REMOTE_CMD:-flatpak remote-ls --updates --system --app --cached --columns=application,version,download-size}"
 # The separate step. It is the check command minus --cached, so what it fetches is exactly what the
 # check reads back afterwards. It has to exist rather than letting the check heal itself, because
 # --cached never falls back to the network - not even when the network is right there. Measured on
@@ -31,7 +31,7 @@ KEMPT_FLATPAK_REMOTE_CMD="${KEMPT_FLATPAK_REMOTE_CMD:-flatpak remote-ls --update
 # Deliberately UNPRIVILEGED - no pkexec, no polkit action, no root helper. The cache it fills lives
 # in the user's own home, so root would buy nothing here and would only widen the privileged
 # surface. (All measurements 2026-08-27, flatpak 1.18.1, Fedora 44.)
-KEMPT_FLATPAK_REFRESH_CMD="${KEMPT_FLATPAK_REFRESH_CMD:-flatpak remote-ls --updates --system --app --columns=application,version}"
+KEMPT_FLATPAK_REFRESH_CMD="${KEMPT_FLATPAK_REFRESH_CMD:-flatpak remote-ls --updates --system --app --columns=application,version,download-size}"
 KEMPT_FLATPAK_LIST_CMD="${KEMPT_FLATPAK_LIST_CMD:-flatpak list --system --app --columns=application,version}"
 # The apply arm, and like the refresh above it runs AS THE USER: no pkexec, no Kempt polkit
 # action, no root helper. flatpak asks for no password of its own here - the policy flatpak ships
@@ -62,15 +62,54 @@ KEMPT_FLATPAK_UPDATE_CMD="${KEMPT_FLATPAK_UPDATE_CMD:-flatpak update --system}"
 flatpak_parse_remote_ls() {  # $1=installed TSV (sorted); stdin=remote-ls lines → JSON [{name,from,to}]
   # awk, not `grep -vE '^(#|$)'`: same filtering, but grep exits 1 when it selects nothing, and
   # under pipefail that turned the COMMON "no pending updates" case into a check failure.
-  awk 'NF && $1 !~ /^#/' \
+  # -F'\t' and an explicit two-field cut, because the row is now THREE fields wide: the
+  # download-size column rides along for flatpak_parse_sizes, and it must not reach the join, whose
+  # -o list would otherwise be picking fields out of a row shape it was not written for.
+  awk -F'\t' 'NF && $1 !~ /^#/ { print $1 "\t" $2 }' \
   | sort -u \
   | join -t "$(printf '\t')" -a1 -e '?' -o '1.1,2.2,1.2' - "$1" \
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:(.[2] // "?")}]'
 }
 
-flatpak_check() {  # → items JSON; non-zero on command OR parser failure
+# Bytes, out of the same rows flatpak_check already fetched. The value flatpak prints is a HUMAN
+# string, not a number - "1.2 GB", rounded to one decimal by g_format_size - and `remote-info`
+# returns the same rounded string, so exact bytes are not available from the CLI at all. The
+# conversion happens here so that the human string never escapes the backend.
+#
+# The separator between number and unit is U+00A0 NO-BREAK SPACE for kB, MB and GB, and a PLAIN
+# space for `bytes` (verified with cat -A on this box: `1.2M-BM- GB` against `847 bytes`). A
+# whitespace-splitting parser therefore fails silently on 3471 of the 3474 apps flathub publishes
+# and works on the three smallest, which is the worst possible way for it to be wrong. The gsub
+# normalises the NBSP to a space FIRST so one split handles both.
+# Units are SI decimal with a lowercase k, matching g_format_size. Anything else - an empty
+# column, a literal "?", a unit nobody has seen - yields NO ROW rather than a zero, because a
+# missing size must read as "not known" and suppress the figure, never as "free".
+flatpak_parse_sizes() {  # stdin: remote-ls rows → TSV appid<TAB>bytes; unparseable rows omitted
+  awk -F'\t' '
+    function tobytes(s,   n,u,a) {
+      gsub(/\xc2\xa0/, " ", s)
+      if (s ~ /^[[:space:]]*$/) return -1
+      n = s; sub(/[[:space:]].*$/, "", n)
+      u = s; sub(/^[^[:space:]]*[[:space:]]*/, "", u); gsub(/[[:space:]]/, "", u)
+      if (n !~ /^[0-9]+(\.[0-9]+)?$/) return -1
+      a["bytes"]=1; a["B"]=1; a["kB"]=1000; a["KB"]=1000
+      a["MB"]=1000000; a["GB"]=1000000000; a["TB"]=1000000000000
+      if (!(u in a)) return -1
+      return int(n * a[u] + 0.5)
+    }
+    NF >= 3 && $1 !~ /^#/ { b = tobytes($3); if (b >= 0) print $1 "\t" b }' \
+  | sort -t "$(printf '\t')" -k1,1
+}
+
+flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR parser failure
   local out lookup prc=0
   out="$($KEMPT_FLATPAK_REMOTE_CMD)" || return 1
+  # Sizes come out of the rows already in hand rather than from a second remote-ls. The cached
+  # query costs about 1.6s on this box, and paying that twice per check to re-read bytes that
+  # arrived with the first copy would be the whole cost of the feature, spent for nothing.
+  # An `if`, not `[[ ... ]] && ...`: the && form evaluates to rc 1 whenever no path was passed,
+  # and this function's status is read by cmd_check to decide whether the backend answered.
+  if [[ -n "${1:-}" ]]; then flatpak_parse_sizes <<<"$out" > "$1" || : > "$1"; fi
   # A failed lookup must be loud: without this guard the join still succeeds against an empty
   # file and every app reports from="?" - a plausible-looking, entirely fabricated report.
   lookup="$(mktemp)"; $KEMPT_FLATPAK_LIST_CMD | sort_name_version | collapse_versions > "$lookup" \

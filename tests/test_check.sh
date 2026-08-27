@@ -334,4 +334,76 @@ assert_eq "$(jq -r '.reboot_needed' <<<"$rb_weird")" "false" \
 assert_eq "$(jq -r '.status' <<<"$rb_weird")" "ok" "...and the check it rode in on is still ok"
 assert_eq "$(jq '.actionable' <<<"$rb_weird")" "$(jq '.actionable' <<<"$rb_no")" \
   "...still carrying exactly the pending items a healthy check reports"
+
+# --- download sizes in the state -----------------------------------------------------------------
+# The rule the whole feature turns on: a backend publishes a total only when EVERY non-held item in
+# it has a size. A total over the items that happen to be priced looks authoritative and is short
+# by however much the rest weigh, and the reader cannot see which ones were left out.
+export KEMPT_DNF_SIZES_CMD="cat $FIXTURES/dnf-repoquery-sizes.tsv"
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+"$KEMPT" config set include_flatpak true >/dev/null
+st="$KEMPT_STATE_DIR/state.json"
+# The holds section near the top of this file held $first and never released it, and a held item
+# is excluded from these totals - so the numbers below would be this file's history rather than
+# the fixture's arithmetic. Released here so the block states its own premises. (That the totals
+# moved by exactly that package's 210107 bytes when it was held is itself the exclusion working.)
+"$KEMPT" unhold "dnf:$first" >/dev/null
+
+# `brandnew` is pending and has no size row, so dnf is partially covered: no figure anywhere.
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.backends.dnf.download_bytes // "absent"' "$st")" "absent" \
+  "one unpriced item omits that backend's total"
+assert_eq "$(jq -r '.download_bytes // "absent"' "$st")" "absent" \
+  "...and the top-level total with it"
+# The items that DO have sizes still carry them: partial coverage suppresses the total, not the
+# per-item facts, so a reader that wants to show a size per row still can.
+assert_eq "$(jq '[.backends.dnf.items[] | select(has("size_bytes"))] | length' "$st")" "6" \
+  "the priced items keep their own size_bytes"
+assert_eq "$(jq -r '.backends.dnf.items[] | select(.name=="brandnew") | has("size_bytes")' "$st")" "false" \
+  "and the unpriced one has no size key at all, rather than a zero"
+# The multilib sum reaches the item, not just the size table: bash is pending on two arches.
+assert_eq "$(jq -r '.backends.dnf.items[] | select(.name=="bash") | .size_bytes' "$st")" "4005217" \
+  "a multilib item carries the bytes both arches would download"
+
+# Hold the unpriced item and coverage completes. This is also the "held items are excluded"
+# assertion: brandnew is still pending, still in the list, and contributes nothing.
+"$KEMPT" hold dnf:brandnew >/dev/null
+"$KEMPT" hold flatpak:org.example.NoSize >/dev/null
+"$KEMPT" hold flatpak:org.example.Unknown >/dev/null
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.backends.dnf.download_bytes' "$st")" "11978084" "full coverage publishes a dnf total"
+assert_eq "$(jq -r '.backends.flatpak.download_bytes' "$st")" "1299700847" "...and a flatpak one"
+assert_eq "$(jq -r '.download_bytes' "$st")" "1311678931" "...and the top level is their sum"
+assert_eq "$(jq -r '.backends.dnf.items[] | select(.name=="brandnew") | .held' "$st")" "true" \
+  "the held item is still listed as pending"
+# The arithmetic, stated once so a future edit cannot quietly change what is being claimed: the
+# total is the sum of the two backends and nothing else.
+assert_eq "$(jq -r '.download_bytes == (.backends.dnf.download_bytes + .backends.flatpak.download_bytes)' "$st")" \
+  "true" "the top-level total is exactly the two backend totals"
+
+# A backend switched off must not suppress the top-level figure: its items will not be fetched
+# either, so the total is still complete for the run that would actually happen.
+"$KEMPT" config set include_flatpak false >/dev/null
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.backends.flatpak.download_bytes // "absent"' "$st")" "absent" \
+  "a disabled backend gets no total, not a zero"
+assert_eq "$(jq -r '.download_bytes' "$st")" "11978084" \
+  "...and does not suppress the top-level total either"
+"$KEMPT" config set include_flatpak true >/dev/null
+
+# A size query that fails is silence. It must never fail the check, never make it stale, and never
+# report a zero - the three ways a nicety could damage the thing it sits on top of.
+"$KEMPT" check >/dev/null   # priming: the assertion below is about THIS check's status
+assert_exit 0 "a failed size query does not fail the check" -- \
+  env KEMPT_DNF_SIZES_CMD=false "$KEMPT" check
+KEMPT_DNF_SIZES_CMD=false "$KEMPT" check >/dev/null
+assert_eq "$(jq -r .status "$st")" "ok" "...and does not make it stale"
+assert_eq "$(jq -r '.download_bytes // "absent"' "$st")" "absent" "...and reports nothing rather than zero"
+"$KEMPT" unhold dnf:brandnew >/dev/null
+"$KEMPT" unhold flatpak:org.example.NoSize >/dev/null
+"$KEMPT" unhold flatpak:org.example.Unknown >/dev/null
+
+# Schema 1 stays schema 1. Every field here is additive, so a reader written before this feature
+# sees exactly what it saw before.
+assert_eq "$(jq -r .schema "$st")" "1" "the schema is not bumped by an additive field"
 finish

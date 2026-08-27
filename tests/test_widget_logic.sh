@@ -105,6 +105,59 @@ assert_eq "$(js 'L.viewModel(null,false).tooltipSub.indexOf("no data yet") >= 0'
 assert_eq "$(js 'L.viewModel(null,false).headerText.indexOf("0 update") >= 0')" "false" "unknown state never claims zero updates"
 assert_eq "$(js 'L.viewModel(null,false).lastSuccessText')" "" "unknown state has no last-success text to show"
 
+# --- the download figure: what "Update Now" is about to cost ------------------------------------
+# "~", never "up to". The estimate is wrong in BOTH directions - dnf pulls in dependencies
+# `--upgrades` never listed, flatpak transfers ostree deltas far smaller than the published size,
+# and a transaction already staged offline is counted although it is on disk - so a word that
+# implies a ceiling would be a false promise.
+assert_eq "$(js 'L.formatDownload(140000000)')" "~140 MB" "a round figure loses its pointless decimal"
+assert_eq "$(js 'L.formatDownload(1400000000)')" "~1.4 GB" "GB keeps the one decimal that means something"
+assert_eq "$(js 'L.formatDownload(4765890)')" "~4.8 MB" "MB rounds to one decimal"
+# SI, matching what both package managers report. 1 MB is 1000000 bytes, not 1048576: a MiB-based
+# divisor would under-report every figure by 4.8% and disagree with dnf's own output.
+assert_eq "$(js 'L.formatDownload(1000000)')" "~1 MB" "a megabyte is 1000000 bytes"
+# Under a megabyte, say so in words. Nobody decides anything differently between 300 kB and
+# 800 kB, and a precise-looking small number invites trust the estimate has not earned.
+assert_eq "$(js 'L.formatDownload(999999)')" "< 1 MB" "just under a megabyte reads as < 1 MB"
+assert_eq "$(js 'L.formatDownload(1)')" "< 1 MB" "and so does one byte"
+# 999999999 rounds to 1000.0 MB, which is a gigabyte spelled the long way.
+assert_eq "$(js 'L.formatDownload(999999999)')" "~1 GB" "the MB/GB boundary does not print 1000 MB"
+# Absent is NOT zero, and every one of these renders nothing at all: no "unknown", no "0 MB", no
+# dash. Same way the surfaces already degrade for reboot_needed.
+assert_eq "$(js 'L.formatDownload(0)')" "" "zero bytes says nothing"
+assert_eq "$(js 'L.formatDownload(undefined)')" "" "an absent key says nothing"
+assert_eq "$(js 'L.formatDownload(null)')" "" "a null says nothing"
+assert_eq "$(js 'L.formatDownload(-1)')" "" "a negative says nothing"
+# The state file is JSON from another program, and a schema-1 reader has to tolerate a key of the
+# wrong type. Tolerating it means ignoring it, never coercing it into a number.
+assert_eq "$(js 'L.formatDownload("140000000")')" "" "a string is not a byte count"
+assert_eq "$(js 'L.formatDownload(NaN)')" "" "NaN is not a byte count"
+assert_eq "$(js 'L.formatDownload(Infinity)')" "" "neither is infinity"
+
+# Where a person actually reads it: beside Update Now, and in the tooltip.
+dl_state='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{},download_bytes:140000000}'
+assert_eq "$(js "L.viewModel($dl_state,false).footerText.indexOf(\"~140 MB\") >= 0")" "true" \
+  "the footer beside Update Now says what it will cost"
+assert_eq "$(js "L.viewModel($dl_state,false).tooltipSub.indexOf(\"~140 MB to download\") >= 0")" "true" \
+  "the tooltip spells out what the figure means"
+assert_eq "$(js "L.viewModel($dl_state,false).downloadText")" "~140 MB" "the vm publishes the words once"
+# Nothing actionable, nothing to download: on an up-to-date box the figure would be describing
+# bytes no run is going to fetch, and next to a held-only list it would be describing a run the
+# button will not offer.
+noact='{schema:1,status:"ok",actionable:0,held_total:2,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{},download_bytes:140000000}'
+assert_eq "$(js "L.viewModel($noact,false).footerText.indexOf(\"MB\") >= 0")" "false" \
+  "no actionable updates, no figure in the footer"
+assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
+  "...and none in the tooltip"
+# A state written before this feature existed has no such key, and must render exactly as it did.
+nokey='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($nokey,false).downloadText")" "" "a state with no download_bytes shows nothing"
+assert_eq "$(js "L.viewModel($nokey,false).footerText")" "$(js "L.viewModel($nokey,false).footerText")" \
+  "...and its footer is unchanged"
+# Every captured fixture predates the field, so this pins the no-regression claim to real files.
+assert_eq "$(js 'V("live",false).downloadText')" "" "the captured live state renders no figure"
+assert_eq "$(js 'V("held-only",false).downloadText')" "" "nor does the held-only one"
+
 # --- updating wins over everything, and the pending count stays truthful while it runs ---
 assert_eq "$(js 'L.viewModel(null,true).iconState')" "updating" "null state + updating => updating"
 assert_eq "$(js 'V("live",true).iconState')" "updating" "updating overrides an updates-available state"
@@ -1227,7 +1280,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

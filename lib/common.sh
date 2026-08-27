@@ -403,25 +403,63 @@ tsv_diff_updates() {  # before_file after_file
       removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }'
 }
 
+# --- download sizes ---
+# Joined by NAME, never by name+version. An item's `to` can be a comma-joined EVR list when
+# multilib twins diverge ("5.3.9-4.fc44,5.3.10-1.fc44"), so it is not a usable key; and on the
+# size side --latest-limit 1 has already guaranteed one candidate per name+arch, which dnf_sizes
+# then folds to one row per name. Name is the only key both sides agree on.
+# An item with no row keeps NO size_bytes key at all - not a zero. "Absent" has to stay
+# distinguishable from "free", because absent is what suppresses the figure downstream.
+attach_sizes() {  # $1 = sizes TSV; stdin: items JSON (after mark_held) → items + optional size_bytes
+  jq --rawfile tsv "$1" '
+    ($tsv | split("\n") | map(select(length>0) | split("\t"))
+          | map({key: .[0], value: (.[1] | tonumber)}) | from_entries) as $sz
+    | map(. + (if $sz[.name] != null then {size_bytes: $sz[.name]} else {} end))'
+}
+
+# ALL or nothing, per backend. A total computed over the items that happen to have sizes is a
+# number that looks authoritative and is quietly short by however much the unpriced ones weigh -
+# the one failure mode a download estimate must not have, because the user cannot see which items
+# were left out. So: every non-held item priced, or no figure at all.
+# Held items are excluded because Kempt passes --exclude= for them and their bytes are never
+# fetched. Zero non-held items is full coverage of nothing, which is honestly 0.
+backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage is incomplete
+  jq -r '[.[] | select(.held | not)] as $a
+         | [$a[] | select(has("size_bytes"))] as $k
+         | if ($a | length) == ($k | length) then ($k | map(.size_bytes) | add // 0) else "" end'
+}
+
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional)
   jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
-        --argjson reboot "${8:-false}" --arg now "$(now_iso)" '
-    def wrap(e): {enabled: e,
+        --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
+        --arg now "$(now_iso)" '
+    # b is the backend total as a STRING, "" meaning not known. Empty adds no key at all, which is
+    # what a schema-1 reader that predates this feature is guaranteed to keep seeing.
+    def wrap(e; b): {enabled: e,
                   actionable: ([.[] | select(.held|not)] | length),
                   held:       ([.[] | select(.held)] | length),
-                  items: .};
+                  items: .}
+                 + (if b == "" then {} else {download_bytes: (b | tonumber)} end);
+    # The top-level figure exists only when every ENABLED backend produced one. A backend switched
+    # off contributes nothing and must not suppress it: its items are not going to be fetched
+    # either, so the total is still complete for the run that would actually happen.
+    def total: if $dnfb == "" then {}
+               elif $fpe and $fpb == "" then {}
+               else {download_bytes: (($dnfb | tonumber)
+                                      + (if $fpe then ($fpb | tonumber) else 0 end))} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
-     backends: {dnf: ($dnf | wrap(true)), flatpak: ($fp | wrap($fpe))},
+     backends: {dnf: ($dnf | wrap(true; $dnfb)), flatpak: ($fp | wrap($fpe; $fpb))},
      actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
-     reboot_needed: $reboot}'
+     reboot_needed: $reboot}
+    + total'
 }
 
 # Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach

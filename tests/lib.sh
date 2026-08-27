@@ -26,6 +26,12 @@ sandbox() {  # fresh dirs per test file; call first
   # answering differently on a box with no flatpak installed at all. A path that does not exist
   # fails the arm loudly (rc 127) and touches nothing.
   export KEMPT_FLATPAK_REFRESH_CMD="$TESTTMP/UNSTUBBED-flatpak-refresh"
+  # Poisoned for a quieter reason than the two above, but the same one at bottom: unset, dnf_sizes
+  # falls back to a REAL `dnf5 -C repoquery` on every check the suite runs - about 1.4s each,
+  # measured on this box, and a different answer depending on what the developer happens to have
+  # pending. A path that does not exist makes every size query fail, which is also the contract
+  # worth exercising by default: a failed size query yields no number and never a failed check.
+  export KEMPT_DNF_SIZES_CMD="$TESTTMP/UNSTUBBED-dnf-sizes"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.

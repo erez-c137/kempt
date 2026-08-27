@@ -111,6 +111,40 @@ var COPY = {
 // update row both use it and two of them would drift apart the first time one was edited.
 var DOT = " \u00b7 ";
 
+// How big the pending download is, in words a person reads at a glance.
+//
+// "~", never "up to". The figure is an estimate with error in BOTH directions, so any wording
+// that implies a ceiling is false: dnf pulls in new dependencies `--upgrades` never listed, while
+// flatpak transfers ostree static deltas that are routinely a fraction of the published
+// download-size, and a transaction Kempt already staged offline has been downloaded in full while
+// the number still counts it.
+//
+// SI units with a lowercase k, matching what both package managers report, and one decimal - but
+// a trailing ".0" is dropped, because "~140 MB" is what a person would say and "~140.0 MB" is
+// what a machine would.
+//
+// Under a megabyte it says "< 1 MB" rather than a kB figure. Nobody decides anything differently
+// between 300 kB and 800 kB, and a number that small next to an update button invites the reader
+// to think the estimate is precise, which it is not.
+//
+// Returns "" for anything not worth showing - absent, zero, negative, not a number. Empty is the
+// signal to render NOTHING: no "unknown", no "0 MB", no dash. Same way the surfaces already
+// degrade for reboot_needed.
+function formatDownload(bytes) {
+    if (typeof bytes !== "number" || !isFinite(bytes) || bytes <= 0) return "";
+    if (bytes < 1000000) return "< 1 MB";
+    var mb = Math.round(bytes / 100000) / 10;
+    // 999999999 bytes rounds to 1000.0 MB, which is a gigabyte spelled the long way.
+    if (mb < 1000) return "~" + trimZero(mb) + " MB";
+    return "~" + trimZero(Math.round(bytes / 100000000) / 10) + " GB";
+}
+
+// One decimal, minus a pointless one. Not toFixed(1) followed by a string trim: toFixed rounds a
+// second time and the value has already been rounded, so the two can disagree at the boundary.
+function trimZero(n) {
+    return String(Math.round(n * 10) / 10);
+}
+
 // How many session-critical families the offline recommendation names before it says ", ...".
 // Same number the CLI's notification uses (bin/kempt).
 var RISKY_FAMILIES_SHOWN = 4;
@@ -962,6 +996,11 @@ function viewModel(state, updating, cliError, opts) {
         else problemText = "the update state could not be read";     // it answered something else
     }
 
+    // Read only out of a state this build can read, like every other optional key: a schema-1
+    // reader has to tolerate the key being absent (every file written before this existed) and
+    // being the wrong type (it is JSON from another program). formatDownload answers "" to both.
+    var downloadText = usable ? formatDownload(state.download_bytes) : "";
+
     var subParts = [];
     if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
     else if (iconState === "error") subParts.push(problemText);
@@ -969,6 +1008,10 @@ function viewModel(state, updating, cliError, opts) {
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
         if (heldTotal > 0) subParts.push(heldTotal + " " + COPY.held);
+        // Only when there is something to download AND something to press. On an up-to-date box
+        // the number is zero or absent and would say nothing; next to a held-only list it would
+        // describe bytes no run is going to fetch.
+        if (actionable > 0 && downloadText !== "") subParts.push(downloadText + " to download");
         // Staleness is a tooltip fact, not an icon alarm - so the tooltip has to actually carry
         // BOTH halves: what went wrong, and how old the numbers above it therefore are. Without
         // the reason, "last successful check: yesterday" leaves the user guessing why.
@@ -1045,6 +1088,9 @@ function viewModel(state, updating, cliError, opts) {
     // no button, but the popup still says a restart is pending - a popup that hides that is lying
     // to the person looking at it. With the message on screen, repeating it would be the same fact
     // twice in one small window.
+    // Beside Update Now, which is the question it answers: pressing this costs about this much.
+    // Same two conditions as the tooltip, and the same silence when either fails.
+    if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
     if (rebootNeeded && !restartMessageVisible) footerParts.push(COPY.restartPending);
 
     return {
@@ -1082,6 +1128,9 @@ function viewModel(state, updating, cliError, opts) {
         rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
         footerText: footerParts.join(DOT),
+        // Published rather than left inside the two strings above, so a future surface (a
+        // notification, a `check --human` line) renders the same words instead of its own.
+        downloadText: downloadText,
         // The relative time in footerText is the convenience; this is the truth, and people
         // compare the two. Empty rather than "never" when there has been no successful check: the
         // footer already says there has been none in words, and a tooltip saying "never" under it
@@ -1100,6 +1149,7 @@ if (typeof module !== "undefined" && module.exports) {
         newestOf: newestOf,
         familiesOf: familiesOf,
         formatStamp: formatStamp,
+        formatDownload: formatDownload,
         relativeTime: relativeTime,
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         riskyMessageOf: riskyMessageOf,

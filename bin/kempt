@@ -35,12 +35,23 @@ cmd_check() {
   harvest_offline
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
+  # Download sizes, per backend, in files because attach_sizes joins against a TSV. Both start
+  # EMPTY and stay empty on any failure: the figure is a nicety on top of the check, and the check
+  # must answer with or without it. Nothing below is allowed to change `status`.
+  local dnf_sz fp_sz dnf_priced=false fp_priced=false
+  dnf_sz="$(mktemp)"; fp_sz="$(mktemp)"
   # -n/[inputs][0]: same corrupt-tolerance as state_prev_items. A multi-doc state file made the
   # plain form emit one last_success PER DOCUMENT, newline-joined into a single string - which
   # reaches the widget as "Invalid Date".
   prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
   errf="$(mktemp)"
-  if dnf_items="$(dnf_check 2>"$errf")"; then :; else
+  if dnf_items="$(dnf_check 2>"$errf")"; then
+    # Priced only when the check ANSWERED. A stale backend serves the items from the previous
+    # state, and those already carry whatever sizes they were written with - re-pricing them from
+    # a fresh query would put today's bytes on yesterday's list.
+    dnf_priced=true
+    dnf_sizes > "$dnf_sz" 2>/dev/null || : > "$dnf_sz"
+  else
     # explain_helper_error only rewrites the one case the raw text gets WRONG (a missing root
     # helper reported by `timeout` as a failure to run a command, which reads as a timeout).
     # This is the dnf branch on purpose: it is the only check path that goes through a root helper.
@@ -48,7 +59,7 @@ cmd_check() {
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
   if is_true "$(config_get include_flatpak)"; then
-    if fp_items="$(flatpak_check 2>"$errf")"; then :; else
+    if fp_items="$(flatpak_check "$fp_sz" 2>"$errf")"; then fp_priced=true; else
       serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
@@ -58,6 +69,16 @@ cmd_check() {
   rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
   fp_items="$(mark_held flatpak <<<"$fp_items")"
+  # After mark_held, because the coverage rule below counts NON-HELD items only.
+  [[ "$dnf_priced" == true ]] && dnf_items="$(attach_sizes "$dnf_sz" <<<"$dnf_items")"
+  [[ "$fp_priced"  == true ]] && fp_items="$(attach_sizes "$fp_sz"  <<<"$fp_items")"
+  rm -f "$dnf_sz" "$fp_sz"
+  local dnf_bytes fp_bytes=""
+  dnf_bytes="$(backend_download_bytes <<<"$dnf_items")"
+  # A backend that is switched off gets no figure rather than a zero: `download_bytes: 0` on a
+  # disabled backend reads as "nothing to download from it", which is a claim, where the truth is
+  # that nobody asked.
+  [[ "$fp_enabled" == true ]] && fp_bytes="$(backend_download_bytes <<<"$fp_items")"
   # Published for the widget so it can offer "Install on Next Restart" without re-deriving the
   # rule. dnf only: a flatpak app cannot take the session down mid-transaction.
   local risky
@@ -85,7 +106,7 @@ cmd_check() {
   # degrades to false here instead of taking the check down with it.
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check. The two outcomes cmd_check actually has are the two it records: `ok` with

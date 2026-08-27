@@ -182,4 +182,58 @@ assert_eq "$(fp_calls | wc -l)" "3" "...without abandoning the apps after it"
 assert_exit 2 "an option-shaped app id is rejected" flatpak_apply -y --installation=other
 assert_exit 2 "an injection-shaped app id is rejected" flatpak_apply -y 'evil;id'
 assert_eq "$(fp_calls | wc -c)" "0" "a rejected call updates nothing at all"
+
+# --- download sizes ------------------------------------------------------------------------------
+# flatpak reports a HUMAN string, not bytes: "1.2 GB", rounded to one decimal by g_format_size, and
+# remote-info returns the same rounded string - so exact bytes are unavailable from the CLI at all.
+# The separator is U+00A0 NO-BREAK SPACE for kB/MB/GB and a PLAIN space for `bytes`. The fixture
+# carries the real byte sequences (MANIFEST.md records the cat -A output), because a fixture
+# written with an ordinary space would pass a parser that cannot read a single real flathub row.
+fp_sizes="$(flatpak_parse_sizes < "$FIXTURES/flatpak-remote-ls-sizes.tsv")"
+assert_eq "$(awk -F'\t' '$1=="net.mkiol.SpeechNote"{print $2}' <<<"$fp_sizes")" "1200000000" \
+  "a GB row separated by a NO-BREAK SPACE parses"
+assert_eq "$(awk -F'\t' '$1=="org.gimp.GIMP"{print $2}' <<<"$fp_sizes")" "99700000" \
+  "...and an MB one"
+# `bytes` is the unit that uses an ordinary space, so it proves the normalisation handles both
+# rather than having simply swapped one separator for the other.
+assert_eq "$(awk -F'\t' '$1=="com.example.NotInstalled"{print $2}' <<<"$fp_sizes")" "847" \
+  "a plain-space `bytes` row parses too"
+# The fixture really does contain the NBSP. Without this, a fixture silently rewritten with an
+# ordinary space would keep all three assertions above green while the parser rotted.
+assert_eq "$(grep -c $'\xc2\xa0' "$FIXTURES/flatpak-remote-ls-sizes.tsv")" "2" \
+  "the fixture carries real U+00A0 bytes, not spaces"
+# Not knowing is not zero. Both of these must yield NO ROW, so the coverage rule suppresses the
+# figure rather than reporting a free download.
+assert_eq "$(awk -F'\t' '$1=="org.example.NoSize"' <<<"$fp_sizes" | wc -l)" "0" "an empty size column yields no row"
+assert_eq "$(awk -F'\t' '$1=="org.example.Unknown"' <<<"$fp_sizes" | wc -l)" "0" "a literal ? yields no row"
+assert_eq "$(grep -c . <<<"$fp_sizes")" "3" "three of the five rows priced"
+# SI decimal with a lowercase k, matching g_format_size. kB is 1000, never 1024.
+assert_eq "$(printf 'a.b.C\t1.0\t780.5\xc2\xa0kB\n' | flatpak_parse_sizes | cut -f2)" "780500" \
+  "kB is SI, not 1024"
+assert_eq "$(printf 'a.b.C\t1.0\t2.5\xc2\xa0TB\n' | flatpak_parse_sizes | cut -f2)" "2500000000000" "TB parses"
+assert_eq "$(printf 'a.b.C\t1.0\t9\xc2\xa0PB\n' | flatpak_parse_sizes | wc -l)" "0" \
+  "a unit nobody has seen is not guessed at"
+assert_eq "$(printf 'a.b.C\t1.0\n' | flatpak_parse_sizes | wc -l)" "0" "a two-column row has no size to read"
+assert_eq "$(printf '' | flatpak_parse_sizes | wc -l)" "0" "no rows in, no rows out"
+
+# The item parser must survive the wider row: the size column rides along in the same output and
+# must not reach the join, which selects fields by position.
+three_col="$(flatpak_parse_remote_ls "$FIXTURES/flatpak-list.tsv" < "$FIXTURES/flatpak-remote-ls-sizes.tsv")"
+assert_eq "$(jq -r '.[] | select(.name=="org.gimp.GIMP") | .to' <<<"$three_col")" "3.0.4" \
+  "the item parser reads version from a three-column row"
+assert_eq "$(jq -r '.[] | select(.name=="org.gimp.GIMP") | .from' <<<"$three_col")" "3.0.2" \
+  "...and still joins the installed version onto it"
+assert_eq "$(jq -r '[.[] | .to] | map(select(test("GB|MB|bytes"))) | length' <<<"$three_col")" "0" \
+  "no size string leaks into a version field"
+
+# flatpak_check writes the sizes out of the rows it ALREADY fetched. A second remote-ls to re-read
+# bytes that arrived with the first copy would double the flatpak cost of every check (about 1.6s
+# on this box) for nothing.
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+sz_out="$TESTTMP/fp-sizes.tsv"
+assert_exit 0 "flatpak_check accepts a sizes path" flatpak_check "$sz_out"
+assert_eq "$(grep -c . "$sz_out")" "3" "...and fills it from the rows it already had"
+# The path is optional, and omitting it must not change the function's verdict.
+assert_exit 0 "flatpak_check without a sizes path still succeeds" flatpak_check
 finish

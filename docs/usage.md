@@ -75,6 +75,13 @@ restarted and it notices a `sudo dnf5 upgrade` you ran by hand. Read it as a one
 `true` means say so, `false` means there is nothing to say and never "no restart needed", because
 the underlying check answers `false` both when it is sure and when it could not tell.
 
+A check also prices what it found, from metadata already on disk - no depsolve, no network, no
+transaction. Each item gains `size_bytes`, each backend a `download_bytes`, and the state a
+top-level `download_bytes`, which is what the widget shows next to Update Now. All three are
+optional: a backend publishes a total only when **every** non-held item in it has a size, because
+a total over the priced ones would look authoritative and be quietly short. Absent means not
+known - never zero.
+
 The full field-by-field schema is in
 [architecture.md](architecture.md#state-json-schema-v1).
 
@@ -589,8 +596,9 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 
  Last update 18 min ago · 4 packages                            [v]    <- expands to what
  --------------------------------------------------------------------     that run installed
- Checked 4 min ago · 1 held                        [ Update Now ]      <- footer: the dateline
-                                                                          and the one action
+ Checked 4 min ago · 1 held · ~140 MB              [ Update Now ]      <- footer: the dateline,
+                                                                          the cost, and the
+                                                                          one action
 ```
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
@@ -646,10 +654,19 @@ squeeze the pending list out of sight.
 
 **The footer** dates the counts above it. `Checked 4 min ago` is relative and ticks while the
 popup is open; hover it for the exact timestamp, offset included - the offset is there so the
-two lines cannot silently disagree about which clock they are on. It gains ` · 1 held` when anything is held, and
+two lines cannot silently disagree about which clock they are on. It gains ` · 1 held` when anything is held,
+` · ~140 MB` when the download size is known and there is something to update, and
 ` · restart pending` when a restart is owed but the message above is not on screen. Before any
 check has ever succeeded it reads `No successful check yet`, which is not the same thing as never
 having checked.
+
+The size sits next to **Update Now** because it answers the question that button raises: pressing
+this costs about that much. It is an estimate and it says so with a `~` - never "up to", which
+would claim a ceiling it does not have. It leaves out the packages dnf will pull in as new
+dependencies, and it over-counts Flatpak, which transfers far less than the published figure
+thanks to its own delta format. Under a megabyte it reads `< 1 MB` rather than a kilobyte figure
+nobody acts on, and when the number is not known it says **nothing at all** rather than `0 MB`.
+Held items are never counted: a hold is not going to be downloaded.
 
 **Update Now** runs `kempt run`, which opens whatever surface you configured. With the surface
 set to **In this widget**, the popup shows the run's live log while it works; on the other

@@ -4,6 +4,9 @@
 
 KEMPT_DNF_INSTALLED_CMD="${KEMPT_DNF_INSTALLED_CMD:-}"
 KEMPT_DNF_CMD="${KEMPT_DNF_CMD:-dnf5}"
+# Its own seam rather than a reuse of KEMPT_DNF_CMD, because four test files already point that one
+# at a needs-restarting stub and this query has nothing to do with restarts.
+KEMPT_DNF_SIZES_CMD="${KEMPT_DNF_SIZES_CMD:-}"
 
 dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
   # Both branches flow through the SAME sort tail. The seam branch used to bypass sorting
@@ -47,6 +50,42 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
   dnf_parse_check_update "$lookup" <<<"$out" || prc=$?
   rm -f "$lookup"
   return $prc
+}
+
+# How many bytes the pending dnf updates would pull down, from metadata already on disk. No
+# depsolve, no transaction, no network - the numbers are in the solv cache repoquery already loads.
+#
+# Four details, each of which was wrong in the obvious version of this command:
+#   --latest-limit 1   MANDATORY, not an optimisation. `--upgrades` lists every newer candidate,
+#                      one row PER VERSION, so a box three nodesource releases behind contributes
+#                      nodejs three times to a naive sum (measured: 27 rows for nodejs without it,
+#                      1 with).
+#   downloadsize       the real tag name. `%{download_size}` is not a tag and is echoed back
+#                      literally, so the obvious spelling silently produces the string
+#                      "%{download_size}" in every row.
+#   $4 > 0             installed packages report 0 (the rpmdb does not keep the figure), so any
+#                      row that resolved to @System is worthless and must not count as "known".
+#   per name+arch sum  `--latest-limit 1` is per name.arch, and multilib twins are BOTH
+#                      downloaded: glibc x86_64 2483277 plus i686 2282613 is 4765890 bytes of
+#                      actual transfer. The item pipeline strips the arch and collapses the pair,
+#                      so a size joined onto the collapsed item would lose the i686 half. Summing
+#                      here, before anything joins, is what keeps it.
+# -C keeps it offline, exactly like every other question a check asks. NEVER remove it.
+# `timeout` and the empty-on-failure contract are the non-blocking half: this is a nicety on top
+# of a check, and it must degrade to "no number" rather than to a failed or stale check.
+# ALWAYS returns 0, and that is the contract rather than sloppiness: `set -o pipefail` is on, so a
+# size command that fails - a missing dnf5, a timeout, a repoquery that cannot read its cache -
+# would otherwise propagate out of the pipeline and become the caller's exit status. The caller is
+# a CHECK, and a check must answer whether or not the nicety on top of it worked. Failure is
+# expressed as an empty table, which the coverage rule downstream already reads as "not known".
+dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY on any failure. rc 0.
+  { if [[ -n "$KEMPT_DNF_SIZES_CMD" ]]; then $KEMPT_DNF_SIZES_CMD
+    else timeout 60 $KEMPT_DNF_CMD -C repoquery --upgrades --latest-limit 1 \
+           --qf "%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n" 2>/dev/null; fi; } \
+  | awk -F'\t' '$4 ~ /^[0-9]+$/ && $4 > 0 { s[$1] += $4 }
+                END { for (n in s) print n "\t" s[n] }' \
+  | sort -t "$(printf '\t')" -k1,1 || true
+  return 0
 }
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
