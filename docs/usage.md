@@ -563,9 +563,11 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
 available`, or `Up to date`, `Updating…`, `No update data yet` before the first check has
-answered, or `Kempt cannot check for updates` when the CLI itself could not be run. It is
-never capped - the badge on the panel stops at `999+` because a panel has no room, and the
-popup has plenty.
+answered, `Kempt cannot check for updates` when the CLI itself could not be run, or
+`Could not read the update state` when the state file is there and this widget cannot read it -
+which is what a Kempt older than its own CLI looks like, since the CLI is a symlink into the
+checkout and the widget is an installed copy. It is never capped - the badge on the panel stops
+at `999+` because a panel has no room, and the popup has plenty.
 
 - **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
   and its accessible name are both *Check for Updates*. While a check or a run is in flight it
@@ -590,9 +592,12 @@ popup has plenty.
 3. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
    Information rather than a warning, because the counts are still the best known truth.
 4. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>` as an error, each with **Show Log**. It is transient - it clears when
-   you close the popup or the next check starts, and the persistent **Last update** row stays out
-   of the way while it is up. One event, one line at a time.
+   `Update failed: <the reason>` as an error. **Show Log** is on it when that run recorded a log
+   file, which is every run Kempt performed; the entries harvested after an offline (on-reboot)
+   update carry no log path, so they carry no button either rather than one that would open your
+   home directory. It is transient - it clears when you close the popup or the next check starts,
+   and the persistent **Last update** row stays out of the way while it is up. One event, one line
+   at a time.
 5. A button press that failed and has something to say.
 
 **The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
@@ -621,8 +626,20 @@ widget shows the CLI's own message, remedy included. You do not have to keep the
 updates keep running if you close it.
 
 **Opening the popup re-checks** when the last successful check is older than the smaller of your
-check interval and five minutes. It never blocks the popup, and if a check is already running it
-waits for that one rather than starting a second.
+check interval and five minutes. It never blocks the popup: the counts you already have stay on
+screen and are replaced when the answer arrives.
+
+If a check is already running, the popup's request is *remembered* and a fresh check runs the
+moment that one finishes - one extra check, never a queue of them, however many times you open
+and close the popup meanwhile. It is not dropped, and that is deliberate: the running check read
+the system BEFORE whatever prompted this request, so treating its answer as good enough would
+leave the counts stale until the next hourly check - the exact staleness the widget exists to
+prevent.
+
+On a box where no check has ever succeeded there is no stamp to be old, so the popup checks on
+**every** open. That is the box whose counts are most worth going and getting: a fresh install
+behind a broken repo, or one whose root helpers were never installed, has nothing to show and no
+other way to find out it has started working.
 
 With nothing to do, the same three parts say so and stop offering:
 

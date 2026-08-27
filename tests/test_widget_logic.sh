@@ -1569,5 +1569,47 @@ fi
 assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.')" "1" \
   "the ellipsis scan finds three dots in a line it is given"
 
+# --- docs/usage.md has to describe the widget that is here --------------------------------------
+# Doc drift is not a documentation problem, it is a truth problem: the popup section is what a
+# person reads INSTEAD of watching the code, so a sentence that was true of an earlier build is
+# just a wrong answer with a nice tone. These tie the paragraphs the 2026-08-27 review found wrong
+# back to the code that decides them.
+USAGE="$REPO_ROOT/docs/usage.md"
+
+# Every fixed header wording the view model can produce is DERIVED here rather than typed, so a
+# reworded header fails this instead of quietly leaving the page describing the old words. (The
+# count phrases - "3 updates available" - are built around a number and are shown by example.)
+while IFS= read -r hw; do
+  [[ -z "$hw" ]] && continue
+  if grep -qF -- "$hw" "$USAGE"; then
+    echo "ok: docs/usage.md names the header wording \"$hw\""
+  else
+    echo "FAIL: docs/usage.md never mentions the header wording \"$hw\""; _fail=1
+  fi
+done <<EOF
+$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).headerText')
+$(js 'L.viewModel(null,true).headerText')
+$(js 'L.viewModel(null,false).headerText')
+$(js 'L.viewModel(null,false,"kempt: command not found").headerText')
+$(js 'L.viewModel({schema:2,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')
+EOF
+
+# The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
+# when one is already in flight - deliberately, because the running check read the system before
+# whatever prompted this request. The page used to say the opposite.
+assert_eq "$(grep -c 'waits for that one rather than starting a second' "$USAGE")" "0" \
+  "usage.md no longer claims the popup waits for a running check instead of asking again"
+assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$USAGE")" "1" \
+  "...it describes the coalescing the code actually does"
+
+# Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
+# harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
+assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$USAGE")" "0" \
+  "usage.md no longer promises Show Log on every post-run message"
+assert_eq "$(grep -c 'when that run recorded a log' "$USAGE")" "1" \
+  "...it says when the button is there instead"
+assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
+  "...and the QML really does bind both Show Log buttons to a log path being present"
+
 qml_check
 finish

@@ -44,6 +44,8 @@ if [[ "$1" == check ]]; then
   case "$mode" in
     live)        cp %(FIX)s/state-live.json %(ST)s; cat %(ST)s ;;
     slow)        sleep 1; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
+    slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
+    never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
     answerfirst) cp %(FIX)s/state-flatpak-disabled.json %(ST)s; cat %(ST)s; exit 5 ;;
     garbage)     echo 'not json at all'; exit 1 ;;
@@ -171,7 +173,46 @@ p.check("three overlapping requests collapse into exactly one re-check",
         p.call_count("check") - before, 2)
 p.check("nothing is left pending afterwards", ev("root.recheckPending"), False)
 p.check("nothing is left in flight afterwards", ev("root.checking"), False)
+
+# ...and the caller that reaches this most often is the popup opening, which docs/usage.md used to
+# describe as waiting for the running check rather than asking for another. Adopted from the
+# review's probe_review.py finding 4: it does ask, and asking is right - the running check read
+# the system BEFORE whatever prompted this open, so treating its answer as good enough would leave
+# the counts stale until the hourly timer. What must not happen is a QUEUE of them.
+open(MODE, "w").write("slow")
+before = p.call_count("check")
+ev("root.doCheck()")
+p.pump(100)
+ev("root.popupOpened()")
+ev("root.popupClosed()")
+ev("root.popupOpened()")
+ev("root.popupClosed()")
+p.check("opening the popup during a check does not start a second one on top of it",
+        p.call_count("check") - before, 1)
+p.check("...it is remembered instead", ev("root.recheckPending"), True)
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...and two opens during one check cost exactly one extra check, not two",
+        p.call_count("check") - before, 2)
+
+# The box with no successful check at all: there is no stamp to be old, so every open asks. That
+# is the box whose counts are most worth getting - a fresh install behind a broken repo has
+# nothing to show and no other way to learn it has started working. Adopted from the review's
+# probe_review.py finding 5, which read this as a possible bug; it is the intended answer, and it
+# is documented now rather than left to be re-found.
+open(MODE, "w").write("never")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("the state says no check has ever succeeded", ev("root.vm.lastSuccessText"), "never")
+before = p.call_count("check")
+for _ in range(3):
+    ev("root.popupOpened()")
+    p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+    ev("root.popupClosed()")
+p.check("three opens on a never-succeeded box ask three times, by design",
+        p.call_count("check") - before, 3)
 open(MODE, "w").write("live")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 
 # --- 7. an absurd interval must not overflow Timer.interval into a negative --------------------
 # refresh_interval_min is a line in a text file a human edits. n * 60000 overflows a 32-bit
