@@ -13,6 +13,44 @@ esac
 STUB
 chmod +x "$TESTTMP/refresh-stub"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+
+# The flatpak refresh arm is unprivileged, so it has no root helper to stub - it goes through its
+# own command seam. Recorded rather than run: the real command fetches flathub's summary index,
+# and a test suite may not depend on flathub being reachable. The stub is NAMED for flatpak so the
+# pkexec recorder below can prove, by grep, that this command never went near an escalation.
+cat > "$TESTTMP/flatpak-refresh-stub" <<STUB
+#!/usr/bin/env bash
+echo fetched >> "$TESTTMP/flatpak-refresh-calls"
+STUB
+chmod +x "$TESTTMP/flatpak-refresh-stub"
+export KEMPT_FLATPAK_REFRESH_CMD="$TESTTMP/flatpak-refresh-stub"
+# How many summary fetches have been attempted. A helper, not `wc -l` inline, because the file does
+# not exist until the FIRST fetch: a bare redirect failure there prints a shell error and yields an
+# empty count, which reads as a broken test rather than as the honest answer "none yet".
+fp_fetches() {
+  if [[ -f "$TESTTMP/flatpak-refresh-calls" ]]; then wc -l < "$TESTTMP/flatpak-refresh-calls"; else echo 0; fi
+}
+
+# A dnf refresh helper that still serves the check fixture but fails the refresh verb. The two arms
+# have to be driveable independently, or "one failed, one worked" cannot be tested at all.
+cat > "$TESTTMP/refresh-dnf-fails" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) exit 1 ;;
+esac
+STUB
+chmod +x "$TESTTMP/refresh-dnf-fails"
+
+# KEMPT_PKEXEC is empty in the sandbox, so nothing normally records what WOULD have been escalated.
+# This stub does, and then runs the command anyway, which is what lets a test assert a negative
+# about the privilege boundary rather than just trusting the source.
+cat > "$TESTTMP/pkexec-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/pkexec-calls"
+exec "\$@"
+STUB
+chmod +x "$TESTTMP/pkexec-stub"
 export KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
 export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
@@ -146,10 +184,15 @@ assert_eq "$(jq .backends.dnf.actionable "$KEMPT_STATE_DIR/state.json")" "0" "a 
 # on_battery/metered_connection read real hardware and have no seam, so skip rather than fail
 # on a laptop that happens to be unplugged or on a metered link.
 unset KEMPT_SKIP_REFRESH
+# include_flatpak has been false since the disabled-backend section above, and the flatpak arm of
+# the refresh is gated on it - so switch it back on, or every assertion below about that arm would
+# pass for the wrong reason.
+"$KEMPT" config set include_flatpak true >/dev/null
 if on_battery || metered_connection; then
   echo "ok: refresh gating skipped (box is on battery or on a metered link)"
 else
-  rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+  rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls" "$TESTTMP/flatpak-refresh-calls" \
+        "$TESTTMP/pkexec-calls"
   "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "1" "cold check refreshes metadata once"
   assert_exit 0 "cold refresh stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
@@ -158,6 +201,51 @@ else
   touch -d '4 hours ago' "$LAST_REFRESH_FILE"
   "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "2" "refresh resumes once the 3h window lapses"
+
+  # Both backends are refresh-then-read-cache, and they ride ONE gate. A second gate would be a
+  # second interval, a second battery rule and a second timestamp to keep in step with this one -
+  # three more ways for a box to quietly stop fetching half its metadata.
+  assert_eq "$(fp_fetches)" "2" "the flatpak summary rides the same gate, fetch for fetch"
+
+  # Unprivileged, and that is the whole point: the SYSTEM remote's summary as an ordinary user sees
+  # it is cached under that user's own ~/.cache/flatpak, so root buys nothing here. pkexec seeing a
+  # flatpak command would mean a new privileged surface nobody reviewed.
+  touch -d '4 hours ago' "$LAST_REFRESH_FILE"
+  KEMPT_PKEXEC="$TESTTMP/pkexec-stub" "$KEMPT" check >/dev/null
+  assert_eq "$(fp_fetches)" "3" "the summary is still fetched with pkexec in play"
+  # Guards the vacuous pass: an empty log would satisfy the grep below while proving nothing.
+  assert_exit 0 "...and the pkexec recorder really was in the path" -- test -s "$TESTTMP/pkexec-calls"
+  assert_eq "$(grep -c flatpak "$TESTTMP/pkexec-calls" || true)" "0" \
+    "the flatpak refresh never goes through pkexec"
+
+  # A backend the user switched off must not cost them a fetch. Metadata for something that will
+  # never be checked is network nobody asked for, on the one path whose whole job is to be careful
+  # with it.
+  "$KEMPT" config set include_flatpak false >/dev/null
+  touch -d '4 hours ago' "$LAST_REFRESH_FILE"
+  "$KEMPT" check >/dev/null
+  assert_eq "$(fp_fetches)" "3" "include_flatpak=false fetches no flatpak summary"
+  "$KEMPT" config set include_flatpak true >/dev/null
+
+  # The marker rate-limits the NETWORK step, so ANY arm succeeding stamps it. Stamping only on a
+  # clean sweep would re-fetch a summary that had just been fetched on the very next check, for as
+  # long as one dnf repo stayed broken.
+  rm -f "$LAST_REFRESH_FILE"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails" "$KEMPT" check >/dev/null
+  assert_eq "$(fp_fetches)" "4" "a failed dnf arm does not stop the flatpak one"
+  assert_exit 0 "one arm succeeding stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
+
+  # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
+  rm -f "$LAST_REFRESH_FILE"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails" KEMPT_FLATPAK_REFRESH_CMD=false \
+    "$KEMPT" check >/dev/null
+  assert_exit 1 "both arms failing leaves the window open" -- test -f "$LAST_REFRESH_FILE"
+
+  # A refresh failure is never the check's failure. The check carries on against whatever cache it
+  # already has, which is the entire reason the fetch and the read are separate steps.
+  rm -f "$LAST_REFRESH_FILE"
+  assert_exit 0 "a failed flatpak refresh does not fail the check" -- \
+    env KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check
 fi
 
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---

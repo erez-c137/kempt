@@ -41,6 +41,16 @@ Refresh calls carry a 120 second timeout, because they run from background check
 authentication dialog would otherwise hang forever with nobody there to answer it. Apply calls
 are deliberately untimed: waiting for a human to authenticate is the legitimate flow there.
 
+**The Flatpak metadata refresh is not on this table, and that is deliberate.** Kempt fetches the
+Flatpak remote's summary in the same step as the dnf refresh, but it runs it **as you**: no
+`pkexec`, no polkit action, no root helper. It does not need root, because the system remote's
+summary as an unprivileged user sees it is cached in that user's own
+`~/.cache/flatpak/system-cache/summaries/`. A root-owned Flatpak cache exists
+(`/var/lib/flatpak/appstream`, written by `flatpak update --appstream`), and Kempt does not touch
+it - it is not what the check reads, so filling it would mean a third privileged verb for no
+benefit at all. Applying Flatpak updates is a different question and does escalate, through
+`kempt-apply`'s `flatpak-update` verb above.
+
 ## Validate before exec
 
 Neither helper forwards a caller-supplied argument. Each one parses what it was given, validates

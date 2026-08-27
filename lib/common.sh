@@ -415,6 +415,12 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   (( now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
+  # ONE gate, two arms. Both backends are refresh-then-read-cache, so both do their fetching here
+  # and neither carries its own interval, power or metering rule: a second gate would be a second
+  # policy to keep in step with this one, and a second timestamp file would be a second thing to
+  # reason about when a user asks why their metadata is a week old. `ok` records whether ANY fetch
+  # actually landed - see the stamp at the bottom.
+  local ok=0
   # Logged as its own step, because a failure here is invisible everywhere else: the check that
   # follows carries on against the cached metadata and reports status "ok", so a box whose
   # metadata has not refreshed for a week looks exactly like one that is up to date. The two
@@ -422,10 +428,31 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   # Its stderr stays discarded: this is a background best-effort step, and the consequence a user
   # can act on is reported by the next check, not by this line.
   if priv_refresh refresh >/dev/null 2>&1; then
-    touch "$LAST_REFRESH_FILE" || true
+    ok=1
     log_event "refresh ok"
   else
     log_event "refresh failed"
+  fi
+  # Gated on include_flatpak, because fetching flathub's summary for a backend the user switched
+  # off is network nobody asked for - on the one code path whose entire job is to be careful with
+  # it. The arm runs AFTER dnf's and independently of its verdict: they fail for unrelated reasons
+  # (a declined authentication against an unreachable remote), so one failing must not cancel the
+  # other. Unprivileged by construction, and that stays true: flatpak_refresh runs as this user,
+  # never through priv_refresh, so the no-dialog polkit action remains dnf-only.
+  if is_true "$(config_get include_flatpak)"; then
+    if flatpak_refresh; then
+      ok=1
+      log_event "refresh flatpak ok"
+    else
+      log_event "refresh flatpak failed"
+    fi
+  fi
+  # Stamped when ANY arm succeeded, never per-arm and never only on a clean sweep. This marker's
+  # job is to rate-limit the NETWORK step, so a flatpak summary that WAS just fetched must not be
+  # fetched again on the very next check merely because dnf's makecache failed. The other reading
+  # costs a box with one broken repo a full re-fetch of everything every few minutes, forever.
+  if (( ok )); then
+    touch "$LAST_REFRESH_FILE" || true
   fi
   return 0
 }

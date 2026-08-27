@@ -17,6 +17,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   a documented JSON state file (schema v1) listing every pending item, the version installed and
   the version it would move to. It reads the same root metadata cache the update itself uses, so
   the count and the update cannot disagree.
+- **A check that answers offline.** Both backends read local caches only, and every network fetch
+  happens in one step that runs at most every three hours, on mains power, over an unmetered
+  connection. On a train, behind a captive portal or on battery, `kempt check` still says what is
+  pending instead of reporting the Flatpak side stale. The Flatpak half of that fetch runs as you,
+  with no privilege escalation of any kind.
 - **Holds that skip but still notify.** `kempt hold dnf:kernel-core` keeps a package out of
   every Kempt run while it stays visible as pending, out of the actionable count, and named in
   each run's `Held (skipped)` line.

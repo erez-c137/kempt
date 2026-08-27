@@ -19,6 +19,13 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_DBUS_SEND="true"
   export KEMPT_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
   export KEMPT_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
+  # Poisoned, not merely unset like the *_CMD seams below, and the difference matters: unset, this
+  # one falls back to the REAL `flatpak remote-ls` WITHOUT --cached, which fetches flathub's
+  # summary over the network. Any test file that leaves KEMPT_SKIP_REFRESH unset reaches
+  # maybe_refresh_metadata, so "unset" would mean a suite that talks to flathub - slow, and
+  # answering differently on a box with no flatpak installed at all. A path that does not exist
+  # fails the arm loudly (rc 127) and touches nothing.
+  export KEMPT_FLATPAK_REFRESH_CMD="$TESTTMP/UNSTUBBED-flatpak-refresh"
   unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_AUTOSTART_SRC KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \

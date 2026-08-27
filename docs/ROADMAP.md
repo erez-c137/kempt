@@ -21,6 +21,10 @@ Everything in the design is built and in the tree on `build/cli-v1`:
   and its **Restart…** button, which opens KDE's own prompt and nothing else; the Last update row
   fed by `kempt summary --json`; a re-check on open when the numbers are stale; and Update Now
   hidden rather than greyed out when there is nothing to run.
+- **One network boundary, both backends.** Checks are read-only against local caches on the dnf
+  and the Flatpak side alike, and every fetch happens in `maybe_refresh_metadata` - once every
+  three hours, on mains power, on an unmetered link. A check on a train answers from what is
+  already on disk instead of failing the whole Flatpak backend.
 
 What is left needs a human at the keyboard, in this order:
 
@@ -101,12 +105,6 @@ What is left needs a human at the keyboard, in this order:
   unscoped check would be counted in the badge and then refused at update time. User-scope
   flatpaks need no privileges at all, which makes them a separate, unprivileged path rather than
   a flag on the existing one.
-- **A cache-only flatpak check.** Today's `flatpak remote-ls --updates --system --app` goes to the
-  network and took 2.4 s in measurement; the same listing with flatpak's own `--cached` took
-  0.14 s. What that buys is an hourly check that costs nothing and still answers on a train, at
-  the price flatpak states in its own help text ("use local caches even if they are stale") - so
-  it needs a rule about when the cache is refreshed, and the honest place for it may be a cached
-  fast path with a periodic real one behind it.
 - **`kempt --version`.** There is no version flag today: `kempt help` lists the commands and
   nothing prints a version at all, which makes "which build is this?" unanswerable in a bug
   report. It arrives with packaging, since that is what makes the answer mean something.

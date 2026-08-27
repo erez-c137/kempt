@@ -214,6 +214,54 @@ Two rules for anything that reads this file:
 A new backend adds a key under `backends` and stays schema 1: existing readers ignore what they
 do not know, and the totals keep working.
 
+## The network boundary
+
+The second boundary in Kempt, and the one a user feels first: a laptop on a train should still be
+able to answer "what is pending?". So **every check is read-only against a local cache, and every
+fetch happens in one place, under one policy.**
+
+| Command | May reach the network |
+| --- | --- |
+| `dnf5 --cacheonly check-update --quiet` (`kempt-refresh check`) | No |
+| `dnf5 -C --disablerepo='*' needs-restarting` (`dnf_reboot_needed`) | No |
+| `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
+| `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
+| `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
+| `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
+| `kempt-apply`'s upgrade verbs | **Yes** - that is what a run is |
+
+Both backends are therefore **refresh-then-read-cache**, and both refreshes are triggered from
+`maybe_refresh_metadata` in `lib/common.sh`: at most once every three hours, only on mains power,
+only on an unmetered connection, and never in a way that can fail the check that follows. One
+interval, one `$LAST_REFRESH_FILE`, one power rule. The marker is stamped when **either** arm
+succeeded, because its job is to rate-limit the network step - re-fetching a flatpak summary that
+just arrived, because dnf's `makecache` failed, is the failure mode that rule prevents.
+
+The two arms are otherwise independent. The dnf one goes through the root helper (`priv_refresh`)
+because it fills root's cache, the one the update will use. The flatpak one runs **as the user**:
+the system remote's summary, as an unprivileged user sees it, is cached under that user's own
+`~/.cache/flatpak/system-cache/summaries/`, so there is nothing for root to do. Each logs its own
+result (`refresh ok` / `refresh failed`, `refresh flatpak ok` / `refresh flatpak failed`), and one
+failing never stops the other.
+
+Which command does the Flatpak fetching was settled by measurement, not by the help text. Running
+the remote query *without* `--cached` as an ordinary user rewrites
+`~/.cache/flatpak/system-cache/summaries/` - the remote's `.idx`, its signature and a fresh
+subsummary - in 2.0-2.4 s, and the `--cached` query then answers out of it with the network
+blackholed. `flatpak update --appstream` is not the alternative it looks like: it fills the
+root-owned `/var/lib/flatpak/appstream` tree, which is not what `--cached` reads, and writing
+there needs a polkit action of its own. Measured 2026-08-27, flatpak 1.18.1 on Fedora 44.
+
+What this costs: **a cache nothing has ever filled cannot answer.** `--cached` does not fall back
+to the network - not even when the network is right there. With the cache emptied and flathub
+reachable it still exits 1 in 40 ms with `No cached summary for remote 'flathub'`, so on a box
+whose Flatpak summary has never been fetched the check fails and that backend reports `stale` with
+the reason. `dnf5 --cacheonly` behaves identically, and the degrade path is the same one every
+backend failure takes. It resolves itself, because `maybe_refresh_metadata` runs *before* the
+checks and a box with no `$LAST_REFRESH_FILE` passes the interval gate on its very first check.
+Adding a network fallback inside the check would undo the boundary entirely, so there is
+deliberately none.
+
 ## The privileged boundary
 
 Two root helpers, one per polkit action, because polkit's `auth_admin_keep` caches per action id
@@ -556,7 +604,8 @@ destructive paths without ever running them.
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
 | `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
-| `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls/list --system --app ...` | Replace the flatpak commands |
+| `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
+| `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
@@ -580,9 +629,12 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
   would remove the whole text-parsing bug class (obsoletes sections, indentation, column drift,
   locale) by construction. v1 keeps the hardened, fixture-pinned text parser rather than churn
   the fixture and test layer mid-build. Migrating that one verb is the designated v2 upgrade.
-- **Flatpak is system scope only.** Both queries and the helper's validation use `--system`, so
-  check and apply always agree. Per-user apps need no privileges and are a possible future
-  unprivileged path.
+- **Flatpak is system scope only.** All three queries and the helper's validation use `--system`,
+  so check, refresh and apply always agree. Per-user apps need no privileges and are a possible
+  future unprivileged path.
+- **The flatpak refresh is unprivileged, and has no polkit action.** It fills a cache that lives
+  in the user's own home, so giving it root would widen the privileged surface for nothing. That
+  makes the refresh step asymmetric on purpose: dnf's arm escalates, flatpak's does not.
 - **`flatpak update` also updates runtimes**, but the pending list and the summary track apps, so
   a run can change more than it itemizes.
 - **The install is a symlink into the checkout.** Proper packaging is the answer for shipping

@@ -63,6 +63,9 @@ export KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
+# The flatpak refresh arm is unprivileged, so it has no root helper to stub - it is driven through
+# its own command seam. `true` is a fetch that worked; the section below swaps in `false`.
+export KEMPT_FLATPAK_REFRESH_CMD="true"
 export KEMPT_SKIP_REFRESH=1
 
 events()      { cat "$EV" 2>/dev/null || true; }
@@ -239,12 +242,24 @@ unset KEMPT_SKIP_REFRESH
 : > "$EV"
 "$KEMPT" check >/dev/null
 assert_eq "$(events_like ' refresh ok')" "1" "a metadata refresh that worked is recorded"
+# One line per arm attempted. The dnf arm keeps its exact old words and the flatpak arm names
+# itself, so a reader can tell WHICH half of the refresh failed - and so every grep already
+# written against ` refresh ok` keeps meaning what it meant.
+assert_eq "$(events_like ' refresh flatpak ok')" "1" "the flatpak summary fetch is its own line"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-declined"
 rm -f "$KEMPT_STATE_DIR/last_refresh"     # the 3h window, reopened
 : > "$EV"
 "$KEMPT" check >/dev/null 2>&1 || true
 assert_eq "$(events_like ' refresh failed')" "1" "...and one that did not is recorded too"
+# The arms fail independently: a dnf refresh nobody authorised must not cancel a flatpak fetch
+# that needs no authorisation at all.
+assert_eq "$(events_like ' refresh flatpak ok')" "1" "a declined dnf refresh still lets flatpak fetch"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+rm -f "$KEMPT_STATE_DIR/last_refresh"
+: > "$EV"
+KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/dev/null
+assert_eq "$(events_like ' refresh flatpak failed')" "1" "a flatpak summary fetch that failed is recorded"
+assert_eq "$(events_like ' refresh ok')" "1" "...and says nothing about the dnf arm's own verdict"
 export KEMPT_SKIP_REFRESH=1
 
 # ==================================================================================================

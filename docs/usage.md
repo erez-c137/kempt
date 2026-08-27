@@ -80,7 +80,18 @@ The full field-by-field schema is in
 
 `check` also does two things quietly, in the same lock: it harvests a staged offline
 transaction once the machine has actually rebooted, and it refreshes package metadata at most
-once every 3 hours, never on battery and never on a metered connection.
+once every 3 hours, never on battery and never on a metered connection. The refresh covers both
+backends - dnf's repo metadata and the Flatpak remote's summary - and it is the **only** part of
+a check that reaches the network. The questions themselves are answered entirely from the local
+caches, so a check on a train, behind a captive portal or on a metered link still tells you what
+is pending.
+
+The other side of that trade: **a cache that has never been filled cannot answer.** On a box
+where the refresh has never run, the cache-only query fails and that backend reports `stale` with
+the reason, exactly as it would for a repo that flapped. Both backends behave the same way here,
+and the fix for both is the same - let a refresh run. A check does that itself before it asks
+anything, so on a fresh install the first check refreshes first; if it did not (battery, metered
+link, no network at the time), the next check on mains power will.
 
 ### The exit contract, precisely
 
@@ -301,7 +312,8 @@ The vocabulary is fixed, so the file is worth grepping:
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded. The numbers are the ones the badge is about to show. |
 | `check stale <reason>` | A check failed. The reason names the backend, for example `dnf check failed: authentication declined or cancelled`. |
-| `refresh ok` / `refresh failed` | The metadata refresh ran. It runs at most every three hours, and only on mains power over an unmetered connection. |
+| `refresh ok` / `refresh failed` | The dnf metadata refresh ran. It runs at most every three hours, and only on mains power over an unmetered connection. |
+| `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak remote summary was fetched, on the same schedule and in the same step. Written only while `include_flatpak` is on. The two arms are recorded separately because they fail for unrelated reasons, and one failing never stops the other or the check that follows. |
 | `run start surface=<surface>` | A run is about to change the system. Nothing is recorded for a run that aborted before that. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished cleanly. |
 | `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
