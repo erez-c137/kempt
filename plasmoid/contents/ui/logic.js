@@ -748,6 +748,37 @@ function postRunLine(run) {
     return "Updated " + n + (n === 1 ? " package" : " packages") + " in " + secs + "s";
 }
 
+// runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
+//
+// The transient line above is the one sentence in this popup that makes a claim about ONE run:
+// the one the user just started. `kempt summary --json` answers with the newest entry it can
+// read, and this asks the follow-up question - is the entry it gave us actually from after we
+// started watching? The CLI is the primary guard (it now says nothing at all when the newest
+// entry is unreadable, rather than serving the run underneath); this is the belt to that braces,
+// and it also covers the case the CLI cannot see: a summary answered from a history directory
+// that has not caught up yet.
+//
+// SECOND resolution on both sides, and that is not a rounding convenience. The CLI stamps an
+// entry with `date -Iseconds`, so a run that took 400ms carries a stamp truncated to the second
+// it finished in - which can be numerically BELOW the millisecond clock the widget noted when the
+// run started. Comparing at full precision would silently drop the line for the fastest runs,
+// which are the ordinary ones on a small transaction.
+//
+// A stamp that cannot be read answers NO, and that is deliberate even though every other field of
+// an entry tolerates absence (see lastRunOf). This question is about identity, and an entry that
+// cannot be placed in time cannot answer it. It costs only the transient line: the persistent
+// Last update row is bound to `lastRun` and goes on showing that entry, so the popup falls silent
+// about "just now" rather than claiming a run it cannot date.
+function runFinishedSince(run, sinceMs) {
+    if (!run) return false;
+    // No moment to compare against - a widget that never saw this run start - means the question
+    // does not apply rather than that the answer is no.
+    if (typeof sinceMs !== "number" || !isFinite(sinceMs) || sinceMs <= 0) return true;
+    var at = stampMs(run.when);
+    if (!isFinite(at)) return false;
+    return Math.floor(at / 1000) >= Math.floor(sinceMs / 1000);
+}
+
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar (one
 // package, seven packages) around a number, not a wording decision; the decision the copy table
@@ -1006,6 +1037,7 @@ if (typeof module !== "undefined" && module.exports) {
         riskyMessageOf: riskyMessageOf,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
+        runFinishedSince: runFinishedSince,
         lastRunText: lastRunText,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,

@@ -277,12 +277,21 @@ lossier copy of `render_summary`'s rules inside the widget for the two to drift 
 popup used to paste that first line into its message area after a run - true, and no answer at all
 to "what just happened?".
 
-Three properties of that boundary are contracts, not incidentals:
+Four properties of that boundary are contracts, not incidentals:
 
 - **Empty stdout under exit 0 means "no last run".** With no history recorded, `summary --json`
   prints nothing rather than an empty object, the same convention `kempt check` keeps for "no
   data". `lastRunOf` answers `null` for it, and every caller renders nothing - never a fabricated
   empty run, because a box that has never updated has not "updated 0 packages".
+- **It is the newest entry or nothing - never the one underneath.** `kempt summary` (the human
+  mode) walks back past a damaged entry, because a person asked to see the last run they can be
+  shown. `--json` does not, because its caller asked about one specific run. A damaged newest
+  entry therefore gets the same empty stdout under exit 0, with the warning still on stderr.
+  Walking back here is what let the popup announce an older run's counts and duration as the run
+  that had just finished, in words no reader could tell from the truth. `main.qml` carries the
+  belt to that braces: the transient post-run line is only spoken for an entry stamped at or
+  after the moment `enterUpdating()` ran (`Logic.runFinishedSince`), while the persistent
+  `Last update` row - which claims nothing about *when* - keeps showing whatever entry there is.
 - **Every field tolerates absence.** History entries outlive the build that wrote them (the newest
   50 are kept, and the widget is a COPY that a `git pull` leaves older than the CLI), so an entry
   missing a key this build expects is ordinary rather than corrupt. The one field that is not

@@ -496,38 +496,55 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
     i=$(( ${#files[@]} - 1 ))
     echo "note: only ${#files[@]} run(s) recorded - showing the oldest" >&2
   fi
+  # --json answers about ONE run - the newest - and never walks back to the one underneath.
+  #
+  # It used to, on the same reasoning the human branch below still uses: a damaged entry should
+  # not cost the reader every other run. That reasoning does not carry across, because the two
+  # modes are asked different questions. A person typing `kempt summary` wants the last run they
+  # can be shown, and the warning on stderr tells them one is missing. --json's one caller is the
+  # widget, whose question is "what did the run that just finished DO?" - and when that run's
+  # entry cannot be read, the honest answer is that we do not know. Serving the previous run there
+  # handed the popup an older run's package count and duration, which it announced as the run that
+  # had just finished ("Updated 4 packages in 41s"), in words no reader could tell from the truth.
+  #
+  # So: empty stdout under exit 0, this project's "no data" convention - the same one `kempt
+  # check` keeps, and the same one this command already uses for a box with no history at all.
+  # Logic.lastRunOf answers null for it and every caller renders no row, so the popup says nothing
+  # rather than something false. The warning still names the entry on stderr.
+  #
+  # Validated before a single byte reaches the caller, the way cmd_check validates the previous
+  # state it serves: never hand a reader corrupt bytes under exit 0. Then `cat`, not jq's
+  # rendering of the file, so what the caller parses is exactly what the run recorded - every
+  # field, including ones this build has never heard of. That last choice is why the guard has to
+  # be this strict: `cat` prints the file, so whatever the guard waves through is what the
+  # widget's JSON.parse receives.
+  #   [inputs] | length == 1   the house idiom from prev_ls and state_prev_items above, here
+  #     for the same bug: a MULTI-DOCUMENT file is perfectly valid input to jq, so `jq -e .`
+  #     passed it and `cat` then emitted two documents - one JSON.parse throw, out of the
+  #     one command that promises a caller is never handed corrupt bytes under exit 0.
+  #   .[0] | type == "object"  `jq -e` fails only on null and false, so `[]`, `42` and
+  #     `"a string"` all counted as valid entries here while render_summary below refused
+  #     them - two modes disagreeing about the same file.
+  # The expression answers true or false and nothing else, so jq's exit code is the entire
+  # verdict; a test on its output would add nothing.
+  if [[ "$json" == true ]]; then
+    if jq -e -n '[inputs] | length == 1 and (.[0]|type == "object")' "${files[$i]}" >/dev/null 2>&1; then
+      cat "${files[$i]}"; return 0
+    fi
+    echo "warning: corrupt history entry: ${files[$i]}" >&2
+    return 0
+  fi
   for (( ; i < ${#files[@]}; i++ )); do
-    # One damaged entry must not be the last word the user gets: warn, fall back to the next
-    # newest. The two modes need different guards to decide "damaged", because they fail in
-    # different ways - see each branch.
-    if [[ "$json" == true ]]; then
-      # Validated before a single byte reaches the caller, the way cmd_check validates the
-      # previous state it serves: never hand a reader corrupt bytes under exit 0. Then `cat`,
-      # not jq's rendering of the file, so what the caller parses is exactly what the run
-      # recorded - every field, including ones this build has never heard of. That last choice
-      # is why the guard has to be this strict: `cat` prints the file, so whatever the guard
-      # waves through is what the widget's JSON.parse receives.
-      #   [inputs] | length == 1   the house idiom from prev_ls and state_prev_items above, here
-      #     for the same bug: a MULTI-DOCUMENT file is perfectly valid input to jq, so `jq -e .`
-      #     passed it and `cat` then emitted two documents - one JSON.parse throw, out of the
-      #     one command that promises a caller is never handed corrupt bytes under exit 0.
-      #   .[0] | type == "object"  `jq -e` fails only on null and false, so `[]`, `42` and
-      #     `"a string"` all counted as valid entries here while render_summary below refused
-      #     them - two modes disagreeing about the same file.
-      # The expression answers true or false and nothing else, so jq's exit code is the entire
-      # verdict; a test on its output would add nothing.
-      if jq -e -n '[inputs] | length == 1 and (.[0]|type == "object")' "${files[$i]}" >/dev/null 2>&1; then
-        cat "${files[$i]}"; return 0
-      fi
-    # The human branch does need the -n test: render_summary exits 0 having printed NOTHING for a
-    # zero-byte entry, and "rendered nothing" must not pass for a successful render (the same
+    # One damaged entry must not be the last word the PERSON gets: warn, fall back to the next
+    # newest. The -n test is load-bearing here: render_summary exits 0 having printed NOTHING for
+    # a zero-byte entry, and "rendered nothing" must not pass for a successful render (the same
     # empty-stdout-is-not-data trap as `kempt check`).
-    elif out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
+    if out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
       printf '%s\n' "$out"; return 0
     fi
     echo "warning: corrupt history entry: ${files[$i]}" >&2
   done
-  [[ "$json" == true ]] || echo "no update runs recorded yet"
+  echo "no update runs recorded yet"
 }
 
 cmd_history() {

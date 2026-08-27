@@ -769,6 +769,32 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Update failed: dnf exited 1" "a partial transaction that failed is reported as failed"
 
+# --- runFinishedSince: is this entry the run we just watched? -----------------------------------
+# The belt-and-braces half of the same fix `kempt summary --json` carries on the CLI side. The
+# transient line is the one sentence in this popup that makes a claim about ONE run - the one the
+# user just started - so the entry that backs it has to be from after we started watching.
+# Second resolution on both sides: the CLI stamps an entry with `date -Iseconds`, so a fast run
+# can legitimately carry a stamp that rounds below the millisecond clock the widget noted.
+# Named so it cannot collide with the $T the shouldRefreshOnOpen block below sets up for itself.
+RUNMS='Date.UTC(2026,7,26,19,24,6)'   # the captured run's stamp, 2026-08-26T22:24:06+03:00, in UTC ms
+assert_eq "$(js "L.runFinishedSince($R, $RUNMS - 60000)")" "true" \
+  "an entry stamped after the run started is the run that just finished"
+assert_eq "$(js "L.runFinishedSince($R, $RUNMS)")" "true" \
+  "...and one stamped in the very second it started still counts"
+assert_eq "$(js "L.runFinishedSince($R, $RUNMS + 900)")" "true" \
+  "...including a sub-second later, because the stamp has no sub-seconds to compare"
+assert_eq "$(js "L.runFinishedSince($R, $RUNMS + 60000)")" "false" \
+  "an entry OLDER than the moment the run started is a different run"
+assert_eq "$(js "L.runFinishedSince(null, $RUNMS)")" "false" "no entry is not the run that finished"
+assert_eq "$(js "L.runFinishedSince(L.lastRunOf('{\"status\":\"ok\"}'), $RUNMS)")" "false" \
+  "an entry with no timestamp cannot be placed in time, so it is not claimed as this run"
+assert_eq "$(js "L.runFinishedSince(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"not a date\"}'), $RUNMS)")" "false" \
+  "...and neither is one whose stamp cannot be read"
+# No moment to compare against is not a reason to withhold the line: a widget that never saw the
+# run start has no opinion, and the CLI-side guard is the primary one either way.
+assert_eq "$(js "L.runFinishedSince($R, 0)")" "true" "with no start moment recorded, the question does not apply"
+assert_eq "$(js "L.runFinishedSince($R, undefined)")" "true" "...and no argument is not an error"
+
 # --- lastRunText: the persistent row's title ---------------------------------------------------
 # The separator is U+00B7 with spaces, the same middle dot the footer uses.
 W='Date.UTC(2026,7,26,19,24,6)'   # 2026-08-26T22:24:06+03:00, the captured run, in UTC ms

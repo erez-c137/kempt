@@ -8,7 +8,7 @@ update                run the update now (options from config; --no-flatpak, --s
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                      or if every entry is damaged)
+                      or if that entry is damaged)
 history               list past runs
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
@@ -227,10 +227,16 @@ history entry is skipped with a warning on stderr and the next-newest is rendere
 
 `--json` prints the newest run's history entry verbatim and nothing else, which is what the
 widget reads rather than parsing the human text back into numbers. The entry is validated first,
-so a caller is never handed corrupt bytes under exit 0, and a damaged newest entry falls back to
-the next-newest with the same warning on stderr. It takes no `N`: `kempt summary --json 2` is a
-usage error rather than a silently ignored argument. **With no runs recorded, or with every entry
-damaged, it prints nothing and exits 0** - empty stdout means "no data", never an empty run.
+so a caller is never handed corrupt bytes under exit 0. It takes no `N`: `kempt summary --json 2`
+is a usage error rather than a silently ignored argument.
+
+Unlike the human mode above, `--json` does **not** fall back to the next-newest entry. It answers
+one question - what did the last run do - and when that run's entry cannot be read, the answer is
+that we do not know. It says so with empty stdout under exit 0, naming the damaged entry on
+stderr. Serving the run underneath instead is how the widget came to announce an older run's
+package count and duration as the run that had just finished. **With no runs recorded, or with
+the newest entry damaged, it prints nothing and exits 0** - empty stdout means "no data", never
+an empty run and never a different run.
 
 ```bash
 kempt summary --json | jq '{timestamp, status, reboot_needed}'

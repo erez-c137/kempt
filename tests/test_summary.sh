@@ -180,19 +180,35 @@ assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/serr")" "2" "both damaged
 assert_eq "$("$KEMPT" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
 assert_eq "$("$KEMPT" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
 
-# --json must never hand a reader corrupt bytes under exit 0, so it validates before printing and
-# walks back exactly like the human mode. The newest file here is the ZERO-BYTE one: a file with
-# no JSON document in it at all. Each mode refuses it for its own reason, and neither reason is
-# `jq .`'s exit code, which is 0 on such a file having printed nothing. --json refuses it on its
-# guard's own answer (`[inputs] | length == 1` is false when there are no documents); the human
-# branch refuses it on render_summary's OUTPUT, which is empty for exactly the same reason, and
-# that is the one place in this command where an exit code genuinely is not enough.
+# --json must never hand a reader corrupt bytes under exit 0, so it validates before printing. The
+# newest file here is the ZERO-BYTE one: a file with no JSON document in it at all, which `jq .`
+# exits 0 on having printed nothing - so neither mode can use an exit code as its verdict. The
+# human branch refuses it on render_summary's OUTPUT and then walks back, which is right for a
+# person: they asked to see the last run they can see, and the warning on stderr says one is
+# missing.
+#
+# --json does NOT walk back, and that is the difference this command turns on. Its one caller is
+# the popup, whose question is "what did the run that just finished do?" - and the answer to that,
+# when the newest entry cannot be read, is that we do not know. Walking back handed the popup an
+# OLDER run's counts and duration, which it then announced as the run that had just finished, in
+# words ("Updated 4 packages in 41s") no reader could tell from the truth. Empty stdout under exit
+# 0 is this project's "no data", `Logic.lastRunOf` answers null for it, and null renders as no row
+# at all - so the widget says nothing rather than something false.
 jrc=0
 "$KEMPT" summary --json > "$TESTTMP/fallback.json" 2>"$TESTTMP/jerr" || jrc=$?
 assert_eq "$jrc" "0" "--json survives a corrupt newest entry"
-assert_eq "$(jq -r .timestamp "$TESTTMP/fallback.json")" "2026-08-24T11:00:00+03:00" \
-  "--json falls back to the newest READABLE entry"
-assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/jerr")" "2" "...naming both damaged entries on stderr"
+assert_eq "$(cat "$TESTTMP/fallback.json")" "" \
+  "--json says nothing at all when the NEWEST entry is unreadable, rather than serving an older run"
+assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/jerr")" "1" \
+  "...naming the entry it could not read on stderr"
+# The human path is unchanged by any of that: a person asking for the summary wants the last run
+# that can be shown, and the stderr warning tells them one is missing.
+hbrc=0
+hback="$("$KEMPT" summary 2>/dev/null)" || hbrc=$?
+assert_eq "$hbrc" "0" "the human summary still exits 0 over the same history"
+grep -q 'curl 8.17 → 8.18' <<<"$hback" \
+  && echo "ok: ...and still walks back to the newest readable entry for a person" \
+  || { echo "FAIL: the human summary stopped walking back - got: $hback"; _fail=1; }
 
 # every entry damaged → the same calm no-runs answer, still rc 0
 rm -f "$HIST_DIR/20260824T110000.json"
@@ -226,12 +242,11 @@ assert_newest_rejected() {
   printf '%s\n' "$bytes" > "$bad"
   "$KEMPT" summary --json > "$TESTTMP/shape.json" 2>"$TESTTMP/shape.err" || rc=$?
   assert_eq "$rc" "0" "$what: --json still exits 0"
-  # the widget's JSON.parse, standing in: ONE document, or it throws. [inputs] counts documents,
-  # which is the only thing a plain `jq .` on the output could never tell us.
-  assert_eq "$(jq -e -n '[inputs] | length == 1' "$TESTTMP/shape.json" >/dev/null 2>&1 && echo one || echo "not-one")" \
-    "one" "$what: --json emits exactly one JSON document"
-  assert_eq "$(jq -r .timestamp "$TESTTMP/shape.json" 2>/dev/null)" "2026-08-24T11:00:00+03:00" \
-    "$what: --json falls back to the newest READABLE entry"
+  # Nothing at all, and that IS the answer: the newest entry is what the caller asked about, and
+  # it cannot be read. The older readable entry underneath is a different run, and serving it
+  # here is what let the popup announce one run's counts as another's.
+  assert_eq "$(cat "$TESTTMP/shape.json")" "" \
+    "$what: --json prints nothing rather than the run underneath"
   assert_eq "$(grep -c "corrupt history entry: $bad" "$TESTTMP/shape.err")" "1" \
     "$what: --json names the damaged entry on stderr"
   # parity: the human path already refused these, and refusing in only one mode is the bug
@@ -240,6 +255,35 @@ assert_newest_rejected() {
   assert_eq "$(grep -c "corrupt history entry: $bad" "$TESTTMP/shape.herr")" "1" \
     "$what: the human path refuses the same bytes"
 }
+
+# Two entries stamped in the SAME second - a live run and the offline harvest that follows it -
+# which is the one case where the file NAMES decide which run is "newest" and the timestamps
+# cannot. `ls | sort -r` is that decision, and `sort` reads the locale: adopted from the review's
+# cli_review.sh, which drove it under two of them to prove the answer does not move.
+same_second_newest() {  # LC_ALL -> the surface of the entry --json serves
+  rm -f "$HIST_DIR"/*.json
+  cat > "$HIST_DIR/20260827T130000.json" <<'J'
+{"timestamp":"2026-08-27T13:00:00+03:00","surface":"terminal","status":"ok","duration_sec":41,"reboot_needed":false,"log":"/live.log","error":"","backends":{"dnf":{"updated":[{"name":"live-run","from":"1","to":"2"}],"added":[],"removed":[],"status":"ok","skipped_held":[]}}}
+J
+  cat > "$HIST_DIR/20260827T130000-offline.json" <<'J'
+{"timestamp":"2026-08-27T13:00:00+03:00","surface":"offline (applied on reboot)","status":"ok","duration_sec":0,"reboot_needed":false,"log":"","error":"","backends":{"dnf":{"updated":[{"name":"harvested","from":"1","to":"2"}],"added":[],"removed":[],"status":"ok","skipped_held":[]}}}
+J
+  LC_ALL="$1" "$KEMPT" summary --json 2>/dev/null
+}
+# WHICH of the two is served is left unpinned on purpose, and the reason is worth writing down:
+# `sort -r` reads the locale, and these two names differ only in punctuation. Measured on this box
+# 2026-08-27, LC_ALL=C sorts `20260827T130000.json` last (the live run wins) and en_US.UTF-8 sorts
+# `20260827T130000-offline.json` last (the harvest wins) - because a UTF-8 collation ignores the
+# hyphen and a byte comparison does not. Both are real runs from the same second, so neither
+# answer is wrong; what must hold either way is that ONE of them comes out whole.
+for _loc in C en_US.UTF-8; do
+  _out="$(same_second_newest "$_loc")"
+  assert_eq "$(jq -e -n '[inputs] | length == 1 and (.[0]|type=="object")' <<<"$_out" >/dev/null 2>&1 \
+    && echo one || echo not-one)" "one" \
+    "two entries in one second (LC_ALL=$_loc): --json still emits exactly one whole entry"
+  assert_eq "$(jq -r .timestamp <<<"$_out")" "2026-08-27T13:00:00+03:00" \
+    "...stamped in the second that was asked about"
+done
 
 # Two whole documents in one file: what an interleaved or resumed write leaves behind.
 assert_newest_rejected "$_good_entry

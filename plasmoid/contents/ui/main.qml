@@ -88,6 +88,16 @@ PlasmoidItem {
     // persistent Last update row is hidden, and it clears when the popup closes or a check starts.
     property string postRunLine: ""
 
+    // When the run we are watching STARTED, as milliseconds. Only meaningful while `updating` is
+    // true, and 0 means we never saw one start.
+    //
+    // It exists for one sentence: the transient post-run line, which is the only thing in this
+    // popup that claims to describe the run the user just started. `kempt summary --json` answers
+    // with the newest history entry it can read - normally that run's - and this is what lets
+    // Logic.runFinishedSince check that the entry we got back is actually from after we started
+    // watching, rather than the run before it.
+    property double updateStartedMs: 0
+
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
     // popup is open and never while it is shut. 0 means "no clock yet", which logic.js answers by
     // falling back to the absolute stamp - never a wrong relative time.
@@ -459,6 +469,9 @@ PlasmoidItem {
 
     function enterUpdating() {
         updating = true;
+        // Noted BEFORE anything is launched, so the entry the run writes can only ever be stamped
+        // at or after this - see updateStartedMs, and Logic.runFinishedSince for the comparison.
+        updateStartedMs = Date.now();
         logTail = "";
         logPath = "";
         updateGuard.restart();
@@ -473,7 +486,17 @@ PlasmoidItem {
         // executor is callback-based, so "first" means inside the callback - setting the line
         // after the call would read the PREVIOUS run's entry every single time, and on a box
         // whose first run this is, no entry at all.
-        loadLastRun(function(run) { root.postRunLine = Logic.postRunLine(run); });
+        //
+        // ...and it is only spoken for an entry that is actually OURS. The CLI is the primary
+        // guard here (`summary --json` answers with nothing rather than serving the run underneath
+        // an unreadable newest entry); runFinishedSince is the belt to that braces, and covers the
+        // case the CLI cannot see - a summary answered before this run's entry landed. Note the
+        // row itself is NOT gated: loadLastRun has already set `lastRun`, and "Last update ..." is
+        // a true thing to say about an older entry. Only "this is what just happened" is not.
+        loadLastRun(function(run) {
+            root.postRunLine = Logic.runFinishedSince(run, root.updateStartedMs)
+                ? Logic.postRunLine(run) : "";
+        });
     }
 
     // The newest log file, found once per run.

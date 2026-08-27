@@ -64,6 +64,20 @@ open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 LAST_RUN = json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
 
+
+def now_stamped(entry):
+    """A copy of `entry` stamped at this instant, in the CLI's own `date -Iseconds` format.
+
+    tests/fixtures/run-last.json is a real capture and carries the date it was taken. Any scenario
+    below in which a run is FINISHING NOW needs an entry that says so, because main.qml only
+    speaks its transient post-run line for an entry stamped at or after the moment the run started
+    (Logic.runFinishedSince) - the guard that stops an older run's counts being announced as the
+    run that just finished. A fixture dated last year is precisely what that guard exists to
+    refuse, so a scenario that wants the line has to date its entry like a real run would.
+    """
+    return dict(entry,
+                timestamp=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+
 # --- the two commands that must NOT be the real ones -------------------------------------------
 # `dbus-send` would open KDE's restart prompt on the founder's box, and `xdg-open` would open a
 # log in a real editor. Both are stubbed by NAME on PATH rather than by prefixing the widget's
@@ -238,6 +252,8 @@ p.check("...without ending the run", ev("root.updating"), True)
 p.check("...and still without a check", p.call_count("check"), before_check)
 
 # ...and the one signal that does end it: the CLI re-checking itself on the way out of the run.
+# The entry the CLI would have just written is stamped now, like a real one - see now_stamped.
+open(RUNJSON, "w").write(json.dumps(now_stamped(LAST_RUN)))
 rebaseline()
 before_check = p.call_count("check")
 shutil.copy(os.path.join(harness.FIXTURES, "state-live.json"), STATE_JSON)
@@ -260,6 +276,7 @@ p.check("...read from the run's own entry rather than from the human summary",
         p.argv("summary"), ["summary", "--json"])
 p.check("...and nothing about a SUCCESSFUL run lands in the failure line any more",
         ev("root.actionMessage"), "")
+open(RUNJSON, "w").write(json.dumps(LAST_RUN))   # back to the capture, stamp and all
 
 # With no run in flight the watcher is exactly what it always was: any package change is a reason
 # to look, which is the stale-badge killer the whole poll exists for.
@@ -466,6 +483,45 @@ ev('root.postRunLine = "Updated 4 packages in 2s"')
 ev("root.doCheck()")
 p.check("...and so does starting a new check, before its answer arrives",
         ev("root.postRunLine"), "")
+settle()
+
+# --- ...and the transient line has to be about the run that just finished ------------------------
+# `kempt summary --json` no longer walks back past an unreadable newest entry (it answers with
+# nothing, this project's "no data"), so this is the belt to that braces: whatever the CLI hands
+# over, the popup only SPEAKS a post-run line for an entry stamped at or after the moment
+# enterUpdating() ran. Without it a run whose own history entry could not be read had the previous
+# run's counts and duration announced as "just finished", in words no reader could tell from the
+# truth.
+OLD_RUN = dict(LAST_RUN, timestamp="2020-01-01T00:00:00+03:00")
+open(RUNJSON, "w").write(json.dumps(OLD_RUN))
+ev("root.lastRun = null")
+ev('root.postRunLine = ""')
+ev("root.enterUpdating()")
+p.pump(60)
+ev("root.leaveUpdating()")
+settle()
+p.pump(120)
+p.check("a run that ends with only an OLDER entry to show says nothing about it",
+        ev("root.postRunLine"), "")
+p.check("...while the persistent Last update row still carries that entry, which is all it claims",
+        ev("root.lastRun !== null"), True)
+
+# The ordinary case is untouched: an entry stamped now IS the run that just finished. Local time
+# with its offset, exactly as `date -Iseconds` writes it in the CLI.
+NOW_RUN = dict(LAST_RUN,
+               timestamp=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+open(RUNJSON, "w").write(json.dumps(NOW_RUN))
+ev('root.postRunLine = ""')
+ev("root.enterUpdating()")
+p.pump(60)
+ev("root.leaveUpdating()")
+settle()
+p.pump(120)
+p.check("...and a run whose own entry is there is announced as normal",
+        ev("root.postRunLine"), "Updated 4 packages in %ds" % LAST_RUN["duration_sec"])
+open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+ev("root.loadLastRun()")
+ev('root.postRunLine = ""')
 settle()
 
 # --- the restart action ---------------------------------------------------------------------------
