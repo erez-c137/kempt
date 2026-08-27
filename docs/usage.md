@@ -555,9 +555,9 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
                                                                           and the one action
 ```
 
-**The header** carries the pending count and nothing else: `3 updates available`, or `Up to
-date`, `Updating...`, `No update data yet` before the first check has answered, or `Kempt cannot
-check for updates` when the CLI itself could not be run. It is never capped - the badge on the
+**The header** is one row: where you stand, then two buttons. The words are `3 updates
+available`, or `Up to date`, `Updating...`, `No update data yet` before the first check has
+answered, or `Kempt cannot check for updates` when the CLI itself could not be run. It is never capped - the badge on the
 panel stops at `999+` because a panel has no room, and the popup has plenty.
 
 - **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
@@ -581,7 +581,7 @@ panel stops at `999+` because a panel has no room, and the popup has plenty.
 3. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
    Information rather than a warning, because the counts are still the best known truth.
 4. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>` in red, each with **Show Log**. It is transient - it clears when
+   `Update failed: <the reason>` as an error, each with **Show Log**. It is transient - it clears when
    you close the popup or the next check starts, and the persistent **Last update** row stays out
    of the way while it is up. One event, one line at a time.
 5. A button press that failed and has something to say.
