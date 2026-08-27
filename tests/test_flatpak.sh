@@ -4,8 +4,12 @@ source "$(dirname "$0")/lib.sh"; sandbox
 # flathub by accident. This file is the one that has to see the real shipped default, so it drops
 # the poison for the block below and puts it straight back - anything after that block which calls
 # the refresh has to name its own stub, exactly as every other seam here does.
+# KEMPT_FLATPAK_UPDATE_CMD is poisoned by sandbox() for a louder reason still (an unstubbed apply
+# would update the machine running the suite), and gets the same treatment: dropped for the block
+# that has to see the shipped default, then put straight back.
 _poisoned_fp_refresh="$KEMPT_FLATPAK_REFRESH_CMD"
-unset KEMPT_FLATPAK_REFRESH_CMD
+_poisoned_fp_update="$KEMPT_FLATPAK_UPDATE_CMD"
+unset KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_UPDATE_CMD
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/flatpak.sh"
 
@@ -23,10 +27,25 @@ assert_eq "$([[ "$KEMPT_FLATPAK_REFRESH_CMD" == *--cached* ]] && echo cache-only
   "network" "the flatpak refresh seam is the arm that fetches"
 # One query in two modes, derived by string so a later edit to either cannot silently desynchronise
 # them: the refresh has to fetch EXACTLY what the check then reads back, --system included (the
-# cross-boundary contract with libexec/kempt-apply).
+# scope contract asserted just below).
 assert_eq "${KEMPT_FLATPAK_REMOTE_CMD/ --cached/}" "$KEMPT_FLATPAK_REFRESH_CMD" \
   "the refresh is the check command minus --cached"
+
+# --- the scope contract ---------------------------------------------------------------------------
+# v1 is system scope only, and all four flatpak commands are built in this one file now (the apply
+# used to be built inside the root helper, which is why this contract used to be asserted by
+# grepping libexec/kempt-apply). One disagreeing scope means an app the badge counts is an app the
+# run does not touch, or the reverse.
+FP_UPDATE_DEFAULT="$KEMPT_FLATPAK_UPDATE_CMD"
+for _v in KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_LIST_CMD KEMPT_FLATPAK_UPDATE_CMD; do
+  assert_eq "$([[ "${!_v}" == *" --system"* ]] && echo system || echo "unscoped: ${!_v}")" "system" \
+    "$_v is --system scoped"
+done
+# The apply arm is unprivileged - it is `flatpak update`, nothing more. A pkexec or a helper path
+# creeping back into this default is the regression this change exists to prevent.
+assert_eq "$FP_UPDATE_DEFAULT" "flatpak update --system" "the apply arm is plain flatpak, run as the user"
 export KEMPT_FLATPAK_REFRESH_CMD="$_poisoned_fp_refresh"
+export KEMPT_FLATPAK_UPDATE_CMD="$_poisoned_fp_update"
 
 # Fixture contract (MANIFEST.md): 3 pending apps; com.example.NotInstalled is absent from flatpak-list.tsv.
 out="$(flatpak_parse_remote_ls "$FIXTURES/flatpak-list.tsv" < "$FIXTURES/flatpak-remote-ls.txt")"
@@ -96,4 +115,52 @@ assert_exit 0 "...having actually run the seam" -- test -f "$TESTTMP/fp-refresh-
 # event lines apart and a box whose summary is a month old reports a healthy refresh every time.
 export KEMPT_FLATPAK_REFRESH_CMD="false"
 assert_exit 1 "flatpak_refresh propagates failure" flatpak_refresh
+
+# --- the apply arm ---------------------------------------------------------------------------------
+# It runs as the user: no pkexec, no root helper, no Kempt polkit action. What is asserted here is
+# the command line it builds, which is the command line the old root helper built - the two
+# assertions that pinned it in tests/test_helpers.sh moved here with the code.
+cat > "$TESTTMP/fp-update-rec" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/fp-update-calls"
+[[ "\$*" == *FAILME* ]] && exit 1
+exit 0
+STUB
+chmod +x "$TESTTMP/fp-update-rec"
+export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-update-rec"
+fp_calls() { cat "$TESTTMP/fp-update-calls" 2>/dev/null || true; }
+# The recorder sees only the arguments, so the shipped default is prepended back on: together
+# these two halves are the exact string the helper test used to assert in one piece.
+fp_line() { local a; a="$(sed -n "${1}p" "$TESTTMP/fp-update-calls")"; printf '%s%s\n' "$FP_UPDATE_DEFAULT" "${a:+ $a}"; }
+
+: > "$TESTTMP/fp-update-calls"
+assert_exit 0 "flatpak_apply with no ids updates everything" flatpak_apply -y
+assert_eq "$(fp_line 1)" "flatpak update --system --noninteractive -y" "all-apps command"
+# auto_accept=false must reach flatpak: --noninteractive is part of the -y mapping, never hardcoded,
+# or a user who turned auto-accept off would still get a silent unattended flatpak upgrade.
+: > "$TESTTMP/fp-update-calls"
+flatpak_apply
+assert_eq "$(fp_line 1)" "flatpak update --system" "no -y omits the auto-accept flags"
+
+# Holds are what the per-app form exists for: the held app is simply not in the list.
+: > "$TESTTMP/fp-update-calls"
+assert_exit 0 "flatpak_apply with ids runs one update per app" flatpak_apply -y org.gimp.GIMP net.mkiol.SpeechNote
+assert_eq "$(fp_calls | wc -l)" "2" "...one command per id, not one command with two ids"
+assert_eq "$(fp_line 1)" "flatpak update --system --noninteractive -y org.gimp.GIMP" "first app's command"
+assert_eq "$(fp_line 2)" "flatpak update --system --noninteractive -y net.mkiol.SpeechNote" "second app's command"
+
+# One app failing fails the whole call - a run that silently reported success while an app stayed
+# on its old version is the failure mode this guards - and the loop still finishes, because the
+# other apps have no reason to be skipped.
+: > "$TESTTMP/fp-update-calls"
+assert_exit 1 "one failing app fails the call" flatpak_apply -y org.a.Ok net.FAILME.App org.b.Ok
+assert_eq "$(fp_calls | wc -l)" "3" "...without abandoning the apps after it"
+
+# App ids arrive from a REMOTE's summary. NAME_RE is anchored on its first character, which is what
+# keeps a name that looks like an option from arriving at flatpak AS an option.
+: > "$TESTTMP/fp-update-calls"
+assert_exit 2 "an option-shaped app id is rejected" flatpak_apply -y --installation=other
+assert_exit 2 "an injection-shaped app id is rejected" flatpak_apply -y 'evil;id'
+assert_eq "$(fp_calls | wc -c)" "0" "a rejected call updates nothing at all"
+export KEMPT_FLATPAK_UPDATE_CMD="$_poisoned_fp_update"
 finish

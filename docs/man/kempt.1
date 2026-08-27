@@ -61,7 +61,10 @@ stack, an interactive run recommends staging the transaction for the next reboot
 rewriting a running desktop.
 .PP
 Only two small helpers run as root, one per polkit action, and both validate every argument
-before executing anything.
+before executing anything. Both belong to the dnf side. Flatpak updates run as you:
+.BR flatpak (1)
+grants a system app update to an active local session without a password, so a run with nothing
+but Flatpak updates in it never raises an authentication dialog.
 .SH COMMANDS
 .TP
 .B check
@@ -245,7 +248,7 @@ last 2000; nothing else deletes from it.
 Root helper: package metadata only, no authentication dialog.
 .TP
 .I /usr/local/libexec/kempt-apply
-Root helper: the upgrade verbs, one authentication per run.
+Root helper: the dnf upgrade verbs, one authentication per run.
 .TP
 .I /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 The two polkit actions.

@@ -50,8 +50,8 @@ above - that's the point of the guard).
 real commands carry `--system` (`flatpak remote-ls --updates --system --app …` and
 `flatpak list --system --app …`). These fixtures were captured without `--system` on a box where
 the one installed app is system-scope, so their content is identical either way; the flag is a
-cross-boundary contract with `libexec/kempt-apply`, which validates app ids against
-`flatpak list --system`. A per-user app must therefore never appear in a check result. Re-capture
+contract between every command in `backends/flatpak.sh`, the update included, so an app the badge
+counts is an app the run acts on. A per-user app must therefore never appear in a check result. Re-capture
 with `--system` if this box ever gains per-user apps.
 
 ## tests/fixtures/flatpak-remote-ls.txt

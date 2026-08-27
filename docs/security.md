@@ -10,7 +10,7 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 Two files, and nothing else:
 
 - `/usr/local/libexec/kempt-refresh` - package metadata only.
-- `/usr/local/libexec/kempt-apply` - the upgrade verbs.
+- `/usr/local/libexec/kempt-apply` - the dnf upgrade verbs.
 
 Both are `root:root` 0755 **copies**, installed once by `install.sh`. The CLI itself, its
 library and the backends never run as root. That split matters because the CLI is a symlink into
@@ -27,7 +27,7 @@ for the whole cache window. So there are two, each bound by `exec.path` to exact
 | Action | Helper | Verbs | Policy for an active local session |
 | --- | --- | --- | --- |
 | `io.github.erez_c137.kempt.refresh` | `kempt-refresh` | `check`, `refresh` | `yes` - no dialog |
-| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `flatpak-update` | `auth_admin_keep` - one dialog per run |
+| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage` | `auth_admin_keep` - one dialog per run |
 
 Both actions set `allow_any=no` and `allow_inactive=no`: nothing is granted to a remote or
 inactive session.
@@ -48,8 +48,16 @@ summary as an unprivileged user sees it is cached in that user's own
 `~/.cache/flatpak/system-cache/summaries/`. A root-owned Flatpak cache exists
 (`/var/lib/flatpak/appstream`, written by `flatpak update --appstream`), and Kempt does not touch
 it - it is not what the check reads, so filling it would mean a third privileged verb for no
-benefit at all. Applying Flatpak updates is a different question and does escalate, through
-`kempt-apply`'s `flatpak-update` verb above.
+benefit at all.
+
+**Applying Flatpak updates does not escalate either, and that is the newer half of the answer.**
+`flatpak update --system` asks polkit for `org.freedesktop.Flatpak.app-update` and
+`runtime-update`, and the policy Flatpak itself ships answers `yes` for an active local session,
+with no password. Kempt used to route the apply through `kempt-apply` anyway, which put it behind
+that helper's `auth_admin_keep` action: a run with nothing but app updates in it then asked for a
+password that plain `flatpak update` never asks for. It now runs as you, exactly as you would
+type it. What that removes is the **guaranteed** prompt rather than every possible one; the two
+cases that can still authenticate are recorded under [Accepted limitations](#accepted-limitations).
 
 ## Validate before exec
 
@@ -65,19 +73,22 @@ rather than ignored, so a caller cannot believe it passed something that was sil
 | Verb | Accepted arguments | Validation |
 | --- | --- | --- |
 | `dnf-upgrade`, `dnf-offline-stage` | `-y`, `--exclude=<name>` | `<name>` must match `^[A-Za-z0-9][A-Za-z0-9._+-]*$` |
-| `flatpak-update` | `-y`, app ids | Each id must match the same pattern **and** appear in `flatpak list --system --app` |
 
-So `--exclude=foo;rm -rf /` and `--installroot=/` are rejected outright, and an app id that is
-not installed on the system is refused rather than handed to flatpak. The asymmetry is
-deliberate: a bogus dnf exclude is harmless by construction, while a bogus app id is not, so ids
-get the second check.
+So `--exclude=foo;rm -rf /` and `--installroot=/` are rejected outright. So is `flatpak-update`:
+that verb was removed when applying Flatpak updates stopped crossing the privilege boundary at
+all, and an old caller that still asks for it gets exit 2 rather than a privileged flatpak.
 
-Two more layers sit in front of that:
+The unprivileged Flatpak apply in `backends/flatpak.sh` validates app ids against the same
+pattern, for a reason that outlives the boundary: ids arrive from a **remote's** summary, and the
+pattern being anchored on its first character is what stops a name such as `--installation=other`
+from reaching `flatpak` as an option. What it no longer does is re-check them against the
+installed set. That check existed because a root helper must distrust its caller's argv; on this
+side of the boundary the ids were built a few lines from the call, out of the same
+`flatpak list --system` any re-check would have consulted.
 
-- The CLI validates hold names with the same regular expression at `kempt hold` time, so a name
-  the helper would later reject is rejected while a human is still watching.
-- The CLI pre-filters Flatpak ids against the installed set before calling the helper, which
-  makes the helper's own installed-set check a backstop that should never fire in a normal run.
+One more layer sits in front of all of it: the CLI validates hold names with the same regular
+expression at `kempt hold` time, so a name the helper would later reject is rejected while a
+human is still watching.
 
 ## What the retention window actually means
 
@@ -115,10 +126,14 @@ between the retention window and a root command line, because polkit will not ch
 for you and pkexec explicitly does not.
 
 What is left after the validation is the verb list itself. Inside the window (or under
-passwordless mode) a process running as you can upgrade the system, stage an offline transaction,
-or update system Flatpak apps, without asking you. It cannot install a package of its choosing,
-pass an arbitrary flag, run an arbitrary command, or reach anything outside those three verbs.
-That is the bound. It is a real one, and it is smaller than "sudo", but it is not "nothing".
+passwordless mode) a process running as you can upgrade the system or stage an offline
+transaction, without asking you. It cannot install a package of its choosing, pass an arbitrary
+flag, run an arbitrary command, or reach anything outside those two verbs. That is the bound. It
+is a real one, and it is smaller than "sudo", but it is not "nothing".
+
+Updating Flatpak apps is no longer inside that bound, because it is no longer inside the helper.
+It is bounded by Flatpak's own policy instead, which grants it to an active local session with no
+password whether Kempt is installed or not.
 
 ## What the event log contains
 
@@ -280,9 +295,16 @@ enabled" in that case would leave a live grant in place, so the removal goes ahe
 
 Recorded here rather than quietly fixed later:
 
-- **The Flatpak installed-set query inside `kempt-apply` is not overridable.** Making it a test
-  seam would put an injectable command inside a root helper. The price is that this one path
-  cannot be tested without a live Flatpak installation, and that price is accepted.
+- **Dropping Kempt's Flatpak prompt does not drop every possible prompt.** `flatpak update` can
+  pull in a runtime that is not installed yet, and installing one is `runtime-install`, which is
+  `auth_admin_keep` by default. Fedora ships
+  `/usr/share/polkit-1/rules.d/org.freedesktop.Flatpak.rules`, which answers yes to that for a
+  `wheel` member in an active local session, so the case is silent here; on a distribution
+  without such a file, or for a user outside `wheel`, it can still raise one dialog.
+- **`allow_active=yes` means an active local session.** Over SSH the check falls to
+  `allow_inactive` / `allow_any`, which are both `auth_admin`, so `kempt update` typed over SSH
+  now meets Flatpak's own authentication dialog where it used to meet Kempt's. The widget and the
+  terminal surface are local desktop sessions, which is the path this is written for.
 - **The `*_ECHO` seams live in root-owned code.** They are unreachable through pkexec (see
   above) and they only print, but they are there.
 - **The rules destination has a test-seam escape hatch.** Any path outside the six system

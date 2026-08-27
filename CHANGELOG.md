@@ -56,6 +56,12 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Scoped root privileges.** Two polkit actions and two argument-validating root helpers, so a
   cheap metadata refresh can never share a cached authorization with a system upgrade. Optional
   passwordless mode is a single rule for a single action, limited to an active local session.
+- **No password for a Flatpak-only update.** Updating Flatpak apps needs no root: Flatpak's own
+  policy grants a system app update to an active local session without asking. Kempt used to send
+  it through the root helper anyway, so a run with nothing but app updates in it raised an
+  authentication dialog that plain `flatpak update` never raises. It now runs as you. Two cases
+  can still ask: an update that has to install a brand new runtime, and a run started over SSH
+  rather than at the machine. `kempt-apply` is dnf's alone, and refuses the old verb.
 - **An installer that explains itself.** `install.sh` does one authentication prompt, says
   exactly what it put where, stages unprivileged with `--destdir`, reverses itself with
   `--uninstall`, and offers (never assumes) disabling Discover's notifier, which otherwise

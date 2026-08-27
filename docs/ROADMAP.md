@@ -100,11 +100,12 @@ What is left needs a human at the keyboard, in this order:
   concerned. Every icon-only control has an accessible name now (Refresh carries an explicit
   `Accessible.description`); what is missing is announcing the *outcome*, which is also what the
   sighted personas asked for in visual form.
-- **Flatpak `--user` scope.** v1 is system scope only, and deliberately so: `libexec/kempt-apply`
-  validates every app id against `flatpak list --system`, so a per-user app surfaced by an
-  unscoped check would be counted in the badge and then refused at update time. User-scope
-  flatpaks need no privileges at all, which makes them a separate, unprivileged path rather than
-  a flag on the existing one.
+- **Flatpak `--user` scope.** v1 is system scope only, and deliberately so: every flatpak command
+  in `backends/flatpak.sh` names `--system`, so a per-user app surfaced by an unscoped check would
+  be counted in the badge and then left untouched by the run. This got closer when the apply left
+  the root helper: both flatpak arms run as you now, which is the only way a `--user` update could
+  ever work at all. What is left is a scope decision - one setting, or both scopes every time -
+  rather than a privilege problem.
 - **`kempt --version`.** There is no version flag today: `kempt help` lists the commands and
   nothing prints a version at all, which makes "which build is this?" unanswerable in a bug
   report. It arrives with packaging, since that is what makes the answer mean something.

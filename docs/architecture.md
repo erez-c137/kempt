@@ -11,11 +11,11 @@ Kempt is two layers with a deliberately boring boundary between them.
   kempt CLI (bash)                  all the logic
    |-- lib/common.sh                 config, holds, snapshots, diff, state, locking
    |-- backends/dnf.sh               pure parsers + check/snapshot
-   |-- backends/flatpak.sh           same shape
-   |  (privilege boundary: one pkexec per polkit action)
+   |-- backends/flatpak.sh           same shape - and it applies its own updates, as you
+   |  (privilege boundary: one pkexec per polkit action - dnf only)
    v
   libexec/kempt-refresh  (root)     metadata only, no dialog
-  libexec/kempt-apply    (root)     the upgrade verbs, one auth per run
+  libexec/kempt-apply    (root)     the dnf upgrade verbs, one auth per run
 ```
 
 The rule that shapes everything: **the badge count must come from the same command path that
@@ -71,8 +71,10 @@ work, and a new backend does not implement one today.
 Two things the spec lists as backend responsibilities are deliberately **not** per-backend in the
 build:
 
-- **update** is `libexec/kempt-apply` plus the wiring in `cmd_update`, because applying updates
-  is the privileged half and must stay in one audited place.
+- **update** is `libexec/kempt-apply` plus the wiring in `cmd_update`, because applying dnf
+  updates is the privileged half and must stay in one audited place. The Flatpak apply is the
+  exception that proves the rule: it needs no root, so it stayed in its backend as
+  `flatpak_apply` and never enters the helper at all.
 - **report** is `tsv_diff_updates` in `lib/common.sh`, shared by every backend.
 
 ### Why reports come from snapshots, not from history output
@@ -228,7 +230,7 @@ fetch happens in one place, under one policy.**
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
-| `kempt-apply`'s upgrade verbs | **Yes** - that is what a run is |
+| `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes** - that is what a run is |
 
 Both backends are therefore **refresh-then-read-cache**, and both refreshes are triggered from
 `maybe_refresh_metadata` in `lib/common.sh`: at most once every three hours, only on mains power,
@@ -268,8 +270,11 @@ Two root helpers, one per polkit action, because polkit's `auth_admin_keep` cach
 and a cheap verb must never share an action with a dangerous one:
 
 - `kempt-refresh` (`io.github.erez_c137.kempt.refresh`, no dialog): `check` and `refresh`, metadata only.
-- `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade`,
-  `dnf-offline-stage`, `flatpak-update`.
+- `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade` and
+  `dnf-offline-stage`. dnf only - `flatpak update` asks polkit for itself and is granted to an
+  active local session with no password, so routing it through this action only added a dialog
+  that plain `flatpak update` never raises. Both flatpak arms, the refresh and the apply, now run
+  as the user.
 
 Both validate every argument before running anything, accept no free-form arguments at all, and
 pin `PATH` and `LC_ALL`. The full model, including what passwordless mode grants, is in
@@ -479,7 +484,12 @@ Rules that reviews will hold you to:
   `from: "?"`, never as an empty string. GNU `join -a1 -e '?' -o ...` is what does that; jq's
   `//` does not catch empty strings.
 
-### 2. Add a verb to `libexec/kempt-apply`
+### 2. Add a verb to `libexec/kempt-apply` (only if root is really needed)
+
+First ask whether it is needed at all. Flatpak's apply lives in its backend, unprivileged, because
+`flatpak update` asks polkit for itself and gets a yes in an active local session; a package
+manager that does the same buys nothing by going through the helper and widens the privileged
+surface for nothing.
 
 The apply helper runs as root, so a new verb is a security change. Follow the existing shape:
 match the verb, validate every argument against a strict pattern before building the command,
@@ -513,7 +523,7 @@ sketch above suggests, and a missed one fails quietly rather than loudly. The co
 | `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
 | `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
 | `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
-| `cmd_update` | Before and after snapshots, the apply verb, per-backend status, held lists, and the history entry's `backends` object | The same set again, plus the new apply verb from step 2. |
+| `cmd_update` | Before and after snapshots, the apply runner and its arguments (`apply_with_retry "$log" priv_apply dnf-upgrade ...` for dnf, `apply_with_retry "$log" flatpak_apply ...` for flatpak), per-backend status, held lists, and the history entry's `backends` object | The same set again, plus a runner: the verb from step 2 behind `priv_apply`, or the backend's own apply function when it needs no root. |
 | `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
 | `dnf_reboot_needed` in `cmd_check` | Called unconditionally too, to write the state file's `reboot_needed` | Nothing, today, and for the same reason. There is no `include_dnf` key to gate it on: `assemble_state` hardcodes `dnf: ($dnf | wrap(true))`, so a gate would be a gate on a constant. **The rule:** the day dnf gains an `include_<name>` gate, this call goes behind it, next to the flatpak one. |
 | `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends | to_entries` that would make the renderer generic for good. |
@@ -605,7 +615,8 @@ destructive paths without ever running them.
 | `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
-| `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
+| `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network to *read*. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
+| `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), which also runs as the user and never through `pkexec`. `tests/lib.sh` poisons it the same way, and for a louder reason: unstubbed, it would update the machine running the suite |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
@@ -632,9 +643,13 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
 - **Flatpak is system scope only.** All three queries and the helper's validation use `--system`,
   so check, refresh and apply always agree. Per-user apps need no privileges and are a possible
   future unprivileged path.
-- **The flatpak refresh is unprivileged, and has no polkit action.** It fills a cache that lives
-  in the user's own home, so giving it root would widen the privileged surface for nothing. That
-  makes the refresh step asymmetric on purpose: dnf's arm escalates, flatpak's does not.
+- **Both flatpak arms are unprivileged, and neither has a Kempt polkit action.** The refresh
+  fills a cache in the user's own home, so root would buy nothing. The apply is granted to an
+  active local session by the policy flatpak itself ships (`app-update` and `runtime-update` are
+  `allow_active=yes`), so root only bought a dialog. That makes the whole flatpak side asymmetric
+  with dnf on purpose: dnf escalates twice, flatpak not at all. Two cases can still authenticate
+  and are written down in [security.md](security.md#accepted-limitations): a new runtime is an
+  *install*, and `allow_active` means an active **local** session, not one over SSH.
 - **`flatpak update` also updates runtimes**, but the pending list and the summary track apps, so
   a run can change more than it itemizes.
 - **The install is a symlink into the checkout.** Proper packaging is the answer for shipping

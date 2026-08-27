@@ -1,5 +1,8 @@
 #!/bin/bash
-# Kempt root helper - upgrade verbs. polkit action io.github.erez_c137.kempt.apply (auth_admin_keep).
+# Kempt root helper - the dnf upgrade verbs, and only those. polkit action
+# io.github.erez_c137.kempt.apply (auth_admin_keep). Flatpak is NOT here: `flatpak update` needs
+# no password of its own in an active local session, so it runs as the user from
+# backends/flatpak.sh, which is where the reasoning and the two residual prompts are written down.
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
 # Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
 # the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
@@ -10,10 +13,6 @@ NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: KEMPT_APPLY_ECHO=1 prints instead of exec
   if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
-}
-
-run_noexec() {  # same seam without exec: the per-app loop has to survive its own commands
-  if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else "$@"; fi
 }
 
 verb="${1:-}"; shift || true
@@ -32,34 +31,5 @@ case "$verb" in
     offline=(); [[ "$verb" == dnf-offline-stage ]] && offline=(--offline)
     run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
     ;;
-  flatpak-update)
-    assume=(); ids=()
-    for a in "$@"; do
-      case "$a" in
-        -y) assume=(--noninteractive -y) ;;   # auto-accept; without -y flatpak may prompt (terminal surface only)
-        -*) echo "invalid arg: $a" >&2; exit 2 ;;
-        *) [[ "$a" =~ $NAME_RE ]] || { echo "invalid app id: $a" >&2; exit 2; }
-           ids+=("$a") ;;
-      esac
-    done
-    if [[ ${#ids[@]} -eq 0 ]]; then
-      run flatpak update --system "${assume[@]}"
-    else
-      # per-app so holds can be skipped; validate each id against the installed system set.
-      # This validation query is deliberately NOT env-overridable: an injectable command inside
-      # a root helper would be a real vulnerability, so the per-app path staying untestable
-      # without a live flatpak is the accepted price.
-      installed="$(flatpak list --system --app --columns=application 2>/dev/null || true)"
-      for id in "${ids[@]}"; do
-        grep -qxF "$id" <<<"$installed" || { echo "not installed: $id" >&2; exit 2; }
-      done
-      rc=0
-      for id in "${ids[@]}"; do
-        # ONE argument list, ONE seam: echo and real mode can never drift in argument handling.
-        run_noexec flatpak update --system "${assume[@]}" "$id" || rc=1
-      done
-      exit $rc
-    fi
-    ;;
-  *) echo "usage: kempt-apply dnf-upgrade|dnf-offline-stage|flatpak-update [args]" >&2; exit 2 ;;
+  *) echo "usage: kempt-apply dnf-upgrade|dnf-offline-stage [args]" >&2; exit 2 ;;
 esac

@@ -63,9 +63,12 @@ export KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
-# The flatpak refresh arm is unprivileged, so it has no root helper to stub - it is driven through
-# its own command seam. `true` is a fetch that worked; the section below swaps in `false`.
+# Neither flatpak arm is privileged, so neither has a root helper to stub - both are driven
+# through their own command seams. `true` is a fetch that worked; the section below swaps in
+# `false`. The update seam is `true` for the same reason: a flatpak run that succeeded and changed
+# nothing, which is what this file's event-vocabulary assertions want out of that half.
 export KEMPT_FLATPAK_REFRESH_CMD="true"
+export KEMPT_FLATPAK_UPDATE_CMD="true"
 export KEMPT_SKIP_REFRESH=1
 
 events()      { cat "$EV" 2>/dev/null || true; }

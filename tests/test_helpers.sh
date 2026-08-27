@@ -20,18 +20,21 @@ assert_exit 2 "apply: no verb"          bash "$AH"
 assert_exit 2 "apply: bad verb"         bash "$AH" rm-rf
 assert_exit 2 "apply: injection via exclude" bash "$AH" dnf-upgrade '--exclude=foo;rm -rf /'
 assert_exit 2 "apply: option smuggling"      bash "$AH" dnf-upgrade '--installroot=/'
-assert_exit 2 "apply: bad flatpak id"        bash "$AH" flatpak-update -y 'evil;id'
+# The flatpak verb is GONE from the root helper: `flatpak update` needs no password of its own in
+# an active local session, so it runs as the user from backends/flatpak.sh instead. The verb must
+# be refused like any other unknown one - a stray caller (an old widget, a script, a shell history
+# line) must not quietly reach a privileged flatpak. ECHO=1 is the belt-and-braces: if the verb
+# ever came back, this asserts loudly instead of the assertion passing on a real flatpak failure.
+assert_exit 2 "apply: the flatpak verb is gone from the root helper" \
+  env KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y
+assert_exit 2 "apply: ...with app ids too"   env KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y org.gimp.GIMP
 # KEMPT_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
 got="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
 assert_eq "$got" "dnf5 upgrade -y --exclude=vim-common --exclude=kernel-core" "dnf-upgrade builds exact command"
 got2="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-stage -y)"
 assert_eq "$got2" "dnf5 upgrade --offline -y" "offline stage builds exact command"
-got3="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y)"
-assert_eq "$got3" "flatpak update --system --noninteractive -y" "flatpak all-apps command"
-# auto_accept=false must reach flatpak: --noninteractive is part of the -y mapping, never hardcoded,
-# or a user who turned auto-accept off would still get a silent unattended flatpak upgrade.
-got4="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update)"
-assert_eq "$got4" "flatpak update --system" "no -y omits the auto-accept flags"
+# The two flatpak command-shape assertions that used to sit here now live in tests/test_flatpak.sh,
+# against flatpak_apply and its own seam: that is where the command is built now.
 
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
 # [A-Za-z] to accented letters, so a caller's locale must not be able to widen what the ROOT
@@ -55,19 +58,14 @@ for h in "$RH" "$AH"; do
     || { echo "FAIL: PATH ($(basename "$h"))"; _fail=1; }
 done
 
-# Cross-boundary scope contract (v1 = system-scope flatpaks only): the helper validates app ids
-# against `flatpak list --system`, so the backend's check commands must carry --system too, or a
-# per-user app would be counted in the badge and then refused at update time.
-FP="$REPO_ROOT/backends/flatpak.sh"
-grep -q 'flatpak remote-ls --updates --system --app' "$FP" && echo "ok: check scope is --system" \
-  || { echo "FAIL: remote-ls not --system scoped"; _fail=1; }
-grep -q 'flatpak list --system --app' "$FP" && echo "ok: installed lookup scope is --system" \
-  || { echo "FAIL: list not --system scoped"; _fail=1; }
-grep -q 'flatpak list --system --app --columns=application' "$AH" && echo "ok: helper validates against the same scope" \
-  || { echo "FAIL: helper scope drifted from the backend"; _fail=1; }
-# The per-app loop is the one privileged argv no test can execute (its installed-set validation
-# is deliberately not env-overridable), so its scope is pinned by source grep instead: dropping
-# --system there would update per-USER apps from a root helper the badge never counted.
-grep -q 'run_noexec flatpak update --system' "$AH" && echo "ok: per-app privileged argv pinned" \
-  || { echo "FAIL: per-app privileged argv lost --system"; _fail=1; }
+# No flatpak command may survive in root-owned code. The verb rejection above proves the case is
+# gone; this proves nothing privileged still shells out to flatpak by another name.
+# Comment lines are stripped first, exactly as render_passwordless_rule's self-check does it: the
+# helper's header comment SAYS the word flatpak (to explain why the verb left), and a check that
+# read comments would call that a violation.
+grep -v '^[[:space:]]*#' "$AH" | grep -qi 'flatpak' \
+  && { echo "FAIL: a flatpak command is back inside the root helper"; _fail=1; } \
+  || echo "ok: the root helper runs no flatpak command at all"
+# The --system scope contract moved with it: all four flatpak commands are built in
+# backends/flatpak.sh now, and tests/test_flatpak.sh asserts their scope on the live variables.
 finish

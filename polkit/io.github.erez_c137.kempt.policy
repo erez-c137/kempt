@@ -16,8 +16,8 @@
   </action>
 
   <action id="io.github.erez_c137.kempt.apply">
-    <description>Apply system updates</description>
-    <message>Kempt wants to update the system</message>
+    <description>Apply system package updates</description>
+    <message>Kempt wants to update system packages</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

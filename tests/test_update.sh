@@ -12,12 +12,32 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 case "\$1" in
   dnf-upgrade)     cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv" ;;
   dnf-offline-stage) touch "$WORLD/staged" ;;
-  flatpak-update)  : ;;   # no flatpak changes in this fake world
 esac
 exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub"
 cp "$TESTTMP/apply-stub" "$TESTTMP/apply-stub.orig"   # probes that swap it restore from here
+# The flatpak half of a run no longer goes through the root helper, so it gets its own stand-in on
+# its own seam (there are no flatpak changes in this fake world; it only records). It writes to the
+# SAME apply-calls file under a prefix of its own, so every "nothing was applied" assertion below
+# still covers both backends while no assertion can confuse the two paths: an APPLY line proves
+# the privileged helper ran, a FLATPAK line proves the unprivileged seam did.
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK \$@" >> "$WORLD/apply-calls"
+exit 0
+STUB
+chmod +x "$TESTTMP/fp-update-stub"
+cp "$TESTTMP/fp-update-stub" "$TESTTMP/fp-update-stub.orig"
+# Records what WOULD have been escalated and then runs it anyway (sandbox() leaves KEMPT_PKEXEC
+# empty). It is what lets the privilege-boundary assertion below be a real negative instead of a
+# reading of the source.
+cat > "$TESTTMP/pkexec-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/pkexec-calls"
+exec "\$@"
+STUB
+chmod +x "$TESTTMP/pkexec-stub"
 cat > "$TESTTMP/refresh-stub" <<STUB
 #!/usr/bin/env bash
 [[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
@@ -30,6 +50,7 @@ echo "NOTIFY \$@" >> "$WORLD/notifications"
 STUB
 chmod +x "$TESTTMP/notify-stub"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-stub"
+export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-update-stub"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
 export KEMPT_NOTIFY="$TESTTMP/notify-stub"
 export KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
@@ -89,8 +110,25 @@ assert_eq "$(jq '.backends.dnf.updated | length' "$h")" "2" "dnf updated from sn
 assert_eq "$(jq -r '.backends.dnf.skipped_held[0]' "$h")" "vim-common" "held pkg recorded as skipped"
 assert_eq "$(jq -r .reboot_needed "$h")" "true" "reboot flag captured"
 grep -q -- '--exclude=vim-common' "$WORLD/apply-calls" && echo "ok: hold became --exclude" || { echo "FAIL: exclude"; _fail=1; }
-grep -q 'flatpak-update' "$WORLD/apply-calls" && echo "ok: flatpak ran" || { echo "FAIL: flatpak"; _fail=1; }
+grep -q '^FLATPAK' "$WORLD/apply-calls" && echo "ok: flatpak ran" || { echo "FAIL: flatpak"; _fail=1; }
 grep -q NOTIFY "$WORLD/notifications" && echo "ok: non-terminal surface notified" || { echo "FAIL: notify"; _fail=1; }
+
+# --- the privilege boundary of a run, asserted rather than read off the source. `flatpak update`
+# asks for no password of its own in an active local session (app-update and runtime-update are
+# allow_active=yes in the policy flatpak ships), so routing it through kempt-apply put it behind
+# auth_admin_keep and made a flatpak-only run prompt where plain `flatpak update` would not. dnf
+# still escalates, because dnf5 genuinely needs root.
+: > "$WORLD/apply-calls"; : > "$TESTTMP/pkexec-calls"
+KEMPT_PKEXEC="$TESTTMP/pkexec-stub" "$KEMPT" update >/dev/null
+# Both guards against a vacuous pass: an empty recorder would satisfy the count below while
+# proving nothing, and a flatpak half that never ran would too.
+assert_exit 0 "the pkexec recorder really was in the path" -- test -s "$TESTTMP/pkexec-calls"
+grep -q '^FLATPAK' "$WORLD/apply-calls" && echo "ok: ...on a run whose flatpak half really ran" \
+  || { echo "FAIL: flatpak half never ran"; _fail=1; }
+assert_eq "$(grep -c flatpak "$TESTTMP/pkexec-calls" || true)" "0" \
+  "applying flatpak updates never goes through pkexec"
+assert_eq "$(grep -c 'dnf-upgrade' "$TESTTMP/pkexec-calls" || true)" "1" \
+  "...while the dnf upgrade still does"
 
 # A CLI-only user must not be left staring at a pending list the run already emptied: the run
 # refreshes the state itself instead of waiting for the widget to come along and do it.
@@ -122,15 +160,16 @@ cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
 
 # A flatpak hold switches the whole backend to PER-APP updates, and that list is pre-filtered to
 # apps that are actually installed: com.example.NotInstalled is pending in the remote fixture but
-# absent from the installed list, and the root helper's installed-set check is only a BACKSTOP -
-# it must never be what stops it, or a normal run would die on "not installed".
+# absent from the installed list. That pre-filter is the ONLY installed check a run makes now: the
+# root helper's backstop went with the privilege boundary, so an id that got past it would reach
+# flatpak itself and fail the run with "not installed".
 : > "$WORLD/apply-calls"
 "$KEMPT" hold flatpak:org.gimp.GIMP
 "$KEMPT" update >/dev/null
-assert_eq "$(grep 'flatpak-update' "$WORLD/apply-calls")" "APPLY flatpak-update -y net.mkiol.SpeechNote" \
+assert_eq "$(grep '^FLATPAK' "$WORLD/apply-calls")" "FLATPAK --noninteractive -y net.mkiol.SpeechNote" \
   "flatpak hold → per-app update of the pending, non-held, installed app only"
-grep -q 'com.example.NotInstalled' "$WORLD/apply-calls" && { echo "FAIL: uninstalled app reached the helper"; _fail=1; } \
-  || echo "ok: pending-but-not-installed app never reaches the privileged helper"
+grep -q 'com.example.NotInstalled' "$WORLD/apply-calls" && { echo "FAIL: uninstalled app reached flatpak"; _fail=1; } \
+  || echo "ok: pending-but-not-installed app is never handed to flatpak"
 "$KEMPT" unhold flatpak:org.gimp.GIMP
 
 # A typo'd flag must never be treated as "run with the configured defaults".
@@ -497,10 +536,13 @@ rm -f "${decoys[@]}"
 cat > "$TESTTMP/apply-stub" <<'STUB'
 #!/usr/bin/env bash
 echo "APPLY $@" >> "$WORLD/apply-calls"
-case "$1" in
-  dnf-upgrade)    echo "cannot open lock file: held by another process" >&2 ;;
-  flatpak-update) echo "Error: No space left on device" >&2 ;;
-esac
+[[ "$1" == dnf-upgrade ]] && echo "cannot open lock file: held by another process" >&2
+exit 1
+STUB
+cat > "$TESTTMP/fp-update-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "FLATPAK $@" >> "$WORLD/apply-calls"
+echo "Error: No space left on device" >&2
 exit 1
 STUB
 : > "$WORLD/apply-calls"
@@ -508,12 +550,14 @@ export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the mixed log must be this run's alone
 assert_exit 1 "a lock-then-disk run fails" "$KEMPT" update --surface=background
 mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | head -1)"
-assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "4" "3 dnf attempts + exactly ONE flatpak attempt"
+assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "3" "the dnf lock error is retried three times"
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" "...and the flatpak disk error is tried exactly once"
 assert_eq "$(grep -c 'retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
 
 # --- double staging leaves ONE pre-snapshot: only the newest can ever be harvested, so an
 # un-swept copy is dead weight that accumulates one file per staged run, forever.
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 first_pre="$(jq -r .pre_snapshot "$marker")"

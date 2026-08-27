@@ -105,8 +105,13 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   esac
 }
 
-apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock errors
-  local log="$1"; shift
+# The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
+# boundary: dnf goes through the root helper (priv_apply), flatpak runs as the user
+# (flatpak_apply). Everything this function owns is the same for both - the run log, the live tee,
+# and the retry, because a second flatpak instance holds a repository lock exactly the way another
+# dnf does.
+apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
+  local log="$1" runner="$2"; shift 2
   local attempt rc before_sz
   for attempt in 1 2 3; do
     rc=0
@@ -118,9 +123,9 @@ apply_with_retry() {  # log_file verb args... ; retries on foreign package-lock 
       # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
       # apply_with_retry bare - a bare `; rc=` form would abort the run instead of retrying.
-      priv_apply "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
+      "$runner" "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
     else
-      priv_apply "$@" >>"$log" 2>&1 || rc=$?
+      "$runner" "$@" >>"$log" 2>&1 || rc=$?
     fi
     [[ $rc -eq 0 ]] && return 0
     if tail -c +$(( before_sz + 1 )) "$log" \
@@ -247,9 +252,9 @@ cmd_update() {
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
   if [[ "$surface" == "offline" ]]; then
-    apply_with_retry "$log" dnf-offline-stage "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+    apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
   else
-    apply_with_retry "$log" dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+    apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
   fi
 
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
@@ -262,7 +267,8 @@ cmd_update() {
     held_fp="$(holds_for flatpak)"
     if [[ -n "$held_fp" ]]; then
       # holds exist → per-app updates of every pending, non-held, INSTALLED app
-      # (installed pre-filter: the helper's installed-set check is a backstop that must never fire in normal runs)
+      # (installed pre-filter: the ONLY installed check there is now - flatpak errors out on an
+      # id it does not have, and the root helper's backstop went with the privilege boundary)
       # dnf has already run by now, so a flatpak-side failure must be REPORTED, never fatal:
       # crashing here would lose the history entry and the notification for an update that
       # already changed the system. Empty installed set → no ids pass the filter → nothing is
@@ -277,10 +283,10 @@ cmd_update() {
         ids+=("$id")
       done < <(flatpak_check 2>/dev/null | jq -r '.[].name')
       if [[ ${#ids[@]} -gt 0 ]]; then
-        apply_with_retry "$log" flatpak-update "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
+        apply_with_retry "$log" flatpak_apply "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
       fi
     else
-      apply_with_retry "$log" flatpak-update "${yflag[@]}" || { fp_status="failed"; status="failed"; }
+      apply_with_retry "$log" flatpak_apply "${yflag[@]}" || { fp_status="failed"; status="failed"; }
     fi
   fi
 
