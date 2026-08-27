@@ -336,14 +336,19 @@ needs to be:
   comparison, the icon-size snap - in engine-agnostic JavaScript with a CommonJS guard at the
   bottom. `tests/test_widget_logic.sh` loads that same file with node and pins every rule.
 - The QML that remains is bindings. `tests/test_widget_logic.sh` compiles every `.qml` against
-  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs four
+  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs five
   probes that instantiate the real files against a stubbed `kempt` on a real `PATH` - the settings
-  page's apply path, the popup's actions, the state machine, the executor.
+  page's apply path, the popup's actions, the state machine, the executor, and the keyboard.
+  The last of those is the only one that builds a window: `activeFocus` is a property of a
+  scene, so an item with no window never becomes the active focus item and has nowhere for a
+  Tab key to be delivered. It uses an offscreen one, and the other four stay windowless on
+  purpose, because every assertion in them was written under those conditions.
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 17 files and 1310 assertions, 693 of them in the two widget files, and it runs
-green with no package manager, no polkit and no desktop present.
+The whole suite is 17 files and 1932 assertions, 1221 of them in the two widget files (640 under
+node, 581 in the probes), and it runs green with no package manager, no polkit and no desktop
+present.
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
 own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the
