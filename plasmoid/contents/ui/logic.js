@@ -733,8 +733,12 @@ function lastRunOf(text) {
         status: status,
         failed: status !== "ok",
         error: typeof entry.error === "string" ? entry.error : "",
+        // null when the entry does not say, NOT 0 - because 0 is a real duration here. The CLI
+        // writes `$(date +%s) - start`, so any run that finished inside a second records zero.
+        // Collapsing "absent" onto "zero" put "in 0s" on the end of a sentence about a run this
+        // build had no timing for at all.
         durationSec: (typeof entry.duration_sec === "number" && isFinite(entry.duration_sec))
-            ? entry.duration_sec : 0,
+            ? entry.duration_sec : null,
         updatedCount: updated,
         addedCount: added,
         removedCount: removed,
@@ -766,8 +770,11 @@ function postRunLine(run) {
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
-    var secs = typeof run.durationSec === "number" ? run.durationSec : 0;
-    return "Updated " + n + (n === 1 ? " package" : " packages") + " in " + secs + "s";
+    // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
+    // long it took is described without that clause rather than described as instantaneous.
+    var secs = run.durationSec;
+    var howLong = (typeof secs === "number" && isFinite(secs)) ? " in " + secs + "s" : "";
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?

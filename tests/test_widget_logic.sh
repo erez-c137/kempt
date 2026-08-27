@@ -731,7 +731,10 @@ assert_eq "$(js "$BARE.failed")" "true" "...and a run with no status is NOT coun
 assert_eq "$(js "$BARE.changedCount")" "0" "...it changed nothing we know of"
 assert_eq "$(js "$BARE.items.length")" "0" "...listed nothing"
 assert_eq "$(js "$BARE.logPath")" "" "...has no log to open"
-assert_eq "$(js "$BARE.durationSec")" "0" "...and took no time we can name"
+# null, not 0: the entry does not SAY how long it took, and 0 is a real duration - the CLI writes
+# it for any run that finished inside a second. Conflating the two put "in 0s" on the end of a
+# sentence about a run whose duration was simply absent.
+assert_eq "$(js "$BARE.durationSec === null")" "true" "...and names no duration at all, rather than zero"
 assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").backends')" "undefined" \
   "an entry missing backends entirely derives no backends key"
 assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\"}").items.length')" "0" "...and no items"
@@ -772,6 +775,18 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":
   "Updated 1 package in 38s" "one package is singular"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":9}"))')" \
   "No package changes" "a run that changed nothing says so, rather than \"0 packages\""
+# A duration that is not a number is not a duration. `duration_sec` arrives as whatever the entry
+# holds - an older build, a hand-edited file, a half-written one - and anything non-numeric used to
+# come out as 0, so the popup put "in 0s" on the end of a run it had no timing for. Zero itself is
+# a real answer and stays: the CLI records it for any run that finished inside a second.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":\"38\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package" "a duration that arrived as text is left out, not read as zero seconds"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package" "...and so is one that is not there at all"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":null,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package" "...or explicitly null"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package in 0s" "a run that really did take under a second still says so"
 # A failed run's first stderr line, which is the CLI's own worked-out reason (run_failure_reason),
 # not a generic apology. Multi-line, because that reason can arrive with a log tail behind it.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"authentication declined or cancelled\"}"))')" \
