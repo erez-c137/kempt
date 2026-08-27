@@ -471,16 +471,38 @@ function riskyMessageOf(names) {
     return COPY.kernelRestart;
 }
 
-// formatStamp(iso) -> "2026-08-24 22:11", or "never" when there is no stamp.
+// The head of anything formatStamp can RENDER. Anything else it hands back verbatim, and
+// isRenderableStamp is how a caller asks which of the two it is about to get.
+var STAMP_HEAD_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
+// ...and the offset on the end of it, in either of the two spellings `date -Iseconds` and its
+// neighbours produce (+HH:MM, +HHMM), or Z.
+var STAMP_OFFSET_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
+function isRenderableStamp(iso) {
+    return typeof iso === "string" && STAMP_HEAD_RE.test(iso.split("\n")[0].trim());
+}
+
+// formatStamp(iso) -> "2026-08-24 22:11 +03:00", or "never" when there is no stamp.
 // Textual, not Date-based, on purpose: it cannot print "Invalid Date", it cannot shift a
 // timestamp into another timezone, and it survives the recorded corruption where two state
 // documents end up concatenated and a per-document read hands us both, newline-joined.
+//
+// The OFFSET is part of the answer, and leaving it off was a quiet way of being wrong. This is
+// the EXACT stamp under a relative line - "Checked 4 min ago" hovers to this, and people hover it
+// to compare the two - so rendered as a bare wall-clock reading it can disagree with the line
+// above it by hours with nothing on screen to explain the gap. A state file written before a
+// timezone change, or copied off another machine, is all it takes. Normalised to one shape
+// (+HH:MM, with Z as +00:00) so two stamps from two producers can be read against each other.
 function formatStamp(iso) {
     if (typeof iso !== "string") return "never";
     var s = iso.split("\n")[0].trim();
     if (s === "") return "never";
-    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(s);
-    return m ? m[1] + " " + m[2] : s;
+    var m = STAMP_HEAD_RE.exec(s);
+    if (!m) return s;
+    var z = STAMP_OFFSET_RE.exec(s);
+    var off = "";
+    if (z) off = " " + (z[1] === "Z" ? "+00:00" : z[1].slice(0, 3) + ":" + z[1].slice(-2));
+    return m[1] + " " + m[2] + off;
 }
 
 // The one strict shape relativeTime will do arithmetic on: YYYY-MM-DDTHH:MM:SS, optionally with a

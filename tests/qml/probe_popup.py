@@ -1002,7 +1002,8 @@ if live is not None:
     p.check("the stale message is an explanation, not an alarm",
             lev("staleMessage.type"), lev("Kirigami.MessageType.Information"))
     p.check("...carrying the CLI's own reason and the age of the counts under it",
-            lev("staleMessage.text"), "dnf check failed (last successful check: 2026-08-25 10:59)")
+            lev("staleMessage.text"),
+            "dnf check failed (last successful check: 2026-08-25 10:59 +03:00)")
 
     # --- the post-run line -------------------------------------------------------------------------------
     state(fixture("state-live.json"))

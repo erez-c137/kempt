@@ -153,7 +153,11 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:2,bac
 # --- stale: last known counts stay on the badge, the staleness goes in the tooltip ---
 # Expected values are derived from the fixture, so a re-capture cannot silently drift the test;
 # the guard assertion below keeps that derivation from going vacuous.
-ls_stale="$(jq -r .last_success "$FIXTURES/state-stale.json" | sed -E 's/^(.{10})T(.{5}).*/\1 \2/')"
+# ...offset included, because that is what formatStamp renders now: the absolute stamp is the
+# exact truth under a relative line, and a wall-clock reading with no timezone can disagree with
+# that line by hours.
+ls_stale="$(jq -r .last_success "$FIXTURES/state-stale.json" \
+  | sed -E 's/^(.{10})T(.{5}).*([+-][0-9]{2}):?([0-9]{2})$/\1 \2 \3:\4/')"
 assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")" "true" \
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
@@ -172,7 +176,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
 # fall in the same minute would let last_check pass for last_success. These two cannot.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2020-01-01T10:30:00+03:00",backends:{}},false).tooltipSub')" \
-  "x - last successful check: 2020-01-01 10:30" "the tooltip reads last_success, never last_check"
+  "x - last successful check: 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
 
 # --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------
 # A repo that flapped is not a broken machine. The panel keeps rendering whatever the last good
@@ -543,11 +547,22 @@ assert_eq "$(js "L.riskyMessageOf($DEEP_KN)")" "$(js 'L.COPY.kernelNvidiaRestart
 
 
 # --- timestamps: never show the user "Invalid Date" ---
-assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45+03:00")')" "2026-08-24 22:11" "an ISO stamp renders short"
+# The OFFSET rides along, and that is not decoration. This stamp is the exact truth under a
+# relative line ("Checked 4 min ago"), and people hover it precisely to compare the two. Rendered
+# without its offset it is a wall-clock reading with no timezone, so a state written in one zone
+# and read in another disagrees with the line above it by hours and neither number says why.
+assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45+03:00")')" "2026-08-24 22:11 +03:00" \
+  "an ISO stamp renders short, offset included"
+assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45Z")')" "2026-08-24 22:11 +00:00" \
+  "Z is an offset too, and renders in the same shape as every other one"
+assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45+0530")')" "2026-08-24 22:11 +05:30" \
+  "an offset written without its colon is still that offset"
+assert_eq "$(js 'L.formatStamp("2026-08-24T22:11:45")')" "2026-08-24 22:11" \
+  "...and a stamp with no offset gains nothing it did not say"
 assert_eq "$(js 'L.formatStamp(null)')" "never" "a null last_success reads as never"
 assert_eq "$(js 'L.formatStamp("")')" "never" "so does an empty one"
 assert_eq "$(js 'L.formatStamp("not a date")')" "not a date" "an unparseable stamp is shown verbatim, never as Invalid Date"
-assert_eq "$(js 'L.formatStamp("2020-01-01T00:00:00+00:00\n2021-01-01T00:00:00+00:00")')" "2020-01-01 00:00" \
+assert_eq "$(js 'L.formatStamp("2020-01-01T00:00:00+00:00\n2021-01-01T00:00:00+00:00")')" "2020-01-01 00:00 +00:00" \
   "a multi-document state (the recorded corruption) cannot leak a newline into the tooltip"
 assert_eq "$(js 'L.formatStamp("junk\nmore junk").indexOf("\n") >= 0')" "false" \
   "...and the verbatim fallback stays single-line too"
@@ -563,7 +578,7 @@ assert_eq "$(js 'L.formatStamp("junk\nmore junk").indexOf("\n") >= 0')" "false" 
 # milliseconds, and the stamps are written with the offsets a real state file carries.
 T='Date.UTC(2026,7,26,9,0,0)'
 ISO='"2026-08-26T12:00:00+03:00"'
-STAMP="2026-08-26 12:00"
+STAMP="2026-08-26 12:00 +03:00"
 MIN=60000; HOUR=3600000; DAY=86400000
 assert_eq "$(js "L.relativeTime($ISO, $T)")" "just now" "the moment it happened is just now"
 assert_eq "$(js "L.relativeTime($ISO, $T + $MIN - 1)")" "just now" "...right up to the last millisecond under a minute"
@@ -622,7 +637,10 @@ assert_eq "$(js "L.relativeTime(\"2026-08-26T14:45:00+0545\", $T + 45 * $MIN)")"
 # ISO_STAMP_RE is anchored at BOTH ends, and the closing anchor is what makes "one strict shape"
 # true rather than aspirational. Without it a stamp with anything after the offset parses as if
 # the junk were not there, and the popup does arithmetic on a string it does not understand.
-assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+03:00 (cached)\", $T)")" "$STAMP" \
+# Its own expected value rather than $STAMP: formatStamp appends the offset it can SEE on the end
+# of the string, and this string does not end with one - the junk is after it. The date and time
+# still render, which is the point (the fallback is never "Invalid Date").
+assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+03:00 (cached)\", $T)")" "2026-08-26 12:00" \
   "trailing junk after the offset is not a timestamp, however parseable its prefix looks"
 
 # The calendar guard inside stampMs, which the regex cannot do for it: the regex proves the digits
@@ -631,9 +649,9 @@ assert_eq "$(js "L.relativeTime(\"2026-08-26T12:00:00+03:00 (cached)\", $T)")" "
 # that is the shape of the failure - not a visible error, a confident wrong number where the
 # absolute stamp belonged.
 assert_eq "$(js "L.relativeTime(\"2026-13-26T12:00:00+03:00\", Date.UTC(2027,0,26,9,5,0))")" \
-  "2026-13-26 12:00" "a thirteenth month is not a date, and must not become next January"
+  "2026-13-26 12:00 +03:00" "a thirteenth month is not a date, and must not become next January"
 assert_eq "$(js "L.relativeTime(\"2026-08-00T12:00:00+03:00\", Date.UTC(2026,6,31,9,5,0))")" \
-  "2026-08-00 12:00" "...and a zeroth day is not one either, and must not become last July"
+  "2026-08-00 12:00 +03:00" "...and a zeroth day is not one either, and must not become last July"
 
 # Every way of not knowing falls back to the absolute stamp, which is formatStamp's own answer.
 # "in -3 minutes" would be worse than a date, so a stamp from the future falls back too - and a
@@ -670,7 +688,7 @@ assert_eq "$(js "L.relativeTime(\"junk\nmore junk\", $T).indexOf(\"\n\") >= 0")"
 export RUN_JSON='{"timestamp":"2026-08-26T22:24:06+03:00","surface":"terminal","status":"ok","duration_sec":38,"reboot_needed":false,"log":"/home/u/.local/state/kempt/logs/20260826T222406.log","error":"","backends":{"dnf":{"updated":[{"name":"kernel-core","from":"6.15.3-200.fc44","to":"6.15.4-200.fc44"},{"name":"vim-common","from":"2:9.1.900-1.fc44","to":"2:9.1.1000-1.fc44"}],"added":[{"name":"newpkg","to":"1.0-1.fc44"}],"removed":[{"name":"zsh","from":"5.9-11.fc44"}],"status":"ok","skipped_held":[]},"flatpak":{"updated":[],"added":[],"removed":[],"status":"ok","skipped_held":[]}}}'
 R='L.lastRunOf(process.env.RUN_JSON)'
 assert_eq "$(js "$R.when")" "2026-08-26T22:24:06+03:00" "the run's own timestamp comes through verbatim"
-assert_eq "$(js "$R.whenStamp")" "2026-08-26 22:24" "...and its absolute stamp is formatStamp's"
+assert_eq "$(js "$R.whenStamp")" "2026-08-26 22:24 +03:00" "...and its absolute stamp is formatStamp's"
 assert_eq "$(js "$R.surface")" "terminal" "the surface the run used"
 assert_eq "$(js "$R.status")" "ok" "the status it recorded"
 assert_eq "$(js "$R.failed")" "false" "an ok run did not fail"
@@ -802,7 +820,7 @@ assert_eq "$(js "L.lastRunText($R, $W + 18 * $MIN)")" "Last update 18 min ago ·
   "the last run, in the words the plan drew"
 assert_eq "$(js "L.lastRunText($R, $W + 3 * $DAY)")" "Last update 3 days ago · 4 packages" \
   "...however long ago it was"
-assert_eq "$(js "L.lastRunText($R, undefined)")" "Last update 2026-08-26 22:24 · 4 packages" \
+assert_eq "$(js "L.lastRunText($R, undefined)")" "Last update 2026-08-26 22:24 +03:00 · 4 packages" \
   "...falling back to the absolute stamp when the clock is unusable, like relativeTime everywhere"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}'), $W + $MIN)")" \
   "Last update 1 min ago · 1 package" "one package is singular here too"
@@ -1025,7 +1043,7 @@ assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerTe
   "a stale state with known counts heads the popup with a count, not with a warning"
 assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerText")" \
   "No successful check yet" "...so the footer beneath it has to be true standing alone"
-assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00" \
+assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00 +03:00" \
   "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
 
 # A1, all three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
@@ -1046,7 +1064,7 @@ assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" "$RB" 1 'footerText')" \
 
 # --- vm.footerTooltip: the exact stamp under the convenient one ---------------------------------
 # The relative time is the convenience; the stamp is the truth, and people compare the two.
-assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "2026-08-26 12:00" "the tooltip is the absolute stamp"
+assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "2026-08-26 12:00 +03:00" "the tooltip is the absolute stamp"
 assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "$(vm "{nowMs:$NOW}" '' 0 'lastSuccessText')" \
   "...the same one the tooltip and the stale banner already use"
 assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerTooltip")" \

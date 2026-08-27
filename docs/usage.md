@@ -543,7 +543,7 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
  (!) This includes a kernel update. Restart when it finishes.              thing that needs
                                         [Install on Next Restart]         saying, in order
  (i) dnf check failed: repo 'updates' unavailable
-     (last successful check: 2026-08-27 09:14)
+     (last successful check: 2026-08-27 09:14 +03:00)
 
  System (dnf)                                                          <- the pending list,
    nodejs                                                     [pin]       grouped by backend
@@ -608,7 +608,8 @@ that run's own history entry (`kempt summary --json`). Expand it for the package
 squeeze the pending list out of sight.
 
 **The footer** dates the counts above it. `Checked 4 min ago` is relative and ticks while the
-popup is open; hover it for the exact timestamp. It gains ` · 1 held` when anything is held, and
+popup is open; hover it for the exact timestamp, offset included - the offset is there so the
+two lines cannot silently disagree about which clock they are on. It gains ` · 1 held` when anything is held, and
 ` · restart pending` when a restart is owed but the message above is not on screen. Before any
 check has ever succeeded it reads `No successful check yet`, which is not the same thing as never
 having checked.
