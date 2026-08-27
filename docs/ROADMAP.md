@@ -63,6 +63,14 @@ What is left needs a human at the keyboard, in this order:
     (`.../icons/hicolor/{16x16,22x22,scalable}/apps/`) and letting `QIcon::fromTheme` pick the
     size itself - more machinery, but it is the route the metadata icon already takes, since a
     package-local icon name does not resolve from the theme (measured on Plasma 6.7).
+- **Translations.** The popup's sentences are DERIVED rather than written: the counts, the footer
+  dateline, the last-run row and the post-run line are all assembled in
+  `plasmoid/contents/ui/logic.js`, which is plain JavaScript with no `i18n()` in it - the QML
+  around it is wrapped, that file is not. So a translated Kempt would still say "3 updates
+  available" and "Checked 4 min ago" in English. Wrapping it means giving logic.js a translation
+  hook it can call in both of its worlds (a QML engine, and node under the tests), and turning
+  the phrases that are assembled from parts into whole i18np() sentences so a translator sees a
+  sentence rather than fragments.
 - **Download size next to Update Now.** "Is this 40 MB or 4 GB" is the one question the popup
   cannot answer today, and the only gap in the user panel that made a persona close the popup and
   do nothing. **Specced** in
