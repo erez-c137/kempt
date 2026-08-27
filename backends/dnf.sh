@@ -74,15 +74,32 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   # all, so a reader who treats its `false` as an affirmative "no restart is owed" is reading a
   # failure as an answer. The two therefore collapse safely onto the same answer plus a warning.
   #
-  # "Evidence" means a package list, so the test strips whitespace before asking: $( ) removes
-  # trailing newlines but not the spaces in front of them, and three spaces are not a package
-  # list. No real dnf5 has been seen doing that - this is the promise in the paragraph above
-  # being held to its word, not a bug anybody has observed.
+  # "Evidence" means the thing itself, and this used to test for "any non-whitespace on stdout"
+  # instead - which is not the same promise. Every sentence dnf5 might print satisfied it: one
+  # release that moves a line from stderr to stdout, one plugin printing a deprecation notice, and
+  # rc 1 plus that line reads as "a restart is owed" on every check the box ever runs, which is
+  # the same permanent false positive --disablerepo='*' was added to stop.
+  #
+  # So the two shapes the real command actually uses for YES are what count, measured against
+  # dnf5 5.4.3 on Fedora 44 (2026-08-27), whose stdout for a box owing a restart is:
+  #
+  #     Core libraries or services have been updated since boot-up:
+  #       * kernel
+  #       * kernel-core
+  #
+  #     Reboot is required to fully utilize these updates.
+  #     More information: https://access.redhat.com/solutions/27943
+  #
+  # (the "Updating and loading repositories:" chatter goes to stderr, which is already discarded).
+  # Either half is accepted on its own: the indented package list, and dnf5's own verdict
+  # sentence. Two tests rather than one because each covers the other's drift - a release that
+  # restyles the list keeps the sentence, and a release that drops the sentence keeps the list.
   local out rc=0
   out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting </dev/null 2>/dev/null)" || rc=$?
   case $rc in
-    1) if [[ -n "${out//[[:space:]]/}" ]]; then echo true
-       else echo "warning: reboot check could not answer (rc=1, no output)" >&2; echo false; fi ;;
+    1) if grep -qE '^[[:space:]]+\* [^[:space:]]' <<<"$out" \
+          || grep -qF 'Reboot is required' <<<"$out"; then echo true
+       else echo "warning: reboot check could not answer (rc=1, no restart evidence)" >&2; echo false; fi ;;
     0) echo false ;;
     *) echo "warning: reboot check failed (rc=$rc)" >&2; echo false ;;
   esac

@@ -136,6 +136,45 @@ _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
 assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
   "...and warns, exactly as the empty-stdout case does"
 
+# rc 1 with NOISE on stdout, which is the case the "non-empty stdout" test never could tell apart
+# from a real verdict. dnf5 5.4.3 on this box keeps its repo chatter on STDERR (measured
+# 2026-08-27: "Updating and loading repositories:" / "Repositories loaded." both go to fd 2), so
+# today's stdout is clean - but the rc-1 branch's promise is POSITIVE EVIDENCE, and any sentence
+# at all satisfied "non-empty". One dnf5 release that moves a line to stdout, one plugin that
+# prints a deprecation notice, and every check on the box answers "a restart is owed" forever.
+# The evidence is therefore the thing itself: a package-list line, or dnf5's own verdict sentence.
+cat > "$TESTTMP/dnf-stub-1-noise" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Cache-only enabled but no cache for repository "fedora"
+OUT
+exit 1
+STUB
+chmod +x "$TESTTMP/dnf-stub-1-noise"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-noise"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" \
+  "rc 1 with prose on stdout but no package list → false: prose is not evidence"
+_err="$(dnf_reboot_needed 2>&1 >/dev/null)"
+assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+  "...and warns, exactly as the empty-stdout case does"
+
+# ...and the other half of that rule: dnf5's own verdict sentence counts on its own. The real
+# command prints it under the list (verified against dnf5 5.4.3 on this box), so a future release
+# that drops the indented list and keeps the sentence must still answer "yes" rather than turning
+# every restart-owed box silent.
+cat > "$TESTTMP/dnf-stub-1-marker" <<'STUB'
+#!/usr/bin/env bash
+cat <<'OUT'
+Reboot is required to fully utilize these updates.
+More information: https://access.redhat.com/solutions/27943
+OUT
+exit 1
+STUB
+chmod +x "$TESTTMP/dnf-stub-1-marker"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-marker"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" \
+  "rc 1 with dnf5's own verdict sentence and no list → true"
+
 # The two flags are the verdict's foundation, and a seam that quietly stopped passing them would
 # leave every assertion above passing while the real command went back to needing a warm cache
 # (or, without -C, to doing network I/O on the widget's hourly path). So assert the argv itself.
