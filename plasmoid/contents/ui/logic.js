@@ -814,6 +814,15 @@ function runFinishedSince(run, sinceMs) {
 // together: lib/common.sh's emission, the copy table, and this line.
 function lastRunText(run, nowMs) {
     if (!run) return "";
+    // An entry we cannot DATE gets no row. "Last update never - 1 package" was the shape of that
+    // bug: relativeTime answers "never" for a missing or empty stamp, and the sentence went on to
+    // describe a run in the same breath as denying there was one. An unreadable stamp is the same
+    // mistake in the other direction, pasting "not a date" into an English sentence. The counts
+    // are not lost - the entry is still there, and the popup still holds it - but WHEN it happened
+    // is the one thing this line exists to say, so with no answer to that there is no line.
+    // Note this is a test of the STAMP, not of relativeTime's output: with an unusable clock
+    // relativeTime falls back to the absolute stamp, which is a perfectly good row.
+    if (!isRenderableStamp(run.when)) return "";
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
     return "Last update " + relativeTime(run.when, nowMs) + DOT + what;
@@ -990,9 +999,25 @@ function viewModel(state, updating, cliError, opts) {
     // at all - and the two differ precisely on the bad day, where a stale state carries a
     // last_check and an empty last_success.
     var footerParts = [];
-    footerParts.push(everSucceeded
-        ? "Checked " + relativeTime(state.last_success, opts.nowMs)
-        : COPY.noSuccessfulCheckYet);
+    if (usable) {
+        // Three answers, and the third one is silence. A stamp that is present and unreadable
+        // gives relativeTime nothing to work with, so it hands the text back verbatim - right for
+        // a tooltip, wrong in a sentence, where it reads "Checked not a date". Nothing is said
+        // instead, and the raw stamp stays one hover away in footerTooltip, which is where a
+        // value we cannot interpret belongs.
+        if (!everSucceeded) footerParts.push(COPY.noSuccessfulCheckYet);
+        else if (isRenderableStamp(state.last_success)) {
+            footerParts.push("Checked " + relativeTime(state.last_success, opts.nowMs));
+        }
+    } else if (noState) {
+        // No state at all - the first seconds of a session, or a CLI that could not be run. There
+        // has been no successful check as far as this widget knows, and saying so is true.
+        footerParts.push(COPY.noSuccessfulCheckYet);
+    }
+    // ...and the case with no branch: a state we HOLD and cannot read (a schema this build does
+    // not know). It may well record a successful check; we cannot tell. "No successful check yet"
+    // over it is a claim with nothing behind it, and the header already says the state could not
+    // be read.
     if (heldTotal > 0) footerParts.push(heldTotal + " " + COPY.held);
     // Founder amendment A1: the two-word fact, and ONLY when the message is not already carrying
     // it. With the reminder switched off (or dismissed for this session) there is no message and

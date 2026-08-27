@@ -826,6 +826,17 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2
   "Last update 1 min ago · 1 package" "one package is singular here too"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
   "Last update 1 min ago · no package changes" "a run that changed nothing says so in words"
+# An entry this file cannot DATE gets no row at all. "Last update never · 1 package" was the
+# shape of that bug: relativeTime answers "never" for a missing or empty stamp, and the sentence
+# went on to describe a run in the same breath as denying there was one. The counts are still in
+# the entry and the popup still holds it - what is missing is the one thing this line is FOR,
+# which is when it happened.
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}'), $W)")" \
+  "" "an entry with no timestamp gets no Last update row, never \"Last update never\""
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}'), $W)")" \
+  "" "...and neither does one whose stamp is empty"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"not a date\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}'), $W)")" \
+  "" "...nor one whose stamp cannot be read, which would paste it into the sentence verbatim"
 assert_eq "$(js "L.lastRunText(null, $W)")" "" "no run, no row"
 assert_eq "$(js "L.lastRunText(undefined, $W)")" "" "...and no argument is not an error"
 # "no package changes" is not this file's wording to pick: it is the CLI's, emitted verbatim by
@@ -1045,6 +1056,26 @@ assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerTe
   "No successful check yet" "...so the footer beneath it has to be true standing alone"
 assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00 +03:00" \
   "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
+
+# ...but a state this build cannot READ is a different thing from a box with no state, and the
+# footer used to say the same sentence about both. A schema this widget does not know may well
+# record a successful check - we simply cannot tell - so "No successful check yet" over it is a
+# claim with nothing behind it. Silence is the honest answer; the header already says the state
+# cannot be read.
+UNREADABLE='{schema:2,status:"ok",actionable:5,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($UNREADABLE,false,\"\",{nowMs:$NOW}).footerText")" "" \
+  "a state this build cannot read says nothing in the footer rather than claiming no check"
+assert_eq "$(js "L.viewModel($UNREADABLE,false,\"\",{nowMs:$NOW}).headerText")" \
+  "Could not read the update state" "...while the header is the line that says what is wrong"
+
+# ...and the other half: a stamp that is present and unreadable. relativeTime hands back anything
+# it cannot parse verbatim, which is right for a tooltip and wrong in a sentence - "Checked not a
+# date" is worse than saying nothing. The raw text stays available on hover.
+UNDATED='{schema:1,status:"ok",actionable:0,held_total:2,last_success:"not a date",backends:{}}'
+assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerText")" "2 held" \
+  "an unreadable stamp is left out of the footer, and what IS known still gets said"
+assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerTooltip")" "not a date" \
+  "...with the raw stamp still one hover away, which is where a verbatim value belongs"
 
 # A1, all three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
 # is not carrying it - never both at once, and never neither.
