@@ -6,7 +6,12 @@ One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widg
 
 ![Kempt in the Plasma system tray, popup open](docs/images/kempt-tray-popup.png)
 
-*Kempt as a system-tray entry on Plasma 6, with the popup open on a fully updated box. The tray icon follows your icon theme (this one is kora).*
+*Kempt as a system-tray entry on Plasma 6, with the popup open on a fully updated box. The
+tray icon follows your icon theme (this one is kora).*
+
+> **This screenshot predates the popup redesign and is owed a retake.** The popup it shows
+> has a row of buttons under the heading; today it has a message area, a list and a footer,
+> and the primary button is gone entirely in the up-to-date state pictured here.
 
 ## Why
 
@@ -54,9 +59,16 @@ half stands today.
   scoped to your active local session - not blanket sudo.
 - **A panel widget that says what it knows.** The badge is the actionable count `kempt check`
   just wrote, no data reads as "no data" rather than zero, and a check that failed keeps the last
-  known numbers with the reason in the tooltip instead of raising an alarm. Pending and held
-  lists, one-click updates, per-row pins, and a settings page that is a front-end to
-  `kempt config`.
+  known numbers with the reason in the tooltip instead of raising an alarm. The popup lists what
+  is pending and what is held, dates its own numbers ("Checked 4 min ago"), shows what the last
+  run installed, updates in one click, and pins packages in place from any row. It offers exactly
+  one primary action and does not offer it when there is nothing to run.
+- **It says when a restart is owed, and never performs one.** Every check records whether the
+  running system is still ignoring packages you have already installed. When it is, the popup says
+  so and offers a button that opens KDE's own restart prompt - the cancellable one, with your
+  applications given their usual chance to object. Kempt itself never restarts anything, with any
+  setting. And if you never press it, the updates are still applied: they are on disk, and the
+  restart is only what makes the running system pick them up.
 - **A checkup that says what is wrong.** `kempt doctor` reports the helpers, the polkit action,
   your tools, your config file and your state directory, one line per check, because everything
   else here degrades quietly rather than crashing.
@@ -66,12 +78,16 @@ half stands today.
 - **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
   by the test suite in `tests/` (17 files, 1310 assertions, and it needs neither dnf nor flatpak
   nor root to run). This is the whole engine, and it is the half that is finished.
-- **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold` and
-  `kempt config`, with no package management of its own: a panel icon whose badge is the real
-  actionable count, a popup with the pending and held lists, one-click Update Now, the offline
-  recommendation where you can act on it, and a settings page that is a front-end to
-  `kempt config` rather than a second copy of it. `./install.sh` installs it; you add it to a
-  panel yourself. Everything documented here works from a terminal whether or not it is there.
+- **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold`,
+  `kempt summary --json` and `kempt config`, with no package management of its own: a panel icon
+  whose badge is the real actionable count, and a popup that carries the pending and held lists,
+  a message for each thing that needs saying (a restart owed, a session-critical transaction with
+  its one-click **Install on Next Restart**, a check that failed and why), what the last run
+  installed, a status line dating the counts, and one primary action - hidden rather than greyed
+  out when there is nothing to run. Its settings page is a front-end to `kempt config` rather than
+  a second copy of it. `./install.sh` installs it and it appears in the system tray by default;
+  adding it to a panel directly is still supported. Everything documented here works from a
+  terminal whether or not it is there.
 - Not yet packaged. Installation is a symlink from a git checkout (see below).
 
 ## Quick start

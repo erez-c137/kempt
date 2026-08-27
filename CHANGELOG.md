@@ -93,6 +93,51 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   the placeholder until you log out. The panel states themselves stay on the desktop's own update icons for
   now, deliberately, so Kempt looks like the rest of Plasma; the symbolics are there for the icon
   choice on the roadmap.
+- **A popup that answers the first question in the first second.** It is three parts now and they
+  never move: a header carrying the pending count, a content area carrying every message that
+  applies and then the list, and a footer with the dateline on the left and the one button that
+  acts on the right. What that fixes, in the order a person meets it. **Update Now disappears when
+  there is nothing to run** instead of sitting there greyed out, because an up-to-date box has no
+  run to start and a disabled primary button is an offer being refused rather than an offer never
+  made. **The status line dates the counts** - `Checked 4 min ago`, ticking while the popup is
+  open, with the exact stamp on hover, `· 1 held` when anything is held, and `No successful check
+  yet` on a box whose every check so far has failed, which is not the same thing as one that has
+  never checked. **Version strings are never truncated**: they wrap onto a second line, because
+  `2:24.19.0-1nodesource` is the line people compare between two machines and the tail is the half
+  that differs; a package name too long for its row elides instead. **What the last run did is on
+  screen** as `Last update 18 min ago · 4 packages`, expanding to the packages that run actually
+  installed with a **Show Log** beside them - taken from that run's own history entry through the
+  new `kempt summary --json`, so the popup and `kempt summary` cannot tell two stories about one
+  run. Right after a run, a transient line says `Updated 4 packages in 2s`, `No package changes`
+  or `Update failed: <the reason>`; it replaces what used to be pasted there, which was the first
+  line of `kempt summary` - an ISO timestamp, true and no answer at all to "what just happened?".
+  **Opening the popup re-checks** when the last successful check is older than the smaller of your
+  interval and five minutes, without blocking and without starting a second check alongside one
+  already running. Every message that used to be stacked in the toolbar is an inline message in
+  the content area, the offline recommendation among them, renamed **Install on Next Restart**
+  after what it does to you rather than after the dnf5 flag that implements it. **Check for
+  Updates** is also a contextual action, so it is in the system tray's *More actions* menu and the
+  icon's right-click menu, not only on the popup's own refresh button.
+- **It says when a restart is owed, and it never performs one.** `kempt check` now records
+  `reboot_needed` in the state file: whether a restart is owed **right now**, asked fresh on every
+  check from local facts only (a cache-only, repo-less `needs-restarting`, no network and no
+  prompt). That is a different question from the `reboot_needed` in a history entry, which records
+  whether one was owed when a particular run finished - a history entry goes on claiming a restart
+  long after you have performed one, and says nothing at all when the restart is owed because of a
+  `sudo dnf5 upgrade` typed in a terminal. The live key clears itself and notices what Kempt did
+  not do. The popup turns it into one message, **Restart to apply installed updates**, whose
+  **Restart…** button opens KDE's own restart prompt - cancellable, with your applications given
+  their usual chance to object. Kempt never restarts anything itself, in any state, with any
+  setting, and if the prompt cannot be opened the reason is added to the message rather than
+  swallowed. The message is shown in every state including up to date, because you can owe a
+  restart with nothing pending. Closing it puts it away for the rest of that Plasma session and
+  writes nothing down: a dismissal on disk is a promise to remember it across a restart, and a
+  restart is exactly the event that clears the fact underneath it. New setting
+  `restart_reminder` (default on, and on the settings page as **Remind me when a restart is
+  needed**) turns the message and the button off; the status line still ends `· restart pending`,
+  because that is a fact about your machine rather than a reminder. `kempt doctor` now names the
+  command behind the verdict, since a permanently broken reboot check would otherwise look exactly
+  like a permanently answered one.
 - **A man page**, installed into the user's man hierarchy: `man kempt`.
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
