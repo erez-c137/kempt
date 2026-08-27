@@ -870,13 +870,21 @@ if live is not None:
             p.call_count("check") - before_check, 1)
     ev("root.checking = true")
     p.pump(50)
-    p.check("a check in flight puts the spinner on the control that started it",
+    p.check("a check in flight puts the spinner beside the control that started it",
             lev("refreshBusy.running"), True)
-    p.check("...taking the refresh icon's place rather than standing next to it",
-            lev("refreshButton.visible"), False)
+    # It used to take the button's PLACE. That read well and behaved badly: a control that leaves
+    # the screen takes the keyboard with it, and Space on a Refresh nobody could see queued
+    # another check behind the running one. It refuses in place instead, which says the same thing
+    # to the eye and the truth to the keyboard. Where focus goes in that state is probe_focus.py's
+    # subject; what this pins is that the button stays and the spinner is a separate item.
+    p.check("...while the button stays on screen and refuses",
+            [lev("refreshButton.visible"), lev("refreshButton.enabled")], [True, False])
+    p.check("...the spinner being its own item, not this button's child",
+            lev("refreshBusy.parent !== refreshButton"), True)
     ev("root.checking = false")
     p.pump(50)
-    p.check("...and handing the button back when it is done", lev("refreshButton.visible"), True)
+    p.check("...and handing the button back when it is done",
+            [lev("refreshButton.visible"), lev("refreshButton.enabled")], [True, True])
 
     # --- the primary action, and the row nobody can take away ----------------------------------------
     state(fixture("state-live.json"))

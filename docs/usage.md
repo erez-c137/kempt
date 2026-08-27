@@ -568,9 +568,11 @@ never capped - the badge on the panel stops at `999+` because a panel has no roo
 popup has plenty.
 
 - **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
-  and its accessible name are both *Check for Updates*, and a spinner takes its place while a
-  check or a run is in flight. The same entry is registered as a contextual action, so it is also
-  in the system tray's **More actions** menu and in the icon's right-click menu.
+  and its accessible name are both *Check for Updates*. While a check or a run is in flight it
+  greys out and a spinner appears beside it: it stays where it is rather than disappearing,
+  because a control that leaves the screen takes the keyboard focus with it. The same entry is
+  registered as a contextual action, so it is also in the system tray's **More actions** menu and
+  in the icon's right-click menu.
 - **The gear** opens the same settings dialog as **Configure Kempt…** on the right-click menu.
   It is hidden inside the system tray, because the tray draws its own heading with a gear in it
   and two gears opening one dialog is one gear too many.

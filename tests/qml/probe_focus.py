@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Controls that vanish or go inert under the keyboard, and where the focus goes then.
 
-Adopted from the 2026-08-27 review's own reproductions (probe_hidden_button.py and the first
-section of probe_review.py), kept as the sequences they were found by rather than rewritten - an
-ordinary sequence a user can walk into, whose bug is a control that stopped being on screen while
-it still held the keyboard.
+Adopted from the 2026-08-27 review's own reproductions (probe_hidden_button.py,
+probe_hidden_refresh.py, probe_open_focus.py and the first section of probe_review.py), kept as
+the sequences they were found by rather than rewritten - each one is an ordinary sequence a user
+can walk into, and the bug in every case is a control that stopped being on screen while it still
+held the keyboard.
 
   F1  Update Now is HIDDEN when there is nothing to run, and the box can become up to date while
       the popup is open (the 30s watcher, the hourly timer, a `kempt update` finishing in a
       terminal). Focus stayed on the hidden button, so Space started `kempt run` on a box with
       nothing to update.
+  F4  the same trap on Refresh, which used to be hidden while a check ran, plus the open that
+      walks straight into it: popupOpened() fires the refresh-on-open check FIRST and announces
+      popupShown() after, so focusPrimary() chose a Refresh button the check had just taken off
+      the screen - and the popup opened with the keyboard on nothing at all.
+
 Like probe_a11y.py this one builds a real offscreen window, because `activeFocus` is a property of
 a scene: without a window an item can be told to take focus and will set its own `focus` flag
 while `activeFocus` stays false and a Tab key has nowhere to be delivered. `dbus-send` and
@@ -211,5 +217,84 @@ press(Qt.Key_Escape)
 p.check("Escape still closes the popup after the button vanished", sev("closes") - before, 1)
 press(Qt.Key_Tab)
 p.check("...and Tab still has somewhere to go", focused() != "nothing", True)
+
+# ==================================================================================================
+# F4. the same trap on Refresh, and the open that walks straight into it
+# ==================================================================================================
+# Refresh used to be REPLACED by its spinner while a check ran. Same shape as F1 and the same
+# consequence: the keyboard stayed on a control that was no longer on screen. It is disabled now
+# and stays where it is, with the spinner beside it.
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+lev("refreshButton.forceActiveFocus(Qt.TabFocusReason)")
+p.pump(60)
+p.check("the keyboard is on Refresh", focused(), "refreshButton")
+
+open(SLEEP, "w").write("4")
+ev("root.doCheck()")
+p.pump(400)
+p.check("a check is running, and the spinner is up", [ev("root.checking"), lev("refreshBusy.running")],
+        [True, True])
+p.check("...Refresh is still on screen, refusing rather than disappearing",
+        [lev("refreshButton.visible"), lev("refreshButton.enabled")], [True, False])
+p.check("...so the spinner sits BESIDE it rather than in its place",
+        lev("refreshBusy.parent !== refreshButton"), True)
+
+before_pending = ev("root.recheckPending")
+press(Qt.Key_Space)
+press(Qt.Key_Space)
+press(Qt.Key_Space)
+p.pump(200)
+p.check("pressing a Refresh that is refusing queues nothing",
+        [ev("root.recheckPending"), before_pending], [False, False])
+open(SLEEP, "w").write("0")
+settle()
+p.check("...and it takes the keyboard back the moment the check is done",
+        [lev("refreshButton.enabled"), lev("refreshButton.visible")], [True, True])
+
+# The open that used to land on nothing. On an up-to-date box whose last successful check is old,
+# popupOpened() starts the refresh FIRST (doCheck sets `checking` synchronously) and announces
+# popupShown() after - so focusPrimary ran at the exact moment Refresh was unusable, with Update
+# Now already hidden because there is nothing pending.
+state(UPTODATE)
+ev('root.postRunLine = ""')
+p.check("up to date, with a stamp old enough for the popup to re-check on open",
+        [ev("root.vm.actionable"),
+         ev("Logic.shouldRefreshOnOpen(root.kemptState.last_success, root.refreshIntervalMin,"
+            " Date.now())")],
+        [0, True])
+open(SLEEP, "w").write("4")
+lev("configureButton.forceActiveFocus()")
+p.pump(40)
+ev("root.popupOpened()")
+p.pump(120)
+p.check("the refresh-on-open check really is in flight as focus is placed",
+        ev("root.checking"), True)
+landed = focused()
+p.check("the popup never puts the keyboard on a control that cannot take it",
+        [landed != "nothing",
+         lev("popup.Window.activeFocusItem === null"
+             " || (popup.Window.activeFocusItem.visible"
+             "     && popup.Window.activeFocusItem.enabled)")],
+        [True, True])
+p.check("...and with nothing pending and Refresh refusing, that is the gear",
+        landed, "configureButton")
+open(SLEEP, "w").write("0")
+settle()
+
+# focusPrimary's own rule, stated once and driven in both directions, so a later edit cannot make
+# it "the first control in the row" again.
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
+lev("popup.focusPrimary()")
+p.pump(50)
+p.check("with something to run, the primary is Update Now", focused(), "updateButton")
+state(UPTODATE)
+ev('root.postRunLine = ""')
+p.pump(150)
+lev("popup.focusPrimary()")
+p.pump(50)
+p.check("with nothing to run, it is Refresh", focused(), "refreshButton")
 
 sys.exit(p.done())

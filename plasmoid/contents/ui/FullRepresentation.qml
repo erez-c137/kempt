@@ -105,9 +105,23 @@ PlasmaExtras.Representation {
     // QQC2 control draws its focus ring on `visualFocus`, which is only true for the keyboard
     // reasons - Tab, Backtab, a shortcut. Given Qt.PopupFocusReason instead, the button really
     // would hold focus and nothing on screen would say so.
+
+    // Both halves, and the second one is the half this used to get wrong. `visible` was tested and
+    // `enabled` was not, so an open that coincided with a check in flight put the keyboard on a
+    // Refresh button that was refusing to be pressed. A disabled QQC2 control does not accept
+    // focus, so the forceActiveFocus was simply ignored and the popup opened with focus nowhere.
+    function canTakeFocus(item) {
+        return item.visible && item.enabled;
+    }
+
+    // In the order of what the person came to do: run the update, ask for fresh counts, open the
+    // settings. The last resort is the popup itself, which is where Keys.onEscapePressed lives -
+    // so even a popup whose every control is unusable can still be closed with a key.
     function focusPrimary() {
-        if (updateButton.visible) updateButton.forceActiveFocus(Qt.TabFocusReason);
-        else refreshButton.forceActiveFocus(Qt.TabFocusReason);
+        if (canTakeFocus(updateButton)) updateButton.forceActiveFocus(Qt.TabFocusReason);
+        else if (canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
+        else if (canTakeFocus(configureButton)) configureButton.forceActiveFocus(Qt.TabFocusReason);
+        else popup.forceActiveFocus(Qt.TabFocusReason);
     }
 
     // The open itself. main.qml owns `expanded` and therefore owns the announcement; what any
@@ -148,31 +162,44 @@ PlasmaExtras.Representation {
             // can afford to because the tray's More-actions menu carries the same entry; a refresh
             // that costs two clicks and a menu is not worth having. Kempt registers the contextual
             // action AS WELL (main.qml), so both routes exist and neither depends on the other.
+            PlasmaComponents.ToolButton {
+                id: refreshButton
+                // DISABLED while a check or a run is in flight, and still on screen. The spinner
+                // used to take this button's place instead, on the argument that one spinner
+                // belongs on the control the user pressed - which is right about the spinner and
+                // wrong about the button. A control that leaves the screen takes the keyboard with
+                // it: QQC2 delivers Space to whatever holds activeFocus whether it is drawn or
+                // not, so the keyboard sat on a Refresh nobody could see, and Space there queued
+                // another check behind the one already running. Worse, the popup's own open walks
+                // into it - popupOpened() starts the refresh-on-open check before it announces
+                // popupShown(), so focusPrimary ran at the one moment this control was gone.
+                //
+                // Refusing in place says the same thing to the eye AND to the keyboard: the
+                // button is there, it is greyed, the spinner beside it says why. This is the one
+                // control in the popup where "disabled" is the honest state - unlike Update Now,
+                // whose absence means there is genuinely nothing to run.
+                enabled: !popup.plasmoidItem.checking && !popup.plasmoidItem.updating
+                icon.name: "view-refresh"
+                display: PlasmaComponents.AbstractButton.IconOnly
+                text: i18n("Check for Updates")
+                // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8).
+                Accessible.description: i18n("Check for Updates")
+                PlasmaComponents.ToolTip.text: text
+                PlasmaComponents.ToolTip.visible: hovered
+                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                // The same belt Update Now wears: a control that is refusing must not act, however
+                // the press reached it.
+                onClicked: if (enabled) popup.plasmoidItem.doCheck()
+            }
+
+            // The spinner, BESIDE Refresh rather than over it. Wrapped in an Item that keeps the
+            // cell's width whether it is running or not, so the header does not jump sideways the
+            // moment a check starts.
             Item {
-                implicitWidth: refreshButton.implicitWidth
-                implicitHeight: refreshButton.implicitHeight
+                implicitWidth: refreshBusy.implicitWidth
+                implicitHeight: refreshBusy.implicitHeight
                 Layout.preferredWidth: implicitWidth
                 Layout.preferredHeight: implicitHeight
-
-                PlasmaComponents.ToolButton {
-                    id: refreshButton
-                    anchors.fill: parent
-                    // The spinner takes this button's place rather than sitting somewhere else in
-                    // the row: one spinner in the popup, on the control the user pressed. Hidden
-                    // rather than merely covered, because a control that is invisible and still
-                    // clickable is a trap - and the cell keeps its width either way, since
-                    // implicitWidth is computed whether an item is visible or not.
-                    visible: !refreshBusy.running
-                    icon.name: "view-refresh"
-                    display: PlasmaComponents.AbstractButton.IconOnly
-                    text: i18n("Check for Updates")
-                    // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8).
-                    Accessible.description: i18n("Check for Updates")
-                    PlasmaComponents.ToolTip.text: text
-                    PlasmaComponents.ToolTip.visible: hovered
-                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                    onClicked: popup.plasmoidItem.doCheck()
-                }
 
                 PlasmaComponents.BusyIndicator {
                     id: refreshBusy

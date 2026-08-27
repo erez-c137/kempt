@@ -30,6 +30,7 @@ This file drives the whole open chain for real, counts the close signal (and nev
 the assignment, which would kill the probe), and pins main.qml's two lines statically so the
 drivable seam cannot drift from what the panel really does.
 """
+import datetime
 import json
 import os
 import sys
@@ -197,9 +198,19 @@ def long_from(source, name, count):
     return path
 
 
-def uptodate_from(source, name):
-    """A real capture with nothing left pending - the one shape no fixture carries."""
+def uptodate_from(source, name, fresh=False):
+    """A real capture with nothing left pending - the one shape no fixture carries.
+
+    `fresh` restamps last_success to now. Every fixture here is a dated capture, so a popup opened
+    over one re-checks on open (Logic.shouldRefreshOnOpen) - which is correct behaviour and a
+    confound for any assertion about where the keyboard LANDS, because Refresh is disabled while
+    that check runs. Where focus goes when Refresh is the one unusable control is probe_focus.py's
+    subject; here the question is only which control is the primary one, so the state says it was
+    checked a moment ago and no check starts.
+    """
     doc = json.load(open(fixture(source)))
+    if fresh:
+        doc["last_success"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     for backend in doc["backends"].values():
         backend["items"] = []
         backend["actionable"] = 0
@@ -253,11 +264,13 @@ settle()
 # ...and the state where that button is not on screen at all. It is HIDDEN rather than disabled,
 # so focusing it would leave the popup with no focus anywhere - and a popup with no focus is one
 # where Tab starts from nothing and Escape does not work.
-UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
+UPTODATE = uptodate_from("state-live.json", "state-uptodate.json", fresh=True)
 state(UPTODATE)
 ev('root.postRunLine = ""')
 p.pump(100)
 p.check("up to date: there is no Update Now to focus", lev("updateButton.visible"), False)
+p.check("...and the counts are fresh, so this open starts no check to disable Refresh",
+        ev("root.checking"), False)
 lev("configureButton.forceActiveFocus()")
 ev("root.popupOpened()")
 p.pump(50)
