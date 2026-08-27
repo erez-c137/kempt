@@ -430,8 +430,8 @@ needs to be:
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 17 files and 1932 assertions, 1221 of them in the two widget files (640 under
-node, 581 in the probes), and it runs green with no package manager, no polkit and no desktop
+The whole suite is 18 files and 2174 assertions, 1340 of them in the two widget files (707 under
+node, 633 in the probes), and it runs green with no package manager, no polkit and no desktop
 present.
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
