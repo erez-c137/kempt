@@ -25,7 +25,7 @@ ME="$(id -un)"
 SCOPE='subject.active && subject.local'
 # No hostile-USERNAME render test lives here: the render takes the name from $(id -un) and refuses
 # anything outside ^[a-z_][a-z0-9._-]*$, so a crafted name is unreachable rather than merely
-# harmless — asserting on one would only be testing awk. The binding tests are these guard tests
+# harmless - asserting on one would only be testing awk. The binding tests are these guard tests
 # (what the self-check refuses) plus the production-path check below, which proves a hostile USER
 # env var never reaches the render at all.
 

@@ -17,7 +17,7 @@ assert_eq "$(holds_all | wc -l)" "1" "removing an absent hold preserves other ho
 assert_exit 2 "hold name validated" hold_add dnf '*'
 assert_eq "$(holds_all | wc -l)" "1" "rejected hold was not written"
 
-# mark_held: annotate items with held:bool. Regression guard — jq evaluates the argument of
+# mark_held: annotate items with held:bool. Regression guard - jq evaluates the argument of
 # index() against index()'s OWN input ($holds, an array), so .name must be bound to a $var
 # first or the filter dies with "Cannot index array with string name".
 # State here: flatpak holds org.gimp.GIMP; dnf holds nothing.

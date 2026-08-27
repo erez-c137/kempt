@@ -7,7 +7,7 @@ AH="$REPO_ROOT/libexec/kempt-apply"
 # assertion fails loudly instead of the test reaching a real dnf5 invocation.
 assert_exit 2 "refresh: no verb"        env KEMPT_REFRESH_ECHO=1 bash "$RH"
 assert_exit 2 "refresh: bad verb"       env KEMPT_REFRESH_ECHO=1 bash "$RH" nuke
-# Extra args are never forwarded to dnf5, so they must be REFUSED rather than silently dropped —
+# Extra args are never forwarded to dnf5, so they must be REFUSED rather than silently dropped -
 # `kempt-refresh check --installroot=/foo` must not look like it honoured the flag.
 assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
 assert_exit 2 "refresh: trailing empty arg rejected" bash "$RH" refresh ''
@@ -36,7 +36,7 @@ assert_eq "$got4" "flatpak update --system" "no -y omits the auto-accept flags"
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
 # [A-Za-z] to accented letters, so a caller's locale must not be able to widen what the ROOT
 # helper accepts. ECHO is set as a second guard: if the pin ever regressed, this asserts loudly
-# instead of reaching a real dnf5. Probe first — on a box without en_US.UTF-8 the range does not
+# instead of reaching a real dnf5. Probe first - on a box without en_US.UTF-8 the range does not
 # widen and the assertion would pass for the wrong reason.
 if LC_ALL=en_US.UTF-8 bash -c '[[ "é" =~ ^[A-Za-z]$ ]]' 2>/dev/null; then
   assert_exit 2 "apply: caller locale cannot widen the name pattern" \
@@ -47,7 +47,7 @@ fi
 
 # Root-helper hardening: absolute interpreter + pinned, EXPORTED PATH. Exported matters: without
 # it, children spawned under a cleared environment fall back to a default that puts /usr/local/bin
-# first — for RPM scriptlets running as root, that is a writable-by-admin dir ahead of /usr/bin.
+# first - for RPM scriptlets running as root, that is a writable-by-admin dir ahead of /usr/bin.
 for h in "$RH" "$AH"; do
   head -1 "$h" | grep -qx '#!/bin/bash' && echo "ok: absolute shebang ($(basename "$h"))" \
     || { echo "FAIL: shebang ($(basename "$h"))"; _fail=1; }
