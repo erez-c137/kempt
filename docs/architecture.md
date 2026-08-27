@@ -437,7 +437,7 @@ needs to be:
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 18 files and 2174 assertions, 1340 of them in the two widget files (707 under
+The whole suite is 18 files and 2232 assertions, 1369 of them in the two widget files (722 under
 node, 633 in the probes), and it runs green with no package manager, no polkit and no desktop
 present.
 

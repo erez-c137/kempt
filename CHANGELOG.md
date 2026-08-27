@@ -82,6 +82,16 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   writable state directory and an intact checkout; exit 1 if anything failed. It exists because
   everything else degrades instead of crashing: with the root helpers missing, `check` exits 0
   with a stale state and nothing pending, which reads as "up to date".
+- **A pull you forgot to install cannot hide.** `kempt doctor` ends with the commit the checkout
+  is on, and with `helpers:`, `policy:` and `widget:` lines comparing each installed copy against
+  it. A checkout install is only half live: the CLI is a symlink, so `git pull` moves it at once,
+  while the root helpers, the polkit action and the widget package are copies that change only
+  when `./install.sh` runs. `DIFFER` names that gap and the command that closes it. An install
+  that did not come from a checkout prints `install: packaged` and compares nothing, because the
+  package manager keeps those files in step. The procedure that goes with it is
+  [docs/RELEASING.md](docs/RELEASING.md), which also says why Kempt has no self-update code and
+  never will: a packaged Kempt is updated by the package manager it manages, and shows up in its
+  own popup like anything else that is pending.
 - **A panel widget that tells the truth.** A Plasma 6 applet whose badge is the CLI's own
   actionable count and never a guess: no data reads as "no data", not as zero, and a failed check
   keeps the last known numbers with the reason in the tooltip instead of raising an alarm about a
@@ -93,6 +103,13 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   knowledge of its own; every command it runs goes through one component with a hard timeout, so
   a slow `dnf` can never freeze the panel. `install.sh` installs and removes it, and where it
   lives stays your decision.
+- **One check per run, not three.** The widget watches the package databases and its own state
+  file every 30 seconds, so a `dnf upgrade` typed in a terminal reaches the panel without being
+  asked. It no longer reacts to its own wake: an update rewrites the package database all the way
+  through the transaction and the state file on the way out, which used to leave three
+  `widget check ok` lines in `kempt log` inside 40 seconds, two of them describing nothing. For a
+  minute after a check finishes the watcher stays quiet. Refresh, the scheduled check, opening the
+  popup and a settings change are all exempt.
 - **It sits in the system tray, next to everything else that watches your machine.** Kempt
   declares itself a tray entry under *System Services* and is enabled there by default, so
   installing it is all it takes - no dragging it onto a panel, and inside the tray it is exactly
@@ -164,7 +181,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 17 files and 1932 assertions: every
+- **A test suite that needs none of the tools it drives.** 18 files and 2232 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI
