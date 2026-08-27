@@ -132,9 +132,9 @@ KCM.SimpleKCM {
         if (page.outstandingWrites > 0) return;
 
         page.writeFailed = false;
-        // The sentinel. setIfChanged is dispatched four times in a row, and a naive count would
-        // pass through zero after the FIRST write answered - clearing unsavedChanges while three
-        // more were still queued. Holding one notional write open across the whole dispatch means
+        // The sentinel. setIfChanged is dispatched once per key below, and a naive count would
+        // pass through zero after the FIRST write answered - clearing unsavedChanges while the
+        // rest were still queued. Holding one notional write open across the whole dispatch means
         // the count can only reach zero after every setIfChanged has had its say.
         page.outstandingWrites = 1;
         setIfChanged("include_flatpak", includeFlatpak.checked ? "true" : "false");
@@ -142,6 +142,7 @@ KCM.SimpleKCM {
         setIfChanged("surface", page.selectedSurface());
         setIfChanged("refresh_interval_min", String(interval.value));
         setIfChanged("widget_icon_size", page.iconSizeKey);
+        setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
         finishWrite();      // release the sentinel
     }
 
@@ -325,6 +326,26 @@ KCM.SimpleKCM {
             interval.value = n;
         });
         readKey("widget_icon_size", function (v) { page.applyIconSize(v); });
+        // The one read on this page with a guard of its own, and it is about the `kempt` that is
+        // actually first on PATH rather than about this key. `kempt config get` prints an empty
+        // line and exits 0 for a key it has never heard of, so a CLI older than this release
+        // answers with "" - and Logic.isTrue("") is false, the opposite of what the CLI itself
+        // defaults this key to. Taken at face value that would show the reminder as off on a box
+        // where it is on, and the next Apply would then write the off back, because the empty
+        // string is not equal to "true" either. Recording it as readFailed says the true thing -
+        // this key's stored value is unknown - and setIfChanged already knows what to do with
+        // that: leave it alone unless the user moves the control, where the value on screen is
+        // theirs. main.qml's readRestartReminder guards its own copy of this read the same way.
+        // The other booleans here are read without it because they are as old as `kempt config`;
+        // this key is not, so a CLI that predates it is a thing a user can really have.
+        readKey("restart_reminder", function (v) {
+            // The empty answer described above: it means unknown, and unknown is not false.
+            if (v === "") {
+                page.readFailed["restart_reminder"] = true;
+                return;
+            }
+            restartReminder.checked = Logic.isTrue(v);
+        });
         loadHolds();
     }
 
@@ -481,6 +502,43 @@ KCM.SimpleKCM {
 
         QQC2.Label {
             text: i18n("Inside the system tray the tray sets the space, so a size larger than it allows is ignored.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
+        Item { Kirigami.FormData.isSection: true }
+
+        // --- the restart reminder -------------------------------------------------------------------
+        // Sitting here, with the panel icon above it, because both are settings about what the
+        // WIDGET does on the user's screen - the three groups above them are about the update run
+        // itself, and the buttons below are actions rather than settings.
+        //
+        // What this key can and cannot reach is worth being exact about, because it looks like a
+        // switch on the restart and is not one. Whether a restart is owed is a fact the CLI
+        // measures (the state file's reboot_needed); this decides only whether the popup brings it
+        // up. Off, logic.js drops the message and its button and pushes the two-word `restart
+        // pending` onto the status line instead, so the popup stops reminding without starting to
+        // lie. And in neither state does anything restart on its own: the button the message
+        // carries opens KDE's own logout prompt and waits for the user, which is the whole of what
+        // Kempt has ever done about a reboot.
+        QQC2.CheckBox {
+            id: restartReminder
+            Kirigami.FormData.label: i18n("Restart reminders:")
+            text: i18n("Remind me when a restart is needed")
+            // Ticked before anything has been read, unlike the two booleans at the top of the
+            // page, and deliberately: this is the CLI's own default for the key, so the window
+            // between the dialog opening and the read landing shows the likely truth rather than
+            // its opposite. Nothing is written off the back of it - saveConfig refuses to run
+            // while pendingReads is non-zero, and an unread key stays unwritten after that.
+            checked: true
+            enabled: !page.loading
+            onToggled: page.markChanged("restart_reminder")
+        }
+
+        QQC2.Label {
+            text: i18n("With this off there is no message and no button. The popup's status line still ends \"restart pending\", because that is a fact about your machine rather than a reminder. Nothing ever restarts on its own either way.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8

@@ -1354,7 +1354,7 @@ import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"
 # writing a key the CLI has no default for - is exactly the case where nobody remembers.
 PAGE_KEYS="$(grep -o 'setIfChanged("[a-z_]*"' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
              | cut -d'"' -f2 | sort -u)"
-assert_eq "$(wc -l <<<"$PAGE_KEYS")" "5" "the settings page writes five settings"
+assert_eq "$(wc -l <<<"$PAGE_KEYS")" "6" "the settings page writes six settings"
 for key in $PAGE_KEYS; do
   assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "the CLI has a default for $key, which the page writes"
 done

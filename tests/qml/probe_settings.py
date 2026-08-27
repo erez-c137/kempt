@@ -34,7 +34,7 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
 
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
-            ("widget_icon_size", "medium"))
+            ("widget_icon_size", "medium"), ("restart_reminder", "true"))
 
 
 def setval(k, v):
@@ -427,16 +427,148 @@ p.check("...with their value", stored("include_flatpak"), "false")
 toggle_fail(FAILGET, "include_flatpak", False)
 
 # ==================================================================================================
+# The restart reminder (founder amendment A1).
+#
+# `restart_reminder` decides whether the popup may BRING UP a restart the machine is owed - the
+# message and its Restart... button. It never decides whether one is owed: that is the state file's
+# reboot_needed, and the popup's status line goes on saying `restart pending` either way. So most
+# of what this section asks is what it asks of every other key on this page - does the box show
+# what is stored, does Apply write exactly what the user moved and nothing else, does the value
+# survive a round trip through the CLI - plus one question that belongs to a key this release
+# invents, further down: what the page does when the `kempt` on PATH has never heard of it.
+# ==================================================================================================
+for k, v in DEFAULTS:
+    setval(k, v)
+p.clear_calls()
+pgRem, evRem = build()
+hostRem, hevRem = shell_for(pgRem)
+hevRem("host.attach()")
+p.check("the page reads the reminder setting on open",
+        p.calls_matching("config get restart_reminder"), ["config get restart_reminder"])
+p.check("...and a stored true renders as a ticked box", evRem("restartReminder.checked"), True)
+p.check("...with nothing to save yet", evRem("page.unsavedChanges"), False)
+
+evRem("restartReminder.checked = false")
+evRem("restartReminder.toggled()")
+p.pump(50)
+p.check("unticking it marks the page unsaved", evRem("page.unsavedChanges"), True)
+p.check("...which is what turns the dialog's Apply button on", hevRem("host.applyEnabled"), True)
+p.check("...so closing the dialog now ASKS instead of discarding it silently",
+        hevRem("host.closingWouldPrompt()"), True)
+
+p.clear_calls()
+evRem("page.saveConfig()")
+p.wait_idle(evRem, "cfgExecutor")
+p.check("Apply writes exactly the one key that moved",
+        sorted(c.split()[2] for c in p.calls_matching("config set")), ["restart_reminder"])
+# The argv, not the line: `config set restart_reminder false` has to reach the CLI as four
+# separate words. Logic.shellQuote wraps the value, and a quoting change that turned it into one
+# argument would still log a plausible-looking call line.
+p.check("...as four arguments the CLI can read",
+        p.argv("config"), ["config", "set", "restart_reminder", "false"])
+p.check("...and the CLI holds the value the user chose", stored("restart_reminder"), "false")
+p.check("...while the keys the user never touched stand", stored("widget_icon_size"), "medium")
+p.check("...including the other two booleans", [stored("include_flatpak"), stored("auto_accept")],
+        ["true", "true"])
+p.check("...and the page is clean again", evRem("page.unsavedChanges"), False)
+p.check("...so the dialog's Apply button greys back out", hevRem("host.applyEnabled"), False)
+
+p.clear_calls()
+evRem("page.saveConfig()")
+p.wait_idle(evRem, "cfgExecutor")
+p.check("a second Apply with nothing changed writes nothing at all",
+        p.calls_matching("config set"), [])
+
+# The round trip. The page that wrote it is not the page that has to read it back: a fresh dialog
+# asks the CLI the same question the widget does, and an off setting has to come back off.
+p.clear_calls()
+pgRem2, evRem2 = build()
+p.check("a fresh page reads back what the last one wrote", evRem2("restartReminder.checked"), False)
+p.check("...and remembers it as the stored value", evRem2("page.loaded['restart_reminder']"), "false")
+evRem2("restartReminder.checked = true")
+evRem2("restartReminder.toggled()")
+p.pump(50)
+p.clear_calls()
+evRem2("page.saveConfig()")
+p.wait_idle(evRem2, "cfgExecutor")
+p.check("ticking it back writes true", stored("restart_reminder"), "true")
+p.check("...having called the CLI exactly once", p.call_count("config set restart_reminder"), 1)
+p.check("...and written nothing else", p.call_count("config set"), 1)
+
+# The durable form. Same argument as the auto_accept section at the bottom of this file: the
+# dialog's OK is `applyAction.trigger(); configDialog.close()`, so this write is dispatched into
+# its own teardown and a plain `sh -c` would be SIGKILLed with the config set still unrun. The
+# slow-write seam keeps the job in flight long enough for the command string to be readable.
+setval("restart_reminder", "true")
+toggle_fail(SLOWSET, "restart_reminder")
+pgRem3, evRem3 = build()
+evRem3("restartReminder.checked = false")
+evRem3("restartReminder.toggled()")
+p.pump(50)
+p.clear_calls()
+evRem3("page.saveConfig()")
+cmdRem = evRem3("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
+p.check("the reminder write carries the widget stamp `kempt log` reports",
+        "KEMPT_VIA=widget kempt config set" in cmdRem, True)
+p.check("...with the value quoted by Logic.shellQuote",
+        "config set restart_reminder 'false'" in cmdRem, True)
+p.check("...and ends in the durable form, so an OK press cannot lose it",
+        cmdRem.endswith(" & wait $!"), True)
+p.wait_idle(evRem3, "cfgExecutor", timeout_ms=20000)
+p.check("...and the write lands", stored("restart_reminder"), "false")
+p.check("...leaving the page clean, so `wait $!` carried the exit status back",
+        evRem3("page.unsavedChanges"), False)
+toggle_fail(SLOWSET, "restart_reminder", False)
+
+# An older `kempt` first on PATH has never heard of this key, and `kempt config get` prints an
+# empty line and exits 0 for a key it does not know (docs/configuration.md says so; the stub above
+# does exactly that for a key with no file). isTrue("") is false - which is the OPPOSITE of this
+# key's own default - so a page that took the empty answer at face value would show the reminder
+# as off on a box where it is on, and then write that off back over the key the first time the
+# user pressed Apply for some unrelated reason. main.qml's readRestartReminder carries the same
+# guard, and probe_popup pins it there; this is the settings page's half of it.
+os.remove(os.path.join(VALUES, "restart_reminder"))
+p.clear_calls()
+pgOld, evOld = build(wait=False)
+p.check("the box starts on the CLI's own default, before any answer has arrived",
+        evOld("restartReminder.checked"), True)
+p.wait_for(evOld, "page.pendingReads === 0 && !page.holdsBusy", True)
+p.wait_idle(evOld, "cfgExecutor")
+p.check("...the older CLI answered with an empty line and exit 0",
+        p.calls_matching("config get restart_reminder"), ["config get restart_reminder"])
+p.check("...and the box is STILL ticked: no answer is not an answer of false",
+        evOld("restartReminder.checked"), True)
+p.check("...with the key remembered as one whose stored value is unknown",
+        evOld("page.readFailed['restart_reminder']"), True)
+p.check("...while the keys that CLI does know loaded normally", evOld("interval.value"), 60)
+p.clear_calls()
+evOld("page.saveConfig()")
+p.wait_idle(evOld, "cfgExecutor")
+p.check("an untouched Apply writes no value over the key it could not read",
+        p.calls_matching("config set restart_reminder"), [])
+p.check("...so the older CLI's config is left exactly as it was", stored("restart_reminder"),
+        "(absent)")
+# ...unless the user moves the control, where the value on screen is theirs rather than a default.
+evOld("restartReminder.checked = false")
+evOld("restartReminder.toggled()")
+p.clear_calls()
+evOld("page.saveConfig()")
+p.wait_idle(evOld, "cfgExecutor")
+p.check("but a control the user DID move is written, unheard-of key or not",
+        p.call_count("config set restart_reminder"), 1)
+p.check("...with their value", stored("restart_reminder"), "false")
+
+# ==================================================================================================
 # The rest of the page.
 # ==================================================================================================
 for k, v in DEFAULTS:
     setval(k, v)
 p.clear_calls()
 page6, ev6 = build()
-p.check("all five settings are read on open",
+p.check("all six settings are read on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "refresh_interval_min", "surface",
-         "widget_icon_size"])
+        ["auto_accept", "include_flatpak", "refresh_interval_min", "restart_reminder",
+         "surface", "widget_icon_size"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
 p.check("the stored surface is the selected radio", ev6("page.selectedSurface()"), "popup")
