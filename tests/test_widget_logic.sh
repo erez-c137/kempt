@@ -1035,6 +1035,34 @@ assert_eq "$(vm '{restartReminder:"nonsense"}' "$RB" 0 'restartMessageVisible')"
 assert_eq "$(vm '{restartReminder:undefined}' "$RB" 0 'restartMessageVisible')" "true" \
   "an unstated reminder follows the CLI's default, which is on"
 
+# --- the count and the list under it are one answer ---------------------------------------------
+# The CLI's own totals used to win outright, on the reasoning that the badge should come from the
+# command path that performs the update. They are computed from the same items the widget walks
+# (lib/common.sh: `[.[] | select(.held|not)] | length`), so they can only disagree when something
+# is wrong - a half-written state, an older build, a backend key this widget skips. Whatever the
+# cause, the ROWS are what the person is looking at, so the sentence above them has to describe
+# those rows. "Up to date" over a list of pending updates is the worst thing this popup can say.
+DIVERGENT='{schema:1,status:"ok",actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
+assert_eq "$(js "L.viewModel($DIVERGENT,false).actionable")" "2" \
+  "a state whose total says 0 over two pending rows is counted from the rows"
+assert_eq "$(js "L.viewModel($DIVERGENT,false).iconState")" "updates" \
+  "...so the panel cannot say up to date over a list of pending updates"
+assert_eq "$(js "L.viewModel($DIVERGENT,false).headerText")" "2 updates available" \
+  "...and the header agrees with the list beneath it"
+OVERCOUNT='{schema:1,status:"ok",actionable:9,held_total:0,backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
+assert_eq "$(js "L.viewModel($OVERCOUNT,false).actionable")" "2" \
+  "...and it works the other way too: nine claimed, two listed, two shown"
+HELD_DIVERGENT='{schema:1,status:"ok",actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[{name:"a",held:true}]}}}'
+assert_eq "$(js "L.viewModel($HELD_DIVERGENT,false).heldTotal")" "1" \
+  "the held count comes from the held rows for the same reason"
+# ...and the totals are still the answer when there is nothing to walk. A state that carries counts
+# and no items at all is not a disagreement, it is a state with no list - and reading it as zero
+# would be the confident-zero mistake rule 1 of the schema exists to prevent.
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:7,held_total:2,backends:{}},false).actionable')" "7" \
+  "a state with counts and no items keeps its counts"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:7,held_total:2,backends:{}},false).heldTotal')" "2" \
+  "...both of them"
+
 # --- vm.footerText: the status line -------------------------------------------------------------
 # "Checked ..." is derived from last_success, NOT last_check: the counts on screen are as of the
 # last check that actually told us something, and a failed check has the stale message to explain
@@ -1064,8 +1092,11 @@ assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).headerText"
 # ...and this is the state that settles the wording, because here the header does NOT carry the
 # fact. Stale, counts known, last_success still empty: the header shows a count phrase, so
 # "the header says what is wrong" is no defence for a footer line that is false on its own.
-STALE_NO_SUCCESS='{schema:1,status:"stale",error:"repo flapped",actionable:5,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
-assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "5 updates available" \
+# Its total matches its two rows: a state that disagreed with its own list would be measuring the
+# rule above rather than the one this block is about (see "the count and the list under it are one
+# answer" further down).
+STALE_NO_SUCCESS='{schema:1,status:"stale",error:"repo flapped",actionable:2,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
+assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "2 updates available" \
   "a stale state with known counts heads the popup with a count, not with a warning"
 assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerText")" \
   "No successful check yet" "...so the footer beneath it has to be true standing alone"

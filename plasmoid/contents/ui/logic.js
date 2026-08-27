@@ -874,13 +874,27 @@ function viewModel(state, updating, cliError, opts) {
     var counted = collectItems(usable ? state : null);
     var stale = usable && state.status === "stale";
 
-    // The CLI's own totals win when present: the badge must come from the same command path that
-    // performs the update. The walk above is only a fallback for a state that omits them.
+    // The count and the list under it are ONE answer, and the walk is what produces the list.
+    //
+    // The CLI's own totals used to win outright, on the reasoning that the badge should come from
+    // the command path that performs the update. But they are computed from the same items this
+    // file walks (lib/common.sh: `[.[] | select(.held|not)] | length`), so the two can only
+    // disagree when something is wrong - a half-written state, an entry from an older build, a
+    // backend key this widget drops because it is disabled. And whatever the cause, the ROWS are
+    // what the person is looking at: "Up to date" sitting over a list of pending updates is the
+    // worst thing this popup can say, and the badge would be telling the same lie in the panel.
+    //
+    // The totals are still the answer when there is nothing to walk. A state that carries counts
+    // and no items is not a disagreement, it is a state with no list, and reading it as zero would
+    // be exactly the confident-zero mistake rule 1 of the schema exists to prevent.
+    var walked = counted.sections.length > 0 || counted.heldItems.length > 0;
     var actionable = usable
-        ? (typeof state.actionable === "number" ? state.actionable : counted.actionable)
+        ? (walked ? counted.actionable
+                  : (typeof state.actionable === "number" ? state.actionable : counted.actionable))
         : null;
     var heldTotal = usable
-        ? (typeof state.held_total === "number" ? state.held_total : counted.heldTotal)
+        ? (walked ? counted.heldTotal
+                  : (typeof state.held_total === "number" ? state.held_total : counted.heldTotal))
         : null;
 
     var noState = (state === null || state === undefined);
