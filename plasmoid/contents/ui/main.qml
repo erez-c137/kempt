@@ -559,7 +559,16 @@ PlasmoidItem {
         var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
             ? kemptState.last_success : "";
         if (Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now())) doCheck();
+        root.popupShown();
     }
+
+    // ...and last, the announcement. This file owns `expanded`, so it owns the news that the popup
+    // is on screen; what any given surface DOES about it is that surface's business - today
+    // FullRepresentation puts the keyboard on Update Now, and nothing here needs to know that.
+    // A signal rather than a call into the popup, because the popup item is created lazily by
+    // AppletQuickItem: reaching for it from here would be reaching for something that, on the very
+    // open being announced, may not exist yet.
+    signal popupShown()
 
     // ...and it went away. The transient post-run line was about one event and it has now been
     // seen, so the persistent Last update row takes over: one event, one line at a time.
@@ -678,6 +687,11 @@ PlasmoidItem {
     fullRepresentation: FullRepresentation {
         plasmoidItem: root
         vm: root.vm
+        // Escape. The popup asks; this is the only file allowed to answer, for the same reason the
+        // open goes through popupOpened(): writing `expanded` outside plasmashell segfaults the
+        // process, so the popup states the intent and the assignment lives here, once, next to the
+        // handler that reads the property back.
+        onCloseRequested: root.expanded = false
     }
 
     // What the system tray does with this entry when the user leaves it on "Auto". The tray reads

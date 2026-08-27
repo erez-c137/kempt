@@ -1032,8 +1032,12 @@ if live is not None:
     # is never laid out either, and building the real delegate from a real model row is the same
     # code path with the geometry left out.
     def row(model, expr):
+        # `index` is handed over as well as `modelData`: the delegate declares both as required
+        # (the row scrolls itself into view when its pin takes focus, and needs to know which row
+        # it is), and a required property left unset is a delegate that will not build at all.
         return lev('(function () {'
-                   ' var loader = rowsView.delegate.createObject(rowsView, {"modelData": %s});'
+                   ' var loader = rowsView.delegate.createObject('
+                   '     rowsView, {"modelData": %s, "index": 0});'
                    ' if (loader === null) return "THE DELEGATE WOULD NOT BUILD";'
                    ' var it = loader.item;'
                    ' if (it === null) return "THE DELEGATE LOADED NOTHING";'

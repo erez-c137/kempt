@@ -22,6 +22,10 @@ RowLayout {
 
     signal toggleHold(string backend, string name, bool hold)
 
+    // The pin has taken keyboard focus. A row does not know it is in a list and cannot scroll
+    // itself, so it says so and the list decides what to do about it.
+    signal pinFocused()
+
     spacing: Kirigami.Units.smallSpacing
 
     ColumnLayout {
@@ -63,6 +67,19 @@ RowLayout {
         enabled: !row.busy
         display: PlasmaComponents.AbstractButton.IconOnly
         text: row.held ? i18n("Stop holding %1", row.name) : i18n("Hold %1 at its current version", row.name)
+        // Icon-only, so `text` is never drawn: the tooltip is what a pointer gets and this is what
+        // everybody else gets. It has to be the same sentence and it has to name the PACKAGE - a
+        // list of twelve identical "Hold" buttons is a list nobody can use from the keyboard - so
+        // it is bound to `text` rather than written out, which is also the only form that can
+        // carry a name.
+        Accessible.description: text
+        // A ListView only builds the delegates near its viewport, so on a real Fedora update -
+        // a hundred packages, most of them never rendered - the focus chain contains only the
+        // rows that happen to exist, and Tab walks as far as the last one and then leaves the
+        // list entirely. Measured on the 24-package fixture, 2026-08-27: 17 pins reachable, 7
+        // unreachable. Announcing the focus lets the list scroll this row into view, which puts
+        // the focus ring back on screen AND builds the rows after it.
+        onActiveFocusChanged: if (activeFocus) row.pinFocused()
         PlasmaComponents.ToolTip.text: text
         PlasmaComponents.ToolTip.visible: hovered
         PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay

@@ -580,6 +580,10 @@ KCM.SimpleKCM {
                     enabled: !page.holdsBusy
                     text: i18n("Stop holding %1 back", modelData.name)
                     display: QQC2.AbstractButton.IconOnly
+                    // Icon-only, so `text` is never drawn and the tooltip is only for a pointer.
+                    // The same rule as the popup's pin: every icon-only button in this widget says
+                    // what it is, and names the package it would act on.
+                    Accessible.description: text
                     QQC2.ToolTip.text: text
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay

@@ -73,6 +73,55 @@ PlasmaExtras.Representation {
 
     collapseMarginsHint: true
 
+    // --- the keyboard ------------------------------------------------------------------------------
+    // All of this is about the popup as a WHOLE - which key reaches it, and what holds focus the
+    // moment it appears - so it sits above the three rows rather than inside any one of them.
+
+    // Escape ASKS to close. It does not close, and the difference is structural rather than
+    // stylistic: `expanded` is AppletQuickItem's C++ property and its setter dereferences the
+    // applet with no null check, so a file that assigned it here would be a file no test could
+    // ever press Escape in - the probe would segfault before reporting anything (main.qml says
+    // the same thing over its onExpandedChanged). So the popup states the intent and main.qml,
+    // which owns that property, is the one file that carries it out.
+    signal closeRequested()
+
+    // Klipper's precedent. On the popup rather than on any one control because key events travel
+    // from whatever holds focus UP the parent chain: one handler here catches Escape from the
+    // buttons, the pins and the message actions alike, and no control has to remember to forward
+    // it. Accepted, so a host that would also act on it does not get a second go.
+    Keys.onEscapePressed: event => {
+        popup.closeRequested();
+        event.accepted = true;
+    }
+
+    // What the keyboard lands on when the popup opens: the thing the user came to press.
+    //
+    // Refresh is the fallback rather than a greyed-out Update Now because Update Now is HIDDEN
+    // when there is nothing to run (see the footer for why), and forcing focus onto an invisible
+    // item leaves the popup with no focus at all - at which point every key goes nowhere and the
+    // Escape handler above stops working with them.
+    //
+    // Qt.TabFocusReason, and that argument is the difference between focus and VISIBLE focus: a
+    // QQC2 control draws its focus ring on `visualFocus`, which is only true for the keyboard
+    // reasons - Tab, Backtab, a shortcut. Given Qt.PopupFocusReason instead, the button really
+    // would hold focus and nothing on screen would say so.
+    function focusPrimary() {
+        if (updateButton.visible) updateButton.forceActiveFocus(Qt.TabFocusReason);
+        else refreshButton.forceActiveFocus(Qt.TabFocusReason);
+    }
+
+    // The open itself. main.qml owns `expanded` and therefore owns the announcement; what any
+    // given surface does about it is that surface's business - the same split as closeRequested.
+    //
+    // Component.onCompleted covers the FIRST open and only that one: this item is built lazily,
+    // as a consequence of the popup being expanded, so on that one occasion it is not yet around
+    // to hear the announcement. Every open after it is the Connections.
+    Connections {
+        target: popup.plasmoidItem
+        function onPopupShown() { popup.focusPrimary(); }
+    }
+    Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()
+
     // --- the header ------------------------------------------------------------------------------
     // One row, and that is the whole change here: the count, the refresh icon, the gear. The stale
     // explanation, the risky warning and the last action's report all used to be stacked in this
@@ -144,6 +193,10 @@ PlasmaExtras.Representation {
                 // A real ellipsis, because this opens a dialog. Three ASCII dots are the one
                 // typographic tell that a widget was not written by KDE (hig-review.md P5).
                 text: i18n("Configure Kempt…")
+                // Icon-only, so `text` is never drawn and this is the only place the button says
+                // what it is. Bound rather than spelled out again: one sentence, one literal for
+                // a translator to find.
+                Accessible.description: text
                 PlasmaComponents.ToolTip.text: text
                 PlasmaComponents.ToolTip.visible: hovered
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -184,6 +237,12 @@ PlasmaExtras.Representation {
             Layout.fillWidth: true
             type: Kirigami.MessageType.Warning
             showCloseButton: true
+            // Kirigami gives every InlineMessage the AlertMessage role and no NAME, so a screen
+            // reader announcing this alert reads out its icon - "Warning" - and nothing about
+            // what happened. The words are already right here; this is what makes them the
+            // alert's own. Every message in this stack carries it, the two that only ever report
+            // a failure included: a message nobody can hear is a message that is not being shown.
+            Accessible.name: text
             // Both reasons this can be hidden are written into this one expression, and the handler
             // below re-evaluates the SAME expression. See there for why that matters.
             visible: popup.vm.restartMessageVisible && !popup.plasmoidItem.updating
@@ -237,6 +296,7 @@ PlasmaExtras.Representation {
             Layout.fillWidth: true
             type: Kirigami.MessageType.Warning
             text: popup.vm.riskyMessage
+            Accessible.name: text
             visible: popup.vm.riskyMessage.length > 0
             actions: [
                 Kirigami.Action {
@@ -257,6 +317,7 @@ PlasmaExtras.Representation {
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
             visible: popup.vm.stale && popup.vm.staleReason.length > 0
+            Accessible.name: text
             text: i18n("%1 (last successful check: %2)", popup.vm.staleReason, popup.vm.lastSuccessText)
         }
 
@@ -272,6 +333,7 @@ PlasmaExtras.Representation {
                   ? Kirigami.MessageType.Error : Kirigami.MessageType.Positive
             text: popup.plasmoidItem.postRunLine
             visible: popup.plasmoidItem.postRunLine.length > 0
+            Accessible.name: text
             actions: [
                 Kirigami.Action {
                     text: i18n("Show Log")
@@ -293,6 +355,7 @@ PlasmaExtras.Representation {
             Layout.fillWidth: true
             type: Kirigami.MessageType.Error
             text: popup.plasmoidItem.actionMessage
+            Accessible.name: text
             visible: popup.plasmoidItem.actionMessage.length > 0
         }
 
@@ -313,11 +376,24 @@ PlasmaExtras.Representation {
                     id: rowsView
                     model: popup.vm.rows
                     clip: true
-                    reuseItems: true
+                    // Recycling delegates is the one thing this list must NOT do, and the reason
+                    // is the keyboard rather than the frame rate. Qt walks the focus chain in the
+                    // order the delegates are children of the view, and a recycled delegate keeps
+                    // the place it was created in - so once the pool starts handing rows back, the
+                    // row after the one holding focus is no longer the next child. Measured on an
+                    // 80-package list, 2026-08-27: with reuseItems, Tab threw the user out of the
+                    // list and back through the header twice on the way down. Every row was still
+                    // reachable, and it was still wrong. These delegates are two labels and a
+                    // button, so building them the ordinary way costs nothing worth having.
+                    reuseItems: false
 
                     delegate: Loader {
                         width: rowsView.width
                         required property var modelData
+                        // Only the scroll-into-view below needs this; a Loader gets `index` from
+                        // the view the same way it gets `modelData`, and required is how this
+                        // file asks for either.
+                        required property int index
                         sourceComponent: modelData.kind === "header" ? headerComponent : itemComponent
 
                         Component {
@@ -339,6 +415,11 @@ PlasmaExtras.Representation {
                                 backend: modelData.backend
                                 busy: popup.plasmoidItem.holdInFlight
                                 onToggleHold: (backend, name, hold) => popup.plasmoidItem.setHold(backend, name, hold)
+                                // Keyboard focus has arrived in this row. Contain scrolls the
+                                // least amount that makes the row whole, so a row already on
+                                // screen does not move under a mouse user who just clicked it.
+                                // See UpdateItemDelegate for what goes wrong without this.
+                                onPinFocused: rowsView.positionViewAtIndex(index, ListView.Contain)
                             }
                         }
                     }
