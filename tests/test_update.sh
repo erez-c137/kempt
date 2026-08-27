@@ -170,6 +170,21 @@ assert_eq "$(grep '^FLATPAK' "$WORLD/apply-calls")" "FLATPAK --noninteractive -y
   "flatpak hold → per-app update of the pending, non-held, installed app only"
 grep -q 'com.example.NotInstalled' "$WORLD/apply-calls" && { echo "FAIL: uninstalled app reached flatpak"; _fail=1; } \
   || echo "ok: pending-but-not-installed app is never handed to flatpak"
+
+# EVERY pending app held, which is the case the per-app form can get catastrophically wrong.
+# flatpak_apply overloads "no ids" to mean "update EVERYTHING", so the only thing standing between
+# a fully-held backend and updating every single app the user pinned is the `${#ids[@]} -gt 0`
+# guard in cmd_update. Until this case existed, no test ever emptied that list - the fixtures held
+# one of the two installed apps and left the other to be updated - so deleting that guard left the
+# suite green while turning every hold on this backend into a no-op.
+: > "$WORLD/apply-calls"
+"$KEMPT" hold flatpak:net.mkiol.SpeechNote
+"$KEMPT" update >/dev/null
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "0" \
+  "every pending app held → flatpak is not run at all, rather than run on all of them"
+# Guards the vacuous pass: a run that never reached the flatpak half also writes no FLATPAK line.
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "...on a run that did reach it"
+"$KEMPT" unhold flatpak:net.mkiol.SpeechNote
 "$KEMPT" unhold flatpak:org.gimp.GIMP
 
 # A typo'd flag must never be treated as "run with the configured defaults".
@@ -553,6 +568,52 @@ mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | head -1)"
 assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "3" "the dnf lock error is retried three times"
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" "...and the flatpak disk error is tried exactly once"
 assert_eq "$(grep -c 'retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
+
+# ...and the other half of that: flatpak's OWN lock wordings must be retried too. There are three
+# of them across two libraries, and in two the PATH SITS IN THE MIDDLE - which is the detail a
+# literal pattern gets wrong, and the reason all four lines below are driven rather than one:
+#     Unable to lock %s                  flatpak CLI and libflatpak
+#     Locking repo %s failed             libostree  (the CLI also carries `Locking repo failed (%s)`)
+#     Opening lock file %s/.lock failed  libostree and the CLI
+# (Read 2026-08-27 with `strings` on /usr/bin/flatpak, /usr/lib64/libflatpak.so.0 and
+# /usr/lib64/libostree-1.so.1, flatpak 1.18.1.) Not one of them says rpm, package, transaction or
+# held, so the dnf-shaped half of apply_with_retry's predicate never matched them: a run that lost
+# a race with GNOME Software failed on attempt 1 while the log above it promised three.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"     # dnf succeeds; flatpak is the one retrying
+while IFS='|' read -r label msg; do
+  [[ -n "$label" ]] || continue
+  cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK \$@" >> "$WORLD/apply-calls"
+echo "$msg" >&2
+exit 1
+STUB
+  chmod +x "$TESTTMP/fp-update-stub"
+  : > "$WORLD/apply-calls"
+  rm -f "$KEMPT_STATE_DIR"/logs/*.log
+  "$KEMPT" update --surface=background >/dev/null 2>&1 || true
+  assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "3" "flatpak lock wording retried: $label"
+done <<'CASES'
+libflatpak, path at the end|error: Unable to lock /var/lib/flatpak/repo/.lock: Resource temporarily unavailable
+libostree, path in the MIDDLE|error: Locking repo /var/lib/flatpak/repo failed: Resource temporarily unavailable
+the CLI's own parenthesised form|error: Locking repo failed (Resource temporarily unavailable)
+the lock file could not be opened|error: Opening lock file /var/lib/flatpak/repo/.lock failed: Permission denied
+CASES
+# The near-miss that must NOT be retried. `Unlocking repo failed` contains `locking repo failed`
+# as a substring, so the pattern is word-anchored; unlocking is a different error and not a lock
+# anyone should wait on.
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK \$@" >> "$WORLD/apply-calls"
+echo "error: Unlocking repo failed" >&2
+exit 1
+STUB
+chmod +x "$TESTTMP/fp-update-stub"
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
+  "an UNlock failure is not a lock to wait on, and is tried once"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
 # --- double staging leaves ONE pre-snapshot: only the newest can ever be harvested, so an
 # un-swept copy is dead weight that accumulates one file per staged run, forever.

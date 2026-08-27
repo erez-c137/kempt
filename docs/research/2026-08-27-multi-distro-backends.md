@@ -234,6 +234,12 @@ as root under `pkexec`. Under pkexec `HOME` is root's, so `flatpak update --user
 target *root's* per-user installation, not the invoking user's. A user-scope update must run as
 the user, with no helper and no pkexec at all.
 
+> **Superseded 2026-08-27, later the same day.** The `flatpak-update` verb no longer exists: the
+> system-scope apply moved out of the root helper and into `backends/flatpak.sh`, where it runs
+> as the user. What that does to the paragraph above is remove its premise while confirming its
+> conclusion - the `--user` path now needs no new privilege story at all, because the `--system`
+> one stopped having one. See `docs/security.md`.
+
 And it turns out system scope has the same shape of problem in the other direction. Verified by
 reading `/usr/share/polkit-1/actions/org.freedesktop.Flatpak.policy` on this box:
 
@@ -331,6 +337,10 @@ privileged paths, not more.
 `libexec/kempt-apply` has three verbs (`dnf-upgrade`, `dnf-offline-stage`, `flatpak-update`).
 Each new backend adds a verb to root-owned code, which `CONTRIBUTING.md` correctly says is an
 issue-first change.
+
+> **Superseded 2026-08-27, later the same day.** Two verbs now, both dnf. Flatpak's apply left
+> root-owned code entirely, which is the counter-example this section did not have when it was
+> written: a backend whose package manager needs no root to update needs no verb either.
 
 **3. `NAME_RE` rejects names two of the three candidate ecosystems actually use.** Both
 `lib/common.sh` and `libexec/kempt-apply` pin `^[A-Za-z0-9][A-Za-z0-9._+-]*$`. That covers Debian

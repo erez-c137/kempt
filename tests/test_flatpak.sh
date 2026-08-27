@@ -1,15 +1,34 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
-# sandbox() POISONS KEMPT_FLATPAK_REFRESH_CMD (a nonexistent path) so that no test file can reach
-# flathub by accident. This file is the one that has to see the real shipped default, so it drops
-# the poison for the block below and puts it straight back - anything after that block which calls
-# the refresh has to name its own stub, exactly as every other seam here does.
-# KEMPT_FLATPAK_UPDATE_CMD is poisoned by sandbox() for a louder reason still (an unstubbed apply
-# would update the machine running the suite), and gets the same treatment: dropped for the block
-# that has to see the shipped default, then put straight back.
-_poisoned_fp_refresh="$KEMPT_FLATPAK_REFRESH_CMD"
-_poisoned_fp_update="$KEMPT_FLATPAK_UPDATE_CMD"
-unset KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_UPDATE_CMD
+# sandbox() POISONS KEMPT_FLATPAK_REFRESH_CMD and KEMPT_FLATPAK_UPDATE_CMD with paths that do not
+# exist, so that no test file can reach flathub or update the machine running the suite by accident.
+# This file is the one that has to see the real SHIPPED defaults, and it reads them in a subshell
+# that never exports them rather than dropping the poison in the live shell.
+#
+# That distinction is the whole point. An earlier version of this file unset both seams, ran three
+# dozen lines of assertions, and put the poison back at the end. For the REFRESH seam that window
+# was survivable: the worst an unstubbed refresh does is fetch a summary. For the APPLY seam it is
+# not - one `flatpak_apply` call landing inside that window updates the developer's own machine,
+# which is exactly the thing sandbox() exists to make impossible. So the window is gone: the live
+# shell below is poisoned from the first line to the last.
+#
+# `trap - EXIT` is not decoration. sandbox() installs an EXIT trap that removes $TESTTMP, and a
+# subshell that ran it would delete this file's sandbox out from under the assertions.
+_fp_defaults="$(
+  trap - EXIT
+  unset KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_UPDATE_CMD
+  source "$REPO_ROOT/lib/common.sh"
+  source "$REPO_ROOT/backends/flatpak.sh"
+  printf '%s\n%s\n%s\n%s\n' "$KEMPT_FLATPAK_REMOTE_CMD" "$KEMPT_FLATPAK_REFRESH_CMD" \
+                              "$KEMPT_FLATPAK_LIST_CMD"   "$KEMPT_FLATPAK_UPDATE_CMD"
+)"
+readarray -t FP_DEFAULT <<<"$_fp_defaults"
+# Guards the vacuous pass: four empty strings would satisfy several assertions below while proving
+# the subshell never ran at all.
+assert_eq "${#FP_DEFAULT[@]}" "4" "the four shipped flatpak defaults were read"
+FP_REMOTE_DEFAULT="${FP_DEFAULT[0]}"; FP_REFRESH_DEFAULT="${FP_DEFAULT[1]}"
+FP_LIST_DEFAULT="${FP_DEFAULT[2]}";   FP_UPDATE_DEFAULT="${FP_DEFAULT[3]}"
+# The functions are what the live shell needs, and they are identical whatever the seams hold.
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/flatpak.sh"
 
@@ -19,16 +38,16 @@ source "$REPO_ROOT/backends/flatpak.sh"
 # summary from remote flathub") and the WHOLE flatpak backend went stale. With --cached the same
 # query answers from the local summary in 1.6s with the network blackholed. Measured on this box,
 # 2026-08-27, flatpak 1.18.1.
-assert_eq "$([[ "$KEMPT_FLATPAK_REMOTE_CMD" == *--cached* ]] && echo cache-only || echo network)" \
+assert_eq "$([[ "$FP_REMOTE_DEFAULT" == *--cached* ]] && echo cache-only || echo network)" \
   "cache-only" "the default flatpak check never leaves the box"
 # The refresh arm is the one command on this side that may. It is not optional: --cached does NOT
 # fall back to the network, so a cache nothing ever filled stays a hard rc-1 failure forever.
-assert_eq "$([[ "$KEMPT_FLATPAK_REFRESH_CMD" == *--cached* ]] && echo cache-only || echo network)" \
+assert_eq "$([[ "$FP_REFRESH_DEFAULT" == *--cached* ]] && echo cache-only || echo network)" \
   "network" "the flatpak refresh seam is the arm that fetches"
 # One query in two modes, derived by string so a later edit to either cannot silently desynchronise
 # them: the refresh has to fetch EXACTLY what the check then reads back, --system included (the
 # scope contract asserted just below).
-assert_eq "${KEMPT_FLATPAK_REMOTE_CMD/ --cached/}" "$KEMPT_FLATPAK_REFRESH_CMD" \
+assert_eq "${FP_REMOTE_DEFAULT/ --cached/}" "$FP_REFRESH_DEFAULT" \
   "the refresh is the check command minus --cached"
 
 # --- the scope contract ---------------------------------------------------------------------------
@@ -36,16 +55,15 @@ assert_eq "${KEMPT_FLATPAK_REMOTE_CMD/ --cached/}" "$KEMPT_FLATPAK_REFRESH_CMD" 
 # used to be built inside the root helper, which is why this contract used to be asserted by
 # grepping libexec/kempt-apply). One disagreeing scope means an app the badge counts is an app the
 # run does not touch, or the reverse.
-FP_UPDATE_DEFAULT="$KEMPT_FLATPAK_UPDATE_CMD"
-for _v in KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_LIST_CMD KEMPT_FLATPAK_UPDATE_CMD; do
-  assert_eq "$([[ "${!_v}" == *" --system"* ]] && echo system || echo "unscoped: ${!_v}")" "system" \
+# The pattern is anchored on BOTH sides: a bare `*" --system"*` substring test is satisfied by
+# `--systemwide`, which is a different installation entirely.
+for _v in FP_REMOTE_DEFAULT FP_REFRESH_DEFAULT FP_LIST_DEFAULT FP_UPDATE_DEFAULT; do
+  assert_eq "$([[ " ${!_v} " == *" --system "* ]] && echo system || echo "unscoped: ${!_v}")" "system" \
     "$_v is --system scoped"
 done
 # The apply arm is unprivileged - it is `flatpak update`, nothing more. A pkexec or a helper path
 # creeping back into this default is the regression this change exists to prevent.
 assert_eq "$FP_UPDATE_DEFAULT" "flatpak update --system" "the apply arm is plain flatpak, run as the user"
-export KEMPT_FLATPAK_REFRESH_CMD="$_poisoned_fp_refresh"
-export KEMPT_FLATPAK_UPDATE_CMD="$_poisoned_fp_update"
 
 # Fixture contract (MANIFEST.md): 3 pending apps; com.example.NotInstalled is absent from flatpak-list.tsv.
 out="$(flatpak_parse_remote_ls "$FIXTURES/flatpak-list.tsv" < "$FIXTURES/flatpak-remote-ls.txt")"
@@ -156,11 +174,12 @@ assert_eq "$(fp_line 2)" "flatpak update --system --noninteractive -y net.mkiol.
 assert_exit 1 "one failing app fails the call" flatpak_apply -y org.a.Ok net.FAILME.App org.b.Ok
 assert_eq "$(fp_calls | wc -l)" "3" "...without abandoning the apps after it"
 
-# App ids arrive from a REMOTE's summary. NAME_RE is anchored on its first character, which is what
-# keeps a name that looks like an option from arriving at flatpak AS an option.
+# App ids arrive from a REMOTE's summary. KEMPT_NAME_RE is anchored on its first character, which
+# is what keeps a name that looks like an option from arriving at flatpak AS an option. (The bare
+# name `NAME_RE` belongs to a different constant, the root helper's own copy in libexec/kempt-apply,
+# which no longer sees a flatpak argument at all.)
 : > "$TESTTMP/fp-update-calls"
 assert_exit 2 "an option-shaped app id is rejected" flatpak_apply -y --installation=other
 assert_exit 2 "an injection-shaped app id is rejected" flatpak_apply -y 'evil;id'
 assert_eq "$(fp_calls | wc -c)" "0" "a rejected call updates nothing at all"
-export KEMPT_FLATPAK_UPDATE_CMD="$_poisoned_fp_update"
 finish

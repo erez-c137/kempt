@@ -302,9 +302,14 @@ Recorded here rather than quietly fixed later:
   `wheel` member in an active local session, so the case is silent here; on a distribution
   without such a file, or for a user outside `wheel`, it can still raise one dialog.
 - **`allow_active=yes` means an active local session.** Over SSH the check falls to
-  `allow_inactive` / `allow_any`, which are both `auth_admin`, so `kempt update` typed over SSH
-  now meets Flatpak's own authentication dialog where it used to meet Kempt's. The widget and the
-  terminal surface are local desktop sessions, which is the path this is written for.
+  `allow_inactive` / `allow_any`, which are both `auth_admin`, so the Flatpak half of a run typed
+  over SSH now has to authenticate against Flatpak's own action instead of Kempt's. That is a
+  prompt rather than a refusal in an interactive session: `flatpak` links `libpolkit-agent-1` and
+  registers its own text listener (`flatpak_polkit_agent_text_listener_new`), the same way
+  `pkexec` does, so an SSH session with a terminal is asked. Without a terminal to ask on - a
+  cron job, a headless runner - neither tool has anywhere to put the question, and the call is
+  refused instead. Not tested here either way. The widget and the terminal surface are local
+  desktop sessions, which is the path this is written for.
 - **The `*_ECHO` seams live in root-owned code.** They are unreachable through pkexec (see
   above) and they only print, but they are there.
 - **The rules destination has a test-seam escape hatch.** Any path outside the six system

@@ -107,9 +107,25 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
 
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
 # boundary: dnf goes through the root helper (priv_apply), flatpak runs as the user
-# (flatpak_apply). Everything this function owns is the same for both - the run log, the live tee,
-# and the retry, because a second flatpak instance holds a repository lock exactly the way another
-# dnf does.
+# (flatpak_apply). Everything this function owns is the same for both: the run log, the live tee,
+# and the retry.
+#
+# The retry names flatpak's lock wordings as well as dnf's. Three shapes exist, across two
+# libraries, and the path sits in the MIDDLE of two of them - which is why the patterns are
+# `.*`-joined rather than literal:
+#     Unable to lock %s                 flatpak CLI and libflatpak
+#     Locking repo %s failed            libostree (the CLI also carries `Locking repo failed (%s)`)
+#     Opening lock file %s/.lock failed  libostree and the CLI
+# (Read 2026-08-27 with `strings` on /usr/bin/flatpak, /usr/lib64/libflatpak.so.0 and
+# /usr/lib64/libostree-1.so.1, flatpak 1.18.1.) `\b` keeps `Unlocking repo failed` - a different
+# error, and not a lock we should wait on - out of the match.
+#
+# What is VERIFIED is the wording and the gap: not one of these says "rpm", "package",
+# "transaction" or "held", so the dnf-shaped half of the predicate below never matched them, and a
+# flatpak lock failure was therefore reported on attempt 1 while the message above it promised
+# three. What is NOT verified is whether flatpak fails or blocks when it loses the race - forcing
+# real lock contention was attempted and never contended, so no claim is made about it here. The
+# retry is correct either way: if flatpak blocks, this predicate never sees a line to match.
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
   local attempt rc before_sz
@@ -129,7 +145,7 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
     fi
     [[ $rc -eq 0 ]] && return 0
     if tail -c +$(( before_sz + 1 )) "$log" \
-       | grep -qiE '(rpm|package|transaction).*lock|lock.*held|another (process|application)'; then
+       | grep -qiE '(rpm|package|transaction).*lock|lock.*held|another (process|application)|unable to lock|\blocking repo.*failed|opening lock file.*failed'; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
         echo "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2

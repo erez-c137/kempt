@@ -640,9 +640,11 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
   would remove the whole text-parsing bug class (obsoletes sections, indentation, column drift,
   locale) by construction. v1 keeps the hardened, fixture-pinned text parser rather than churn
   the fixture and test layer mid-build. Migrating that one verb is the designated v2 upgrade.
-- **Flatpak is system scope only.** All three queries and the helper's validation use `--system`,
-  so check, refresh and apply always agree. Per-user apps need no privileges and are a possible
-  future unprivileged path.
+- **Flatpak is system scope only.** All four flatpak commands in `backends/flatpak.sh` (check,
+  installed lookup, refresh, update) name `--system`, so check, refresh and apply always agree.
+  The scope used to be checked a second time inside the root helper; the apply no longer crosses
+  that boundary, so agreement is now this one file's job. Per-user apps need no privileges and
+  are a possible future unprivileged path.
 - **Both flatpak arms are unprivileged, and neither has a Kempt polkit action.** The refresh
   fills a cache in the user's own home, so root would buy nothing. The apply is granted to an
   active local session by the policy flatpak itself ships (`app-update` and `runtime-update` are

@@ -27,7 +27,16 @@ assert_exit 2 "apply: option smuggling"      bash "$AH" dnf-upgrade '--installro
 # ever came back, this asserts loudly instead of the assertion passing on a real flatpak failure.
 assert_exit 2 "apply: the flatpak verb is gone from the root helper" \
   env KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y
-assert_exit 2 "apply: ...with app ids too"   env KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y org.gimp.GIMP
+# The USAGE LINE, not just the exit code, and that is the whole point of this assertion. Exit 2
+# alone does not discriminate: the old THREE-verb helper also exited 2 for this argument list,
+# because it re-checked app ids against the installed set and this box does not have that app. Its
+# verdict was therefore a function of which flatpaks happened to be installed on the machine
+# running the suite - in a suite whose contract is that it needs no flatpak at all. A usage line
+# can only name two verbs when there are two, so this one fails against the old helper for the
+# right reason instead of passing against it for the wrong one.
+fp_verb_out="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y org.gimp.GIMP 2>&1 || true)"
+assert_eq "$fp_verb_out" "usage: kempt-apply dnf-upgrade|dnf-offline-stage [args]" \
+  "apply: ...and says so with a usage line naming only the dnf verbs"
 # KEMPT_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
 got="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
 assert_eq "$got" "dnf5 upgrade -y --exclude=vim-common --exclude=kernel-core" "dnf-upgrade builds exact command"
@@ -60,12 +69,17 @@ done
 
 # No flatpak command may survive in root-owned code. The verb rejection above proves the case is
 # gone; this proves nothing privileged still shells out to flatpak by another name.
+# BOTH helpers, like the shebang and PATH loop above it: the claim is about root-owned code, and
+# kempt-refresh is root-owned code. Checking only kempt-apply would have left the other half of
+# the sentence unverified for the sake of one word.
 # Comment lines are stripped first, exactly as render_passwordless_rule's self-check does it: the
-# helper's header comment SAYS the word flatpak (to explain why the verb left), and a check that
-# read comments would call that a violation.
-grep -v '^[[:space:]]*#' "$AH" | grep -qi 'flatpak' \
-  && { echo "FAIL: a flatpak command is back inside the root helper"; _fail=1; } \
-  || echo "ok: the root helper runs no flatpak command at all"
+# apply helper's header comment SAYS the word flatpak (to explain why the verb left), and a check
+# that read comments would call that a violation.
+for h in "$RH" "$AH"; do
+  grep -v '^[[:space:]]*#' "$h" | grep -qi 'flatpak' \
+    && { echo "FAIL: a flatpak command is back inside $(basename "$h")"; _fail=1; } \
+    || echo "ok: $(basename "$h") runs no flatpak command at all"
+done
 # The --system scope contract moved with it: all four flatpak commands are built in
 # backends/flatpak.sh now, and tests/test_flatpak.sh asserts their scope on the live variables.
 finish

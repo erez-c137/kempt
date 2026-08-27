@@ -462,8 +462,8 @@ kempt disable-passwordless
 Installs or removes a single polkit rule that lets your active local session apply updates
 without the authentication dialog. It covers the dnf half, which is the only half that ever asks:
 Flatpak app updates already run without a prompt. Each takes one `pkexec` prompt to write to
-`/etc/polkit-1`,
-and neither takes any arguments. Disabling something that was never enabled is not an error.
+`/etc/polkit-1`, and neither takes any arguments. Disabling something that was never enabled is
+not an error.
 What exactly is granted is documented in [security.md](security.md#passwordless-mode).
 
 ## The Plasma widget

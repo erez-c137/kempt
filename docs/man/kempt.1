@@ -185,7 +185,9 @@ and values must be single\-line.
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets the current user apply updates without the authentication
-dialog. It covers one action id only, for that user, and only in an active local session.
+dialog. It covers one action id only, for that user, and only in an active local session -
+the dnf half, which is the only half that ever asks, since Flatpak app updates already run
+without a prompt.
 .TP
 .B disable\-passwordless
 Remove that rule.

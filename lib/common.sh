@@ -5,8 +5,14 @@ set -euo pipefail
 # intact in logs and package summaries instead of mangling them.
 export LC_ALL=C.UTF-8
 
-# Package/app name shape. Mirrors the root helper's validation on purpose: a hold must be
-# rejected HERE, at hold time, so a bad name can never reach the privileged apply path.
+# Package/app name shape, and it now does two different jobs on the two sides of the tree.
+# For dnf names it MIRRORS the root helper's own validation, so a hold is rejected HERE, at hold
+# time, and a bad name can never reach the privileged apply path.
+# For flatpak app ids it is no longer a mirror of anything: the apply stopped crossing the
+# privilege boundary (backends/flatpak.sh, KEMPT_FLATPAK_UPDATE_CMD), so this is the ONLY
+# validation those ids get. That is why the anchor on the first character is load-bearing rather
+# than tidy - it is what stops an id out of a remote's summary, such as `--installation=other`,
+# from reaching flatpak as an OPTION instead of an app.
 KEMPT_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 # Test/power-user seam for the session-critical pattern. EMPTY means "use the risky_regex config

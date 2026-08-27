@@ -136,8 +136,7 @@ either.
 Start with the walkthrough in
 [docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro). It covers the two
 functions to implement, the apply path (a new verb in the helper, or an unprivileged one in the
-backend), the fixture and MANIFEST workflow, and
-worked sketches for apt, pacman and zypper.
+backend), the fixture and MANIFEST workflow, and worked sketches for apt, pacman and zypper.
 
 Changes to the state schema, the exit-code contract or the root helpers are worth an issue before
 a pull request. A backend is usually one of those changes, whether or not it looks like one: most
@@ -146,8 +145,8 @@ and adding a backend changes `assemble_state`'s signature either way. Flatpak is
 that shows the question is worth asking: `flatpak update` gets its own polkit yes in an active
 local session, so it applies its own updates from `backends/flatpak.sh` with no helper verb at
 all. So open an issue first, and say which package manager it is and whether its apply needs
-root. The backend file itself is the easy part; the review is about the
-privileged half and the state contract.
+root. The backend file itself is the easy part; the review is about the privileged half and the
+state contract.
 
 ## Docs
 

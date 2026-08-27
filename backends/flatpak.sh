@@ -49,8 +49,11 @@ KEMPT_FLATPAK_LIST_CMD="${KEMPT_FLATPAK_LIST_CMD:-flatpak list --system --app --
 #     it is silent here; on a distribution without that file, or for a user outside wheel, that
 #     case can still raise one dialog.
 #   - allow_active means an ACTIVE LOCAL session. Over SSH the check falls to allow_inactive /
-#     allow_any, which are auth_admin, so `kempt update` typed over SSH now meets flatpak's own
-#     dialog where it used to meet Kempt's.
+#     allow_any, which are auth_admin, so the flatpak half now authenticates against flatpak's own
+#     action instead of Kempt's. It is a prompt rather than a refusal wherever there is a terminal
+#     to prompt on: flatpak links libpolkit-agent-1 and registers its own text listener, exactly
+#     as pkexec does. Headless, neither has anywhere to ask, and the call is refused. Untested;
+#     SSH was never the supported surface.
 KEMPT_FLATPAK_UPDATE_CMD="${KEMPT_FLATPAK_UPDATE_CMD:-flatpak update --system}"
 
 # remote-ls with --columns=application,version may emit an empty version column, and a pending
@@ -98,8 +101,12 @@ flatpak_refresh() { $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1; }
 # a few lines from the call, out of the same `flatpak list --system` any re-check would consult.
 # cmd_update's pre-filter is what keeps an id flatpak does not have off the command line.
 # Returns status explicitly, like every other backend function: `if fn` and `fn ||` both disable
-# errexit inside the body, so nothing here may lean on set -e.
-flatpak_apply() {  # [-y] [app-id...] → rc (per-app when ids are given, all apps when none)
+# errexit inside the body, so nothing here may lean on set -e. Non-zero is the whole contract -
+# every caller tests zero against non-zero and nothing reads the number - so the two branches are
+# deliberately not made to agree: the single-command form passes flatpak's own status through
+# untouched, where it is worth something in a log, while the loop flattens to 1 because "which of
+# these three apps failed" is not a thing one number can say.
+flatpak_apply() {  # [-y] [app-id...] → 0, or non-zero (per-app when ids are given, all apps when none)
   local a id rc=0
   local assume=() ids=()
   for a in "$@"; do
@@ -108,10 +115,13 @@ flatpak_apply() {  # [-y] [app-id...] → rc (per-app when ids are given, all ap
       # get flatpak's own prompt on the terminal surface instead of a silent unattended upgrade.
       -y) assume=(--noninteractive -y) ;;
       # App ids come from a REMOTE's summary, so they stay validated even though nothing here runs
-      # as root: NAME_RE is anchored on its first character, which is what stops a name such as
-      # `--installation=other` from arriving at flatpak as an OPTION. The whole call is rejected
+      # as root: KEMPT_NAME_RE is anchored on its first character, which is what stops a name such
+      # as `--installation=other` from arriving at flatpak as an OPTION. The whole call is rejected
       # rather than one argument quietly dropped, and nothing has run yet when it is.
-      *) [[ "$a" =~ $KEMPT_NAME_RE ]] || { echo "invalid app id: $a" >&2; return 2; }
+      # The message names both possibilities on purpose: everything option-shaped lands here too,
+      # and telling someone their `--installroot=/` is an invalid app id sends them looking in the
+      # wrong place for the mistake.
+      *) [[ "$a" =~ $KEMPT_NAME_RE ]] || { echo "invalid app id or option: $a" >&2; return 2; }
          ids+=("$a") ;;
     esac
   done
