@@ -57,9 +57,11 @@ PlasmaExtras.Representation {
     // applet, but it can overwrite this; tests/qml/probe_popup.py drives it AND pins the
     // expression verbatim, so the drivable seam cannot drift from what the panel evaluates.
     //
-    // ONE control reads this, and it must stay one: the gear, because the tray genuinely offers a
-    // second one. Vault gates its whole footer this way and Kempt must not copy that - a host that
-    // draws its own heading would then take Update Now away with it.
+    // TWO controls read this, and it must stay two: the gear and the refresh icon, because the
+    // tray's own heading genuinely draws both. It must NOT grow past them. Vault gates its whole
+    // footer this way and Kempt must not copy that - a host that draws its own heading would then
+    // take Update Now away with it, and the footer is the one row Plasma's contract does not let
+    // a containment replace.
     property bool traysHeading: (Plasmoid.containmentDisplayHints
                                  & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
@@ -157,13 +159,25 @@ PlasmaExtras.Representation {
                 elide: Text.ElideRight
             }
 
-            // Refresh, in Bluetooth's Header.qml shape (hig-review.md 2.2) with one deliberate
-            // difference: Bluetooth hides this button in the tray, and Kempt does not. Bluetooth
-            // can afford to because the tray's More-actions menu carries the same entry; a refresh
-            // that costs two clicks and a menu is not worth having. Kempt registers the contextual
-            // action AS WELL (main.qml), so both routes exist and neither depends on the other.
+            // Refresh, in Bluetooth's Header.qml shape (hig-review.md 2.2) - and hidden in the
+            // tray for the same reason Bluetooth hides its own, which took a real panel to see.
+            // The note here used to say the opposite: that Kempt could keep the button because the
+            // tray only offers the action buried in a More-actions menu, and a refresh costing two
+            // clicks and a menu is not worth having. That premise is wrong. Plasma 6.7 renders a
+            // SINGLE contextual action as an ICON in the heading it draws, beside the pin and the
+            // gear, so registering checkAction (main.qml) puts a view-refresh icon on screen at
+            // one click - and ours underneath it was the second one.
             PlasmaComponents.ToolButton {
                 id: refreshButton
+                // Both halves, never the hint alone. claimContextualActions() is a try with a
+                // witness precisely because it can fail, and a tray heading with no action
+                // registered draws no refresh icon at all - gating on the hint by itself would
+                // leave the popup with no way to re-check on the one host where the claim did not
+                // take. Off the tray nobody draws anything and this button is the only refresh
+                // there is, which is why the default that falls out of an undefined hint is to
+                // show it.
+                visible: !(popup.traysHeading
+                           && popup.plasmoidItem.contextualActionsClaimed)
                 // DISABLED while a check or a run is in flight, and still on screen. The spinner
                 // used to take this button's place instead, on the argument that one spinner
                 // belongs on the control the user pressed - which is right about the spinner and
@@ -195,6 +209,11 @@ PlasmaExtras.Representation {
             // The spinner, BESIDE Refresh rather than over it. Wrapped in an Item that keeps the
             // cell's width whether it is running or not, so the header does not jump sideways the
             // moment a check starts.
+            //
+            // A SIBLING and not the button's child, which matters twice over now: in the tray the
+            // button is hidden and this becomes the only thing on screen saying a check is running
+            // (the heading's icon belongs to the host and does not spin), so a spinner parented to
+            // the button would disappear with it and a tray check would run with no sign at all.
             Item {
                 implicitWidth: refreshBusy.implicitWidth
                 implicitHeight: refreshBusy.implicitHeight

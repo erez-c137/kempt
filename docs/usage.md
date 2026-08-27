@@ -614,7 +614,9 @@ at `999+` because a panel has no room, and the popup has plenty.
   greys out and a spinner appears beside it: it stays where it is rather than disappearing,
   because a control that leaves the screen takes the keyboard focus with it. The same entry is
   registered as a contextual action, so it is also in the system tray's **More actions** menu and
-  in the icon's right-click menu.
+  in the icon's right-click menu. Inside the system tray the refresh icon lives in the tray's own
+  heading row instead, next to the pin and the gear, so this one is hidden there and the spinner
+  beside it is what tells you a check is running.
 - **The gear** opens the same settings dialog as **Configure Kempt…** on the right-click menu.
   It is hidden inside the system tray, because the tray draws its own heading with a gear in it
   and two gears opening one dialog is one gear too many.
