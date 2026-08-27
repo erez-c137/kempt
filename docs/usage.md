@@ -7,6 +7,8 @@ check                 refresh pending-updates state (JSON to stdout)
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
+summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
+                      or if every entry is damaged)
 history               list past runs
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
@@ -139,7 +141,7 @@ What happens, in order:
    **Enter, Ctrl-D or a second unrecognized answer all abort**, with exit 0 and nothing changed.
    Detached surfaces cannot prompt, so they send a notification naming the families and proceed.
    The same list is published as `risky_pending` by `kempt check`, so the widget can offer
-   "stage offline instead" without re-deriving the rule.
+   its one-click **Install on Next Restart** without re-deriving the rule.
 2. **Lock.** A second concurrent update exits 3. The prompt above happens before the lock is
    taken, so an unanswered recommendation never blocks the next run.
 3. **Pre-flight snapshots** of the installed package sets. If one cannot be read, the run aborts
@@ -502,7 +504,7 @@ anything from a 22 px panel up to a 47 px one, which is every ordinary panel inc
 default. That is deliberate - a standalone Kempt on a 44 px panel used to fill its cell at 32 px
 and stood a head taller than every tray icon beside it.
 
-If that judgement is wrong for your panel, **Configure Kempt... > Panel icon size** offers
+If that judgement is wrong for your panel, **Configure Kempt… > Panel icon size** offers
 **Automatic**, **Small** (16 px), **Medium** (22 px) and **Large** (32 px). Inside the system tray
 the tray sets the space, so a size larger than it allows is ignored and the icon fits its slot.
 
@@ -522,28 +524,139 @@ size than refuse to draw.
 
 ### The popup
 
-Click the icon. The header says how many updates are available; below it are the pending items
-grouped **System (dnf)** and **Apps (flatpak)**, each showing `from -> to`, and a muted **Held**
-group underneath.
+Click the icon. The popup is three parts, and they never move: a **header** that says where you
+stand, a **content area** that says everything else, and a **footer** with the one button that
+acts on it.
 
-- **Update Now** runs `kempt run`, which opens whatever surface you configured. It is greyed out
-  when there is nothing actionable to run, and if a run cannot start, the widget shows the CLI's
-  own message, including its remedy. With the surface set to **In this widget**, the popup shows
-  the run's live log while it works; on the other surfaces the output goes where you chose, and
-  the popup just says so.
-- **Refresh** re-checks now instead of waiting for the timer.
-- **The pin on each row** holds or unholds that package - the same `kempt hold` as the CLI. The
-  row moves between the pending list and the Held group on the next refresh.
-- **"N session-critical pending"** appears when the transaction would rewrite things a running
-  desktop is using (the kernel, the graphics stack, Qt). Next to it, **Stage offline instead**
-  hands the whole transaction to the next reboot. This is the same recommendation `kempt check`
-  publishes as `risky_pending`.
+With updates pending, on a box that also owes a restart and has a kernel in the transaction:
 
-You do not have to keep the popup open. Updates keep running if you close it.
+```
+ 3 updates available                                 [refresh] [gear]   <- header: the count,
+ --------------------------------------------------------------------     Refresh, settings
+ (!) Restart to apply installed updates          [Restart…]      [x]   <- one message per
+ (!) This includes a kernel update. Restart when it finishes.              thing that needs
+                                        [Install on Next Restart]         saying, in order
+ (i) dnf check failed: repo 'updates' unavailable
+     (last successful check: 2026-08-27 09:14)
+
+ System (dnf)                                                          <- the pending list,
+   nodejs                                                     [pin]       grouped by backend
+   2:24.19.0-1nodesource → 2:24.20.0-1nodesource
+ Apps (flatpak)
+   org.mozilla.firefox                                        [pin]
+   140 → 141
+ Held                                                                  <- held items stay
+   kernel-core                                                [pin]       visible, out of
+   6.15.1 → 6.15.3                                                        the running
+
+ Last update 18 min ago · 4 packages                            [v]    <- expands to what
+ --------------------------------------------------------------------     that run installed
+ Checked 4 min ago · 1 held                        [ Update Now ]      <- footer: the dateline
+                                                                          and the one action
+```
+
+**The header** carries the pending count and nothing else: `3 updates available`, or `Up to
+date`, `Updating...`, `No update data yet` before the first check has answered, or `Kempt cannot
+check for updates` when the CLI itself could not be run. It is never capped - the badge on the
+panel stops at `999+` because a panel has no room, and the popup has plenty.
+
+- **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
+  and its accessible name are both *Check for Updates*, and a spinner takes its place while a
+  check or a run is in flight. The same entry is registered as a contextual action, so it is also
+  in the system tray's **More actions** menu and in the icon's right-click menu.
+- **The gear** opens the same settings dialog as **Configure Kempt…** on the right-click menu.
+  It is hidden inside the system tray, because the tray draws its own heading with a gear in it
+  and two gears opening one dialog is one gear too many.
+
+**The messages** appear only when they apply, always in this order:
+
+1. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
+   below. It has a close button; the rest do not.
+2. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
+   NVIDIA driver is in the set) when the transaction would rewrite things a running desktop is
+   using. Its button is **Install on Next Restart**, which hands the whole transaction to the
+   next reboot - the same recommendation `kempt check` publishes as `risky_pending`, and the same
+   thing as `kempt update --surface=offline`. With no kernel in the set the message is the plain
+   count instead: `20 session-critical pending (dbus, glibc, kf6, mesa, ...)`.
+3. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
+   Information rather than a warning, because the counts are still the best known truth.
+4. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
+   `Update failed: <the reason>` in red, each with **Show Log**. It is transient - it clears when
+   you close the popup or the next check starts, and the persistent **Last update** row stays out
+   of the way while it is up. One event, one line at a time.
+5. A button press that failed and has something to say.
+
+**The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
+package and the versions it is moving between. The version line is never truncated: it wraps onto
+a second line instead, because `2:24.19.0-1nodesource` is the line you compare between two
+machines and the tail is the half that differs. A name too long for the row elides instead. The
+pin on each row holds or unholds that package - the same `kempt hold` as the CLI - and the row
+moves between the pending list and the Held group on the next check.
+
+**Last update 18 min ago · 4 packages** is what the previous run actually installed, read from
+that run's own history entry (`kempt summary --json`). Expand it for the package list, with
+**Show Log** for the raw output. It never grows past half the popup, so expanding it cannot
+squeeze the pending list out of sight.
+
+**The footer** dates the counts above it. `Checked 4 min ago` is relative and ticks while the
+popup is open; hover it for the exact timestamp. It gains ` · 1 held` when anything is held, and
+` · restart pending` when a restart is owed but the message above is not on screen. Before any
+check has ever succeeded it reads `No successful check yet`, which is not the same thing as never
+having checked.
+
+**Update Now** runs `kempt run`, which opens whatever surface you configured. With the surface
+set to **In this widget**, the popup shows the run's live log while it works; on the other
+surfaces the output goes where you chose and the popup says so. If a run cannot start, the
+widget shows the CLI's own message, remedy included. You do not have to keep the popup open -
+updates keep running if you close it.
+
+**Opening the popup re-checks** when the last successful check is older than the smaller of your
+check interval and five minutes. It never blocks the popup, and if a check is already running it
+waits for that one rather than starting a second.
+
+With nothing to do, the same three parts say so and stop offering:
+
+```
+ Up to date                                          [refresh] [gear]
+ --------------------------------------------------------------------
+ (!) Restart to apply installed updates          [Restart…]      [x]   <- still shown: you can
+                                                                          owe a restart with
+                (icon)                                                    nothing pending
+        Everything is up to date
+
+ Last update 18 min ago · 4 packages                            [v]
+ --------------------------------------------------------------------
+ Checked 4 min ago                                                     <- no Update Now at all
+```
+
+**Update Now is gone here, not greyed out.** An up-to-date box has no run to start, so there is
+no action to offer - a disabled primary button over "Everything is up to date" is an offer being
+refused rather than an offer never made.
+
+One exception, and it matters: if the only pending updates are **held**, the placeholder is not
+shown. The Held group is on screen carrying the truth instead, so the popup never says
+"everything is up to date" over the top of a list of things that are not.
+
+**About the restart.** **Restart…** opens KDE's own restart prompt - the one that lets your
+running applications object and save, and that you can cancel. Kempt never restarts anything
+itself, in any state, with any setting. If the prompt cannot be opened, the reason is added to
+the message rather than swallowed.
+
+And the message is a fact about the running system, not a job waiting on you: **if you never
+press it, the updates are still applied.** They are installed on disk already. What is still
+running - the kernel, a library something opened before the upgrade - keeps using the old copy
+until that thing restarts. Reboot when it suits you. (Offline staging is the other way round on
+purpose: there the transaction is *held* for the next boot and applies during it. See
+`--surface=offline` above.)
+
+Closing the message with its **x** puts it away for the rest of this Plasma session and writes
+nothing down. That is deliberate: a dismissal written to disk is a promise to remember it across
+a restart, and a restart is the exact event that makes the fact underneath it go away. To turn
+the reminder off for good, see **Restart reminders** below.
 
 ### Settings
 
-Right-click the widget > **Configure Kempt...**. The gear in the popup's header opens the same
+Right-click the widget > **Configure Kempt…**. The gear in the popup's header opens the same
 page, except in the system tray, where the tray draws its own heading with a gear in it and Kempt
 does not add a second one underneath. Every control on that page reads and writes `kempt config` -
 there is no second copy of any setting, so a value you set in a terminal shows up here and vice
