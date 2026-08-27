@@ -78,10 +78,15 @@ dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
 # would otherwise propagate out of the pipeline and become the caller's exit status. The caller is
 # a CHECK, and a check must answer whether or not the nicety on top of it worked. Failure is
 # expressed as an empty table, which the coverage rule downstream already reads as "not known".
+# The format string MUST be a $'...' literal: dnf5 does not unescape \\t itself, so a plain
+# "...\\t..." hands it a backslash and a t, the output has ONE field, awk below finds no $4, and
+# every size silently disappears - which the coverage rule then hides as "unknown". The seam
+# tests feed real tabs and cannot see this; the live check on 2026-08-27 did (four updates, no
+# figure). test_dnf.sh pins the literal's spelling for that reason.
 dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY on any failure. rc 0.
   { if [[ -n "$KEMPT_DNF_SIZES_CMD" ]]; then $KEMPT_DNF_SIZES_CMD
     else timeout 60 $KEMPT_DNF_CMD -C repoquery --upgrades --latest-limit 1 \
-           --qf "%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n" 2>/dev/null; fi; } \
+           --qf $'%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n' 2>/dev/null; fi; } \
   | awk -F'\t' '$4 ~ /^[0-9]+$/ && $4 > 0 { s[$1] += $4 }
                 END { for (n in s) print n "\t" s[n] }' \
   | sort -t "$(printf '\t')" -k1,1 || true

@@ -216,6 +216,16 @@ assert_eq "$(awk -F'\t' '$1=="curl"{print $2}' <<<"$sizes")" "245706" "a single-
 # One row per NAME, never per name.arch: attach_sizes joins on name and would otherwise see two.
 assert_eq "$(cut -f1 <<<"$sizes" | sort -u | wc -l)" "$(grep -c . <<<"$sizes")" "one row per name"
 assert_eq "$(cut -f1 <<<"$sizes" | LC_ALL=C sort -c && echo sorted)" "sorted" "rows come out sorted by name"
+
+# --- the REAL command's format string, since no test can run dnf5 -------------------------------
+# The seam hands dnf_sizes a fixture with real tabs, so the whole size feature passed 2174
+# assertions while the shipped command produced a single-field line: the --qf was written in
+# double quotes, dnf5 printed a literal backslash-t, and the live check stored no size at all
+# (2026-08-27, four updates pending). The only guard a hermetic suite can offer is to pin the
+# spelling of the literal itself: bash $'...' is what turns \t into a tab before dnf5 sees it.
+assert_eq "$(grep -c -- "--qf \$'%{name}\\\\t%{arch}\\\\t%{evr}\\\\t%{downloadsize}\\\\n'" "$REPO_ROOT/backends/dnf.sh")" "1" \
+  "dnf_sizes passes its --qf as a \$'...' literal (a double-quoted \\t reaches dnf5 as two characters)"
+assert_eq "$(grep -c -- '--qf "%{name}' "$REPO_ROOT/backends/dnf.sh")" "0" "no double-quoted --qf survives in the dnf backend"
 # `brandnew` is pending and unpriced on purpose, so the coverage guard downstream has something to
 # fire on. A size table that invented a row for it would hide that.
 assert_eq "$(awk -F'\t' '$1=="brandnew"' <<<"$sizes" | wc -l)" "0" "an unpriced package gets no row"
