@@ -21,6 +21,10 @@ PlasmoidItem {
     property bool updating: false          // a run WE started is in flight
     property bool checking: false          // a check is in flight; keeps checks from piling up
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
+    // When the last check FINISHED, as Date.now(); 0 until one has. The watcher's quiet window is
+    // measured from here - see Logic.watcherCheckDue and pollWatch. A `double`, not an `int`:
+    // Date.now() is milliseconds since 1970 and does not fit in QML's 32-bit int.
+    property double lastCheckFinished: 0
     property bool holdInFlight: false      // a hold/unhold is running; the pins go inert meanwhile
     // How many times we have re-asked after a check that answered with NOTHING. `kempt check`
     // prints an empty line and exits 0 when another check already holds the lock, and on a fresh
@@ -209,6 +213,10 @@ PlasmoidItem {
         checking = true;
         executor.run(kemptCmd + " check", 120000, function(stdout, stderr, rc) {
             root.checking = false;
+            // Stamped for EVERY completed check, whatever it answered, because what the quiet
+            // window below is about is the writes a check makes - state.json, and the caches the
+            // CLI touched getting there - and it makes those whether or not the answer was usable.
+            root.lastCheckFinished = Date.now();
             var parsed = Logic.parseState(stdout);
             if (parsed !== null) {
                 root.kemptState = parsed;
@@ -275,6 +283,9 @@ PlasmoidItem {
             // /var/lib/rpm is rewritten all the way THROUGH a dnf transaction, so ending the
             // updating state on any watched change meant the spinner stopped and a summary of the
             // PREVIOUS run appeared about thirty seconds into this one.
+            // Read BEFORE leaveUpdating clears it: whether this tick is the one that ended a run
+            // is what exempts the post-run check from the quiet window below.
+            var endedRun = delta.state && root.updating;
             if (delta.state) root.leaveUpdating();
 
             // ...and for the same reason, a package database moving while a run of OURS is still
@@ -299,7 +310,27 @@ PlasmoidItem {
             root.readSurface();
             root.readIconSize();
             root.readRestartReminder();
-            root.doCheck();
+
+            // ...and the check itself, unless this change is still the wake of the last one. A run
+            // rewrites the package databases and then state.json, and the 30-second poll went on
+            // finding that same footprint afterwards: three `widget check ok` lines inside 40
+            // seconds on a real run, two of them describing nothing. Logic.watcherCheckDue carries
+            // the rule and the trade it makes.
+            //
+            // Two exemptions, and neither is an optimisation - both are the difference between a
+            // quiet widget and a wrong one:
+            //   endedRun    the post-run check. The moment a run of OURS finishes is the moment
+            //               the counts on screen are most wrong, and a user who pressed Update Now
+            //               within the last minute is exactly the user who would be watching. This
+            //               is the FIRST of those three log lines, and the one that had to stay.
+            //   delta.config a settings apply. The settings page has no other way into this file,
+            //               "changes reach the panel within 30 seconds" (docs/usage.md) is measured
+            //               through this line, and include_flatpak changes what is pending - so it
+            //               needs the check, not only the re-reads above.
+            if (endedRun || delta.config
+                || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
+                root.doCheck();
+            }
         });
     }
 

@@ -264,6 +264,12 @@ poll(True)
 p.wait_for(ev, "root.updating", False, timeout_ms=8000)
 p.check("the CLI writing state.json DOES end the run", ev("root.updating"), False)
 settle()
+# ...and this check is never debounced. The watcher's quiet window (Logic.watcherCheckDue) drops a
+# watcher-triggered check within a minute of the last one, and a run that took twenty seconds after
+# a popup-open check is squarely inside it - but the end of a run is the moment the counts on
+# screen are most wrong, and the user who pressed Update Now is the one looking at them. Checks
+# have been running throughout this probe, so the window IS open here: this line is the regression
+# test for that exemption as much as for the check itself.
 p.check("...and that is what earns a fresh check", p.call_count("check") > before_check, True)
 # What this used to assert, verbatim: root.actionMessage == "Kempt - 2026-08-25T01:00:00
 # (terminal, 42s) ok" - the first line of the human `kempt summary`, pasted into the popup as its
@@ -284,6 +290,11 @@ open(RUNJSON, "w").write(json.dumps(LAST_RUN))   # back to the capture, stamp an
 # to look, which is the stale-badge killer the whole poll exists for.
 p.check("no run is in flight now", ev("root.updating"), False)
 rebaseline()
+# Past the quiet window, because that is the case this asserts. A `dnf upgrade` typed in a terminal
+# minutes after Kempt last looked is the scenario; a package database moving seconds after a check
+# is the run's own wake, and probe_state pins that it is dropped. Wound back rather than waited
+# out: the window's boundaries are pinned to the millisecond under node.
+ev("root.lastCheckFinished = Date.now() - 61000")
 before_check = p.call_count("check")
 f = fields(); f[0] = "1"
 ev("root.watchStamp = %r" % " ".join(f))

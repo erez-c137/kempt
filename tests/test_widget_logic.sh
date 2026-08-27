@@ -1454,6 +1454,49 @@ assert_eq "$(js 'L.watchChange("1 2 3 4",undefined).any')" "false" "...and no an
 assert_eq "$(js 'L.watchFieldsOf("  1   2  3 4  ").length')" "4" \
   "runs of whitespace between the mtimes do not invent fields"
 
+# --- the quiet window after a check: a run's wake is not news -----------------------------------
+# The same watcher, one step further on. A run rewrites /var/lib/rpm all the way through the
+# transaction and then state.json on its way out, so the 30-second poll kept finding that footprint
+# for a minute after the post-run check had already accounted for all of it. Measured on a real run
+# (2026-08-28): three `widget check ok` lines at 00:36:53, 00:37:24 and 00:37:30 - each cache-only,
+# and two of the three describing nothing that had changed since the first.
+assert_eq "$(js 'L.CHECK_QUIET_MS')" "60000" "the quiet window is a minute"
+assert_eq "$(js 'L.watcherCheckDue(1000000, 1000000 + 1000)')" "false" \
+  "a watcher tick one second after a check is that check's own wake"
+assert_eq "$(js 'L.watcherCheckDue(1000000, 1000000 + 59999)')" "false" \
+  "...and so is one a millisecond inside the window"
+assert_eq "$(js 'L.watcherCheckDue(1000000, 1000000 + 60000)')" "true" \
+  "a tick at the window's edge is news again"
+assert_eq "$(js 'L.watcherCheckDue(1000000, 1000000 + 600000)')" "true" \
+  "...and long after it, obviously"
+# Before any check has completed there is no footprint of ours for a change to be, so nothing is
+# suppressed. This is the fresh-login case, where the widget has the most to learn and the least
+# reason to sit quiet.
+assert_eq "$(js 'L.watcherCheckDue(0, 1000000)')" "true" "with no check behind us, nothing is suppressed"
+assert_eq "$(js 'L.watcherCheckDue(null, 1000000)')" "true" "...and neither is it on a missing stamp"
+assert_eq "$(js 'L.watcherCheckDue(undefined, 1000000)')" "true" "...or no stamp at all"
+# A clock that moved backwards - an NTP correction, a resume from suspend - must never silence the
+# widget. The window is an optimisation; one that can suppress every check indefinitely is not.
+assert_eq "$(js 'L.watcherCheckDue(2000000, 1000000)')" "true" \
+  "a clock that moved backwards never suppresses a check"
+assert_eq "$(js 'L.watcherCheckDue(NaN, 1000000)')" "true" "...nor does a stamp that is not a number"
+assert_eq "$(js 'L.watcherCheckDue(1000000, NaN)')" "true" "...nor a now that is not one"
+# Structural, because the rule is only worth anything where it is applied: main.qml must consult it
+# on the watcher's path, and the config field must stay exempt - the settings page has no other way
+# into that file, and docs/usage.md promises the panel catches up within 30 seconds.
+assert_exit 0 "the watcher's check is gated on it" -- \
+  grep -q 'Logic.watcherCheckDue(root.lastCheckFinished' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "...with a config change exempt, so a settings apply still lands within 30 seconds" -- \
+  grep -q 'if (endedRun || delta.config' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+# ...and the post-run check exempt with it, which is the one the window must never eat: a run that
+# took twenty seconds after a popup-open check ends well inside the minute, and that is exactly
+# when the counts on screen are most wrong. Read before leaveUpdating clears `updating`, or the
+# test passes and the behaviour does not.
+assert_exit 0 "...and the post-run check exempt, read before the run state is cleared" -- \
+  grep -q 'var endedRun = delta.state && root.updating;' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "...and every completed check stamps the window it opens" -- \
+  grep -q 'root.lastCheckFinished = Date.now();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+
 # --- the settings page's apply path -------------------------------------------------------------
 # These are structural rather than behavioural - the page needs a real QML engine to drive, which
 # the suite does not have. Each one pins a fix whose absence is silent: the page still opens, still

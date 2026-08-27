@@ -721,6 +721,16 @@ On a box where no check has ever succeeded there is no stamp to be old, so the p
 behind a broken repo, or one whose root helpers were never installed, has nothing to show and no
 other way to find out it has started working.
 
+**The widget also checks when something else changed the machine.** It looks at the package
+databases, its own state file and the config file every 30 seconds, so a `dnf upgrade` typed in a
+terminal, a Discover run or another Kempt run all reach the panel without you asking. What it does
+not do is check again on its own wake: an update rewrites the package database all the way through
+the transaction and the state file on its way out, so for a minute after a check finishes the
+watcher stays quiet rather than re-checking a change that check already accounted for. Before that,
+one run left three `widget check ok` lines in `kempt log` inside 40 seconds, two of them describing
+nothing. Refresh, the scheduled check, opening the popup and a settings change are all exempt: the
+quiet minute applies only to the watcher noticing itself.
+
 With nothing to do, the same three parts say so and stop offering:
 
 ```

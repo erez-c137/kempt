@@ -229,6 +229,11 @@ ev("root.readInterval()")
 p.wait_for(ev, "root.refreshIntervalMin", 15)
 
 # --- 8. ...but a real change from another source does trigger one ------------------------------
+# Outside the quiet window (section 8b), so what is proved here is the watcher's reaction and not
+# the debounce sitting on top of it. Winding the stamp back rather than sleeping a minute: the
+# window's boundaries are pinned to the millisecond by the node tests, and a probe that waited them
+# out would add a minute to the battery for nothing.
+ev("root.lastCheckFinished = Date.now() - 61000")
 harness.touch(STATE_JSON, "2030-01-01")
 before = p.call_count("check")
 ev("root.pollWatch(true)")
@@ -236,6 +241,62 @@ p.wait_for(ev, "root.checking", True, timeout_ms=4000)
 p.wait_for(ev, "root.checking", False)
 p.check("a package database change from ANY source triggers a check",
         p.call_count("check") > before, True)
+
+# --- 8b. the wake of a run is not news ---------------------------------------------------------
+# The bug this closes, in the order it happened on a real box (2026-08-28): a run finished, its
+# post-run check ran at 00:36:53, and the 30-second watcher then found the run's own footprint
+# twice more - `widget check ok` again at 00:37:24 and at 00:37:30. Each was cache-only and cost
+# about two seconds; what they really cost was two lines in `kempt log` that describe nothing.
+# A check has just completed above, so the window is open from here.
+ev("root.doCheck()")                                   # stands in for the post-run check
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+before = p.call_count("check")
+harness.touch(STATE_JSON, "2030-02-01")                # the run's own state write, arriving late
+ev("root.pollWatch(true)")
+p.pump(600)
+p.check("a watcher tick inside the minute after a check starts nothing",
+        p.call_count("check") - before, 0)
+harness.touch(STATE_JSON, "2030-02-02")                # ...and the next poll, still inside it
+ev("root.pollWatch(true)")
+p.pump(600)
+p.check("...and neither does the one after it, so a run costs exactly one check",
+        p.call_count("check") - before, 0)
+
+# The window suppresses the WATCHER and nothing else. Refresh is the same call the popup's button
+# makes, and a person pressing it inside the window has to get a check: they pressed it because
+# they do not believe what is on screen.
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("...while a Refresh press inside the same window still checks",
+        p.call_count("check") - before, 1)
+
+# Past the window, the watcher is believed again.
+ev("root.lastCheckFinished = Date.now() - 61000")
+harness.touch(STATE_JSON, "2030-02-03")
+before = p.call_count("check")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("a watcher tick after the window checks again", p.call_count("check") - before, 1)
+
+# The one exemption, and it is a promise docs/usage.md makes out loud: the settings page writes
+# with `kempt config set` and this watcher is its ONLY way into main.qml, so "changes reach the
+# panel within 30 seconds" is measured through exactly this line. include_flatpak can change what
+# is pending, so re-reading the settings is not enough on its own.
+CONFIG_FILE = os.path.join(p.config, "config")
+os.makedirs(p.config, exist_ok=True)
+open(CONFIG_FILE, "w").write("surface=background\n")
+ev("root.watchStamp = ''; root.pollWatch(false)")      # learn the config file's mtime
+p.pump(600)
+ev("root.doCheck()")                                   # ...and open the window on it
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+before = p.call_count("check")
+harness.touch(CONFIG_FILE, "2030-03-01")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("a settings apply inside the window is still acted on at once",
+        p.call_count("check") - before, 1)
 
 # ==================================================================================================
 # The compact representation's geometry.

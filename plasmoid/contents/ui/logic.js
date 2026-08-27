@@ -348,6 +348,43 @@ function watchFieldsOf(stamp) {
     return out;
 }
 
+// --- the quiet window after a check ------------------------------------------------------------
+// A run leaves a wake. `kempt update` rewrites /var/lib/rpm all the way through the transaction,
+// re-checks itself on the way out (which rewrites state.json), and with flatpak in the mix moves
+// /var/lib/flatpak too - so the 30-second watcher goes on finding changes for a minute after the
+// post-run check has already accounted for every one of them. Measured on a real run (2026-08-28):
+// three `widget check ok` lines inside 40 seconds. Each is cache-only and costs about two seconds,
+// so the waste is small; what is not small is that each one is a line in `kempt log`, which is the
+// file a person reads to find out what happened, and two of the three describe nothing.
+//
+// So a WATCHER-triggered check is dropped while the last completed check is still recent. Only the
+// watcher's: a Refresh press, the scheduled check, the popup opening and the settings page's own
+// config write all go straight through, because each of those is somebody ASKING rather than the
+// machine noticing its own footprint. The post-run check is exempt for a different reason and an
+// even better one - it is the moment the counts on screen are most wrong, and the user who pressed
+// Update Now a minute ago is the one looking at them (main.qml, pollWatch's `endedRun`).
+//
+// The cost is bounded and named: a change from somewhere else landing inside the window is
+// absorbed along with ours, and the next scheduled check is what finds it. That is the right trade
+// for a notifier - absorbing one can only leave the badge over-reporting for a while, never
+// under-reporting, and the surface a person actually looks at asks for itself on open.
+var CHECK_QUIET_MS = 60000;
+
+// watcherCheckDue(lastCheckFinished, now) -> whether a watcher-triggered check should run.
+// `lastCheckFinished` is 0 until a check has completed, and that case answers yes: with no check
+// behind us there is no footprint of ours for this change to be.
+function watcherCheckDue(lastCheckFinished, now) {
+    var last = Number(lastCheckFinished), t = Number(now);
+    if (!isFinite(last) || last <= 0) return true;
+    if (!isFinite(t)) return true;
+    var since = t - last;
+    // A clock that moved backwards (an NTP correction, a suspend) must never suppress a check: the
+    // window is an optimisation, and an optimisation that can silence the widget indefinitely on a
+    // bad clock is not one.
+    if (since < 0) return true;
+    return since >= CHECK_QUIET_MS;
+}
+
 // holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
@@ -1171,6 +1208,8 @@ if (typeof module !== "undefined" && module.exports) {
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,
-        WATCH_FIELDS: WATCH_FIELDS
+        WATCH_FIELDS: WATCH_FIELDS,
+        watcherCheckDue: watcherCheckDue,
+        CHECK_QUIET_MS: CHECK_QUIET_MS
     };
 }
