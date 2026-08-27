@@ -186,6 +186,12 @@ PlasmoidItem {
         // and the callback that sets the line lands after it. The Executor's queue is strictly
         // first-in-first-out, which is what makes that a rule rather than a race.
         postRunLine = "";
+        // ...and so has the last restart prompt's apology, for the same reason: it belongs to one
+        // press, and the popup is now busy with the next thing. Left standing it outlived the box
+        // it was about - a prompt that failed once kept apologising inside the restart message for
+        // the whole plasmashell session, over a machine that had been checked several times since
+        // and might no longer owe a restart at all.
+        restartError = "";
         // Asked again while one is running: coalesce, never drop. Dropping looks harmless because
         // the running check will finish anyway - but its answer was read BEFORE the change that
         // asked for this one, and the re-baseline below would then swallow that change as if we
@@ -599,6 +605,9 @@ PlasmoidItem {
     // seen, so the persistent Last update row takes over: one event, one line at a time.
     function popupClosed() {
         postRunLine = "";
+        // Same rule, same reason - see doCheck. The apology is about a press the user has now
+        // walked away from, and it must not be waiting for them the next time they open this.
+        restartError = "";
     }
 
     // `expanded` is the engine's own property and the only honest source for this. It is also the

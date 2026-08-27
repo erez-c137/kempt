@@ -125,4 +125,35 @@ settle()
 p.check("the prompt executor is its own instance, not the tail's",
         ev("promptExecutor !== tailExecutor && promptExecutor !== executor"), True)
 
+# ==================================================================================================
+# Unverified #6. a prompt that would not open leaves a message with no way out
+# ==================================================================================================
+# restartError is the popup's own report of a Restart... that failed, shown inside the restart
+# message where the user pressed. Nothing ever cleared it except a LATER successful press, so an
+# apology for a prompt that failed once sat inside the message for the rest of the plasmashell
+# session - over a box that had since been checked twice and might not owe a restart at all.
+# Same rule as the transient post-run line above it: an event has its moment, and the next event
+# ends it.
+open(DBUSRC, "w").write("1")
+ev("root.promptRestart()")
+settle()
+p.check("a prompt that will not open says so", ev("root.restartError"),
+        ev("Logic.COPY.restartFailed"))
+ev("root.popupClosed()")
+p.check("...and closing the popup retires that apology, like every other transient line",
+        ev("root.restartError"), "")
+
+ev("root.promptRestart()")
+settle()
+p.check("the apology comes back if it fails again", ev("root.restartError") != "", True)
+ev("root.doCheck()")
+p.check("...and a new check clears it too, before its answer even arrives",
+        ev("root.restartError"), "")
+settle()
+
+open(DBUSRC, "w").write("0")
+ev("root.promptRestart()")
+settle()
+p.check("a prompt that DOES open leaves nothing to apologise for", ev("root.restartError"), "")
+
 sys.exit(p.done())
