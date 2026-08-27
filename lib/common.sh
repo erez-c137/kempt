@@ -22,6 +22,12 @@ KEMPT_RISKY_RE="${KEMPT_RISKY_RE:-}"
 # Test/power-user seam for the boot session (see current_boot_id). EMPTY means "read procfs".
 KEMPT_BOOT_ID="${KEMPT_BOOT_ID:-}"
 
+# The checkout this code was loaded from. bin/kempt already computes the same path for its
+# `source` lines; this is the copy the library itself can use, so kempt_version does not need the
+# caller to hand it one. A seam, because a test must be able to point it at a tree with no VERSION
+# file without moving the real one.
+KEMPT_ROOT="${KEMPT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
 KEMPT_CONFIG_DIR="${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 KEMPT_STATE_DIR="${KEMPT_STATE_DIR:-$HOME/.local/state/kempt}"
 KEMPT_PKEXEC="${KEMPT_PKEXEC-pkexec}"
@@ -183,6 +189,24 @@ kempt_default() {  # key → default ("" if unknown)
   esac
 }
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
+
+# ONE version string for the whole project, and the file is it. Four numbers have to agree before
+# anything is published - the git tag, the RPM `Version:`, the AppStream `<release version=>` and
+# the widget's KPlugin.Version - and nothing enforces that agreement except a single place to read
+# from. A plain file rather than a constant in bin/kempt so a spec file, a CI job or a packaging
+# script can read it without parsing shell. tests/test_version.sh pins metadata.json to it.
+#
+# Read lazily, never at source time: `kempt check` runs from a timer and has no use for a version,
+# so it should not pay a file read for one.
+# "unknown" rather than an error for a missing or empty file, because a version is a diagnostic:
+# a build that cannot say what it is must still be able to update the machine. `head -1` and the
+# whitespace strip are what keep a stray editor newline out of `kempt --version`.
+kempt_version() {  # → the version string, or "unknown"
+  local v
+  v="$(head -1 "$KEMPT_ROOT/VERSION" 2>/dev/null || true)"
+  v="${v//[[:space:]]/}"
+  printf '%s\n' "${v:-unknown}"
+}
 
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then

@@ -47,6 +47,8 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt enable\-passwordless
 .br
 .B kempt disable\-passwordless
+.br
+.B kempt \-\-version
 .SH DESCRIPTION
 .B kempt
 reports and applies pending system updates from the dnf5 and Flatpak backends, and is the
@@ -191,6 +193,19 @@ without a prompt.
 .TP
 .B disable\-passwordless
 Remove that rule.
+.TP
+.BR \-\-version ", " version ", " \-V
+Print
+.RB ' "kempt <version>" '
+and exit. The version is read from the
+.I VERSION
+file in the checkout, which is the project's single source of truth for it; a checkout without
+one prints
+.RB ' "kempt unknown" '
+rather than failing, because a build that cannot say what it is must still be able to update the
+machine.
+.BR "kempt doctor" 's
+first line reports the same version and the checkout it came from.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config
@@ -221,6 +236,12 @@ See
 .I docs/configuration.md
 in the source tree for the full reference.
 .SH FILES
+.TP
+.I <checkout>/VERSION
+The project's version, and the single source of truth for it: the widget's
+.I metadata.json
+is pinned to this file by the test suite, and a release's tag, RPM version and AppStream release
+are expected to agree with it.
 .TP
 .I ~/.config/kempt/config
 Settings.

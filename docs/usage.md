@@ -452,6 +452,24 @@ kempt config get refresh_interval_min   # 60
 Keys must match `^[a-z][a-z0-9_]+$` and values must be single-line, or `set` exits 2. Every key,
 its type, its default and its effect are in [configuration.md](configuration.md).
 
+## --version
+
+```bash
+kempt --version        # kempt 0.1.0
+kempt version          # the same, for the spelling people guess
+kempt -V               # and the one they have in their fingers
+```
+
+The first thing any bug report needs. The number comes from the `VERSION` file at the root of the
+checkout, which is the one place this project writes its version down: the Plasma widget's
+`metadata.json` is pinned to it by the test suite, and a release's git tag, RPM `Version:` and
+AppStream `<release>` are expected to agree with it too.
+
+A checkout with no `VERSION` file prints `kempt unknown` and carries on. That is deliberate: a
+version is a diagnostic, and a build that cannot say what it is must still be able to update your
+machine. `kempt doctor` opens with the same version and the checkout it was read from, which is
+why pasting a doctor report into an issue is worth more than pasting a version alone.
+
 ## enable-passwordless, disable-passwordless
 
 ```

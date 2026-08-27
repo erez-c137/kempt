@@ -96,6 +96,7 @@ half stands today.
 git clone https://github.com/erez-c137/kempt.git
 cd kempt
 ./install.sh          # one pkexec prompt: root helpers + polkit action, then the panel widget
+kempt --version       # which build is this
 kempt doctor          # verify the install: helpers, polkit action, tools, config, state
 kempt check           # what is pending, as JSON
 kempt update          # run it now, ending with a summary

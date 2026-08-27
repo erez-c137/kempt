@@ -9,6 +9,15 @@ source "$ROOT/backends/flatpak.sh"
 
 command -v jq >/dev/null || { echo "kempt: requires jq" >&2; exit 3; }
 
+# Every bug report against a packaged tool starts with a version number, and until this existed
+# "which build is this?" had no answer anywhere: `kempt help` listed the commands, `kempt doctor`
+# reported jq's version but not its own, and there are no git tags. Both spellings are accepted
+# because both get typed - `--version` is the convention, `version` is what people guess.
+cmd_version() {
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  printf 'kempt %s\n' "$(kempt_version)"
+}
+
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
@@ -737,6 +746,10 @@ doctor_helper() {  # label seam_path annotated_path
 
 cmd_doctor() {
   DOCTOR_FAILS=0
+  # First line, and info rather than ok: it is not a check that can pass or fail, it is the fact
+  # every other line in this report has to be read against. A doctor report pasted into a bug
+  # report without it describes an unknown build.
+  doctor_info "kempt $(kempt_version) ($KEMPT_ROOT)"
   doctor_helper refresh "$KEMPT_REFRESH_HELPER" "$KEMPT_REFRESH_HELPER_PATH"
   doctor_helper apply   "$KEMPT_APPLY_HELPER"   "$KEMPT_APPLY_HELPER_PATH"
 
@@ -977,6 +990,7 @@ usage: kempt <command>
   holds                 list holds
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
+  --version             print the version and exit
 EOF
 }
 
@@ -994,6 +1008,7 @@ case "${1:-help}" in
   holds)   shift; cmd_holds "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
+  version|--version|-V) shift; cmd_version "$@" ;;
   help|--help|-h) usage ;;
   *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

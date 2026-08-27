@@ -21,6 +21,10 @@ Everything in the design is built and in the tree on `build/cli-v1`:
   and its **Restart…** button, which opens KDE's own prompt and nothing else; the Last update row
   fed by `kempt summary --json`; a re-check on open when the numbers are stale; and Update Now
   hidden rather than greyed out when there is nothing to run.
+- **A version, and one place it is written down.** `kempt --version` prints it, `kempt doctor`
+  opens with it, and the widget's `metadata.json` is pinned to the same `VERSION` file by the test
+  suite - so "which build is this?" has an answer in a bug report, and the two halves of the
+  project cannot claim to be different releases of it.
 - **One network boundary, both backends.** Checks are read-only against local caches on the dnf
   and the Flatpak side alike, and every fetch happens in `maybe_refresh_metadata` - once every
   three hours, on mains power, on an unmetered link. A check on a train answers from what is
@@ -106,9 +110,6 @@ What is left needs a human at the keyboard, in this order:
   the root helper: both flatpak arms run as you now, which is the only way a `--user` update could
   ever work at all. What is left is a scope decision - one setting, or both scopes every time -
   rather than a privilege problem.
-- **`kempt --version`.** There is no version flag today: `kempt help` lists the commands and
-  nothing prints a version at all, which makes "which build is this?" unanswerable in a bug
-  report. It arrives with packaging, since that is what makes the answer mean something.
 - **History hygiene for going public** - the commit history is already clean (no subject or body
   carries an em dash). What is left is a decision about the working archives: `docs/plans`,
   `docs/specs` and `docs/research` are deliberately outside the published-docs standard, and

@@ -22,6 +22,10 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   connection. On a train, behind a captive portal or on battery, `kempt check` still says what is
   pending instead of reporting the Flatpak side stale. The Flatpak half of that fetch runs as you,
   with no privilege escalation of any kind.
+- **A version you can quote in a bug report.** `kempt --version` (also `kempt version` and
+  `kempt -V`) prints the release, and `kempt doctor` opens with it and the checkout it came from.
+  One `VERSION` file is the source of truth: the panel widget is pinned to it by the test suite,
+  so the CLI and the widget cannot report different releases of the same install.
 - **Holds that skip but still notify.** `kempt hold dnf:kernel-core` keeps a package out of
   every Kempt run while it stays visible as pending, out of the actionable count, and named in
   each run's `Held (skipped)` line.

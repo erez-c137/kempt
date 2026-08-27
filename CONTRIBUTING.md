@@ -167,6 +167,23 @@ Documentation is a first-class deliverable here, and it is held to the same stan
 
 - Concise beats complete. A reader who finishes a page should know what to do next.
 
+## Bumping the version
+
+`VERSION` at the root of the checkout is the only place this project writes its version down.
+`kempt --version` reads it, `kempt doctor` opens with it, and `tests/test_version.sh` pins the
+widget's `plasmoid/metadata.json` to it - so a bump is one edit and one test run:
+
+```bash
+printf '0.2.0\n' > VERSION
+tests/test_version.sh          # fails until metadata.json agrees
+```
+
+Then edit `KPlugin.Version` in `plasmoid/metadata.json` to match, and add the release's section to
+`CHANGELOG.md`. Anything else that carries a number at release time - the git tag, an RPM
+`Version:`, an AppStream `<release version=>` - is expected to agree with `VERSION` as well, and
+those are the ones nothing checks for you yet. Bump in its own commit, so the diff that says what
+the release is stays readable.
+
 ## Commits and pull requests
 
 One commit per logical change, present-tense subject, prefixed by type, matching what is already
