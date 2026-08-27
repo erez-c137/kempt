@@ -372,6 +372,10 @@ ok    flatpak: /usr/bin/flatpak
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
+info  version: kempt 0.1.0 (checkout a1b2c3d clean)
+ok    helpers: match checkout
+ok    policy: match checkout
+ok    widget: match checkout
 
 Recent events (kempt log):
   2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
@@ -399,9 +403,34 @@ What it checks, and what each failure means:
 | Every config line is `key=value` with a valid key | The file is read with `grep "^key="`, so a malformed line is ignored forever and the setting the user wrote never applies. |
 | The state directory is writable, or can be created | No state file, no history, no logs. |
 | The checkout still holds `lib/`, `backends/` and the passwordless rules template | The CLI is a symlink into the checkout. A missing rules template only surfaces the day `enable-passwordless` is run. |
+| The installed root helpers, polkit action and widget package still match the checkout | You pulled and did not re-run `./install.sh`. The CLI is a symlink so it moved with the pull; those three are copies, so root is still running the old helper. |
 
 Lines are `ok`, `info` or `FAIL`. Only `FAIL` affects the exit code, and every check runs even
 after one fails, so one pass shows every problem.
+
+### The install lines
+
+The last four lines are about the install itself rather than the machine.
+
+`version:` names the release and, in a git checkout, the commit it was built from and whether the
+tree is clean. It is the line worth quoting in a bug report: `0.1.0` covers many commits, and
+`dirty` says local edits are in play. A tree with no git history, or a box with no `git`, prints
+the release alone.
+
+`helpers:`, `policy:` and `widget:` compare each installed copy against the checkout, byte for
+byte. They exist because a checkout install is only half live: `~/.local/bin/kempt` is a symlink,
+so `git pull` updates the CLI immediately, while the two root helpers, the polkit action and the
+widget package are copies that only change when `./install.sh` runs. Before this, a pull without
+an install left root running last week's helper with nothing anywhere saying so.
+
+A `DIFFER` line is a `FAIL` and names the fix. `not installed` is an `info` instead: a missing
+root helper is already a `FAIL` on its own line above, and the widget is optional. Nothing here
+needs privileges to check, because the installed copies are world-readable.
+
+An install that did not come from a checkout prints `install: packaged` and compares nothing.
+There is nothing to drift: the package manager owns those files and keeps them in step, which is
+the whole point of shipping Kempt as a package. See
+[docs/RELEASING.md](RELEASING.md).
 
 The last five events are printed after the checks, indented so nothing there can be mistaken for
 a report line. They are not a check and never affect the exit code: the question that follows

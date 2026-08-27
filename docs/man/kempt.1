@@ -149,6 +149,23 @@ the terminal emulator, flatpak, the configuration file's syntax, a writable stat
 an intact checkout. Every check runs even after one fails. Exit status 1 when anything failed.
 The last five lines of the event log are printed after the checks; they are not a check and never
 affect the exit status.
+.IP
+The report ends with the install itself. A
+.B version:
+line names the release, and in a git checkout the commit it came from and whether the tree is
+clean. Then
+.BR helpers: ", " policy: " and " widget:
+compare each installed copy against the checkout, byte for byte: the CLI is a symlink, so
+.B git pull
+updates it at once, while the two root helpers, the polkit action and the widget package are
+copies that change only when
+.B ./install.sh
+runs.
+.B DIFFER
+means exactly that pull, and the line names the command that fixes it. An install that did not
+come from a checkout prints
+.B "install: packaged"
+and compares nothing, because the package manager keeps those files in step.
 Worth running when
 .B check
 reports nothing pending on a machine that cannot possibly be up to date: a missing root helper

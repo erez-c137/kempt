@@ -219,6 +219,19 @@ QML it already loaded, so run `plasmashell --replace` (or log out and back in) a
 the new version. The installer deliberately does **not** remove and re-install the package to
 force that: removing it would take the widget off your panel and out of your tray with it.
 
+Then `kempt doctor` confirms every copy matches the checkout:
+
+```
+info  version: kempt 0.1.0 (checkout a1b2c3d clean)
+ok    helpers: match checkout
+ok    policy: match checkout
+ok    widget: match checkout
+```
+
+A `DIFFER` line there is the pull you have not installed yet, and it names the command that fixes
+it. Kempt never updates itself; see [RELEASING.md](RELEASING.md) for why, and for what changes
+once Kempt ships as a package.
+
 ## Staged install (packagers and testers)
 
 `--destdir` stages every file into a prefix, unprivileged, with no `pkexec` and no prompts:

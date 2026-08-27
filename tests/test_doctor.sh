@@ -31,6 +31,28 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 
+# Where a REAL install puts its copies, staged into the sandbox through install.sh's own --destdir
+# seam - so what the install-skew section compares is a real staged install rather than a
+# hand-built lookalike that could agree with a bug in either file. Exported for the whole file:
+# left at their defaults these point into /usr/local/libexec and the developer's own plasmoid
+# directory, and the skew verdict would then depend on what the box running the suite happens to
+# have installed, which is the one thing this file promises never to do.
+# The ANNOTATED paths, not the executable seams: doctor compares the copies the INSTALLER wrote,
+# which in production are the paths polkit pins. The stubs above stay where they are, so every
+# helper line keeps taking its "seam override" branch exactly as before.
+STAGE="$TESTTMP/stage"
+bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+S_REFRESH="$STAGE/usr/local/libexec/kempt-refresh"
+S_APPLY="$STAGE/usr/local/libexec/kempt-apply"
+S_POLICY="$STAGE/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy"
+S_WIDGET="$STAGE$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt"
+export KEMPT_REFRESH_HELPER_PATH="$S_REFRESH" KEMPT_APPLY_HELPER_PATH="$S_APPLY"
+export KEMPT_PLASMOID_DIR="$S_WIDGET"
+for f in "$S_REFRESH" "$S_APPLY" "$S_POLICY"; do
+  [[ -f "$f" ]] || { echo "FAIL: --destdir staged no $f"; _fail=1; }
+done
+[[ -d "$S_WIDGET" ]] || { echo "FAIL: --destdir staged no widget package"; _fail=1; }
+
 assert_exit 0 "healthy install: doctor exits 0" "$KEMPT" doctor
 grep -q 'all checks passed' "$TESTTMP/last_output" \
   && echo "ok: healthy install says so" || { echo "FAIL: no all-clear line"; _fail=1; }
@@ -55,11 +77,19 @@ assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
 # therefore a seam of its own, and a test reaches the real check by setting it equal to the
 # helper seam. Nothing is executed here; doctor only stats the path.
 ME_U="$(id -un)"; ME_G="$(id -gn)"
-assert_exit 0 "a helper that IS root:root 0755 at the annotated path passes" \
+# Exit 1 rather than 0, and the extra FAIL is the install-skew section doing its job on the same
+# fixture: /usr/bin/ls is root:root 0755, which is the only reason the ownership branch is
+# reachable without root at all, and it is just as obviously not this checkout's kempt-refresh. The
+# ownership line is what this case is about; the skew line is asserted with it so the pair cannot
+# drift apart unnoticed.
+assert_exit 1 "a helper that IS root:root 0755 at the annotated path passes its ownership check" \
   env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor
 grep -qF 'ok    root helper (refresh): /usr/bin/ls (root:root 0755)' "$TESTTMP/last_output" \
   && echo "ok: ...and the ok line reports the ownership it actually verified" \
   || { echo "FAIL: no verified-ownership ok line - got: $(grep 'root helper (refresh)' "$TESTTMP/last_output")"; _fail=1; }
+grep -qF 'FAIL  helpers: DIFFER from checkout' "$TESTTMP/last_output" \
+  && echo "ok: ...while the skew check says that file is not the checkout's helper" \
+  || { echo "FAIL: skew check accepted /usr/bin/ls as the installed helper"; _fail=1; }
 
 # The other half: a helper sitting at the annotated path that root does not own is the shape a
 # broken or tampered install has, and it must be a FAIL that names what it found.
@@ -239,6 +269,96 @@ grep -q 'checkout incomplete' "$TESTTMP/last_output" \
   && echo "ok: the FAIL line says the checkout is incomplete" || { echo "FAIL: no checkout line"; _fail=1; }
 grep -q '49-kempt.rules.in' "$TESTTMP/last_output" \
   && echo "ok: ...and names the missing file" || { echo "FAIL: missing file not named"; _fail=1; }
+
+# --- install skew: the copies that `git pull` cannot move ---------------------------------------
+# The CLI is a symlink into the checkout, so a pull updates it the moment it lands. The two root
+# helpers, the polkit action and the widget package are COPIES, and a pull without ./install.sh
+# leaves all three behind - the code root runs is still the code from the last install, and until
+# this section existed nothing anywhere said so. The staged install exported at the top of this
+# file is what stands in for one here.
+doctor_staged() {  # -> $TESTTMP/last_output, via assert_exit
+  env KEMPT_POLICY_FILE="$S_POLICY" "$KEMPT" doctor
+}
+
+assert_exit 0 "a freshly staged install matches the checkout it came from" -- doctor_staged
+for want in 'ok    helpers: match checkout' 'ok    policy: match checkout' 'ok    widget: match checkout'; do
+  grep -qF "$want" "$TESTTMP/last_output" && echo "ok: reports $want" \
+    || { echo "FAIL: no '$want' line"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
+done
+
+# The whole point, one file at a time. A byte appended to a staged copy is what a pull that
+# changed that file looks like from doctor's side, and each one must be caught on its own.
+printf '# drifted\n' >> "$S_APPLY"
+assert_exit 1 "a root helper that drifted from the checkout fails the checkup" -- doctor_staged
+grep -qF 'FAIL  helpers: DIFFER from checkout - run ./install.sh' "$TESTTMP/last_output" \
+  && echo "ok: the FAIL line names the fix" || { echo "FAIL: no helpers skew line"; _fail=1; }
+bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+assert_exit 0 "...and re-running the installer clears it" -- doctor_staged
+
+printf '<!-- drifted -->\n' >> "$S_POLICY"
+assert_exit 1 "a polkit action that drifted from the checkout fails the checkup" -- doctor_staged
+grep -qF 'FAIL  policy: DIFFER from checkout - run ./install.sh' "$TESTTMP/last_output" \
+  && echo "ok: the FAIL line names the fix" || { echo "FAIL: no policy skew line"; _fail=1; }
+bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+
+# The widget is a whole directory, so the comparison is recursive: a change anywhere under it
+# counts, and a file that a pull DELETED counts too.
+printf '// drifted\n' >> "$S_WIDGET/contents/ui/logic.js"
+assert_exit 1 "a widget package that drifted from the checkout fails the checkup" -- doctor_staged
+grep -qF 'FAIL  widget: DIFFER from checkout - run ./install.sh, then plasmashell --replace' "$TESTTMP/last_output" \
+  && echo "ok: the FAIL line says the shell has to reload too" || { echo "FAIL: no widget skew line"; _fail=1; }
+rm -rf "$S_WIDGET"; bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+rm -f "$S_WIDGET/contents/ui/UpdateItemDelegate.qml"
+assert_exit 1 "a file the checkout no longer has is skew as well" -- doctor_staged
+grep -qF 'FAIL  widget: DIFFER' "$TESTTMP/last_output" \
+  && echo "ok: a missing file inside the package is reported" || { echo "FAIL: deletion not caught"; _fail=1; }
+rm -rf "$S_WIDGET"; bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+
+# Absence is not skew, and the two must not be confused. The widget is optional (install.sh says
+# so, and a box with no kpackagetool6 gets a working CLI without it), so a missing one is an info.
+rm -rf "$S_WIDGET"
+assert_exit 0 "a widget that was never installed is not a problem" -- doctor_staged
+grep -qF 'info  widget: not installed (the CLI works without it)' "$TESTTMP/last_output" \
+  && echo "ok: ...and says so in one line" || { echo "FAIL: no widget-absent line"; _fail=1; }
+
+# A missing root helper IS a problem, but it is already a FAIL on its own line: counting it twice
+# would make one broken install read as two.
+rm -f "$S_APPLY"
+doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
+grep -qF 'info  helpers: not installed - run ./install.sh' "$TESTTMP/skew.txt" \
+  && echo "ok: a helper that is absent rather than drifted is an info, not a second FAIL" \
+  || { echo "FAIL: absent helper misreported"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
+
+# --- which build is this, and which kind of install -------------------------------------------
+# The opening line names the release; this one names the COMMIT, which is the difference between
+# "0.1.0" and the several commits of 0.1.0 a reporter might be running.
+doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
+grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION") \(checkout [0-9a-f]{7,} (clean|dirty)\)$" "$TESTTMP/skew.txt" \
+  && echo "ok: the version line carries the commit and whether the tree is clean" \
+  || { echo "FAIL: no version/commit line"; _fail=1; grep '^info  version' "$TESTTMP/skew.txt" | sed 's/^/    /'; }
+
+# A tree with no .git still reports a version: git is a diagnostic here, never a requirement.
+NOGIT="$TESTTMP/nogit"
+mkdir -p "$NOGIT"
+cp -r "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" "$REPO_ROOT/polkit" \
+      "$REPO_ROOT/libexec" "$REPO_ROOT/plasmoid" "$REPO_ROOT/VERSION" "$NOGIT/"
+cp "$REPO_ROOT/install.sh" "$NOGIT/install.sh"
+env KEMPT_POLICY_FILE="$S_POLICY" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION")$" "$TESTTMP/skew.txt" \
+  && echo "ok: a checkout with no git history still names its release" \
+  || { echo "FAIL: version line wrong without git"; _fail=1; grep '^info  version' "$TESTTMP/skew.txt" | sed 's/^/    /'; }
+
+# A packaged install has nothing to compare: the RPM ships bin/, lib/ and backends/ and none of
+# libexec/, polkit/ or plasmoid/, because those become files the package manager owns. install.sh
+# is the file a checkout has and a package does not, so its absence is what decides.
+rm -f "$NOGIT/install.sh"
+env KEMPT_POLICY_FILE="$S_POLICY" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+grep -qF 'info  install: packaged - the package manager keeps these files in step' "$TESTTMP/skew.txt" \
+  && echo "ok: a packaged install says so" || { echo "FAIL: not reported as packaged"; _fail=1; }
+grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
+  && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
+  || echo "ok: ...and skips the comparison entirely"
 
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops
 # at the first failure sends the user round the loop once per problem.

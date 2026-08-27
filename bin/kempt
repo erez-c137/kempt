@@ -777,6 +777,62 @@ doctor_helper() {  # label seam_path annotated_path
   fi
 }
 
+# --- install skew -------------------------------------------------------------------------------
+# A checkout install is a SYMLINK for the CLI and a COPY for everything that cannot be one: the two
+# root helpers (root execs a file it owns, never a link into a user's tree), the polkit action, and
+# the widget package kpackagetool6 copies into the user's plasmoid directory. So `git pull` moves
+# the CLI and leaves those three behind, and nothing said so - the code root ran went on being the
+# code from the last ./install.sh, indefinitely and silently. These two report the mismatch.
+#
+# Compared by CONTENT, never by mtime: re-running the installer rewrites files it did not change,
+# and a checkout whose timestamps came from a fresh clone is younger than a correct install.
+# No privilege is needed for either - the installed copies are world-readable (verified on a real
+# install: root:root 0755 for the helpers, root:root 0644 for the policy), so `cmp` and `diff` read
+# them as the user.
+doctor_install_files() {  # label src dst [src dst ...]
+  local label="$1"; shift
+  local src dst missing=0 differ=0 nosrc=0
+  while [[ $# -gt 1 ]]; do
+    src="$1"; dst="$2"; shift 2
+    if [[ ! -r "$src" ]]; then nosrc=1
+    elif [[ ! -e "$dst" ]]; then missing=1
+    elif ! cmp -s "$src" "$dst"; then differ=1; fi
+  done
+  # A label covers more than one file (the helpers are two) because the fix is one command: what
+  # the reader needs is "re-run the installer", not which of the pair drifted.
+  if [[ $nosrc -eq 1 ]]; then
+    doctor_info "$label: not compared - the checkout has no copy to compare against"
+  elif [[ $missing -eq 1 ]]; then
+    # info, not FAIL: a missing installed copy is already a FAIL on its own line above, and one
+    # problem must not be counted twice in the summary.
+    doctor_info "$label: not installed - run ./install.sh"
+  elif [[ $differ -eq 1 ]]; then
+    doctor_fail "$label: DIFFER from checkout - run ./install.sh"
+  else
+    doctor_ok "$label: match checkout"
+  fi
+}
+
+doctor_install_dir() {  # label src dst
+  local label="$1" src="$2" dst="$3"
+  if [[ ! -d "$src" ]]; then
+    doctor_info "$label: not compared - the checkout has no copy to compare against"
+  elif [[ ! -d "$dst" ]]; then
+    # The widget is the one optional piece: install.sh says so, and a box with no kpackagetool6
+    # gets a working CLI and no plasmoid. Its absence is therefore not a problem to report.
+    doctor_info "$label: not installed (the CLI works without it)"
+  elif ! command -v diff >/dev/null; then
+    doctor_info "$label: not compared - diff is not installed"
+  elif diff -rq "$src" "$dst" >/dev/null 2>&1; then
+    doctor_ok "$label: match checkout"
+  else
+    # `plasmashell --replace` as well as the installer: kpackagetool6 upgrades the package in
+    # place and Plasma keeps the QML it already loaded, so a re-install alone changes nothing the
+    # user can see until the shell reloads.
+    doctor_fail "$label: DIFFER from checkout - run ./install.sh, then plasmashell --replace"
+  fi
+}
+
 cmd_doctor() {
   DOCTOR_FAILS=0
   # First line, and info rather than ok: it is not a check that can pass or fail, it is the fact
@@ -899,6 +955,44 @@ cmd_doctor() {
     doctor_ok "checkout intact: $ROOT"
   else
     doctor_fail "checkout incomplete: missing ${missing[*]} (in $ROOT)"
+  fi
+
+  # Which build this is, in the form a maintainer can act on. The opening line already names the
+  # release and the tree; this one names the COMMIT, which is the difference between "0.1.0" and
+  # the twelve commits of 0.1.0 that a reporter might actually be running. `dirty` covers untracked
+  # files as well as modified ones, because a new backend file changes behaviour exactly as much as
+  # an edited one. Every git call is tolerated failing: a tarball install has no .git, a packaged
+  # one has no git binary to require, and a version line is a diagnostic - it must never be the
+  # thing that stops the checkup.
+  local ver_line sha tree
+  ver_line="version: kempt $(kempt_version)"
+  sha=""
+  # The `if` form, not `[[ ... ]] && x=y`: a false test in that shape returns 1 as a whole
+  # statement and errexit would kill the checkup here, which is the one place it must not stop.
+  if [[ -e "$ROOT/.git" ]]; then
+    sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  fi
+  if [[ -n "$sha" ]]; then
+    tree=clean
+    [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || tree=dirty
+    ver_line="$ver_line (checkout $sha $tree)"
+  fi
+  doctor_info "$ver_line"
+
+  # A packaged install has nothing to compare and nothing to drift: the RPM ships bin/, lib/ and
+  # backends/ under /usr/share/kempt and none of libexec/, polkit/ or plasmoid/, because those
+  # three become files the package manager owns and keeps in step. install.sh's absence is what
+  # says which kind of install this is - it is the file the fix message would tell you to run, and
+  # it is exactly what a packaged tree does not ship.
+  if [[ ! -r "$ROOT/install.sh" ]]; then
+    doctor_info "install: packaged - the package manager keeps these files in step"
+  else
+    doctor_install_files helpers \
+      "$ROOT/libexec/kempt-refresh" "$KEMPT_REFRESH_HELPER_PATH" \
+      "$ROOT/libexec/kempt-apply"   "$KEMPT_APPLY_HELPER_PATH"
+    doctor_install_files policy \
+      "$ROOT/polkit/io.github.erez_c137.kempt.policy" "$KEMPT_POLICY_FILE"
+    doctor_install_dir widget "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
   fi
 
   # Not a check, and deliberately below every check that is: doctor answers "is this install
