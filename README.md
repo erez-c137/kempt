@@ -118,6 +118,7 @@ undo everything, is in the [install guide](docs/install.md).
 | [docs/architecture.md](docs/architecture.md) | How it is built, the state JSON schema, and how to add a backend for your distro |
 | [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
+| [docs/RELEASING.md](docs/RELEASING.md) | Cutting a release, and why Kempt never updates itself |
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed, or `man -l docs/man/kempt.1` from the checkout |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, the test-harness rules reviews enforce, shell and docs conventions |

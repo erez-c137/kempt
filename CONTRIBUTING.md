@@ -184,6 +184,10 @@ Then edit `KPlugin.Version` in `plasmoid/metadata.json` to match, and add the re
 those are the ones nothing checks for you yet. Bump in its own commit, so the diff that says what
 the release is stays readable.
 
+A bump is the first step of a release rather than the whole of one:
+[docs/RELEASING.md](docs/RELEASING.md) is the numbered checklist for the rest, and it also says
+why Kempt has no self-update code and never will.
+
 ## Commits and pull requests
 
 One commit per logical change, present-tense subject, prefixed by type, matching what is already
