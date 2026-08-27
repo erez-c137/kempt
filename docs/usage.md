@@ -557,8 +557,9 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
 available`, or `Up to date`, `Updating...`, `No update data yet` before the first check has
-answered, or `Kempt cannot check for updates` when the CLI itself could not be run. It is never capped - the badge on the
-panel stops at `999+` because a panel has no room, and the popup has plenty.
+answered, or `Kempt cannot check for updates` when the CLI itself could not be run. It is
+never capped - the badge on the panel stops at `999+` because a panel has no room, and the
+popup has plenty.
 
 - **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
   and its accessible name are both *Check for Updates*, and a spinner takes its place while a
@@ -685,7 +686,7 @@ a fact about your machine rather than a reminder. **Nothing ever restarts on its
 kempt config set restart_reminder false   # the fact stays, the nagging stops
 ```
 
-**Password prompts** offers **Allow without password...** and **Require a password...**, which run
+**Password prompts** offers **Allow without password…** and **Require a password…**, which run
 `kempt enable-passwordless` and `kempt disable-passwordless` for you (each raises its own
 authentication dialog, and whatever the command said comes back under the buttons). The page never
 claims which one is currently active. That is not an oversight: the polkit rules directory is

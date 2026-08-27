@@ -549,9 +549,9 @@ KCM.SimpleKCM {
 
         // --- holds ----------------------------------------------------------------------------------
         QQC2.Label {
-            Kirigami.FormData.label: i18n("Held back:")
+            Kirigami.FormData.label: i18n("Held:")
             visible: page.holds.length === 0
-            text: page.holdsBusy ? i18n("Loading...") : i18n("Nothing is being held back.")
+            text: page.holdsBusy ? i18n("Loading...") : i18n("Nothing is being held.")
             font: Kirigami.Theme.smallFont
             opacity: 0.8
         }
@@ -562,7 +562,7 @@ KCM.SimpleKCM {
             RowLayout {
                 required property var modelData
                 required property int index
-                Kirigami.FormData.label: index === 0 ? i18n("Held back:") : ""
+                Kirigami.FormData.label: index === 0 ? i18n("Held:") : ""
                 spacing: Kirigami.Units.smallSpacing
 
                 QQC2.Label {
@@ -606,13 +606,13 @@ KCM.SimpleKCM {
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.Button {
-                text: i18n("Allow without password...")
+                text: i18n("Allow without password…")
                 icon.name: "unlock"
                 enabled: !page.passwordlessBusy
                 onClicked: page.runPasswordless("enable")
             }
             QQC2.Button {
-                text: i18n("Require a password...")
+                text: i18n("Require a password…")
                 icon.name: "lock"
                 enabled: !page.passwordlessBusy
                 onClicked: page.runPasswordless("disable")
