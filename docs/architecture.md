@@ -257,6 +257,7 @@ timeout has to be able to kill a wedged `kempt check` outright.
 | --- | --- | --- | --- |
 | `executor` | `main.qml` | checks, holds, `run`, `summary`, config reads, the watcher poll | The actions. A `kempt check` can take two minutes. |
 | `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is strictly FIFO, so a 2-second tail sharing it with a 120-second check would put ~60 tails ahead of every button press and the Refresh button would look dead for two minutes. |
+| `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` returns as soon as KDE has been ASKED to draw its confirmation screen: no lock, no package database, milliseconds. Behind a 120-second check it sat unsent with nothing on screen to say why, which is indistinguishable from a broken button. |
 | `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog is built by the shell in its own object tree and cannot reach `main.qml` at all. Even if it could, a settings dialog that takes two minutes to populate because a check is running is a broken dialog. |
 
 The rule that follows: a new caller that is *fast and periodic* must not share a queue with one

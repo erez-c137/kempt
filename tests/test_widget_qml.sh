@@ -73,6 +73,8 @@ echo "-- the keyboard and the screen reader: focus on open, the tab ring, Escape
 run_probe probe_a11y
 echo "-- controls that vanish or go inert under the keyboard, and where focus goes then"
 run_probe probe_focus
+echo "-- the restart message: asking for KDE's prompt, and what the popup remembers"
+run_probe probe_restart
 
 # Nothing may survive the battery. +2 is slack for an unrelated python3 that started while this
 # ran (the box runs other things); anything more than that is a probe that did not die.

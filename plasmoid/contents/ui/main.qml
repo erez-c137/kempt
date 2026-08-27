@@ -421,7 +421,9 @@ PlasmoidItem {
     // must not: the user may sit and think about it, and the executor queue is shared.
     function promptRestart() {
         restartError = "";
-        executor.run("dbus-send --session --dest=org.kde.LogoutPrompt --type=method_call"
+        // promptExecutor, never the shared one - see its declaration for the two minutes of
+        // silence that came of queueing this behind a check.
+        promptExecutor.run("dbus-send --session --dest=org.kde.LogoutPrompt --type=method_call"
                      + " /LogoutPrompt org.kde.LogoutPrompt.promptReboot", 10000,
                      function(stdout, stderr, rc) {
             if (rc !== 0) root.restartError = Logic.COPY.restartFailed;
@@ -616,6 +618,19 @@ PlasmoidItem {
     // else - the Refresh button would appear dead for two minutes. Separating them means the tail
     // can never delay an action, and an action can never stall the tail.
     Executor { id: tailExecutor }
+
+    // ...and a THIRD, carrying one command: the restart prompt. Same rule as the tail and the
+    // opposite reason - this one is not fast and periodic, it is instant and rare, and it has no
+    // work behind it at all. `dbus-send` returns as soon as KDE has been ASKED to draw its
+    // confirmation screen: no lock, no package database, milliseconds.
+    //
+    // On the shared queue it sat behind whatever was running, and a `kempt check` is allowed 120
+    // seconds. So the user pressed Restart..., nothing happened, and nothing on screen said why -
+    // which is indistinguishable from a broken button, and the popup's own refresh-on-open makes
+    // a check in flight the LIKELY state at the moment somebody reads that message and acts on it.
+    // Its own instance rather than sharing the tail's: a run showing its log in the popup tails it
+    // every two seconds, and a prompt waiting behind one of those is the same bug in miniature.
+    Executor { id: promptExecutor }
 
     Timer {
         id: checkTimer
