@@ -116,8 +116,15 @@ What is left needs a human at the keyboard, in this order:
   going public means either publishing them as they are or moving them.
 - **Voice pass** on CHANGELOG / release notes / announcement posts using the founder's
   voice guides (owed - see memory reminder).
-- **KDE Store listing** for the widget; **RPM/COPR packaging** for the CLI - packaging
-  retires the load-bearing-checkout install and is the real on-ramp for strangers.
+- **Packaging, so Kempt updates itself through dnf like everything else.** A COPR RPM is the
+  distribution channel: the widget rides in the same RPM, and the KDE Store listing is for people
+  on non-RPM distros who want the widget alone. The outcome is the point - a packaged Kempt is
+  updated by the package manager it manages, appears in its own popup next to everything else
+  that is pending, and needs no self-update code, which is why there is none and never will be.
+  It also retires the load-bearing-checkout install and is the real on-ramp for strangers. The
+  procedure is written down already in [docs/RELEASING.md](RELEASING.md); the verified spec draft,
+  COPR setup and store steps are in
+  [the packaging research](research/2026-08-27-packaging-and-listing.md).
 
 ## v2 - the differentiator release
 
