@@ -69,6 +69,14 @@ PlasmoidItem {
     // Somebody who never wants the message turns the setting off; that IS the durable answer.
     property bool restartDismissed: false
 
+    // ...and the other way out of it. Switching the reminder OFF and back ON is a person saying
+    // "show me this again"; without this the message stayed hidden anyway, and the settings page
+    // had nothing to say about why the switch they had just turned on did nothing. Only on the
+    // TRANSITION, which is what a property change signal is: the config file is polled every 30
+    // seconds and re-read after every settings apply, so a handler that fired whenever the value
+    // was simply true would revoke a dismissal within half a minute of it being made.
+    onRestartReminderChanged: if (restartReminder) restartDismissed = false;
+
     // Our own report of a restart prompt that could not be opened. Empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message rather than to the
     // buttons: the popup shows it where the user pressed, which is the only place they are

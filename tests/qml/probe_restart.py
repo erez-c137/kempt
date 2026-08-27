@@ -31,7 +31,9 @@ STATE_JSON = os.path.join(p.state, "state.json")
 CHECKSRC = os.path.join(p.sandbox, "checksrc")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 SLEEP = os.path.join(p.sandbox, "checksleep")
+RR = os.path.join(p.sandbox, "restart_reminder")   # what `kempt config get restart_reminder` says
 open(SLEEP, "w").write("0")
+open(RR, "w").write("true\n")
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.json"))
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
@@ -63,12 +65,12 @@ p.stub("""
 case "$1" in
   config) [[ "$3" == refresh_interval_min ]] && echo 15; [[ "$3" == surface ]] && echo terminal
           [[ "$3" == auto_accept ]] && echo true
-          [[ "$3" == restart_reminder ]] && echo true; exit 0 ;;
+          [[ "$3" == restart_reminder ]] && cat %(RR)s; exit 0 ;;
   check)  sleep "$(cat %(SLEEP)s)"; cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
 esac
-""" % {"SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
+""" % {"SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP, "RR": RR})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
@@ -155,5 +157,45 @@ open(DBUSRC, "w").write("0")
 ev("root.promptRestart()")
 settle()
 p.check("a prompt that DOES open leaves nothing to apologise for", ev("root.restartError"), "")
+
+# ==================================================================================================
+# F13b. a dismissal that outlived the message it was about
+# ==================================================================================================
+# Closing the restart message sets restartDismissed for this plasmashell session, which is the
+# right shape for a dismissal (see main.qml: persisting it would promise to remember something the
+# next restart makes untrue). What was missing is the other way out of it. Switching the reminder
+# OFF and back ON in the settings page is a person saying "show me this again", and the message
+# stayed hidden anyway - no button, and nothing on that page to explain why the setting they just
+# turned on did nothing.
+ev("root.restartDismissed = false")
+ev("root.doCheck()")
+settle()
+p.check("a box that owes a restart offers the message", ev("root.vm.restartMessageVisible"), True)
+ev("root.dismissRestart()")
+p.pump(60)
+p.check("...closing it takes it off the screen for this session",
+        [ev("root.restartDismissed"), ev("root.vm.restartMessageVisible")], [True, False])
+
+# A re-read that does not CHANGE the setting must not undo the dismissal: the config file is
+# polled every 30 seconds, and a dismissal that any poll could revoke would last half a minute.
+ev("root.readRestartReminder()")
+settle()
+p.check("...and a re-read of the same setting leaves the dismissal alone",
+        [ev("root.restartReminder"), ev("root.restartDismissed")], [True, True])
+
+open(RR, "w").write("false\n")
+ev("root.readRestartReminder()")
+settle()
+p.check("switching the reminder off keeps the message off, for its own reason",
+        [ev("root.restartReminder"), ev("root.vm.restartMessageVisible")], [False, False])
+p.check("...while the status line still says a restart is pending, because it is",
+        "restart pending" in str(ev("root.vm.footerText")), True)
+
+open(RR, "w").write("true\n")
+ev("root.readRestartReminder()")
+settle()
+p.check("switching it back on is a person asking to be shown it again, and clears the dismissal",
+        ev("root.restartDismissed"), False)
+p.check("...so the message really does come back", ev("root.vm.restartMessageVisible"), True)
 
 sys.exit(p.done())
