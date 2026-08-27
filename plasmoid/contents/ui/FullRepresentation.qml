@@ -580,7 +580,23 @@ PlasmaExtras.Representation {
                 // popup, and it is the correct call: an up-to-date box has no run to start, so
                 // there is no action to offer rather than an action being refused.
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
-                onClicked: popup.plasmoidItem.startUpdate()
+
+                // ...which means this control can go off screen while the popup is open and the
+                // keyboard is standing on it. `actionable` reaches 0 on its own - the 30s watcher,
+                // the hourly timer, or a `kempt update` finishing in a terminal - and nothing
+                // calls focusPrimary() again, because the popup did not open, it just changed.
+                //
+                // QQC2 delivers Space and Return to whatever holds activeFocus whether it is
+                // drawn or not, so what was left was an invisible button that started `kempt run`
+                // on a box with nothing to update. The keyboard therefore leaves with the button,
+                // by the same rule that put it here: focusPrimary picks the best control that is
+                // actually usable, which with nothing pending is Refresh.
+                onVisibleChanged: if (!visible && activeFocus) popup.focusPrimary()
+
+                // The belt to that braces. A control that is invisible and still operable is a
+                // trap however the keyboard reached it, and the focus move above is not the only
+                // route in - a screen reader, a shortcut, or a future edit can all put focus back.
+                onClicked: if (visible) popup.plasmoidItem.startUpdate()
             }
         }
     }
