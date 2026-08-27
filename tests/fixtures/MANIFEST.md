@@ -189,10 +189,17 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   from state-live.json at every re-capture, the same way state-schema-v0.json is re-derived.
 
   It stands in for a state written by a build that records whether a restart is owed right now.
-  Note that every CAPTURED fixture above predates that key, so between them the set proves the
-  additive-key rule in both directions: readers tolerate its absence, and readers this build
-  ships ignore its presence. The restart banner that will consume it is a later task, so today
-  the fixture's job is to prove that nothing derives anything from it yet.
+  Every CAPTURED fixture above predates that key, which is what proves the additive-key rule from
+  the absence side: a state without it reads as "nothing to say" rather than as an error.
+
+  The restart message ships now and consumes it, so the fixture's job is no longer to prove that
+  nothing reads it. It is the state the restart assertions are driven from - `probe_popup.py`
+  points the stubbed CLI at it to put the message on screen, then switches `restart_reminder`
+  off, then closes the message, and checks each time that the fact moves into the footer's
+  `restart pending` rather than disappearing. Paired with state-live.json it is also still the
+  controlled experiment it was built as: `tests/test_widget_logic.sh` compares the two whole view
+  models with `rebootNeeded` and `restartMessageVisible` deleted and requires them identical, so
+  the key is held to moving the restart surfaces and nothing else.
 
 - **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,
   `{"schema": 1, "last_check": "2026-08-2`) - **hand-written**, because no CLI can produce them:
@@ -235,3 +242,24 @@ Guards: `main.qml`'s `loadLastRun()` (the popup's Last update row and its post-r
 `kempt summary --json` through `Logic.lastRunOf`, never from the human `kempt summary`, whose
 first line is an ISO timestamp), and `showLog()` passing a path from the CLI's JSON back to a
 command line as exactly one argument.
+
+### Three states with no file of their own
+
+`tests/qml/probe_popup.py` builds three more situations in-process, from the captures above,
+rather than adding files here. Recorded so their provenance is not lost with the sandbox they are
+written into:
+
+- **Up to date**, and **up to date with a restart owed** - `uptodate_from()` loads a named real
+  capture (state-live.json and state-reboot-needed.json respectively), empties every backend's
+  `items`, zeroes that backend's own `actionable` and `held` and the two top-level totals, and
+  writes the result into the probe's sandbox. Derived
+  rather than captured because the shape has to be the shipped document's shape: an up-to-date
+  file written by hand would be free to drift away from what `assemble_state` actually emits, and
+  the whole point of these two is that the popup's empty state and its restart message are being
+  driven by a real state file with nothing left in it.
+- **A run that failed** - the same file copies run-last.json and flips `status` to `failed` and
+  `error` to a dnf5 message. Two fields, on the real captured entry, so the counts, the log path
+  and the timestamps stay exactly as the CLI wrote them: what is under test is that a failure is
+  reported as a failure whatever the counts say, and a hand-made failed entry could not show that
+  because its counts would be invented too. The same trick with `log` emptied covers a history
+  entry too old, or too damaged, to have a log to show.
