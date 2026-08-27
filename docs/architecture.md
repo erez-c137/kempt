@@ -262,6 +262,39 @@ timeout has to be able to kill a wedged `kempt check` outright.
 The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
 that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
 
+### Where the popup's last-run line comes from
+
+The persistent `Last update 18 min ago · 4 packages` row and the transient line the popup shows
+right after a run are one fact with one source: **`kempt summary --json`**, parsed by
+`Logic.lastRunOf` in `plasmoid/contents/ui/logic.js` and held by `main.qml` as `lastRun`. The CLI
+serves the newest history entry byte for byte rather than re-rendering it, so what arrives is
+exactly what `cmd_update` wrote: `{timestamp, surface, status, duration_sec, reboot_needed, log,
+error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`.
+
+Never the human `kempt summary`. That is a rendering (`render_summary` in `lib/common.sh`) whose
+first line is an ISO timestamp, and re-deriving counts from rendered text would put a second,
+lossier copy of `render_summary`'s rules inside the widget for the two to drift apart in. The
+popup used to paste that first line into its message area after a run - true, and no answer at all
+to "what just happened?".
+
+Three properties of that boundary are contracts, not incidentals:
+
+- **Empty stdout under exit 0 means "no last run".** With no history recorded, `summary --json`
+  prints nothing rather than an empty object, the same convention `kempt check` keeps for "no
+  data". `lastRunOf` answers `null` for it, and every caller renders nothing - never a fabricated
+  empty run, because a box that has never updated has not "updated 0 packages".
+- **Every field tolerates absence.** History entries outlive the build that wrote them (the newest
+  50 are kept, and the widget is a COPY that a `git pull` leaves older than the CLI), so an entry
+  missing a key this build expects is ordinary rather than corrupt. The one field that is not
+  optimistic is `status`: a status that cannot be read counts as a failure, because the two
+  mistakes do not cost the same.
+- **The entry's `reboot_needed` is a fact about that run**, not about now. The state file's own
+  `reboot_needed` is the live answer and the restart message is bound to that one. Rendering the
+  history entry's would go on claiming a restart long after the user had performed one.
+
+The display rule on top of it: while the transient post-run line is up, the persistent row is
+hidden. One event, one line at a time.
+
 ### Where the widget lives, and the two lines that decide it
 
 Three facts in `plasmoid/metadata.json` and `main.qml` put Kempt in the system tray, and each one

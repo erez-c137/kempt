@@ -49,7 +49,7 @@ cmd_check() {
   rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
   fp_items="$(mark_held flatpak <<<"$fp_items")"
-  # Published for the widget so it can offer "stage offline instead" without re-deriving the
+  # Published for the widget so it can offer "Install on Next Restart" without re-deriving the
   # rule. dnf only: a flatpak app cannot take the session down mid-transaction.
   local risky
   risky="$(risky_names <<<"$dnf_items" | jq -Rn '[inputs]')"
