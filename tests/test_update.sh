@@ -226,6 +226,76 @@ assert_exit 0 "marker owns its own pre-snapshot copy" -- test -f "$pre"
   || { echo "FAIL: marker points at the reusable dnf-before.tsv"; _fail=1; }
 grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says staged" || { echo "FAIL: offline notify"; _fail=1; }
 
+# ARMING, which is the whole difference between a staged transaction and one that installs. dnf5
+# leaves a staged transaction at status="download-complete" and NO boot applies that; `dnf5 offline
+# reboot` is what flips it to "ready" and creates /system-update. Staging without arming is what
+# shipped first, and it meant "Install on Next Restart" quietly never installed anything, on any
+# number of restarts. The ORDER is asserted, not just the presence: arming before the transaction
+# exists arms nothing.
+stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/apply-calls" | head -1 | cut -d: -f1 || true)"
+arm_ln="$(grep -n 'APPLY dnf-offline-arm' "$WORLD/apply-calls" | head -1 | cut -d: -f1 || true)"
+[[ -n "$stage_ln" && -n "$arm_ln" && "$arm_ln" -gt "$stage_ln" ]] \
+  && echo "ok: the run stages the transaction and then arms it" \
+  || { echo "FAIL: stage-then-arm (stage=${stage_ln:-none} arm=${arm_ln:-none})"; _fail=1; }
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "an armed stage is not immediately thrown away again"
+# armed is recorded in the marker, because the marker is what every later reader (harvest, doctor,
+# the popup) works from - and an unarmed stage must never be described to anyone as pending.
+assert_eq "$(jq -r '.armed' "$marker")" "true" "the marker records that the stage was armed"
+# The SAME count the event line carries: both answer "how many updates is the person waiting for",
+# and two different numbers on two surfaces for one transaction is a bug report waiting to happen.
+staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+assert_eq "$(jq -r '.staged' "$marker")" "$staged_ev" \
+  "the marker carries the same staged count the event line reports"
+
+# An arm that fails leaves a transaction that would sit in the offline directory forever, telling
+# every later check and the doctor that an install is pending when nothing will ever apply it. So
+# the run FAILS and unwinds: discard the stage, write no marker, and say why.
+cat > "$TESTTMP/apply-stub.armfail" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-offline-arm ]] && { echo "Failed to prepare the system-update symlink" >&2; exit 1; }
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.armfail"
+rm -f "$marker"
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+armrc=0
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.armfail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || armrc=$?
+assert_eq "$armrc" "1" "a run that could not arm its stage fails"
+grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
+  && echo "ok: the stage it could not arm is discarded" || { echo "FAIL: no unwind after a failed arm"; _fail=1; }
+assert_exit 0 "a stage that was never armed leaves no marker" -- test ! -f "$marker"
+armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
+assert_eq "$(jq -r .error "$armhist")" "staged but could not arm the restart install" \
+  "...naming the step that failed, not the first error-shaped line in the log"
+grep -q 'run failed rc=1: staged but could not arm the restart install' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
+grep -q 'FAILED' "$WORLD/notifications" \
+  && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
+
+# The unwind is best-effort by design: `dnf5 offline clean` failing on top of an arm that already
+# failed changes nothing about the verdict (the run failed either way) and must not replace the
+# reason with its own. A run that reported "could not clean up" would send the reader after the
+# wrong problem.
+cat > "$TESTTMP/apply-stub.bothfail" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+case "\$1" in dnf-offline-arm|dnf-offline-clean) exit 1 ;; esac
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.bothfail"
+: > "$WORLD/apply-calls"
+bothrc=0
+botherr="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.bothfail" "$KEMPT" update --surface=offline --no-flatpak 2>&1 >/dev/null)" || bothrc=$?
+assert_eq "$bothrc" "1" "a failed unwind does not change the verdict"
+grep -q 'could not discard' <<<"$botherr" \
+  && echo "ok: a failed unwind warns" || { echo "FAIL: no warning for a failed unwind - got: $botherr"; _fail=1; }
+bothhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$bothhist")" "staged but could not arm the restart install" \
+  "...and the reason stays the arm, not the cleanup that failed after it"
+
 # The run is over the moment the helper returns: a report step that dies afterwards would take the
 # HISTORY ENTRY and the notification down with it, leaving a system that changed and a CLI that
 # says nothing happened. Fail the AFTER-snapshot only (2nd call in a run) and demand a clean,

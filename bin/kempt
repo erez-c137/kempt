@@ -297,8 +297,32 @@ cmd_update() {
   is_true "$auto" && yflag=(-y)
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
+  # A reason this run works out for itself, where the log cannot be trusted to yield it: a failed
+  # arm leaves dnf5's own words in the log, and the first error-shaped line there is about a
+  # symlink, not about what the person pressed a button for.
+  local reason_override=""
   if [[ "$surface" == "offline" ]]; then
-    apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+    # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads: the transaction
+    # sits at status="download-complete" and no boot will ever apply it. `dnf5 offline reboot`
+    # (arming) is what flips it to "ready" and creates /system-update, which is the only thing
+    # systemd's system-update-generator looks for. Arming HERE and not at the restart click is what
+    # makes the button's promise true: once staged, ANY restart installs - the popup's, the K menu's,
+    # a terminal `reboot`. One pkexec flow covers both calls because auth_admin_keep still holds the
+    # authorization seconds later.
+    if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
+      if ! apply_with_retry "$log" priv_apply dnf-offline-arm; then
+        dnf_status="failed"; status="failed"
+        reason_override="staged but could not arm the restart install"
+        # Unwind, or the box keeps a downloaded transaction that nothing can apply and every later
+        # check, doctor run and popup describes an install that is pending forever. Best-effort:
+        # the run has already failed, and a cleanup that also fails must not overwrite the reason
+        # with its own - that would send the reader after the wrong problem entirely.
+        apply_with_retry "$log" priv_apply dnf-offline-clean \
+          || echo "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+      fi
+    else
+      dnf_status="failed"; status="failed"
+    fi
   else
     apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
   fi
@@ -374,8 +398,18 @@ cmd_update() {
   reboot="$(dnf_reboot_needed)"
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
 
-  # offline staging marker (harvested by cmd_check after reboot)
+  # offline staging marker (harvested by cmd_check after reboot). Only ever written for a stage
+  # that ARMED: an unarmed transaction installs on no restart at all, and a marker is a promise to
+  # every later reader - the harvest, the doctor, the popup - that one is coming.
+  # N is what the last check said dnf had actionable: the staged set cannot be read back out of
+  # dnf5 without a second privileged call, and it is the number the user was looking at when they
+  # chose to stage. Worked out here rather than at the event line below because the marker and the
+  # event must not be able to disagree about it.
+  local staged=""
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
+    staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
+    local staged_json="null"
+    [[ "$staged" =~ ^[0-9]+$ ]] && staged_json="$staged"
     # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv.
     # Sweep first: only the newest staging can be harvested, so older copies are dead weight
     # that would otherwise accumulate one file per staged run, forever.
@@ -384,8 +418,8 @@ cmd_update() {
     # boot_id: only a REBOOT can apply a staged transaction, so the harvest compares boot
     # sessions instead of guessing from the package set (see harvest_offline).
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
-      --arg boot "$(current_boot_id)" \
-      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot}' > "$OFFLINE_MARKER"
+      --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
+      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' > "$OFFLINE_MARKER"
   fi
 
   # Why it failed, worked out ONCE and then handed to everything that renders it: the history
@@ -393,7 +427,7 @@ cmd_update() {
   # three said only "see <log>", which is not an answer when the log is four hundred lines of dnf
   # progress and the real cause was that somebody closed the authentication dialog.
   local reason=""
-  [[ "$status" == "ok" ]] || reason="$(run_failure_reason "$log")"
+  [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
 
   # history entry
   local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json"
@@ -411,14 +445,11 @@ cmd_update() {
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
 
   # What the run did, in the event log's fixed vocabulary. A successful OFFLINE run gets its own
-  # line rather than "run done", because nothing has been applied yet - the transaction is waiting
-  # for a reboot, and the harvest is what will report it. N there is what the last check said dnf
-  # had actionable: the staged set cannot be read back out of dnf5 without a second privileged
-  # call, and it is the number the user was looking at when they chose to stage.
+  # line rather than "run done", because nothing has been applied yet - the transaction is armed and
+  # waiting for a restart, and the harvest is what will report it. N is the count the marker above
+  # worked out and recorded, read from the same variable so the two can never disagree.
   if [[ "$status" == "ok" ]]; then
     if [[ "$surface" == "offline" ]]; then
-      local staged
-      staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
       log_event "offline staged ${staged:-?}"
     else
       local upd
@@ -438,8 +469,11 @@ cmd_update() {
     # announced as "0 packages updated".
     local phrase
     phrase="$(run_counts_phrase "$hist")"
-    if [[ "$surface" == "offline" ]]; then
-      notify "Kempt" "Updates staged - they apply on the next reboot"
+    # The failure branch is reached FIRST for an offline run that failed. The staged notification
+    # is a claim about the future - that a restart will install these - and a run whose stage was
+    # discarded because it could not be armed has no such future to promise.
+    if [[ "$surface" == "offline" && "$status" == "ok" ]]; then
+      notify "Kempt" "Updates staged - they install on the next restart"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
