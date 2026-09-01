@@ -557,15 +557,16 @@ assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" 
 grep -q 'kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44' <<<"$out" && echo "ok: update printed a rendered summary" \
   || { echo "FAIL: update printed no summary - got: $out"; _fail=1; }
 
-# --- a LIVE run must not let its own closing self-refresh mis-harvest a PENDING offline stage.
-# The staged transaction applies only on reboot, but a live run moves the rpm snapshot too - so
-# the self-refresh saw "the installed set changed", harvested immediately, labelled the LIVE
-# delta "offline (applied on reboot)" and consumed the marker. The staged transaction then
-# applied at the next reboot and was never reported at all. Three distinct worlds below:
-# staged (baseline) → live (a live run bumped bash) → reboot (the staged kernel landed).
+# --- a LIVE update SUPERSEDES a pending stage, and a flatpak-only one does not.
+# A staged transaction records the rpmdb cookie it was built against, and dnf5 refuses a
+# transaction whose cookie has moved. So once a live run installs anything, the armed stage is no
+# longer a pending update - it is a failed offline boot waiting to happen - and the honest thing
+# is to discard it. A run that touched no rpm (flatpak only) leaves the cookie intact, and the
+# stage stays pending.
+# Three worlds: staged (baseline) → live (a live run bumped bash) → reboot (the staged kernel).
 printf 'bash\t5.2.37-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-staged.tsv"
 printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-live.tsv"
-printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-reboot.tsv"
+printf 'bash\t5.2.37-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-reboot.tsv"
 cat > "$TESTTMP/apply-stub" <<STUB
 #!/usr/bin/env bash
 echo "APPLY \$@" >> "$WORLD/apply-calls"
@@ -577,17 +578,44 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_exit 0 "offline stage left a marker to rebase" -- test -f "$marker"
+assert_exit 0 "offline stage left a marker" -- test -f "$marker"
+sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
+: > "$WORLD/apply-calls"
 "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
-assert_exit 0 "a live run leaves a pending offline marker in place" -- test -f "$marker"
+grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
+  && echo "ok: a live rpm change discards the stage it invalidated" \
+  || { echo "FAIL: the superseded stage was left armed and doomed"; _fail=1; }
+assert_exit 0 "...and the marker goes with it" -- test ! -f "$marker"
+assert_exit 0 "...along with the snapshot copy the marker owned" -- test ! -f "$sup_pre"
+grep -q 'offline stage dropped (superseded by live update)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: the drop is recorded - it is the only trace the stage ever left" \
+  || { echo "FAIL: no event for the dropped stage"; _fail=1; }
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
 comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
 assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom harvest"
 assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" "the entry is the live run, not a mislabelled harvest"
 
-# ...and after the reboot that actually applies it, the harvest reports the STAGED delta only
+# A run that installed no rpm cannot have invalidated anything: the stage stays, and the reboot
+# that applies it is still reported. This is the flatpak-only run, and it is the reason the
+# supersede is gated on a real rpm delta rather than on "a live run happened".
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+exit 0
+STUB
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+push_history_back
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+assert_exit 0 "a run that changed no rpm leaves the pending stage alone" -- test -f "$marker"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and never discards it"
+
+# ...and after the reboot that actually applies it, the harvest reports the STAGED delta
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
 simulate_reboot
 push_history_back   # `ls | tail -1` below must find the harvest, not the live run it collided with
@@ -596,7 +624,7 @@ push_history_back   # `ls | tail -1` below must find the harvest, not the live r
 hr="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .surface "$hr")" "offline (applied on reboot)" "the reboot result is harvested as an offline run"
 assert_eq "$(jq -c '[.backends.dnf.updated[].name]' "$hr")" '["kernel-core"]' \
-  "the harvest diffs the rebased baseline: only the staged package, not the live run's bash"
+  "the harvest reports the staged package and nothing else"
 
 # --- history filenames are per-second, and a harvest fires from a check a live run may have
 # triggered in the same second. An existing entry must never be overwritten.

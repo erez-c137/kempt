@@ -482,14 +482,11 @@ cmd_update() {
       notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log"
     fi
   fi
-  # A PENDING offline stage has to survive a live run. The staged transaction applies only on
-  # reboot, but this run just moved the rpm snapshot too - so the self-refresh below saw "the
-  # installed set changed", harvested at once, labelled THIS run's delta "offline (applied on
-  # reboot)" and consumed the marker (same second, so it overwrote the live run's own history
-  # entry as well). The staged transaction then applied at the next reboot and was never
-  # reported at all. Rebasing the marker's baseline onto the after-snapshot leaves the
-  # post-reboot harvest diffing the staged transaction and nothing else.
-  # snapshots_ok (plus -s as a floor): the baseline must never be a truncated or empty snapshot.
+  # What a live run owes a staged transaction it found sitting there. The lifecycle: staging
+  # downloads AND arms, so any restart installs it, and the check after that restart harvests it
+  # into a history entry of its own. A live run can arrive at any point in that, and the three
+  # cases below are not variations on one rule - they are three different situations.
+  # snapshots_ok (plus -s as a floor): none of them may be decided on a truncated or empty snapshot.
   if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && "$snapshots_ok" == true && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
     local mpre
     mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
@@ -498,17 +495,37 @@ cmd_update() {
       # marker), and guessing here could throw away a real staged transaction.
       echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
     elif cmp -s "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
-      # STILL PENDING: staging writes no rpm changes, so a baseline that still matches the world
-      # this run started from means the reboot has not applied it yet. Safe to rebase.
-      # atomic_write, not cp: the widget's timer can fire a check that reads this baseline at any
-      # moment, and a half-copied baseline would be diffed as a real transaction.
-      atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
-        || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
+      # STILL PENDING: staging writes no rpm changes of its own, so a baseline that still matches
+      # the world this run started from means no restart has applied it yet.
+      if [[ "$dnf_status" == "ok" ]] && ! cmp -s "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv"; then
+        # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against, and
+        # dnf5 refuses one whose cookie has moved - so after a live install the armed stage is not
+        # a pending update at all, it is a failed offline boot waiting to happen. Discarding it is
+        # the only outcome that leaves the box in a state its own tools describe truthfully.
+        # The marker goes with the stage, not before it: a marker without a stage would tell the
+        # popup and the doctor that an install is coming that nothing can deliver.
+        if apply_with_retry "$log" priv_apply dnf-offline-clean; then
+          rm -f "$OFFLINE_MARKER" "$mpre"
+          log_event "offline stage dropped (superseded by live update)"
+        else
+          # Keep the marker: the stage may still be there, and `kempt doctor` reads the two
+          # together and says which of them is wrong.
+          echo "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+        fi
+      else
+        # No rpm moved (a flatpak-only run), so the cookie still matches and the stage is still
+        # good. Rebasing the baseline onto the after-snapshot keeps the post-reboot harvest
+        # diffing the staged transaction and nothing else.
+        # atomic_write, not cp: the widget's timer can fire a check that reads this baseline at any
+        # moment, and a half-copied baseline would be diffed as a real transaction.
+        atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
+          || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
+      fi
     fi
-    # ALREADY APPLIED (baselines differ): the reboot ran the staged transaction and no check has
-    # harvested it yet. Rebasing here would fold that delta into the baseline and the staged
-    # transaction would never be reported at all - and the marker would linger to mislabel the
-    # next rpm change. Leave it: the self-refresh below harvests it normally.
+    # ALREADY APPLIED (baselines differ): a restart ran the staged transaction and no check has
+    # harvested it yet. Nothing is pending, so there is nothing to supersede or rebase - and doing
+    # either would fold that delta into the baseline and the transaction would never be reported
+    # at all. Leave it: the self-refresh below harvests it normally.
   fi
 
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
