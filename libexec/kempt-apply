@@ -31,5 +31,24 @@ case "$verb" in
     offline=(); [[ "$verb" == dnf-offline-stage ]] && offline=(--offline)
     run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
     ;;
-  *) echo "usage: kempt-apply dnf-upgrade|dnf-offline-stage [args]" >&2; exit 2 ;;
+  # A staged transaction sits at status="download-complete" and no boot applies it. This is what
+  # ARMS it: status becomes "ready" and /system-update appears, which is the only thing systemd's
+  # system-update-generator looks for. DNF_SYSTEM_UPGRADE_NO_REBOOT is the supported
+  # arm-without-rebooting switch (dnf5-offline(8)) and is not optional here - without it dnf5
+  # reboots the moment the transaction is armed, which is not what "on next restart" promised.
+  # Passed via `env` so the guard is part of the command line the ECHO seam prints and the suite
+  # can pin; a bare prefix assignment would be invisible to both.
+  dnf-offline-arm)
+    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
+    ;;
+  # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
+  # calls this to unwind a stage it could not arm, and to retire a stage a live update has already
+  # superseded - a staged transaction records the rpmdb cookie it was built against, so once the
+  # rpm set moves the stage can only fail at boot.
+  dnf-offline-clean)
+    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    run dnf5 offline clean -y
+    ;;
+  *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
 esac

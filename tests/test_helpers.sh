@@ -35,13 +35,34 @@ assert_exit 2 "apply: the flatpak verb is gone from the root helper" \
 # can only name two verbs when there are two, so this one fails against the old helper for the
 # right reason instead of passing against it for the wrong one.
 fp_verb_out="$(KEMPT_APPLY_ECHO=1 bash "$AH" flatpak-update -y org.gimp.GIMP 2>&1 || true)"
-assert_eq "$fp_verb_out" "usage: kempt-apply dnf-upgrade|dnf-offline-stage [args]" \
+assert_eq "$fp_verb_out" \
+  "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" \
   "apply: ...and says so with a usage line naming only the dnf verbs"
 # KEMPT_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
 got="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
 assert_eq "$got" "dnf5 upgrade -y --exclude=vim-common --exclude=kernel-core" "dnf-upgrade builds exact command"
 got2="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-stage -y)"
 assert_eq "$got2" "dnf5 upgrade --offline -y" "offline stage builds exact command"
+# Staging is only half the job: `dnf5 upgrade --offline` leaves the transaction at
+# status="download-complete", which no boot ever applies. `dnf5 offline reboot` is what flips it to
+# "ready" and creates the /system-update symlink systemd's generator looks for - and it reboots
+# immediately unless DNF_SYSTEM_UPGRADE_NO_REBOOT is set (dnf5-offline(8)). Kempt arms and lets the
+# person choose when, so the env var is load-bearing, not decoration: without it this verb reboots
+# the box out from under whoever pressed a button labelled "Install on Next Restart". It is set
+# through `env` rather than a shell assignment so the ECHO seam can print it and this assertion can
+# pin it - a prefix assignment would vanish from "$*" and leave the reboot guard unverifiable.
+got3="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-arm)"
+assert_eq "$got3" "env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y" \
+  "offline arm builds exact command, with the no-reboot guard"
+got4="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-clean)"
+assert_eq "$got4" "dnf5 offline clean -y" "offline clean builds exact command"
+# Neither verb takes an argument, so neither may SILENTLY DROP one. dnf5's offline subcommands
+# accept flags of their own (--installroot, --releasever); accepting-and-ignoring would let a
+# caller believe a scope was honoured when the root helper had thrown it away.
+assert_exit 2 "apply: arm takes no arguments" \
+  env KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-arm -y
+assert_exit 2 "apply: clean takes no arguments" \
+  env KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-clean --installroot=/
 # The two flatpak command-shape assertions that used to sit here now live in tests/test_flatpak.sh,
 # against flatpak_apply and its own seam: that is where the command is built now.
 
