@@ -1,0 +1,54 @@
+#!/bin/bash
+# Kempt root helper - the dnf upgrade verbs, and only those. polkit action
+# io.github.erez_c137.kempt.apply (auth_admin_keep). Flatpak is NOT here: `flatpak update` needs
+# no password of its own in an active local session, so it runs as the user from
+# backends/flatpak.sh, which is where the reasoning and the two residual prompts are written down.
+# SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
+# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
+# the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
+NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
+
+run() {  # test seam: KEMPT_APPLY_ECHO=1 prints instead of exec
+  if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+}
+
+verb="${1:-}"; shift || true
+case "$verb" in
+  dnf-upgrade|dnf-offline-stage)
+    assume=(); excludes=()
+    for a in "$@"; do
+      case "$a" in
+        -y) assume=(-y) ;;
+        --exclude=*) n="${a#--exclude=}"
+           [[ "$n" =~ $NAME_RE ]] || { echo "invalid exclude: $n" >&2; exit 2; }
+           excludes+=("--exclude=$n") ;;
+        *) echo "invalid arg: $a" >&2; exit 2 ;;
+      esac
+    done
+    offline=(); [[ "$verb" == dnf-offline-stage ]] && offline=(--offline)
+    run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
+    ;;
+  # A staged transaction sits at status="download-complete" and no boot applies it. This is what
+  # ARMS it: status becomes "ready" and /system-update appears, which is the only thing systemd's
+  # system-update-generator looks for. DNF_SYSTEM_UPGRADE_NO_REBOOT is the supported
+  # arm-without-rebooting switch (dnf5-offline(8)) and is not optional here - without it dnf5
+  # reboots the moment the transaction is armed, which is not what "on next restart" promised.
+  # Passed via `env` so the guard is part of the command line the ECHO seam prints and the suite
+  # can pin; a bare prefix assignment would be invisible to both.
+  dnf-offline-arm)
+    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
+    ;;
+  # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
+  # calls this to unwind a stage it could not arm, and to retire a stage a live update has already
+  # superseded - a staged transaction records the rpmdb cookie it was built against, so once the
+  # rpm set moves the stage can only fail at boot.
+  dnf-offline-clean)
+    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    run dnf5 offline clean -y
+    ;;
+  *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
+esac

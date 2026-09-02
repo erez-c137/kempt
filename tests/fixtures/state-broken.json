@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "last_check": "2026-08-25T10:59:26+03:00",
+  "last_success": null,
+  "status": "stale",
+  "error": "dnf check failed: root helper not installed - run ./install.sh (see: kempt doctor)",
+  "backends": {
+    "dnf": {
+      "enabled": true,
+      "actionable": 0,
+      "held": 0,
+      "items": []
+    },
+    "flatpak": {
+      "enabled": false,
+      "actionable": 0,
+      "held": 0,
+      "items": []
+    }
+  },
+  "actionable": 0,
+  "held_total": 0,
+  "risky_pending": []
+}

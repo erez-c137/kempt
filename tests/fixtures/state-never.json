@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "last_check": "2026-08-25T10:59:26+03:00",
+  "last_success": null,
+  "status": "stale",
+  "error": "dnf check failed",
+  "backends": {
+    "dnf": {
+      "enabled": true,
+      "actionable": 0,
+      "held": 0,
+      "items": []
+    },
+    "flatpak": {
+      "enabled": true,
+      "actionable": 3,
+      "held": 0,
+      "items": [
+        {
+          "name": "com.example.NotInstalled",
+          "from": "?",
+          "to": "9.9",
+          "held": false
+        },
+        {
+          "name": "net.mkiol.SpeechNote",
+          "from": "4.8.4",
+          "to": "4.8.5",
+          "held": false
+        },
+        {
+          "name": "org.gimp.GIMP",
+          "from": "3.0.2",
+          "to": "3.0.4",
+          "held": false
+        }
+      ]
+    }
+  },
+  "actionable": 3,
+  "held_total": 0,
+  "risky_pending": []
+}

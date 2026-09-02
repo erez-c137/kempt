@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "last_check": "2026-08-25T10:59:26+03:00",
+  "last_success": "2026-08-25T10:59:26+03:00",
+  "status": "ok",
+  "error": "",
+  "backends": {
+    "dnf": {
+      "enabled": true,
+      "actionable": 20,
+      "held": 0,
+      "items": [
+        {
+          "name": "dbus",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "dbus-broker",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "glibc",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "glibc-common",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kernel-core",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kernel-modules",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kernel-modules-core",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kf6-kcoreaddons",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kf6-kio",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kwin-common",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "kwin-x11",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "mesa-dri-drivers",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "mesa-libGL",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "mesa-vulkan-drivers",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "plasma-workspace",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "qt6-qtbase",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "qt6-qtdeclarative",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "systemd",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "systemd-libs",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        },
+        {
+          "name": "systemd-udev",
+          "from": "?",
+          "to": "9.9.9-1.fc44",
+          "held": false
+        }
+      ]
+    },
+    "flatpak": {
+      "enabled": true,
+      "actionable": 3,
+      "held": 0,
+      "items": [
+        {
+          "name": "com.example.NotInstalled",
+          "from": "?",
+          "to": "9.9",
+          "held": false
+        },
+        {
+          "name": "net.mkiol.SpeechNote",
+          "from": "4.8.4",
+          "to": "4.8.5",
+          "held": false
+        },
+        {
+          "name": "org.gimp.GIMP",
+          "from": "3.0.2",
+          "to": "3.0.4",
+          "held": false
+        }
+      ]
+    }
+  },
+  "actionable": 23,
+  "held_total": 0,
+  "risky_pending": [
+    "dbus",
+    "dbus-broker",
+    "glibc",
+    "glibc-common",
+    "kernel-core",
+    "kernel-modules",
+    "kernel-modules-core",
+    "kf6-kcoreaddons",
+    "kf6-kio",
+    "kwin-common",
+    "kwin-x11",
+    "mesa-dri-drivers",
+    "mesa-libGL",
+    "mesa-vulkan-drivers",
+    "plasma-workspace",
+    "qt6-qtbase",
+    "qt6-qtdeclarative",
+    "systemd",
+    "systemd-libs",
+    "systemd-udev"
+  ]
+}

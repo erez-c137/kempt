@@ -1,0 +1,18 @@
+{
+    "KPlugin": {
+        "Id": "io.github.erez_c137.kempt",
+        "Name": "Kempt",
+        "Description": "One-click system updates with a truthful badge",
+        "Icon": "kempt",
+        "Category": "System Information",
+        "Authors": [{ "Name": "Erez Avital" }],
+        "License": "MIT",
+        "Version": "0.1.0",
+        "Website": "https://github.com/erez-c137/kempt",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "SystemServices",
+    "KPackageStructure": "Plasma/Applet"
+}

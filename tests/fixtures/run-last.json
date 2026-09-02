@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-08-26T23:13:14+03:00",
+  "surface": "background",
+  "status": "ok",
+  "duration_sec": 2,
+  "reboot_needed": true,
+  "log": "/tmp/kempt-capture.UdQy8n/state/logs/20260826T231312.log",
+  "error": "",
+  "backends": {
+    "dnf": {
+      "updated": [
+        {
+          "name": "kernel-core",
+          "from": "6.15.3-200.fc44",
+          "to": "6.15.4-200.fc44"
+        },
+        {
+          "name": "vim-common",
+          "from": "2:9.1.900-1.fc44",
+          "to": "2:9.1.1000-1.fc44"
+        }
+      ],
+      "added": [
+        {
+          "name": "newpkg",
+          "to": "1.0-1.fc44"
+        }
+      ],
+      "removed": [
+        {
+          "name": "zsh",
+          "from": "5.9-11.fc44"
+        }
+      ],
+      "status": "ok",
+      "skipped_held": []
+    },
+    "flatpak": {
+      "updated": [],
+      "added": [],
+      "removed": [],
+      "status": "ok",
+      "skipped_held": []
+    }
+  }
+}

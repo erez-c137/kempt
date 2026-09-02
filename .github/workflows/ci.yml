@@ -1,0 +1,98 @@
+# DORMANT ON PURPOSE. The repo is private and its Actions budget is $0, so nothing here may
+# start on its own: workflow_dispatch is the only trigger, and running it is a deliberate act.
+#
+# WHEN THE REPO GOES PUBLIC, replace the `on:` block below with:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#     workflow_dispatch:
+#
+# Nothing else needs to change.
+name: CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # apt, not a third-party action: one less supply-chain edge for a repo whose whole point is
+      # a privileged helper, and ubuntu-latest already carries a recent enough shellcheck.
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version
+
+      # NEVER RUN LOCALLY - the first dispatch of this job is also its first execution. shellcheck
+      # is not installed on the dev box, packages may not be installed there, and the upstream
+      # v0.10.0 release publishes no checksum for its static binary (verified: no digest on any
+      # asset, no checksums file, nothing in the release notes), so the static tarball was
+      # downloaded but deliberately never extracted or executed. Expect the first run to surface
+      # findings that need triage rather than a clean pass.
+      #
+      # -x follows `source`. bin/kempt sources through a runtime-computed $ROOT, which shellcheck
+      # cannot resolve, so --source-path points it at the two directories those files really live
+      # in. Anything still unresolved comes back as SC1091 and is informational.
+      - name: Lint
+        run: |
+          shellcheck -x -s bash \
+            --source-path="$GITHUB_WORKSPACE" \
+            --source-path="$GITHUB_WORKSPACE/lib" \
+            --source-path="$GITHUB_WORKSPACE/backends" \
+            bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+
+  tests:
+    name: test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite needs bash 4+, jq, util-linux flock and GNU coreutils, and nothing else: every
+      # impure command reaches the system through an environment seam that tests/lib.sh stubs, so
+      # dnf5, flatpak, rpm, pkexec and notify-send are never invoked and need not exist. Verified
+      # on the dev box by running the whole suite under a stripped PATH containing only
+      # bash/jq/flock/coreutils/sed/gawk/grep/findutils/diffutils, with dnf, dnf5, flatpak, rpm,
+      # pkexec, notify-send, systemctl, apt, python3 and perl all unreachable: ALL PASS.
+      - name: Check the runner has what the suite needs
+        run: |
+          for t in bash jq flock date sort join comm paste awk sed grep cmp find; do
+            command -v "$t" >/dev/null || { echo "missing prerequisite: $t" >&2; exit 1; }
+          done
+          bash --version | head -1
+          jq --version
+
+      # KNOWN LIMITATION - the one thing the suite wants that a CI runner does not have.
+      # tests/test_run.sh asserts the launch plan for the `terminal` surface, and cmd_run refuses
+      # with exit 4 when $KEMPT_TERMINAL is not on PATH. sandbox() unsets that seam, so the
+      # default `konsole` applies and two assertions ("terminal plan", "no-auto-accept forces
+      # terminal") fail on any box without KDE installed. That is the ONLY environment coupling
+      # left: in the stripped-PATH run above, adding a `konsole` stub is the difference between
+      # those two failures and ALL PASS across 1310 assertions (17 files; the QML probes skip without PySide6).
+      # The durable fix belongs in tests/test_run.sh, which should stub KEMPT_TERMINAL the way
+      # every other seam is stubbed. Until it does, this shim keeps the job honest about why it
+      # is green rather than quietly papering over a red one.
+      - name: Shim the terminal emulator tests/test_run.sh expects
+        run: |
+          mkdir -p "$RUNNER_TEMP/shim"
+          printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/shim/konsole"
+          chmod +x "$RUNNER_TEMP/shim/konsole"
+          echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+
+      # Same command CONTRIBUTING.md asks for before a commit.
+      - name: Syntax check
+        run: bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+
+      # run_tests.sh exits non-zero on any failing file, and fails outright if it matches no test
+      # files at all, so a suite that silently stopped existing cannot pass as green.
+      - name: Run the suite
+        run: tests/run_tests.sh
