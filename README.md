@@ -4,14 +4,10 @@ One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widg
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Kempt in the Plasma system tray, popup open](docs/images/kempt-tray-popup.png)
+![Kempt's tray popup: 83 updates pending, staged to install on the next restart](docs/images/kempt-tray-popup.png)
 
-*Kempt as a system-tray entry on Plasma 6, with the popup open on a fully updated box. The
-tray icon follows your icon theme (this one is kora).*
-
-> **This screenshot predates the popup redesign and is owed a retake.** The popup it shows
-> has a row of buttons under the heading; today it has a message area, a list and a footer,
-> and the primary button is gone entirely in the up-to-date state pictured here.
+*The tray popup with 83 updates pending: staged to install on the next restart, pins to hold
+any package back, and the download size in the footer.*
 
 ## Why
 
