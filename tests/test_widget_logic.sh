@@ -855,6 +855,16 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
 # and saying "Updated 4 packages" about it would be the popup's worst possible lie.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Update failed: dnf exited 1" "a partial transaction that failed is reported as failed"
+# The offline STAGING run: its entry has empty package lists BY CONSTRUCTION - nothing changes
+# until the restart - so the count sentences would call it "No package changes". True about the
+# rpm set, and no answer at all to what the person just did. Exact match on "offline": the
+# harvest writes "offline (applied on reboot)" and its counts are real changes.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28}"))')" \
+  "Updates are staged - they install on the next restart" "a staging run reports the staging, not the zero rpm delta"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"staged but could not arm the restart install\"}"))')" \
+  "Update failed: staged but could not arm the restart install" "a FAILED staging run is a failure, never a promise"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
+  "Updated 2 packages in 0s" "the harvest entry is not a staging run - its counts render"
 
 # --- runFinishedSince: is this entry the run we just watched? -----------------------------------
 # The belt-and-braces half of the same fix `kempt summary --json` carries on the CLI side. The
@@ -895,6 +905,13 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2
   "Last update 1 min ago · 1 package" "one package is singular here too"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
   "Last update 1 min ago · no package changes" "a run that changed nothing says so in words"
+# The staging run's row, between the stage and the restart that applies it. Same reasoning as
+# postRunLine's branch: zero changes is true and misleading. A FAILED staging run staged
+# nothing, and its row must not say otherwise.
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · staged for restart" "a staging run's row says the changes are deferred, not absent"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · no package changes" "a failed staging run falls back to the counts, which are honestly zero"
 # An entry this file cannot DATE gets no row at all. "Last update never · 1 package" was the
 # shape of that bug: relativeTime answers "never" for a missing or empty stamp, and the sentence
 # went on to describe a run in the same breath as denying there was one. The counts are still in

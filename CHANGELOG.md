@@ -181,7 +181,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 18 files and 2343 assertions: every
+- **A test suite that needs none of the tools it drives.** 18 files and 2348 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI
@@ -203,7 +203,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   while a transaction is waiting, with a Restart… button of its own unless the restart message is
   already carrying one. `kempt summary` prints the same fact as a `Staged:` line, and
   `kempt check` publishes it as `offline_staged` in the state file, present only for a
-  transaction dnf5 reports as genuinely armed.
+  transaction dnf5 reports as genuinely armed. The popup's own run lines agree: the transient
+  post-run line and the Last update row used to describe a staging run as "no package changes" -
+  true of the rpm set, misleading about what just happened - and now say the updates are staged
+  (`Last update 2 min ago · staged for restart`). A staging run that FAILED keeps the honest
+  zero.
 - **A live update no longer leaves a doomed transaction armed.** A staged transaction records the
   package database it was built against, and dnf5 refuses one whose database has moved - so
   installing anything live turns a pending stage into a failed offline boot waiting to happen.

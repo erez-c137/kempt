@@ -875,6 +875,13 @@ function postRunLine(run) {
         var why = firstLineOf(run.error);
         return why === "" ? COPY.updateFailed : COPY.updateFailed + ": " + why;
     }
+    // The staging run's entry has empty package lists BY CONSTRUCTION - nothing changes until
+    // the restart - so the count sentences below would call it "No package changes": true about
+    // the rpm set and no answer at all to what the person just did. The staged banner says the
+    // same thing seconds later once the follow-up check lands; until then this line is the only
+    // voice. Exact match, never a prefix: the harvest writes "offline (applied on reboot)" and
+    // its counts are real changes that must keep rendering as changes.
+    if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
@@ -937,6 +944,14 @@ function lastRunText(run, nowMs) {
     // Note this is a test of the STAMP, not of relativeTime's output: with an unusable clock
     // relativeTime falls back to the absolute stamp, which is a perfectly good row.
     if (!isRenderableStamp(run.when)) return "";
+    // The staging run, between the stage and the restart that applies it: its zero counts are
+    // true and misleading, same reasoning as postRunLine's branch. `failed` is checked because
+    // this row otherwise ignores failure: a staging run that FAILED staged nothing, and "staged
+    // for restart" about it would be the promise postRunLine refuses to make. Exact match on
+    // "offline" - the harvest's surface is "offline (applied on reboot)" and its counts render.
+    if (!run.failed && run.surface === "offline") {
+        return "Last update " + relativeTime(run.when, nowMs) + DOT + "staged for restart";
+    }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
     return "Last update " + relativeTime(run.when, nowMs) + DOT + what;
