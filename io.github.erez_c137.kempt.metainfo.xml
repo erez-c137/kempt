@@ -75,7 +75,7 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
-    <release version="0.1.0" date="2026-09-02" type="stable">
+    <release version="0.1.0" date="2026-09-03" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.0</url>
       <description><p>First public release.</p></description>
     </release>

@@ -8,6 +8,8 @@ release.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-03
+
 The first working version of Kempt: the complete command-line tool, its root helpers, its
 installer and its documentation, and the Plasma panel widget that sits on top of them.
 

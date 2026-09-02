@@ -5,10 +5,11 @@
         "Description": "One-click system updates with a truthful badge",
         "Icon": "kempt",
         "Category": "System Information",
-        "Authors": [{ "Name": "Erez Avital" }],
+        "Authors": [{ "Name": "Erez" }],
         "License": "MIT",
         "Version": "0.1.0",
         "Website": "https://github.com/erez-c137/kempt",
+        "BugReportUrl": "https://github.com/erez-c137/kempt/issues",
         "EnabledByDefault": true
     },
     "X-Plasma-API-Minimum-Version": "6.0",
