@@ -30,6 +30,12 @@ export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
+# sandbox() pins this at the `ready` fixture so the offline tests elsewhere have an armed
+# transaction to work against. Doctor is the one command that REPORTS on it, so most of this file
+# wants the opposite default - a box with nothing staged - and the section at the bottom points the
+# seam at each fixture itself. Left at the sandbox default, every unrelated case here would carry a
+# staged-transaction line it says nothing about.
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
 
 # Where a REAL install puts its copies, staged into the sandbox through install.sh's own --destdir
 # seam - so what the install-skew section compares is a real staged install rather than a
@@ -359,6 +365,77 @@ grep -qF 'info  install: packaged - the package manager keeps these files in ste
 grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
+
+# --- the staged transaction, which doctor is the only surface that can explain --------------------
+# TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
+# reads them reconciled; doctor reads them side by side, and its whole value is the case where they
+# disagree. The founder's box spent a day in exactly that state - a marker over a transaction that
+# was downloaded and never armed - with every surface reporting a pending install that no restart
+# could deliver, and nothing anywhere able to say so.
+D_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
+mkdir -p "$KEMPT_STATE_DIR"
+doctor_out() { "$KEMPT" doctor > "$TESTTMP/staged.txt" 2>&1 || true; }
+
+# Nothing staged and no marker: nothing to say, and doctor does not say it. A line per run about a
+# transaction that does not exist is noise on every box that has never staged one.
+rm -f "$D_MARKER"
+doctor_out
+grep -qiE '^(ok|info|FAIL)  .*staged' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: a box with nothing staged still reported on it"; _fail=1; } \
+  || echo "ok: no staged transaction, no line about one"
+
+# ARMED and pending: the normal case, and information rather than a problem. It is the one thing
+# the report can say that answers "why is `kempt check` still listing these packages?".
+printf '{"staged_at":"2026-09-02T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61,"armed":true}\n' > "$D_MARKER"
+assert_exit 0 "an armed staged transaction is not a problem" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'info  staged update: 61 packages install on the next restart' "$TESTTMP/last_output" \
+  && echo "ok: ...and doctor says how many, and when" \
+  || { echo "FAIL: no staged line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+# A marker from before the count existed still describes a real pending install.
+printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b"}\n' > "$D_MARKER"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'info  staged update: it installs on the next restart' "$TESTTMP/staged.txt" \
+  && echo "ok: an unknown count loses the number, not the line" \
+  || { echo "FAIL: no countless staged line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+
+# THE FOUNDER'S BOX, and the reason this section exists. `dnf5 upgrade --offline` leaves the
+# transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it installs on no
+# restart ever, and the marker over it makes every other surface promise that it will.
+printf '{"staged_at":"2026-09-01T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
+assert_exit 1 "a stage that was never armed is a problem, and doctor exits on it" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
+grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
+  && echo "ok: ...saying it can never install, not that it is pending" \
+  || { echo "FAIL: no never-install line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+# The exact command, because a diagnosis a person cannot act on is half a diagnosis - and this one
+# needs root, so it cannot be a kempt subcommand.
+grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
+  && echo "ok: ...and names the exact command that clears it" \
+  || { echo "FAIL: the fix command is missing"; _fail=1; }
+
+# A marker whose transaction is gone. Nothing for the user to do: the next check clears it, and
+# saying so is more useful than either silence or an alarm.
+KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" doctor_out
+grep -qE '^info  staged update: the transaction is gone' "$TESTTMP/staged.txt" \
+  && echo "ok: a marker with no transaction left is reported, and not as a problem" \
+  || { echo "FAIL: no gone-transaction line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qE '^FAIL' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: a marker the next check clears was reported as a problem"; _fail=1; } \
+  || echo "ok: ...and it does not fail the checkup"
+
+# Somebody else's transaction: `dnf5 upgrade --offline` typed in a terminal, or another tool. Kempt
+# did not stage it, will not harvest it, and must not claim it - but a person reading this report
+# because a restart installed something they did not expect deserves to be told it is there.
+rm -f "$D_MARKER"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qE '^info  an offline transaction is staged outside Kempt' "$TESTTMP/staged.txt" \
+  && echo "ok: a transaction Kempt did not stage is named as somebody else's" \
+  || { echo "FAIL: no outside-Kempt line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
+  && echo "ok: ...pointing at the command that describes it" \
+  || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
+rm -f "$D_MARKER"
 
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops
 # at the first failure sends the user round the loop once per problem.

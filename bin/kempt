@@ -1044,6 +1044,41 @@ cmd_doctor() {
     doctor_fail "checkout incomplete: missing ${missing[*]} (in $ROOT)"
   fi
 
+  # The staged offline transaction, read as TWO facts side by side rather than reconciled. That is
+  # what makes this doctor's line and nobody else's: every other surface reads the two together and
+  # publishes one answer, so a marker sitting over a transaction that can never install looks, from
+  # the outside, exactly like a pending update. The founder's box spent a day in that state - 61
+  # packages promised on every restart, downloaded, never armed, delivered by nothing.
+  # Silent when there is neither a marker nor a transaction, which is most boxes most of the time:
+  # a line per run about something that does not exist is noise, not a checkup.
+  local dr_toml dr_count
+  dr_toml="$(offline_system_status)"
+  if [[ -f "$OFFLINE_MARKER" ]]; then
+    dr_count="$(jq -r '.staged // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+    case "$dr_toml" in
+      ready)
+        if [[ "$dr_count" =~ ^[0-9]+$ ]]; then
+          doctor_info "staged update: $dr_count packages install on the next restart"
+        else
+          doctor_info "staged update: it installs on the next restart"
+        fi ;;
+      absent)
+        # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it,
+        # so this is worth reporting and not worth failing over.
+        doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
+      *)
+        # Anything that is not `ready` is not armed, and an unarmed transaction is applied by no
+        # restart. FAIL rather than info because it is a real defect with an exact remedy, and the
+        # remedy needs root - so it cannot be a kempt subcommand and has to be spelled out.
+        doctor_fail "staged update can never install: the transaction was downloaded but never armed (status \"$dr_toml\"), so no restart applies it - clear it with: sudo dnf5 offline clean" ;;
+    esac
+  elif [[ "$dr_toml" != absent ]]; then
+    # Not Kempt's: it staged nothing and will harvest nothing. Still worth a line - somebody
+    # reading this report because a restart installed things they did not expect has just found
+    # their answer.
+    doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
+  fi
+
   # Which build this is, in the form a maintainer can act on. The opening line already names the
   # release and the tree; this one names the COMMIT, which is the difference between "0.1.0" and
   # the twelve commits of 0.1.0 that a reporter might actually be running. `dirty` covers untracked
