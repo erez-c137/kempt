@@ -1,9 +1,16 @@
 # Releasing Kempt
 
-The procedure for cutting a release, in the order a maintainer runs it. Everything before step 7
-is what ships today. Steps 7 to 9 are marked **when packaging exists** and are written now so the
-first packaged release is a checklist rather than an investigation; the research behind them is
-[docs/research/2026-08-27-packaging-and-listing.md](research/2026-08-27-packaging-and-listing.md).
+The procedure for cutting a release, in the order a maintainer runs it. The research behind the
+packaging steps is
+[docs/research/2026-08-27-packaging-and-listing.md](research/2026-08-27-packaging-and-listing.md),
+and what was actually executed against this tree is
+[docs/research/2026-09-02-rpm-spec-verification.md](research/2026-09-02-rpm-spec-verification.md).
+
+**What exists and what does not.** `kempt.spec` is committed at the repo root and has been built,
+linted, installed and smoke-tested in a Fedora 44 container, and the AppStream metainfo is
+committed next to it. Step 8's zip commands were run against this tree. What has **never** been
+run is COPR itself: step 7 is still read from upstream documentation, and the repo has to be
+public before an SCM-tracked COPR package can clone it at all.
 
 ## Kempt never updates itself
 
@@ -17,15 +24,23 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
 
 ## The release
 
-1. **Bump `VERSION`.** It is the only place this project writes its version down.
+1. **Bump `VERSION`.** It is the source of truth, and three other files restate it.
 
    ```bash
    printf '0.2.0\n' > VERSION
-   tests/test_version.sh          # fails until plasmoid/metadata.json agrees
+   tests/test_version.sh          # names every file that does not agree yet
    ```
 
-   Then edit `KPlugin.Version` in `plasmoid/metadata.json` to match and re-run that file. The test
-   is what keeps the CLI and the widget from reporting different releases of the same install.
+   Then bring the other three into line and re-run that file until it is silent:
+
+   - `KPlugin.Version` in `plasmoid/metadata.json`
+   - `<release version=` in `io.github.erez_c137.kempt.metainfo.xml`, whose `date=` is the release
+     date, newest release first
+   - `Version:` in `kempt.spec`
+
+   The test is what keeps the CLI, the widget, the software centre and `rpm -q` from reporting
+   four different releases of one install. It does not check the spec's `%changelog`, which needs
+   a new dated entry of its own, or the git tag in step 5 - those are on you.
 
 2. **Move the CHANGELOG.** Rename the `## [Unreleased]` heading to `## [0.2.0] - YYYY-MM-DD`
    using the release date, and open a fresh empty `## [Unreleased]` above it. Nothing else in the
@@ -67,10 +82,22 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    Attach the widget archive built in step 8 as a release asset, so the store listing and the
    AppStream metainfo can point at the same file the release page serves.
 
-## When packaging exists
+## Packaging
 
-7. **COPR build from the tag.** The spec draft and the verified COPR setup are in
-   [the packaging research](research/2026-08-27-packaging-and-listing.md) (sections 3.3 and 3.4).
+7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
+   COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
+   passed: the spec builds, lints to zero rpmlint findings, installs and smokes clean on Fedora 44
+   ([the verification note](research/2026-09-02-rpm-spec-verification.md)). A red COPR build is
+   therefore about COPR, the chroot or the tag, not about the spec. **COPR itself has never been
+   run**; step 7 is still read from [the packaging
+   research](research/2026-08-27-packaging-and-listing.md) section 3.4.
+
+   Rebuild the tarball the way the verification did, if you need to reproduce a build locally:
+
+   ```bash
+   git archive --format=tar.gz --prefix=kempt-0.2.0/ -o kempt-0.2.0.tar.gz v0.2.0
+   ```
+
    The package is configured once, with the SCM source method pointing at the repo's clone URL and
    the `.spec` committed in-tree, plus the auto-rebuild webhook. After that a pushed tag is the
    trigger, and the only manual step is confirming the build went green for every chroot:

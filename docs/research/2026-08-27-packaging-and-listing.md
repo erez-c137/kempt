@@ -2,6 +2,10 @@
 
 **Date:** 2026-08-27
 **Status:** research only. Nothing here is installed, packaged or published by this document.
+**Partly superseded, 2026-09-02.** Sections 1.3 and 3.3 have since been turned into committed
+files and RUN. What survived contact is recorded in
+[2026-09-02-rpm-spec-verification.md](2026-09-02-rpm-spec-verification.md); the section notes
+below say which parts of this document are now history rather than instructions.
 **For:** the roadmap's v1.x items "Flip the GitHub repo public", "KDE Store listing" and
 "RPM/COPR packaging" (`docs/ROADMAP.md`).
 **Method:** every claim marked *verified* was executed or read on this box (Fedora 44, Plasma
@@ -26,7 +30,8 @@ copied out. Packaging retires that. The table is the whole delta.
 | Plasmoid | copied by `kpackagetool6` into `~/.local/share/plasma/plasmoids/<id>/` | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` |
 | Icons | six rungs into `~/.local/share/icons/hicolor/*/apps/kempt.svg` | `/usr/share/icons/hicolor/*/apps/kempt.svg` |
 | Man page | symlink `~/.local/share/man/man1/kempt.1` | `/usr/share/man/man1/kempt.1.gz` |
-| AppStream metainfo | **does not exist yet** | `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` |
+| AppStream metainfo | not installed by `install.sh` | `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` |
+| `VERSION`, `polkit/49-kempt.rules.in` | read out of the checkout | `/usr/share/kempt/` - both, or `kempt --version` and `enable-passwordless` break (§3.3 note) |
 
 `install.sh --destdir <dir>` already stages every one of the rows above except the metainfo, so
 it is a usable smoke test for the file list, but it stages into the **user** hierarchy
@@ -97,6 +102,15 @@ right. It gets three things wrong or missing for a third-party project: it hardc
 content_rating. Treat it as a generator for the identity block and hand-write the rest.
 
 ### 1.3 The draft
+
+> **SHIPPED, 2026-09-02.** This draft is now a committed file at the repo root,
+> `io.github.erez_c137.kempt.metainfo.xml`, installed to `/usr/share/metainfo/`. Read that file,
+> not the block below: it differs in two places the draft got wrong. Its release is **0.1.0**
+> dated 2026-09-02, matching `VERSION` and enforced by `tests/test_version.sh`; and its screenshot
+> declares **467x463**, the committed image's real size, rather than the 1280x800 invented here.
+> A declared size that does not match is a warning of its own once the validator can fetch the
+> image. Five `url-not-reachable` warnings remain, and only those; `appstreamcli validate --no-net`
+> on the committed file reports no findings at all.
 
 Validated on this box with `appstreamcli validate --explain` (AppStream 1.1.3). The **only**
 findings were four `url-not-reachable` / `screenshot-image-not-found` warnings, all of which are
@@ -239,11 +253,12 @@ notification-area hints). Two gaps matter for a listing:
 - **No `BugReportUrl`.** It is a real, documented `KPlugin` key and it appears in the official
   Plasma 6 example at <https://develop.kde.org/docs/plasma/widget/setup/> right next to
   `Website`. The metainfo above has a bugtracker URL; `metadata.json` does not. Add it.
-- **`KPlugin.Version` is `"0.1.0"`, and it is the ONLY version string in the entire repository.**
-  Verified: `bin/kempt` has no `--version` subcommand, there are no git tags (`git tag` is
-  empty, 144 commits), and `CHANGELOG.md` is still `[Unreleased]`. Publishing needs four numbers
-  to agree: the git tag, the RPM `Version:`, the metainfo `<release version=...>` and
-  `KPlugin.Version`. Pick one source of truth before the first tag, not after.
+- ~~**`KPlugin.Version` is the ONLY version string in the entire repository.**~~ **Resolved.**
+  As written this said `bin/kempt` had no `--version`, there were no tags and nothing tied the
+  numbers together. `VERSION` is now the single source of truth, `kempt --version` reads it, and
+  `tests/test_version.sh` fails until `plasmoid/metadata.json`, the metainfo's newest `<release
+  version=>` and `kempt.spec`'s `Version:` all agree with it. The one number still on the
+  maintainer is the git tag, which is why `docs/RELEASING.md` step 1 lists it by hand.
 
 ### 2.3 The store side
 
@@ -322,9 +337,28 @@ what pins it) and `kempt doctor` reports the mismatch, which is the intended saf
 
 ### 3.3 The spec draft
 
-**UNVERIFIED:** no rpm build tooling is installed on this box (`rpmspec`, `rpmbuild` and
-`rpmlint` are all absent), so this draft has **not** been parsed or linted. Treat it as a
-starting point to run through `rpmlint` on a build host.
+> **SUPERSEDED, 2026-09-02.** The real file is `kempt.spec` at the repo root. It was built,
+> linted, installed and smoke-tested in a `registry.fedoraproject.org/fedora:44` podman container,
+> and the transcript is [2026-09-02-rpm-spec-verification.md](2026-09-02-rpm-spec-verification.md).
+> **Read the committed spec, not the block below.** Running the draft found five errors in it:
+>
+> 1. `Version: 1.0.0` against a tree that says `0.1.0`.
+> 2. `%check`'s `appstream-util validate-relax` **fails this package** - libappstream-glib checks
+>    stock icon names against a hardcoded freedesktop list and rejects `kempt`, an icon the
+>    package installs at six sizes. Use `appstreamcli` and `BuildRequires: appstream`.
+> 3. `VERSION` was not packaged, so `kempt --version` printed `kempt unknown`.
+> 4. `polkit/49-kempt.rules.in` was not packaged, so `kempt enable-passwordless` had no template.
+> 5. `BuildRequires: desktop-file-utils`, for a package that ships no `.desktop` file.
+>
+> Also wrong here: `%{_metainfodir}` **is** defined wherever `rpm-build` exists, which is the only
+> place a spec is ever evaluated. The note below about spelling it out was over-cautious.
+> rpmlint additionally required a rewrapped 80-column `%description`, no macros inside spec
+> comments, and shebangs stripped from the sourced `lib/` and `backends/` copies. After those, the
+> built RPM lints to **0 errors, 0 warnings, 0 badness**.
+
+**UNVERIFIED (as written on 2026-08-27):** no rpm build tooling is installed on this box
+(`rpmspec`, `rpmbuild` and `rpmlint` are all absent), so this draft has **not** been parsed or
+linted. Treat it as a starting point to run through `rpmlint` on a build host.
 
 ```spec
 Name:           kempt
@@ -521,10 +555,14 @@ is not one, and no amount of manifest tuning changes that.
    GitHub's own billing docs confirm the premise: "GitHub Actions usage is free for standard
    GitHub-hosted runners in public repositories, and for self-hosted runners." The flip and the CI
    enable are therefore the same decision.
-2. **The shellcheck job has never run.** Its comment says so explicitly: shellcheck is not
-   installed on the dev box and the first dispatch will also be its first execution across
-   `bin/kempt lib/common.sh backends/*.sh libexec/* install.sh`. Budget a triage pass. Dispatch
-   it manually **before** the repo is public so the first public CI run is green.
+2. ~~**The shellcheck job has never run.**~~ **Done, 2026-09-02.** shellcheck is still not
+   installed on the dev box, so the exact command the job runs was executed in a throwaway
+   container instead, against the `koalaman/shellcheck` v0.9.0, v0.10.0 and stable (0.11.0)
+   images - three, because `ubuntu-latest`'s apt shellcheck is whatever it carries that month and
+   the versions disagree (0.9.0 and 0.10.0 report an SC2015 that 0.11.0 does not). Eleven
+   findings, all triaged: two real quoting fixes and nine one-line waivers, no file-level
+   suppressions. All three versions now exit 0, so the first public run should be green without a
+   dispatch. Dispatching it once anyway is still cheap insurance against a runner difference.
 3. **Tags and releases.** Verified: `git tag` is empty at 144 commits. The metainfo's
    `<url type="details">` and the KDE Store changelog both want a release page, so the first
    thing after the merge to `main` is an annotated `v1.0.0` tag and a GitHub release whose body
@@ -543,11 +581,23 @@ is not one, and no amount of manifest tuning changes that.
 
 ## 6. The short list, in order
 
-1. Take the screenshots (blocks the README, the metainfo and the store listing).
-2. Decide the version source of truth and add `kempt --version`.
-3. Dispatch the dormant CI once and triage shellcheck.
-4. Flip the repo public. The metainfo cannot validate clean before this.
-5. Commit the metainfo, validate with `appstreamcli validate --explain`, expect zero warnings.
-6. Tag `v1.0.0`, cut the release, attach the plasmoid archive.
-7. Upload to store.kde.org.
-8. RPM spec, then COPR, last: it is the only item that needs a build host this box does not have.
+Struck items are done. The rest is the real remaining path, and note that it reordered itself:
+the RPM spec was last on this list because it "needs a build host this box does not have", and a
+container turned out to be that host.
+
+1. Take the screenshots (blocks the README, the metainfo's declared size and the store listing).
+2. ~~Decide the version source of truth and add `kempt --version`.~~ Done: `VERSION` is the source
+   of truth, `kempt --version` exists, and `tests/test_version.sh` pins the widget's
+   `KPlugin.Version`, the metainfo's newest release and `kempt.spec`'s `Version:` to it.
+3. ~~Dispatch the dormant CI once and triage shellcheck.~~ Done in a container; see §5.2.
+4. ~~Commit the metainfo.~~ Done: `io.github.erez_c137.kempt.metainfo.xml` at the repo root.
+   It still cannot validate **clean** until the flip below, and only for the five reachability
+   warnings; offline it has no findings at all.
+5. ~~Write the RPM spec.~~ Done and verified end to end:
+   [2026-09-02-rpm-spec-verification.md](2026-09-02-rpm-spec-verification.md).
+6. Flip the repo public. This is now the gate on everything left: the metainfo's warnings, the
+   `Source0` URL, and COPR's ability to clone at all.
+7. Tag the release and cut it, attaching the plasmoid archive from §2.1. The version number and
+   the timing are the founder's call, not this document's.
+8. COPR. The **only** packaging item still entirely unexecuted.
+9. Upload to store.kde.org.

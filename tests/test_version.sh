@@ -37,6 +37,13 @@ assert_exit 0 "the AppStream metainfo exists" -- test -f "$META"
 assert_eq "$(grep -o '<release [^>]*>' "$META" | head -1 | sed -n 's/.*version="\([^"]*\)".*/\1/p')" \
   "$VER" "the metainfo's newest release version agrees with VERSION"
 
+# The fourth: what `rpm -q kempt` answers. A spec that lags ships a package whose own version
+# disagrees with the binary inside it, and the person reading both is holding one install.
+SPEC="$REPO_ROOT/kempt.spec"
+assert_exit 0 "the RPM spec exists" -- test -f "$SPEC"
+assert_eq "$(awk '/^Version:/{print $2; exit}' "$SPEC")" "$VER" \
+  "kempt.spec's Version agrees with VERSION"
+
 # --- what a person types -----------------------------------------------------------------------
 assert_eq "$("$KEMPT" --version)" "kempt $VER" "--version prints the version"
 # Three spellings because all three get typed: --version is the convention, `version` is the guess,

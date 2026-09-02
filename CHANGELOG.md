@@ -181,11 +181,26 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 18 files and 2348 assertions: every
+- **A test suite that needs none of the tools it drives.** 18 files and 2352 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI
   by supervised PySide6 probes.
+- **The two files a packaged Kempt needs, both run rather than drafted.** An AppStream metainfo,
+  so a software centre has a name, a summary, a screenshot and a release history to show instead
+  of nothing; and `kempt.spec`, which was built, linted, installed and smoke-tested inside a
+  Fedora 44 container before it was believed. A packaged install puts the tree under
+  `/usr/share/kempt` with `/usr/bin/kempt` as a symlink into it, moves the root helpers to
+  `/usr/libexec`, and `kempt doctor` says `install: packaged`. Building it that way found two
+  bugs a first user would have hit: `kempt --version` printed `kempt unknown` because `VERSION`
+  was not in the package, and `kempt enable-passwordless` had no rules template to render. The
+  transcript is [docs/research/2026-09-02-rpm-spec-verification.md](docs/research/2026-09-02-rpm-spec-verification.md).
+  Nothing is published yet - COPR and the store upload are still ahead.
+- **The version agreement now covers every file that states one.** `tests/test_version.sh` already
+  pinned the widget's `KPlugin.Version` to `VERSION`; it pins the metainfo's newest release and
+  `kempt.spec`'s `Version:` to it as well. A software centre cannot advertise a release the CLI
+  does not report, and `rpm -q kempt` cannot disagree with the binary it installed. The git tag is
+  the one number still left to a human, and `docs/RELEASING.md` step 1 says so.
 
 ### Fixed
 
@@ -234,6 +249,13 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   [docs/research/2026-08-25-brand-bakeoff.md](docs/research/2026-08-25-brand-bakeoff.md). The
   binary, the root helpers, the polkit actions, the config and state directories and the
   `KEMPT_*` environment seams all moved with it. Nothing was released under the old name.
+- **The shellcheck CI job is green before anyone can watch it fail.** It had never executed once -
+  shellcheck is not installed on the dev box - so the exact command CI runs was run in a
+  throwaway container against three shellcheck releases instead, because the runner's version is
+  whatever Ubuntu ships that month and they disagree. Eleven findings, all triaged: one real
+  quoting fix in the package-lock retry, and nine one-line waivers that each name the constraint
+  the code could not show, such as the `pkexec bash -c '...$1'` forms whose single quotes are the
+  whole point of passing paths as arguments to a root shell. No file-level suppressions.
 
 ### Notes and known limitations
 
@@ -243,7 +265,9 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   which the summary does not itemize, so a run can change slightly more than it reports.
 - Installation is a symlink into the git checkout, which stays load-bearing. The widget is the
   one exception: `kpackagetool6` copies it, so re-run `./install.sh` after changing `plasmoid/`.
-  Proper packaging is future work.
+  That is the only install anyone can do today: `kempt.spec` exists and is verified to build and
+  install cleanly, but no built package is published anywhere yet, so there is nothing to
+  `dnf install` until COPR is set up.
 - **The root helper changed, so `./install.sh` has to be re-run.** `kempt-apply` gained the two
   offline verbs, and it is a copy rather than a symlink - without a re-install, root is still
   running the version that cannot arm a transaction, and every staged update silently goes back
