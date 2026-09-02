@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<!--
+  A Plasma applet is an ADDON, not a desktop-application: Kempt ships no .desktop file, and
+  type="desktop-application" makes the validator ask for a <launchable> that cannot exist. Plasma
+  itself discovers the widget through plasmoid/metadata.json and never reads this file; it exists
+  so a software centre and the KDE Store have something real to show.
+
+  Lives at the repo root because that is where kempt.spec's %install reads it from, and installs
+  to /usr/share/metainfo/. See docs/research/2026-08-27-packaging-and-listing.md section 1.
+-->
+<component type="addon">
+  <id>io.github.erez_c137.kempt</id>
+  <extends>org.kde.plasmashell</extends>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Kempt</name>
+  <summary>One-click system updates with a truthful badge</summary>
+  <description>
+    <p>
+      Kempt is a Plasma 6 panel widget and a bash command-line tool that shows exactly which
+      system updates are pending, counts only the ones you have not held, and applies them with
+      one click from the panel.
+    </p>
+    <p>The badge and the update come from the same command path, so they cannot disagree.</p>
+    <ul>
+      <li>dnf5 and Flatpak updates, with the version each package moves from and to.</li>
+      <li>Holds that skip a package but keep reporting it.</li>
+      <li>Offline staging for updates that could disturb the running session.</li>
+    </ul>
+  </description>
+  <developer id="io.github.erez_c137">
+    <name>Erez Avital</name>
+  </developer>
+  <!--
+    EVERY remote URL below 404s while the repo is private, and appstreamcli fetches them: expect
+    url-not-reachable on the four <url/> entries and screenshot-image-not-found on the image, and
+    accept exactly those five. The repo going public is what clears them; nothing here changes.
+    Verified: run appstreamcli's validate with fetching switched off and the same file passes
+    with no findings at all, so the five are the network and not the metadata. (The release's
+    <url type="details"/> is NOT among them; the validator does not fetch that one, tag or no
+    tag.) Careful with flag names in these comments: a double hyphen ends an XML comment.
+  -->
+  <url type="homepage">https://github.com/erez-c137/kempt</url>
+  <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
+  <url type="help">https://github.com/erez-c137/kempt/blob/main/docs/usage.md</url>
+  <url type="vcs-browser">https://github.com/erez-c137/kempt</url>
+  <icon type="stock">kempt</icon>
+  <categories>
+    <category>System</category>
+  </categories>
+  <keywords>
+    <keyword>updates</keyword>
+    <keyword>dnf</keyword>
+    <keyword>flatpak</keyword>
+    <keyword>plasma</keyword>
+  </keywords>
+  <screenshots>
+    <!--
+      width/height are the real pixels of the committed file, not a wish: the validator compares
+      them against the image once it can fetch it. The roadmap's 16:9 re-capture replaces this
+      crop, and these two numbers move with it.
+    -->
+    <screenshot type="default">
+      <caption>The panel badge and the pending-updates popup</caption>
+      <image type="source" width="467" height="463">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-tray-popup.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>kempt</binary>
+  </provides>
+  <!--
+    The version here is one of the four that must agree (VERSION, plasmoid/metadata.json,
+    kempt.spec, this file). tests/test_version.sh is what enforces it.
+  -->
+  <releases>
+    <release version="0.1.0" date="2026-09-02" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.0</url>
+      <description><p>First public release.</p></description>
+    </release>
+  </releases>
+</component>

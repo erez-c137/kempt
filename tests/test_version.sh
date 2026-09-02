@@ -26,6 +26,17 @@ assert_eq "$(printf '%s' "$VER" | wc -c)" "$(printf '%s' "$VER" | tr -d '[:space
 assert_eq "$(jq -r '.KPlugin.Version' "$REPO_ROOT/plasmoid/metadata.json")" "$VER" \
   "the widget's KPlugin.Version agrees with VERSION"
 
+# The third number: what a software centre reads. It is written in a third language in a third
+# file, and a metainfo whose newest <release> lags VERSION tells every Discover user the wrong
+# thing while the widget and the CLI both say the right one.
+META="$REPO_ROOT/io.github.erez_c137.kempt.metainfo.xml"
+assert_exit 0 "the AppStream metainfo exists" -- test -f "$META"
+# The FIRST <release> element: AppStream orders releases newest-first, so the top one is this
+# build's. grep and sed rather than an XML parser - the suite's whole dependency list is bash, jq
+# and coreutils, and CI checks for exactly those.
+assert_eq "$(grep -o '<release [^>]*>' "$META" | head -1 | sed -n 's/.*version="\([^"]*\)".*/\1/p')" \
+  "$VER" "the metainfo's newest release version agrees with VERSION"
+
 # --- what a person types -----------------------------------------------------------------------
 assert_eq "$("$KEMPT" --version)" "kempt $VER" "--version prints the version"
 # Three spellings because all three get typed: --version is the convention, `version` is the guess,
