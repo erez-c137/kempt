@@ -102,6 +102,17 @@ var COPY = {
     noPackageChanges: "No package changes",
     updateFailed: "Update failed",
 
+    // A transaction that is already staged and armed: a statement about what the next restart
+    // will do, not about anything to press now. Two spellings, because the count can genuinely be
+    // unknown (a marker written before the CLI recorded one) and "N updates" without an N is not
+    // a sentence. `stagedTail` is a FRAGMENT, and it is here for the same reason `held` above is:
+    // both spellings have to say the identical thing about the identical transaction, and two
+    // full literals would drift the first time one of them was edited. The same caveat applies -
+    // a fragment is not a translatable unit - and tests/test_widget_logic.sh pins the finished
+    // sentence, not the pieces.
+    stagedTail: "are staged - they install on the next restart",
+    stagedUnknownCount: "Updates are staged - they install on the next restart",
+
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
     configure: "Configure Kempt…"
 };
@@ -540,6 +551,25 @@ function riskyMessageOf(names) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
     }
     return COPY.kernelRestart;
+}
+
+// stagedMessageOf(offline_staged) -> what the next restart will install, in one sentence.
+//
+// The CLI publishes this key only after reconciling its own marker against dnf5's transaction
+// status, and only for a transaction that is genuinely ARMED (lib/common.sh, offline_staged_state).
+// So the judgement is not re-derived here: the key's presence IS the answer. What this adds is the
+// count, which is optional and which no reader may invent - a marker written before the count
+// existed carries null, and the sentence loses the number rather than gaining a wrong one.
+//
+// The type check is the same one riskyMessageOf's caller learned the hard way: state.json is JSON
+// written by another program, and a schema-1 reader has to tolerate a key of the wrong type.
+// Tolerating it means IGNORING it - a string here would otherwise reach `.count` as undefined and
+// render the popup's most reassuring sentence about a transaction that does not exist.
+function stagedMessageOf(staged) {
+    if (!staged || typeof staged !== "object" || isArray(staged)) return "";
+    var n = staged.count;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedUnknownCount;
+    return n + " updates " + COPY.stagedTail;
 }
 
 // The head of anything formatStamp can RENDER. Anything else it hands back verbatim, and
@@ -1090,6 +1120,11 @@ function viewModel(state, updating, cliError, opts) {
         ? true : isTrue(opts.restartReminder);
     var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
 
+    // A transaction that is already staged and armed, which changes what the rest of the popup may
+    // offer. Derived once, here, because three of the returned fields depend on it.
+    var stagedMessage = usable ? stagedMessageOf(state.offline_staged) : "";
+    var staged = stagedMessage !== "";
+
     // --- the footer status line ------------------------------------------------------------------
     // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
     // are as of the last check that actually told us something. A check that failed has the stale
@@ -1159,8 +1194,20 @@ function viewModel(state, updating, cliError, opts) {
         riskySummary: riskySummaryOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),
         // What to DO about that risky set, which is a different question from how big it is.
-        riskyMessage: riskyMessageOf(
+        //
+        // Silent while a transaction is already staged, and that is not a tidying-up: this message
+        // IS the "Install on Next Restart" offer, and offering it over a transaction that is
+        // already armed invites a second staging of the same updates. On 2026-09-01 that is
+        // exactly what happened - staged at 10:31, nothing visibly changed, staged again at 10:36.
+        // The staged message takes its place and explains why nothing is being offered.
+        // riskySummary above is deliberately NOT silenced: those packages really are still
+        // pending until the restart runs, and the count stays true.
+        riskyMessage: staged ? "" : riskyMessageOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),
+        stagedMessage: stagedMessage,
+        // Never two Restart… buttons in one popup: the restart Warning already carries one
+        // whenever it is on screen, and this is the same action in a second place.
+        stagedShowRestart: staged && !restartMessageVisible,
         lastSuccessText: lastSuccessText,
         rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
@@ -1190,6 +1237,7 @@ if (typeof module !== "undefined" && module.exports) {
         relativeTime: relativeTime,
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         riskyMessageOf: riskyMessageOf,
+        stagedMessageOf: stagedMessageOf,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,

@@ -842,10 +842,27 @@ if live is not None:
         open(path, "w").write(json.dumps(doc))
         return path
 
+    def staged_from(source, name, count):
+        """The same capture with an ARMED offline transaction recorded on it.
+
+        Derived rather than added to tests/fixtures/ for the same reason as uptodate_from: it is
+        the shipped capture plus exactly one key, so it cannot drift away from the real document.
+        `offline_staged` is what the CLI publishes only after reconciling its own marker against
+        dnf5's transaction status (lib/common.sh, offline_staged_state) - its presence here is the
+        widget being told the reconciliation already happened.
+        """
+        doc = json.load(open(fixture(source)))
+        doc["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00",
+                                 "count": count, "armed": True}
+        path = os.path.join(p.sandbox, name)
+        open(path, "w").write(json.dumps(doc))
+        return path
+
     UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
     UPTODATE_REBOOT = uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json")
 
     MESSAGES = [("restartMessage", "the restart message"),
+                ("stagedMessage", "the staged-transaction message"),
                 ("riskyMessage", "the session-critical warning"),
                 ("staleMessage", "the stale explanation"),
                 ("postRunMessage", "the post-run line"),
@@ -870,6 +887,41 @@ if live is not None:
 
     state(fixture("state-risky-heavy.json"))
     stack("with a session-critical transaction pending", "riskyMessage")
+
+    # The same transaction, already staged. The staged message replaces the offer rather than
+    # joining it: leaving "Install on Next Restart" on screen over an armed transaction is an
+    # invitation to stage the same updates twice, which is what happened on 2026-09-01.
+    STAGED_RISKY = staged_from("state-risky-heavy.json", "state-staged-risky.json", 61)
+    state(STAGED_RISKY)
+    stack("with that transaction already staged", "stagedMessage")
+    p.check("...saying how many updates the restart will install",
+            lev("stagedMessage.text"),
+            "61 updates are staged - they install on the next restart")
+    p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
+            lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
+    p.check("...and offering the restart, since no restart message is carrying it",
+            lev("stagedMessage.actions[0].visible"), True)
+    p.check("...under the same label the restart message uses",
+            lev("stagedMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
+    dbus_staged = len(records("dbus-send"))
+    lev("stagedMessage.actions[0].trigger()")
+    settle()
+    p.check("...and it opens KDE's own prompt, the one place a restart is ever asked for",
+            len(records("dbus-send")) - dbus_staged, 1)
+
+    # A staged transaction on a box that ALSO owes a restart for updates already installed. Both
+    # messages are true and both are shown - but only the Warning carries the button.
+    STAGED_REBOOT = staged_from("state-reboot-needed.json", "state-staged-reboot.json", 4)
+    state(STAGED_REBOOT)
+    stack("staged, on a box that already owed a restart", "restartMessage", "stagedMessage")
+    p.check("...and the staged message stands its button down rather than showing a second one",
+            lev("stagedMessage.actions[0].visible"), False)
+
+    # A marker from before the CLI recorded a count still describes a real pending install.
+    STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", None)
+    state(STAGED_NOCOUNT)
+    p.check("an unknown count loses the number, not the sentence",
+            lev("stagedMessage.text"), ev("Logic.COPY.stagedUnknownCount"))
 
     state(fixture("state-stale.json"))
     stack("with the last check failed over known counts", "staleMessage")
@@ -1291,6 +1343,8 @@ _ASSEMBLED_IN_LOGIC = {
     "noSuccessfulCheckYet",  # -> vm.footerText
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
+    "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
+    "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

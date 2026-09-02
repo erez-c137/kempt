@@ -1229,6 +1229,55 @@ assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
   "2 session-critical pending (glibc, kernel)" "a genuine array still derives the summary it always did"
 
+# --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
+# The state key exists only when the CLI has reconciled its own marker against dnf5's status and
+# found an ARMED transaction (lib/common.sh, offline_staged_state), so the widget does not
+# re-derive that judgement - it renders it or it says nothing.
+STG=',offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true}'
+STGN=',offline_staged:{staged_at:"x",count:null,armed:true}'
+assert_eq "$(vm '{}' "$STG" 0 'stagedMessage')" \
+  "61 updates are staged - they install on the next restart" \
+  "a staged transaction says how many updates the restart will install"
+assert_eq "$(vm '{}' "$STGN" 0 'stagedMessage')" \
+  "Updates are staged - they install on the next restart" \
+  "an unknown count drops the number rather than the sentence"
+assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",armed:true}' 0 'stagedMessage')" \
+  "$(js 'L.COPY.stagedUnknownCount')" "...and a key that never carried a count reads the same"
+assert_eq "$(vm '{}' '' 0 'stagedMessage')" "" "nothing staged, nothing said"
+assert_eq "$(js 'L.viewModel(null,false).stagedMessage')" "" "...and no state at all says nothing either"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:"yes"},false).stagedMessage')" \
+  "" "a key of the wrong type is ignored, not rendered"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:61},false).stagedMessage')" \
+  "" "...a number included"
+
+# Never TWO Restart… buttons in one popup. The restart Warning already carries one whenever it is
+# on screen, and the staged message is a second place the same action would appear - which is the
+# shape the founder hit from the other direction: two buttons for one outcome, pressed twice.
+assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
+  "a staged transaction with no restart message offers the restart itself"
+assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
+  "...and stands down when the restart message is already offering it"
+assert_eq "$(vm '{restartReminder:false}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
+  "...and takes it back when that message is switched off"
+assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
+  "...or dismissed for this session"
+assert_eq "$(vm '{}' '' 0 'stagedShowRestart')" "false" "nothing staged offers no restart"
+
+# THE DOUBLE-PRESS. With a transaction already staged, offering "Install on Next Restart" again is
+# an invitation to stage a second one - which is exactly what happened on 2026-09-01: staged at
+# 10:31, nothing appeared to change, staged again at 10:36. riskyMessage is the whole content of
+# that offer, so silencing it is what takes the button off the screen.
+RISKY=',risky_pending:["kernel-core","kernel-modules"]'
+assert_eq "$(vm '{}' "$RISKY" 0 'riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
+  "premise: a session-critical transaction does raise the offer"
+assert_eq "$(vm '{}' "$RISKY$STG" 0 'riskyMessage')" "" \
+  "...and never while a transaction is already staged"
+# The count keeps telling the truth: those packages ARE still pending until the restart runs, and
+# the staged message is what explains why nothing is being offered about them.
+assert_eq "$(vm '{}' "$RISKY$STG" 0 'riskySummary')" \
+  "$(vm '{}' "$RISKY" 0 'riskySummary')" \
+  "...while the count of what is pending is unchanged, because it is still true"
+
 # --- the copy table -----------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
@@ -1257,6 +1306,10 @@ assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
 assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
 assert_eq "$(js 'L.COPY.noPackageChanges')" "No package changes" "copy: a run that changed nothing"
 assert_eq "$(js 'L.COPY.updateFailed')" "Update failed" "copy: a run that failed"
+assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged - they install on the next restart" \
+  "copy: the staged message when the count is not known"
+assert_eq "$(js 'L.COPY.stagedTail')" "are staged - they install on the next restart" \
+  "copy: the tail the counted spelling shares with it"
 assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
 # Nothing empty, nothing that is not a string: an undefined COPY key reaches a QML binding as a
 # blank label, which is a button with no words on it rather than an error anyone would see.
@@ -1280,7 +1333,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedMessage","stagedShowRestart","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

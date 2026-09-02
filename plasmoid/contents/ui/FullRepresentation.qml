@@ -331,6 +331,37 @@ PlasmaExtras.Representation {
             }
         }
 
+        // What the next restart will install. Positive rather than Warning, and that is the whole
+        // point of it being here: nothing is wrong, nothing needs pressing, and the work the person
+        // asked for is done and waiting. Before this, a staged transaction looked exactly like an
+        // un-staged one - the offline offer below was still on screen - and pressing it again was
+        // the obvious thing to do.
+        //
+        // vm.stagedMessage is empty unless the CLI has reconciled its marker against dnf5's own
+        // transaction status and found one that is genuinely ARMED, so this message is never shown
+        // over a stage that no restart would install.
+        Kirigami.InlineMessage {
+            id: stagedMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Positive
+            text: popup.vm.stagedMessage
+            Accessible.name: text
+            visible: popup.vm.stagedMessage.length > 0
+            actions: [
+                Kirigami.Action {
+                    // The same action the restart Warning offers, and never at the same time as it:
+                    // vm.stagedShowRestart is false while that message is on screen. Two buttons
+                    // for one outcome in one small window is how a person ends up pressing both.
+                    // enabled/visible together, the pattern the Show Log action above already uses.
+                    text: i18n("Restart…")
+                    icon.name: "system-reboot"
+                    enabled: popup.vm.stagedShowRestart
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.promptRestart()
+                }
+            ]
+        }
+
         // The offline recommendation. The CLI has already decided this transaction touches
         // session-critical packages; the widget's job is to make acting on it one click.
         //
