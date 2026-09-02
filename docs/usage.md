@@ -85,8 +85,9 @@ known - never zero.
 The full field-by-field schema is in
 [architecture.md](architecture.md#state-json-schema-v1).
 
-`check` also does two things quietly, in the same lock: it harvests a staged offline
-transaction once the machine has actually rebooted, and it refreshes package metadata at most
+`check` also does two things quietly, in the same lock: it reconciles a staged offline
+transaction - harvesting it once the machine has actually rebooted, and clearing the marker when
+the transaction underneath it has gone - and it refreshes package metadata at most
 once every 3 hours, never on battery and never on a metered connection. The refresh covers both
 backends - dnf's repo metadata and the Flatpak remote's summary - and it is the **only** part of
 a check that reaches the network. The questions themselves are answered entirely from the local
@@ -181,6 +182,49 @@ the other surfaces can answer dnf's prompt.
 Known limitation: a system-wide `flatpak update` also updates runtimes, but the pending list and
 the summary track apps. A run can therefore change more than the summary itemizes.
 
+### The offline surface
+
+`--surface=offline` (the widget's **Install on Next Restart**) does two privileged things, not
+one, and both matter:
+
+1. **Stage.** `dnf5 upgrade --offline` downloads the whole transaction and stores it. Nothing is
+   installed and the running desktop is untouched.
+2. **Arm.** `dnf5 offline reboot` marks that transaction ready and creates `/system-update`, which
+   is the only thing systemd's offline-update generator looks for at boot.
+
+Both happen inside the one authentication, at staging time - not when you restart. That is what
+makes the name true: once the run finishes, **any** restart installs it. The popup's Restart…
+button, the K menu, `reboot` typed in a terminal, a restart three days later - all of them.
+Kempt never restarts anything itself.
+
+If the arm fails, the run **fails**: the stage is discarded, no marker is written, and the
+summary, the notification and the event log all say `staged but could not arm the restart
+install`. A downloaded transaction that nothing can apply is worse than no transaction at all,
+because every surface would go on describing it as a pending install.
+
+Flatpak has no offline mechanism, so an offline run still updates Flatpak apps live. That is
+safe for the running session in a way an rpm transaction is not.
+
+Until the restart happens, the staged packages **keep showing as pending** in `kempt check` and
+in the widget - they are, until it runs. What changes is that the popup says so:
+
+```
+61 updates are staged - they install on the next restart
+```
+
+...and it stops offering to stage them again.
+
+**A live update supersedes a pending stage.** A staged transaction records the state of the rpm
+database it was built against, and dnf5 refuses one whose database has moved - so the moment a
+live `kempt update` installs anything, the staged transaction can only fail at boot. Kempt
+discards it (`dnf5 offline clean`), removes its marker, and records `offline stage dropped
+(superseded by live update)`. A run that changed no rpm at all - a Flatpak-only update - leaves
+the stage alone, because nothing it depends on has moved.
+
+Third-party rpm changes are **not** chased. If you `sudo dnf install something` yourself while a
+stage is armed, dnf5 refuses the stale transaction at boot and the system boots normally; the
+update is simply not applied. Re-stage, or update live.
+
 ## run
 
 ```
@@ -239,6 +283,18 @@ Apps (flatpak): 1 updated
 Held (skipped): vim-common
 Reboot: needed
 ```
+
+With an offline transaction staged and armed, one more line follows the run, answering the other
+question - not what the last run did, but what the next restart will do:
+
+```
+Staged: 61 updates install on the next restart
+```
+
+It is read from `state.json` rather than from the history entry, because a staged transaction
+belongs to the machine and not to any past run. For the same reason it does **not** appear in
+`--json`, which hands over one run's entry verbatim; readers that want it take `offline_staged`
+from `kempt check`.
 
 With no runs recorded, `summary` prints `no update runs recorded yet` and exits 0. A damaged
 history entry is skipped with a warning on stderr and the next-newest is rendered instead.
@@ -405,8 +461,29 @@ What it checks, and what each failure means:
 | The checkout still holds `lib/`, `backends/` and the passwordless rules template | The CLI is a symlink into the checkout. A missing rules template only surfaces the day `enable-passwordless` is run. |
 | The installed root helpers, polkit action and widget package still match the checkout | You pulled and did not re-run `./install.sh`. The CLI is a symlink so it moved with the pull; those three are copies, so root is still running the old helper. |
 
+| A staged offline transaction is armed, or absent | The transaction was downloaded and never armed, so **no restart will ever install it**. The line names the fix: `sudo dnf5 offline clean`. |
+
 Lines are `ok`, `info` or `FAIL`. Only `FAIL` affects the exit code, and every check runs even
 after one fails, so one pass shows every problem.
+
+### The staged transaction
+
+Doctor is the only surface that reads Kempt's own staging marker and dnf5's transaction status
+**side by side**. Everywhere else the two are reconciled into one answer, which is precisely why a
+broken pairing is invisible: a marker over a transaction that can never install looks, from
+outside, exactly like a pending update.
+
+The four things it can say:
+
+| Line | What it means |
+| --- | --- |
+| `info  staged update: 61 packages install on the next restart` | Normal. Staged, armed, waiting. |
+| `FAIL  staged update can never install: ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
+| `info  staged update: the transaction is gone, ...` | The marker outlived its transaction (someone ran `dnf5 offline clean`, or a superseding live update could not remove the marker). The next `kempt check` clears it. Nothing to do. |
+| `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
+
+Nothing is printed when there is neither a marker nor a transaction, which is most boxes most of
+the time.
 
 ### The install lines
 

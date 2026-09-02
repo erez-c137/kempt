@@ -27,7 +27,7 @@ for the whole cache window. So there are two, each bound by `exec.path` to exact
 | Action | Helper | Verbs | Policy for an active local session |
 | --- | --- | --- | --- |
 | `io.github.erez_c137.kempt.refresh` | `kempt-refresh` | `check`, `refresh` | `yes` - no dialog |
-| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage` | `auth_admin_keep` - one dialog per run |
+| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `dnf-offline-arm`, `dnf-offline-clean` | `auth_admin_keep` - one dialog per run |
 
 Both actions set `allow_any=no` and `allow_inactive=no`: nothing is granted to a remote or
 inactive session.
@@ -73,6 +73,25 @@ rather than ignored, so a caller cannot believe it passed something that was sil
 | Verb | Accepted arguments | Validation |
 | --- | --- | --- |
 | `dnf-upgrade`, `dnf-offline-stage` | `-y`, `--exclude=<name>` | `<name>` must match `^[A-Za-z0-9][A-Za-z0-9._+-]*$` |
+| `dnf-offline-arm` | none | Any argument at all exits 2 |
+| `dnf-offline-clean` | none | Any argument at all exits 2 |
+
+The two offline verbs are the smallest attack surface in the helper: each builds one fixed
+command with no caller input in it whatsoever, so there is nothing to validate beyond refusing
+arguments outright. Refusing rather than ignoring matters here too - dnf5's offline subcommands
+accept flags of their own (`--installroot`, `--releasever`), and a helper that silently dropped
+one would let a caller believe a scope had been honoured.
+
+`dnf-offline-arm` runs `env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`. It applies
+nothing and installs nothing: it marks an already-downloaded transaction ready and creates
+`/system-update`, which is what systemd's offline-update generator looks for at the next boot.
+The environment variable is not a nicety - without it, dnf5 reboots the machine the moment the
+transaction is armed. `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged
+transaction; the worst it can do is throw away updates that had not been installed yet.
+
+They share the apply action rather than getting one of their own because they are part of the
+same operation as the stage: `auth_admin_keep` is what lets one dialog cover a stage and the arm
+made seconds later, and splitting them would mean two dialogs for one button press.
 
 So `--exclude=foo;rm -rf /` and `--installroot=/` are rejected outright. So is `flatpak-update`:
 that verb was removed when applying Flatpak updates stopped crossing the privilege boundary at

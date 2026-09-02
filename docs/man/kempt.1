@@ -74,8 +74,9 @@ Query every enabled backend, write the state file and print it as JSON. Takes no
 Backend failures do not fail the command: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
-means "no data, keep the last known state", never "zero updates". This command also harvests a
-staged offline transaction once the machine has rebooted, and refreshes package metadata at most
+means "no data, keep the last known state", never "zero updates". This command also reconciles a
+staged offline transaction \- harvesting it once the machine has rebooted, and clearing its
+marker when the transaction underneath has gone \- and refreshes package metadata at most
 once every three hours, never on battery or on a metered connection.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
@@ -91,6 +92,18 @@ An unrecognized surface falls back to
 Held items are excluded and listed. When session\-critical packages are pending, an interactive
 terminal run first offers to update live, stage the transaction offline, or abort; anything
 other than an explicit yes aborts, having changed nothing.
+.IP
+The
+.B offline
+surface both downloads the transaction and arms it, in one authentication, at staging time. Once
+the run finishes, any restart installs it: the widget's button, the desktop menu, or
+.BR reboot (8)
+typed in a terminal. Kempt never restarts anything itself. If the transaction cannot be armed the
+run fails and the stage is discarded, because a transaction nothing can apply is worse than none.
+The staged packages keep showing as pending until the restart runs, which is the truth.
+A later live update supersedes a pending stage: installing anything invalidates the staged
+transaction, so it is discarded rather than left to fail at the next boot. A run that changed no
+system packages leaves it alone.
 .TP
 .BR run " [" \-\-dry\-run ]
 Launch
@@ -145,8 +158,12 @@ Check this installation and print one line per check, prefixed
 .BR ok ", " info " or " FAIL :
 both root helpers at the polkit\-annotated paths and owned by root, the polkit action file,
 .BR jq ,
-the terminal emulator, flatpak, the configuration file's syntax, a writable state directory and
-an intact checkout. Every check runs even after one fails. Exit status 1 when anything failed.
+the terminal emulator, flatpak, the configuration file's syntax, a writable state directory,
+an intact checkout, and any staged offline transaction. Every check runs even after one fails.
+Exit status 1 when anything failed. A staged transaction that was downloaded but never armed is a
+.B FAIL
+naming the command that clears it: it will install on no restart, and every other surface
+describes it as pending.
 The last five lines of the event log are printed after the checks; they are not a check and never
 affect the exit status.
 .IP

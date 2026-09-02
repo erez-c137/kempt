@@ -136,7 +136,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | The marker for a transaction waiting on a reboot | Consumed by the harvest |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
 
 The event log is the newest of these and the one that answers a different kind of question. The
@@ -188,7 +188,8 @@ bumping `schema`.
   "actionable": 10,
   "held_total": 0,
   "risky_pending": [],
-  "reboot_needed": false
+  "reboot_needed": false,
+  "offline_staged": { "staged_at": "2026-09-02T10:31:00+03:00", "count": 61, "armed": true }
 }
 ```
 
@@ -210,6 +211,8 @@ bumping `schema`.
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item in it has a `size_bytes`** - partial coverage omits the key rather than publishing a total that is quietly short. Additive key. |
 | `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A backend switched off contributes nothing and does not suppress it. Additive key. |
 | `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
+
+| `offline_staged` | object, optional | Present **only** while an offline transaction is staged by Kempt **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when it was staged, `count` is how many updates it covers (`null` for a marker written before the count was recorded, never a guess), `armed` is always `true` - the key's absence is how "not armed" is expressed. A staged transaction whose status is anything else is a discrepancy for `kempt doctor`, not a pending install, and must never be published here. Additive key. |
 
 The download figure is **an estimate, and it is wrong in both directions.** State it with a "~"
 and never with "up to", which would claim a ceiling it does not have:
@@ -242,6 +245,65 @@ Two rules for anything that reads this file:
 
 A new backend adds a key under `backends` and stays schema 1: existing readers ignore what they
 do not know, and the totals keep working.
+
+## The offline transaction, end to end
+
+The one flow in Kempt whose state lives in **two** files owned by two different programs, and the
+one that was broken from the start because only half of it was being written.
+
+**Staging.** `kempt update --surface=offline` makes two privileged calls inside one
+authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
+`dnf-offline-arm` (`env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`) arms it. Only the
+second creates `/system-update`, and that symlink is the entire mechanism: systemd's
+`system-update-generator` looks for it at boot and nothing else does. Staging without arming
+leaves the transaction at `status = "download-complete"`, which installs on no restart, ever -
+which is exactly what shipped first, and what the whole of this section exists to prevent
+recurring. `DNF_SYSTEM_UPGRADE_NO_REBOOT` is the documented way to arm without rebooting
+(dnf5-offline(8)); without it, arming reboots the box on the spot.
+
+An arm that fails fails the run: the stage is discarded with `dnf-offline-clean` and **no marker
+is written**. The marker is a promise, and there is nothing left to promise.
+
+**The two files.**
+
+| File | Owner | Says |
+| --- | --- | --- |
+| `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, and the package set it was staged against |
+| `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5 | Whether the transaction is still there, and whether it is armed (`status = "ready"`) |
+
+Neither is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
+`dnf5 offline clean`". The toml alone cannot tell Kempt's transaction from anyone else's, and
+carries no baseline to diff a harvest against. `offline_system_status()` and
+`offline_staged_state()` in `lib/common.sh` are the only two readers.
+
+**Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
+restarts anything itself.
+
+**Harvesting.** The next `kempt check` reconciles, inside the check lock, before anything reads
+the world (`harvest_offline`):
+
+| Marker | dnf5 status | Boot | Package set | Outcome |
+| --- | --- | --- | --- | --- |
+| yes | ready / any non-absent | same as staged | - | Still pending. Nothing happens |
+| yes | absent | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
+| yes | any | different | unchanged | Still pending if the transaction is there; cleared if it is not - this second case used to be a permanent dead end, waiting forever for an apply that had already been discarded |
+| yes | any | different | changed | **Harvested**: one history entry, surface `offline (applied on reboot)`, diffed against the marker's own snapshot copy |
+
+The boot session is the gate rather than the package set, because "the installed set moved" was
+never evidence that the stage applied - a live run, or a manual `dnf install`, moves it too.
+
+**Superseding.** A staged transaction records the rpm database cookie it was built against, and
+dnf5 refuses one whose cookie has moved. So a live `kempt update` that installs anything has
+killed the stage, whether or not anyone notices, and an armed dead stage is a failed offline boot
+waiting to happen. `cmd_update` therefore discards it (`dnf-offline-clean`), removes the marker
+and its snapshot copy, and records `offline stage dropped (superseded by live update)`. Three
+conditions gate that: the stage must still be **pending** (its baseline still matches the world
+this run started from - an already-applied stage has a harvest owed and must not be dropped), dnf
+must have **succeeded**, and the rpm set must actually have **moved**. A Flatpak-only run moves
+nothing and leaves the stage alone.
+
+Third-party rpm changes are not chased: dnf5 refuses the stale transaction at boot and the system
+boots normally. Documented and accepted.
 
 ## The network boundary
 
@@ -298,8 +360,9 @@ Two root helpers, one per polkit action, because polkit's `auth_admin_keep` cach
 and a cheap verb must never share an action with a dangerous one:
 
 - `kempt-refresh` (`io.github.erez_c137.kempt.refresh`, no dialog): `check` and `refresh`, metadata only.
-- `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade` and
-  `dnf-offline-stage`. dnf only - `flatpak update` asks polkit for itself and is granted to an
+- `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade`,
+  `dnf-offline-stage`, `dnf-offline-arm` and `dnf-offline-clean`. The last two take no arguments
+  at all. dnf only - `flatpak update` asks polkit for itself and is granted to an
   active local session with no password, so routing it through this action only added a dialog
   that plain `flatpak update` never raises. Both flatpak arms, the refresh and the apply, now run
   as the user.
@@ -654,6 +717,7 @@ destructive paths without ever running them.
 | `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions |
+| `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |
 | `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |

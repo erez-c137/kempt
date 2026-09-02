@@ -37,9 +37,9 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   every Kempt run while it stays visible as pending, out of the actionable count, and named in
   each run's `Held (skipped)` line.
 - **Four run surfaces.** Terminal with live output, in-popup, silent background, and offline
-  staging, which hands the transaction to the next reboot the way Fedora recommends. The staged
-  result is harvested into normal history after that reboot, gated on the boot session so no
-  other package change can be mistaken for it.
+  staging, which downloads the transaction and arms it so the next restart of any kind installs
+  it, the way Fedora recommends. The staged result is harvested into normal history after that
+  restart, gated on the boot session so no other package change can be mistaken for it.
 - **A recommendation, never a veto, for risky transactions.** When a pending update touches
   session-critical packages, an interactive run offers to update live, stage it for the next
   reboot, or abort, and defaults to abort. Detached runs send a heads-up notification and
@@ -181,11 +181,45 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 18 files and 2232 assertions: every
+- **A test suite that needs none of the tools it drives.** 18 files and 2334 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI
   by supervised PySide6 probes.
+
+### Fixed
+
+- **"Install on Next Restart" now installs on the next restart.** It never did. Staging ran
+  `dnf5 upgrade --offline`, which downloads the transaction and stops there; only
+  `dnf5 offline reboot` marks it ready and creates `/system-update`, which is the single thing
+  systemd looks for at boot. Kempt never made that second call, so a staged update sat on disk
+  and no number of restarts applied it - and because the packages correctly stayed listed as
+  pending, the popup went on offering to stage them again. Staging now downloads **and** arms,
+  both inside the one authentication, so any restart installs it: the popup's button, the desktop
+  menu, `reboot` typed in a terminal. If the arm fails the run fails, the stage is discarded and
+  the reason says so, because a transaction nothing can apply is worse than no transaction.
+- **The popup says an update is already staged, instead of offering to stage it again.** A green
+  line - `61 updates are staged - they install on the next restart` - replaces the offline offer
+  while a transaction is waiting, with a Restart… button of its own unless the restart message is
+  already carrying one. `kempt summary` prints the same fact as a `Staged:` line, and
+  `kempt check` publishes it as `offline_staged` in the state file, present only for a
+  transaction dnf5 reports as genuinely armed.
+- **A live update no longer leaves a doomed transaction armed.** A staged transaction records the
+  package database it was built against, and dnf5 refuses one whose database has moved - so
+  installing anything live turns a pending stage into a failed offline boot waiting to happen.
+  Kempt now discards the superseded stage and records why. A run that changed no system packages
+  leaves it alone.
+- **A staged transaction that has gone stops being waited for.** If the transaction is cleared by
+  hand - or by a supersede that could not finish - the next check clears Kempt's marker instead
+  of waiting forever for an apply that can never come.
+- **`kempt doctor` can now see a stage that will never install.** It reads Kempt's marker and
+  dnf5's transaction status side by side, which no other surface does, and reports a transaction
+  that was downloaded but never armed as a failure naming the exact fix
+  (`sudo dnf5 offline clean`). It also says when a transaction was staged outside Kempt.
+
+  This is the state a box is left in by any Kempt build before this fix, and clearing it by hand
+  is the only way out: the old stage cannot be armed retroactively, because the packages it was
+  built against have moved on.
 
 ### Changed
 
@@ -206,6 +240,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - Installation is a symlink into the git checkout, which stays load-bearing. The widget is the
   one exception: `kpackagetool6` copies it, so re-run `./install.sh` after changing `plasmoid/`.
   Proper packaging is future work.
+- **The root helper changed, so `./install.sh` has to be re-run.** `kempt-apply` gained the two
+  offline verbs, and it is a copy rather than a symlink - without a re-install, root is still
+  running the version that cannot arm a transaction, and every staged update silently goes back
+  to never installing. `kempt doctor` says so on its own: its `helpers:` line reports `DIFFER
+  from checkout`.
 - The dnf pending check parses text output. Migrating it to `dnf5 check-update --json` is the
   designated next upgrade for that backend.
 - Nothing has been released yet, and the live verification on real hardware (a real install, a

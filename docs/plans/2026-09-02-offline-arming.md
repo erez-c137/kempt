@@ -1,6 +1,6 @@
 # Offline updates must actually install on restart
 
-Status: in progress. Branch `feat/offline-arming` off `build/cli-v1` (853f250).
+Status: DONE (2026-09-02). Branch `feat/offline-arming` off `build/cli-v1` (853f250).
 
 ## The bug (proven live, 2026-09-01/02)
 
@@ -166,10 +166,46 @@ arm-without-reboot path.
   check will say so on its own; note it in the changelog entry.
 
 ## Task checklist
-- [ ] T1 kempt-apply verbs
-- [ ] T2 stage-then-arm
-- [ ] T3 live-run supersede
-- [ ] T4 reconciliation + state key
-- [ ] T5 widget staged message
-- [ ] T6 doctor rows
-- [ ] T7 docs + changelog
+- [x] T1 kempt-apply verbs
+- [x] T2 stage-then-arm
+- [x] T3 live-run supersede
+- [x] T4 reconciliation + state key
+- [x] T5 widget staged message
+- [x] T6 doctor rows
+- [x] T7 docs + changelog
+
+## What actually shipped, where it differs from the plan above
+
+- The offline path lives in `cmd_update`, not `cmd_run` (`cmd_run` is the launcher that starts it).
+- **T3 gained a third condition the plan did not state: the stage must still be PENDING.** The
+  plan's supersede rule was marker + `dnf_status == ok` + rpm delta, which would also have fired on
+  a marker whose transaction had ALREADY applied at a restart and was still waiting to be
+  harvested - throwing away the one history entry that reports what that restart installed. The
+  supersede therefore sits inside the existing "still pending" branch (the marker's baseline still
+  matches the world this run started from). "Supersedes a PENDING stage" is what the design
+  decision says; an already-applied stage is not pending.
+- **T4: `summary --json` does NOT carry `offline_staged`,** contrary to the plan's note. That
+  command prints one run's HISTORY ENTRY verbatim; it never reads state.json. A staged transaction
+  belongs to the box rather than to any past run, so the key flows through `kempt check` /
+  state.json, which is what the widget reads. Asserted in that direction instead.
+- **T6 uses `FAIL`, not a new `WARN` level.** Doctor's line vocabulary is `ok` / `info` / `FAIL`
+  and only `FAIL` moves the exit code. An unarmed stage is a real defect with an exact remedy, so
+  a report ending "all checks passed" above it would contradict itself. A fourth level would have
+  been a grammar change the plan did not ask for.
+- **T6 has a fourth row the plan did not list:** marker present, transaction absent. Without it
+  doctor is silent about a marker it can see is orphaned. It is `info`, not `FAIL` - the next
+  check clears it and there is nothing for anyone to do.
+- `tests/lib.sh` PINS `KEMPT_OFFLINE_TOML` at a `ready` fixture rather than poisoning it like the
+  other seams. Unset, the suite would read the real `/usr/lib/sysimage/libdnf5/offline/` of
+  whatever box runs it; pointed at nothing, "no transaction" is the answer, and a marker with no
+  transaction is exactly the case the check CLEARS - which would have deleted the marker out from
+  under every staging test in `test_update.sh`.
+- The two toml fixtures are a live capture of the founder's own stuck stage (2026-09-02) plus a
+  one-line edit of it. Provenance in `tests/fixtures/MANIFEST.md`.
+
+## Not fixed, noticed while here
+
+- `"1 updates are staged"` and `Staged: 1 updates install on the next restart` do not read well.
+  The strings are the plan's, and the CLI and the widget say the same thing; pluralization is a
+  wider job (`logic.js` says the widget has no message-format layer and that building one is its
+  own release), so it was left alone rather than fixed in one of the two places.
