@@ -106,6 +106,10 @@ dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY 
   # hiding partial answers exactly as it does today, which is the honest degradation.
   local cache=()
   [[ -r "$KEMPT_DNF_SYSTEM_CACHE" ]] && cache=(--setopt=cachedir="$KEMPT_DNF_SYSTEM_CACHE")
+  # Both seams hold a COMMAND WITH ARGUMENTS, not a path, so the split is the point: tests set
+  # KEMPT_DNF_CMD="<stub> --setopt=keepcache=1", and `kempt doctor` reads the executable back out
+  # with ${KEMPT_DNF_CMD%% *}. Quoted, bash would look for one file whose name contains a space.
+  # shellcheck disable=SC2086
   { if [[ -n "$KEMPT_DNF_SIZES_CMD" ]]; then $KEMPT_DNF_SIZES_CMD
     else timeout 60 $KEMPT_DNF_CMD "${cache[@]}" -C repoquery --upgrades --latest-limit 1 \
            --qf $'%{name}\t%{arch}\t%{evr}\t%{downloadsize}\n' 2>/dev/null; fi; } \

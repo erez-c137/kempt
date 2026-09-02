@@ -78,6 +78,9 @@ kempt_init_dirs() {
   # maxdepth 2, not 1: atomic_write puts its temp NEXT TO the destination, and the offline
   # baseline it rewrites lives in snapshots/ - depth 1 never reached those, so a crash mid-rebase
   # leaked a file nothing would ever clean up.
+  # A && B || C where C is `true` is not a disguised if-then-else: the sweep is best-effort and
+  # BOTH a missing state dir and a failed find must land on rc 0, which is what C is there for.
+  # shellcheck disable=SC2015
   [[ -d "$KEMPT_STATE_DIR" ]] && find "$KEMPT_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest
@@ -88,6 +91,10 @@ kempt_init_dirs() {
   # a fresh install - and under pipefail that rc would propagate out of every command that calls
   # kempt_init_dirs.
   local f
+  # -t is MTIME order, and mtime order IS the retention rule: keep the 50 newest, drop the rest.
+  # find has no equivalent short of -printf '%T@ %p' plus a re-sort, which is more moving parts on
+  # a path that deletes files. The glob is shell-expanded, so ls never parses a name.
+  # shellcheck disable=SC2012
   while IFS= read -r f; do [[ -n "$f" ]] && rm -f "$f"; done \
     < <(ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 || true)
   find "$LOG_DIR" -name '*.log' -mtime +60 -delete 2>/dev/null || true

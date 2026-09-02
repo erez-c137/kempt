@@ -188,10 +188,10 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
         echo "Package system still busy after $attempt attempts - giving up" | tee -a "$log" >&2
       fi
     else
-      return $rc
+      return "$rc"
     fi
   done
-  return $rc
+  return "$rc"
 }
 
 # Pre-flight failure: nothing has been changed and nothing will be. Loud on stderr, exit 5 (never
@@ -248,6 +248,9 @@ cmd_update() {
         reps="$(awk '{ f = $0; sub(/[-.].*/, "", f); if (!(f in seen)) { seen[f] = 1; print } }' <<<"$risky_list")"
         shown="$(head -8 <<<"$reps")"        # still capped: a box can always surprise us with 30 families
         nshown="$(grep -c '' <<<"$shown")"
+        # $shown is MULTI-LINE and every line needs the indent; ${var//} substitutes across the
+        # whole string, where ^ is not a line anchor and the first line gets nothing.
+        # shellcheck disable=SC2001
         sed 's/^/  /' <<<"$shown"
         (( rcount > nshown )) && echo "  ... and $(( rcount - nshown )) more"
         local ans tries
@@ -266,6 +269,9 @@ cmd_update() {
       else
         # families, not names: unique prefixes up to the first - or . keep the notification
         # readable when 168 qt6-* packages are pending.
+        # per-line strip on a MULTI-LINE list: ${risky_list//[-.]*/} is a glob, not a regex, and
+        # its * crosses newlines - it would eat the whole list from the first - or . onwards.
+        # shellcheck disable=SC2001
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
         notify "Kempt" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...')) - consider the Offline surface"
@@ -601,6 +607,11 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   # pipelines' sort/join - so this line says what IT needs rather than inheriting it from 470
   # lines away. Determinism is the whole promise: --json answers about one run, and which run it
   # names must not depend on the user's locale.
+  #
+  # `ls` is not parsing names here: the SHELL expands the glob, and ls only echoes what it was
+  # handed and fails on the unmatched literal a nullglob-less shell leaves behind on an empty
+  # history dir. That existence filter is the job; the ordering above is imposed by sort, not ls.
+  # shellcheck disable=SC2012
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   # Nothing recorded is not an error in either mode. --json says it with EMPTY stdout, this
@@ -674,6 +685,7 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
 cmd_history() {
   local f row files=()
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
+  # shellcheck disable=SC2012   # shell-expanded glob; ls is the existence filter, sort is the order
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   local phrase err

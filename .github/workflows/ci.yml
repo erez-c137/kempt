@@ -33,12 +33,13 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck --version
 
-      # NEVER RUN LOCALLY - the first dispatch of this job is also its first execution. shellcheck
-      # is not installed on the dev box, packages may not be installed there, and the upstream
-      # v0.10.0 release publishes no checksum for its static binary (verified: no digest on any
-      # asset, no checksums file, nothing in the release notes), so the static tarball was
-      # downloaded but deliberately never extracted or executed. Expect the first run to surface
-      # findings that need triage rather than a clean pass.
+      # TRIAGED AND CLEAN, but never yet run here. shellcheck is not installed on the dev box, so
+      # this exact command was executed instead in a throwaway podman container against the
+      # koalaman/shellcheck images for v0.9.0, v0.10.0 and stable (0.11.0): all three exit 0.
+      # Three versions rather than one because the runner's apt shellcheck is whatever
+      # ubuntu-latest happens to carry that month, and the versions disagree - 0.9.0 and 0.10.0
+      # report an SC2015 on lib/common.sh that 0.11.0 does not. Every finding either got a real
+      # fix or a one-line `disable` naming the constraint; there are no file-level suppressions.
       #
       # -x follows `source`. bin/kempt sources through a runtime-computed $ROOT, which shellcheck
       # cannot resolve, so --source-path points it at the two directories those files really live

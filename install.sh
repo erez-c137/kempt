@@ -216,6 +216,10 @@ main() {
     widget_uninstall
     # A declined auth prompt leaves a HALF-uninstalled system, and pkexec's own rc 126 says
     # nothing about that. Name the exact state and the exact way out.
+    # The $1..$4 are the ROOT shell's positional parameters, filled from the arguments below. They
+    # must NOT expand here: interpolating a checkout path into a script that runs as root is the
+    # injection this form exists to prevent.
+    # shellcheck disable=SC2016
     run pkexec bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
       || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
@@ -250,6 +254,9 @@ main() {
   # Paths passed as POSITIONAL ARGS, never interpolated into the root shell's script: a checkout
   # path containing a quote would otherwise break the command - or inject into it, as root.
   # mkdir -p first: a fresh Fedora box has no /usr/local/libexec at all.
+  # $1..$3 belong to the ROOT shell and must survive this file unexpanded; see the uninstall
+  # branch above for why interpolating them instead would be the bug.
+  # shellcheck disable=SC2016
   run pkexec bash -c 'mkdir -p /usr/local/libexec \
   && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
