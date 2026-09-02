@@ -1241,6 +1241,19 @@ assert_eq "$(vm '{}' "$STG" 0 'stagedMessage')" \
 assert_eq "$(vm '{}' "$STGN" 0 'stagedMessage')" \
   "Updates are staged - they install on the next restart" \
   "an unknown count drops the number rather than the sentence"
+# ONE update is a whole different sentence, not the plural one with a 1 in it. Same rule the rest
+# of this file already follows for minutes, hours, days, packages and the header's own count.
+assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:1,armed:true}' 0 'stagedMessage')" \
+  "1 update is staged - it installs on the next restart" \
+  "a single staged update reads as one, verb and pronoun included"
+assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:2,armed:true}' 0 'stagedMessage')" \
+  "2 updates are staged - they install on the next restart" \
+  "...and two is back to the plural"
+# Zero is not a sentence anybody should ever read, but the count comes from another program and
+# the singular branch must not be the one that catches it.
+assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:0,armed:true}' 0 'stagedMessage')" \
+  "0 updates are staged - they install on the next restart" \
+  "...and zero takes the plural, not the singular"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",armed:true}' 0 'stagedMessage')" \
   "$(js 'L.COPY.stagedUnknownCount')" "...and a key that never carried a count reads the same"
 assert_eq "$(vm '{}' '' 0 'stagedMessage')" "" "nothing staged, nothing said"
@@ -1306,6 +1319,8 @@ assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
 assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
 assert_eq "$(js 'L.COPY.noPackageChanges')" "No package changes" "copy: a run that changed nothing"
 assert_eq "$(js 'L.COPY.updateFailed')" "Update failed" "copy: a run that failed"
+assert_eq "$(js 'L.COPY.stagedOne')" "1 update is staged - it installs on the next restart" \
+  "copy: the staged message for exactly one update"
 assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged - they install on the next restart" \
   "copy: the staged message when the count is not known"
 assert_eq "$(js 'L.COPY.stagedTail')" "are staged - they install on the next restart" \

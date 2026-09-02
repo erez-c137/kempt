@@ -659,7 +659,12 @@ staged_summary_line() {  # → one line, or nothing
                  | "staged:" + ((.count // "") | tostring)' "$STATE_FILE" 2>/dev/null || true)"
   [[ "$s" == staged:* ]] || return 0
   local n="${s#staged:}"
-  if [[ "$n" =~ ^[0-9]+$ ]]; then
+  # Exactly one takes the singular, and the verb moves with the noun: "1 update installs", not
+  # "1 updates install". Zero is plural in English, so this is `== 1` rather than a `<= 1` that
+  # would also catch it. Same rule the run summary and `kempt doctor` follow.
+  if [[ "$n" == 1 ]]; then
+    printf 'Staged: 1 update installs on the next restart\n'
+  elif [[ "$n" =~ ^[0-9]+$ ]]; then
     printf 'Staged: %s updates install on the next restart\n' "$n"
   else
     printf 'Staged: updates install on the next restart\n'

@@ -50,6 +50,17 @@ st="$KEMPT_STATE_DIR/state.json"
 printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"2026-09-02T10:31:00+03:00","count":61,"armed":true}}\n' > "$st"
 assert_eq "$("$KEMPT" summary | grep -c '^Staged: 61 updates install on the next restart$')" "1" \
   "the summary says what the next restart will install"
+# One update is its own sentence: "1 updates install" is the tell of a tool that counts but does
+# not read. Same rule the run summary above it already follows.
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":1,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged: 1 update installs on the next restart$')" "1" \
+  "a single staged update reads as one, verb and all"
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":2,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged: 2 updates install on the next restart$')" "1" \
+  "...and two is back to the plural"
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":0,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged: 0 updates install on the next restart$')" "1" \
+  "...and zero takes the plural, not the singular"
 # A marker from before the count existed still describes a real pending install, so the line stays
 # - without a number, rather than with a made-up one or the word null.
 printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":null,"armed":true}}\n' > "$st"

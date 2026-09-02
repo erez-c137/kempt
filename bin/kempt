@@ -1057,7 +1057,11 @@ cmd_doctor() {
     dr_count="$(jq -r '.staged // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
     case "$dr_toml" in
       ready)
-        if [[ "$dr_count" =~ ^[0-9]+$ ]]; then
+        # One package is its own sentence, verb included. These rows get pasted into bug reports
+        # verbatim, and "1 packages" is exactly the line that gets quoted back. Zero is plural.
+        if [[ "$dr_count" == 1 ]]; then
+          doctor_info "staged update: 1 package installs on the next restart"
+        elif [[ "$dr_count" =~ ^[0-9]+$ ]]; then
           doctor_info "staged update: $dr_count packages install on the next restart"
         else
           doctor_info "staged update: it installs on the next restart"

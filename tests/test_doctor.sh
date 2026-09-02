@@ -392,6 +392,18 @@ assert_exit 0 "an armed staged transaction is not a problem" \
 grep -qF 'info  staged update: 61 packages install on the next restart' "$TESTTMP/last_output" \
   && echo "ok: ...and doctor says how many, and when" \
   || { echo "FAIL: no staged line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+# One package is its own sentence here too. Doctor's rows are read by people pasting them into bug
+# reports, and "1 packages" is the line that gets quoted back.
+printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":1,"armed":true}\n' > "$D_MARKER"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'info  staged update: 1 package installs on the next restart' "$TESTTMP/staged.txt" \
+  && echo "ok: a single staged package reads as one" \
+  || { echo "FAIL: singular staged row - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":2,"armed":true}\n' > "$D_MARKER"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'info  staged update: 2 packages install on the next restart' "$TESTTMP/staged.txt" \
+  && echo "ok: ...and two is back to the plural" \
+  || { echo "FAIL: plural staged row - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
 # A marker from before the count existed still describes a real pending install.
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b"}\n' > "$D_MARKER"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out

@@ -1344,6 +1344,7 @@ _ASSEMBLED_IN_LOGIC = {
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
+    "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))

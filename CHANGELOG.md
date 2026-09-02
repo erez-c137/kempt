@@ -181,7 +181,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Documentation**: README, install guide, usage reference, configuration reference,
   architecture guide with a walkthrough for adding a backend, security model, roadmap,
   contributing guide, security policy and code of conduct.
-- **A test suite that needs none of the tools it drives.** 18 files and 2334 assertions: every
+- **A test suite that needs none of the tools it drives.** 18 files and 2343 assertions: every
   impure call goes through an environment seam, so the parsers run against recorded fixtures and
   the privileged paths are tested without dnf, flatpak, polkit or root. The widget is covered
   twice over - every derivation rule under node, and the real QML executed against a stubbed CLI

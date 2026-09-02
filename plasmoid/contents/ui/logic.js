@@ -103,14 +103,17 @@ var COPY = {
     updateFailed: "Update failed",
 
     // A transaction that is already staged and armed: a statement about what the next restart
-    // will do, not about anything to press now. Two spellings, because the count can genuinely be
-    // unknown (a marker written before the CLI recorded one) and "N updates" without an N is not
-    // a sentence. `stagedTail` is a FRAGMENT, and it is here for the same reason `held` above is:
-    // both spellings have to say the identical thing about the identical transaction, and two
-    // full literals would drift the first time one of them was edited. The same caveat applies -
-    // a fragment is not a translatable unit - and tests/test_widget_logic.sh pins the finished
-    // sentence, not the pieces.
+    // will do, not about anything to press now. THREE spellings, because two things vary
+    // independently. The count can be unknown (a marker written before the CLI recorded one), and
+    // "N updates" without an N is not a sentence. And one update is not the plural sentence with a
+    // 1 in it: the noun, the verb and the pronoun all move together ("1 update IS staged - IT
+    // installs"), which is why the singular is a whole literal and not a fragment swap.
+    // `stagedTail` stays a FRAGMENT for the plural spellings only, on the same grounds as `held`
+    // above: those two must say the identical thing about the identical transaction, and two full
+    // literals would drift the first time one was edited. Same caveat - a fragment is not a
+    // translatable unit - and tests/test_widget_logic.sh pins the finished sentences, not pieces.
     stagedTail: "are staged - they install on the next restart",
+    stagedOne: "1 update is staged - it installs on the next restart",
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
@@ -569,7 +572,10 @@ function stagedMessageOf(staged) {
     if (!staged || typeof staged !== "object" || isArray(staged)) return "";
     var n = staged.count;
     if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedUnknownCount;
-    return n + " updates " + COPY.stagedTail;
+    // Exactly one, and only one, takes the singular - zero is plural in English ("0 updates"), so
+    // the test is `=== 1` and not `<= 1`. Same shape as the header's own count and the relative
+    // times above it.
+    return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
 }
 
 // The head of anything formatStamp can RENDER. Anything else it hands back verbatim, and

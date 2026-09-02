@@ -203,9 +203,14 @@ arm-without-reboot path.
 - The two toml fixtures are a live capture of the founder's own stuck stage (2026-09-02) plus a
   one-line edit of it. Provenance in `tests/fixtures/MANIFEST.md`.
 
-## Not fixed, noticed while here
+## Fixed on review
 
-- `"1 updates are staged"` and `Staged: 1 updates install on the next restart` do not read well.
-  The strings are the plan's, and the CLI and the widget say the same thing; pluralization is a
-  wider job (`logic.js` says the widget has no message-format layer and that building one is its
-  own release), so it was left alone rather than fixed in one of the two places.
+- **The singular.** `"1 updates are staged"`, `Staged: 1 updates install on the next restart` and
+  doctor's `1 packages install on the next restart` all read as machine output. The first pass
+  deferred this on the grounds that pluralization needed a message-format layer the widget does
+  not have. That was wrong: `logic.js` already carries the house pattern in five places
+  (`n === 1 ? "1 min ago" : ...` at 666/668/672, `"1 package"` at 878 and 935, `"1 update
+  available"` at 1033), and it is exactly the layer required. All three surfaces now take the
+  singular at `=== 1` - noun, verb and pronoun moving together (`1 update IS staged - IT
+  installs`), which is why the widget's singular is a whole COPY literal (`stagedOne`) rather than
+  a fragment swap on `stagedTail`. Zero stays plural.
