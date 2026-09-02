@@ -125,5 +125,5 @@ appstreamcli validate --no-net --explain \
 %{_mandir}/man1/kempt.1*
 
 %changelog
-* Wed Sep 02 2026 Erez Avital <erez.avital@gmail.com> - 0.1.0-1
+* Wed Sep 02 2026 Erez <erez.c137@protonmail.com> - 0.1.0-1
 - First release.

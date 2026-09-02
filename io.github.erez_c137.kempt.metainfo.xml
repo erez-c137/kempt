@@ -30,7 +30,7 @@
     </ul>
   </description>
   <developer id="io.github.erez_c137">
-    <name>Erez Avital</name>
+    <name>Erez</name>
   </developer>
   <!--
     EVERY remote URL below 404s while the repo is private, and appstreamcli fetches them: expect
