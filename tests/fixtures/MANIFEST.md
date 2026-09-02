@@ -321,3 +321,28 @@ matching `g_format_size`.
 The last two rows are hand-written guards: an **empty** size column and a literal **`?`**, both of
 which must yield no size row at all rather than a zero, so "not known" stays distinguishable from
 "free".
+
+## tests/fixtures/offline-download-complete.toml
+**Captured live**, 2026-09-02, from `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml`
+on this box - byte for byte, cookie and all. It is the founder's own stuck stage: 61 packages
+staged on 2026-09-01 by a Kempt build that downloaded them and never armed the transaction, so
+`status` is still `download-complete`, `/system-update` was never created, and no number of
+restarts could ever install it. That file is the bug this fixture exists to keep fixed.
+
+Two structural details the parser depends on, and neither is a guess - they are what dnf5 wrote:
+the table header is `[offline-transaction-state]` (not `[state]`), and the keys are written at
+column 0, unindented. `status` is one key among eleven and is not the first, so a reader that took
+the first quoted value in the file would answer `rpmdb_cookie`.
+
+## tests/fixtures/offline-ready.toml
+The same file with `status` set to `ready` - the one line `dnf5 offline reboot` changes when it
+arms a transaction (verified in a Fedora 44 container, 2026-09-02: arming rewrites the status and
+creates `/system-update`, and with `DNF_SYSTEM_UPGRADE_NO_REBOOT=1` it does not reboot). Nothing
+else in the file moves, which is why this fixture is a one-line edit of the captured one rather
+than a second capture.
+
+This is also the suite's DEFAULT: `sandbox()` points `KEMPT_OFFLINE_TOML` here, so the world every
+test runs in is "if a stage exists, it is armed". That is the world the offline tests in
+`test_update.sh` assume - a marker they wrote means an install is genuinely pending - and pinning
+it is what keeps them off the real `/usr/lib/sysimage/libdnf5/offline/` of whatever box runs the
+suite, where a leftover stage (or none) would decide how the reconciliation branches behave.

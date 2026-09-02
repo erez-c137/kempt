@@ -32,6 +32,16 @@ sandbox() {  # fresh dirs per test file; call first
   # pending. A path that does not exist makes every size query fail, which is also the contract
   # worth exercising by default: a failed size query yields no number and never a failed check.
   export KEMPT_DNF_SIZES_CMD="$TESTTMP/UNSTUBBED-dnf-sizes"
+  # PINNED rather than poisoned, and it is the one seam where "a path that does not exist" would be
+  # the wrong default. Unset, this reads the REAL
+  # /usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml, so whether the box running
+  # the suite happens to have a staged transaction would decide which reconciliation branch every
+  # offline test takes. Pointed at nothing, "no transaction" is the answer - and a marker with no
+  # transaction under it is exactly the case the check CLEARS, which would delete the marker out
+  # from under every staging test in test_update.sh before it could be harvested. The fixture says
+  # `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
+  # none) point the seam somewhere else themselves.
+  export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.

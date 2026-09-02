@@ -65,6 +65,11 @@ LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
+# dnf5's own record of a staged offline transaction, and the other half of the marker above: the
+# marker says Kempt staged something, this says whether the transaction is still there and whether
+# it is armed. 0644 on Fedora (verified), so it is READ without any privileged call - which is what
+# lets an ordinary check reconcile the two. Nothing here ever writes it; dnf5 owns it.
+KEMPT_OFFLINE_TOML="${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -437,10 +442,11 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional)
   jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
+        --argjson offst "${11:-null}" \
         --arg now "$(now_iso)" '
     # b is the backend total as a STRING, "" meaning not known. Empty adds no key at all, which is
     # what a schema-1 reader that predates this feature is guaranteed to keep seeing.
@@ -456,6 +462,10 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
                elif $fpe and $fpb == "" then {}
                else {download_bytes: (($dnfb | tonumber)
                                       + (if $fpe then ($fpb | tonumber) else 0 end))} end;
+    # Absent, not null, when nothing is staged: the key existing at all is what every reader tests,
+    # and a null would make "no staged transaction" and "a staged transaction we know nothing
+    # about" the same shape.
+    def staged: if $offst == null then {} else {offline_staged: $offst} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
@@ -464,7 +474,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total'
+    + total + staged'
 }
 
 # Must survive a corrupt state file: a truncated/garbage/wrong-shaped state.json used to reach
@@ -574,6 +584,41 @@ current_boot_id() {
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown
 }
 
+# What dnf5 says about the staged transaction, in one word. Only two values are acted on -
+# `ready` (armed: /system-update exists and the next boot installs it) and `absent` (no
+# transaction) - but anything else dnf5 writes is passed through rather than flattened, so a
+# status this build has never heard of reaches `kempt doctor` as itself instead of as a guess.
+# `download-complete` is the one that matters historically: staged, downloaded, never armed, and
+# indistinguishable from `ready` to anything that only looks at the marker.
+# grep/sed, not a toml parser: the file is dnf5's, it is read and never written, and one quoted
+# scalar does not justify a dependency. The line anchor is what keeps it honest - `status` is the
+# ninth of eleven keys, and a reader that took the first quoted value would answer with the
+# rpmdb cookie. Unreadable, missing, or present with no status line all mean the same thing to
+# every caller: there is nothing staged to talk about.
+offline_system_status() {  # → ready | absent | dnf5's own status word
+  [[ -r "$KEMPT_OFFLINE_TOML" ]] || { printf 'absent\n'; return 0; }
+  local s
+  s="$(sed -n 's/^[[:space:]]*status[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+       "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1 || true)"
+  printf '%s\n' "${s:-absent}"
+}
+
+# The staged transaction as state.json publishes it, or nothing at all. BOTH facts have to agree:
+# the marker says Kempt staged something and how big it was, dnf5 says it is armed. A marker on its
+# own is a promise that a restart will install these updates, and the founder's box is what that
+# promise is worth when the transaction under it never armed - it installs on no restart, and every
+# surface went on advertising it. So the key exists for `ready` and nothing else; an unarmed or
+# vanished stage is a discrepancy for `kempt doctor` to explain, not a pending install to publish.
+offline_staged_state() {  # → {staged_at, count, armed} JSON, or nothing
+  [[ -f "$OFFLINE_MARKER" ]] || return 0
+  [[ "$(offline_system_status)" == ready ]] || return 0
+  # count: markers written before the field existed carry no number, and null is the honest answer.
+  # Every reader drops the figure from its sentence rather than inventing one.
+  jq -c -n '[inputs][0] | select(type == "object")
+            | {staged_at: (.staged_at // null), count: (.staged // null), armed: true}' \
+     "$OFFLINE_MARKER" 2>/dev/null || true
+}
+
 # The ONE definition of "what a run changed" as a phrase. Two renderers used to carry their own
 # copy of this arithmetic and the copies drifted: `kempt history` counted .updated alone and
 # printed "0 updated" for the very run whose summary, from the other copy, said
@@ -597,6 +642,28 @@ run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N remo
   jq -r "$KEMPT_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
     counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
+}
+
+# What the next restart will install, in one line, or nothing. Deliberately NOT part of
+# render_summary: that renders one history entry, and a staged transaction is not something a past
+# run did - it is something the box is about to do. It is read from the state the last check wrote,
+# which is also the only place the marker and dnf5's status have already been reconciled.
+# The count can legitimately be unknown (a marker written before the field existed), and the
+# sentence drops the figure rather than printing "null" or guessing a number.
+staged_summary_line() {  # → one line, or nothing
+  local s
+  # The "staged:" prefix is what separates "no staged transaction" from "a staged transaction with
+  # no count": both would otherwise reach the caller as an empty string.
+  s="$(jq -r -n '[inputs][0].offline_staged? // empty
+                 | select(type == "object")
+                 | "staged:" + ((.count // "") | tostring)' "$STATE_FILE" 2>/dev/null || true)"
+  [[ "$s" == staged:* ]] || return 0
+  local n="${s#staged:}"
+  if [[ "$n" =~ ^[0-9]+$ ]]; then
+    printf 'Staged: %s updates install on the next restart\n' "$n"
+  else
+    printf 'Staged: updates install on the next restart\n'
+  fi
 }
 
 # --- human summary of one history entry (same renderer for the terminal, the popup and the

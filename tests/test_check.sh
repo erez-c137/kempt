@@ -403,6 +403,94 @@ assert_eq "$(jq -r '.download_bytes // "absent"' "$st")" "absent" "...and report
 "$KEMPT" unhold flatpak:org.example.NoSize >/dev/null
 "$KEMPT" unhold flatpak:org.example.Unknown >/dev/null
 
+# --- a staged transaction is TWO facts kept in two places, and a check is what reconciles them.
+# Kempt's marker says a stage was made and how many updates it covers; dnf5's own
+# offline-transaction-state.toml says whether that transaction is still there and still armed.
+# Neither is enough alone: the founder's box had a marker whose transaction was sitting at
+# download-complete, which installs on no restart at all, and every surface kept describing it as
+# a pending install.
+toml="$TESTTMP/offline-state.toml"
+marker="$KEMPT_STATE_DIR/offline_staged.json"
+pre="$KEMPT_STATE_DIR/snapshots/offline-pre-t4.tsv"
+# The baseline has to be the snapshot the check itself takes, byte for byte: the harvest decides
+# "still pending" with cmp, and a hand-built file would differ for reasons that have nothing to
+# do with what is being tested (the fixture goes through sort_name_version and collapse_versions).
+snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_snapshot' _ "$REPO_ROOT"; }
+stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update would have written it
+  mkdir -p "$KEMPT_STATE_DIR/snapshots"
+  snapshot_now > "$pre"
+  jq -n --arg snap "$pre" --arg boot "$1" --argjson staged "$2" \
+    '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' \
+    > "$marker"
+}
+events_since() { grep -c "$1" "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
+export KEMPT_BOOT_ID="boot-t4"
+
+# ARMED and pending: the state carries the key, and it carries the count the stage was made with.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+stage_marker boot-t4 61
+"$KEMPT" check >/dev/null
+assert_exit 0 "an armed stage in the same boot is still pending" -- test -f "$marker"
+assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "the state says a staged install is armed"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and how many updates it covers"
+assert_eq "$(jq -r '.offline_staged.staged_at' "$st")" "2026-09-02T10:31:00+03:00" "...and when it was staged"
+assert_eq "$(jq -r .schema "$st")" "1" "offline_staged is additive: the schema does not move"
+
+# A marker written before the count existed still describes a real pending install. null is the
+# honest answer - every reader drops the number from the sentence rather than inventing one.
+jq 'del(.staged)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "a marker with no count says null, not a guess"
+assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...and is still a pending install"
+
+# THE FOUNDER'S BOX. A transaction that was downloaded and never armed installs on no restart, so
+# it is not a pending install and must not be published as one. The marker stays: the stage is
+# really there, and `kempt doctor` is where that discrepancy gets explained.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
+stage_marker boot-t4 61
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "a stage that was never armed is not advertised as a pending install"
+assert_exit 0 "...and its marker is left for the doctor to explain" -- test -f "$marker"
+
+# A stage that VANISHED in this same boot - somebody ran `dnf5 offline clean`, or a supersede
+# discarded the transaction and could not remove the marker. Nothing can apply it and no reboot is
+# coming to change that, so the marker is cleared here rather than re-read on every check forever.
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
+stage_marker boot-t4 61
+"$KEMPT" check >/dev/null
+assert_exit 0 "a marker whose transaction is gone is cleared" -- test ! -f "$marker"
+assert_exit 0 "...along with the snapshot copy it owned" -- test ! -f "$pre"
+assert_eq "$(events_since 'offline marker cleared (stage gone)')" "1" "...and the clearing is recorded"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and nothing is published about it"
+
+# The same emptiness after a REBOOT, with a package set that did not move. Before the toml was
+# read this was a dead end: the snapshot comparison said "not applied yet" and the marker waited
+# for an apply that had already been thrown away, on every check, forever.
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
+stage_marker boot-before-reboot 61
+"$KEMPT" check >/dev/null
+assert_exit 0 "a rebooted box with no transaction left stops waiting for it" -- test ! -f "$marker"
+assert_eq "$(events_since 'offline marker cleared (stage gone)')" "2" "...and says so the same way"
+
+# ...and the same shape with the transaction STILL THERE stays pending, which is the whole reason
+# the branch above needs the toml: a reboot that did not get round to installing it (the user
+# chose "Restart Later" at the offline-update screen, or the transaction is queued for the next
+# one) must not have its marker thrown away.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+stage_marker boot-before-reboot 61
+"$KEMPT" check >/dev/null
+assert_exit 0 "an untouched transaction after a reboot is still pending" -- test -f "$marker"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and is still published as one"
+rm -f "$marker" "$pre"
+
+# No marker at all: an offline transaction somebody else staged is not Kempt's to announce.
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "a transaction Kempt did not stage is not published as Kempt's"
+unset KEMPT_BOOT_ID
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+
 # Schema 1 stays schema 1. Every field here is additive, so a reader written before this feature
 # sees exactly what it saw before.
 assert_eq "$(jq -r .schema "$st")" "1" "the schema is not bumped by an additive field"

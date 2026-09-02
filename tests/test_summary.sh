@@ -36,6 +36,42 @@ assert_eq "$("$KEMPT" history | wc -l)" "1" "history lists one run"
 assert_eq "$("$KEMPT" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
   "history row shape: timestamp, surface, status, what the run changed"
 
+# --- what happens NEXT, on the surface that reports what happened. A staged transaction is not a
+# property of any past run, so it cannot come out of a history entry: the line is read from the
+# state the last check wrote, and it appears only while an ARMED stage is actually waiting.
+cat > "$HIST_DIR/20260902T103100.json" <<'EOF'
+{"timestamp":"2026-09-02T10:31:00+03:00","surface":"offline","status":"ok","duration_sec":41,
+ "reboot_needed":false,"log":"/tmp/s.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+EOF
+st="$KEMPT_STATE_DIR/state.json"
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"2026-09-02T10:31:00+03:00","count":61,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged: 61 updates install on the next restart$')" "1" \
+  "the summary says what the next restart will install"
+# A marker from before the count existed still describes a real pending install, so the line stays
+# - without a number, rather than with a made-up one or the word null.
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":null,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged: updates install on the next restart$')" "1" \
+  "an unknown count drops the number, not the line"
+# Nothing staged: no line at all. The absence is the point - a "Staged: 0" row would be a standing
+# invitation to wonder what is staged.
+printf '{"schema":1,"status":"ok"}\n' > "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged:')" "0" "no staged transaction, no line"
+rm -f "$st"
+assert_eq "$("$KEMPT" summary | grep -c '^Staged:')" "0" "no state file at all is not a staged transaction either"
+# The run summary above it is untouched either way: the two answer different questions and the
+# staged line must not displace what the last run did.
+printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":2,"armed":true}}\n' > "$st"
+assert_eq "$("$KEMPT" summary | head -1 | grep -c '^Kempt - 2026-09-02T10:31:00')" "1" \
+  "the staged line is added to the summary, not instead of it"
+# --json answers about ONE RUN, verbatim from its history entry. A staged transaction belongs to
+# the box, not to that run, so it must not appear there - the widget reads it from `kempt check`.
+assert_eq "$("$KEMPT" summary --json | jq -r '.offline_staged // "absent"')" "absent" \
+  "summary --json stays the run's own entry, staged transaction and all"
+rm -f "$st" "$HIST_DIR/20260902T103100.json"
+
 # --- beyond the plan: the shapes cmd_update actually writes ---
 
 # A failed run has to say so, name the log, and mark WHICH backend failed.

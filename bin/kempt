@@ -105,8 +105,12 @@ cmd_check() {
   # the backend contract rather than a live branch - a backend that later grows a third answer
   # degrades to false here instead of taking the check down with it.
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
+  # AFTER harvest_offline, which is where the marker's lifecycle is decided: a stage the harvest
+  # just consumed or cleared must not be published one line later as still pending.
+  local staged_state
+  staged_state="$(offline_staged_state)"
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check. The two outcomes cmd_check actually has are the two it records: `ok` with
@@ -655,7 +659,12 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
     # a zero-byte entry, and "rendered nothing" must not pass for a successful render (the same
     # empty-stdout-is-not-data trap as `kempt check`).
     if out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
-      printf '%s\n' "$out"; return 0
+      printf '%s\n' "$out"
+      # Below the run, because it answers the other question: what is about to happen. Only the
+      # human mode gets it - --json hands over one run's history entry verbatim, and a staged
+      # transaction belongs to the box, not to that run.
+      staged_summary_line
+      return 0
     fi
     echo "warning: corrupt history entry: ${files[$i]}" >&2
   done
@@ -697,16 +706,35 @@ cmd_history() {
 # A staged transaction can only be applied by a reboot, so same boot session = still pending,
 # full stop. Residual caveat (spec): once the boot HAS changed, the diff can also contain rpm
 # changes made by other tools since staging - what it reports is still truthful.
+# A staged transaction that is no longer there is not pending, whatever the boot session or the
+# package set says. Clearing is the whole outcome: nothing was applied, so there is nothing to
+# report - only the event line, which is the last trace the staged transaction ever leaves.
+# Its own function because harvest_offline reaches this conclusion from two different directions,
+# and the two must not drift about what "clearing" removes: the snapshot copy belongs to the
+# marker, so it goes too, or it is orphaned in snapshots/ with nothing left to name it.
+clear_gone_stage() {  # marker-owned pre-snapshot path, possibly empty
+  rm -f "$OFFLINE_MARKER" ${1:+"$1"}
+  log_event "offline marker cleared (stage gone)"
+}
+
 harvest_offline() {
   [[ -f "$OFFLINE_MARKER" ]] || return 0
-  local pre now_snap ts report hist boot
+  local pre now_snap ts report hist boot toml_status
   # Legacy markers (staged before this gate existed) and an unreadable boot_id fall back to the
   # snapshot comparison below - never to "never harvest".
   boot="$(jq -r '.boot_id // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
-  if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
-    return 0   # same boot: the stage has not been applied, whatever the package set says
-  fi
   pre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+  # dnf5's own view, read here because the marker cannot tell "waiting for a restart" from
+  # "the transaction is gone". Both of the dead ends this resolves used to last forever: a manual
+  # `dnf5 offline clean`, or a supersede that discarded the stage and could not remove the marker,
+  # left a marker whose apply was never coming, and every check re-read it and kept waiting.
+  toml_status="$(offline_system_status)"
+  if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
+    # Same boot: nothing can have APPLIED the stage, whatever the package set says. But it can
+    # still have been thrown away, and that is the one thing worth acting on here.
+    [[ "$toml_status" == absent ]] && clear_gone_stage "$pre"
+    return 0
+  fi
   # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
   # pointer on every check for the rest of time.
   [[ -n "$pre" && -f "$pre" ]] || {
@@ -718,7 +746,15 @@ harvest_offline() {
   dnf_snapshot > "$now_snap" \
     || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2
          log_event "harvest skipped snapshot failed"; return 0; }
-  if cmp -s "$pre" "$now_snap"; then rm -f "$now_snap"; return 0; fi   # not applied yet
+  # The package set did not move across a reboot. With the transaction still there that is the
+  # honest "not applied yet" - the offline-update screen can be declined, and the next restart
+  # will run it. With the transaction GONE there is nothing left to wait for, and this is where
+  # that used to become a permanent dead end.
+  if cmp -s "$pre" "$now_snap"; then
+    rm -f "$now_snap"
+    [[ "$toml_status" == absent ]] && clear_gone_stage "$pre"
+    return 0
+  fi
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
     || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
