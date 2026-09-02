@@ -1,4 +1,6 @@
 *.tmp
+# The widget archive RELEASING.md step 8 builds, next to the plasmoid/ tree it is built from.
+*.plasmoid
 docs/research/brand/candidates/legibility/tiles/
 docs/research/brand/candidates/legibility/strips/
 docs/research/brand/candidates/legibility/mono/

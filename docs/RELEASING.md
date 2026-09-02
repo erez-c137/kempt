@@ -90,9 +90,19 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    plain zip of the KPackage layout, `metadata.json` at the root next to `contents/`:
 
    ```bash
-   cd plasmoid && zip -r ../kempt-0.2.0.plasmoid metadata.json contents && cd ..
-   unzip -l kempt-0.2.0.plasmoid | head    # sanity: metadata.json sits at the root
+   # zip -r ADDS to an existing archive and never removes from one. Rebuild over yesterday's
+   # file after deleting a QML file and the deleted file still ships. Start from nothing.
+   rm -f kempt-0.2.0.plasmoid
+   ( cd plasmoid && zip -r ../kempt-0.2.0.plasmoid metadata.json contents )
+
+   unzip -l kempt-0.2.0.plasmoid | head -5   # sanity: metadata.json sits at the root
+   # ...and the whole tree is in there, not just the first screenful. Silence is a pass.
+   diff <( unzip -Z1 kempt-0.2.0.plasmoid | grep -v '/$' | sort ) \
+        <( cd plasmoid && find . -type f | sed 's|^\./||' | sort )
    ```
+
+   The archive lands in the repo root and is a build artifact, not a source file: `.gitignore`
+   carries `*.plasmoid` so a release-day `git add -A` cannot swallow it.
 
    Upload it at <https://store.kde.org/product/add> under **Plasma 6 Applets** (category 706).
    The store is a content CMS, not a packaging pipeline: the version and the changelog are
