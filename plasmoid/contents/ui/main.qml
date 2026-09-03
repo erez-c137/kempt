@@ -263,6 +263,13 @@ PlasmoidItem {
                 // something to report - the CLI ran and could not answer.
                 root.engineMissing = false;
                 root.cliError = Logic.firstLineOf(stderr);
+            } else {
+                // rc 0 with nothing usable: a lock we lost. An engine that exits 0 EXISTS, so a
+                // standing missing-engine verdict is stale here - and it must not stand, because
+                // the retry below deliberately skips retrying while it does. Someone who installs
+                // the package and presses Refresh into a lock collision would otherwise keep the
+                // "not installed" message, and no retry, until the hourly timer.
+                root.engineMissing = false;
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
             // next poll would see its own footprint as a change and check again, forever.
