@@ -8,6 +8,13 @@ release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Kempt is installable.** The COPR repository is live and green, so the README leads with
+  `sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt` and the checkout install
+  becomes the development path. Verified the way a stranger would hit it: both commands in a
+  clean Fedora 44 container, ending at `kempt 0.1.0`.
+
 ## [0.1.0] - 2026-09-03
 
 The first working version of Kempt: the complete command-line tool, its root helpers, its

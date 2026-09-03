@@ -84,9 +84,21 @@ half stands today.
   a second copy of it. `./install.sh` installs it and it appears in the system tray by default;
   adding it to a panel directly is still supported. Everything documented here works from a
   terminal whether or not it is there.
-- Not yet packaged. Installation is a symlink from a git checkout (see below).
+## Install
 
-## Quick start
+On Fedora, from the [COPR repository](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/):
+
+```bash
+sudo dnf copr enable erez-c137/kempt
+sudo dnf install kempt
+```
+
+Then add the widget: right-click the panel > Add Widgets > search for Kempt. From then on Kempt
+updates through dnf like everything else it manages, and shows up in its own popup when it does.
+
+## Quick start from a checkout
+
+For development, or anywhere the RPM does not reach:
 
 ```bash
 git clone https://github.com/erez-c137/kempt.git
