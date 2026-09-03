@@ -49,3 +49,10 @@ never validates - the version field in particular is typed by hand and nothing c
 The register is the repo's own: plain, precise, no hype, no em dashes (spaced hyphen " - "),
 and honest about limits (Fedora-only, CLI required). Future listing edits keep that. The
 description leads with what the person sees (badge, popup, button), not with architecture.
+
+## Form step 2 (Files)
+
+- **Download lock for archived files: CHECKED.** When a new version is uploaded the store
+  archives the old file; the lock stops people downloading it. The widget is version-pinned to
+  the CLI, so a stale `.plasmoid` against a newer RPM is a guaranteed mismatch - old versions
+  belong to the GitHub releases page, not the store.
