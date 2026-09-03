@@ -29,9 +29,13 @@ never validates - the version field in particular is typed by hand and nothing c
 > background, or staged so the next restart installs them. Hold any package to skip it while
 > keeping it visible.
 >
-> This widget is the front end for the `kempt` command-line tool and requires it. Install both
-> from <https://github.com/erez-c137/kempt> (COPR package coming; the checkout installer works
-> today). Fedora with Plasma 6 only, for now.
+> This widget is the front end for the kempt command-line tool and requires it. On Fedora, one
+> package installs everything - the CLI, its helpers, and this widget:
+>
+>     sudo dnf copr enable erez-c137/kempt
+>     sudo dnf install kempt
+>
+> Fedora with Plasma 6 only, for now. Details: <https://github.com/erez-c137/kempt>
 >
 > Everything the widget shows comes from the same commands it runs, so the count and the
 > transaction cannot disagree. Failures are reported in words: a cancelled password prompt is
@@ -56,3 +60,11 @@ description leads with what the person sees (badge, popup, button), not with arc
   archives the old file; the lock stops people downloading it. The widget is version-pinned to
   the CLI, so a stale `.plasmoid` against a newer RPM is a guaranteed mismatch - old versions
   belong to the GitHub releases page, not the store.
+
+## Files: exactly one
+
+The `.plasmoid` is the only file the store carries. Plasma's Get New Widgets installs
+unprivileged files into the user's home and nothing else - the CLI's root helpers and polkit
+policy cannot travel that road, so a CLI tarball here would be a worse `git clone`. The store
+listing's job is discoverability: the description carries the two dnf commands that install
+everything properly, widget included.
