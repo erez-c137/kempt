@@ -1,5 +1,8 @@
 # KDE Store listing, paste-ready
 
+**LIVE since 2026-09-04: <https://store.kde.org/p/2370353/>** - this document is now the
+record of what was pasted and why; edit the listing there, then mirror the change here.
+
 The store form fields for the Kempt widget upload, written once so the upload is copying, not
 composing. Where: <https://store.kde.org/product/add>. Everything below is free text the store
 never validates - the version field in particular is typed by hand and nothing checks it against

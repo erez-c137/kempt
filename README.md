@@ -79,6 +79,10 @@ sudo dnf install kempt
 Then add the widget: right-click the panel > Add Widgets > search for Kempt. From then on Kempt
 updates through dnf like everything else it manages, and shows up in its own popup when it does.
 
+The widget alone is also on the [KDE Store](https://store.kde.org/p/2370353/) (and in Plasma's
+own **Get New Widgets** browser) - but it needs the CLI, so on Fedora the package above is the
+whole install.
+
 ## Quick start from a checkout
 
 For development, or anywhere the RPM does not reach:
