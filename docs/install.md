@@ -120,6 +120,41 @@ default shell profile adds it when the directory exists, so a fresh login usuall
 command -v kempt    # expect: /home/<you>/.local/bin/kempt
 ```
 
+### Installing from the KDE Store first
+
+The widget is on the [KDE Store](https://store.kde.org/p/2370353/), so Plasma's **Get New
+Widgets** browser can install it on its own. That is one file: the panel widget, and none of the
+engine underneath it. A widget installed that way has nothing to ask, and it says so rather than
+inventing a count:
+
+> Kempt's engine is not installed, so nothing can check for updates yet.
+>
+> On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt
+
+It is a setup step and it is drawn as one: the panel icon stays dim, with no warning emblem and
+no badge, and the popup offers nothing to press. Install the package, press the popup's refresh
+button, and the widget fills in. (It also picks itself up on the next scheduled check, so doing
+nothing works too, just more slowly.)
+
+**Then remove the store copy.** This is the part that bites silently. `kpackagetool6` - which is
+what the store browser uses - installs into
+`~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt`, the package installs into
+`/usr/share/plasma/plasmoids/`, and **Plasma prefers the copy in your home directory**. So the
+store copy goes on being the widget Plasma loads, and every `dnf upgrade` after it updates a
+directory nothing reads. Nothing looks wrong: the old copy renders perfectly, forever.
+
+```bash
+kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt
+plasmashell --replace
+```
+
+`kempt doctor` FAILs on this by name whenever it finds a user copy on a packaged install, and it
+prints those two commands. Removing the copy does not take the widget off your panel: the panel
+records the applet by its plugin id, so the packaged copy takes its place when the shell reloads.
+
+The reverse order needs none of this. Install the package first and the widget arrives with it,
+in `/usr/share`, with nothing in your home directory to shadow it.
+
 ### If the authentication prompt is declined
 
 The installer exits 1 and tells you exactly where it stopped: the CLI symlink is in place, the

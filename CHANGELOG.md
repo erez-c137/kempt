@@ -15,6 +15,27 @@ release.
   becomes the development path. Verified the way a stranger would hit it: both commands in a
   clean Fedora 44 container, ending at `kempt 0.1.0`.
 
+### Fixed
+
+- **A widget installed from the KDE Store now says what to do next.** The store carries the
+  plasmoid and nothing else, so the first check on a store install ran against no CLI at all -
+  and the popup quoted the shell straight back at the user, `sh: line 1: kempt: command not
+  found`, over a `kempt doctor` line that could not possibly work, because `kempt` was the thing
+  that was missing. That was the first impression of Kempt for anyone who found the widget
+  before the package. The widget now reads the exit code rather than the message (127 for a
+  command that is not there, 126 for one that is there and cannot be run), treats it as a setup
+  step and not a failure - the panel icon stays dim, no warning emblem, no invented count - and
+  shows the two commands that install the engine, plus where to go on a system that is not
+  Fedora.
+- **`kempt doctor` catches the store copy that shadows a packaged widget.** `kpackagetool6`
+  installs the widget into your home directory, the RPM installs it into `/usr/share`, and
+  Plasma prefers yours. So a widget installed from the store before the package went on being
+  the one Plasma loaded, and every package update after that landed in a directory nothing
+  reads: silently, permanently, and with the old copy still rendering perfectly. On a packaged
+  install doctor now fails on a user copy, says what it costs, and prints the two commands that
+  clear it. `docs/install.md` covers the store-first order end to end, including what the widget
+  shows before the engine is there.
+
 ## [0.1.0] - 2026-09-03
 
 The first working version of Kempt: the complete command-line tool, its root helpers, its

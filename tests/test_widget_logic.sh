@@ -1820,8 +1820,17 @@ $(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},f
 $(js 'L.viewModel(null,true).headerText')
 $(js 'L.viewModel(null,false).headerText')
 $(js 'L.viewModel(null,false,"kempt: command not found").headerText')
+$(js 'L.viewModel(null,false,"",{engineMissing:true}).headerText')
 $(js 'L.viewModel({schema:2,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')
 EOF
+
+# ...and docs/install.md is where a store-first user lands, so the sentence it promises them is
+# the sentence the widget actually shows. Derived, not typed, for the same reason as the headers.
+INSTALL_DOC="$REPO_ROOT/docs/install.md"
+assert_eq "$(grep -cF "$(js 'L.COPY.engineMissing')" "$INSTALL_DOC")" "1" \
+  "docs/install.md quotes the message a widget with no engine really shows"
+assert_eq "$(grep -cF "$(js 'L.COPY.engineMissingInstall')" "$INSTALL_DOC")" "1" \
+  "...and the install line under it, character for character"
 
 # The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
 # when one is already in flight - deliberately, because the running check read the system before

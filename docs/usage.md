@@ -709,7 +709,9 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
 available`, or `Up to date`, `Updating…`, `No update data yet` before the first check has
-answered, `Kempt cannot check for updates` when the CLI itself could not be run, or
+answered, `Kempt's engine is not installed` on a box that has the widget and not the CLI (see
+[install.md](install.md#installing-from-the-kde-store-first)),
+`Kempt cannot check for updates` when the CLI itself could not be run, or
 `Could not read the update state` when the state file is there and this widget cannot read it -
 which is what a Kempt older than its own CLI looks like, since the CLI is a symlink into the
 checkout and the widget is an installed copy. It is never capped - the badge on the panel stops
@@ -729,24 +731,28 @@ at `999+` because a panel has no room, and the popup has plenty.
 
 **The messages** appear only when they apply, always in this order:
 
-1. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
+1. **Kempt's engine is not installed**, with the commands that install it. Only on a box that has
+   the widget and not the CLI, which is what installing from the KDE Store on its own leaves you
+   with. Information rather than an error, because nothing is broken: see
+   [install.md](install.md#installing-from-the-kde-store-first).
+2. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
    below. It has a close button; the rest do not.
-2. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
+3. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
    NVIDIA driver is in the set) when the transaction would rewrite things a running desktop is
    using. Its button is **Install on Next Restart**, which hands the whole transaction to the
    next reboot - the same recommendation `kempt check` publishes as `risky_pending`, and the same
    thing as `kempt update --surface=offline`. With no kernel in the set the message is the plain
    count instead: `20 session-critical pending (dbus, glibc, kf6, mesa, ...)`.
-3. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
+4. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
    Information rather than a warning, because the counts are still the best known truth.
-4. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
+5. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
    `Update failed: <the reason>` as an error. **Show Log** is on it when that run recorded a log
    file, which is every run Kempt performed; the entries harvested after an offline (on-reboot)
    update carry no log path, so they carry no button either rather than one that would open your
    home directory. It is transient - it clears when you close the popup or the next check starts,
    and the persistent **Last update** row stays out of the way while it is up. One event, one line
    at a time.
-5. A button press that failed and has something to say.
+6. A button press that failed and has something to say.
 
 **The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
 package and the versions it is moving between. The version line is never truncated: it wraps onto

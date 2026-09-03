@@ -412,6 +412,12 @@ grep -q 'shadows' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a checkout install was told its own widget shadows something"; _fail=1; } \
   || echo "ok: in a checkout the user copy IS the install, so nothing warns about it"
 
+# The removal command needs no root and cannot be guessed, so it is documented as well as
+# reported. A reader who hits this at install time should not have to run doctor to find it.
+grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$REPO_ROOT/docs/install.md" \
+  && echo "ok: docs/install.md spells out the same removal command doctor names" \
+  || { echo "FAIL: install.md does not carry the removal command"; _fail=1; }
+
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
 # TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
 # reads them reconciled; doctor reads them side by side, and its whole value is the case where they
