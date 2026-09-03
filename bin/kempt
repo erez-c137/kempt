@@ -1124,6 +1124,19 @@ cmd_doctor() {
   # it is exactly what a packaged tree does not ship.
   if [[ ! -r "$ROOT/install.sh" ]]; then
     doctor_info "install: packaged - the package manager keeps these files in step"
+    # ...and the one thing a packaged install can be silently wrong about. The widget is
+    # installable on its own from the KDE Store, and kpackagetool6 puts what it installs in the
+    # USER's plasmoid directory; the package puts its copy in /usr/share, and Plasma PREFERS the
+    # user one. So a store install that predates the package goes on being the widget Plasma
+    # loads, and every package update after it lands in a directory nothing reads - for good, and
+    # invisibly: the stale copy renders perfectly. Nothing else in this report would catch it,
+    # because every other packaged file is one the package manager owns.
+    # Only in this branch. On a checkout that same directory IS the install (install.sh puts it
+    # there with the same tool), and the message would be telling a developer to delete their own
+    # widget; the skew comparison below is the right question there.
+    if [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
+      doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR - Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+    fi
   else
     doctor_install_files helpers \
       "$ROOT/libexec/kempt-refresh" "$KEMPT_REFRESH_HELPER_PATH" \

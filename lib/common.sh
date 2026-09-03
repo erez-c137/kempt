@@ -46,9 +46,13 @@ KEMPT_APPLY_HELPER="${KEMPT_APPLY_HELPER:-$KEMPT_APPLY_HELPER_PATH}"
 # writing to /usr/share.
 KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy}"
 # Where kpackagetool6 puts the panel widget for the current user - the same path install.sh names
-# as PLASMOID_DIR. Nothing here installs or runs it; `kempt doctor` only compares it against the
-# checkout, and a seam is what lets that comparison be driven from a staged --destdir tree instead
-# of the developer's own live widget.
+# as PLASMOID_DIR. Nothing here installs or runs it; `kempt doctor` reads it, and it asks two
+# different questions of the one directory depending on which kind of install this is: in a
+# checkout, whether the copy still matches the tree it came from; in a package, whether it exists
+# at all, because there it is a store install shadowing the packaged widget. One variable for one
+# directory - two of them would drift, and doctor would end up reporting on two different paths.
+# A seam is what lets either question be driven from a staged tree instead of the developer's own
+# live widget.
 KEMPT_PLASMOID_DIR="${KEMPT_PLASMOID_DIR:-$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt}"
 KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails

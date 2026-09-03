@@ -366,6 +366,52 @@ grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
 
+# --- the store copy that shadows a packaged widget ----------------------------------------------
+# The widget is installable on its own from the KDE Store, and kpackagetool6 puts what it installs
+# in the USER's plasmoid directory. The RPM puts its copy in /usr/share - and Plasma prefers the
+# user one. So a widget installed from the store before the package goes on being the widget
+# Plasma loads, and every package update after that lands in a directory nothing reads. Nothing
+# inside the widget can see it either: the stale copy renders perfectly, forever.
+doctor_packaged() {  # user-scope plasmoid dir -> a packaged install's checkup, against that dir
+  env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$1" "$NOGIT/bin/kempt" doctor
+}
+
+STORE_COPY="$TESTTMP/store-widget"
+assert_exit 0 "a packaged install with no user copy of the widget is healthy" \
+  -- doctor_packaged "$STORE_COPY"
+grep -q 'shadows' "$TESTTMP/last_output" \
+  && { echo "FAIL: warned about a user copy that is not there"; _fail=1; } \
+  || echo "ok: ...and says nothing about one"
+
+# The trap itself: both copies on the box at once.
+mkdir -p "$STORE_COPY/contents/ui"
+cp "$REPO_ROOT/plasmoid/metadata.json" "$STORE_COPY/metadata.json"
+assert_exit 1 "a user copy shadowing the packaged widget fails the checkup" \
+  -- doctor_packaged "$STORE_COPY"
+grep -qF "user widget copy shadows the package: $STORE_COPY" "$TESTTMP/last_output" \
+  && echo "ok: the FAIL line names the directory" \
+  || { echo "FAIL: no shadow line"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
+# The consequence, in words, because "shadows" is jargon on its own: what the user loses is every
+# future update of the widget, silently.
+grep -qF 'package updates never reach your panel' "$TESTTMP/last_output" \
+  && echo "ok: ...and what it costs, which is every future update of the widget" \
+  || { echo "FAIL: the consequence is not named"; _fail=1; }
+# ...and the exact fix, which needs no root and which the user cannot be expected to guess.
+grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$TESTTMP/last_output" \
+  && echo "ok: ...and the exact command that removes it" \
+  || { echo "FAIL: the removal command is not spelled out"; _fail=1; }
+grep -qF 'plasmashell --replace' "$TESTTMP/last_output" \
+  && echo "ok: ...and that the shell has to reload before it takes effect" \
+  || { echo "FAIL: the plasmashell reload is not named"; _fail=1; }
+
+# On a CHECKOUT install that same directory IS the install - install.sh puts it there with the
+# same kpackagetool6 - so there is nothing shadowing anything and nothing to remove. A warning
+# here would be telling a developer to delete their own widget.
+doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
+grep -q 'shadows' "$TESTTMP/skew.txt" \
+  && { echo "FAIL: a checkout install was told its own widget shadows something"; _fail=1; } \
+  || echo "ok: in a checkout the user copy IS the install, so nothing warns about it"
+
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
 # TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
 # reads them reconciled; doctor reads them side by side, and its whole value is the case where they
