@@ -1,18 +1,12 @@
-# DORMANT ON PURPOSE. The repo is private and its Actions budget is $0, so nothing here may
-# start on its own: workflow_dispatch is the only trigger, and running it is a deliberate act.
-#
-# WHEN THE REPO GOES PUBLIC, replace the `on:` block below with:
-#
-#   on:
-#     push:
-#       branches: [main]
-#     pull_request:
-#     workflow_dispatch:
-#
-# Nothing else needs to change.
+# Live since the public flip (2026-09-03): Actions are free on a public repo, so every push to
+# main and every pull request runs the suite and the lint. While the repo was private this was
+# workflow_dispatch-only against a $0 Actions budget; that guard is not needed anymore.
 name: CI
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
