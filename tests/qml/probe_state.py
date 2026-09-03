@@ -47,6 +47,10 @@ if [[ "$1" == check ]]; then
     slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
+    # What `sh -c "kempt check"` really answers on a box that has the widget and not the CLI.
+    # Both the rc and the sentence are the shell's, verbatim.
+    missing)     echo 'sh: line 1: kempt: command not found' >&2; exit 127 ;;
+    notexec)     echo 'sh: line 1: kempt: Permission denied' >&2; exit 126 ;;
     answerfirst) cp %(FIX)s/state-flatpak-disabled.json %(ST)s; cat %(ST)s; exit 5 ;;
     garbage)     echo 'not json at all'; exit 1 ;;
   esac
@@ -103,11 +107,44 @@ p.check("a check that could not run the CLI is not retried on a timer",
         ev("firstCheckRetry.running"), False)
 p.check("...and nothing was counted against the retry budget", ev("root.firstCheckRetries"), 0)
 
+# --- 0b. the engine is not installed at all: the store-first first run --------------------------
+# The widget installs from the KDE Store on its own, and the CLI that does all the work does not
+# come with it. `sh -c "kempt check"` then answers rc 127, and the widget used to paste the
+# shell's own sentence into the popup over a "run kempt doctor" line that cannot work. The rc is
+# what this reads, not the text: 127 is the same on every locale and in every shell.
+open(MODE, "w").write("missing")
+ev("root.kemptState = null; root.cliError = ''; root.engineMissing = false; "
+   "root.firstCheckRetries = 0")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.check("a check that found no engine records THAT, not the shell's words",
+        ev("root.engineMissing"), True)
+p.check("...leaving cliError empty, so nothing quotes sh at the user", ev("root.cliError"), "")
+p.check("...the panel stays dim rather than raising a warning emblem", ev("root.vm.iconState"), "unknown")
+p.check("...and the header names what is missing",
+        ev("root.vm.headerText"), "Kempt's engine is not installed")
+p.check("...with no remedy offered, because kempt is the missing thing", ev("root.vm.remedyCommand"), "")
+p.check("...and no retry on a timer: installing the engine is the only thing that changes this",
+        ev("firstCheckRetry.running"), False)
+p.check("...so nothing is counted against the retry budget either", ev("root.firstCheckRetries"), 0)
+
+# 126 is the same absence wearing a different hat - found, and not executable - and a widget that
+# treated it as an ordinary failure would go back to quoting the shell.
+open(MODE, "w").write("notexec")
+ev("root.engineMissing = false")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.check("an engine that is present and not executable counts as missing too",
+        ev("root.engineMissing"), True)
+p.check("...and still says nothing about permissions in the popup", ev("root.cliError"), "")
+
+# ...and the moment a check answers, it is over. Nothing else clears this: the user installs the
+# package and presses Refresh, and the widget has to come back on its own.
 open(MODE, "w").write("live")
-ev("root.cliError = ''")
 ev("root.doCheck()")
 p.wait_for(ev, "root.kemptState !== null", True)
 p.wait_for(ev, "root.checking", False)
+p.check("an engine that answers clears the flag", ev("root.engineMissing"), False)
 
 # --- 1. what a fresh widget knows -------------------------------------------------------------
 p.check("a fresh widget runs a check on load", ev("root.kemptState !== null"), True)

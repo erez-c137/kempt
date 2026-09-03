@@ -327,6 +327,48 @@ assert_eq "$(js "$helper_missing.staleReason.indexOf(\"kempt doctor\") >= 0")" "
   "...while still showing the CLI's own words, which name doctor"
 assert_eq "$(js 'V("live",false).remedyCommand')" "" "a healthy box is told to run nothing"
 
+# --- the engine is not installed at all: the store-first first run ------------------------------
+# A widget installed from the KDE Store arrives with no CLI behind it. The check then runs through
+# `sh -c` against nothing, which answers rc 127, and the widget used to report the shell's own
+# sentence - `sh: line 1: kempt: command not found` - over a "run kempt doctor" line that cannot
+# work, because kempt is exactly what is missing. That is the first impression every store-first
+# user gets. It is a SETUP STEP rather than a failure, and this is the view model saying so.
+eng='L.viewModel(null,false,"",{engineMissing:true})'
+assert_eq "$(js "$eng.engineMissingMessage")" \
+  "$(js 'L.COPY.engineMissing + "\n" + L.COPY.engineMissingInstall')" \
+  "the message is its own field: what is true, then what to type"
+assert_eq "$(js "$eng.engineMissingMessage.indexOf(\"\\n\") > 0")" "true" "...on two lines"
+assert_eq "$(js "$eng.iconState")" "unknown" \
+  "a box that has not been set up yet is unknown, never error: nothing is broken"
+assert_eq "$(js "$eng.badgeVisible")" "false" "...and it badges nothing"
+assert_eq "$(js "$eng.headerText")" "Kempt's engine is not installed" "the header names what is missing"
+assert_eq "$(js "$eng.headerText.indexOf(\"sh:\")")" "-1" "...and never quotes the shell at the user"
+assert_eq "$(js "$eng.tooltipSub")" "$(js 'L.COPY.engineMissing')" \
+  "the tooltip says the same thing, in the copy table's words"
+assert_eq "$(js "$eng.tooltipSub.indexOf(\"command not found\")")" "-1" "...and quotes no shell either"
+assert_eq "$(js "$eng.remedyCommand")" "" \
+  "nothing is offered to type: kempt is the thing that is missing, so kempt doctor cannot run"
+assert_eq "$(js "$eng.emptyStateText")" "" \
+  "...and the placeholder stands down, because the message carries the whole answer"
+# The two commands a Fedora user has to type, complete and verbatim. A half-quoted command line is
+# worse than no command line: it fails in a way the reader has to debug.
+assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf copr enable erez-c137/kempt") >= 0')" "true" \
+  "the install line carries the copr command in full"
+assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf install kempt") >= 0')" "true" \
+  "...and the install command in full"
+assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt") >= 0')" "true" \
+  "...and where everybody who is not on Fedora goes"
+# Absent is not true: every existing caller passes no such option, and nothing changes for them.
+assert_eq "$(js 'L.viewModel(null,false,"",{}).engineMissingMessage')" "" "an unstated option says nothing"
+assert_eq "$(js 'L.viewModel(null,false,"").engineMissingMessage')" "" \
+  "...and so does no options object at all"
+assert_eq "$(js 'L.viewModel(null,false,"",{engineMissing:"true"}).engineMissingMessage')" "" \
+  "...and only a real boolean turns it on: this message replaces the whole popup body"
+assert_eq "$(js 'L.viewModel(null,false,"",{}).emptyStateText')" \
+  "No update data yet. The first check has not finished." \
+  "...leaving the ordinary first-load placeholder exactly as it was"
+assert_eq "$(js 'V("live",false).engineMissingMessage')" "" "a box whose engine answers says nothing about one"
+
 # --- shellQuote: the widget's one injection surface --------------------------------------------
 # Package names come out of the CLI's JSON and go into `kempt hold <backend>:<name>`, which the
 # data engine hands to a shell. Everything state-derived is quoted; these pin the quoting itself,
@@ -1343,6 +1385,12 @@ assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged - they install
 assert_eq "$(js 'L.COPY.stagedTail')" "are staged - they install on the next restart" \
   "copy: the tail the counted spelling shares with it"
 assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
+assert_eq "$(js 'L.COPY.engineMissing')" \
+  "Kempt's engine is not installed, so nothing can check for updates yet." \
+  "copy: the store-first first run says what is missing"
+assert_eq "$(js 'L.COPY.engineMissingInstall')" \
+  "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt" \
+  "copy: ...and the commands that fix it, complete enough to paste"
 # Nothing empty, nothing that is not a string: an undefined COPY key reaches a QML binding as a
 # blank label, which is a button with no words on it rather than an error anyone would see.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return typeof L.COPY[k] !== "string" || L.COPY[k] === ""; })')" \
@@ -1365,11 +1413,11 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedMessage","stagedShowRestart","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedMessage","stagedShowRestart","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
-            'V("reboot-needed",false)' \
+            'V("reboot-needed",false)' 'L.viewModel(null,false,"",{engineMissing:true})' \
             'L.viewModel({hello:"world"},false)' 'L.viewModel(null,false,"boom")'; do
   assert_eq "$(js "Object.keys($case).sort()")" "$keys" "$case returns the whole view model"
 done

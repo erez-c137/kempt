@@ -35,9 +35,26 @@ PlasmoidItem {
     property int firstCheckRetries: 0
     readonly property int maxFirstCheckRetries: 3
 
-    // Our OWN report of a check that produced nothing usable - the CLI missing from PATH, say.
+    // Our OWN report of a check that produced nothing usable - a CLI that started and failed, say.
     // Distinct from the CLI reporting a problem, which arrives inside the state as `error`.
     property string cliError: ""
+
+    // ...and the one shape of that which is not a failure at all: there is no CLI on this box.
+    //
+    // The widget is installable on its own from the KDE Store, and the store carries the plasmoid
+    // and nothing else - so the ordinary first run of a store install is a widget with no engine
+    // behind it. Kept apart from cliError rather than encoded into it, because the two are
+    // different facts and the popup answers them differently: cliError is "we could not get an
+    // answer" (report it, offer `kempt doctor`), this is "there is nothing here to answer"
+    // (say what to install, offer nothing to run - kempt is the missing thing).
+    //
+    // Read off the EXIT CODE and never off the text. `sh -c` answers 127 for a command it could
+    // not find and 126 for one it found and could not execute; both mean there is no working
+    // engine, and both are the same numbers in every locale, which the sentence beside them is
+    // not. 126 is the rarer half (a file with no execute bit, a broken interpreter line) and it
+    // gets the same answer on purpose: "install it" is the right advice for both, and the
+    // alternative was quoting a permission error at somebody who never installed the file.
+    property bool engineMissing: false
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
     // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
@@ -126,7 +143,8 @@ PlasmoidItem {
     readonly property var vm: Logic.viewModel(kemptState, updating, cliError,
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
-                                                restartDismissed: restartDismissed })
+                                                restartDismissed: restartDismissed,
+                                                engineMissing: engineMissing })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -224,14 +242,26 @@ PlasmoidItem {
                 // own "could not run it" report has to go, or the popup would show a stale excuse
                 // next to fresh data.
                 root.cliError = "";
+                // ...and so has the missing-engine message: something answered, so there is one.
+                // Nothing else clears this. The user installs the package and presses Refresh,
+                // and this line is what lets the widget come back on its own.
+                root.engineMissing = false;
                 // ...and the last run may not be the one we knew about. A `kempt update` typed in
                 // a terminal writes a history entry and then re-checks itself, and that state
                 // write is what brought us here - so this is the moment the Last update row would
                 // otherwise start lying about a run it never saw.
                 root.loadLastRun();
+            } else if (rc === 127 || rc === 126) {
+                // No engine on this box: nothing to run (127), or something there that cannot be
+                // run (126). See engineMissing above for why the rc decides this and not the
+                // text. cliError is cleared rather than left alone, so the popup shows the one
+                // message about the one situation instead of both.
+                root.engineMissing = true;
+                root.cliError = "";
             } else if (rc !== 0) {
                 // Nothing usable AND a failure: this is the one case where the widget itself has
-                // something to report - the CLI is missing, or it could not start at all.
+                // something to report - the CLI ran and could not answer.
+                root.engineMissing = false;
                 root.cliError = Logic.firstLineOf(stderr);
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
@@ -248,13 +278,15 @@ PlasmoidItem {
                 root.doCheck();
                 return;
             }
-            // Still nothing to show, and nothing of our OWN to report either (a missing CLI sets
-            // cliError and the popup says so - that is an answer, and re-asking would not change
-            // it). An empty answer is a lock we lost, so ask again shortly instead of leaving the
-            // panel dim for an hour. Bounded on purpose: a box where the lock is genuinely wedged
-            // must not turn into a widget forking a check every ten seconds forever, so after the
-            // last attempt this defers to checkTimer like any other check.
-            if (root.kemptState === null && root.cliError === "") {
+            // Still nothing to show, and nothing of our OWN to report either (a CLI that failed
+            // sets cliError and the popup says so - that is an answer, and re-asking would not
+            // change it; an absent engine is the same, and the retry would only re-fail every ten
+            // seconds while the popup already says what to install). An empty answer is a lock we
+            // lost, so ask again shortly instead of leaving the panel dim for an hour. Bounded on
+            // purpose: a box where the lock is genuinely wedged must not turn into a widget
+            // forking a check every ten seconds forever, so after the last attempt this defers to
+            // checkTimer like any other check.
+            if (root.kemptState === null && root.cliError === "" && !root.engineMissing) {
                 if (root.firstCheckRetries < root.maxFirstCheckRetries) {
                     root.firstCheckRetries++;
                     firstCheckRetry.restart();

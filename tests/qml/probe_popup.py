@@ -1346,6 +1346,8 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
+    "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
+    "engineMissingInstall",  # -> vm.engineMissingMessage
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

@@ -117,7 +117,25 @@ var COPY = {
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
-    configure: "Configure Kempt…"
+    configure: "Configure Kempt…",
+
+    // The store-first first run. The widget installs from the KDE Store on its own, and the CLI
+    // that does every piece of the work does not come with it - so the very first check on a
+    // store install runs against nothing. Two entries rather than one because they are two
+    // different kinds of sentence and the message renders them on two lines: what is true, then
+    // what to type. A person who cannot act on the second line still gets the first.
+    //
+    // INGREDIENTS, like kernelRestart and stagedTail: engineMissingMessage below assembles them
+    // and the popup binds the finished string, the same way it binds riskyMessage. The tooltip
+    // takes the first one alone, because two command lines under a panel hover is noise.
+    //
+    // The commands are WHOLE. Half a command line is worse than none - it fails somewhere the
+    // reader then has to debug - so both dnf lines are complete and pasteable, and the URL is
+    // there for the boxes that are not Fedora. tests/test_widget_logic.sh pins all three.
+    engineMissing: "Kempt's engine is not installed, so nothing can check for updates yet.",
+    engineMissingInstall:
+        "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. "
+        + "Other systems: github.com/erez-c137/kempt"
 };
 
 // The separator between the facts on one line: MIDDLE DOT (U+00B7) with a space on each side, the
@@ -970,19 +988,30 @@ function lastRunText(run, nowMs) {
 //                      widget gets config values back as the text `kempt config get` printed.
 //   restartDismissed - whether the restart message was closed in THIS plasmashell session.
 //                      Nothing persists it; that is deliberate and documented.
+//   engineMissing    - the CLI is not on the box at all (main.qml reads rc 127/126 off the check).
+//                      Strictly `=== true`, unlike the two above: this one replaces the popup's
+//                      whole body, so it is turned on by a real boolean and by nothing else.
+//                      A separate input rather than a magic value inside cliError, because they
+//                      are different facts - "we could not get an answer" against "there is
+//                      nothing here to answer".
 //
 // cliError is the widget's own report of a check that produced nothing usable - the CLI missing
 // from PATH, say. It is NOT the same thing as the CLI reporting a problem: when `kempt check`
 // runs and something inside it fails, it says so in the state's own `error` field and that comes
 // out as staleReason. This argument is only for "we could not get an answer at all".
 //
-// iconState is decided in this order, and the order is the contract:
-//   updating   - we started a run; it wins over whatever the last check said
-//   error      - no state AND the CLI failed us, or an object that is not schema v1
-//   unknown    - no state, but nothing has gone wrong yet (first load, still checking)
-//   stale      - the last check failed; the counts below are the last known good ones
-//   updates    - actionable > 0
-//   uptodate   - actionable == 0 (held items do not count: spec, Holds semantics)
+// iconState is decided in this order, and the order is the contract. Two of these seven steps
+// answer `unknown`, which is not an oversight: "the engine is not installed" and "the first check
+// has not finished" are different sentences about the same honest verdict, and the panel draws
+// them identically because in both the widget has no idea what is pending.
+//   updating          - we started a run; it wins over whatever the last check said
+//   unknown (engine)  - no engine on the box and nothing to show. Deliberately NOT the error
+//                       state; the rationale is on the branch itself
+//   error             - no state AND the CLI failed us, or an object that is not schema v1
+//   unknown (no data) - no state, but nothing has gone wrong yet (first load, still checking)
+//   stale             - the last check failed; the counts below are the last known good ones
+//   updates           - actionable > 0
+//   uptodate          - actionable == 0 (held items do not count: spec, Holds semantics)
 //
 // Note what "stale" deliberately is NOT: an error. The counts are the best known truth and the
 // user does not need alarming about a repo that flapped, so the panel keeps rendering the
@@ -992,6 +1021,7 @@ function viewModel(state, updating, cliError, opts) {
     updating = !!updating;
     cliError = firstLineOf(typeof cliError === "string" ? cliError : "");
     opts = (opts && typeof opts === "object") ? opts : {};
+    var engineMissing = opts.engineMissing === true;
     var usable = looksLikeState(state);
     var counted = collectItems(usable ? state : null);
     var stale = usable && state.status === "stale";
@@ -1031,6 +1061,19 @@ function viewModel(state, updating, cliError, opts) {
 
     var iconState;
     if (updating) iconState = "updating";
+    // A SETUP STEP, not a malfunction, and the state vocabulary already has the honest word for
+    // it. `error` is the panel's alarm - CompactRepresentation paints update-high and hangs a
+    // warning emblem off the icon - and that is a statement about a machine that cannot be
+    // trusted. A box where somebody installed the widget and has not installed the engine yet is
+    // not that; alarming them on their very first look trains them to ignore the emblem for the
+    // day it means something. `uptodate` would be worse: knowing nothing and rendering a clean
+    // icon is the confident zero rule 1 of the schema exists to forbid. `unknown` already means
+    // exactly what is true here - we have no idea what is pending - and it renders dimmed, with
+    // no emblem, which is the panel saying "not answering yet" rather than "broken".
+    // Only where there is nothing else to show. With counts from an earlier working engine the
+    // rows are still the best truth there is, and they keep their own state below; the message
+    // is what says the engine has gone.
+    else if (engineMissing && noState) iconState = "unknown";
     else if (noState && cliError !== "") iconState = "error";
     else if (noState) iconState = "unknown";
     else if (!usable) iconState = "error";
@@ -1058,6 +1101,12 @@ function viewModel(state, updating, cliError, opts) {
     if (updating) {
         tooltipMain = "Updating…";
         headerText = "Updating…";
+    } else if (engineMissing) {
+        // Names the missing piece instead of quoting the shell. What the panel used to put here
+        // was `sh: line 1: kempt: command not found`, which is true, unreadable, and about a
+        // program the reader has never heard of.
+        tooltipMain = "Kempt";
+        headerText = "Kempt's engine is not installed";
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
         headerText = "No update data yet";
@@ -1084,13 +1133,22 @@ function viewModel(state, updating, cliError, opts) {
         else problemText = "the update state could not be read";     // it answered something else
     }
 
+    // The whole answer for a box with no engine, assembled here so the popup binds one string.
+    // Two lines: what is true, and what to type. Empty in every other state, which is what the
+    // popup gates on.
+    var engineMissingMessage = engineMissing
+        ? COPY.engineMissing + "\n" + COPY.engineMissingInstall : "";
+
     // Read only out of a state this build can read, like every other optional key: a schema-1
     // reader has to tolerate the key being absent (every file written before this existed) and
     // being the wrong type (it is JSON from another program). formatDownload answers "" to both.
     var downloadText = usable ? formatDownload(state.download_bytes) : "";
 
     var subParts = [];
-    if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
+    // The fact, and only the fact. The install commands belong in the popup, where they can be
+    // read and copied; a panel tooltip is a hover, and two command lines in one is noise there.
+    if (engineMissing) subParts.push(COPY.engineMissing);
+    else if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
     else if (iconState === "error") subParts.push(problemText);
     else {
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
@@ -1112,6 +1170,11 @@ function viewModel(state, updating, cliError, opts) {
     // What the popup shows where the list would be, when there is no list to show.
     var emptyStateText = "";
     if (updating) emptyStateText = "";
+    // Silent, and that silence is what keeps the popup from saying one thing twice: the
+    // engine-missing InlineMessage is already carrying the whole answer, and the placeholder's
+    // own sentence ("the first check has not finished") would be a promise about a check that is
+    // never going to finish. The placeholder hides itself on empty text.
+    else if (engineMissing) emptyStateText = "";
     else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
@@ -1124,7 +1187,12 @@ function viewModel(state, updating, cliError, opts) {
     // is the entire point of that state, and a "run kempt doctor" line under counts that are
     // perfectly good is exactly the noise it exists to avoid. The CLI's own words are still
     // shown there via staleReason, which names doctor itself when that is what is wrong.
-    var remedyCommand = (cliError !== "" || neverAnswered) ? "kempt doctor" : "";
+    //
+    // ...and NOT offered when the engine is missing either, which is the case that proved the
+    // rule. `kempt doctor` is a kempt subcommand: on the box where kempt is what is absent, this
+    // line told the user to run the very thing they do not have. Nothing is runnable in that
+    // state, so nothing is offered, and the message carries the install commands instead.
+    var remedyCommand = (!engineMissing && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
@@ -1203,6 +1271,10 @@ function viewModel(state, updating, cliError, opts) {
         // actually went wrong instead of a generic apology.
         staleReason: staleReason,
         cliError: cliError,
+        // What the popup says when there is no engine on the box: the fact, then the commands
+        // that fix it, on two lines. Empty means there is nothing to say, and that empty string
+        // is the popup's only gate - exactly how riskyMessage and stagedMessage already work.
+        engineMissingMessage: engineMissingMessage,
         emptyStateText: emptyStateText,
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check. A STRING has a numeric length and indexes into
