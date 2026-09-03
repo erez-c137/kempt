@@ -14,6 +14,8 @@ never validates - the version field in particular is typed by hand and nothing c
 | File | `kempt-0.1.0.plasmoid` from <https://github.com/erez-c137/kempt/releases/tag/v0.1.0> |
 | Screenshot | `docs/images/kempt-tray-popup.png` (upload the file itself) |
 | Homepage | <https://github.com/erez-c137/kempt> |
+| Tags | `plasma6, plasmoid, applet, systemtray, updates, updater, dnf, fedora, flatpak, packages` |
+| CC-BY credit | Empty - no third-party CC-BY assets; every icon and SVG in the package is original, MIT licensed |
 
 ## Summary (one line)
 
