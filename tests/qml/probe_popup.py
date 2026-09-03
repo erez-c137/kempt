@@ -861,7 +861,8 @@ if live is not None:
     UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
     UPTODATE_REBOOT = uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json")
 
-    MESSAGES = [("restartMessage", "the restart message"),
+    MESSAGES = [("engineMissingMessage", "the missing-engine message"),
+                ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
                 ("riskyMessage", "the session-critical warning"),
                 ("staleMessage", "the stale explanation"),
@@ -937,6 +938,46 @@ if live is not None:
 
     state(fixture("state-held-only.json"))
     stack("with every pending update held")
+
+    # --- the store-first first run: a widget with no engine behind it -----------------------------
+    # The KDE Store carries the plasmoid and nothing else, so a widget with no CLI under it is the
+    # ORDINARY first run of a store install rather than an exotic failure. Driven through the
+    # property a check answering rc 127 sets; probe_state.py pins that half.
+    ev("root.kemptState = null")
+    ev("root.engineMissing = true")
+    ev('root.postRunLine = ""')
+    p.pump(80)
+    stack("with the engine not installed", "engineMissingMessage")
+    p.check("...as Information, because nothing is broken: something is not set up yet",
+            lev("engineMissingMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...carrying logic.js's sentence rather than a second copy of it",
+            lev("engineMissingMessage.text"), ev("root.vm.engineMissingMessage"))
+    p.check("...with the copr command readable in the body",
+            "sudo dnf copr enable erez-c137/kempt" in str(lev("engineMissingMessage.text")), True)
+    p.check("...and the install command that follows it",
+            "sudo dnf install kempt" in str(lev("engineMissingMessage.text")), True)
+    p.check("...and somewhere to go for a box that is not Fedora",
+            "github.com/erez-c137/kempt" in str(lev("engineMissingMessage.text")), True)
+    p.check("...never the shell's own sentence, which is what the popup used to quote",
+            "command not found" in str(lev("engineMissingMessage.text")), False)
+    p.check("...announced to a screen reader in the same words",
+            lev("engineMissingMessage.Accessible.name"), lev("engineMissingMessage.text"))
+    # Nothing else that presumes an engine renders beside it. The placeholder is the one that had
+    # to be silenced deliberately: it would otherwise promise that a first check is on its way,
+    # about a check that is never going to finish.
+    p.check("...the placeholder stands down rather than saying a second thing",
+            lev("placeholder.visible"), False)
+    p.check("...there is nothing pending to list", lev("rowsView.count"), 0)
+    p.check("...and no Update Now to press", lev("updateButton.visible"), False)
+    # Refresh STAYS, and that is the point of it: it is how somebody who has just installed the
+    # package gets an answer without waiting out the hourly timer.
+    p.check("...while Refresh stays, because it is what brings the widget back",
+            lev("refreshButton.visible && refreshButton.enabled"), True)
+
+    ev("root.engineMissing = false")
+    state(fixture("state-live.json"))
+    p.check("an engine that answers takes the message away again",
+            lev("engineMissingMessage.visible"), False)
 
     state(fixture("state-live.json"))
     ev('root.actionMessage = "Could not change the hold on bash."')

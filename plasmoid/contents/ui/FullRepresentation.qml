@@ -273,6 +273,32 @@ PlasmaExtras.Representation {
         // RowLayout, so they wrap correctly at popup width and get consistent iconography. Shipped
         // precedent inside a plasmoid: org.kde.desktopcontainment's FolderView.qml.
 
+        // No engine on the box, which is the ORDINARY first run of a KDE Store install: the store
+        // carries this plasmoid and nothing else, and every piece of the work is the CLI's. FIRST
+        // in the stack because it is the only message that says the widget cannot do anything at
+        // all yet; everything under it presumes an engine that answered.
+        //
+        // Information and not Error, and that is the whole decision: nothing is broken, a step has
+        // not been taken. The panel agrees - the icon stays dim rather than raising a warning
+        // emblem (logic.js, iconState) - and the two must not say different things about the same
+        // machine.
+        //
+        // No action button. Kempt installs nothing on anyone's behalf, and there is no command to
+        // offer that would not need the engine that is missing, so the commands are in the body
+        // where they can be read and copied. The rest of the popup needs no new gate to stay out
+        // of the way: Update Now is bound to vm.actionable, the list to vm.rows and the
+        // placeholder to vm.emptyStateText, and with no state all three are already empty. Refresh
+        // deliberately stays: it is how somebody who has just installed the package gets an answer
+        // without waiting out the hourly timer.
+        Kirigami.InlineMessage {
+            id: engineMissingMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: popup.vm.engineMissingMessage
+            Accessible.name: text
+            visible: popup.vm.engineMissingMessage.length > 0
+        }
+
         // The restart. Shown in EVERY state, including up to date: you can owe a restart and have
         // twelve updates pending at once, and you can owe one with nothing pending at all
         // (hig-review.md 1c). Bound to vm.restartMessageVisible, which has already folded in the
