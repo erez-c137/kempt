@@ -62,8 +62,8 @@
       crop, and these two numbers move with it.
     -->
     <screenshot type="default">
-      <caption>The panel badge and the pending-updates popup</caption>
-      <image type="source" width="467" height="463">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-tray-popup.png</image>
+      <caption>Kempt in the system tray, with the pending-updates popup open</caption>
+      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-tray-popup.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>

@@ -2,12 +2,14 @@
 
 One-click system updates for Fedora: a finished CLI, and a KDE Plasma panel widget over the same engine. Built to grow into a universal Linux updater.
 
+[![CI](https://github.com/erez-c137/kempt/actions/workflows/ci.yml/badge.svg)](https://github.com/erez-c137/kempt/actions/workflows/ci.yml)
+[![COPR build](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/package/kempt/status_image/last_build.png)](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Kempt's tray popup: 83 updates pending, staged to install on the next restart](docs/images/kempt-tray-popup.png)
+![Kempt in the system tray, with the popup open: 83 updates pending, staged to install on the next restart](docs/images/kempt-tray-popup.png)
 
-*The tray popup with 83 updates pending: staged to install on the next restart, pins to hold
-any package back, and the download size in the footer.*
+*Kempt lives in the system tray. Here: 83 updates pending, already staged to install on the
+next restart, pins on every row to hold a package back, and the download size in the footer.*
 
 ## Why
 
@@ -28,8 +30,8 @@ underneath itself.
 The panel widget is the same thing with an icon in front of it. It carries no package-manager
 logic at all: the badge is the number `kempt check` just wrote, and its Update Now button is
 `kempt run`. That is why the count on the panel and the count in the terminal cannot drift
-apart - there is only one engine, and the widget is a client of it. See **Status** for where that
-half stands today.
+apart - there is only one engine, and the widget is a client of it. Everything documented here
+works from a terminal whether or not the widget is on a panel.
 
 ## Features
 
@@ -54,36 +56,17 @@ half stands today.
   once per run. Optional passwordless mode is a single polkit rule for the apply action,
   scoped to your active local session - not blanket sudo.
 - **A panel widget that says what it knows.** The badge is the actionable count `kempt check`
-  just wrote, no data reads as "no data" rather than zero, and a check that failed keeps the last
-  known numbers with the reason in the tooltip instead of raising an alarm. The popup lists what
-  is pending and what is held, dates its own numbers ("Checked 4 min ago"), shows what the last
-  run installed, updates in one click, and pins packages in place from any row. It offers exactly
-  one primary action and does not offer it when there is nothing to run.
-- **It says when a restart is owed, and never performs one.** Every check records whether the
-  running system is still ignoring packages you have already installed. When it is, the popup says
-  so and offers a button that opens KDE's own restart prompt - the cancellable one, with your
-  applications given their usual chance to object. Kempt itself never restarts anything, with any
-  setting. And if you never press it, the updates are still applied: they are on disk, and the
-  restart is only what makes the running system pick them up.
+  just wrote; no data reads as "no data", never as zero. The popup lists pending and held, dates
+  its own numbers ("Checked 4 min ago"), shows what the last run installed, pins packages from
+  any row, and hides its one primary action when there is nothing to run.
+- **It says when a restart is owed, and never performs one.** The popup offers KDE's own
+  cancellable restart prompt; Kempt itself never restarts anything, with any setting. Skip the
+  button and nothing is lost - the updates are on disk, the restart only makes the running
+  system pick them up.
 - **A checkup that says what is wrong.** `kempt doctor` reports the helpers, the polkit action,
   your tools, your config file and your state directory, one line per check, because everything
   else here degrades quietly rather than crashing.
 
-## Status
-
-- **CLI (v1): complete.** Every command below works from a terminal on Fedora 44 and is covered
-  by the test suite in `tests/` (18 files, 2232 assertions, and it needs neither dnf nor flatpak
-  nor root to run). This is the whole engine, and it is the half that is finished.
-- **Plasma widget: landed.** A thin QML client over `kempt check`, `kempt run`, `kempt hold`,
-  `kempt summary --json` and `kempt config`, with no package management of its own: a panel icon
-  whose badge is the real actionable count, and a popup that carries the pending and held lists,
-  a message for each thing that needs saying (a restart owed, a session-critical transaction with
-  its one-click **Install on Next Restart**, a check that failed and why), what the last run
-  installed, a status line dating the counts, and one primary action - hidden rather than greyed
-  out when there is nothing to run. Its settings page is a front-end to `kempt config` rather than
-  a second copy of it. `./install.sh` installs it and it appears in the system tray by default;
-  adding it to a panel directly is still supported. Everything documented here works from a
-  terminal whether or not it is there.
 ## Install
 
 On Fedora, from the [COPR repository](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/):

@@ -48,7 +48,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - **Four run surfaces.** Terminal with live output, in-popup, silent background, and offline
   staging, which downloads the transaction and arms it so the next restart of any kind installs
   it, the way Fedora recommends. The staged result is harvested into normal history after that
-  restart, gated on the boot session so no other package change can be mistaken for it.
+  restart, gated on the boot session so no other package change can be mistaken for it. While a
+  transaction is staged the popup says so in one green line instead of offering to stage it
+  again; a live update discards a stage it has invalidated rather than leaving a doomed
+  transaction armed; and `kempt doctor` names a stage that can never install, with the command
+  that clears it.
 - **A recommendation, never a veto, for risky transactions.** When a pending update touches
   session-critical packages, an interactive run offers to update live, stage it for the next
   reboot, or abort, and defaults to abort. Detached runs send a heads-up notification and
@@ -204,67 +208,11 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   bugs a first user would have hit: `kempt --version` printed `kempt unknown` because `VERSION`
   was not in the package, and `kempt enable-passwordless` had no rules template to render. The
   transcript is [docs/research/2026-09-02-rpm-spec-verification.md](docs/research/2026-09-02-rpm-spec-verification.md).
-  Nothing is published yet - COPR and the store upload are still ahead.
 - **The version agreement now covers every file that states one.** `tests/test_version.sh` already
   pinned the widget's `KPlugin.Version` to `VERSION`; it pins the metainfo's newest release and
   `kempt.spec`'s `Version:` to it as well. A software centre cannot advertise a release the CLI
   does not report, and `rpm -q kempt` cannot disagree with the binary it installed. The git tag is
   the one number still left to a human, and `docs/RELEASING.md` step 1 says so.
-
-### Fixed
-
-- **"Install on Next Restart" now installs on the next restart.** It never did. Staging ran
-  `dnf5 upgrade --offline`, which downloads the transaction and stops there; only
-  `dnf5 offline reboot` marks it ready and creates `/system-update`, which is the single thing
-  systemd looks for at boot. Kempt never made that second call, so a staged update sat on disk
-  and no number of restarts applied it - and because the packages correctly stayed listed as
-  pending, the popup went on offering to stage them again. Staging now downloads **and** arms,
-  both inside the one authentication, so any restart installs it: the popup's button, the desktop
-  menu, `reboot` typed in a terminal. If the arm fails the run fails, the stage is discarded and
-  the reason says so, because a transaction nothing can apply is worse than no transaction.
-- **The popup says an update is already staged, instead of offering to stage it again.** A green
-  line - `61 updates are staged - they install on the next restart` - replaces the offline offer
-  while a transaction is waiting, with a Restart… button of its own unless the restart message is
-  already carrying one. `kempt summary` prints the same fact as a `Staged:` line, and
-  `kempt check` publishes it as `offline_staged` in the state file, present only for a
-  transaction dnf5 reports as genuinely armed. The popup's own run lines agree: the transient
-  post-run line and the Last update row used to describe a staging run as "no package changes" -
-  true of the rpm set, misleading about what just happened - and now say the updates are staged
-  (`Last update 2 min ago · staged for restart`). A staging run that FAILED keeps the honest
-  zero.
-- **A live update no longer leaves a doomed transaction armed.** A staged transaction records the
-  package database it was built against, and dnf5 refuses one whose database has moved - so
-  installing anything live turns a pending stage into a failed offline boot waiting to happen.
-  Kempt now discards the superseded stage and records why. A run that changed no system packages
-  leaves it alone.
-- **A staged transaction that has gone stops being waited for.** If the transaction is cleared by
-  hand - or by a supersede that could not finish - the next check clears Kempt's marker instead
-  of waiting forever for an apply that can never come.
-- **`kempt doctor` can now see a stage that will never install.** It reads Kempt's marker and
-  dnf5's transaction status side by side, which no other surface does, and reports a transaction
-  that was downloaded but never armed as a failure naming the exact fix
-  (`sudo dnf5 offline clean`). It also says when a transaction was staged outside Kempt.
-
-  This is the state a box is left in by any Kempt build before this fix, and clearing it by hand
-  is the only way out: the old stage cannot be armed retroactively, because the packages it was
-  built against have moved on.
-
-### Changed
-
-- **Renamed from Upkeep to Kempt** (reverse-DNS id `io.github.erez_c137.kempt`), because two
-  actively maintained Linux updaters are already called `upkeep` and a venture-funded
-  maintenance-software company owns the word commercially, so the old name could never own a
-  search result; the reasoning is in
-  [docs/research/2026-08-25-brand-bakeoff.md](docs/research/2026-08-25-brand-bakeoff.md). The
-  binary, the root helpers, the polkit actions, the config and state directories and the
-  `KEMPT_*` environment seams all moved with it. Nothing was released under the old name.
-- **The shellcheck CI job is green before anyone can watch it fail.** It had never executed once -
-  shellcheck is not installed on the dev box - so the exact command CI runs was run in a
-  throwaway container against three shellcheck releases instead, because the runner's version is
-  whatever Ubuntu ships that month and they disagree. Eleven findings, all triaged: one real
-  quoting fix in the package-lock retry, and nine one-line waivers that each name the constraint
-  the code could not show, such as the `pkexec bash -c '...$1'` forms whose single quotes are the
-  whole point of passing paths as arguments to a root shell. No file-level suppressions.
 
 ### Notes and known limitations
 
@@ -272,18 +220,12 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   walkthrough for it is [docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro).
 - Flatpak support is system scope only. A system-wide `flatpak update` also updates runtimes,
   which the summary does not itemize, so a run can change slightly more than it reports.
-- Installation is a symlink into the git checkout, which stays load-bearing. The widget is the
-  one exception: `kpackagetool6` copies it, so re-run `./install.sh` after changing `plasmoid/`.
-  That is the only install anyone can do today: `kempt.spec` exists and is verified to build and
-  install cleanly, but no built package is published anywhere yet, so there is nothing to
-  `dnf install` until COPR is set up.
-- **The root helper changed, so `./install.sh` has to be re-run.** `kempt-apply` gained the two
-  offline verbs, and it is a copy rather than a symlink - without a re-install, root is still
-  running the version that cannot arm a transaction, and every staged update silently goes back
-  to never installing. `kempt doctor` says so on its own: its `helpers:` line reports `DIFFER
-  from checkout`.
+- A checkout install is a symlink into the git tree, which stays load-bearing: keep the
+  checkout where it is. The widget is the one exception: `kpackagetool6` copies it, so re-run
+  `./install.sh` after changing `plasmoid/`. The RPM install has none of these properties - the
+  package manager owns every file.
+- Developed under the name Upkeep; renamed to Kempt before anything was released, because two
+  maintained Linux updaters already answer to the old name
+  ([docs/research/2026-08-25-brand-bakeoff.md](docs/research/2026-08-25-brand-bakeoff.md)).
 - The dnf pending check parses text output. Migrating it to `dnf5 check-update --json` is the
   designated next upgrade for that backend.
-- Nothing has been released yet, and the live verification on real hardware (a real install, a
-  real update, the widget on a real panel) is the remaining gate. See
-  [docs/ROADMAP.md](docs/ROADMAP.md).
