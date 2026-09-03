@@ -87,23 +87,29 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
 7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
    COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
    passed: the spec builds, lints to zero rpmlint findings, installs and smokes clean on Fedora 44
-   ([the verification note](research/2026-09-02-rpm-spec-verification.md)). A red COPR build is
-   therefore about COPR, the chroot or the tag, not about the spec. **COPR itself has never been
-   run**; step 7 is still read from [the packaging
-   research](research/2026-08-27-packaging-and-listing.md) section 3.4.
+   ([the verification note](research/2026-09-02-rpm-spec-verification.md)), and the 0.1.0 release
+   went through this exact procedure end to end (project created, rpkg SCM build green on
+   fedora-44 and rawhide, `dnf copr enable` + `dnf install kempt` verified in a clean container).
+   A red COPR build is therefore about COPR, the chroot or the tag, not about the spec.
+
+   The project (`erez-c137/kempt`) and its one package exist; a release is two commands - point
+   the package at the new tag, then build it:
+
+   ```bash
+   copr-cli edit-package-scm erez-c137/kempt --name kempt --type git --method rpkg \
+     --clone-url https://github.com/erez-c137/kempt.git --spec kempt.spec --commit v0.2.0
+   copr-cli build-package erez-c137/kempt --name kempt
+   ```
+
+   Deliberately NO push webhook: the spec's `Version:` is static, so a push-triggered rebuild
+   produces the same NVR from different source - dnf offers nobody an upgrade and the repo just
+   quietly swaps the bits under one version. Webhook-rebuild is set `off` on the package;
+   releases are explicit or they are not releases.
 
    Rebuild the tarball the way the verification did, if you need to reproduce a build locally:
 
    ```bash
    git archive --format=tar.gz --prefix=kempt-0.2.0/ -o kempt-0.2.0.tar.gz v0.2.0
-   ```
-
-   The package is configured once, with the SCM source method pointing at the repo's clone URL and
-   the `.spec` committed in-tree, plus the auto-rebuild webhook. After that a pushed tag is the
-   trigger, and the only manual step is confirming the build went green for every chroot:
-
-   ```bash
-   copr build-package erez-c137/kempt --name kempt      # only when the webhook did not fire
    ```
 
    Consumers then get the release the ordinary way, which is the whole point:
