@@ -1,7 +1,10 @@
 # Prior-art survey — panel update indicators, universal updaters, update managers
 
 **Date:** 2026-08-24
-**For:** Upkeep v1 design (`docs/specs/2026-08-24-kempt-design.md`)
+**For:** Kempt v1 design (`docs/specs/2026-08-24-kempt-design.md`)
+**Name note:** written for the v1 design under the project's original name, Upkeep; names were
+updated in place when the project became Kempt (2026-08-25) so the document reads true against
+the shipped tree.
 **Method:** web research (project READMEs, source, GitHub issues, distro wikis, Fedora/KDE discussion threads). Signal over completeness.
 
 ---
@@ -61,7 +64,7 @@ Arch-first Plasma widget tracking pacman + AUR + Plasma widgets + Flatpak + fwup
 
 ### 1.3 plasma-discover-notifier (the incumbent on our box)
 
-The thing Upkeep replaces. Universal complaint: it **starts at login, appears in no Autostart or Background Services list, and Discover offers no setting to turn it off** — users resort to chmod/mask hacks ([Manjaro forum](https://forum.manjaro.org/t/how-to-disable-discovernotifier-without-uninstalling-discover/65449), [KDE Discuss](https://discuss.kde.org/t/kde-6-plasma-how-to-disable-the-notification-service/31530), [Kubuntu forums](https://www.kubuntuforums.net/forum/archives/eol-releases/-18-04/post-installation-as/69984-how-to-disable-notification-of-available-updates)). Lesson: an updater that can't be cleanly switched off is malware-adjacent in users' eyes.
+The thing Kempt replaces. Universal complaint: it **starts at login, appears in no Autostart or Background Services list, and Discover offers no setting to turn it off** — users resort to chmod/mask hacks ([Manjaro forum](https://forum.manjaro.org/t/how-to-disable-discovernotifier-without-uninstalling-discover/65449), [KDE Discuss](https://discuss.kde.org/t/kde-6-plasma-how-to-disable-the-notification-service/31530), [Kubuntu forums](https://www.kubuntuforums.net/forum/archives/eol-releases/-18-04/post-installation-as/69984-how-to-disable-notification-of-available-updates)). Lesson: an updater that can't be cleanly switched off is malware-adjacent in users' eyes.
 
 ### 1.4 mintupdate's tray experience
 
@@ -79,7 +82,7 @@ Rust CLI that detects every package manager on the box (~60+: apt, dnf, pacman, 
 
 **Architecture worth copying:**
 - Everything is a **"step"**. Config/CLI args → orchestration engine → per-step execution through one shared command-execution abstraction.
-- **`require()` availability probe before each step** — if the tool isn't installed, the step is *silently skipped* rather than failing. This is exactly how a universal Upkeep should treat `dnf5` on a Debian box.
+- **`require()` availability probe before each step** — if the tool isn't installed, the step is *silently skipped* rather than failing. This is exactly how a universal Kempt should treat `dnf5` on a Debian box.
 - Config in one TOML (`~/.config/topgrade/topgrade.toml`), merged with CLI args by defined precedence.
 
 **Config vocabulary (steal the nouns):**
@@ -145,7 +148,7 @@ Weak spot: discoverability/enablement is fiddly ([bluefin#3411](https://github.c
    - **concurrent backend queries** (APT, Flatpak, Cinnamon Spices in parallel) to minimise latency;
    - detection delegated to a **separate process** (`checkAPT.py`) so the GUI thread never blocks.
 
-6. **`mintupdate-cli`** — a documented CLI for scripts/cron, i.e. the GUI is not the only entry point. (Upkeep is CLI-first, which is strictly better.)
+6. **`mintupdate-cli`** — a documented CLI for scripts/cron, i.e. the GUI is not the only entry point. (Kempt is CLI-first, which is strictly better.)
 
 7. **Automation preferences**, including auto-removal of unneeded kernels — with the documented warning to **only enable automatic updates after Timeshift snapshots are configured**.
 
@@ -209,15 +212,15 @@ Fedora's default GUI package manager on non-GNOME/KDE spins, and near-universall
 
 ---
 
-## 4. Implications for Upkeep
+## 4. Implications for Kempt
 
 ### ADOPT
 
 **v1 — cheap and high value**
 
-1. **Post-run re-check must be event-driven, not timer-driven.** Apdatifier's #1 bug is a stale badge after a terminal upgrade closes. Our spec already says "after any run, trigger `upkeep check`" — make that fire on process exit *and* on a filesystem watch of `/var/lib/rpm` / `/var/lib/flatpak` (mintupdate's `APTCacheMonitor` pattern), so an update run from *any* source (plain `sudo dnf5 upgrade`, Discover) clears the badge.
+1. **Post-run re-check must be event-driven, not timer-driven.** Apdatifier's #1 bug is a stale badge after a terminal upgrade closes. Our spec already says "after any run, trigger `kempt check`" — make that fire on process exit *and* on a filesystem watch of `/var/lib/rpm` / `/var/lib/flatpak` (mintupdate's `APTCacheMonitor` pattern), so an update run from *any* source (plain `sudo dnf5 upgrade`, Discover) clears the badge.
 2. **Never let a backend hang the widget.** Hard timeout on every backend `check`/`report` call, and async execution. (Apdatifier #2/#70 "loading forever"; arch-update's release note bragging about killing a 1-second shell freeze.)
-3. **Network etiquette, copied from `makecache --timer`:** skip the refresh on battery; skip if the last successful check is newer than the metadata expiry; add Apdatifier's `respect_metered_conn` (dnf itself ignores NM metered flags, so this must live in Upkeep).
+3. **Network etiquette, copied from `makecache --timer`:** skip the refresh on battery; skip if the last successful check is newer than the metadata expiry; add Apdatifier's `respect_metered_conn` (dnf itself ignores NM metered flags, so this must live in Kempt).
 4. **Show "why nothing happened."** topgrade's `show_skipped` — the popup should say "Flatpak: skipped (not installed)" / "skipped (metered connection)", never just show fewer rows.
 5. **Availability probe per backend** (topgrade's `require()`): a missing backend is *skipped*, not an error. This is the whole universality mechanism and it costs three lines in `backends/*.sh`.
 6. **Classify updates, don't just count them.** mintupdate types every update (security / kernel / package). Even a v1 approximation — flag security advisories (`dnf5 updateinfo`), flag kernel/systemd/glibc/mesa/plasma-workspace — makes the popup informative rather than a wall of names.
@@ -227,12 +230,12 @@ Fedora's default GUI package manager on non-GNOME/KDE spins, and near-universall
 10. **Show exact `old → new` versions including point releases** (GNOME Software's failure). Full EVR, both sides. Already in the spec — keep it non-negotiable.
 11. **A clean off switch.** Discover-notifier is hated because it can't be turned off. `install.sh --uninstall` must fully reverse (plasmoid, helper, polkit action *and* rules file), and the widget needs a visible "pause checking" toggle.
 12. **Separate root-owned helper per action ID, `allow_gui` off** (mintupdate's `com.linuxmint.updates.automation` pattern). Our spec already does this. Also: log every privileged invocation.
-13. **Log/status verbs from dnf5 offline:** `upkeep status` (is a transaction staged/pending reboot?) alongside `summary` / `history`.
+13. **Log/status verbs from dnf5 offline:** `kempt status` (is a transaction staged/pending reboot?) alongside `summary` / `history`.
 
 **v2 — noted, not built now**
 
 14. **topgrade's config vocabulary** for the universal port: `disable` / `only` / `first` / `last` / `ignore_failures` / `auto_retry` / `pre_commands` / `post_commands` / `notify_end = on_failure`. Adopt the *names* now even with two backends — [topgrade#1472](https://github.com/topgrade-rs/topgrade/issues/1472) is a live warning about what an organically-grown flat config costs later.
-15. **uupd's readiness gates** for any future scheduled mode: battery ≥ 20 %, load < 50 %, memory < 90 %, network not saturated. (Not needed while Upkeep never installs on its own.)
+15. **uupd's readiness gates** for any future scheduled mode: battery ≥ 20 %, load < 50 %, memory < 90 %, network not saturated. (Not needed while Kempt never installs on its own.)
 16. **Per-version blacklist / hold** (mintupdate 19.2): skip one bad version without ignoring the package forever.
 17. **Distro news surfacing** (Apdatifier feeds): Fedora Magazine / release-notes or `dnf5 updateinfo` severity next to the update list.
 18. **Pre/post hooks** (`pre_exec` / `post_exec`) — the cheapest extensibility point there is; also how a user wires in a Timeshift/restic snapshot before updating (Mint's own advice: automatic updates only *after* snapshots are configured).
@@ -250,40 +253,40 @@ Fedora's default GUI package manager on non-GNOME/KDE spins, and near-universall
 | Showing major version only / hiding point releases | GNOME Software makes 48.0 → 48.1 invisible; users can't tell what changed. |
 | No way to disable/uninstall cleanly | The entire DiscoverNotifier grievance; users end up chmod-ing binaries. |
 | `sudo` credential-cache keep-alive loops | topgrade needs `pre_sudo` + `sudo_loop` because it uses sudo; a polkit helper with one auth per run is strictly better — don't reinvent the loop. |
-| Multiple auth prompts in one run | topgrade#1025 (UAC storm). One prompt per `upkeep update`, covering dnf *and* system flatpaks. |
+| Multiple auth prompts in one run | topgrade#1025 (UAC storm). One prompt per `kempt update`, covering dnf *and* system flatpaks. |
 | Silently skipping a backend | Indistinguishable from a bug; always report skip + reason. |
 | Auto-applying updates with no snapshot story | Mint's own docs gate automation on Timeshift; "no update tool replaces backups" (topgrade). Spec already forbids auto-install — keep it. |
-| Front-end disagreeing with the CLI | "Discover shows updates that dnf cannot find" destroys trust; Upkeep's counts must be derived from the same command that will run. |
+| Front-end disagreeing with the CLI | "Discover shows updates that dnf cannot find" destroys trust; Kempt's counts must be derived from the same command that will run. |
 
 ### Findings that CHALLENGE the spec
 
 > **C1 — Live `dnf5 upgrade` inside a running Plasma session is the risk Fedora explicitly engineered around, and the spec has no offline path at all.**
 > The spec's three run surfaces (terminal / in-popup / background) are all *live* upgrades of the running desktop. Fedora has shipped offline updates since F18 precisely because "if a file being used by an application changes while the application is running then the application won't know about the change," and calls live updates "a roll of the dice" ([Fedora Magazine](https://fedoramagazine.org/offline-updates-and-fedora-35/)); dnf5's own docs say offline transactions exist to reduce "interference with running processes" ([offline.8](https://github.com/rpm-software-management/dnf5/blob/main/doc/commands/offline.8.rst)). There are concrete reports of plasmashell breaking from a live upgrade ([F40 thread](https://discussion.fedoraproject.org/t/plasma-kde-on-f40-is-no-longer-usable-because-plasmashell-crashes/131342), [RHBZ 1333982](https://bugzilla.redhat.com/show_bug.cgi?id=1333982)) and of a desktop crashing *mid-transaction* with dnf.log and `dnf history` disagreeing about whether it completed ([narkive thread](https://users.fedoraproject.narkive.com/MOqv6wB9/desktop-crash-during-a-dnf-upgrade-will-this-be-a-problem-now)).
-> **Recommendation:** add a fourth surface — `surface=offline` — that runs `dnf5 upgrade --offline` + `dnf5 offline reboot`, with `dnf5 offline status`/`log` feeding the popup and history. Even if live stays the default (it's what Erez wants: one click, no reboot), Upkeep should **detect risky transactions** (plasma-workspace, kf6-*, qt6-*, mesa, kernel, systemd, glibc, dbus, xorg/wayland stack) and offer "these touch the running desktop — stage for reboot instead?" This is a v1-sized addition to `backends/dnf.sh` (one flag) and it's the single biggest safety gap in the design.
+> **Recommendation:** add a fourth surface — `surface=offline` — that runs `dnf5 upgrade --offline` + `dnf5 offline reboot`, with `dnf5 offline status`/`log` feeding the popup and history. Even if live stays the default (it's what Erez wants: one click, no reboot), Kempt should **detect risky transactions** (plasma-workspace, kf6-*, qt6-*, mesa, kernel, systemd, glibc, dbus, xorg/wayland stack) and offer "these touch the running desktop — stage for reboot instead?" This is a v1-sized addition to `backends/dnf.sh` (one flag) and it's the single biggest safety gap in the design.
 
 > **C2 — dnf5 fails instantly on a busy rpm lock, and our box runs the exact daemon that takes it.**
-> `dnf5` does **not** wait/retry for the rpm transaction lock — it errors out with "Failed to obtain rpm transaction lock. Another transaction is in progress." ([dnf5#2435](https://github.com/rpm-software-management/dnf5/issues/2435)); the request for a `--wait` option ([#2186](https://github.com/rpm-software-management/dnf5/issues/2186)) is open and unanswered. Fedora 44 put PackageKit on the dnf5 backend ([Changes/PackageKit-DNF5](https://fedoraproject.org/wiki/Changes/PackageKit-DNF5)), so `plasma-discover-notifier` refreshing or staging an offline transaction in the background will make `upkeep update` fail at random.
+> `dnf5` does **not** wait/retry for the rpm transaction lock — it errors out with "Failed to obtain rpm transaction lock. Another transaction is in progress." ([dnf5#2435](https://github.com/rpm-software-management/dnf5/issues/2435)); the request for a `--wait` option ([#2186](https://github.com/rpm-software-management/dnf5/issues/2186)) is open and unanswered. Fedora 44 put PackageKit on the dnf5 backend ([Changes/PackageKit-DNF5](https://fedoraproject.org/wiki/Changes/PackageKit-DNF5)), so `plasma-discover-notifier` refreshing or staging an offline transaction in the background will make `kempt update` fail at random.
 > **Recommendation:** (a) the spec's "concurrent runs" section covers only *our own* lockfile — add **foreign-lock handling**: detect the failure, retry with backoff, and report "another package manager is busy (PackageKit/Discover)" rather than a raw dnf error; (b) promote "disable `plasma-discover-notifier`" from a nice-to-have follow-up (spec §Out of scope) to a **v1 install-time recommendation** — it's now a correctness issue, not just duplicate notifications.
 
-> **C3 — a non-root `upkeep check` reads a *different* metadata cache than the privileged `upkeep update` will.**
+> **C3 — a non-root `kempt check` reads a *different* metadata cache than the privileged `kempt update` will.**
 > dnf keeps a separate cache per user: root uses `/var/cache/libdnf5`, a non-root dnf5 uses `~/.cache/libdnf5`, and the docs state plainly that "DNF and plugins will potentially deliver different results for different users" ([dnf5 caching(7)](https://dnf5.readthedocs.io/en/latest/misc/caching.7.html)). So the badge can disagree with what the update actually does, *and* the user-cache path re-downloads metadata that root already has. This is the mechanism behind "Discover shows updates that dnf cannot find."
 > **Recommendation:** verify on the box which cache `dnf5 check-update` uses as erez, and either point `check` at the system cache (`--setopt=cachedir=/var/cache/libdnf5` where readable, or dnf's read-only system-cache access) or run `check` through the same privileged helper. Decide before writing the parser fixtures.
 
 > **C4 — "flatpak as user" is wrong on Fedora; Flathub is a system-wide remote and updating it triggers polkit.**
 > The spec says flatpak "runs as user (no privilege)". Fedora's Flathub/fedora remotes are `--system` installations, and `org.freedesktop.Flatpak.app-update` / `.modify-repo` require polkit auth ([policy file](https://github.com/flatpak/flatpak/blob/main/system-helper/org.freedesktop.Flatpak.policy.in), [flatpak#4838](https://github.com/flatpak/flatpak/issues/4838), [flatpak#6216](https://github.com/flatpak/flatpak/issues/6216)). In `surface=background` that means an unexplained auth dialog — or, with no agent reachable, a silent hang.
-> **Recommendation:** detect `--user` vs `--system` installations, fold the system-flatpak authorization into the same single auth moment as dnf (or route it through `upkeep-apply`), and never assume flatpak is prompt-free.
+> **Recommendation:** detect `--user` vs `--system` installations, fold the system-flatpak authorization into the same single auth moment as dnf (or route it through `kempt-apply`), and never assume flatpak is prompt-free.
 
 > **C5 — `auth_admin_keep` caches per *action ID*, not per argument.**
-> polkit docs warn that with `AUTH_ADMIN_KEEP`, "authorization checks for the same action identifier and subject will succeed for the next brief period **even if the variables passed along with the check are different**", and that rules whose result depends on such variables should not use `*_KEEP` ([polkit reference](https://www.freedesktop.org/software/polkit/docs/latest/polkit-apps.html)). Our `upkeep-apply` takes a verb set behind one action `org.erez.upkeep.apply` with `auth_admin_keep` — so authorizing `dnf-upgrade` also authorizes every other verb for ~5 minutes.
+> polkit docs warn that with `AUTH_ADMIN_KEEP`, "authorization checks for the same action identifier and subject will succeed for the next brief period **even if the variables passed along with the check are different**", and that rules whose result depends on such variables should not use `*_KEEP` ([polkit reference](https://www.freedesktop.org/software/polkit/docs/latest/polkit-apps.html)). Our `kempt-apply` takes a verb set behind one action `io.github.erez_c137.kempt.apply` with `auth_admin_keep` — so authorizing `dnf-upgrade` also authorizes every other verb for ~5 minutes.
 > **Recommendation:** keep the verb set genuinely tiny and equally-privileged (all of them ≈ "modify installed packages"), or split into one action ID per verb. Also keep `org.freedesktop.policykit.exec.allow_gui` unset (mintupdate explicitly disables GUI on its automation action), and note pkexec strips `$DISPLAY`/`$XAUTHORITY` by design.
 
 > **C6 — the plasmoid's chosen execution mechanism is on a deprecation path.**
 > `Plasma5Support.DataSource` with the executable engine is the compatibility shim for the old Data Engines; KDE states data engines are deprecated, moved into plasma5support, and "should be ported away from as it is planned to be eventually dropped" ([Porting Plasmoids to KF6](https://develop.kde.org/docs/plasma/widget/porting_kf6/), [Mart's Akademy post](https://notmart.org/blog/2023/07/akademy-2023-plasma-6-and-plasmoids/)).
-> **Recommendation:** fine for v1, but isolate every invocation behind a single QML component (e.g. `UpkeepRunner.qml`) so swapping to a small C++/QML plugin or a D-Bus service later is a one-file change — matching the spec's own "clean boundaries for portability" constraint.
+> **Recommendation:** fine for v1, but isolate every invocation behind a single QML component (e.g. `KemptRunner.qml`) so swapping to a small C++/QML plugin or a D-Bus service later is a one-file change — matching the spec's own "clean boundaries for portability" constraint.
 
 > **C7 — default `refresh_interval_min = 60` is more aggressive than Fedora's own metadata policy.**
 > `metadata_timer_sync` defaults to **3 hours** and `makecache --timer` refuses to run on battery ([makecache docs](https://dnf5.readthedocs.io/en/latest/commands/makecache.8.html)); Apdatifier defaults to **120 minutes**.
-> **Recommendation:** split the two operations — a **cheap cache-only check** can run every 30-60 min (it's just a solve against local metadata), but an actual **metadata refresh** should be ≥ the repo `metadata_expire`, skipped on battery and on metered links. Document which one the interval controls, or users will blame Upkeep for the bandwidth.
+> **Recommendation:** split the two operations — a **cheap cache-only check** can run every 30-60 min (it's just a solve against local metadata), but an actual **metadata refresh** should be ≥ the repo `metadata_expire`, skipped on battery and on metered links. Document which one the interval controls, or users will blame Kempt for the bandwidth.
 
 ---
 
