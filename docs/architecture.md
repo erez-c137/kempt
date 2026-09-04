@@ -23,6 +23,32 @@ performs the update**. A front end that disagrees with the CLI is the defining c
 every tool in this space, so `kempt check` reads the root metadata cache the update itself will
 use, applies the same holds, and runs the same backends.
 
+## Why bash
+
+The recurring question, answered once. The engine is bash on purpose, not by inertia:
+
+- **The job is the shell's native job.** Everything Kempt does is run other CLIs - dnf5,
+  flatpak, pkexec, notify-send - and parse what they print. In bash, the command Kempt runs
+  is literally the command you would type; there is no binding layer where behavior can hide.
+- **The privileged surface must be auditable in one sitting.** The two root helpers are short
+  argument-validating scripts. Any sysadmin can read every line that will ever run as root
+  before granting it, with no toolchain and no trust placed in a build.
+- **Zero runtime dependencies, zero build step.** bash and jq are on every Fedora install
+  already. A system updater with a heavy runtime is a thing that breaks when the system it
+  updates does; a script can be read, patched and rerun in place on the machine it broke on.
+
+The costs are just as real, and they are paid deliberately rather than denied:
+
+- Bash at this scale needs discipline, so the discipline is structural: every impure command
+  goes through an [environment seam](#environment-seams), the suite's assertions run with no
+  package manager present, shellcheck gates CI, and the helpers validate their arguments.
+- Parsing text output is fragile, so the parsers are pure functions tested against recorded
+  fixtures, and the roadmap's `dnf5 check-update --json` migration retires that bug class by
+  construction when it lands.
+- If the project ever outgrows the shell, the boundary is already drawn: the widget speaks to
+  a CLI contract and a state-file schema, not to bash. An engine in another language slots in
+  behind both without the front end noticing.
+
 ## Repo layout
 
 | Path | Role |
@@ -500,9 +526,10 @@ needs to be:
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
-The whole suite is 18 files and 2232 assertions, 1369 of them in the two widget files (722 under
-node, 633 in the probes), and it runs green with no package manager, no polkit and no desktop
-present.
+The suite runs green with no package manager, no polkit and no desktop present, and the two
+widget halves carry more than half of its assertions. For the current count, run
+`tests/run_tests.sh` - it prints the measured total, and a measured number is the only kind
+this project quotes. (Exact totals used to live in this sentence; they drifted within weeks.)
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
 own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the

@@ -1,0 +1,7 @@
+# The only dependencies Kempt has are the pinned actions in CI; keep their pins current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

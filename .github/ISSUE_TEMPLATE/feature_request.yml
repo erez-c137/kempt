@@ -1,0 +1,25 @@
+name: Feature request
+description: Something Kempt should do, or do differently
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do that Kempt currently makes hard, wrong or impossible. The problem outranks the solution - a well-stated one often gets a better fix than the one first proposed.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What you would want to happen, if you have a shape in mind. Optional.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface?
+      options:
+        - The CLI
+        - The Plasma widget
+        - Both
+        - Not sure

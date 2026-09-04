@@ -1,0 +1,40 @@
+name: Bug report
+description: Something Kempt did wrong, or failed to do
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The outputs below answer most questions before they are asked - a minute there usually saves a round-trip.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what Kempt did, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: kempt doctor output
+      description: Paste the full output of `kempt doctor`. It states the version, the install shape and the wiring in one place. If the CLI is not installed, say so here instead.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: install-path
+    attributes:
+      label: How is Kempt installed?
+      options:
+        - COPR package (dnf install kempt)
+        - KDE Store / Get New Widgets (widget only)
+        - Git checkout (install.sh)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant kempt log lines
+      description: If the problem involves a check or a run, `kempt log` has one line per thing Kempt did. Optional but useful.
+      render: text

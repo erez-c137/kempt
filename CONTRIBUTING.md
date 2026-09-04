@@ -11,7 +11,8 @@ problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Dev setup
 
-There is no build step. Clone it and run it.
+There is no build step - that is a design choice, argued in
+[docs/architecture.md](docs/architecture.md#why-bash). Clone it and run it.
 
 ```bash
 git clone https://github.com/erez-c137/kempt.git
@@ -26,7 +27,8 @@ them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the
 Two optional tools unlock the widget's coverage, and the suite says loudly when they are missing
 rather than passing quietly: `node` runs the derivation tests over `logic.js`, and `python3` with
 PySide6 (`python3-pyside6`) runs the probes that execute the real QML. Without them you still get
-a green suite, minus 1369 of its 2232 assertions.
+a green suite, minus the widget's entire derivation and probe coverage - more than half of the
+suite's assertions.
 
 Syntax-check everything before you commit:
 

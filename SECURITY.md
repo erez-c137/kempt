@@ -17,10 +17,9 @@ branch.
 
 **Do not open a public issue for a security problem.**
 
-- Once the repository is public, use GitHub's private vulnerability reporting on
+- Use GitHub's private vulnerability reporting on
   <https://github.com/erez-c137/kempt>: the **Security** tab, then **Report a vulnerability**.
   That opens a private advisory visible only to the maintainer.
-- Until then, contact the maintainer privately through GitHub ([@erez-c137](https://github.com/erez-c137)).
 
 Please include:
 

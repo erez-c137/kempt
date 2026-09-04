@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/erez-c137/kempt/security/advisories/new
+    about: Never in a public issue - private advisory per SECURITY.md.
+  - name: A backend for your distro
+    url: https://github.com/erez-c137/kempt/blob/main/docs/architecture.md#adding-a-backend-for-your-distro
+    about: The contract, and the open coordination issues for apt, pacman and zypper - start there.

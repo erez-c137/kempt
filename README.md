@@ -103,7 +103,7 @@ how to undo everything, is in the [install guide](docs/install.md).
 | [docs/install.md](docs/install.md) | Requirements, what the installer does, what lands where, passwordless setup, uninstall |
 | [docs/usage.md](docs/usage.md) | Every subcommand, its options, its output and its exit codes, plus a typical day |
 | [docs/configuration.md](docs/configuration.md) | Every config key with type and default, the run surfaces, holds, file locations, retention |
-| [docs/architecture.md](docs/architecture.md) | How it is built, the state JSON schema, and how to add a backend for your distro |
+| [docs/architecture.md](docs/architecture.md) | How it is built, why it is bash, the state JSON schema, and how to add a backend for your distro |
 | [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
 | [docs/RELEASING.md](docs/RELEASING.md) | Cutting a release, and why Kempt never updates itself |
