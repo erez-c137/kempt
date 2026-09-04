@@ -8,6 +8,32 @@ release.
 
 ## [Unreleased]
 
+### Added
+
+- A ["Why bash"](docs/architecture.md#why-bash) section in the architecture doc - the
+  recurring question answered once, costs included - linked from the README and CONTRIBUTING.
+- Issue forms (the bug report asks for `kempt doctor` output and how Kempt was installed),
+  a pull request template, and dependabot watching the CI action pins.
+- The RPM build now runs the full bash test suite in its check stage, on a pristine copy of
+  the tree - a build root that cannot pass the suite cannot ship the package. Proven in a
+  Fedora rawhide mock build.
+
+### Changed
+
+- The RPM License field is `MIT AND CC0-1.0`: the packaged AppStream metainfo is CC0-1.0 by
+  freedesktop convention, and the field now says so.
+- The roadmap opens with what shipped instead of a finished to-do list, and gained honest
+  entries for Fedora Atomic and fwupd.
+- Working notes (implementation plans, review-panel transcripts, store records) moved out of
+  the public docs tree; `docs/` now carries only the documentation a user, contributor or
+  reviewer benefits from.
+
+### Fixed
+
+- The test suite runs green from a release tarball, not only a git checkout: the doctor
+  version assertion no longer assumes git history, and the log test stubs its terminal
+  emulator instead of leaning on the CI workflow's shim.
+
 ## [0.1.1] - 2026-09-04
 
 ### Changed
