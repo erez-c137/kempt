@@ -35,10 +35,13 @@ never validates - the version field in particular is typed by hand and nothing c
 > This widget is the front end for the kempt command-line tool and requires it. On Fedora, one
 > package installs everything - the CLI, its helpers, and this widget:
 >
->     sudo dnf copr enable erez-c137/kempt
->     sudo dnf install kempt
+>     sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt
 >
-> Fedora with Plasma 6 only, for now. Details: <https://github.com/erez-c137/kempt>
+> Fedora with Plasma 6 only, for now. Docs and source: https://github.com/erez-c137/kempt
+
+The store's renderer collapses single newlines into spaces and eats angle brackets as HTML
+(both learned on the live form, 2026-09-04): commands go on ONE chained line inside blank-line
+paragraph breaks, and URLs go bare. Two stacked command lines merge into one broken command.
 >
 > Everything the widget shows comes from the same commands it runs, so the count and the
 > transaction cannot disagree. Failures are reported in words: a cancelled password prompt is
