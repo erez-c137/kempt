@@ -53,11 +53,12 @@ release.
 
 ### Fixed
 
-- Settings and holds no longer lose each other. The settings page dispatches one write per changed
-  box in the same instant, and the widget's hold buttons do the same: each command read the whole
-  file, changed its own line and wrote the file back, so everything written in between quietly
-  vanished. Measured on the old code, 40 overlapping `config set` commands left 4 settings and 40
-  overlapping `unhold` commands removed 4 holds. The three commands that write those two files now
+- Settings and holds no longer lose each other when two commands write at once. `kempt config set`,
+  `kempt hold` and `kempt unhold` each read the whole file, changed their own line and wrote the
+  file back, so two running together kept only the last one's change. Measured on the old code, 40
+  overlapping `config set` commands left 4 settings and 40 overlapping `unhold` commands removed 4
+  holds. The widget runs its own commands one at a time, so the settings page could not trip this
+  by itself; two terminals, a script, or the CLI racing the widget could. The three commands now
   take a lock across the read and the write; reading is unaffected and takes no lock.
 - A staged update is no longer disowned by a badly timed check. The offline marker is written
   atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`

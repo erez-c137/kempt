@@ -257,10 +257,12 @@ kempt_version() {  # → the version string, or "unknown"
 # then write the whole file back through atomic_write. Atomic means a reader never sees a torn
 # file; it does NOT mean two writers cannot lose each other's work. A writer that read before its
 # neighbour's rename writes that neighbour's change back out. On the unmodified code, 4 batches of
-# 10 concurrent commands left 4 of 40 `config set` keys (one per batch) and removed 4 of 40 holds -
-# and the surfaces that reach these are the settings page, which dispatches one write per ticked
-# box in the same turn, and the widget's hold buttons. tests/test_config_concurrency.sh is that
-# probe.
+# 10 concurrent commands left 4 of 40 `config set` keys (one per batch) and removed 4 of 40 holds.
+# The widget cannot reach this on its own: its Executor runs one command at a time (Executor.qml,
+# the `current` guard), so the settings page's burst of writes is a queue, not a race. Two
+# terminals, a script looping `kempt hold`, or the CLI racing a widget write are the reachable
+# cases, and nothing forbids a second writer appearing later. tests/test_config_concurrency.sh is
+# that probe.
 #
 # fd 7, and the number is load-bearing: fd 8 is the update lock (acquire_lock) and fd 9 is
 # cmd_check's check.lock, both of which can be held for a whole run and are inherited by children.
@@ -280,8 +282,8 @@ kempt_version() {  # → the version string, or "unknown"
 writer_lock() {
   kempt_init_dirs
   exec 7>>"$WRITER_LOCK_FILE"
-  # -w rather than -n: these writes are ~10ms apiece and arrive in bursts from one settings page,
-  # so waiting is the normal case and refusing would turn a burst into lost clicks. 30s is far
+  # -w rather than -n: these writes are ~10ms apiece, so an overlap is a wait of that length and
+  # refusing would turn it into a lost write instead. 30s is far
   # past any honest queue - reaching it means a holder is wedged, and writing anyway would put the
   # lost-write bug straight back. rc 1, and the caller reports it: a lock we could not take is not
   # a write that failed, so it never masquerades as one.

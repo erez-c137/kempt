@@ -9,8 +9,8 @@
 #
 # Measured on the unmodified code, 4 batches of 10 concurrent commands with `wait` between them:
 # 40 `config set` left 4 of 40 keys (one per batch), and 40 `unhold` removed 4 of 40 holds. The
-# surfaces that reach these are the settings page (a tick per key, dispatched together) and the
-# widget's hold buttons, so the loss is a user's own clicks going quiet.
+# widget queues its commands one at a time, so the reachable cases are two terminals, a script,
+# or the CLI racing a widget write - and a lost hold is still a user's own decision going quiet.
 #
 # The batch size is the machine envelope, not a detail: 10 concurrent processes with `wait`
 # between batches, so a suite run never fans out further than that.
