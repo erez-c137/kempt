@@ -12,9 +12,9 @@ never validates - the version field in particular is typed by hand and nothing c
 | --- | --- |
 | Category | **Plasma 6 Applets** (706); path: Linux/Unix Desktops > Desktop Extensions > KDE Plasma Extensions > Plasma 6 Extensions > Plasma 6 Applets |
 | Product name | Kempt |
-| Version | 0.1.0 |
+| Version | 0.1.1 |
 | License | MIT (dropdown) |
-| File | `kempt-0.1.0.plasmoid` from <https://github.com/erez-c137/kempt/releases/tag/v0.1.0> |
+| File | `kempt-0.1.1.plasmoid` from <https://github.com/erez-c137/kempt/releases/tag/v0.1.1> |
 | Screenshot | `docs/images/kempt-tray-popup.png` (upload the file itself) |
 | Homepage | <https://github.com/erez-c137/kempt> |
 | Tags | `updater, fedora, dnf, flatpak, systemtray` (the store allows five; the category already says plasmoid/applet/plasma6, so no slot goes to those) |
@@ -71,3 +71,11 @@ unprivileged files into the user's home and nothing else - the CLI's root helper
 policy cannot travel that road, so a CLI tarball here would be a worse `git clone`. The store
 listing's job is discoverability: the description carries the two dnf commands that install
 everything properly, widget included.
+
+## 0.1.1 update (2026-09-04)
+
+New file `kempt-0.1.1.plasmoid` uploaded (old file archived behind the download lock), version
+field typed `0.1.1`, and this text pasted into the per-release changelog field:
+
+> A widget installed before the CLI now walks you through installing the engine, with a Copy
+> Commands button. kempt doctor catches a store copy shadowing the packaged widget.
