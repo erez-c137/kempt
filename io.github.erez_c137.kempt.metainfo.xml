@@ -75,6 +75,10 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
+    <release version="0.1.1" date="2026-09-04" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.1</url>
+      <description><p>A widget installed before the CLI now walks you through installing the engine, with a Copy Commands button; kempt doctor catches a store copy shadowing the packaged widget.</p></description>
+    </release>
     <release version="0.1.0" date="2026-09-03" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.0</url>
       <description><p>First public release.</p></description>

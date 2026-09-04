@@ -8,6 +8,8 @@ release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-04
+
 ### Changed
 
 - **Kempt is installable.** The COPR repository is live and green, so the README leads with

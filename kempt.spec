@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        One-click system updates from the Plasma panel
 
@@ -125,5 +125,9 @@ appstreamcli validate --no-net --explain \
 %{_mandir}/man1/kempt.1*
 
 %changelog
+* Fri Sep 04 2026 Erez <erez.c137@protonmail.com> - 0.1.1-1
+- The widget guides a store-first install instead of quoting the shell; doctor
+  catches a user-scope widget copy shadowing the packaged one.
+
 * Wed Sep 02 2026 Erez <erez.c137@protonmail.com> - 0.1.0-1
 - First release.
