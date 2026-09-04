@@ -18,7 +18,12 @@ It does the explaining.
 
 ---
 
-## r/kde - flair: Showcase
+## r/kde - flair: KDE Apps and Projects
+
+(Verified 2026-09-04 against the live subreddit: recent widget announcements carry "KDE Apps
+and Projects" or "Kontributions"; there is no Showcase flair. Rule 5 explicitly welcomes
+original work; rule 6 bans disparaging other FOSS projects - so in comments, Discover gets
+"two caches give two answers", never "Discover lies". Image posts are fine here.)
 
 **Title:** I made Kempt - a tidy update widget for Plasma 6 on Fedora (dnf + Flatpak)
 
@@ -53,7 +58,12 @@ https://github.com/erez-c137/kempt
 
 ---
 
-## KDE Discuss (discuss.kde.org) - category: Plasma, tags: widget, plasma6
+## KDE Discuss (discuss.kde.org) - category: Community, tags: widget, plasma6
+
+(Verified 2026-09-04: there is no top-level Plasma category. Third-party widget announcements
+- On Air, Panel Colorizer, Dictee - all live in **Community** (category id 5). Panel Colorizer
+got 26 replies there, so it is the room that works. r/kde's AutoModerator also points people
+at Discuss and lemmy.kde.social on every post, which is one more reason to be present here.)
 
 **Title:** Kempt: a system tray updater for Plasma 6 that tries very hard not to lie
 
@@ -68,7 +78,7 @@ reading is wrong.
 
 ---
 
-## r/fedora - no flair needed
+## r/fedora - flair: Announcement
 
 **Title:** Kempt: dnf and Flatpak updates from the Plasma tray, with counts that match the
 terminal and offline staging that actually arms
@@ -93,10 +103,80 @@ Install:
     sudo dnf copr enable erez-c137/kempt
     sudo dnf install kempt
 
-MIT, first release, Fedora 44 tested. Repo, docs and the honest-limitations list:
-https://github.com/erez-c137/kempt
+MIT, first release. Developed and tested on Fedora 44; the COPR builds for Fedora 43 through
+45 and rawhide, x86_64 and aarch64 (so Asahi too - reports welcome). Repo, docs and the
+honest-limitations list: https://github.com/erez-c137/kempt
 
 ---
+
+## Likely questions and pushback, with the answers (researched 2026-09-04)
+
+Built from reading the actual comment threads on comparable posts: KVitals and other widget
+announcements on r/kde, Gnome Theme Manager on r/fedora, Panel Colorizer on KDE Discuss, and
+r/openSUSE's "Tumbleweed system update tool" thread, which is Kempt's problem statement
+written by a stranger and contains every objection in the wild.
+
+**1. "Arch/AUR when? openSUSE? Debian?" - the single most common comment class.** Every widget
+thread fills with other-distro users within hours. Answer: the backend contract is two
+functions plus a shared parser in one file, link the architecture doc's
+"adding a backend" section, and say plainly it is the contribution you would most love to
+merge. Do not promise dates.
+
+**2. "Just use an alias / just type sudo dnf upgrade."** Guaranteed, usually upvoted. Do not
+argue with it; agree. The honest answer: correct, and the CLI half of Kempt exists because
+the terminal is the primary surface - the widget is for the days you are not in one, and for
+the count you can see without asking.
+
+**3. "Why not Discover?"** r/kde rule 6 bans disparaging other FOSS projects, and the room
+genuinely likes Discover for apps. The safe, true framing: Discover is a software centre
+over PackageKit's own daemon and cache; dnf5 has another; two caches give two answers. Kempt
+picked one source of truth rather than a second opinion. Never "Discover lies".
+
+**4. The offline-updates orthodoxy (r/fedora's sharpest technical pushback).** Respected
+voices there (gordonmessmer et al.) recommend offline updates for everything, because a
+session crash mid-transaction leaves rpmdb in a state dnf5 struggles to repair. Expect "a GUI
+that runs live dnf updates is teaching bad habits." The answers, all true:
+- runs are detached with setsid, so a plasmashell crash does not touch a running update;
+- the reboot verdict IS `dnf5 needs-restarting` (hardened: cache-only, repos disabled, no
+  stdin), not a homegrown guess;
+- when session-critical packages are pending (risky_regex), the popup recommends the offline
+  surface, and offline staging genuinely arms;
+- the terminal default matches what those same commenters already do by hand; Kempt's job is
+  telling you when the careful path is warranted, not forcing it always.
+
+**5. "Random COPR from a solo dev, running as root? No thanks."** Fair, and the answer is
+posture, not persuasion: MIT, small readable bash, docs/security.md says exactly what runs as
+root and why, separate polkit actions for refresh vs apply, argument-validating helpers, and
+official Fedora packaging is on the roadmap once COPR proves it. Passwordless mode will get
+poked specifically: optional, off by default, one rule, one action, active local session only.
+
+**6. "Is this vibecoded?" / AI suspicion.** A one-word "vibeshat?" comment on the Gnome Theme
+Manager thread scored 7 points; r/Fedora's rule 2 lists "AI content" as removable. This
+question is near-certain and the founder answers it in his own words. What helps: the 2400+
+assertion test suite, the design docs, and the honest-limitations register - projects that
+ship those do not read as drive-by generated. Do not get defensive; do not volunteer the
+topic unprompted.
+
+**7. "topgrade exists" / "dnf-automatic exists" / "Apdatifier exists".** Prior art will be
+cited. One respectful line each: topgrade runs everything with no tray, no state, no offline
+staging; dnf-automatic is unattended, Kempt is visibility and control; Apdatifier is
+pacman-first with the package logic in the widget, Kempt keeps the widget dumb over a CLI.
+The prior-art survey in docs/research is linkable and shows the homework was done.
+
+**8. Bug reports and distro-matrix reports arrive same-day.** KVitals had "TEMP shows - -"
+(missing dependency) within hours, plus margin nitpicks and PR offers. Expect the equivalent:
+kempt doctor output screenshots, F43/aarch64 reports now that the COPR carries them, locale
+oddities. Treat each as the gift it is; `kempt doctor` output makes triage fast, ask for it.
+
+**9. Feature requests to expect (from comparable threads):** firmware updates (fwupd) in the
+one place, per-core/GPU-style "more data" asks translated to updates (changelogs per package,
+update severity), notification-only mode, a "restart now" that skips the KDE prompt (decline
+that one - a restart is offered, never performed), and Bazzite/Silverblue/atomic support
+(rpm-ostree is a different beast; roadmap category, be honest it is not close).
+
+**10. Pre-post prep that converts enthusiasm into contributors:** open three good-first-issue
+tickets before posting - "apt backend", "pacman backend", "zypper backend" - each quoting the
+two-function contract, so every "Debian when?" comment gets a link instead of a shrug.
 
 ## Norms checklist (for whoever posts)
 
