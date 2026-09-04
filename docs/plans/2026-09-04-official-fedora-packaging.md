@@ -143,12 +143,13 @@ manager Kempt cannot drive would be an ornament.
 ## The preparation sprint (decided 2026-09-04: we do not take the review lightly)
 
 Goal: when the ticket opens, the first comment already contains the review a hostile
-reviewer would have written, done by us, with every finding fixed or explained. Timing:
-prep starts NOW (it is delegable and does not collide with the announcement wave); the
-ticket is FILED about a week later, once the wave's first-contact feedback and the tool
-findings have been absorbed - unless a packager shows up in the announcement threads
-first, in which case we file the same day and iterate in the ticket, because a ticket is
-where their interest can land.
+reviewer would have written, done by us, with every finding fixed or explained. Timing
+(revised 2026-09-05, founder: "we're in no rush to release 0.1.2"): the filing rides the
+0.1.2 cut, whenever 0.1.2 is ready - no fixed date. 0.1.2's scope is the hold-vs-armed-
+stage work (issue #8 + its hardening prerequisites); the spec-level review fixes it also
+needs are already on main. The standing override remains: a packager showing interest in
+the announcement threads means we cut and file the same day with whatever is ready,
+because a ticket is where their interest can land.
 
 **P1 - accounts (founder, ~15 min, immediately):** FAS email set to the maintainer
 identity (erez.c137@protonmail.com - it must match the spec changelog, and it will), FPCA
