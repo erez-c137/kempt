@@ -360,5 +360,7 @@ assert_eq "$(sed -n '/Recent events/,$p' <<<"$out" | grep -c '^  2[0-9][0-9][0-9
 assert_eq "$(grep -c '^  .* config set surface=d8 (was d7)$' <<<"$out")" "1" \
   "...ending on the newest one"
 assert_eq "$(grep -c '^FAIL' <<<"$out")" "0" "...and the section cannot be mistaken for a report line"
+# On failure, the count alone cannot say WHICH report line doctor produced - show it.
+[[ "$(grep -c '^FAIL' <<<"$out")" -eq 0 ]] || grep '^FAIL' <<<"$out" | sed 's/^/    /'
 
 finish

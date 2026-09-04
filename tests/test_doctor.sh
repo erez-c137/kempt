@@ -340,9 +340,15 @@ bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 # The opening line names the release; this one names the COMMIT, which is the difference between
 # "0.1.0" and the several commits of 0.1.0 a reporter might be running.
 doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
-grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION") \(checkout [0-9a-f]{7,} (clean|dirty)\)$" "$TESTTMP/skew.txt" \
-  && echo "ok: the version line carries the commit and whether the tree is clean" \
-  || { echo "FAIL: no version/commit line"; _fail=1; grep '^info  version' "$TESTTMP/skew.txt" | sed 's/^/    /'; }
+# Only a git checkout can carry a commit; a release tarball (the RPM check stage runs the
+# suite from one) exercises the no-git form, which the next assertion covers on its own.
+if [[ -d "$REPO_ROOT/.git" ]]; then
+  grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION") \(checkout [0-9a-f]{7,} (clean|dirty)\)$" "$TESTTMP/skew.txt" \
+    && echo "ok: the version line carries the commit and whether the tree is clean" \
+    || { echo "FAIL: no version/commit line"; _fail=1; grep '^info  version' "$TESTTMP/skew.txt" | sed 's/^/    /'; }
+else
+  echo "skip: not a git checkout - the no-git version line is asserted below"
+fi
 
 # A tree with no .git still reports a version: git is a diagnostic here, never a requirement.
 NOGIT="$TESTTMP/nogit"

@@ -53,6 +53,11 @@ path, so the count and the transaction cannot disagree.
 %prep
 %autosetup
 
+# The check stage runs the test suite, and the suite asserts the tree AS SHIPPED - the
+# policy's helper paths above all - so keep an unmodified copy for it before the packaging
+# rewrite below touches those files.
+cp -a . ../%{name}-pristine
+
 # The polkit action pins the helper path with an exec.path annotation, and the library must agree
 # with it or pkexec refuses to run the helper. The dev installer uses /usr/local/libexec; a
 # packaged build uses the FHS libexec dir. install.sh names the same path a third time, but it is
@@ -117,11 +122,13 @@ install -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 
 %check
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
-# The bash half of the test suite, in full. It needs only bash, jq and coreutils by design -
-# every impure command goes through an environment seam - and the node/PySide6 halves skip
-# loudly without failing when those tools are absent (they test the widget, which a build
-# root cannot display anyway). A build root that cannot pass the suite must not ship.
-tests/run_tests.sh
+# The bash half of the test suite, in full, against the pristine copy - the suite asserts
+# the tree as shipped, not the tree as packaged. It needs only bash, jq and coreutils by
+# design - every impure command goes through an environment seam - and the node/PySide6
+# halves skip loudly without failing when those tools are absent (they test the widget,
+# which a build root cannot display anyway). A build root that cannot pass the suite must
+# not ship.
+(cd ../%{name}-pristine && tests/run_tests.sh)
 # --no-net, deliberately: every URL in the metainfo is a github.com link that a build host must
 # not be asked to fetch, and on a private repo they 404 anyway. Structure is what this checks.
 appstreamcli validate --no-net --explain \
