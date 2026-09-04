@@ -75,6 +75,11 @@ the widget is on a panel.
 - **A checkup that says what is wrong.** `kempt doctor`: one line per check, helpers to config
   to state, because everything else here degrades quietly rather than crashing.
 
+![Kempt's settings page: update sources, run surface, check interval, panel icon size, restart reminders and the password-prompt controls](docs/images/kempt-settings.png)
+
+*All of it is configurable, and the settings page is a front end to the same plain config file
+the CLI reads - every key is documented in [docs/configuration.md](docs/configuration.md).*
+
 ## From a checkout
 
 ```bash
