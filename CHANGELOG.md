@@ -252,7 +252,6 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   `./install.sh` after changing `plasmoid/`. The RPM install has none of these properties - the
   package manager owns every file.
 - Developed under the name Upkeep; renamed to Kempt before anything was released, because two
-  maintained Linux updaters already answer to the old name
-  ([docs/research/2026-08-25-brand-bakeoff.md](docs/research/2026-08-25-brand-bakeoff.md)).
+  maintained Linux updaters already answer to the old name.
 - The dnf pending check parses text output. Migrating it to `dnf5 check-update --json` is the
   designated next upgrade for that backend.

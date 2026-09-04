@@ -121,8 +121,8 @@ their box than its 64 px ones.
 - `2026-08-26-icon-ladder-sheet.png` - the ladder at true size on Breeze Light and Breeze Dark,
   the source photo next to the redraw at 128 px, a matched-scale crop of the end taper (source vs
   redraw, side by side, plus 2x magnifications), and the pixel rows behind every claim above.
-- `2026-08-25-icon-verdict.md` - the binding candidate verdict, the redraw specification, the
-  flush-ends and six-teeth decision, and the appendix recording this ladder decision.
+- The binding candidate verdict, the redraw specification and the flush-ends and six-teeth
+  decision are recorded in the maintainer's working notes; the outcome is the shipped comb.
 - `candidates/legibility/kempt-svg/final-sheet.png` - the six-tooth drawing at 128/64/48/32.
 - `candidates/legibility/kempt-svg/comparison-ends.png` - the earlier overhang-vs-flush pair.
 - `legibility-sheet-round1.png`, `legibility-sheet-round2.png` - the original bake-off sheets.

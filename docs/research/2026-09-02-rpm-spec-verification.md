@@ -2,10 +2,9 @@
 
 **Date:** 2026-09-02
 **Status:** executed. Every command and output below was run, not drafted.
-**Supersedes:** the "**UNVERIFIED**" banner on the spec draft in
-[2026-08-27-packaging-and-listing.md](2026-08-27-packaging-and-listing.md) section 3.3. That draft
-had never been parsed by anything. `kempt.spec` at the repo root is now the real file, and this
-note is what it was checked against.
+**Supersedes:** the unverified 2026-08-27 spec draft from the maintainer's packaging notes,
+which had never been parsed by anything. `kempt.spec` at the repo root is now the real file, and
+this note is what it was checked against.
 
 **Where:** a throwaway `podman` container built from `registry.fedoraproject.org/fedora:44` with
 `rpm-build`, `rpmlint`, `rpmdevtools` and `appstream` added. No rpm tooling was installed on the

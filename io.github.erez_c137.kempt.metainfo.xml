@@ -7,7 +7,7 @@
   so a software centre and the KDE Store have something real to show.
 
   Lives at the repo root because that is where kempt.spec's %install reads it from, and installs
-  to /usr/share/metainfo/. See docs/research/2026-08-27-packaging-and-listing.md section 1.
+  to /usr/share/metainfo/.
 -->
 <component type="addon">
   <id>io.github.erez_c137.kempt</id>

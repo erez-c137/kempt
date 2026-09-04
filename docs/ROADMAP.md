@@ -4,9 +4,10 @@ Where Kempt is going, in order. Dates are deliberately absent - each stage ships
 meets the bar of the one before it. Deferred-item details live in the spec's v2 section
 (`docs/specs/2026-08-24-kempt-design.md`); this page is the ordered view.
 
-## Now - finish v1.0 (the product as designed)
+## Shipped - v0.1.x, public since 2026-09-03
 
-Everything in the design is built and in the tree on `build/cli-v1`:
+Everything the v1 design specified is built, live-gated on real hardware, and released - on
+GitHub, in COPR (Fedora 43 to 45 and rawhide, x86_64 and aarch64) and on the KDE Store:
 
 - **The CLI**, code-complete, documented and audited: `check` and its state file, `update` across
   four surfaces, holds, history, snapshot-based summaries, `kempt log`, `kempt doctor`, the two
@@ -30,26 +31,16 @@ Everything in the design is built and in the tree on `build/cli-v1`:
   three hours, on mains power, on an unmetered link. A check on a train answers from what is
   already on disk instead of failing the whole Flatpak backend.
 
-What is left needs a human at the keyboard, in this order:
+Every release gate - the live engine checklist, the widget's morning visual gate on real
+hardware, the merge, and the public flip with CI - passed between 2026-09-02 and 2026-09-04.
 
-1. **The visual gate on real hardware** (founder-only): the checklist in
-   `docs/plans/2026-08-24-kempt-cli.md` - items 1 to 11 for the engine (real install, real
-   update, the interactive auto-accept-off path, offline staging across a reboot, the
-   declined-auth uninstall), then the morning visual gate W-1 to W-7 for the widget (add it to
-   a panel, badge against `kempt check | jq .actionable`, popup and pin toggles against the
-   JSON, Update Now end to end, the settings round-trip through Apply *and* OK). The engine
-   items come first: until item 1 has run there is no CLI for the widget to be a client of.
-   The popup redesign adds its own passes to that morning: the restart message against a box
-   that genuinely owes a restart, and the up-to-date state with the primary button gone.
-2. **The screenshot** (gate item W-6). `docs/images/kempt-tray-popup.png` is the OLD popup - it
-   predates the redesign and shows the button row that no longer exists. Spectacle the panel
-   badge plus the open popup, replace the file, and check the caption still describes what is in
-   it. It is the one thing on this page that nothing automated can produce.
-3. **Merge `build/cli-v1` to `main`** once the checklist passes.
-4. **Flip the GitHub repo public** - also the moment CI becomes free. The workflow is already
-   written and deliberately dormant (`.github/workflows/ci.yml`: shellcheck plus the test suite,
-   `workflow_dispatch` only, because Actions on a private repo costs money). Going public is a
-   one-block edit of its `on:` trigger, plus triage of shellcheck's first real run.
+## Now
+
+- **First contact.** The announcement wave, and treating every early report as the gift it
+  is - what the first outside users hit outranks everything below.
+- **The road into the official Fedora repos**: self-review done, tool runs clean, review
+  ticket next. The staged plan is
+  [docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).
 
 ## v1.x - ready for other people
 
@@ -110,21 +101,6 @@ What is left needs a human at the keyboard, in this order:
   the root helper: both flatpak arms run as you now, which is the only way a `--user` update could
   ever work at all. What is left is a scope decision - one setting, or both scopes every time -
   rather than a privilege problem.
-- **History hygiene for going public** - the commit history is already clean (no subject or body
-  carries an em dash). What is left is a decision about the working archives: `docs/plans`,
-  `docs/specs` and `docs/research` are deliberately outside the published-docs standard, and
-  going public means either publishing them as they are or moving them.
-- **Voice pass** on CHANGELOG / release notes / announcement posts using the founder's
-  voice guides (owed - see memory reminder).
-- **Packaging, so Kempt updates itself through dnf like everything else.** A COPR RPM is the
-  distribution channel: the widget rides in the same RPM, and the KDE Store listing is for people
-  on non-RPM distros who want the widget alone. The outcome is the point - a packaged Kempt is
-  updated by the package manager it manages, appears in its own popup next to everything else
-  that is pending, and needs no self-update code, which is why there is none and never will be.
-  It also retires the load-bearing-checkout install and is the real on-ramp for strangers. The
-  procedure is written down already in [docs/RELEASING.md](RELEASING.md); the verified spec draft,
-  COPR setup and store steps are in
-  [the packaging research](research/2026-08-27-packaging-and-listing.md).
 - **Official Fedora repos, after COPR proves itself.** A Fedora package review (the spec already
   lints clean, which is the hard half of the opening position; the missing half is a sponsor).
   What it buys is concrete: `dnf install kempt` with no COPR step, and it makes a real one-click

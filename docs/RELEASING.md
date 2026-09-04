@@ -1,10 +1,10 @@
 # Releasing Kempt
 
-The procedure for cutting a release, in the order a maintainer runs it. The research behind the
-packaging steps is
-[docs/research/2026-08-27-packaging-and-listing.md](research/2026-08-27-packaging-and-listing.md),
-and what was actually executed against this tree is
-[docs/research/2026-09-02-rpm-spec-verification.md](research/2026-09-02-rpm-spec-verification.md).
+The procedure for cutting a release, in the order a maintainer runs it. What was actually
+executed against this tree is
+[docs/research/2026-09-02-rpm-spec-verification.md](research/2026-09-02-rpm-spec-verification.md),
+and the road into the official Fedora repos is
+[docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).
 
 **What exists and what does not.** `kempt.spec` is committed at the repo root and has been built,
 linted, installed and smoke-tested in a Fedora 44 container, and the AppStream metainfo is

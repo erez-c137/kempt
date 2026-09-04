@@ -10,14 +10,14 @@
 
 Kempt:
 
-- `/mnt/dev_workspace/projects/kempt/README.md`
-- `/mnt/dev_workspace/projects/kempt/plasmoid/contents/ui/FullRepresentation.qml`
-- `/mnt/dev_workspace/projects/kempt/plasmoid/contents/ui/UpdateItemDelegate.qml`
-- `/mnt/dev_workspace/projects/kempt/plasmoid/contents/ui/main.qml`
-- `/mnt/dev_workspace/projects/kempt/plasmoid/contents/ui/logic.js` (`viewModel`, `collectItems`, `rowsOf`, `formatStamp`)
-- `/mnt/dev_workspace/projects/kempt/docs/images/kempt-tray-popup.png` (read as an image)
-- `/mnt/dev_workspace/projects/kempt/docs/research/2026-08-24-similar-tools-survey.md`
-- `/mnt/dev_workspace/projects/kempt/docs/architecture.md` (state schema), `bin/kempt` (`cmd_check`, `cmd_update`), `backends/dnf.sh` (`dnf_reboot_needed`), `lib/common.sh` (`render_summary`)
+- `README.md`
+- `plasmoid/contents/ui/FullRepresentation.qml`
+- `plasmoid/contents/ui/UpdateItemDelegate.qml`
+- `plasmoid/contents/ui/main.qml`
+- `plasmoid/contents/ui/logic.js` (`viewModel`, `collectItems`, `rowsOf`, `formatStamp`)
+- `docs/images/kempt-tray-popup.png` (the pre-redesign popup, as it then was)
+- `docs/research/2026-08-24-similar-tools-survey.md`
+- `docs/architecture.md` (state schema), `bin/kempt` (`cmd_check`, `cmd_update`), `backends/dnf.sh` (`dnf_reboot_needed`), `lib/common.sh` (`render_summary`)
 
 Plasma 6.7.4 as shipped on this box (all of these were read, not recalled):
 

@@ -657,7 +657,7 @@ as trustworthy as a captured one.
 5. **Draw the line where the suite already draws it.** The parser half is testable with no
    package manager present at all, and the CI job proves it: the suite passes under a stripped
    `PATH` with dnf5, flatpak, rpm and pkexec all unreachable. The **apply** half is not, and never
-   will be. It is founder-and-contributor-gated live verification, exactly like the v1 checklist
-   in `docs/plans/2026-08-24-kempt-cli.md`. A backend pull request should therefore be mergeable
+   will be. It is founder-and-contributor-gated live verification, exactly as the v1 release
+   gate was. A backend pull request should therefore be mergeable
    on fixtures and tests alone, with the live checklist run by whoever actually has the distro,
    and the state of that checklist recorded in the pull request rather than assumed.

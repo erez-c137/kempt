@@ -1,10 +1,11 @@
 # Kempt - one-click system updates from the Plasma panel
 
-Formerly Upkeep; renamed Kempt on 2026-08-25 - see `docs/research/2026-08-25-brand-bakeoff.md`.
+Formerly Upkeep; renamed Kempt on 2026-08-25, because two maintained Linux updaters already
+answered to the old name.
 
 **Date:** 2026-08-24
 **Status:** Approved design (v1)
-**Target:** Fedora 44, KDE Plasma 6.7, dnf5 5.4, Flatpak 1.18 - Erez's G9-Mini first. Portability to other distros/DEs is a design constraint (clean boundaries), not a v1 feature.
+**Target:** Fedora 44, KDE Plasma 6.7, dnf5 5.4, Flatpak 1.18 - the maintainer's own desktop first. Portability to other distros/DEs is a design constraint (clean boundaries), not a v1 feature.
 **Long-term vision:** grow into a universal Linux updater utility (multi-distro backends, any DE, other users). v1 decisions must not close that door. Prior-art survey (gems to borrow, mistakes to avoid) lives in `docs/research/`.
 
 ## Goal
@@ -122,14 +123,13 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old â†
 
 ## Error handling
 
-- **Check fails** (network down, repo flap - see G9-Mini's known GitHub/Cloudflare path flaps): keep the previous counts, mark state `stale` with the error message; icon shows stale hint in tooltip, no scary error state for transient check failures.
+- **Check fails** (network down, repo flap - transient network path flaps are a fact of life): keep the previous counts, mark state `stale` with the error message; icon shows stale hint in tooltip, no scary error state for transient check failures.
 - **Update fails:** non-zero exit recorded in history entry; icon shows error state until next successful check; notification "Update failed - see log" with log path. Partial success (dnf ok, flatpak failed) is reported per-backend, not collapsed.
 - **Concurrent runs:** `flock` on a lockfile in the state dir (the same mechanism `kempt check` uses); a second `kempt update` refuses with a clear message and exit 3. The kernel releases the lock when the holding process's fd closes, so a crashed or SIGKILLed run leaves nothing to clean up and no staleness heuristic is needed. The lock is taken AFTER the risky-transaction prompt: a recommendation left unanswered must never block the next scheduled run.
 - **Foreign package-manager lock (survey C2):** dnf5 fails instantly when another process holds the rpm lock (no `--wait` exists), and PackageKit/Discover now sits on the dnf5 backend on Fedora 44. On a busy lock, retry a few times with a fixed delay, then fail with a human message naming the likely holder ("PackageKit/Discover is busy - try again in a minute").
 
 ## Repo & install
 
-- Repo: `/mnt/dev_workspace/projects/kempt` (reachable via `~/my_projects/kempt`); covered by restic.
 - Layout: `bin/kempt`, `backends/`, `libexec/` (two root helpers), `plasmoid/` (QML package - Plan 2, not yet present), `polkit/` (action + rules template), `install.sh`, `tests/`, `docs/`.
 - `install.sh`: symlinks/copies CLI to `~/.local/bin`, installs helpers + polkit action via a single pkexec prompt, and the man page. `install.sh --uninstall` reverses it. The plasmoid install step (`kpackagetool6 -t Plasma/Applet -i`) is Plan 2 - added when the widget exists.
 - The symlink install makes the repo checkout LOAD-BEARING at runtime (bin/kempt, lib/, backends/, and the passwordless rules template all resolve into it) - intentional for this box; only the root helpers + policy are copied out (root-owned, so editing the repo can never change what runs privileged). Proper packaging (RPM) is the v2 answer for other users.
@@ -138,12 +138,11 @@ Per-run JSON: timestamp, duration, per-backend results (updated packages `old â†
 
 - Fixture-based tests for the parsers (recorded `dnf5 check-update`, `dnf5 history info`, `flatpak remote-ls --updates`, `flatpak update` outputs â†’ expected JSON) - the fragile part gets the real tests.
 - Smoke test: `kempt check` end-to-end on the live box; `kempt config` round-trip.
-- Widget: `plasmoidviewer` + screenshots at phase gates (visual verification per house rule: screenshot + read the PNG).
-- Counts as a light job on the G9-Mini heavy-job policy (no builds, no vitest).
+- Widget: `plasmoidviewer` + screenshots reviewed at every phase gate - visual claims get visual verification.
 
 ## Documentation (first-class deliverable)
 
-Community adoption is a stated goal, so documentation ships to the standard of a serious open-source project, not as an afterthought: a real README (features, install, quick start), user docs (install/usage/configuration references with every command, key, default, and exit code), an architecture doc whose centerpiece is "how to add a backend for your distro" (the community on-ramp), a security doc (the two-action polkit model, helper validation, passwordless scoping - this tool runs code as root and must explain itself), CONTRIBUTING (dev setup, test harness conventions, fixture rules), SECURITY.md reporting policy, CHANGELOG (Keep a Changelog), CODE_OF_CONDUCT, and a man page. Public-copy rules apply (no em dashes). Docs plan: `docs/plans/2026-08-24-kempt-docs.md`, executed once the v1 CLI surface freezes.
+Community adoption is a stated goal, so documentation ships to the standard of a serious open-source project, not as an afterthought: a real README (features, install, quick start), user docs (install/usage/configuration references with every command, key, default, and exit code), an architecture doc whose centerpiece is "how to add a backend for your distro" (the community on-ramp), a security doc (the two-action polkit model, helper validation, passwordless scoping - this tool runs code as root and must explain itself), CONTRIBUTING (dev setup, test harness conventions, fixture rules), SECURITY.md reporting policy, CHANGELOG (Keep a Changelog), CODE_OF_CONDUCT, and a man page. Public-copy rules apply (no em dashes). The dedicated docs plan executed once the v1 CLI surface froze.
 
 ## Design principle (from survey)
 
