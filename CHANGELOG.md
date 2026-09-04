@@ -29,6 +29,11 @@ release.
   anyone is ever told about a transaction they cannot open, and it used to be whatever figure
   happened to be lying around - written by another check, against different metadata, possibly
   days earlier. A check that cannot answer warns and the stage goes ahead on the old number.
+- Two bounds of the offline path are written down in
+  [docs/security.md](docs/security.md#accepted-limitations) rather than left implicit: inside
+  polkit's retention window a process running as you can replace the armed transaction without a
+  prompt, and dnf5 stores the staged package list world-readable, so what a machine is about to
+  install is public on that machine by dnf5's design.
 - The RPM License field is `MIT AND CC0-1.0`: the packaged AppStream metainfo is CC0-1.0 by
   freedesktop convention, and the field now says so.
 - The roadmap opens with what shipped instead of a finished to-do list, and gained honest
