@@ -16,6 +16,13 @@ source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 EV="$KEMPT_STATE_DIR/events.log"
 
+# The real doctor runs below, and doctor checks that the terminal emulator exists - a host
+# fact, not a subject of this file. Stub it like test_doctor.sh does, so the assertions hold
+# on boxes with no konsole (the RPM check stage, CI runners) instead of leaning on the CI
+# workflow's konsole shim.
+printf '#!/bin/sh\nexit 0\n' > "$TESTTMP/fake-terminal"; chmod +x "$TESTTMP/fake-terminal"
+export KEMPT_TERMINAL="$TESTTMP/fake-terminal"
+
 export WORLD="$TESTTMP/world"; mkdir -p "$WORLD"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 cp "$FIXTURES/flatpak-list.tsv" "$WORLD/fp.tsv"
