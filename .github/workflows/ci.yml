@@ -17,7 +17,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # apt, not a third-party action: one less supply-chain edge for a repo whose whole point is
       # a privileged helper, and ubuntu-latest already carries a recent enough shellcheck.
@@ -50,7 +50,7 @@ jobs:
     name: test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # The suite needs bash 4+, jq, util-linux flock and GNU coreutils, and nothing else: every
       # impure command reaches the system through an environment seam that tests/lib.sh stubs, so
