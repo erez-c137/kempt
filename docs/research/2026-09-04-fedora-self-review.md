@@ -89,8 +89,39 @@ tree - no network, no root, no package manager. If a curated subset runs green i
 code, which is a strong review signal. To verify: which test files are pure, their runtime,
 and that none touches the network or assumes a writable HOME outside the build dir.
 
-## Still owed before filing (the P2 run)
+## The P2 tool run (executed 2026-09-04, afternoon)
 
-fedora-review against the 0.1.1 SRPM from COPR, rpmlint on the SRPM, licensecheck over the
-tree, and the F4 feasibility check - then F1 (and F4 if adopted) ship as a normal patch
-release, and the ticket opens with that release's URLs.
+fedora-review 0.11.0 ran against an SRPM built the canonical way - `rpmbuild -bs` from the
+spec plus the actual GitHub tag tarball, NOT the rpkg-generated one from COPR, because
+MUST-10 compares the SRPM's tarball checksum against the Source0 URL and rpkg's git-archive
+tarball is not guaranteed byte-identical to GitHub's. (That distinction is now part of the
+filing procedure: the ticket's SRPM is always rpmbuild-made.)
+
+Results:
+
+- **Mock build in a clean fedora-44-x86_64 chroot: succeeded**, package installed into the
+  chroot afterwards. MUST-11 and MUST-13 proven - `appstream` really is the only
+  BuildRequires beyond the default buildroot. (fedora-review notes reviews prefer a rawhide
+  buildroot; a rawhide rerun happens right before filing.)
+- **rpmlint on the binary RPM and the SRPM both: 0 errors, 0 warnings, 0 badness**
+  (15 and 11 standard Fedora filters). MUST-1 satisfied, output archived.
+- **Zero failed checks.** The report contains no [!] items and no generated issues at all;
+  the 29 remaining [ ] entries are the manual-judgment items, which is precisely what the
+  tables above pre-answer.
+- **licensecheck**: MIT plus one CC0-1.0 file (the metainfo, whose metadata_license is
+  CC0-1.0 by freedesktop convention); the 129 "unknown" files are simply headerless, which
+  Fedora does not require - the repo-level LICENSE covers all original work. This produced
+  FINDING F5.
+
+**F5 (spec change before filing, alongside F1): License: MIT AND CC0-1.0.** The License
+field describes the licenses of the binary RPM's contents, and the packaged metainfo file is
+CC0-1.0. Both patterns exist in the archive, but the combined expression is the strictly
+correct one under the current licensing guidelines and costs one line plus a comment.
+Raising it ourselves in the ticket beats a reviewer finding it.
+
+## Still owed before filing
+
+The rawhide-buildroot fedora-review rerun, the F4 feasibility check (tests in %check), and
+then F1 + F5 (and F4 if adopted) ship as a normal patch release so the ticket opens with a
+released tag's URLs. Review artifacts (review.txt, licensecheck.txt) are archived in the
+maintainer's working folder.
