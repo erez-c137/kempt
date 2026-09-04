@@ -1,5 +1,10 @@
 # Configuring Kempt
 
+![The widget's settings page: update sources, run surface, check interval, panel icon size, restart reminders and the password-prompt controls](images/kempt-settings.png)
+
+*The widget's settings page is a front end to the same config file documented below - every
+control here is one of these keys, and a change made in either place shows up in the other.*
+
 ## The config file
 
 `~/.config/kempt/config`, plain `key=value`, one per line:

@@ -65,6 +65,10 @@
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
       <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-tray-popup.png</image>
     </screenshot>
+    <screenshot>
+      <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
+      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-settings.png</image>
+    </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
   <provides>
