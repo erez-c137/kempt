@@ -19,6 +19,14 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_DBUS_SEND="true"
   export KEMPT_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
   export KEMPT_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
+  # The PATH `kempt doctor` resolves the widget's own lookup through. Pinned at a directory that
+  # does not exist, and this is the one seam where leaving it unset would break the suite on the
+  # developer's box rather than on a stranger's: unset it reads $HOME/.local/bin:$PATH, where a
+  # checkout install leaves a `kempt` symlink pointing at the MAIN checkout - a different file from
+  # the tree under test, so every doctor case would report a split install that only exists because
+  # the developer has Kempt installed. Nothing on this PATH means "no kempt for the widget", which
+  # doctor reports as info; the cases that need the ok and FAIL branches build their own directory.
+  export KEMPT_WIDGET_PATH="$TESTTMP/no-widget-path"
   # Poisoned, not merely unset like the *_CMD seams below, and the difference matters: unset, this
   # one falls back to the REAL `flatpak remote-ls` WITHOUT --cached, which fetches flathub's
   # summary over the network. Any test file that leaves KEMPT_SKIP_REFRESH unset reaches

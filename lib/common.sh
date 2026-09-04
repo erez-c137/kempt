@@ -54,6 +54,14 @@ KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.er
 # A seam is what lets either question be driven from a staged tree instead of the developer's own
 # live widget.
 KEMPT_PLASMOID_DIR="${KEMPT_PLASMOID_DIR:-$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt}"
+# The PATH the panel widget's own command line builds. plasmoid/contents/ui/main.qml runs the CLI
+# as `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`, so ~/.local/bin wins for the widget and
+# for nothing else - which is how a stale developer symlink there goes on shadowing a packaged
+# /usr/bin/kempt for the panel alone. `kempt doctor` resolves this lookup to say WHICH kempt the
+# widget would run; it is the only reader, and nothing is ever executed from it.
+# A seam because the suite runs on boxes whose ~/.local/bin/kempt points at a different checkout
+# than the one under test: unpinned, every doctor test would report the developer's own split.
+KEMPT_WIDGET_PATH="${KEMPT_WIDGET_PATH:-$HOME/.local/bin:$PATH}"
 KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
 # loudly (exit 4) instead of `kempt run` silently doing nothing at all.

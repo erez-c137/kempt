@@ -10,6 +10,15 @@ release.
 
 ### Added
 
+- `kempt doctor` compares each polkit action's `exec.path` annotation with the helper path this
+  CLI actually hands to pkexec. When the two disagree - a package installed over a checkout
+  install, or the reverse - pkexec has no matching action, so every privileged run falls back to
+  an authentication dialog and a background check times out instead of answering it. The report
+  names both paths and the fix for each kind of install.
+- `kempt doctor` also names which `kempt` the panel widget would run. The widget looks in
+  `~/.local/bin` first, so a leftover symlink there shadows a packaged `/usr/bin/kempt` for the
+  panel and for nothing else - and the report you were reading described a different install from
+  the one doing the work.
 - `kempt doctor` reads the boot symlink `/system-update`, not just dnf5's transaction status. A
   symlink left standing over a transaction that is not armed sends the next restart into the
   offline updater to install nothing, and the report now says so and names

@@ -883,6 +883,84 @@ doctor_ok()   { printf 'ok    %s\n' "$1"; }
 doctor_info() { printf 'info  %s\n' "$1"; }
 doctor_fail() { printf 'FAIL  %s\n' "$1"; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 )); }
 
+# The `exec.path` annotation the installed policy pins for one action id, and the only half of that
+# file worth comparing: pkexec matches an action by that path and by nothing else.
+# awk rather than xmllint, because a checkup must not need a dependency the rest of the tool does
+# not have. The honest limit is that it reads the one-line form this project ships,
+# `<annotate key="...">path</annotate>`; a policy reformatted with the value on its own line reads
+# as "no annotation", which lands on the info branch rather than on a wrong verdict.
+policy_exec_path() {  # action_id file -> the annotated path, or "" if there is none
+  awk -v want="$1" '
+    /<action[ \t]+id="/ {
+      id = ""
+      if (match($0, /id="[^"]*"/)) id = substr($0, RSTART + 4, RLENGTH - 5)
+    }
+    id == want && /org\.freedesktop\.policykit\.exec\.path/ {
+      if (match($0, />[^<]*</)) { print substr($0, RSTART + 1, RLENGTH - 2); exit }
+    }
+  ' "$2" 2>/dev/null || true
+}
+
+# The half of the polkit action a readable file can still get wrong. The RPM installs the helpers
+# under /usr/libexec and rewrites the annotation to match (kempt.spec); install.sh uses
+# /usr/local/libexec. A box carrying both - a package installed over a checkout, or a checkout CLI
+# left on the PATH after packaging - hands pkexec a path no action names, so it falls back to an
+# authentication dialog, which a background check cannot answer: it waits out priv_refresh's 120s
+# timeout and reports the check stale, on every check, forever. Doctor asked only whether the
+# policy file was READABLE, so that box read as "ok" from top to bottom.
+#
+# Compared only when the helper seam IS the annotated path, the same condition doctor_helper uses
+# for ownership and for the same reason: with a stub in play, what this CLI runs is not something
+# polkit was ever asked about, so there is no verdict to give.
+doctor_exec_path() {  # label action_id helper_seam annotated_path
+  local label="$1" action="$2" seam="$3" annotated="$4" pinned
+  if [[ "$seam" != "$annotated" ]]; then
+    doctor_info "polkit exec.path ($label): not compared - the helper seam points elsewhere ($seam)"
+    return 0
+  fi
+  # A policy file that is missing or unreadable is already a FAIL on its own line above, and one
+  # problem must not be counted twice.
+  if [[ ! -r "$KEMPT_POLICY_FILE" ]]; then
+    doctor_info "polkit exec.path ($label): not compared - $KEMPT_POLICY_FILE is not readable"
+    return 0
+  fi
+  pinned="$(policy_exec_path "$action" "$KEMPT_POLICY_FILE")"
+  if [[ -z "$pinned" ]]; then
+    doctor_info "polkit exec.path ($label): $KEMPT_POLICY_FILE pins no exec.path for $action"
+  elif [[ "$pinned" == "$annotated" ]]; then
+    doctor_ok "polkit exec.path ($label): $pinned"
+  else
+    # Both paths, because which one is wrong depends on which install the reader meant to have -
+    # and so both remedies, because the fix is a different command for each kind.
+    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated - pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
+  fi
+}
+
+# ...and the other half of a split install, on the widget's side of it. The panel runs the CLI
+# through its own PATH order (see KEMPT_WIDGET_PATH), so the kempt the widget uses and the kempt
+# that printed this report can be two different files - and every line above describes the second
+# one. Nothing here is executed: the lookup is resolved and compared, exactly like the paths above.
+doctor_widget_engine() {
+  local w
+  # A subshell, so the widget's PATH order decides this one lookup and nothing else in the run.
+  # shellcheck disable=SC2123  # assigning PATH IS the check: it is the widget's own lookup order
+  w="$(PATH="$KEMPT_WIDGET_PATH"; command -v kempt 2>/dev/null || true)"
+  if [[ -z "$w" ]]; then
+    # info, not FAIL: the widget already says this itself. main.qml turns rc 127 into
+    # engineMissing, which is a message in the panel - a second one here would only duplicate it.
+    doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH) - the panel reports the engine as missing"
+    return 0
+  fi
+  # Resolved, because ~/.local/bin/kempt is a symlink on every checkout install: the question is
+  # which FILE runs, not which name was found first.
+  w="$(readlink -f "$w" 2>/dev/null || printf '%s' "$w")"
+  if [[ "$w" == "$SELF" ]]; then
+    doctor_ok "widget engine: $w"
+  else
+    doctor_fail "widget engine: the widget would run $w; this report describes $SELF - remove the one you do not want, or point the ~/.local/bin/kempt symlink at the install you mean"
+  fi
+}
+
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own
   if [[ ! -e "$path" ]]; then
@@ -977,6 +1055,11 @@ cmd_doctor() {
   else
     doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE - run ./install.sh"
   fi
+  # ...and the half a readable file can still get wrong: which helper path it pins.
+  doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
+    "$KEMPT_REFRESH_HELPER" "$KEMPT_REFRESH_HELPER_PATH"
+  doctor_exec_path apply   io.github.erez_c137.kempt.apply \
+    "$KEMPT_APPLY_HELPER"   "$KEMPT_APPLY_HELPER_PATH"
 
   # jq: a missing one exits 3 before this command can run, so this line can only ever say ok. It
   # is here to name WHICH jq answered, not to catch an absence.
@@ -1191,6 +1274,11 @@ cmd_doctor() {
       "$ROOT/polkit/io.github.erez_c137.kempt.policy" "$KEMPT_POLICY_FILE"
     doctor_install_dir widget "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
   fi
+
+  # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone, and
+  # the packaged one is where it bites hardest - a leftover ~/.local/bin/kempt from a checkout wins
+  # over /usr/bin/kempt for the panel and for nothing else.
+  doctor_widget_engine
 
   # Not a check, and deliberately below every check that is: doctor answers "is this install
   # sound", and the next question a person asks after that is "then why did my change not take

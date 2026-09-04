@@ -426,6 +426,8 @@ kempt doctor
 ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
+ok    polkit exec.path (refresh): /usr/local/libexec/kempt-refresh
+ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
 ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
@@ -436,6 +438,7 @@ info  version: kempt 0.1.0 (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout
+ok    widget engine: /home/you/src/kempt/bin/kempt
 
 Recent events (kempt log):
   2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
@@ -457,6 +460,8 @@ What it checks, and what each failure means:
 | --- | --- |
 | Both root helpers exist at the polkit-annotated paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. `check` will be permanently `stale`, `update` cannot run. |
 | The polkit action file is installed | pkexec has no policy for the helpers and falls back to an authentication dialog, which a background check cannot answer. |
+| Each action's `exec.path` annotation names the helper this CLI hands to pkexec | pkexec matches an action by that path and by nothing else, so a disagreement means every privileged run falls back to an authentication dialog and background checks time out after 120 s. The usual cause is a package installed over a checkout install or the reverse: the RPM pins `/usr/libexec`, `install.sh` pins `/usr/local/libexec`. The line names both paths and both fixes. An `info` line when the policy file is unreadable or carries no annotation. |
+| The `kempt` the widget would run is the one this report describes | The widget runs the CLI as `PATH="$HOME/.local/bin:$PATH" ... kempt`, so a stale symlink in `~/.local/bin` shadows a packaged `/usr/bin/kempt` for the panel alone, and everything above describes a different install from the one the widget uses. An `info` line when that PATH holds no `kempt` at all: the widget reports the missing engine itself. |
 | `jq` is present | Nothing: without `jq` every command exits 3 before `doctor` can run, so this line only ever names which `jq` answered. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4 every time. Reported only when it would actually be launched: `surface=terminal`, or any surface with `auto_accept=false`. Otherwise it is an `info` line. |
 | `flatpak` is present | Every check reports the Flatpak backend stale. An `info` line instead when `include_flatpak=false`. |
