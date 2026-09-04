@@ -136,11 +136,57 @@ manager Kempt cannot drive would be an ornament.
   and the host package manager; the flatpak sandbox exists to prevent exactly that. This is
   a design fact, not a gap - worth one line in any thread where it comes up.
 
+## The preparation sprint (decided 2026-09-04: we do not take the review lightly)
+
+Goal: when the ticket opens, the first comment already contains the review a hostile
+reviewer would have written, done by us, with every finding fixed or explained. Timing:
+prep starts NOW (it is delegable and does not collide with the announcement wave); the
+ticket is FILED about a week later, once the wave's first-contact feedback and the tool
+findings have been absorbed - unless a packager shows up in the announcement threads
+first, in which case we file the same day and iterate in the ticket, because a ticket is
+where their interest can land.
+
+**P1 - accounts (founder, ~15 min, immediately):** FAS email set to the maintainer
+identity (erez.c137@protonmail.com - it must match the spec changelog, and it will), FPCA
+signed in Fedora Accounts, Bugzilla account on exactly that email. The review request is
+auto-closed if the Bugzilla email does not match FAS.
+
+**P2 - run the reviewer's own tools against ourselves (delegable, first prep job):**
+`fedora-review` against our 0.1.1 SRPM from COPR (it drives mock, so the build is proven
+in a clean chroot with only what BuildRequires pulls - the strictest completeness check
+there is), rpmlint on the SRPM as well as the binary RPM, and `licensecheck` over the
+whole tree. Every finding gets fixed or gets a written justification; nothing gets
+shrugged at.
+
+**P3 - the self-review document (Fable):** the Review Guidelines MUST and SHOULD lists,
+walked item by item against our spec, each line marked pass/fail/not-applicable with
+evidence. Posted into the ticket as the first comment after filing. This is the single
+strongest signal a submitter can send, and it doubles as our own gate: any MUST we cannot
+mark pass, we fix before filing.
+
+**P4 - spec polish candidates found so far:** changelog identity consistent with
+FAS/Bugzilla (P1's email); investigate running the pure-parser part of the test suite in
+%check (bash + jq only, no network - if it runs in mock it is a big review signal);
+re-verify the polkit file placements against the current guidelines rather than memory.
+
+**P5 - karma (founder, light, after the wave settles):** thoughtful informal comments on
+one or two open review requests. Documented by Fedora itself as how a sponsor evaluates a
+candidate; also simply the neighborly thing.
+
+**P6 - version discipline:** if P2-P4 produce spec changes, they ship as a normal patch
+release through the normal release procedure BEFORE filing, so the ticket's very first
+SRPM URL is a released, COPR-green version - never a moving target.
+
 ## Next actions, in order
 
-1. (Erez, 10 min) Confirm/create the Bugzilla account on the FAS email.
-2. (Prep, delegable) Run fedora-review + licensecheck against the 0.1.1 SRPM, fix findings.
-3. (Erez, 30 min) File the review bug with FE-NEEDSPONSOR; paste URLs from COPR.
-4. (Ongoing, both) Sponsorship routes from Stage 2, announcement threads included.
-5. Everything after that is gated on a human reviewer appearing - the plan resumes at
+1. (Erez, ~15 min, now) P1: FAS email + FPCA + Bugzilla alignment.
+2. (Erez, 1 min) Install the reviewer tooling so P2 can run:
+   `sudo dnf5 install -y fedora-review mock licensecheck` and add the user to the mock
+   group, then re-login.
+3. (Delegable, after 2) P2 run; findings triaged into P4.
+4. (Fable, parallel) P3 self-review document drafted.
+5. (Erez, ~30 min, ~a week out) File the review bug with FE-NEEDSPONSOR; paste URLs from
+   COPR; post the P3 document as the first comment.
+6. (Ongoing, both) Sponsorship routes from Stage 2, announcement threads included.
+7. Everything after that is gated on a human reviewer appearing - the plan resumes at
    Stage 3 the day the flag flips.
