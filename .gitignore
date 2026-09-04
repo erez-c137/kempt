@@ -6,3 +6,7 @@ docs/research/brand/candidates/legibility/strips/
 docs/research/brand/candidates/legibility/mono/
 __pycache__/
 *.pyc
+
+# Working notes that are ours, not the project's: posting drafts, store-ops records,
+# outreach strategy. Everything in docs/ is public documentation; this folder is not.
+/internal/
