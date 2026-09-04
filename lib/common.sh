@@ -74,6 +74,14 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # it is armed. 0644 on Fedora (verified), so it is READ without any privileged call - which is what
 # lets an ordinary check reconcile the two. Nothing here ever writes it; dnf5 owns it.
 KEMPT_OFFLINE_TOML="${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml}"
+# The other half of dnf5's arming, and the half that actually decides what a boot does: systemd's
+# system-update-generator looks for THIS symlink and nothing else (systemd.offline-updates(7)).
+# `dnf5 offline reboot` creates it; the toml above only says what the transaction thinks it is. The
+# two can disagree - a re-stage destroys the old transaction and leaves the symlink standing - and
+# that disagreement is a boot that detours into the offline updater and installs nothing. Read by
+# `kempt doctor` alone, with lstat and never a test of the target: the generator does not care
+# whether the target resolves, so neither may we. A seam because a test cannot create /system-update.
+KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"

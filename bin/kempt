@@ -1103,6 +1103,23 @@ cmd_doctor() {
     doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
   fi
 
+  # The boot symlink, which is the half of arming that decides what the next restart actually does.
+  # Kempt read the toml and never this, so a symlink standing over a transaction that is not `ready`
+  # was invisible here whenever no marker existed - and that is a state the box reaches on its own:
+  # re-staging destroys the old transaction before the new one exists, so a stage that fails in
+  # between leaves exactly this. The boot then detours into the offline updater, installs nothing,
+  # and leaves no trace anywhere. Marker or no marker, because the symlink is the boot's business
+  # and the marker is Kempt's: when both apply, the two rows say two different things.
+  # -L is lstat: the symlink itself, never its target. system-update-generator does not resolve it
+  # either, so a dangling one detours the boot exactly as a live one does.
+  if [[ -L "$KEMPT_OFFLINE_LINK" && "$dr_toml" != ready ]]; then
+    if [[ "$dr_toml" == absent ]]; then
+      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; remove it with: sudo dnf5 offline clean"
+    else
+      doctor_fail "boot symlink is live over a transaction that is not armed (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; clear it with: sudo dnf5 offline clean"
+    fi
+  fi
+
   # Which build this is, in the form a maintainer can act on. The opening line already names the
   # release and the tree; this one names the COMMIT, which is the difference between "0.1.0" and
   # the twelve commits of 0.1.0 that a reporter might actually be running. `dirty` covers untracked

@@ -507,6 +507,60 @@ grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
   || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
 rm -f "$D_MARKER"
 
+# --- the boot symlink, and the state nothing in Kempt could see -----------------------------------
+# Arming creates /system-update, and systemd's system-update-generator looks for that symlink and
+# nothing else. Leave it behind over a transaction that is not `ready` - which is exactly what a
+# replace-stage leaves in the middle, since dnf5 destroys the old transaction the moment the new one
+# begins - and the next boot detours into the offline updater, installs nothing, and comes back with
+# no trace anywhere. Kempt read the toml and never the symlink, so with no marker on the box this
+# state was invisible to the one command whose job is to see it.
+D_LINK="$TESTTMP/system-update"
+# DANGLING on purpose: the symlink is the mechanism, its target is not, and a check that resolved
+# the target would answer "no problem" for the boot that is about to detour.
+ln -s "$TESTTMP/nothing-here" "$D_LINK"
+rm -f "$D_MARKER"
+
+# The normal armed state, which must stay silent: symlink present, transaction ready. This is what
+# every successfully staged box looks like between the stage and the restart.
+KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qE '^FAIL' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: an armed transaction was reported as a problem"; _fail=1; } \
+  || echo "ok: symlink plus a ready transaction is the armed state, not a fault"
+
+# Symlink over a transaction that was never armed, with NO marker: somebody else's stage, or ours
+# replaced mid-rebuild. The remedy needs root, so it is spelled out.
+assert_exit 1 "a live boot symlink over an unarmed transaction fails the checkup" \
+  env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
+grep -qF 'FAIL  boot symlink is live over a transaction that is not armed (status "download-complete")' "$TESTTMP/last_output" \
+  && echo "ok: ...naming the status the boot will detour on" \
+  || { echo "FAIL: no unarmed-symlink line - got: $(grep -i symlink "$TESTTMP/last_output")"; _fail=1; }
+grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
+  && echo "ok: ...and the exact command that clears it" \
+  || { echo "FAIL: the fix command is missing from the symlink row"; _fail=1; }
+
+# Symlink with no transaction behind it at all. Worse, not better: the boot still detours, and
+# there is not even a transaction for it to consider.
+assert_exit 1 "a boot symlink with nothing staged behind it fails the checkup" \
+  env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" "$KEMPT" doctor
+grep -qF 'FAIL  boot symlink is live with nothing staged behind it' "$TESTTMP/last_output" \
+  && echo "ok: ...and says the transaction is not there rather than quoting a status" \
+  || { echo "FAIL: no orphan-symlink line - got: $(grep -i symlink "$TESTTMP/last_output")"; _fail=1; }
+
+# Marker or no marker, and both rows when both apply: they are two different facts about the same
+# box - one says the stage can never install, the other says the next boot detours on the way to
+# finding that out - and each has a reader who needs it.
+printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
+KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
+assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "2" \
+  "a marker does not suppress the symlink row, and the symlink does not suppress the marker's"
+
+# No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
+# this the two conditions could be read as one and the check would fire on the toml alone.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
+assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "1" \
+  "no boot symlink, no symlink row - the unarmed transaction is reported once"
+rm -f "$D_MARKER" "$D_LINK"
+
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops
 # at the first failure sends the user round the loop once per problem.
 assert_exit 1 "several problems at once still exit 1" \

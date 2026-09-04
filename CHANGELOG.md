@@ -10,6 +10,10 @@ release.
 
 ### Added
 
+- `kempt doctor` reads the boot symlink `/system-update`, not just dnf5's transaction status. A
+  symlink left standing over a transaction that is not armed sends the next restart into the
+  offline updater to install nothing, and the report now says so and names
+  `sudo dnf5 offline clean` - whether or not Kempt staged anything.
 - A ["Why bash"](docs/architecture.md#why-bash) section in the architecture doc - the
   recurring question answered once, costs included - linked from the README and CONTRIBUTING.
 - Issue forms (the bug report asks for `kempt doctor` output and how Kempt was installed),
