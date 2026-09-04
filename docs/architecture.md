@@ -162,7 +162,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against | Consumed by the harvest, or cleared when the transaction under it has gone |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
 
 The event log is the newest of these and the one that answers a different kind of question. The
@@ -299,8 +299,17 @@ is written**. The marker is a promise, and there is nothing left to promise.
 
 Neither is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
 `dnf5 offline clean`". The toml alone cannot tell Kempt's transaction from anyone else's, and
-carries no baseline to diff a harvest against. `offline_system_status()` and
-`offline_staged_state()` in `lib/common.sh` are the only two readers.
+carries no baseline to diff a harvest against. `offline_system_status()`,
+`offline_marker_read()` and `offline_staged_state()` in `lib/common.sh` are the only readers.
+
+**A marker that will not parse is skipped, never cleared.** `update` and `check` hold different
+locks, so a check can read the marker while a stage is writing it. Two things keep that harmless:
+the write is atomic and mode 0600 (`write_offline_marker`), so the window holds the old marker
+rather than half of the new one; and `offline_marker_read` refuses an empty, unparsable or
+over-1 MB file, which every reader treats as "skip this check". Clearing is reserved for a marker
+that **parses** over a transaction dnf5 says has gone. The distinction is not academic: a torn read
+used to reach the stale-pointer branch below and delete the marker, so one badly timed check made
+Kempt disown a transaction that was still going to install on the next restart.
 
 **Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
 restarts anything itself.

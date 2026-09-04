@@ -614,6 +614,37 @@ offline_system_status() {  # → ready | absent | dnf5's own status word
   printf '%s\n' "${s:-absent}"
 }
 
+# The marker's ONE write. It records what a restart is about to install, so it goes down the way
+# state.json and events.log do: atomically, and private to the user.
+# 0600 comes from atomic_write's temp - mktemp creates it 0600 and the rename carries that mode to
+# the destination, over whatever the old file had. A bare `>` redirect landed at the umask's 0644,
+# which published a per-box inventory of pending updates to every account on the machine.
+# Atomic matters as much as the mode, and for a reason a single-writer file would not have:
+# `update` and `check` take DIFFERENT locks, so a check can read this at any instant of a stage.
+# A redirect truncates at open, so the whole of the write was a window where the marker read empty
+# - and an empty marker used to be read as "the stage is gone".
+write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
+
+# No marker Kempt writes is anywhere near this big (the largest is a few hundred bytes), so past it
+# the file is not a marker: it is whatever else ended up at that path, and a reader that parses it
+# anyway is a reader that will parse whatever it is handed.
+KEMPT_MARKER_MAX_BYTES=1048576
+
+# The marker, read defensively, or nothing - and "nothing" means SKIP THIS CHECK, never "the stage
+# is gone". That distinction is the whole point: a reader can arrive mid-write (see above), so a
+# marker that will not parse is evidence about the READ, not about the transaction, and treating it
+# as a vanished stage is how Kempt used to disown an armed transaction sitting there perfectly
+# staged. Clearing stays what it was - a marker that parses, over a transaction dnf5 says is gone.
+# `[inputs][0]` plus the type guard is state_prev_items' corrupt-tolerance: a multi-document,
+# truncated or non-object file degrades to nothing instead of taking the check down with it.
+offline_marker_read() {  # → the marker as one line of JSON, or nothing
+  [[ -f "$OFFLINE_MARKER" ]] || return 0
+  local sz
+  sz="$(stat -c %s "$OFFLINE_MARKER" 2>/dev/null || echo 0)"
+  (( sz > 0 && sz <= KEMPT_MARKER_MAX_BYTES )) || return 0
+  jq -c -n '[inputs][0] | select(type == "object")' "$OFFLINE_MARKER" 2>/dev/null || true
+}
+
 # The staged transaction as state.json publishes it, or nothing at all. BOTH facts have to agree:
 # the marker says Kempt staged something and how big it was, dnf5 says it is armed. A marker on its
 # own is a promise that a restart will install these updates, and the founder's box is what that
@@ -621,13 +652,13 @@ offline_system_status() {  # → ready | absent | dnf5's own status word
 # surface went on advertising it. So the key exists for `ready` and nothing else; an unarmed or
 # vanished stage is a discrepancy for `kempt doctor` to explain, not a pending install to publish.
 offline_staged_state() {  # → {staged_at, count, armed} JSON, or nothing
-  [[ -f "$OFFLINE_MARKER" ]] || return 0
+  local marker
+  marker="$(offline_marker_read)"
+  [[ -n "$marker" ]] || return 0
   [[ "$(offline_system_status)" == ready ]] || return 0
   # count: markers written before the field existed carry no number, and null is the honest answer.
   # Every reader drops the figure from its sentence rather than inventing one.
-  jq -c -n '[inputs][0] | select(type == "object")
-            | {staged_at: (.staged_at // null), count: (.staged // null), armed: true}' \
-     "$OFFLINE_MARKER" 2>/dev/null || true
+  jq -c '{staged_at: (.staged_at // null), count: (.staged // null), armed: true}' <<<"$marker"
 }
 
 # The ONE definition of "what a run changed" as a phrase. Two renderers used to carry their own

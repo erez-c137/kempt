@@ -30,6 +30,10 @@ release.
 
 ### Fixed
 
+- A staged update is no longer disowned by a badly timed check. The offline marker is written
+  atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`
+  and the event log as private - and a marker that reads back empty, unparsable or absurdly
+  large is skipped by every reader instead of being deleted as a stage that has gone.
 - The test suite runs green from a release tarball, not only a git checkout: the doctor
   version assertion no longer assumes git history, and the log test stubs its terminal
   emulator instead of leaning on the CI workflow's shim.
