@@ -119,9 +119,30 @@ CC0-1.0. Both patterns exist in the archive, but the combined expression is the 
 correct one under the current licensing guidelines and costs one line plus a comment.
 Raising it ourselves in the ticket beats a reviewer finding it.
 
+## The rawhide round (executed 2026-09-04, evening): F1, F4, F5 adopted and PROVEN
+
+All three findings landed in the spec, and the check stage now runs the project's full bash
+test suite. The proof loop was mock rebuilds in a fedora-rawhide buildroot, and the first
+one earned its keep: with the suite newly running in the build root it failed three times,
+each a real environment assumption the suite had been allowed to keep -
+
+1. the polkit tests asserted the helper paths AS SHIPPED, which %prep's packaging rewrite
+   had just changed - fixed by running the suite on a pristine pre-rewrite copy of the tree;
+2. one doctor assertion assumed a git checkout; a release tarball has no .git - the
+   assertion now skips to the no-git form, which the code always handled and the next
+   assertion already covered;
+3. the log test's real doctor run required a terminal emulator on the host, a dependency CI
+   had been papering over with a konsole shim its own comments called temporary - the test
+   now stubs KEMPT_TERMINAL itself, the way the doctor test always did.
+
+Final state: mock rebuild in fedora-rawhide-x86_64 exits 0, the suite prints ALL PASS across
+all 18 files inside the buildroot, zero FAIL lines, rpmlint still clean on the spec. The
+%check section is now the strongest evidence in the package: a build root that cannot pass
+the suite cannot ship the package.
+
 ## Still owed before filing
 
-The rawhide-buildroot fedora-review rerun, the F4 feasibility check (tests in %check), and
-then F1 + F5 (and F4 if adopted) ship as a normal patch release so the ticket opens with a
-released tag's URLs. Review artifacts (review.txt, licensecheck.txt) are archived in the
-maintainer's working folder.
+Cut the patch release carrying these spec and test changes (the ticket opens with a released
+tag's URLs, per the packaging plan), build the filing SRPM with rpmbuild from the tag
+tarball, and run fedora-review once more against exactly that SRPM for the report to post.
+Review artifacts are archived in the maintainer's working folder.
