@@ -163,7 +163,16 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
-| `~/.local/state/kempt/{lock,check.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+| `~/.local/state/kempt/{lock,check.lock,writer.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+
+Three of those files are locks. `lock` and `check.lock` serialize runs and checks; `writer.lock`
+serializes the three commands that rewrite the two files in the config directory - `kempt config
+set`, `kempt hold` and `kempt unhold`. Each of them reads the whole file, changes one line and
+writes it back, so without a lock two running together lose one of the two writes: measured on
+the old code, 40 concurrent `config set` commands kept 4 keys and 40 `unhold` commands removed 4
+holds. The lock lives in the state directory because the config directory is the user's. Readers
+take no lock at all and must not start: `atomic_write` renames into place, so a reader already
+sees the whole old file or the whole new one.
 
 The event log is the newest of these and the one that answers a different kind of question. The
 other files describe **state** and **runs**; nothing recorded that a setting was changed, a
