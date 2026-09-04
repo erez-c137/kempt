@@ -38,8 +38,9 @@ separate commands, then reading a wall of transaction output to find out what ch
 Discover's notifier counts from PackageKit's separate cache, disagrees with the terminal, and
 holds the dnf5 lock in the background.
 
-Kempt replaces that with one engine and two faces. `kempt check` asks the same root metadata
-cache the update itself will use, so the pending count and the transaction cannot disagree.
+Kempt replaces that with one engine and two faces, built on one rule: an updater should never
+make you infer what actually happened. `kempt check` asks the same root metadata cache the
+update itself will use, so the pending count and the transaction cannot disagree.
 `kempt update` ends with a short summary: every package `old -> new`, how long it took,
 whether a restart is owed. The widget carries no package-manager logic at all - its badge is
 the number the CLI just wrote, its button runs the same engine - which is why the panel and
