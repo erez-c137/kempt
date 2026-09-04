@@ -277,8 +277,10 @@ do not know, and the totals keep working.
 The one flow in Kempt whose state lives in **two** files owned by two different programs, and the
 one that was broken from the start because only half of it was being written.
 
-**Staging.** `kempt update --surface=offline` makes two privileged calls inside one
-authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
+**Staging.** `kempt update --surface=offline` runs a fresh check first, so the count it records is
+the one that describes the transaction it is about to build rather than the last check's; a check
+that cannot answer warns and the stage proceeds on the stale figure. Then two privileged calls
+inside one authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
 `dnf-offline-arm` (`env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`) arms it. Only the
 second creates `/system-update`, and that symlink is the entire mechanism: systemd's
 `system-update-generator` looks for it at boot and nothing else does. Staging without arming

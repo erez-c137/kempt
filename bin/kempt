@@ -310,8 +310,24 @@ cmd_update() {
   # A reason this run works out for itself, where the log cannot be trusted to yield it: a failed
   # arm leaves dnf5's own words in the log, and the first error-shaped line there is about a
   # symlink, not about what the person pressed a button for.
-  local reason_override=""
+  local reason_override="" staged_fresh=""
   if [[ "$surface" == "offline" ]]; then
+    # How many updates this stage is about to carry, asked NOW. It is the only thing anyone is ever
+    # told about a transaction they cannot open - the marker records it, the event line reports it,
+    # and the popup and `kempt doctor` repeat it back for as long as the stage is armed - and it
+    # used to be copied out of the last check's state.json, a number written by whatever check ran
+    # last, against different metadata, possibly days ago. Held packages are dropped here exactly as
+    # they are from the transaction itself (the --exclude list above is built from the same holds).
+    # A check that cannot answer must not stop the stage: the count degrades to the stale one with a
+    # warning, the same way the risky-transaction pre-check degrades. Losing a number is not worth
+    # refusing to update the machine.
+    local cerr; cerr="$(mktemp)"
+    staged_fresh="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || {
+      staged_fresh=""
+      # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
+      echo "warning: could not count the updates being staged: $(explain_helper_error "$(stderr_tail "$cerr")")" >&2
+    }
+    rm -f "$cerr"
     # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads: the transaction
     # sits at status="download-complete" and no boot will ever apply it. `dnf5 offline reboot`
     # (arming) is what flips it to "ready" and creates /system-update, which is the only thing
@@ -411,13 +427,18 @@ cmd_update() {
   # offline staging marker (harvested by cmd_check after reboot). Only ever written for a stage
   # that ARMED: an unarmed transaction installs on no restart at all, and a marker is a promise to
   # every later reader - the harvest, the doctor, the popup - that one is coming.
-  # N is what the last check said dnf had actionable: the staged set cannot be read back out of
-  # dnf5 without a second privileged call, and it is the number the user was looking at when they
-  # chose to stage. Worked out here rather than at the event line below because the marker and the
+  # N comes from the check the offline branch made just before staging, so it describes the
+  # transaction that was actually built rather than whatever the last check happened to say. The
+  # staged set still cannot be read back out of dnf5 without a second privileged call, so this
+  # count is the closest thing to it there is - and when that check could not answer, the last
+  # check's figure is what is left and is used, stale, rather than reporting nothing.
+  # Read into one variable here rather than at the event line below because the marker and the
   # event must not be able to disagree about it.
   local staged=""
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
-    staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
+    staged="$staged_fresh"
+    [[ -n "$staged" ]] \
+      || staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
     local staged_json="null"
     [[ "$staged" =~ ^[0-9]+$ ]] && staged_json="$staged"
     # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv.

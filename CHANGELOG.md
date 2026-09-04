@@ -24,6 +24,11 @@ release.
 
 ### Changed
 
+- The number of updates a staged transaction carries is worked out by a check made just before
+  staging, instead of being copied out of the last check's `state.json`. It is the one thing
+  anyone is ever told about a transaction they cannot open, and it used to be whatever figure
+  happened to be lying around - written by another check, against different metadata, possibly
+  days earlier. A check that cannot answer warns and the stage goes ahead on the old number.
 - The RPM License field is `MIT AND CC0-1.0`: the packaged AppStream metainfo is CC0-1.0 by
   freedesktop convention, and the field now says so.
 - The roadmap opens with what shipped instead of a finished to-do list, and gained honest

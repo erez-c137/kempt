@@ -44,6 +44,32 @@ cat > "$TESTTMP/refresh-stub" <<STUB
 exit 0
 STUB
 chmod +x "$TESTTMP/refresh-stub"
+# Both halves of a run recorded into ONE file, which is the only way to assert their ORDER: the
+# offline surface has to ask what is pending BEFORE it stages, and two separate recorders can never
+# say which came first. Used for that one probe and nowhere else - the apply-calls file the rest of
+# this file reads is a proxy for "the apply has run", and a refresh line in it would break every
+# assertion that leans on that.
+cat > "$TESTTMP/refresh-timeline" <<STUB
+#!/usr/bin/env bash
+echo "REFRESH \$@" >> "$WORLD/timeline"
+[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-timeline"
+cat > "$TESTTMP/apply-timeline" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/timeline"
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-timeline"
+# The same refresh helper with its check verb broken and nothing else changed: the count an offline
+# stage asks for has to be losable without the stage itself becoming unavailable.
+cat > "$TESTTMP/refresh-stub.checkfails" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { echo "Failed to download metadata for repo 'fedora'" >&2; exit 1; }
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-stub.checkfails"
 cat > "$TESTTMP/notify-stub" <<STUB
 #!/usr/bin/env bash
 echo "NOTIFY \$@" >> "$WORLD/notifications"
@@ -248,6 +274,7 @@ staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | s
 assert_eq "$(jq -r '.staged' "$marker")" "$staged_ev" \
   "the marker carries the same staged count the event line reports"
 
+
 # An arm that fails leaves a transaction that would sit in the offline directory forever, telling
 # every later check and the doctor that an install is pending when nothing will ever apply it. So
 # the run FAILS and unwinds: discard the stage, write no marker, and say why.
@@ -322,6 +349,50 @@ assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")"
 
 # every run since the staging rewrote dnf-before.tsv, and the marker's own copy is still there
 assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
+
+# --- and that count is asked for NOW. It is the only thing the user is ever told about a
+# transaction they cannot open, it is what the popup and `kempt doctor` repeat back for as long as
+# the stage is armed, and it used to be copied out of the last check's state.json - a number written
+# by whatever check ran last, against different metadata, possibly days ago.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" check >/dev/null
+fresh="$(jq -r '.backends.dnf.actionable' "$KEMPT_STATE_DIR/state.json")"
+# A state.json that says something else entirely, which is all "stale" ever means. 999 rather than
+# a plausible number so a marker that came from the wrong place cannot be mistaken for one that did
+# not: only the stale path can produce it.
+jq '.backends.dnf.actionable = 999' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/stale-state.json" \
+  && mv "$TESTTMP/stale-state.json" "$KEMPT_STATE_DIR/state.json"
+: > "$WORLD/timeline"
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-timeline" KEMPT_APPLY_HELPER="$TESTTMP/apply-timeline" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null
+check_ln="$(grep -n 'REFRESH check' "$WORLD/timeline" | head -1 | cut -d: -f1 || true)"
+stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/timeline" | head -1 | cut -d: -f1 || true)"
+[[ -n "$check_ln" && -n "$stage_ln" && "$check_ln" -lt "$stage_ln" ]] \
+  && echo "ok: the offline surface asks what is pending before it stages" \
+  || { echo "FAIL: check-before-stage (check=${check_ln:-none} stage=${stage_ln:-none})"; _fail=1; }
+assert_eq "$(jq -r '.staged' "$marker")" "$fresh" \
+  "the marker's count comes from that check, not from the state file it found"
+staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+assert_eq "$staged_ev" "$fresh" "...and so does the count on the event line"
+
+# A check that cannot answer must not stop the stage. Losing a number is not worth refusing to
+# update the machine, so it degrades to the stale count with a warning - the same shape the
+# risky-transaction pre-check degrades in.
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+jq '.backends.dnf.actionable = 999' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/stale-state.json" \
+  && mv "$TESTTMP/stale-state.json" "$KEMPT_STATE_DIR/state.json"
+degraded="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checkfails" \
+  "$KEMPT" update --surface=offline --no-flatpak 2>&1 >/dev/null)" || true
+grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
+  && echo "ok: a check that could not answer still stages" || { echo "FAIL: degraded stage"; _fail=1; }
+assert_exit 0 "...and still writes a marker" -- test -f "$marker"
+assert_eq "$(jq -r '.staged' "$marker")" "999" "...carrying the only count left, the stale one"
+grep -q '^warning: ' <<<"$degraded" \
+  && echo "ok: ...and says on stderr that the number is not fresh" \
+  || { echo "FAIL: no warning - got: $degraded"; _fail=1; }
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" check >/dev/null
 
 # A pre-run snapshot that cannot be read means we could never say what changed, so the run stops
 # BEFORE touching anything - loudly, with its own exit code, and the detached user is told.

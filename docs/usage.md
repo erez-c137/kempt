@@ -188,7 +188,11 @@ the summary track apps. A run can therefore change more than the summary itemize
 one, and both matter:
 
 1. **Stage.** `dnf5 upgrade --offline` downloads the whole transaction and stores it. Nothing is
-   installed and the running desktop is untouched.
+   installed and the running desktop is untouched. A fresh check runs first, and its answer is the
+   count the marker, the event line and every surface that reads them report: the number describes
+   the transaction that was just built, not whatever the last check happened to say. If that check
+   cannot answer, the run warns and stages anyway with the previous figure - losing a number is
+   not a reason to refuse to update the machine.
 2. **Arm.** `dnf5 offline reboot` marks that transaction ready and creates `/system-update`, which
    is the only thing systemd's offline-update generator looks for at boot.
 
@@ -380,7 +384,7 @@ The vocabulary is fixed, so the file is worth grepping:
 | `run start surface=<surface>` | A run is about to change the system. Nothing is recorded for a run that aborted before that. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished cleanly. |
 | `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
-| `offline staged <n>` | A transaction was staged for the next reboot. `<n>` is what the last check said dnf had pending. |
+| `offline staged <n>` | A transaction was staged for the next reboot. `<n>` comes from a check made just before staging, or from the last check when that one could not answer. |
 | `harvest applied (<counts>)` | The check after a reboot found the staged transaction applied and wrote it into history. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
 | `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
