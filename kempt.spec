@@ -3,14 +3,21 @@ Version:        0.1.1
 Release:        1%{?dist}
 Summary:        One-click system updates from the Plasma panel
 
-License:        MIT
+# MIT AND CC0-1.0: every original file is MIT; the one CC0-1.0 file the binary RPM ships is
+# the AppStream metainfo, whose metadata_license is CC0-1.0 by freedesktop convention.
+License:        MIT AND CC0-1.0
 URL:            https://github.com/erez-c137/kempt
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildArch:      noarch
 
-# Everything here is bash, QML and SVG. No compiler, no build step. The only build-time tool is
-# the metainfo validator; there is no .desktop file, so no desktop-file-utils.
+# Everything here is bash, QML and SVG. No compiler, no build step. Build-time tools are the
+# metainfo validator plus what the check-stage test suite needs (bash, jq, coreutils, flock).
+#
+# No .desktop file, deliberately: a Plasma applet is not a menu-launched application.
+# plasmashell discovers the widget through plasmoid/metadata.json and it is added from Add
+# Widgets; there is nothing for a .desktop file to launch, which is also why the metainfo is
+# type="addon" with no <launchable>. So: no desktop-file-utils, no desktop-file-install.
 #
 # appstream, not libappstream-glib. Fedora's older guidance reaches for appstream-util, but its
 # validator rejects any stock icon whose name is not in a hardcoded list of freedesktop standard
@@ -19,6 +26,10 @@ BuildArch:      noarch
 # implementation and the one the metainfo was authored against; it accepts the file with no
 # findings at all.
 BuildRequires:  appstream
+# For the check stage only: the test suite's bash half needs these (the CLI needs them at
+# runtime too, so they are also Requires below - the build root does not inherit those).
+BuildRequires:  jq
+BuildRequires:  util-linux-core
 
 Requires:       bash >= 4.4
 Requires:       jq
@@ -106,6 +117,11 @@ install -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 
 %check
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
+# The bash half of the test suite, in full. It needs only bash, jq and coreutils by design -
+# every impure command goes through an environment seam - and the node/PySide6 halves skip
+# loudly without failing when those tools are absent (they test the widget, which a build
+# root cannot display anyway). A build root that cannot pass the suite must not ship.
+tests/run_tests.sh
 # --no-net, deliberately: every URL in the metainfo is a github.com link that a build host must
 # not be asked to fetch, and on a private repo they 404 anyway. Structure is what this checks.
 appstreamcli validate --no-net --explain \

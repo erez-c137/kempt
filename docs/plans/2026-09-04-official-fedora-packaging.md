@@ -48,7 +48,11 @@ and those pages disagree, the pages win - re-check them when a stage actually st
 
 ### Stage 1 - file the review request
 
-1. Spec + SRPM URLs from the COPR build results (stable, plain https).
+1. Spec + SRPM at stable plain-https URLs: attach both as assets on the GitHub release for
+   the tag being submitted. The SRPM MUST be built with rpmbuild from the spec plus the real
+   GitHub tag tarball - never COPR's rpkg-generated one, whose git-archive tarball is not
+   guaranteed byte-identical to Source0, which is exactly what the source-checksum MUST
+   compares.
 2. File the review request in Red Hat Bugzilla (product Fedora, component Package Review)
    from the FAS-tied account: package name, a one-paragraph description (the metainfo
    summary is the right register), spec URL, SRPM URL, and a link to a successful COPR
