@@ -43,9 +43,11 @@ Install on Fedora (the package carries the CLI and the widget):
     sudo dnf copr enable erez-c137/kempt
     sudo dnf install kempt
 
-The widget alone is on the KDE Store, but it needs the CLI, so on Fedora the package is the
-whole story. MIT, first release, Fedora-only for now - the backend contract is deliberately
-small, and an apt or pacman backend is the contribution I would most love to see.
+The widget alone is on the KDE Store and in Plasma's Get New Widgets browser - it needs the
+CLI, and if you install it first, the popup walks you through the rest (with a Copy Commands
+button, because nobody should retype a dnf line off a tray popup). MIT, first release,
+Fedora-only for now - the backend contract is deliberately small, and an apt or pacman backend
+is the contribution I would most love to see.
 
 https://github.com/erez-c137/kempt
 
