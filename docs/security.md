@@ -345,3 +345,20 @@ Recorded here rather than quietly fixed later:
 - **`install.sh` runs one `pkexec bash -c`**, with every repo path passed as a positional
   argument rather than interpolated into the script text, so a checkout path containing a quote
   cannot break or inject into the root command.
+- **Inside the retention window, an armed offline transaction can be replaced without a prompt.**
+  `dnf-offline-stage` is one of the two verbs the window covers, and staging over an existing
+  transaction is a replace: dnf5 destroys the old one and builds a new one. So for the few minutes
+  after you authenticate a stage, another process running as you can swap the transaction your
+  next restart will install, with no dialog to notice. This is the retention window described
+  above rather than anything specific to the offline path, and the same bound applies: it can
+  stage what a Kempt run would stage, not a package of its choosing. What limits it today is the
+  window's own length, which Kempt does not set and cannot shorten. A `kempt doctor` line
+  comparing the marker against dnf5's stored transaction is planned for the release that records
+  the staged package names, which is what would let a swap be detected after the fact.
+- **dnf5 publishes the staged package list to every account on the box.** The stored transaction
+  lives at `/usr/lib/sysimage/libdnf5/offline/transaction.json`, `root:root` mode 644 in a 755
+  directory (verified in a container, 2026-09-05), and it carries the full resolved NEVRA list. So
+  the set of packages a machine is about to install is readable by any local user, by dnf5's
+  design and independently of Kempt: it is what lets an unprivileged `kempt check` reconcile a
+  stage at all. Kempt's own marker is 0600 and adds no second copy, but it does not remove this
+  one either.

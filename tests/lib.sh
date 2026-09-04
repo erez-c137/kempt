@@ -42,6 +42,11 @@ sandbox() {  # fresh dirs per test file; call first
   # `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
   # none) point the seam somewhere else themselves.
   export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+  # Pointed at a path that does not exist, which is the opposite pin to the toml above and the right
+  # one: `kempt doctor` lstats this, so unset it would read the REAL /system-update and a developer
+  # box with a stage armed would grow a doctor FAIL that no test asked for. "No symlink" is also the
+  # state of every box that has not just staged something. Files that need one make their own.
+  export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.

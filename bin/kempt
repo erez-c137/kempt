@@ -310,8 +310,24 @@ cmd_update() {
   # A reason this run works out for itself, where the log cannot be trusted to yield it: a failed
   # arm leaves dnf5's own words in the log, and the first error-shaped line there is about a
   # symlink, not about what the person pressed a button for.
-  local reason_override=""
+  local reason_override="" staged_fresh=""
   if [[ "$surface" == "offline" ]]; then
+    # How many updates this stage is about to carry, asked NOW. It is the only thing anyone is ever
+    # told about a transaction they cannot open - the marker records it, the event line reports it,
+    # and the popup and `kempt doctor` repeat it back for as long as the stage is armed - and it
+    # used to be copied out of the last check's state.json, a number written by whatever check ran
+    # last, against different metadata, possibly days ago. Held packages are dropped here exactly as
+    # they are from the transaction itself (the --exclude list above is built from the same holds).
+    # A check that cannot answer must not stop the stage: the count degrades to the stale one with a
+    # warning, the same way the risky-transaction pre-check degrades. Losing a number is not worth
+    # refusing to update the machine.
+    local cerr; cerr="$(mktemp)"
+    staged_fresh="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || {
+      staged_fresh=""
+      # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
+      echo "warning: could not count the updates being staged: $(explain_helper_error "$(stderr_tail "$cerr")")" >&2
+    }
+    rm -f "$cerr"
     # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads: the transaction
     # sits at status="download-complete" and no boot will ever apply it. `dnf5 offline reboot`
     # (arming) is what flips it to "ready" and creates /system-update, which is the only thing
@@ -411,13 +427,18 @@ cmd_update() {
   # offline staging marker (harvested by cmd_check after reboot). Only ever written for a stage
   # that ARMED: an unarmed transaction installs on no restart at all, and a marker is a promise to
   # every later reader - the harvest, the doctor, the popup - that one is coming.
-  # N is what the last check said dnf had actionable: the staged set cannot be read back out of
-  # dnf5 without a second privileged call, and it is the number the user was looking at when they
-  # chose to stage. Worked out here rather than at the event line below because the marker and the
+  # N comes from the check the offline branch made just before staging, so it describes the
+  # transaction that was actually built rather than whatever the last check happened to say. The
+  # staged set still cannot be read back out of dnf5 without a second privileged call, so this
+  # count is the closest thing to it there is - and when that check could not answer, the last
+  # check's figure is what is left and is used, stale, rather than reporting nothing.
+  # Read into one variable here rather than at the event line below because the marker and the
   # event must not be able to disagree about it.
   local staged=""
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
-    staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
+    staged="$staged_fresh"
+    [[ -n "$staged" ]] \
+      || staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
     local staged_json="null"
     [[ "$staged" =~ ^[0-9]+$ ]] && staged_json="$staged"
     # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv.
@@ -429,7 +450,8 @@ cmd_update() {
     # sessions instead of guessing from the package set (see harvest_offline).
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
-      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' > "$OFFLINE_MARKER"
+      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' \
+      | write_offline_marker
   fi
 
   # Why it failed, worked out ONCE and then handed to everything that renders it: the history
@@ -730,12 +752,19 @@ clear_gone_stage() {  # marker-owned pre-snapshot path, possibly empty
 }
 
 harvest_offline() {
-  [[ -f "$OFFLINE_MARKER" ]] || return 0
-  local pre now_snap ts report hist boot toml_status
+  local pre now_snap ts report hist boot toml_status marker
+  # ONE defensive read, and nothing below runs without it. Every branch here either clears the
+  # marker or turns it into a history entry, and both are far too destructive to do on a file we
+  # could not parse: a torn or oversized marker says nothing about the transaction (see
+  # offline_marker_read). It used to fall straight through to the stale-pointer branch below and be
+  # DELETED - one bad read and Kempt disowned an armed stage that was sitting there, still going to
+  # install on the next restart, with every surface now silent about it.
+  marker="$(offline_marker_read)"
+  [[ -n "$marker" ]] || return 0
   # Legacy markers (staged before this gate existed) and an unreadable boot_id fall back to the
   # snapshot comparison below - never to "never harvest".
-  boot="$(jq -r '.boot_id // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
-  pre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
+  boot="$(jq -r '.boot_id // empty' <<<"$marker")"
+  pre="$(jq -r '.pre_snapshot // empty' <<<"$marker")"
   # dnf5's own view, read here because the marker cannot tell "waiting for a restart" from
   # "the transaction is gone". Both of the dead ends this resolves used to last forever: a manual
   # `dnf5 offline clean`, or a supersede that discarded the stage and could not remove the marker,
@@ -1093,6 +1122,23 @@ cmd_doctor() {
     # reading this report because a restart installed things they did not expect has just found
     # their answer.
     doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
+  fi
+
+  # The boot symlink, which is the half of arming that decides what the next restart actually does.
+  # Kempt read the toml and never this, so a symlink standing over a transaction that is not `ready`
+  # was invisible here whenever no marker existed - and that is a state the box reaches on its own:
+  # re-staging destroys the old transaction before the new one exists, so a stage that fails in
+  # between leaves exactly this. The boot then detours into the offline updater, installs nothing,
+  # and leaves no trace anywhere. Marker or no marker, because the symlink is the boot's business
+  # and the marker is Kempt's: when both apply, the two rows say two different things.
+  # -L is lstat: the symlink itself, never its target. system-update-generator does not resolve it
+  # either, so a dangling one detours the boot exactly as a live one does.
+  if [[ -L "$KEMPT_OFFLINE_LINK" && "$dr_toml" != ready ]]; then
+    if [[ "$dr_toml" == absent ]]; then
+      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; remove it with: sudo dnf5 offline clean"
+    else
+      doctor_fail "boot symlink is live over a transaction that is not armed (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; clear it with: sudo dnf5 offline clean"
+    fi
   fi
 
   # Which build this is, in the form a maintainer can act on. The opening line already names the

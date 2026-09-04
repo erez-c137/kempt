@@ -162,7 +162,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against | Consumed by the harvest, or cleared when the transaction under it has gone |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
 
 The event log is the newest of these and the one that answers a different kind of question. The
@@ -277,8 +277,10 @@ do not know, and the totals keep working.
 The one flow in Kempt whose state lives in **two** files owned by two different programs, and the
 one that was broken from the start because only half of it was being written.
 
-**Staging.** `kempt update --surface=offline` makes two privileged calls inside one
-authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
+**Staging.** `kempt update --surface=offline` runs a fresh check first, so the count it records is
+the one that describes the transaction it is about to build rather than the last check's; a check
+that cannot answer warns and the stage proceeds on the stale figure. Then two privileged calls
+inside one authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
 `dnf-offline-arm` (`env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`) arms it. Only the
 second creates `/system-update`, and that symlink is the entire mechanism: systemd's
 `system-update-generator` looks for it at boot and nothing else does. Staging without arming
@@ -299,8 +301,17 @@ is written**. The marker is a promise, and there is nothing left to promise.
 
 Neither is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
 `dnf5 offline clean`". The toml alone cannot tell Kempt's transaction from anyone else's, and
-carries no baseline to diff a harvest against. `offline_system_status()` and
-`offline_staged_state()` in `lib/common.sh` are the only two readers.
+carries no baseline to diff a harvest against. `offline_system_status()`,
+`offline_marker_read()` and `offline_staged_state()` in `lib/common.sh` are the only readers.
+
+**A marker that will not parse is skipped, never cleared.** `update` and `check` hold different
+locks, so a check can read the marker while a stage is writing it. Two things keep that harmless:
+the write is atomic and mode 0600 (`write_offline_marker`), so the window holds the old marker
+rather than half of the new one; and `offline_marker_read` refuses an empty, unparsable or
+over-1 MB file, which every reader treats as "skip this check". Clearing is reserved for a marker
+that **parses** over a transaction dnf5 says has gone. The distinction is not academic: a torn read
+used to reach the stale-pointer branch below and delete the marker, so one badly timed check made
+Kempt disown a transaction that was still going to install on the next restart.
 
 **Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
 restarts anything itself.
@@ -745,6 +756,7 @@ destructive paths without ever running them.
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged |
+| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |
 | `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |

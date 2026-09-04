@@ -188,7 +188,11 @@ the summary track apps. A run can therefore change more than the summary itemize
 one, and both matter:
 
 1. **Stage.** `dnf5 upgrade --offline` downloads the whole transaction and stores it. Nothing is
-   installed and the running desktop is untouched.
+   installed and the running desktop is untouched. A fresh check runs first, and its answer is the
+   count the marker, the event line and every surface that reads them report: the number describes
+   the transaction that was just built, not whatever the last check happened to say. If that check
+   cannot answer, the run warns and stages anyway with the previous figure - losing a number is
+   not a reason to refuse to update the machine.
 2. **Arm.** `dnf5 offline reboot` marks that transaction ready and creates `/system-update`, which
    is the only thing systemd's offline-update generator looks for at boot.
 
@@ -380,7 +384,7 @@ The vocabulary is fixed, so the file is worth grepping:
 | `run start surface=<surface>` | A run is about to change the system. Nothing is recorded for a run that aborted before that. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished cleanly. |
 | `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
-| `offline staged <n>` | A transaction was staged for the next reboot. `<n>` is what the last check said dnf had pending. |
+| `offline staged <n>` | A transaction was staged for the next reboot. `<n>` comes from a check made just before staging, or from the last check when that one could not answer. |
 | `harvest applied (<counts>)` | The check after a reboot found the staged transaction applied and wrote it into history. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
 | `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
@@ -462,6 +466,7 @@ What it checks, and what each failure means:
 | The installed root helpers, polkit action and widget package still match the checkout | You pulled and did not re-run `./install.sh`. The CLI is a symlink so it moved with the pull; those three are copies, so root is still running the old helper. |
 
 | A staged offline transaction is armed, or absent | The transaction was downloaded and never armed, so **no restart will ever install it**. The line names the fix: `sudo dnf5 offline clean`. |
+| The boot symlink `/system-update` is absent, or stands over an armed transaction | The next restart detours into the offline updater and installs nothing. Checked whether or not Kempt staged anything, because the symlink is what the boot reads. The line names the fix: `sudo dnf5 offline clean`. |
 
 Lines are `ok`, `info` or `FAIL`. Only `FAIL` affects the exit code, and every check runs even
 after one fails, so one pass shows every problem.
@@ -473,7 +478,7 @@ Doctor is the only surface that reads Kempt's own staging marker and dnf5's tran
 broken pairing is invisible: a marker over a transaction that can never install looks, from
 outside, exactly like a pending update.
 
-The four things it can say:
+The things it can say:
 
 | Line | What it means |
 | --- | --- |
@@ -481,9 +486,18 @@ The four things it can say:
 | `FAIL  staged update can never install: ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
 | `info  staged update: the transaction is gone, ...` | The marker outlived its transaction (someone ran `dnf5 offline clean`, or a superseding live update could not remove the marker). The next `kempt check` clears it. Nothing to do. |
 | `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
+| `FAIL  boot symlink is live over a transaction that is not armed ...` | `/system-update` is still there while the transaction behind it is not `ready`. The next restart detours into the offline updater and installs nothing. |
+| `FAIL  boot symlink is live with nothing staged behind it ...` | The same detour, with no transaction there at all. |
 
-Nothing is printed when there is neither a marker nor a transaction, which is most boxes most of
-the time.
+Nothing is printed when there is neither a marker, nor a transaction, nor a symlink, which is most
+boxes most of the time.
+
+The last two rows are the one part of this that is not about Kempt's marker at all. Arming creates
+`/system-update`, and systemd's `system-update-generator` looks for that symlink and nothing else,
+so the symlink is what decides what a restart does. The two can disagree: re-staging destroys the
+old transaction before the new one exists, so a stage that fails in between leaves the symlink
+standing over a transaction that is not `ready`. Doctor `lstat`s the symlink itself rather than
+resolving it, because the generator does not resolve it either.
 
 ### The install lines
 

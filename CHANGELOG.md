@@ -10,6 +10,10 @@ release.
 
 ### Added
 
+- `kempt doctor` reads the boot symlink `/system-update`, not just dnf5's transaction status. A
+  symlink left standing over a transaction that is not armed sends the next restart into the
+  offline updater to install nothing, and the report now says so and names
+  `sudo dnf5 offline clean` - whether or not Kempt staged anything.
 - A ["Why bash"](docs/architecture.md#why-bash) section in the architecture doc - the
   recurring question answered once, costs included - linked from the README and CONTRIBUTING.
 - Issue forms (the bug report asks for `kempt doctor` output and how Kempt was installed),
@@ -20,6 +24,16 @@ release.
 
 ### Changed
 
+- The number of updates a staged transaction carries is worked out by a check made just before
+  staging, instead of being copied out of the last check's `state.json`. It is the one thing
+  anyone is ever told about a transaction they cannot open, and it used to be whatever figure
+  happened to be lying around - written by another check, against different metadata, possibly
+  days earlier. A check that cannot answer warns and the stage goes ahead on the old number.
+- Two bounds of the offline path are written down in
+  [docs/security.md](docs/security.md#accepted-limitations) rather than left implicit: inside
+  polkit's retention window a process running as you can replace the armed transaction without a
+  prompt, and dnf5 stores the staged package list world-readable, so what a machine is about to
+  install is public on that machine by dnf5's design.
 - The RPM License field is `MIT AND CC0-1.0`: the packaged AppStream metainfo is CC0-1.0 by
   freedesktop convention, and the field now says so.
 - The roadmap opens with what shipped instead of a finished to-do list, and gained honest
@@ -30,6 +44,10 @@ release.
 
 ### Fixed
 
+- A staged update is no longer disowned by a badly timed check. The offline marker is written
+  atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`
+  and the event log as private - and a marker that reads back empty, unparsable or absurdly
+  large is skipped by every reader instead of being deleted as a stage that has gone.
 - The test suite runs green from a release tarball, not only a git checkout: the doctor
   version assertion no longer assumes git history, and the log test stubs its terminal
   emulator instead of leaning on the CI workflow's shim.
