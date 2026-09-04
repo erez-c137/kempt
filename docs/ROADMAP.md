@@ -132,6 +132,9 @@ What is left needs a human at the keyboard, in this order:
   "install missing thing" dialog) can only draw from repos that are already enabled, so a
   store-installed widget can only ever offer a working install button once the engine lives in
   Fedora proper. Until then the widget's Copy Commands button is the truthful ceiling.
+  **The full staged plan - review request, sponsorship routes, dist-git mechanics, steady-state
+  duties, and the other-distros ordering - is in
+  [docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).**
 
 ## v2 - the differentiator release
 
