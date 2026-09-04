@@ -10,6 +10,15 @@ release.
 
 ### Added
 
+- `kempt doctor` compares each polkit action's `exec.path` annotation with the helper path this
+  CLI actually hands to pkexec. When the two disagree - a package installed over a checkout
+  install, or the reverse - pkexec has no matching action, so every privileged run falls back to
+  an authentication dialog and a background check times out instead of answering it. The report
+  names both paths and the fix for each kind of install.
+- `kempt doctor` also names which `kempt` the panel widget would run. The widget looks in
+  `~/.local/bin` first, so a leftover symlink there shadows a packaged `/usr/bin/kempt` for the
+  panel and for nothing else - and the report you were reading described a different install from
+  the one doing the work.
 - `kempt doctor` reads the boot symlink `/system-update`, not just dnf5's transaction status. A
   symlink left standing over a transaction that is not armed sends the next restart into the
   offline updater to install nothing, and the report now says so and names
@@ -44,6 +53,13 @@ release.
 
 ### Fixed
 
+- Settings and holds no longer lose each other when two commands write at once. `kempt config set`,
+  `kempt hold` and `kempt unhold` each read the whole file, changed their own line and wrote the
+  file back, so two running together kept only the last one's change. Measured on the old code, 40
+  overlapping `config set` commands left 4 settings and 40 overlapping `unhold` commands removed 4
+  holds. The widget runs its own commands one at a time, so the settings page could not trip this
+  by itself; two terminals, a script, or the CLI racing the widget could. The three commands now
+  take a lock across the read and the write; reading is unaffected and takes no lock.
 - A staged update is no longer disowned by a badly timed check. The offline marker is written
   atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`
   and the event log as private - and a marker that reads back empty, unparsable or absurdly

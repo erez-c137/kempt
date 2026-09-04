@@ -69,7 +69,8 @@ grep -q '^FAIL' "$TESTTMP/last_output" \
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
 for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
-            'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout'; do
+            'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
+            'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine'; do
   grep -E '^(ok|info|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done
@@ -109,6 +110,142 @@ grep -qF "root helper (apply) is $ME_U:$ME_G 644, expected root:root 755" "$TEST
   || { echo "FAIL: ownership mismatch not named - got: $(grep 'root helper (apply)' "$TESTTMP/last_output")"; _fail=1; }
 grep -q 're-run ./install.sh' "$TESTTMP/last_output" \
   && echo "ok: ...and says how to fix it" || { echo "FAIL: no remedy in the ownership message"; _fail=1; }
+
+# --- the exec.path the policy pins, against the helper this CLI hands to pkexec ------------------
+# pkexec matches an action by the `org.freedesktop.policykit.exec.path` annotation and by nothing
+# else. The RPM installs the helpers under /usr/libexec and rewrites the annotation to match
+# (kempt.spec); install.sh uses /usr/local/libexec. Mix the two - a package installed over a
+# checkout, or a checkout CLI left on the PATH after packaging - and pkexec has no action for the
+# path it is handed, so every privileged call falls back to an authentication dialog. A background
+# check cannot answer one: it waits out the 120s timeout and reports the check stale, forever.
+# Doctor only asked whether the file was READABLE, so it said "ok" for exactly that box.
+mk_policy() {  # dest refresh_path apply_path
+  sed -e "s|/usr/local/libexec/kempt-refresh|$2|" -e "s|/usr/local/libexec/kempt-apply|$3|" \
+      "$REPO_ROOT/polkit/io.github.erez_c137.kempt.policy" > "$1"
+}
+# Both seams of a helper pointed at one real file, the same trick the ownership section above uses
+# and for the same reason: the comparison is only made when the helper seam IS the annotated path,
+# because with a stub in play what this CLI runs is not what polkit would ever be asked about.
+# /usr/bin/ls because it exists everywhere the suite runs; nothing here executes it.
+as_annotated() {  # policy-file -> a checkup with both helpers at /usr/bin/ls
+  env KEMPT_POLICY_FILE="$1" \
+      KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls \
+      KEMPT_APPLY_HELPER=/usr/bin/ls   KEMPT_APPLY_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor
+}
+
+# Agreement is the ordinary state, and it must cost the report nothing. The one FAIL is the install
+# skew section doing its job: /usr/bin/ls is obviously not this checkout's kempt-refresh.
+mk_policy "$TESTTMP/policy-agree.xml" /usr/bin/ls /usr/bin/ls
+assert_exit 1 "a policy that pins the helper this CLI runs is not a problem of its own" \
+  -- as_annotated "$TESTTMP/policy-agree.xml"
+grep -q '^FAIL  polkit exec.path' "$TESTTMP/last_output" \
+  && { echo "FAIL: agreement was reported as a problem"; _fail=1; } \
+  || echo "ok: ...and adds no FAIL of its own (the one there is the install skew)"
+for a in refresh apply; do
+  grep -qF "ok    polkit exec.path ($a): /usr/bin/ls" "$TESTTMP/last_output" \
+    && echo "ok: ...and the $a line names the path both sides agree on" \
+    || { echo "FAIL: no exec.path ok line for $a - got: $(grep 'exec.path' "$TESTTMP/last_output")"; _fail=1; }
+done
+
+# The split install itself: one action pinned somewhere else. This is the shape an RPM policy over
+# a checkout CLI has, and it is a FAIL because nothing privileged can run without a dialog.
+mk_policy "$TESTTMP/policy-split.xml" /usr/bin/ls /usr/libexec/kempt-apply
+assert_exit 1 "a policy that pins a different apply helper fails the checkup" \
+  -- as_annotated "$TESTTMP/policy-split.xml"
+grep -qE '^FAIL  polkit exec.path \(apply\)' "$TESTTMP/last_output" \
+  && echo "ok: the FAIL line names the action that disagrees" \
+  || { echo "FAIL: no exec.path FAIL line - got: $(grep 'exec.path' "$TESTTMP/last_output")"; _fail=1; }
+# BOTH paths, because the reader cannot act on either one alone: which is wrong depends on which
+# install they meant to have.
+ep_line="$(grep '^FAIL  polkit exec.path (apply)' "$TESTTMP/last_output" || true)"
+[[ "$ep_line" == */usr/libexec/kempt-apply* && "$ep_line" == */usr/bin/ls* ]] \
+  && echo "ok: ...naming the path the policy pins and the path this CLI runs" \
+  || { echo "FAIL: the FAIL line does not name both paths - got: $ep_line"; _fail=1; }
+grep -qF 'authentication dialog' "$TESTTMP/last_output" \
+  && echo "ok: ...and what it costs, which is a dialog on every privileged run" \
+  || { echo "FAIL: the consequence is not named"; _fail=1; }
+grep -qF 'background checks time out' "$TESTTMP/last_output" \
+  && echo "ok: ...including the background check nobody is there to answer" \
+  || { echo "FAIL: the background-check consequence is not named"; _fail=1; }
+grep -qF './install.sh' "$TESTTMP/last_output" \
+  && echo "ok: ...and the remedy for a checkout" || { echo "FAIL: no checkout remedy"; _fail=1; }
+grep -qF 'sudo dnf reinstall kempt' "$TESTTMP/last_output" \
+  && echo "ok: ...and the remedy for a package" || { echo "FAIL: no package remedy"; _fail=1; }
+# The action that still agrees still passes: two actions, two verdicts, never one summary.
+grep -qF 'ok    polkit exec.path (refresh): /usr/bin/ls' "$TESTTMP/last_output" \
+  && echo "ok: ...while the action that agrees is still reported as ok" \
+  || { echo "FAIL: a mismatch on one action condemned the other"; _fail=1; }
+
+# A policy with no annotation at all is not a verdict either way: an action without an exec.path is
+# not an action pkexec would run these helpers through, and saying "mismatch" would send the reader
+# after a path that is not there.
+grep -v 'policykit.exec.path' "$REPO_ROOT/polkit/io.github.erez_c137.kempt.policy" \
+  > "$TESTTMP/policy-noann.xml"
+assert_exit 1 "a policy with no exec.path annotation is reported, not failed" \
+  -- as_annotated "$TESTTMP/policy-noann.xml"
+grep -q '^FAIL  polkit exec.path' "$TESTTMP/last_output" \
+  && { echo "FAIL: an absent annotation was reported as a mismatch"; _fail=1; } \
+  || echo "ok: ...and an absent annotation is not a problem"
+grep -qE '^info  polkit exec.path \(refresh\):' "$TESTTMP/last_output" \
+  && echo "ok: ...and says so on an info line" \
+  || { echo "FAIL: no info line for the missing annotation - got: $(grep 'exec.path' "$TESTTMP/last_output")"; _fail=1; }
+
+# A policy file doctor cannot read is already a FAIL on its own line above. This check must not
+# count it twice, and it cannot compare against a file it cannot open.
+assert_exit 1 "an unreadable policy file is not an exec.path verdict" \
+  -- as_annotated "$TESTTMP/nope.policy"
+grep -qE '^info  polkit exec.path \(refresh\):' "$TESTTMP/last_output" \
+  && echo "ok: an unreadable policy leaves an info line, not a second FAIL" \
+  || { echo "FAIL: no info line for the unreadable policy"; _fail=1; }
+
+# ...and with a stub helper in play - every other case in this file - there is nothing to compare:
+# what this CLI runs is a test stub, which polkit was never asked about.
+"$KEMPT" doctor > "$TESTTMP/exec.txt" 2>&1 || true
+grep -qE '^info  polkit exec.path \(refresh\): not compared' "$TESTTMP/exec.txt" \
+  && echo "ok: a helper seam override is not compared against the policy" \
+  || { echo "FAIL: no seam-override info line - got: $(grep 'exec.path' "$TESTTMP/exec.txt")"; _fail=1; }
+
+# --- which kempt the widget would run -----------------------------------------------------------
+# The widget runs the CLI as `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`
+# (plasmoid/contents/ui/main.qml), so ~/.local/bin wins - which is how a stale developer symlink
+# there goes on shadowing a packaged /usr/bin/kempt for the panel, and only for the panel. Doctor
+# ran from whichever kempt the reader typed, so a report could describe one install while the
+# widget used another, with nothing anywhere able to say so.
+# KEMPT_WIDGET_PATH is that lookup's seam, and tests/lib.sh pins it at a directory with no kempt in
+# it: the suite runs on developer boxes where ~/.local/bin/kempt points at a DIFFERENT checkout
+# than the one under test, so unpinned, every case in this file would fail on it.
+SELF_REAL="$(readlink -f "$REPO_ROOT/bin/kempt")"
+WP_SAME="$TESTTMP/wpath-same"; mkdir -p "$WP_SAME"
+ln -sfn "$REPO_ROOT/bin/kempt" "$WP_SAME/kempt"
+assert_exit 0 "the widget running the same kempt this report describes is not a problem" \
+  env KEMPT_WIDGET_PATH="$WP_SAME" "$KEMPT" doctor
+grep -qF "ok    widget engine: $SELF_REAL" "$TESTTMP/last_output" \
+  && echo "ok: ...and the line names the one kempt both would run" \
+  || { echo "FAIL: no widget engine ok line - got: $(grep 'widget engine' "$TESTTMP/last_output")"; _fail=1; }
+
+# The split itself. A second kempt earlier on the widget's PATH is a different FILE, and the
+# report has to name both or the reader cannot tell which one to remove.
+WP_OTHER="$TESTTMP/wpath-other"; mkdir -p "$WP_OTHER"
+cp "$REPO_ROOT/bin/kempt" "$WP_OTHER/kempt"; chmod +x "$WP_OTHER/kempt"
+assert_exit 1 "a widget that would run a different kempt fails the checkup" \
+  env KEMPT_WIDGET_PATH="$WP_OTHER" "$KEMPT" doctor
+we_line="$(grep '^FAIL  widget engine' "$TESTTMP/last_output" || true)"
+[[ "$we_line" == *"$WP_OTHER/kempt"* && "$we_line" == *"$SELF_REAL"* ]] \
+  && echo "ok: the FAIL line names the widget's kempt and this report's" \
+  || { echo "FAIL: the widget engine line does not name both - got: $we_line"; _fail=1; }
+grep -qF 'the widget would run' "$TESTTMP/last_output" \
+  && echo "ok: ...in the order that says which is which" \
+  || { echo "FAIL: no 'the widget would run' wording"; _fail=1; }
+
+# Nothing on the widget's PATH is not doctor's problem to solve: the widget already reports the
+# engine as missing (main.qml sets engineMissing on rc 127), so a second FAIL here would only
+# duplicate a message the user is already looking at.
+WP_NONE="$TESTTMP/wpath-none"; mkdir -p "$WP_NONE"
+assert_exit 0 "no kempt on the widget's PATH is reported, not failed" \
+  env KEMPT_WIDGET_PATH="$WP_NONE" "$KEMPT" doctor
+grep -qE '^info  widget engine:' "$TESTTMP/last_output" \
+  && echo "ok: ...on an info line, because the widget says it itself" \
+  || { echo "FAIL: no widget engine info line - got: $(grep 'widget engine' "$TESTTMP/last_output")"; _fail=1; }
 
 # --- the trap itself: a check that looks like good news, and the command that explains it ---
 export KEMPT_SKIP_REFRESH=1

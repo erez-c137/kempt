@@ -54,6 +54,14 @@ KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.er
 # A seam is what lets either question be driven from a staged tree instead of the developer's own
 # live widget.
 KEMPT_PLASMOID_DIR="${KEMPT_PLASMOID_DIR:-$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt}"
+# The PATH the panel widget's own command line builds. plasmoid/contents/ui/main.qml runs the CLI
+# as `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`, so ~/.local/bin wins for the widget and
+# for nothing else - which is how a stale developer symlink there goes on shadowing a packaged
+# /usr/bin/kempt for the panel alone. `kempt doctor` resolves this lookup to say WHICH kempt the
+# widget would run; it is the only reader, and nothing is ever executed from it.
+# A seam because the suite runs on boxes whose ~/.local/bin/kempt points at a different checkout
+# than the one under test: unpinned, every doctor test would report the developer's own split.
+KEMPT_WIDGET_PATH="${KEMPT_WIDGET_PATH:-$HOME/.local/bin:$PATH}"
 KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
 # loudly (exit 4) instead of `kempt run` silently doing nothing at all.
@@ -68,6 +76,10 @@ SNAP_DIR="$KEMPT_STATE_DIR/snapshots"
 LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
+# The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
+# directory holds the two files the user owns and may edit by hand, and architecture.md's "Where
+# Kempt writes" promises Kempt puts nothing else there.
+WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
@@ -237,6 +249,52 @@ kempt_version() {  # → the version string, or "unknown"
   printf '%s\n' "${v:-unknown}"
 }
 
+# --- the user-file writers' lock ---------------------------------------------------------------
+# INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write.
+# Readers (config_get, holds_all, holds_for) take no lock at all and must not start.
+#
+# Why it exists, measured rather than reasoned: all three writers read the file into a variable and
+# then write the whole file back through atomic_write. Atomic means a reader never sees a torn
+# file; it does NOT mean two writers cannot lose each other's work. A writer that read before its
+# neighbour's rename writes that neighbour's change back out. On the unmodified code, 4 batches of
+# 10 concurrent commands left 4 of 40 `config set` keys (one per batch) and removed 4 of 40 holds.
+# The widget cannot reach this on its own: its Executor runs one command at a time (Executor.qml,
+# the `current` guard), so the settings page's burst of writes is a queue, not a race. Two
+# terminals, a script looping `kempt hold`, or the CLI racing a widget write are the reachable
+# cases, and nothing forbids a second writer appearing later. tests/test_config_concurrency.sh is
+# that probe.
+#
+# fd 7, and the number is load-bearing: fd 8 is the update lock (acquire_lock) and fd 9 is
+# cmd_check's check.lock, both of which can be held for a whole run and are inherited by children.
+# Three writers on a fourth descriptor cannot collide with either.
+#
+# Nesting is what would break this, so it is ruled out by construction rather than handled: nothing
+# on the privileged or checking paths calls a writer - cmd_update and cmd_check never do, and the
+# only callers are cmd_config, cmd_hold and cmd_unhold, one write per command. Re-entering would be
+# quiet rather than loud: `exec 7>>` on a held fd CLOSES it first, which drops the outer lock
+# without anyone noticing. If a writer ever has to call another one, pass the open descriptor down;
+# do not re-open it.
+#
+# `>>` and not `>`: the `>` form truncates on open, so a process that merely ATTEMPTS the lock
+# would erase a live holder's file first (same reasoning as the note in acquire_lock).
+# kempt_init_dirs first, exactly like acquire_lock: it is what guarantees the state directory
+# exists, and a box where it cannot be created fails there rather than here.
+writer_lock() {
+  kempt_init_dirs
+  exec 7>>"$WRITER_LOCK_FILE"
+  # -w rather than -n: these writes are ~10ms apiece, so an overlap is a wait of that length and
+  # refusing would turn it into a lost write instead. 30s is far
+  # past any honest queue - reaching it means a holder is wedged, and writing anyway would put the
+  # lost-write bug straight back. rc 1, and the caller reports it: a lock we could not take is not
+  # a write that failed, so it never masquerades as one.
+  flock -w 30 7 || {
+    echo "kempt: could not take the writers' lock at $WRITER_LOCK_FILE after 30s" >&2
+    exec 7>&-
+    return 1
+  }
+}
+writer_unlock() { flock -u 7 2>/dev/null || true; exec 7>&- 2>/dev/null || true; }
+
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
     echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
@@ -251,6 +309,10 @@ config_set() {  # key value
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
   kempt_init_dirs
   touch "$CONFIG_FILE"
+  # The read below decides what the write puts back, so the two are one critical section: a second
+  # writer that reads between them writes this key straight back out. Held to the rename and no
+  # further - see writer_lock.
+  writer_lock || return 1
   # The outgoing value, read BEFORE anything is written, because "(was false)" is half of what
   # makes the event line worth having: it turns "auto_accept=true" into evidence that the click
   # changed something. Same read config_get does, and it shares config_get's one ambiguity - a
@@ -261,11 +323,14 @@ config_set() {  # key value
   # mid-pipeline can never leave a truncated config behind. rc 1 = "no other lines", allowed.
   local out rc=0
   out="$(grep -v "^$1=" "$CONFIG_FILE")" || rc=$?
-  [[ $rc -le 1 ]] || return $rc
+  [[ $rc -le 1 ]] || { writer_unlock; return $rc; }
   rc=0
   printf '%s%s=%s\n' "${out:+$out$'\n'}" "$1" "$2" | atomic_write "$CONFIG_FILE" || rc=$?
+  # Released before the event line, not after: log_event writes a THIRD file (events.log, with its
+  # own retention rewrite), and the writers' lock is for the two user files only.
+  writer_unlock
   # Only a write that happened is an event, and the caller's exit status is the WRITE's - never
-  # log_event's, which is always 0.
+  # log_event's, which is always 0, and never the lock's.
   [[ $rc -eq 0 ]] && log_event "config set $1=$2 (was ${old:-unset})"
   return $rc
 }
@@ -374,17 +439,35 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
 holds_all() { cat "$HOLDS_FILE" 2>/dev/null || true; }
 holds_for() { holds_all | grep "^$1:" | cut -d: -f2- || true; }
 hold_add() {  # backend name
+  # BEFORE the lock, and it has to stay there: the rejection is the promise cmd_hold's exit status
+  # carries (2, not 1), and a name that is refused writes nothing, so it needs no lock to refuse.
   [[ "$2" =~ $KEMPT_NAME_RE ]] || { echo "invalid hold name: $2" >&2; return 2; }
   kempt_init_dirs; touch "$HOLDS_FILE"
-  grep -qxF "$1:$2" "$HOLDS_FILE" || printf '%s:%s\n' "$1" "$2" >> "$HOLDS_FILE"
+  # The append itself is safe unlocked - a short `>>` write lands whole - but the grep in front of
+  # it is a check-then-act, and two writers can both read "not there" and both append.
+  writer_lock || return 1
+  local rc=0
+  grep -qxF "$1:$2" "$HOLDS_FILE" || printf '%s:%s\n' "$1" "$2" >> "$HOLDS_FILE" || rc=$?
+  writer_unlock
+  return $rc
 }
 hold_remove() {  # backend name
+  # Outside the lock on purpose: there is nothing to remove from a file that does not exist, and
+  # taking the lock to find that out would make `kempt unhold` create a state directory on a box
+  # that has never held anything.
   [[ -f "$HOLDS_FILE" ]] || return 0
+  # The read-modify-write with the worst odds of the three: each writer drops ONE line from the
+  # copy it read, so a writer that read early puts every line its neighbours removed back. 4 of 40
+  # removals survived without this lock.
+  writer_lock || return 1
   # Read-then-write, same reasoning as config_set: never truncate before the read succeeds.
   local out rc=0
   out="$(grep -vxF "$1:$2" "$HOLDS_FILE")" || rc=$?
-  [[ $rc -le 1 ]] || return $rc
-  printf '%s' "${out:+$out$'\n'}" | atomic_write "$HOLDS_FILE"
+  [[ $rc -le 1 ]] || { writer_unlock; return $rc; }
+  rc=0
+  printf '%s' "${out:+$out$'\n'}" | atomic_write "$HOLDS_FILE" || rc=$?
+  writer_unlock
+  return $rc
 }
 mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   local holds_json
