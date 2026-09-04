@@ -35,8 +35,8 @@ install. Developing, or somewhere the RPM does not reach? See
 
 Keeping a Fedora desktop current means remembering that `dnf5 upgrade` and Flatpak are
 separate commands, then reading a wall of transaction output to find out what changed - while
-Discover's notifier nags, disagrees with the terminal, and holds the dnf5 lock in the
-background.
+Discover's notifier counts from PackageKit's separate cache, disagrees with the terminal, and
+holds the dnf5 lock in the background.
 
 Kempt replaces that with one engine and two faces. `kempt check` asks the same root metadata
 cache the update itself will use, so the pending count and the transaction cannot disagree.
@@ -54,7 +54,8 @@ the widget is on a panel.
   run while it stays visible, so skipping something is never the same as forgetting it.
 - **Four ways to run an update.** Terminal with live output, in-popup, silent background, and
   offline staging - which downloads *and arms* the transaction, so any restart installs it,
-  and the widget then reports what that restart changed.
+  and the widget then reports what that restart changed. When session-critical packages are
+  pending (kernel, systemd, Qt and friends), Kempt recommends the offline path on its own.
 - **The download size before you press the button.** `Checked 4 min ago · ~140 MB` in the
   popup footer, from metadata already on disk - no network, and nothing shown when the number
   is not known.
@@ -119,6 +120,10 @@ Design and background: [the design spec](docs/specs/2026-08-24-kempt-design.md) 
 
 New backends (apt, pacman, zypper) are the most useful thing anyone can add, and the contract
 is deliberately small: two required functions plus the pure parser they share, in one file.
+There is an open issue per backend to coordinate in -
+[apt](https://github.com/erez-c137/kempt/issues/1),
+[pacman](https://github.com/erez-c137/kempt/issues/2),
+[zypper](https://github.com/erez-c137/kempt/issues/3) - each with the honest scope notes.
 Wiring one in also touches the root apply helper, which is a security change and worth an
 issue first. Start with
 [docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro), then

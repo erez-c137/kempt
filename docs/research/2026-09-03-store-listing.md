@@ -75,6 +75,23 @@ policy cannot travel that road, so a CLI tarball here would be a worse `git clon
 listing's job is discoverability: the description carries the two dnf commands that install
 everything properly, widget included.
 
+## Pending paste (2026-09-04): one breadth sentence
+
+The COPR now builds for Fedora 43 through 45 and rawhide, on x86_64 and aarch64 (all chroots
+verified green, build 10949754). The description's "Fedora with Plasma 6 only, for now" is
+still true but undersells it - an F43 or Asahi visitor cannot tell the commands will work for
+them. Next time the listing is open for editing, change that sentence to:
+
+> Fedora with Plasma 6 only, for now - any current release (43 to 45, and rawhide), on
+> x86_64 and aarch64. Docs and source: https://github.com/erez-c137/kempt
+
+That is the whole store-text change; nothing else in the listing is affected by the chroot
+widening, and the substantive outstanding item there remains the two gallery uploads
+(tray-popup first, settings second). Deliberately NOT added: pushback pre-emption. The store
+description is a conversion surface read in ten seconds; the honest-limits sentence and the
+install commands already carry it, and objection-handling belongs in the repo and the
+announcement threads.
+
 ## 0.1.1 update (2026-09-04)
 
 New file `kempt-0.1.1.plasmoid` uploaded (old file archived behind the download lock), version

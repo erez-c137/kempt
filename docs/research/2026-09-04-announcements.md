@@ -51,8 +51,12 @@ Install on Fedora (the package carries the CLI and the widget):
 The widget alone is on the KDE Store and in Plasma's Get New Widgets browser - it needs the
 CLI, and if you install it first, the popup walks you through the rest (with a Copy Commands
 button, because nobody should retype a dnf line off a tray popup). MIT, first release,
-Fedora-only for now - the backend contract is deliberately small, and an apt or pacman backend
-is the contribution I would most love to see.
+Fedora-only for now - the backend contract is deliberately small, and an apt, pacman or
+zypper backend is the contribution I would most love to see. There is an open issue for each
+with the honest scope notes:
+https://github.com/erez-c137/kempt/issues/1 (apt),
+https://github.com/erez-c137/kempt/issues/2 (pacman),
+https://github.com/erez-c137/kempt/issues/3 (zypper).
 
 https://github.com/erez-c137/kempt
 
@@ -91,7 +95,9 @@ built the updater I wanted. Kempt is a CLI with a Plasma 6 tray widget over it:
 - Offline staging runs `dnf5 upgrade --offline` and then arms it (status "ready" +
   `/system-update`), which is the step that makes "install on next restart" true - a staged
   transaction that is never armed installs on no restart at all. After the reboot, the widget
-  reports what that restart installed.
+  reports what that restart installed. When session-critical packages are pending (kernel,
+  systemd, glibc, mesa, Qt/KDE - the set is a config regex), Kempt recommends this path on
+  its own; the restart verdict itself is `dnf5 needs-restarting`, cache-only, not a guess.
 - Root is scoped: separate polkit actions for metadata refresh and apply, argument-validating
   helpers, and optional passwordless mode is one rule for the one apply action, active local
   session only - not blanket sudo.
@@ -108,6 +114,25 @@ MIT, first release. Developed and tested on Fedora 44; the COPR builds for Fedor
 honest-limitations list: https://github.com/erez-c137/kempt
 
 ---
+
+## Pre-empt policy: what goes in the post, what stays in the quiver
+
+A post that answers every objection in advance reads as defensive, doubles in length, and -
+worst - reads as generated, which feeds class 6 below. Three pushbacks and only three are
+addressed inside the posts themselves, each framed as a feature, never as a rebuttal:
+
+- **Other distros (class 1):** the Fedora-only admission plus the three backend issues,
+  linked. An invitation, not an apology.
+- **Offline orthodoxy (class 4, r/fedora only):** the staging bullet now says Kempt
+  recommends the offline path for session-critical packages and that the restart verdict is
+  `dnf5 needs-restarting`. The sharpest readers see their own values reflected and have
+  nothing to correct.
+- **Root scope (class 5, r/fedora only):** the scoped-polkit bullet was already in the draft
+  as a design point. That is the right shape - describing the design is confident, defending
+  it is not.
+
+Everything else - the alias crowd, Discover, prior art, vibecoded - is answered in comments,
+if and when it is actually asked, using the map below. Do not import it into the posts.
 
 ## Likely questions and pushback, with the answers (researched 2026-09-04)
 
@@ -174,9 +199,13 @@ update severity), notification-only mode, a "restart now" that skips the KDE pro
 that one - a restart is offered, never performed), and Bazzite/Silverblue/atomic support
 (rpm-ostree is a different beast; roadmap category, be honest it is not close).
 
-**10. Pre-post prep that converts enthusiasm into contributors:** open three good-first-issue
-tickets before posting - "apt backend", "pacman backend", "zypper backend" - each quoting the
-two-function contract, so every "Debian when?" comment gets a link instead of a shrug.
+**10. Pre-post prep that converts enthusiasm into contributors: DONE 2026-09-04.** Backend
+issues [#1 apt](https://github.com/erez-c137/kempt/issues/1),
+[#2 pacman](https://github.com/erez-c137/kempt/issues/2),
+[#3 zypper](https://github.com/erez-c137/kempt/issues/3) are open, labeled help-wanted (not
+good-first-issue - the roadmap's own registry item admits wiring a backend touches ~12 call
+sites, and the issues say so), linked from the README's Contributing section and from the
+r/kde draft. Every "Debian when?" comment gets a link instead of a shrug.
 
 ## Norms checklist (for whoever posts)
 

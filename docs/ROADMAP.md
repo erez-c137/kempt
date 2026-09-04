@@ -156,6 +156,15 @@ What is left needs a human at the keyboard, in this order:
 ## Beyond
 
 - Other desktop environments via a StatusNotifierItem tray app sharing the same CLI.
+- **Fedora Atomic (Silverblue, Kinoite, Bazzite) - honestly, not close.** rpm-ostree is a
+  different update model, not a different command: transactions are image deployments, holds
+  and per-package staging do not map, and pretending a dnf backend covers it would break the
+  one promise Kempt makes. It gets built as its own backend against `rpm-ostree status
+  --json` or not at all. Asked-for tracking welcome in an issue; no timeline.
+- **Firmware via fwupd, maybe.** The one updater the popup does not count. It fits the model
+  (fwupdmgr has a clean JSON-ish interface and its own staged-on-reboot semantics), but
+  firmware failure modes are not package failure modes, so it earns its way in only after the
+  distro backends prove the abstraction.
 - Swap the deprecated `Plasma5Support.DataSource` executor when KDE ships the
   replacement (isolated in one QML file by design).
 - Whatever the first outside users ask for loudest.
