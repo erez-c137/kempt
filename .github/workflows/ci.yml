@@ -66,22 +66,10 @@ jobs:
           bash --version | head -1
           jq --version
 
-      # KNOWN LIMITATION - the one thing the suite wants that a CI runner does not have.
-      # tests/test_run.sh asserts the launch plan for the `terminal` surface, and cmd_run refuses
-      # with exit 4 when $KEMPT_TERMINAL is not on PATH. sandbox() unsets that seam, so the
-      # default `konsole` applies and two assertions ("terminal plan", "no-auto-accept forces
-      # terminal") fail on any box without KDE installed. That is the ONLY environment coupling
-      # left: in the stripped-PATH run above, adding a `konsole` stub is the difference between
-      # those two failures and ALL PASS across 1310 assertions (17 files; the QML probes skip without PySide6).
-      # The durable fix belongs in tests/test_run.sh, which should stub KEMPT_TERMINAL the way
-      # every other seam is stubbed. Until it does, this shim keeps the job honest about why it
-      # is green rather than quietly papering over a red one.
-      - name: Shim the terminal emulator tests/test_run.sh expects
-        run: |
-          mkdir -p "$RUNNER_TEMP/shim"
-          printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/shim/konsole"
-          chmod +x "$RUNNER_TEMP/shim/konsole"
-          echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+      # A konsole shim used to live here for tests/test_run.sh. The tests stub their own
+      # terminal now (test_run.sh and test_log.sh both export KEMPT_TERMINAL at a fake), so
+      # this job runs the suite with no terminal emulator at all - same as the RPM check
+      # stage does in a mock buildroot, where the shimless suite was first proven.
 
       # Same command CONTRIBUTING.md asks for before a commit.
       - name: Syntax check
