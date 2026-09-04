@@ -135,7 +135,13 @@ var COPY = {
     engineMissing: "Kempt's engine is not installed, so nothing can check for updates yet.",
     engineMissingInstall:
         "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. "
-        + "Other systems: github.com/erez-c137/kempt"
+        + "Other systems: github.com/erez-c137/kempt",
+    // The CLIPBOARD form of the same two commands: one line, chained, so one paste in one
+    // terminal does the whole install. Separate from engineMissingInstall because the display
+    // string is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails
+    // somewhere the reader then has to debug. tests/test_widget_logic.sh drift-guards the two:
+    // every command this copies must appear verbatim in the sentence the message shows.
+    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt"
 };
 
 // The separator between the facts on one line: MIDDLE DOT (U+00B7) with a space on each side, the
@@ -1138,6 +1144,9 @@ function viewModel(state, updating, cliError, opts) {
     // popup gates on.
     var engineMissingMessage = engineMissing
         ? COPY.engineMissing + "\n" + COPY.engineMissingInstall : "";
+    // What the message's Copy Commands button puts on the clipboard. Empty in every other state
+    // for the same reason the message is: the button only exists while the message does.
+    var engineMissingCopyText = engineMissing ? COPY.engineMissingCopy : "";
 
     // Read only out of a state this build can read, like every other optional key: a schema-1
     // reader has to tolerate the key being absent (every file written before this existed) and
@@ -1275,6 +1284,7 @@ function viewModel(state, updating, cliError, opts) {
         // that fix it, on two lines. Empty means there is nothing to say, and that empty string
         // is the popup's only gate - exactly how riskyMessage and stagedMessage already work.
         engineMissingMessage: engineMissingMessage,
+        engineMissingCopyText: engineMissingCopyText,
         emptyStateText: emptyStateText,
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check. A STRING has a numeric length and indexes into

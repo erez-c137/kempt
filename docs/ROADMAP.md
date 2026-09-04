@@ -125,6 +125,13 @@ What is left needs a human at the keyboard, in this order:
   procedure is written down already in [docs/RELEASING.md](RELEASING.md); the verified spec draft,
   COPR setup and store steps are in
   [the packaging research](research/2026-08-27-packaging-and-listing.md).
+- **Official Fedora repos, after COPR proves itself.** A Fedora package review (the spec already
+  lints clean, which is the hard half of the opening position; the missing half is a sponsor).
+  What it buys is concrete: `dnf install kempt` with no COPR step, and it makes a real one-click
+  install honest - the PackageKit session API (`InstallPackageNames`, the Discover/GNOME
+  "install missing thing" dialog) can only draw from repos that are already enabled, so a
+  store-installed widget can only ever offer a working install button once the engine lives in
+  Fedora proper. Until then the widget's Copy Commands button is the truthful ceiling.
 
 ## v2 - the differentiator release
 

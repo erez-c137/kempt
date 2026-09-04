@@ -358,6 +358,17 @@ assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf install kempt") >
   "...and the install command in full"
 assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt") >= 0')" "true" \
   "...and where everybody who is not on Fedora goes"
+# The pasteable form behind the Copy Commands button: ONE line, chained with &&, so one paste in
+# one terminal does the whole install. Pinned verbatim - a clipboard payload that fails somewhere
+# is worse than retyping - and drift-guarded against the display string: both must name the same
+# two commands, or the button copies something other than what the message shows.
+assert_eq "$(js "$eng.engineMissingCopyText")" \
+  "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt" \
+  "the copy payload is the two commands, chained, verbatim"
+assert_eq "$(js 'L.viewModel(null,false,"",{}).engineMissingCopyText')" "" \
+  "no missing engine, nothing to copy"
+assert_eq "$(js "$eng.engineMissingCopyText.split(\" && \").every(function (c) { return L.COPY.engineMissingInstall.indexOf(c) >= 0; })")" \
+  "true" "every command the button copies is a command the message shows"
 # Absent is not true: every existing caller passes no such option, and nothing changes for them.
 assert_eq "$(js 'L.viewModel(null,false,"",{}).engineMissingMessage')" "" "an unstated option says nothing"
 assert_eq "$(js 'L.viewModel(null,false,"").engineMissingMessage')" "" \
@@ -1413,7 +1424,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedMessage","stagedShowRestart","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingCopyText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedMessage","stagedShowRestart","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

@@ -283,13 +283,17 @@ PlasmaExtras.Representation {
         // emblem (logic.js, iconState) - and the two must not say different things about the same
         // machine.
         //
-        // No action button. Kempt installs nothing on anyone's behalf, and there is no command to
-        // offer that would not need the engine that is missing, so the commands are in the body
-        // where they can be read and copied. The rest of the popup needs no new gate to stay out
-        // of the way: Update Now is bound to vm.actionable, the list to vm.rows and the
-        // placeholder to vm.emptyStateText, and with no state all three are already empty. Refresh
-        // deliberately stays: it is how somebody who has just installed the package gets an answer
-        // without waiting out the hourly timer.
+        // One action, and it RUNS nothing: Copy Commands puts the two dnf lines on the
+        // clipboard. Kempt installs nothing on anyone's behalf, and there is no command to offer
+        // that would not need the engine that is missing - but an InlineMessage's text cannot be
+        // selected, so without this button the commands have to be retyped, and a retyped command
+        // line fails somewhere the reader then has to debug. The clipboard payload is
+        // vm.engineMissingCopyText, the chained one-line form, NOT the message's own sentence:
+        // pasting a sentence into a shell is its own failure. The rest of the popup needs no new
+        // gate to stay out of the way: Update Now is bound to vm.actionable, the list to vm.rows
+        // and the placeholder to vm.emptyStateText, and with no state all three are already
+        // empty. Refresh deliberately stays: it is how somebody who has just installed the
+        // package gets an answer without waiting out the hourly timer.
         Kirigami.InlineMessage {
             id: engineMissingMessage
             Layout.fillWidth: true
@@ -297,6 +301,25 @@ PlasmaExtras.Representation {
             text: popup.vm.engineMissingMessage
             Accessible.name: text
             visible: popup.vm.engineMissingMessage.length > 0
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Copy Commands")
+                    icon.name: "edit-copy"
+                    onTriggered: source => {
+                        engineCopyClip.text = popup.vm.engineMissingCopyText;
+                        engineCopyClip.selectAll();
+                        engineCopyClip.copy();
+                    }
+                }
+            ]
+            // The clipboard, reached the only way pure QML can: an invisible TextEdit whose
+            // copy() is QClipboard underneath. Zero-size and non-visible so it can never take
+            // focus or paint; it holds text only for the instant between the click and the copy.
+            TextEdit {
+                id: engineCopyClip
+                visible: false
+                width: 0; height: 0
+            }
         }
 
         // The restart. Shown in EVERY state, including up to date: you can owe a restart and have

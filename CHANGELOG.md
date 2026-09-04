@@ -26,7 +26,11 @@ release.
   command that is not there, 126 for one that is there and cannot be run), treats it as a setup
   step and not a failure - the panel icon stays dim, no warning emblem, no invented count - and
   shows the two commands that install the engine, plus where to go on a system that is not
-  Fedora.
+  Fedora. A **Copy Commands** button puts them on the clipboard as one chained line, because an
+  InlineMessage's text cannot be selected and a retyped command fails somewhere the reader then
+  has to debug. This is the ceiling for a COPR-distributed package: the one-click install the
+  PackageKit session API offers can only draw from repos already enabled, which is exactly what
+  a COPR is not - official Fedora packaging (on the roadmap) is what raises it.
 - **`kempt doctor` catches the store copy that shadows a packaged widget.** `kpackagetool6`
   installs the widget into your home directory, the RPM installs it into `/usr/share`, and
   Plasma prefers yours. So a widget installed from the store before the package went on being

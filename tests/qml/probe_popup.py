@@ -973,6 +973,18 @@ if live is not None:
     # package gets an answer without waiting out the hourly timer.
     p.check("...while Refresh stays, because it is what brings the widget back",
             lev("refreshButton.visible && refreshButton.enabled"), True)
+    # Copy Commands: the ONE action, and it runs nothing - it puts the chained one-line install
+    # on the clipboard, because an InlineMessage's text cannot be selected and a retyped command
+    # fails somewhere the reader then has to debug. Triggered here for real: the payload must be
+    # vm's copy text (the "&&" form), never the message's own sentence.
+    p.check("...offering exactly one action", lev("engineMissingMessage.actions.length"), 1)
+    p.check("...named Copy Commands", lev("engineMissingMessage.actions[0].text"), "Copy Commands")
+    lev("engineMissingMessage.actions[0].trigger()")
+    p.pump(80)
+    p.check("...whose payload is the chained one-line form",
+            lev("engineCopyClip.text"), ev("root.vm.engineMissingCopyText"))
+    p.check("...which is a command line, not the message's sentence",
+            " && " in str(lev("engineCopyClip.text")), True)
 
     ev("root.engineMissing = false")
     state(fixture("state-live.json"))
@@ -1388,6 +1400,8 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
     "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
+    "engineMissingCopy",    # -> vm.engineMissingCopyText: a clipboard payload of shell commands,
+                            #    bound as data - and never a translatable unit at all
     "engineMissingInstall",  # -> vm.engineMissingMessage
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
