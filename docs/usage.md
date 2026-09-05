@@ -301,6 +301,15 @@ pretending it would work.
 child is detached. Poll `state.json` or `kempt history` for the result; never read `run`'s exit
 code as "updated".
 
+**A terminal run tells the widget it has ended, whatever happened.** The window `run` opens
+re-checks on its way out on every exit path there is: the update finished, the update failed, you
+answered the risky-transaction question with `abort`, or you closed the window in the middle of it.
+That re-check is what rewrites `state.json`, and a change to `state.json` is the only thing that
+takes the widget out of its updating state. Before it, an abort or a closed window left the popup
+showing an empty updating pane - no package list, no **Update Now**, no **Refresh** - until a
+three-hour guard let it go. The exit status you get back is still the update's; the check's is
+discarded, so a check that fails cannot turn a good run into a bad one.
+
 ## summary and history
 
 ```
@@ -990,6 +999,16 @@ set to **In this widget**, the popup shows the run's live log while it works; on
 surfaces the output goes where you chose and the popup says so. If a run cannot start, the
 widget shows the CLI's own message, remedy included. You do not have to keep the popup open -
 updates keep running if you close it.
+
+**How the updating state ends.** The spinner stops when the run writes a new `state.json`, and
+nothing else ends it: the widget's own scheduled checks re-baseline what it is watching rather
+than declaring your run over. On the `terminal` surface that write is guaranteed, because the
+window re-checks on its way out however it exits - finished, failed, the risky question answered
+with `abort`, or the window closed mid-run (see [run](#run) above). So the popup comes back to a
+list with **Update Now** and **Refresh** on it as soon as the terminal is done with you. A run
+that dies without writing anything at all - the machine loses power, something kills the process
+group outright - is still caught by a three-hour guard, which clears the updating state and
+re-checks.
 
 **Opening the popup re-checks** when the last successful check is older than the smaller of your
 check interval and five minutes. It never blocks the popup: the counts you already have stay on

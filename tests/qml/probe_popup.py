@@ -131,7 +131,7 @@ case "$1" in
           [[ "$3" == restart_reminder ]] && cat %(RR)s; exit 0 ;;
   check)  cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    rc="$(cat %(RUNRC)s)"
-          [[ "$rc" == 0 ]] || { echo "konsole not found - install it or run: kempt config set surface background" >&2; exit "$rc"; }
+          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
   hold|unhold) exit 0 ;;
@@ -332,7 +332,7 @@ open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
 p.wait_for(ev, 'String(root.actionMessage).indexOf("konsole") >= 0', True, timeout_ms=8000)
 p.check("a failed launch reports the CLI's own remedy", ev("root.actionMessage"),
-        "konsole not found - install it or run: kempt config set surface background")
+        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)")
 p.check("...and does NOT pretend an update is running", ev("root.updating"), False)
 open(RUNRC, "w").write("0")
 
