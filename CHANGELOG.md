@@ -42,6 +42,16 @@ release.
   symlink left standing over a transaction that is not armed sends the next restart into the
   offline updater to install nothing, and the report now says so and names
   `sudo dnf5 offline clean` - whether or not Kempt staged anything.
+- `kempt doctor` says when the staged update installs a package you have held. The row leads with
+  what happens - it installs kernel-core on the next restart despite the hold - explains that the
+  hold was recorded after the transaction was staged, and ends with both remedies. It is `info` and
+  not a failure: the state is a legitimate one, and a report that fails on legitimate states teaches
+  people to skip its failures.
+- `kempt doctor` also compares what Kempt recorded staging against dnf5's stored transaction, and
+  fails when the two disagree - naming what each side has that the other does not, up to four names
+  each way. Anything running as you can replace an armed transaction inside polkit's retention
+  window, and until now every Kempt surface would have gone on describing the set that was
+  replaced.
 - A ["Why bash"](docs/architecture.md#why-bash) section in the architecture doc - the
   recurring question answered once, costs included - linked from the README and CONTRIBUTING.
 - Issue forms (the bug report asks for `kempt doctor` output and how Kempt was installed),
@@ -72,6 +82,27 @@ release.
 
 ### Fixed
 
+- A failed rebuild no longer strands a destroyed staged update behind a live boot symlink. dnf5
+  destroys the existing transaction the moment a new stage begins, so a rebuild that failed - a
+  full disk, a declined authentication - left nothing staged, the symlink still standing, and a
+  marker still promising the install: the next restart went into the offline updater, installed
+  nothing, and came back with no trace anywhere. Kempt now discards what the failed re-stage
+  destroyed, removes the marker with it, and fails the run saying the previous staged update was
+  discarded and could not be rebuilt. If that cleanup fails too, the marker is kept for
+  `kempt doctor` and the notification carries `sudo dnf5 offline clean` - as it now does for a
+  failed arm whose cleanup failed, where the command used to appear only on stderr, which nobody
+  reads when the run was started from the panel.
+- A restart that could not install the staged update is announced instead of the banner just
+  vanishing. The popup's staged line disappears the moment the transaction stops being armed, and
+  that used to be all that happened - no notification, no event, and a marker waiting forever for
+  an apply that was never coming. The next check now says it once: "Your staged update can no
+  longer install on a restart. Re-stage it, or run sudo dnf5 offline clean." The marker is demoted
+  rather than deleted, so `kempt doctor` keeps the precise diagnosis instead of reporting the
+  transaction as somebody else's.
+- `kempt doctor` no longer describes a pending install off a marker it could not read. It read that
+  file directly, so a torn or garbage marker fell through to the armed row - in the one report
+  whose whole job is to catch two files disagreeing. It now reads the marker the way every other
+  reader does, and says the marker cannot be read.
 - Settings and holds no longer lose each other when two commands write at once. `kempt config set`,
   `kempt hold` and `kempt unhold` each read the whole file, changed their own line and wrote the
   file back, so two running together kept only the last one's change. Measured on the old code, 40

@@ -642,6 +642,141 @@ grep -qE '^info  an offline transaction is staged outside Kempt' "$TESTTMP/stage
 grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
   && echo "ok: ...pointing at the command that describes it" \
   || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
+
+# --- the marker read the way every other reader reads it ------------------------------------------
+# doctor used to jq the marker file directly, so a torn or garbage one answered `empty` for the
+# count and fell straight through to the armed row: a report whose whole job is to catch a
+# disagreement between two files was describing a pending install off a file it could not parse.
+printf '{"staged_at":"2026-09-02T10:31:00+03:0' > "$D_MARKER"
+assert_exit 0 "a marker that will not parse does not crash the checkup" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qE '^info  staged update: the marker cannot be read' "$TESTTMP/last_output" \
+  && echo "ok: ...and says so instead of describing a pending install it cannot see" \
+  || { echo "FAIL: no unreadable-marker line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+grep -qF 'installs on the next restart' "$TESTTMP/last_output" \
+  && { echo "FAIL: an unparsable marker was still reported as a pending install"; _fail=1; } \
+  || echo "ok: ...and claims nothing about what a restart would do"
+
+# The marker a detour boot demoted: `armed: false`, over a transaction that is not ready. The row
+# that matters is unchanged - this transaction can never install - and it is still a FAIL, which is
+# the whole reason reconciliation demotes the marker instead of clearing it.
+jq -n '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x.tsv", boot_id:"b", staged:61,
+        armed:false}' > "$D_MARKER"
+assert_exit 1 "a demoted marker still fails the checkup over a transaction that cannot install" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
+grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
+  && echo "ok: ...with the same precise row, which is what clearing the marker would have lost" \
+  || { echo "FAIL: no never-install line for a demoted marker - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+
+# --- the hold that arrived after the stage, on the report a worried person runs --------------------
+# info and not FAIL: doctor has ok/info/FAIL and nothing between, and a package installing despite a
+# hold is a legitimate state (dnf5 built that transaction before the hold existed and offers no way
+# to edit a stored one). A FAIL for something legitimate is how a report teaches people to ignore
+# FAILs. The bluntness lives in the sentence, and the sentence ends with BOTH remedies: the person
+# who held a kernel may want the stage gone rather than rebuilt.
+d_marker() {  # names-source names-json
+  jq -n --arg src "$1" --argjson names "$2" \
+    '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x.tsv", boot_id:"b", staged:3,
+      armed:true, staged_names_source:$src, staged_names:$names, staged_excluded:[]}' > "$D_MARKER"
+}
+printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
+d_marker transaction '["ca-certificates","librepo","openldap"]'
+"$KEMPT" hold dnf:librepo >/dev/null 2>&1
+assert_exit 0 "a hold behind an armed stage is reported, and is not a failure" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'info  staged update: it installs librepo on the next restart despite the hold -' "$TESTTMP/last_output" \
+  && echo "ok: ...leading with what happens and naming the package" \
+  || { echo "FAIL: no conflict line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
+  && grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
+  && echo "ok: ...and ending with both remedies, rebuild it or remove it" \
+  || { echo "FAIL: the conflict line does not carry both remedies"; _fail=1; }
+
+# Three names, and the verb moves with them.
+"$KEMPT" hold dnf:ca-certificates >/dev/null 2>&1
+"$KEMPT" hold dnf:openldap >/dev/null 2>&1
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'staged update: it installs ca-certificates, librepo and openldap on the next restart despite the holds -' "$TESTTMP/staged.txt" \
+  && echo "ok: three held packages read as a sentence, plural verb included" \
+  || { echo "FAIL: no plural conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+
+# Six, which is where the cap earns its place: a Qt or KDE bump legitimately puts dozens of names in
+# the set, and a doctor row that lists them all is a row nobody reads to the end.
+d_marker transaction '["bash","curl","glibc","kernel-core","mesa","systemd"]'
+for n in bash curl glibc kernel-core mesa systemd; do "$KEMPT" hold "dnf:$n" >/dev/null 2>&1; done
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'staged update: it installs bash, curl, glibc, kernel-core, and 2 more on the next restart despite the holds -' "$TESTTMP/staged.txt" \
+  && echo "ok: past four names the rest are counted, not listed" \
+  || { echo "FAIL: no capped conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+
+# No list may be trusted - the names came from a check, which cannot see the packages the resolver
+# added - and there is a dnf hold on the box. The generic form fires: it can be wrong by warning
+# about a package that is not in there, and must never be wrong by staying quiet about one that is.
+d_marker check '["kernel-core"]'
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qF 'info  staged update: it may still install held packages on the next restart -' "$TESTTMP/staged.txt" \
+  && echo "ok: a list that cannot deny anything gets the generic line, not silence" \
+  || { echo "FAIL: no generic conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qF 'sudo dnf5 offline clean' "$TESTTMP/staged.txt" \
+  && echo "ok: ...carrying both remedies as well" \
+  || { echo "FAIL: the generic line does not carry both remedies"; _fail=1; }
+
+# Nothing held: no line at all. The row exists to answer a question nobody has asked otherwise.
+for n in librepo ca-certificates openldap bash curl glibc kernel-core mesa systemd; do
+  "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1
+done
+d_marker transaction '["ca-certificates","librepo","openldap"]'
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+grep -qE 'despite the hold|may still install held packages' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: a conflict line with nothing held"; _fail=1; } \
+  || echo "ok: no hold, no conflict line"
+
+# --- and the drift line: the staged transaction is not the one Kempt built -------------------------
+# The marker records what Kempt staged; dnf5's own transaction file says what is stored right now.
+# They can disagree - anything running as this user inside the authentication keep window can
+# replace an armed transaction - and then every Kempt surface is describing a set that is not there.
+# FAIL, because unlike the hold above this is nothing anyone chose.
+d_marker transaction '["ca-certificates","kernel-core"]'
+assert_exit 1 "a staged transaction that is not the one Kempt built fails the checkup" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'FAIL  staged update is not the one Kempt built' "$TESTTMP/last_output" \
+  && echo "ok: ...saying whose record it is reading, not just that something is wrong" \
+  || { echo "FAIL: no drift line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+grep -qF -- "+librepo and +openldap in dnf5's record only" "$TESTTMP/last_output" \
+  && grep -qF -- "-kernel-core in Kempt's only" "$TESTTMP/last_output" \
+  && echo "ok: ...and names both directions of the difference" \
+  || { echo "FAIL: the drift line does not name both directions - got: $(grep -i 'not the one' "$TESTTMP/last_output")"; _fail=1; }
+grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
+  && grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
+  && echo "ok: ...and ends with both remedies too" \
+  || { echo "FAIL: the drift line does not carry both remedies"; _fail=1; }
+
+# The same two sets, agreeing: no line. A report that fires on equality is a report that gets muted.
+d_marker transaction '["ca-certificates","librepo","openldap"]'
+assert_exit 0 "a transaction that matches what Kempt staged is not drift" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
+  && { echo "FAIL: equal sets reported as drift"; _fail=1; } \
+  || echo "ok: equal sets say nothing"
+
+# A CHECK-derived list is not evidence of drift: a check cannot see the packages the resolver added,
+# so it disagrees with the stored transaction routinely and legitimately. There is nothing to
+# compare honestly, so nothing is claimed.
+d_marker check '["kernel-core"]'
+assert_exit 0 "a check-derived list is never compared against dnf5's record" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
+  && { echo "FAIL: a check-derived list was reported as drift"; _fail=1; } \
+  || echo "ok: nothing to compare, nothing claimed"
+
+# ...and neither is a record that will not parse: the marker's list may be perfect and there is
+# simply nothing to hold it against.
+d_marker transaction '["ca-certificates","kernel-core"]'
+assert_exit 0 "a transaction record that will not parse is not drift either" \
+  env KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
+  && { echo "FAIL: an unreadable record was reported as drift"; _fail=1; } \
+  || echo "ok: an unreadable record makes no claim about the marker"
 rm -f "$D_MARKER"
 
 # --- the boot symlink, and the state nothing in Kempt could see -----------------------------------

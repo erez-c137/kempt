@@ -206,6 +206,36 @@ summary, the notification and the event log all say `staged but could not arm th
 install`. A downloaded transaction that nothing can apply is worse than no transaction at all,
 because every surface would go on describing it as a pending install.
 
+**Staging again replaces what is there, and the replacement is not a swap.** dnf5 destroys the
+existing transaction the moment a new stage begins, so a rebuild that fails does not leave the old
+staged update sitting there - it leaves nothing, with the boot symlink still standing, and the next
+restart detours into the offline updater and installs nothing at all. So whenever something was
+staged before the attempt and the stage fails, Kempt cleans up after itself and says so: the run
+fails with `the previous staged update was discarded and could not be rebuilt`, the marker goes
+with the transaction it described, and the event log records `offline marker cleared (rebuild
+failed, stage discarded)`. If the cleanup fails too, the reason and the notification both carry
+`sudo dnf5 offline clean`, and the marker is kept deliberately so `kempt doctor` can name the same
+command from the other side. A failed **arm** whose cleanup also failed now puts that command on
+the notification as well: a warning on stderr reaches nobody who started the run from the panel.
+
+A rebuild that works records `offline restage` in the event log, naming the holds that conflicted
+with the staged update it replaced - `offline restage (holds: kernel-core)` - because after the
+stage that question can no longer be asked: the transaction that contained the held package is
+gone.
+
+**A restart that could not install the staged update is announced, once.** If a restart detours
+into the offline updater and comes back having installed nothing, the next check says so:
+
+```
+Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean.
+```
+
+Once, and not again on every check afterwards. The event log records `offline stage cannot install
+(status download-complete) - announced`, and the marker is **demoted, not removed**, so `kempt
+doctor` keeps its exact diagnosis of what is on the box. The notification is the point: the popup's
+staged banner disappears the moment the transaction stops being armed, and without this the
+disappearance would be the only thing that ever happened.
+
 Flatpak has no offline mechanism, so an offline run still updates Flatpak apps live. That is
 safe for the running session in a way an rpm transaction is not.
 
@@ -493,9 +523,20 @@ The things it can say:
 | `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
 | `FAIL  boot symlink is live over a transaction that is not armed ...` | `/system-update` is still there while the transaction behind it is not `ready`. The next restart detours into the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing staged behind it ...` | The same detour, with no transaction there at all. |
+| `info  staged update: it installs kernel-core on the next restart despite the hold ...` | The package was held **after** the staged update was built. dnf5 offers no way to edit a stored transaction, so the hold applies from the next one Kempt builds. The line ends with both remedies: rebuild it with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
+| `FAIL  staged update is not the one Kempt built ...` | dnf5's stored transaction no longer matches what Kempt recorded staging, so something replaced it afterwards. The line names both directions of the difference (`+` in dnf5's record only, `-` in Kempt's only), up to four names each way. |
+| `info  staged update: the marker cannot be read ...` | The marker is there and will not parse - a torn read, or a file that is not a marker. Every reader skips it rather than clearing it, so nothing is lost; nothing here can describe what Kempt staged either. |
 
 Nothing is printed when there is neither a marker, nor a transaction, nor a symlink, which is most
 boxes most of the time.
+
+The hold row is `info` and not `FAIL` on purpose. Doctor has `ok`, `info` and `FAIL` and nothing
+between them, and a staged update installing a package you held afterwards is a legitimate state
+rather than a broken one - the transaction was built before the hold existed. A `FAIL` for
+something legitimate is how a report teaches its readers to skip `FAIL`s. The bluntness lives in
+the sentence instead. The drift row above it is a `FAIL` because nobody chose it: the staged update
+is not the one Kempt built, and no surface reading Kempt's own record is describing what is
+actually there.
 
 The last two rows are the one part of this that is not about Kempt's marker at all. Arming creates
 `/system-update`, and systemd's `system-update-generator` looks for that symlink and nothing else,
