@@ -34,6 +34,7 @@ KEMPT_ROOT="${KEMPT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # `kempt doctor` reads this so it can refuse to certify a box whose update path has been pointed
 # somewhere else. compgen -e, not the whole variable list: only an EXPORTED value can have come
 # from outside this process.
+# shellcheck disable=SC2034  # read by cmd_doctor in bin/kempt, which sources this through a runtime $ROOT
 KEMPT_ENV_OVERRIDES="$(compgen -e 2>/dev/null | grep '^KEMPT_' | sort | tr '\n' ' ' || true)"
 
 KEMPT_CONFIG_DIR="${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
