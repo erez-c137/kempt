@@ -148,13 +148,18 @@ touch /tmp/gate-destroy-old /tmp/gate-fail-clean; : > /tmp/gate-notifications
 "$K" update --surface=offline --no-flatpak > /tmp/s6.out 2>&1; rc=$?
 [[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail"
 echo "  on disk after the refused clean: toml=$(toml_status) symlink=$([[ -L $LINK ]] && echo present || echo absent) marker=$([[ -n "$(marker)" ]] && echo present || echo absent)"
-[[ -n "$(marker)" ]] && ok "marker KEPT when the clean was refused" || bad "marker removed although the clean was refused"
 has "notification carries the clean command" "$(notes)" "sudo dnf5 offline clean"
 d=$("$K" doctor 2>&1); rc=$?
 if [[ "$(toml_status)" == absent && ! -L "$LINK" ]]; then
-  is "nothing stranded on disk: doctor passes" "$rc" "0"
-  has "...and says the transaction is gone" "$d" "transaction is gone"
+  # The simulated destroy is a real `offline clean`, so it leaves nothing behind: no toml, no
+  # symlink. That is not state (d); it is "the stage is gone", and the run's own follow-up check
+  # is right to clear the marker as such rather than keep it for a doctor row with nothing to
+  # point at. State (d) proper (a non-ready toml under a standing symlink) is pinned hermetically.
+  is "nothing stranded, so the follow-up check cleared the marker as a gone stage" "$(marker)" ""
+  has "...and said so" "$(events)" "offline marker cleared (stage gone)"
+  is "doctor passes: nothing left to report" "$rc" "0"
 else
+  [[ -n "$(marker)" ]] && ok "marker KEPT when the clean was refused" || bad "marker removed although the clean was refused"
   is "something stranded: doctor fails" "$rc" "1"
   has "...and names the clean command" "$d" "dnf5 offline clean"
 fi
