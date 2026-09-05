@@ -1566,6 +1566,8 @@ assert_eq "$(js 'L.VERSION_UNKNOWN')" "?" "the sentinel the CLI writes is unchan
 assert_eq "$(js 'L.newestOf(undefined)')" "$(js 'L.VERSION_UNKNOWN')" \
   "...and it is still what a missing version parses to"
 assert_eq "$(js 'L.COPY.versionNew')" "new" "copy: and what the row draws in its place"
+assert_eq "$(js 'L.fromTextOf("?")')" "new" "one rule for every row: the CLI's unknown from reads new"
+assert_eq "$(js 'L.fromTextOf("1.0-1.fc44")')" "1.0-1.fc44" "...and a known version passes through untouched"
 
 # --- the group headers carry which group they are ------------------------------------------------
 # The popup draws one extra line under the Held heading ("Held packages are skipped by Kempt only")

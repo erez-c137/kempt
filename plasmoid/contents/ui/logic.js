@@ -712,6 +712,13 @@ function looksLikeState(state) {
 // draw it as a word rather than as a punctuation mark.
 var VERSION_UNKNOWN = "?";
 
+// What ANY row draws for a `from` the CLI could not know: the pending list and the Last update
+// history rows both go through this, so a package that was not installed reads "new" in both
+// places rather than "?" in one of them (the a11y reviewer's S4: "?" reads as a fault).
+function fromTextOf(from) {
+    return from === VERSION_UNKNOWN ? COPY.versionNew : from;
+}
+
 function newestOf(versionSet) {
     if (versionSet === null || versionSet === undefined) return VERSION_UNKNOWN;
     var s = String(versionSet);
@@ -1823,6 +1830,7 @@ if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         COPY: COPY,
         VERSION_UNKNOWN: VERSION_UNKNOWN,
+        fromTextOf: fromTextOf,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,
