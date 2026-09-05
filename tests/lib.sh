@@ -50,6 +50,18 @@ sandbox() {  # fresh dirs per test file; call first
   # `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
   # none) point the seam somewhere else themselves.
   export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+  # PINNED for the same reason as the toml above, and at the matching half of the same recorded
+  # stage: unset, this reads the REAL /usr/lib/sysimage/libdnf5/offline/transaction.json, so whether
+  # a hold conflicts with a staged transaction would be decided by what the box running the suite
+  # happens to have staged. Pointed at nothing, "no list" is the answer - which is the DEGRADED
+  # branch, so the primary path (a transaction that parses) would never run in the suite by default
+  # and every conflict test would have to opt into it. So the fixture is the default, exactly like
+  # the `ready` toml: if a stage exists in a test's world, it is armed, and its contents are the
+  # three packages this fixture records.
+  # Consequence, by design: any test that writes a marker and then holds ca-certificates, librepo or
+  # openldap sees a conflict warning. Files that need a different transaction (or none) point the
+  # seam somewhere else themselves.
+  export KEMPT_OFFLINE_TXJSON="$FIXTURES/offline-transaction-full.json"
   # Pointed at a path that does not exist, which is the opposite pin to the toml above and the right
   # one: `kempt doctor` lstats this, so unset it would read the REAL /system-update and a developer
   # box with a stage armed would grow a doctor FAIL that no test asked for. "No symlink" is also the

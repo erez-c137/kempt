@@ -162,7 +162,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, and the boot and package set it was staged against, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, and which packages went in and were left out, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,writer.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
 
 Three of those files are locks. `lock` and `check.lock` serialize runs and checks; `writer.lock`
@@ -248,6 +248,8 @@ bumping `schema`.
 | `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
 
 | `offline_staged` | object, optional | Present **only** while an offline transaction is staged by Kempt **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when it was staged, `count` is how many updates it covers (`null` for a marker written before the count was recorded, never a guess), `armed` is always `true` - the key's absence is how "not armed" is expressed. A staged transaction whose status is anything else is a discrepancy for `kempt doctor`, not a pending install, and must never be published here. Additive key. |
+| `offline_staged.holds_conflict` | array of strings | dnf package names that are in the staged transaction **and** currently held - the packages a restart will install despite the hold, because dnf5 built that transaction before the hold existed and offers no way to edit a stored one. Sorted, unique, dnf only (a flatpak hold cannot reach an offline transaction). Read it together with `names_source`: an empty array is only a claim when that field says so. Present only inside `offline_staged`; additive, and readers must tolerate its absence in files written by older builds. |
+| `offline_staged.names_source` | `"transaction"`, `"marker"` or `"none"` | Which list `holds_conflict` was computed from, and therefore what an EMPTY list means. `transaction`: dnf5's own stored transaction was read live - empty means **no conflict**. `marker`: that read failed and the marker's own list was used, which was itself transaction-derived - empty still means no conflict. `none`: nothing may be denied - a marker written before names were recorded, or one whose names came only from a check, which cannot see the packages the resolver added. Under `none` an empty list means **cannot tell**, and a surface that renders it as "no conflict" is making a claim the data does not support. Present only inside `offline_staged`; additive. |
 
 The download figure is **an estimate, and it is wrong in both directions.** State it with a "~"
 and never with "up to", which would claim a ceiling it does not have:
@@ -301,17 +303,46 @@ recurring. `DNF_SYSTEM_UPGRADE_NO_REBOOT` is the documented way to arm without r
 An arm that fails fails the run: the stage is discarded with `dnf-offline-clean` and **no marker
 is written**. The marker is a promise, and there is nothing left to promise.
 
-**The two files.**
+**The three files.**
 
 | File | Owner | Says |
 | --- | --- | --- |
-| `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, and the package set it was staged against |
+| `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, the package set it was staged against, and which packages went in and were left out |
 | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5 | Whether the transaction is still there, and whether it is armed (`status = "ready"`) |
+| `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5 | What that transaction will actually install, by NEVRA, resolver-added packages included |
 
-Neither is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
+None is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
 `dnf5 offline clean`". The toml alone cannot tell Kempt's transaction from anyone else's, and
-carries no baseline to diff a harvest against. `offline_system_status()`,
-`offline_marker_read()` and `offline_staged_state()` in `lib/common.sh` are the only readers.
+carries no baseline to diff a harvest against. The stored transaction knows the package set exactly
+and knows nothing about why a package is absent from it. `offline_system_status()`,
+`offline_marker_read()`, `offline_txjson_names()` and `offline_staged_state()` in `lib/common.sh`
+are the only readers.
+
+**The marker's fields, and the rule for adding one.** The marker is `{staged_at, pre_snapshot,
+boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
+`staged_names_source` and `staged_excluded`. Every field is **additive**: a marker written by an
+older build carries none of the newer ones, and every reader has to go on working against it - the
+harvest, the doctor, the popup and the two hold commands all do. That is why a fact Kempt could not
+establish is expressed by an ABSENT key rather than an empty one: no `staged_names` at all means
+"nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
+`staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
+list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
+Every name is filtered through `KEMPT_NAME_RE` as it is written, and one name that fails drops the
+whole list - one gate covers jq, the shell, QML and a terminal.
+
+**Configuration changes never rewrite already-created operations: a hold applies from the next
+transaction Kempt builds, and a transaction dnf5 has already stored is reported against, never
+edited.** dnf5 offers no API to edit a stored transaction, so a hold added after a stage cannot
+take the package out of it, and the restart installs it anyway. Policy state and transaction state
+have different temporal scopes, and Kempt's answer is to say so rather than to pretend otherwise:
+`kempt hold dnf:<name>` records the hold, exits 0, and then prints on stderr whether the armed
+stage still contains that package, with the two commands that act on it - rebuild the stage with
+your current holds, or remove it. It never prompts, never blocks and never escalates. `kempt
+unhold` carries the mirror: the stage was built without this package, so the restart will not
+install it. The predicate behind both is a set intersection of the staged names against the dnf
+names currently held - never a timestamp comparison, which loses the in-flight-stage race whichever
+way round it is written - and it is published in `state.json` as `offline_staged.holds_conflict` so
+the widget, which can stat nothing, derives the same answer from the same evidence.
 
 **A marker that will not parse is skipped, never cleared.** `update` and `check` hold different
 locks, so a check can read the marker while a stage is writing it. Two things keep that harmless:
@@ -766,6 +797,7 @@ destructive paths without ever running them.
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions. Doctor reads each action's `exec.path` annotation out of it and compares that with the helper path this CLI hands to pkexec |
 | `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged |
+| `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction - the resolved package set a restart will install. **Read, never written**, and read LIVE rather than snapshotted: it is the only source that sees the packages the resolver added and a transaction something else replaced. `root:root` 0644 in a 0755 directory (verified in a container, 2026-09-05), which is what lets an unprivileged check reconcile a hold against it. `tests/lib.sh` PINS this at a recorded transaction rather than poisoning it, so the suite's default is the parsing path; pointing it at anything unparsable drives the degraded one |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |

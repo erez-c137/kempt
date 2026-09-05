@@ -394,6 +394,92 @@ grep -q '^warning: ' <<<"$degraded" \
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" check >/dev/null
 
+# --- and the stage records WHICH packages, not only how many ------------------------------------
+# A hold added after a stage cannot change the transaction dnf5 has already built, so the only
+# honest thing Kempt can do is say whether the held package is in it. That answer needs names, and
+# the marker is where they are kept for the moment the live record cannot be read.
+#
+# Two lists, from two different places, because they answer two different questions:
+#   staged_names     what the transaction INSTALLS - read from dnf5's own stored transaction, which
+#                    is the only source that sees resolver-added packages and a transaction someone
+#                    else replaced. The marker's copy is the fallback, never the primary.
+#   staged_excluded  what was held AND pending when the stage was made - which the transaction can
+#                    never say, because a package absent from it is indistinguishable from a
+#                    package that simply had no update. It is what lets `kempt unhold` know whether
+#                    this stage was built without the package the user just released.
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_eq "$(jq -r '.staged_names_source' "$marker")" "transaction" \
+  "the staged set is recorded from dnf5's own transaction, and the marker says so"
+assert_eq "$(jq -c '.staged_names' "$marker")" '["ca-certificates","librepo","openldap"]' \
+  "...as the names that transaction installs, not the names the check happened to list"
+assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' \
+  "a package held and pending at stage time is recorded as excluded from it"
+assert_eq "$(jq -r '.staged' "$marker")" "6" \
+  "the count stays what it was: pending, minus the held one"
+assert_eq "$(stat -c %a "$marker")" "600" "...and the marker is still private"
+
+# The live record unreadable, the check fine: the names degrade to the check's answer and the
+# marker SAYS they did. A check-derived list may confirm a conflict and may never deny one, so the
+# source field is not bookkeeping - it is what stops a later reader from taking silence for proof.
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_eq "$(jq -r '.staged_names_source' "$marker")" "check" \
+  "a transaction record that will not parse falls back to the check, and is labelled as such"
+assert_eq "$(jq -c '.staged_names' "$marker")" \
+  '["aajohan-comfortaa-fonts","bash","brandnew","git-core","tar","vim-minimal"]' \
+  "...carrying what the check said was pending and not held"
+assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' \
+  "...and the excluded list is unaffected: it never came from the transaction"
+
+# Both sources gone - an unparsable record AND a check that could not answer. There is no list, so
+# the marker carries none at all rather than an empty array that a reader could mistake for "the
+# transaction installs nothing". The stage still goes ahead: losing a list is not worth refusing to
+# update the machine, exactly like losing the count.
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checkfails" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
+  && echo "ok: a stage with no names available still stages" || { echo "FAIL: nameless stage"; _fail=1; }
+assert_eq "$(jq -r '.staged_names_source' "$marker")" "none" "...and says it knows no names"
+assert_eq "$(jq -r 'has("staged_names")' "$marker")" "false" \
+  "...with no staged_names key at all, so an empty list can never be read as an empty transaction"
+assert_eq "$(jq -c '.staged_excluded' "$marker")" '[]' \
+  "...and an empty excluded list, which sends unhold to its pending fallback"
+
+# ONE name that fails the name gate drops the WHOLE list. The gate is KEMPT_NAME_RE, the same shape
+# a hold is validated against, and it covers jq, the shell, QML and a terminal in one place. Partial
+# filtering would be worse than nothing: a list with a name quietly removed is a list that can still
+# be used to say "your package is not in the transaction".
+# The check is the path that needs the gate - the transaction reader applies it before it answers -
+# so the live record is pointed at garbage to reach it.
+cat > "$TESTTMP/badname-check.txt" <<'EOF'
+bash.x86_64   5.3.10-1.fc44   updates
+--exclude=evil.x86_64   1.0-1.fc44   updates
+EOF
+cat > "$TESTTMP/refresh-stub.badname" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$TESTTMP/badname-check.txt"; exit 100; }
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-stub.badname"
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.badname" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_eq "$(jq -r '.staged_names_source' "$marker")" "none" \
+  "one name that fails the gate drops the whole list to no source at all"
+assert_eq "$(jq -r 'has("staged_names")' "$marker")" "false" \
+  "...and nothing of that list is written down"
+"$KEMPT" unhold dnf:curl >/dev/null 2>&1
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" check >/dev/null
+
 # A pre-run snapshot that cannot be read means we could never say what changed, so the run stops
 # BEFORE touching anything - loudly, with its own exit code, and the detached user is told.
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
