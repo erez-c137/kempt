@@ -8,7 +8,7 @@ update                run the update now (options from config; --no-flatpak, --s
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                      or if every entry is damaged)
+                      or if the newest entry is damaged)
 history               list past runs
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
