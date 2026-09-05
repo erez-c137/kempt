@@ -135,10 +135,17 @@ Kempt never re-downloads metadata faster than dnf itself would.
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
 | `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged transaction awaiting a reboot |
-| `~/.local/state/kempt/lock`, `check.lock` | `flock` files serializing updates and checks |
+| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serializes updates, `check.lock` serializes checks, and `writer.lock` serializes the three commands that rewrite the two files above - `config set`, `hold` and `unhold` - so two of them running at once cannot lose one of the two writes |
 
 File names use a compact timestamp (`20260824T210511`); the `timestamp` field inside each history
 entry is a full ISO 8601 string with the offset.
+
+**Modes.** `events.log` and `offline_staged.json` are 0600 from the moment they exist, because they
+name the packages you hold and the values of your settings. So are `state.json`, `config` and any
+file rewritten by a removal, and not by a rule anyone wrote: every one of them is written through
+`atomic_write`, which stages into a `mktemp` file and renames it into place, and `mktemp` creates
+0600. `holds` is the exception until something rewrites it - it is created by `touch`, so it
+carries whatever your umask gave it until the first `kempt unhold` replaces it.
 
 Retention is automatic and best effort, swept whenever the CLI initializes its directories:
 

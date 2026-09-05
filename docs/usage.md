@@ -8,7 +8,7 @@ update                run the update now (options from config; --no-flatpak, --s
 run [--dry-run]       launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                      or if that entry is damaged)
+                      or if every entry is damaged)
 history               list past runs
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
@@ -17,6 +17,7 @@ unhold <same>         remove a hold
 holds                 list holds
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
+--version             print the version and exit
 ```
 
 ## Exit codes
@@ -26,11 +27,20 @@ One contract, every subcommand:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. Includes declining at the risky-transaction prompt, and includes `check` when a backend failed (the failure is recorded in the state, not in the exit code). |
-| 1 | The run itself failed (a backend returned non-zero), or `doctor` found at least one problem. |
+| 1 | The run itself failed (a backend returned non-zero), `doctor` found at least one problem, or a writer could not take the writers' lock (see below). |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
 | 5 | Aborted during pre-flight. Nothing was changed. |
+
+Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
+set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
+and write it back, so all three take a writers' lock at `~/.local/state/kempt/writer.lock` across
+the whole read-modify-write: without it, two running at once lose one of the two writes. Waiting is
+the ordinary outcome and costs milliseconds. If the lock is still held after 30 seconds the command
+refuses rather than writing anyway, says so on stderr and exits 1 - nothing was written, and
+nothing is half written. Readers (`kempt config get`, `kempt holds`, every check) take no lock at
+all and never wait for one.
 
 ## check
 
@@ -452,7 +462,10 @@ anything failed. Takes no arguments.
 kempt doctor
 ```
 
+On a checkout install:
+
 ```
+info  kempt 0.1.1 (/home/you/src/kempt)
 ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -461,10 +474,11 @@ ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
 ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
+ok    dnf: /usr/bin/dnf5
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
-info  version: kempt 0.1.0 (checkout a1b2c3d clean)
+info  version: kempt 0.1.1 (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout
@@ -477,6 +491,10 @@ Recent events (kempt log):
 
 kempt doctor: all checks passed
 ```
+
+A packaged install prints a shorter report: no `helpers:`, `policy:` or `widget:` comparison, an
+`install: packaged` line in their place, and no commit on the `version:` line. That sample, line by
+line, is in [install.md](install.md#verify-it).
 
 It exists because of one specific trap. Every other command degrades instead of crashing, which
 is right for a widget that polls on a timer but wrong for a human trying to find out what is
@@ -499,7 +517,6 @@ What it checks, and what each failure means:
 | The state directory is writable, or can be created | No state file, no history, no logs. |
 | The checkout still holds `lib/`, `backends/` and the passwordless rules template | The CLI is a symlink into the checkout. A missing rules template only surfaces the day `enable-passwordless` is run. |
 | The installed root helpers, polkit action and widget package still match the checkout | You pulled and did not re-run `./install.sh`. The CLI is a symlink so it moved with the pull; those three are copies, so root is still running the old helper. |
-
 | A staged offline transaction is armed, or absent | The transaction was downloaded and never armed, so **no restart will ever install it**. The line names the fix: `sudo dnf5 offline clean`. |
 | The boot symlink `/system-update` is absent, or stands over an armed transaction | The next restart detours into the offline updater and installs nothing. Checked whether or not Kempt staged anything, because the symlink is what the boot reads. The line names the fix: `sudo dnf5 offline clean`. |
 
@@ -524,6 +541,7 @@ The things it can say:
 | `FAIL  boot symlink is live over a transaction that is not armed ...` | `/system-update` is still there while the transaction behind it is not `ready`. The next restart detours into the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing staged behind it ...` | The same detour, with no transaction there at all. |
 | `info  staged update: it installs kernel-core on the next restart despite the hold ...` | The package was held **after** the staged update was built. dnf5 offers no way to edit a stored transaction, so the hold applies from the next one Kempt builds. The line ends with both remedies: rebuild it with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
+| `info  staged update: it may still install held packages on the next restart ...` | The same situation as the row above, with the names missing. Kempt could not read what this transaction contains (an older stage, or a record this build does not recognise) and you hold at least one dnf package. A list that may be incomplete is never allowed to deny a conflict, so the honest line names the possibility instead of staying quiet. Same two remedies. |
 | `FAIL  staged update is not the one Kempt built ...` | dnf5's stored transaction no longer matches what Kempt recorded staging, so something replaced it afterwards. The line names both directions of the difference (`+` in dnf5's record only, `-` in Kempt's only), up to four names each way. |
 | `info  staged update: the marker cannot be read ...` | The marker is there and will not parse - a torn read, or a file that is not a marker. Every reader skips it rather than clearing it, so nothing is lost; nothing here can describe what Kempt staged either. |
 
@@ -547,10 +565,12 @@ resolving it, because the generator does not resolve it either.
 
 ### The install lines
 
-The last four lines are about the install itself rather than the machine.
+The lines below the checks are about the install itself rather than the machine. How many there
+are depends on which install you have, which is why they are described here by name rather than by
+position.
 
 `version:` names the release and, in a git checkout, the commit it was built from and whether the
-tree is clean. It is the line worth quoting in a bug report: `0.1.0` covers many commits, and
+tree is clean. It is the line worth quoting in a bug report: `0.1.1` covers many commits, and
 `dirty` says local edits are in play. A tree with no git history, or a box with no `git`, prints
 the release alone.
 
@@ -567,7 +587,13 @@ needs privileges to check, because the installed copies are world-readable.
 An install that did not come from a checkout prints `install: packaged` and compares nothing.
 There is nothing to drift: the package manager owns those files and keeps them in step, which is
 the whole point of shipping Kempt as a package. See
-[docs/RELEASING.md](RELEASING.md).
+[docs/RELEASING.md](RELEASING.md). It gets one check the checkout does not: a widget package left
+in your home directory shadows the packaged one, so its mere presence is a `FAIL` there.
+
+`widget engine:` is last, and it is printed for both kinds of install. The panel builds its own
+command line with `~/.local/bin` first on `PATH`, so the `kempt` the widget runs and the `kempt`
+that printed this report can be two different files - and every line above describes the second
+one. It resolves that lookup and compares it; nothing is executed.
 
 The last five events are printed after the checks, indented so nothing there can be mistaken for
 a report line. They are not a check and never affect the exit code: the question that follows
@@ -676,7 +702,7 @@ its type, its default and its effect are in [configuration.md](configuration.md)
 ## --version
 
 ```bash
-kempt --version        # kempt 0.1.0
+kempt --version        # kempt 0.1.1
 kempt version          # the same, for the spelling people guess
 kempt -V               # and the one they have in their fingers
 ```
