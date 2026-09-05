@@ -48,6 +48,22 @@ assert_exit 2 "render refuses a template with a different action id" \
 [[ -e "$TESTTMP/out-badaction" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
   || echo "ok: wrong-action render leaves nothing behind"
 
+# (b1b) a WIDENED rule inside the one permitted block → refused. This is the case every
+# grep-based check missed: the scope clause is there, the action id is there, there is exactly one
+# addRule, and the rule grants passwordless root for EVERY polkit action from ANY session,
+# including a remote one. It rendered clean and went to a root install(1).
+awk '/^polkit.addRule/ { print; print "    if (subject.user == \"@USER@\") return polkit.Result.YES;"; next } { print }' \
+    "$RULES_IN" > "$TESTTMP/tmpl-widened"
+assert_exit 2 "render refuses a rule widened inside the block it is allowed to have" -- \
+  render_passwordless_rule "$TESTTMP/tmpl-widened" "$TESTTMP/out-widened"
+# ...and the refusal has to be readable by whoever hits it, because the person running
+# enable-passwordless is being told their grant did NOT happen. Checked here, before the next
+# assertion overwrites last_output.
+grep -qF 'refusing' "$TESTTMP/last_output" \
+  && echo "ok: ...and says it is refusing rather than naming a 'scope check'" \
+  || { echo "FAIL: the refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
+assert_exit 1 "widened render leaves nothing behind" -- test -e "$TESTTMP/out-widened"
+
 # (b2) a second rule block appended → refused (one addRule is the whole contract)
 { cat "$RULES_IN"; echo 'polkit.addRule(function(action, subject) { return polkit.Result.YES; });'; } \
   > "$TESTTMP/tmpl-tworules"

@@ -1,10 +1,10 @@
 // Kempt passwordless updates for @USER@ - installed/removed by `kempt enable/disable-passwordless`.
 // Scoped to the apply action ONLY (refresh is already no-dialog by policy).
-// KEEP the active+local scope test on ONE line, and the action id on one line: the render
-// self-check (render_passwordless_rule in lib/common.sh) greps both verbatim and refuses to
-// install a rule that lost either. Reflowing this file is what that check exists to catch.
-// Do not quote either clause verbatim in a comment: the check ignores comment lines precisely
-// so a commented-out copy can never stand in for the real one.
+// The render self-check (render_passwordless_rule in lib/common.sh) compares the CODE below,
+// comments stripped and whitespace collapsed, against one exact string. Re-indent or reflow it
+// freely; change what it SAYS and that string has to change with it. That is deliberate: this is
+// the only file Kempt can write that grants root, and a check that merely looked for the clauses
+// it wanted would accept a rule that also granted everything else.
 polkit.addRule(function(action, subject) {
     if (action.id == "io.github.erez_c137.kempt.apply" &&
         subject.user == "@USER@" && subject.active && subject.local) {

@@ -449,7 +449,7 @@ now_iso()      { date -Is; }
 # Split out of bin/kempt so the render and its self-check are unit-testable without touching
 # /etc: the ONLY thing this file's caller then does is hand the result to install(1).
 render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing written
-  local tmpl="$1" out="$2" u n
+  local tmpl="$1" out="$2" u
   # $(id -un), never $USER: a crafted USER env var used to be sed-injected into the render and
   # could drop the scope clause. id -un is kernel truth, awk -v never interprets it, and the
   # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
@@ -458,18 +458,28 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
     echo "unexpected username: $u - install the rules file manually; see polkit/49-kempt.rules.in" >&2
     return 2; }
   awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl" > "$out" || { rm -f "$out"; return 2; }
-  # Self-check BOTH halves plus the rule count. A template that lost the scope clause grants to
-  # inactive/remote sessions; one that lost the action id grants EVERY polkit action; a second
-  # addRule block could carry anything at all. Nothing unverified reaches install(1).
-  # Comment lines are stripped first: a grep that reads them would accept a rule whose scope
-  # survives only in a `//` comment while the code that runs has none.
-  local code
-  code="$(grep -v '^[[:space:]]*//' "$out" || true)"
-  n="$(grep -c 'polkit.addRule' <<<"$code" || true)"
-  if ! grep -q 'subject.active && subject.local' <<<"$code" \
-     || ! grep -q 'action.id == "io.github.erez_c137.kempt.apply"' <<<"$code" \
-     || [[ "$n" != 1 ]]; then
-    echo "rendered rule failed scope check" >&2; rm -f "$out"; return 2
+  # Self-check by EXACT MATCH against the rule this function is allowed to produce, not by
+  # grepping for the clauses that ought to be in it. Greps catch subtraction and miss addition:
+  # a template carrying the scope clause, the action id and a single addRule block passes every
+  # such test while ALSO carrying, one line earlier inside that same block, an unconditional
+  # `if (subject.user == "...") return polkit.Result.YES;` - which is passwordless root for every
+  # polkit action, from any session, including over SSH. That rendered clean and went straight to
+  # a root install(1). This is the one file Kempt can write that grants root, so what reaches
+  # install(1) is now the one string below or nothing.
+  #
+  # Comments are stripped and the rest is collapsed to a single whitespace-normalised line, so
+  # reflowing or re-indenting the template is fine and changing a token is not. A deliberate
+  # change to the rule means changing this string too - which is the review the file deserves.
+  local code expected
+  code="$(grep -v '^[[:space:]]*//' "$out" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
+  code="${code# }"; code="${code% }"
+  expected='polkit.addRule(function(action, subject) {'
+  expected+=' if (action.id == "io.github.erez_c137.kempt.apply" &&'
+  expected+=" subject.user == \"$u\" && subject.active && subject.local) {"
+  expected+=' return polkit.Result.YES; } });'
+  if [[ "$code" != "$expected" ]]; then
+    echo "rendered rule is not the rule this command installs - refusing" >&2
+    rm -f "$out"; return 2
   fi
 }
 

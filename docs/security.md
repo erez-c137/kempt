@@ -285,12 +285,20 @@ substitution could quietly break:
   metacharacters. A name that does not match aborts with an instruction to install the file by
   hand.
 - Substitution is `awk -v`, which never reinterprets the value as a pattern.
-- **The rendered file is verified before it is installed.** Comment lines are stripped first, and
-  what remains must contain the `subject.active && subject.local` scope test, must contain the
-  exact action id, and must contain exactly one `polkit.addRule`. If any of those fail, nothing
-  is written and the command exits 2. That catches the three ways a broken template turns into a
-  broken grant: losing the scope test (grants to inactive and remote sessions), losing the action
-  id (grants **every** polkit action), or gaining a second rule block that could say anything.
+- **The rendered file must be, exactly, the rule this command is allowed to install.** Comment
+  lines are stripped, the rest is collapsed to one whitespace-normalised line, and that line is
+  compared against a single string held in `lib/common.sh`. Anything else - one token different,
+  one clause more - writes nothing and exits 2.
+
+  It used to be three greps: the scope test must be present, the action id must be present, and
+  there must be exactly one `polkit.addRule`. Those catch a template that LOSES something and are
+  blind to one that GAINS something. A rule carrying all three required strings plus, inside that
+  same single block, an unconditional `if (subject.user == "you") return polkit.Result.YES;`
+  passed every one of them - and that rule is passwordless root for every polkit action from any
+  session, a remote one included. It is the only file Kempt can write that grants root, so the
+  test is now equality, not presence. Reflowing or re-indenting the template is still fine;
+  changing what it says means changing the string in `lib/common.sh` too, which is the review a
+  file like this deserves.
 - The destination is pinned before use, because that path is handed to a root `install(1)`.
   polkit reads **four** rules directories, in this order (polkit(8)):
 
