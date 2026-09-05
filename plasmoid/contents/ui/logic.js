@@ -154,6 +154,12 @@ var COPY = {
     // a sentence because the same word has to serve the tooltip, which was already saying it.
     held: "held",
     restartPending: "restart pending",
+    // What the footer gains while the counts above it are stale. It replaces a whole InlineMessage
+    // - a blue "i" box whose first word was "failed", carrying raw CLI text and no next step, and
+    // the fifth thing competing for a popup that fits two (hostile panel, M2 and M5). The line it
+    // joins is the DATELINE for those counts, which is exactly what staleness is about; the
+    // reason goes in the tooltip of the button that tries again.
+    lastCheckFailed: "last check failed",
     // What the footer says instead of a date. "No SUCCESSFUL check", not "not checked": the
     // footer's whole job is to date the counts by last_success, so its fallback has to be a
     // statement about last_success too. A box whose every check since install has failed HAS
@@ -784,6 +790,47 @@ function stagedMessageOf(staged) {
     return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
 }
 
+// --- how many messages the popup may show at once ------------------------------------------------
+//
+// Two. Measured: at the default popup size (26 x 24 grid units = 468 x 432 px) five messages left
+// the list 95 px tall, and at Layout.minimumHeight the messages alone overflowed - they sit
+// OUTSIDE the ScrollView, so nothing scrolled and the list, which is what the popup is for, was
+// simply gone (hostile panel, M2).
+//
+// This is a RULE and not four visibility bindings, which is why it lives here where a node test
+// can state it. A binding can say "am I true"; only something that sees all four can say "am I one
+// of the two that fit".
+var MESSAGE_CAP = 2;
+
+// Priority order, and each position is an argument:
+//   report   the thing the person just did - a run that finished, or a press that failed. First,
+//            because it is the answer to a question they asked seconds ago.
+//   staged   what the next restart will install, and whether a hold landed behind it. The one
+//            message that changes what the rest of the popup may offer.
+//   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
+//            pending" whenever this message is not on screen, so the fact is never lost.
+//   kernel   the offline recommendation. Last because it is advice about a transaction that is
+//            still sitting there, and it will still be there next time the popup is opened.
+var MESSAGE_ORDER = ["report", "staged", "restart", "kernel"];
+
+// messageStack(wants) -> the names of the messages that may actually be drawn, in order.
+//
+// `engineMissing` is not in the order at all: it shows ALONE. Everything below it presumes an
+// engine that answered, and a box with no CLI has nothing else true to say.
+//
+// Anything displaced shows NOTHING. It does not shuffle into the next slot when something above
+// it goes away mid-glance, and it does not stack below the fold - a message the person cannot see
+// is a message that is not being shown, and pretending otherwise is how five of them got here.
+function messageStack(wants) {
+    var w = (wants && typeof wants === "object") ? wants : {};
+    if (w.engineMissing) return ["engineMissing"];
+    var out = [], i;
+    for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
+        if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
+    }
+    return out;
+}
+
 // stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
 // transaction is armed, or "" when none is.
 //
@@ -1383,7 +1430,12 @@ function viewModel(state, updating, cliError, opts) {
 
     var countPhrase = "";
     if (usable) {
-        countPhrase = actionable === 0 ? COPY.upToDate
+        // "Up to date" over a list of rows with waiting versions in it is a lie by omission, and
+        // the popup draws exactly that whenever every pending update is held (hostile panel, P8).
+        // Nothing is ACTIONABLE, which is what the badge and the button are about; the header is
+        // the sentence, and the sentence owes the held count.
+        countPhrase = actionable === 0
+            ? (heldTotal > 0 ? COPY.upToDate + DOT + heldTotal + " " + COPY.held : COPY.upToDate)
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 
@@ -1406,6 +1458,36 @@ function viewModel(state, updating, cliError, opts) {
     // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
     // variant, so "which banner is this" is decided in exactly one place.
     var stagedWarning = stagedVariant.type === "warning";
+
+    // What to DO about a session-critical set, which is a different question from how big it is.
+    //
+    // Silent while a transaction is already staged, and that is not a tidying-up: this message IS
+    // the "Install on Next Restart" offer, and offering it over a transaction that is already
+    // armed invites a second staging of the same updates. On 2026-09-01 that is exactly what
+    // happened - staged at 10:31, nothing visibly changed, staged again at 10:36. The staged
+    // message takes its place and explains why nothing is being offered. riskySummary is
+    // deliberately NOT silenced: those packages really are still pending until the restart runs.
+    //
+    // isArray, not a duck-typed length check. A STRING has a numeric length and indexes into its
+    // own characters, so `risky_pending: "kernel-core"` used to walk out of here as "11
+    // session-critical pending (c, e, k, l, ...)" - eleven package families invented out of one
+    // word. The state file is JSON from another program and a schema-1 reader has to tolerate a
+    // key of the wrong type; tolerating it means ignoring it, not iterating it.
+    var riskyMessage = staged ? "" : riskyMessageOf(
+        usable && isArray(state.risky_pending) ? state.risky_pending : []);
+
+    // Strictly the boolean, and only out of a state this build can read. In this schema `false`
+    // means "nothing to say", NEVER "no restart needed", and that is not a theoretical caution:
+    // backends/dnf.sh's dnf_reboot_needed answers false plus a warning whenever the command could
+    // not work the verdict out - rc 1 with an empty stdout (a cold user cache, the DEFAULT state
+    // on a fresh install) and every unexpected rc both land there. So a false is indistinguishable
+    // from "we could not tell", and nothing here renders an affirmative from it: a message when it
+    // is true, silence otherwise. docs/architecture.md's state schema table states the same rule
+    // for every reader.
+    //
+    // Derived up here rather than with the restart message below, because the panel TOOLTIP reads
+    // it too now: a pending restart used to be invisible from the panel entirely.
+    var rebootNeeded = usable && state.reboot_needed === true;
 
     var tooltipMain, headerText;
     if (updating) {
@@ -1484,6 +1566,11 @@ function viewModel(state, updating, cliError, opts) {
             subParts.push(staleReason);
             subParts.push("last successful check: " + lastSuccessText);
         }
+        // A pending restart was invisible from the panel: neither the icon nor this line mentioned
+        // it, so the one fact that needs an action from the person could only be found by opening
+        // the popup. Discover's own notifier has a "Restart is required" state (hostile panel, 4).
+        // Last, because it is a fact about the machine rather than about the counts above it.
+        if (rebootNeeded) subParts.push(COPY.restartPending);
     }
 
     // What the popup shows where the list would be, when there is no list to show.
@@ -1514,15 +1601,7 @@ function viewModel(state, updating, cliError, opts) {
     var remedyCommand = (!engineMissing && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
-    // Strictly the boolean, and only out of a state this build can read. In this schema `false`
-    // means "nothing to say", NEVER "no restart needed", and that is not a theoretical caution:
-    // backends/dnf.sh's dnf_reboot_needed answers false plus a warning whenever the command could
-    // not work the verdict out - rc 1 with an empty stdout (a cold user cache, the DEFAULT state
-    // on a fresh install) and every unexpected rc both land there. So a false is indistinguishable
-    // from "we could not tell", and nothing here renders an affirmative from it: a message when it
-    // is true, silence otherwise. docs/architecture.md's state schema table states the same rule
-    // for every reader.
-    var rebootNeeded = usable && state.reboot_needed === true;
+    // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
     // Absent is not false: the caller simply did not say, and the CLI's default is true.
     var restartReminder = (opts.restartReminder === undefined || opts.restartReminder === null)
         ? true : isTrue(opts.restartReminder);
@@ -1545,6 +1624,25 @@ function viewModel(state, updating, cliError, opts) {
     // age to date. "Not checked yet" would have conflated that with a box that never ran a check
     // at all - and the two differ precisely on the bad day, where a stale state carries a
     // last_check and an empty last_success.
+    // --- which messages actually fit ------------------------------------------------------------
+    // Decided HERE and not in the popup, because the footer depends on the answer: a restart the
+    // cap displaced has to reappear as "restart pending" on the status line, and a popup that made
+    // this decision by itself would leave logic.js unable to tell whether it had.
+    //
+    // `reportShown` is the one input this file cannot derive. The post-run line and a failed
+    // press are main.qml's own state, not the CLI's, so the caller passes the answer in - the same
+    // way it passes the clock and the two halves of the restart reminder.
+    var messageSlots = messageStack({
+        engineMissing: engineMissingMessage !== "",
+        report: opts.reportShown === true,
+        // ...including `updating`, because a run hides the whole stack. Without it the popup's own
+        // dismissal guard could not tell a run starting from the user closing the message.
+        restart: restartMessageVisible && !updating,
+        staged: staged,
+        kernel: riskyMessage !== ""
+    });
+    var restartShown = messageSlots.indexOf("restart") >= 0;
+
     var footerParts = [];
     if (usable) {
         // Three answers, and the third one is silence. A stamp that is present and unreadable
@@ -1556,6 +1654,11 @@ function viewModel(state, updating, cliError, opts) {
         else if (isRenderableStamp(state.last_success)) {
             footerParts.push("Checked " + relativeTime(state.last_success, opts.nowMs));
         }
+        // ...and the staleness, right beside the date it explains. This is the whole of the stale
+        // InlineMessage now: three words on the line that dates the counts, with the CLI's own
+        // reason one hover away on the button that tries again. It is not an alarm - the counts
+        // above are still the best known truth - and it never was worth a box of its own.
+        if (stale) footerParts.push(COPY.lastCheckFailed);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
@@ -1574,7 +1677,10 @@ function viewModel(state, updating, cliError, opts) {
     // Beside Update Now, which is the question it answers: pressing this costs about this much.
     // Same two conditions as the tooltip, and the same silence when either fails.
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
-    if (rebootNeeded && !restartMessageVisible) footerParts.push(COPY.restartPending);
+    // ...and the restart, whenever the message is not the thing carrying it. That now includes a
+    // restart the CAP displaced, which is what makes displacing it honest rather than merely
+    // quiet: the fact is never lost, it moves to the line that always has room.
+    if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
 
     return {
         iconState: iconState,
@@ -1618,8 +1724,7 @@ function viewModel(state, updating, cliError, opts) {
         // The staged message takes its place and explains why nothing is being offered.
         // riskySummary above is deliberately NOT silenced: those packages really are still
         // pending until the restart runs, and the count stays true.
-        riskyMessage: staged ? "" : riskyMessageOf(
-            usable && isArray(state.risky_pending) ? state.risky_pending : []),
+        riskyMessage: riskyMessage,
         stagedMessage: stagedMessage,
         // "there is an armed transaction", in one boolean, for the surfaces that have to stand
         // down rather than say something about it. Update Now is hidden on this: pressing it over
@@ -1665,7 +1770,10 @@ function viewModel(state, updating, cliError, opts) {
         // that state a restart installs the very package the warning says the person tried to keep
         // out, and the design had already removed the button from the warning for exactly that
         // reason while leaving the identical one a row above it (hostile panel, HIG M1).
-        restartShowAction: restartMessageVisible && !stagedWarning,
+        restartShowAction: restartShown && !stagedWarning,
+        // Which messages the popup may draw, in order, and never more than two of them. The rule
+        // and its reasons are messageStack above.
+        messageSlots: messageSlots,
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
@@ -1695,6 +1803,8 @@ if (typeof module !== "undefined" && module.exports) {
         riskyMessageOf: riskyMessageOf,
         stagedMessageOf: stagedMessageOf,
         stagedVariantOf: stagedVariantOf,
+        messageStack: messageStack,
+        MESSAGE_CAP: MESSAGE_CAP,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,

@@ -202,7 +202,8 @@ assert_eq "$(js 'V("held-only",false).heldItems.length')" "10" "every held item 
 assert_eq "$(js 'V("held-only",false).sections.length')" "0" "a held-only state renders no pending sections"
 assert_eq "$(js 'V("live",false).heldItems.length')" "0" "nothing held => an empty Held list"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:2,backends:{}},false).headerText')" \
-  "Up to date" "the header stays up to date when only held items are pending"
+  "Up to date · 2 held" \
+  "the header stays up to date when only held items are pending, and says how many they are"
 
 # --- stale: last known counts stay on the badge, the staleness goes in the tooltip ---
 # Expected values are derived from the fixture, so a re-capture cannot silently drift the test;
@@ -1077,16 +1078,25 @@ assert_eq "$(js 'V("live",false).iconState')" "updates" "schema 1 is of course s
 assert_eq "$(js 'L.viewModel({hello:"world"},false).badgeVisible')" "false" "...and it badges nothing"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...and lists nothing"
 
-# --- reboot_needed: the additive key, now that it has a reader -------------------------------
+# --- reboot_needed: the additive key, now that it has readers ---------------------------------
 # state-reboot-needed.json is state-live.json plus that one key, which makes the pair a controlled
-# experiment: the key must move the restart surfaces and NOTHING else. Compared with those two
-# fields removed, inside ONE node process, because a whole-object comparison is the only form that
+# experiment: the key must move the restart surfaces and NOTHING else. Compared with those fields
+# removed, inside ONE node process, because a whole-object comparison is the only form that
 # catches a key quietly changing something far from where it was added.
-STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; delete v.restartShowAction; return JSON.stringify(v); }'
+#
+# tooltipSub is on the list now, and it is a surface rather than a casualty: a pending restart used
+# to be invisible from the panel, so the one fact that needs an action from the person could only
+# be found by opening the popup (hostile panel, 4). It is compared with the two words removed.
+STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; delete v.restartShowAction; delete v.tooltipSub; delete v.messageSlots; return JSON.stringify(v); }'
 assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
+assert_eq "$(js 'V("reboot-needed",false).tooltipSub.indexOf(L.COPY.restartPending) >= 0')" "true" \
+  "...and the panel tooltip gains the two words that say so"
+assert_eq "$(js 'V("reboot-needed",false).tooltipSub.replace(/(^| - )restart pending$/, "")')" \
+  "$(js 'V("live",false).tooltipSub')" \
+  "...appended, changing nothing else that was already in it"
 # ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
-for _prop in badgeText badgeVisible iconState tooltipMain tooltipSub headerText actionable heldTotal; do
+for _prop in badgeText badgeVisible iconState tooltipMain headerText actionable heldTotal; do
   assert_eq "$(js "V(\"reboot-needed\",false).$_prop")" "$(js "V(\"live\",false).$_prop")" \
     "reboot_needed does not disturb $_prop"
 done
@@ -1209,7 +1219,8 @@ assert_eq "$(vm "{nowMs:$NOW}" '' 2 'footerText')" "Checked 4 min ago · 2 held"
   "held items are named in the footer, never as \"held back\""
 assert_eq "$(vm "{nowMs:$NOW}" '' 1 'footerText')" "Checked 4 min ago · 1 held" "...singular or not, one word"
 assert_eq "$(js "L.viewModel({schema:1,status:\"stale\",error:\"x\",actionable:1,held_total:0,last_check:\"2026-08-26T23:00:00+03:00\",last_success:\"2026-08-26T12:00:00+03:00\",backends:{}},false,\"\",{nowMs:$NOW + 60000}).footerText")" \
-  "Checked 5 min ago" "the footer reads last_success, never the newer last_check"
+  "Checked 5 min ago · last check failed" \
+  "the footer reads last_success, never the newer last_check - and says why the two differ"
 assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerText")" \
   "No successful check yet" "a box with no successful check says so rather than inventing an age"
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "No successful check yet" \
@@ -1221,7 +1232,8 @@ assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "No suc
 # looks exactly like this, and it is the box most likely to have the popup open.
 FAILED_ALWAYS='{schema:1,status:"stale",error:"repository metadata unavailable",actionable:0,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{}}'
 assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).footerText")" \
-  "No successful check yet" "a box that has checked and never succeeded says exactly that"
+  "No successful check yet · last check failed" \
+  "a box that has checked and never succeeded says exactly that, and that the last one failed"
 assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).headerText")" \
   "Kempt cannot check for updates" "...while the header says what is actually wrong with it"
 # ...and this is the state that settles the wording, because here the header does NOT carry the
@@ -1234,7 +1246,8 @@ STALE_NO_SUCCESS='{schema:1,status:"stale",error:"repo flapped",actionable:2,hel
 assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "2 updates available" \
   "a stale state with known counts heads the popup with a count, not with a warning"
 assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerText")" \
-  "No successful check yet" "...so the footer beneath it has to be true standing alone"
+  "No successful check yet · last check failed" \
+  "...so the footer beneath it has to be true standing alone"
 assert_eq "$(vm '{}' '' 0 'footerText')" "Checked 2026-08-26 12:00 +03:00" \
   "with no clock the footer falls back to the absolute stamp, like relativeTime everywhere else"
 
@@ -1630,6 +1643,89 @@ assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
   "61 updates are staged - they install on the next restart" \
   "an ordinary armed stage still says what the restart will do, and nothing about rebuilding"
 
+# --- the message stack, capped at two (panel proposal 6 / decision D5) ---------------------------
+# Five messages left the list 95 px tall at the default popup size (26x24 grid units = 468x432),
+# and at Layout.minimumHeight the messages alone overflowed - they sit OUTSIDE the ScrollView, so
+# nothing scrolled and the list was simply gone. The rule is a pure function here rather than four
+# visibility bindings in QML, because "which two" is a decision and a binding cannot state one.
+assert_eq "$(js 'L.messageStack({engineMissing:true, report:true, staged:true, restart:true, kernel:true})')" \
+  '["engineMissing"]' \
+  "a box with no engine shows that and nothing else: everything below it presumes an engine"
+assert_eq "$(js 'L.messageStack({report:true, staged:true, restart:true, kernel:true})')" \
+  '["report","staged"]' \
+  "otherwise at most two, in priority order - the thing you just did, then the thing that changed"
+assert_eq "$(js 'L.messageStack({staged:true, restart:true, kernel:true})')" \
+  '["staged","restart"]' "...and the kernel notice is what gives way to a staged banner"
+assert_eq "$(js 'L.messageStack({restart:true, kernel:true})')" '["restart","kernel"]' \
+  "...two is two, whichever two they are"
+assert_eq "$(js 'L.messageStack({kernel:true})')" '["kernel"]' "one is one"
+assert_eq "$(js 'L.messageStack({})')" "[]" "and none is none"
+assert_eq "$(js 'L.messageStack(undefined)')" "[]" "a caller with nothing to say is not an error"
+# Anything displaced shows NOTHING - it does not shuffle down a slot and it does not stack. The
+# restart fact is already in the footer whenever the restart message is not on screen, which is
+# what makes dropping it honest rather than merely quiet.
+assert_eq "$(js 'L.messageStack({report:true, staged:true, restart:true}).indexOf("restart")')" "-1" \
+  "a displaced message shows nothing at all rather than shuffling down"
+assert_eq "$(js 'L.MESSAGE_CAP')" "2" "the cap is stated once, where the rule is"
+
+# ...and the same rule reached through the view model, which is where the popup binds it. The one
+# input logic.js cannot derive is passed in: the post-run line and a failed press are main.qml's own
+# state, not the CLI's.
+STACK_ALL='{schema:1,status:"ok",actionable:3,held_total:1,reboot_needed:true,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",risky_pending:["kernel-core","glibc"],backends:{dnf:{enabled:true,items:[{name:"kf6-kio",from:"1",to:"2",held:true}]}},offline_staged:{staged_at:"x",count:61,armed:true,holds_conflict:["kf6-kio"],names_source:"transaction"}}'
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true}).messageSlots")" \
+  '["report","staged"]' \
+  "with a report, a staged conflict and an owed restart all true, the popup draws the first two"
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).messageSlots")" \
+  '["staged","restart"]' "...and without the report, the restart takes the second slot"
+# The displaced restart is not lost: it moves to the line that always has room. That is what makes
+# dropping it honest rather than merely quiet.
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true}).footerText.indexOf('restart pending') >= 0")" \
+  "true" "a restart the cap displaced reappears on the status line"
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).footerText.indexOf('restart pending') >= 0")" \
+  "false" "...and stops being repeated there the moment the message is back on screen"
+# A run hides the whole stack, so the restart message is not what is carrying the fact then either.
+assert_eq "$(js "L.viewModel($STACK_ALL,true,'',{reportShown:false}).messageSlots.indexOf('restart')")" \
+  "-1" "a run in flight is not a moment when the restart message is carrying anything"
+# The kernel notice is silenced by a staged transaction long before the cap is reached, which is
+# why it is last in the order and rarely the one displaced.
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessage")" "" \
+  "premise: an armed stage silences the offline offer, so it is not competing here at all"
+
+# --- the footer carries the staleness the message used to ---------------------------------------
+# The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
+# and it was the fifth thing competing for a popup that fits two. The dateline it explains is one
+# line below it, so that is where the fact goes; the reason goes in the Refresh tooltip, next to
+# the button that tries again.
+STALE_FTR='{schema:1,status:"stale",actionable:3,held_total:0,error:"dnf check failed",last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T10:00:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($STALE_FTR,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).footerText")" \
+  "Checked 2 hours ago · last check failed" \
+  "a stale box dates its counts and says the check failed, on the one line that dates them"
+assert_eq "$(js "L.viewModel($STALE_FTR,false).staleReason")" "dnf check failed" \
+  "...with the CLI's own reason still published, for the tooltip beside the button that retries"
+assert_eq "$(js 'L.COPY.lastCheckFailed')" "last check failed" \
+  "copy: the three words the footer gains while the counts above it are stale"
+FRESH_FTR='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($FRESH_FTR,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).footerText.indexOf('last check failed')")" \
+  "-1" "...and a healthy box says nothing of the kind"
+
+# --- "Up to date" over a list of held rows was a lie by omission ---------------------------------
+HELD_HDR='{schema:1,status:"ok",actionable:0,held_total:2,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",backends:{dnf:{enabled:true,items:[{name:"a",from:"1",to:"2",held:true},{name:"b",from:"1",to:"2",held:true}]}}}'
+assert_eq "$(js "L.viewModel($HELD_HDR,false).headerText")" "Up to date · 2 held" \
+  "nothing actionable and two held: the header says both, over a list that shows the two"
+assert_eq "$(js 'V("held-only",false).headerText')" "Up to date · 10 held" \
+  "...on a real capture whose every pending update is held"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).headerText')" \
+  "Up to date" "...and a box with nothing held at all still just says Up to date"
+
+# --- the panel tooltip owes the restart too -------------------------------------------------------
+# Neither the icon nor the tooltip mentioned a pending restart, so the fact was invisible until the
+# popup was opened. Discover's own notifier has a "Restart is required" state (hostile panel, 4).
+REBOOT_TIP='{schema:1,status:"ok",actionable:3,held_total:0,reboot_needed:true,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($REBOOT_TIP,false).tooltipSub.indexOf('restart pending') >= 0")" "true" \
+  "a box that owes a restart says so on hover, without the popup being opened"
+assert_eq "$(js "L.viewModel($FRESH_FTR,false).tooltipSub.indexOf('restart pending') >= 0")" "false" \
+  "...and one that does not, does not"
+
 # --- the copy table -----------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
@@ -1783,7 +1879,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingCopyText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingCopyText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","messageSlots","rebootNeeded","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

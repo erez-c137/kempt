@@ -145,6 +145,26 @@ PlasmoidItem {
     // persistent Last update row is hidden, and it clears when the popup closes or a check starts.
     property string postRunLine: ""
 
+    // Which of the two reports is the LATEST, and therefore the one the popup shows: "run" for
+    // postRunLine, "failure" for actionMessage, "" for neither. They used to be two InlineMessages
+    // stacked one above the other, in a popup that fits two messages in total (hostile panel, M2).
+    //
+    // Kept as a third property rather than as a timestamp on each, because these two are assigned
+    // from a dozen places between them and a stamp that one assignment forgot would silently pick
+    // the wrong winner. A change handler cannot be forgotten: it fires on every assignment there
+    // is, including the ones that clear.
+    property string reportLatest: ""
+    onActionMessageChanged: reportLatest = actionMessage.length > 0 ? "failure"
+                            : (postRunLine.length > 0 ? "run" : "")
+    onPostRunLineChanged: reportLatest = postRunLine.length > 0 ? "run"
+                          : (actionMessage.length > 0 ? "failure" : "")
+    readonly property string reportText: reportLatest === "failure" ? actionMessage
+                                         : (reportLatest === "run" ? postRunLine : "")
+    // A failed press is an error; a run is an error when the run failed, whatever its counts say.
+    readonly property bool reportFailed:
+        reportLatest === "failure"
+        || (reportLatest === "run" && lastRun !== null && lastRun.failed)
+
     // When the run we are watching STARTED, as milliseconds. Only meaningful while `updating` is
     // true, and 0 means we never saw one start.
     //
@@ -172,7 +192,12 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
-                                                engineMissing: engineMissing })
+                                                engineMissing: engineMissing,
+                                                // The one input logic.js cannot derive: the
+                                                // post-run line and a failed press are this
+                                                // file's own state, not the CLI's, and the
+                                                // message cap has to see them.
+                                                reportShown: reportText.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI

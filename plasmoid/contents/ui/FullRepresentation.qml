@@ -147,6 +147,18 @@ PlasmaExtras.Representation {
                                                   : Accessible.AnnouncementPoliteness.Polite);
     }
 
+    // --- how many messages may be on screen -----------------------------------------------------
+    // Two, and WHICH two is logic.js's rule rather than four visibility bindings: a binding can
+    // say "am I true", and only something that sees all four can say "am I one of the two that
+    // fit". Measured before this: five messages left the list 95 px tall at the default popup
+    // size, and at Layout.minimumHeight the messages alone overflowed - they are outside the
+    // ScrollView, so nothing scrolled and the list was gone entirely (hostile panel, M2).
+    readonly property var messageSlots: popup.vm.messageSlots
+
+    function shows(slot) {
+        return popup.messageSlots.indexOf(slot) >= 0;
+    }
+
     // A message whose words changed under the reader. Kirigami gives every InlineMessage the
     // AlertMessage role and no name, and a name change on an UNFOCUSED object is not spoken - it
     // is readable in flat review and nothing else. So the banner that flips from "61 updates are
@@ -313,8 +325,16 @@ PlasmaExtras.Representation {
                 // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8) -
                 // and it says what pressing this DOES rather than repeating the label, which is
                 // what QQC2 already hands over as the name.
-                Accessible.description: i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
-                PlasmaComponents.ToolTip.text: text
+                //
+                // ...and it carries the CLI's own reason when the last check failed. That reason
+                // used to be a whole InlineMessage; it belongs on the button that tries again, and
+                // the footer beside it says that a check failed at all.
+                Accessible.description: popup.vm.stale && popup.vm.staleReason.length > 0
+                    ? i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+                      + "\n" + popup.vm.staleReason
+                    : i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+                PlasmaComponents.ToolTip.text: popup.vm.stale && popup.vm.staleReason.length > 0
+                                               ? text + "\n" + popup.vm.staleReason : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 // Enter, which sent nothing at all before: QQC2 activates on Space only. The
@@ -422,7 +442,7 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Information
             text: popup.vm.engineMissingMessage
             Accessible.name: text
-            visible: popup.vm.engineMissingMessage.length > 0
+            visible: popup.shows("engineMissing")
             actions: [
                 Kirigami.Action {
                     text: i18n("Copy Commands")
@@ -460,9 +480,11 @@ PlasmaExtras.Representation {
             // alert's own. Every message in this stack carries it, the two that only ever report
             // a failure included: a message nobody can hear is a message that is not being shown.
             Accessible.name: text
-            // Both reasons this can be hidden are written into this one expression, and the handler
-            // below re-evaluates the SAME expression. See there for why that matters.
-            visible: popup.vm.restartMessageVisible && !popup.plasmoidItem.updating
+            // Every reason this can be hidden is behind this one call, and the handler below
+            // re-evaluates the SAME call. See there for why that matters. The third reason is new:
+            // the stack fits two, and the restart is the cheapest of the four to displace because
+            // the footer says "restart pending" whenever this message is not on screen.
+            visible: popup.shows("restart")
             // A prompt that could not be opened says so HERE, where the user pressed. Silence is
             // the worst outcome available: a button that appears to do nothing is indistinguishable
             // from one that did something invisible.
@@ -500,11 +522,9 @@ PlasmaExtras.Representation {
             // and an update would quietly switch the reminder off for the rest of the session.
             onVisibleChanged: {
                 if (visible) return;
-                if (!(popup.vm.restartMessageVisible && !popup.plasmoidItem.updating)) return;
+                if (!popup.shows("restart")) return;
                 popup.plasmoidItem.dismissRestart();
-                visible = Qt.binding(function () {
-                    return popup.vm.restartMessageVisible && !popup.plasmoidItem.updating;
-                });
+                visible = Qt.binding(function () { return popup.shows("restart"); });
             }
         }
 
@@ -539,7 +559,7 @@ PlasmaExtras.Representation {
             // then later "Warning" - and the difference between the two banners would be a colour,
             // which for that person is no difference at all. The sentence already says everything.
             Accessible.name: text
-            visible: popup.vm.stagedMessage.length > 0
+            visible: popup.shows("staged")
             // ...and it has to be HEARD, not merely readable. See popup.speakMessage. Assertive,
             // because this is not the outcome of a press: it is the machine telling the person
             // that what they were promised has changed under them.
@@ -608,7 +628,7 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Information
             text: popup.vm.riskyMessage
             Accessible.name: text
-            visible: popup.vm.riskyMessage.length > 0
+            visible: popup.shows("kernel")
             actions: [
                 Kirigami.Action {
                     // Named for what it does to the user rather than for the dnf5 flag behind it.
@@ -625,62 +645,42 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // Stale: what went wrong, and how old the numbers below it therefore are. Information and
-        // not Warning, deliberately - the counts under it are still the best known truth, and this
-        // is an explanation rather than an alarm.
+        // ONE slot for the two reports: what the run that just finished did, and what a button
+        // press that failed had to say. They were two messages stacked one above the other in a
+        // popup that fits two in total, they are never the same event, and the later one is always
+        // the one being asked about - so latest wins, and main.qml decides which that is.
+        //
+        // The stale explanation is not here at all any more. It was a blue "i" box whose first
+        // word was "failed", carrying the CLI's raw text with no next step, and the fifth thing
+        // competing for the room. It is three words on the footer's dateline now, which is the
+        // line it was always explaining, with the reason in the Refresh button's tooltip.
         Kirigami.InlineMessage {
-            id: staleMessage
+            id: reportMessage
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            visible: popup.vm.stale && popup.vm.staleReason.length > 0
+            type: popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
+                                                  : Kirigami.MessageType.Positive
+            text: popup.plasmoidItem.reportText
+            visible: popup.shows("report")
             Accessible.name: text
-            text: i18n("%1 (last successful check: %2)", popup.vm.staleReason, popup.vm.lastSuccessText)
-        }
-
-        // What the run that just finished did, once. main.qml clears this when the popup closes or
-        // the next check starts, and while it is on screen the persistent Last update row below
-        // stays away: one event, one line at a time.
-        Kirigami.InlineMessage {
-            id: postRunMessage
-            Layout.fillWidth: true
-            // A failed run is an error whatever its counts say. The counts come from the same
-            // entry, so the two can never disagree about which run this was.
-            type: (popup.plasmoidItem.lastRun && popup.plasmoidItem.lastRun.failed)
-                  ? Kirigami.MessageType.Error : Kirigami.MessageType.Positive
-            text: popup.plasmoidItem.postRunLine
-            visible: popup.plasmoidItem.postRunLine.length > 0
-            Accessible.name: text
-            // Assertive: a run that has just finished, or failed, is the answer to the one thing
-            // the person was waiting for, and the popup may well not have the focus.
+            // Assertive: a run that has just finished, or a press that failed, is the answer to
+            // the one thing the person was waiting for, and the popup may not have the focus.
             property string spoken: ""
-            onTextChanged: popup.speakMessage(postRunMessage, true)
-            onVisibleChanged: popup.speakMessage(postRunMessage, true)
+            onTextChanged: popup.speakMessage(reportMessage, true)
+            onVisibleChanged: popup.speakMessage(reportMessage, true)
             actions: [
                 Kirigami.Action {
                     text: i18n("Show Log")
                     icon.name: "text-x-generic"
-                    // A history entry old enough - or damaged enough - to have no log is an
-                    // ordinary event, and an action that cannot do anything should not be offered.
-                    enabled: !!popup.plasmoidItem.lastRun
+                    // Only for a RUN, and only for one that recorded a log: a history entry old
+                    // enough (or damaged enough) to have none is an ordinary event, and a failed
+                    // button press has no log at all.
+                    enabled: popup.plasmoidItem.reportLatest === "run"
+                             && !!popup.plasmoidItem.lastRun
                              && popup.plasmoidItem.lastRun.logPath.length > 0
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
                 }
             ]
-        }
-
-        // All that is left of the old label under the buttons: a button press that failed and has
-        // something to say. main.qml clears it on the next press.
-        Kirigami.InlineMessage {
-            id: actionFailureMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Error
-            text: popup.plasmoidItem.actionMessage
-            Accessible.name: text
-            visible: popup.plasmoidItem.actionMessage.length > 0
-            property string spoken: ""
-            onTextChanged: popup.speakMessage(actionFailureMessage, true)
-            onVisibleChanged: popup.speakMessage(actionFailureMessage, true)
         }
 
         // --- the list, and what stands in for it when there is none --------------------------------
@@ -850,7 +850,7 @@ PlasmaExtras.Representation {
             boundsBehavior: Flickable.StopAtBounds
             // One event, one line at a time: while the transient post-run message is up there, this
             // is the same fact told twice.
-            visible: popup.plasmoidItem.lastRun !== null && popup.plasmoidItem.postRunLine.length === 0
+            visible: popup.plasmoidItem.lastRun !== null && !popup.shows("report")
             model: 1
 
             delegate: PlasmaExtras.ExpandableListItem {
@@ -934,6 +934,19 @@ PlasmaExtras.Representation {
                 elide: Text.ElideRight
                 font: Kirigami.Theme.smallFont
                 opacity: 0.8
+
+                // ...and said out loud when the box GOES stale, politely. Keyed on the reason and
+                // not on the whole line, because this text is rewritten every thirty seconds by
+                // the clock ("Checked 4 min ago") and a screen reader does not want to hear that.
+                // Polite, because nothing has gone wrong that needs interrupting: the counts above
+                // are still the best known truth and this dates them.
+                property string spokenStale: ""
+                onTextChanged: {
+                    const reason = popup.vm.stale ? popup.vm.staleReason : "";
+                    if (reason === footerLabel.spokenStale) return;
+                    footerLabel.spokenStale = reason;
+                    if (reason !== "") popup.announce(footerLabel.text, false);
+                }
 
                 // The relative time in the line is the convenience; the absolute stamp is the
                 // truth, and people compare the two (hig-review.md P6). A HoverHandler rather than

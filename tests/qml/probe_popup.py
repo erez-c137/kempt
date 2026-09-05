@@ -883,9 +883,7 @@ QtObject {
                 ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
                 ("riskyMessage", "the session-critical warning"),
-                ("staleMessage", "the stale explanation"),
-                ("postRunMessage", "the post-run line"),
-                ("actionFailureMessage", "the failed-action message")]
+                ("reportMessage", "the report of the last thing that happened")]
 
     def stack(situation, *shown):
         """Assert the WHOLE stack for one real state: what is up, and what is not."""
@@ -1040,6 +1038,39 @@ QtObject {
     p.check("...and the staged warning has none either, so nothing on screen offers that restart",
             lev("stagedMessage.actions[0].visible"), False)
 
+    # --- the cap, with more true things to say than there is room for ---------------------------
+    # Five messages left the list 95 px tall at the default popup size, and at the minimum they
+    # overflowed the popup entirely - they sit outside the ScrollView, so nothing scrolled and the
+    # list was gone (hostile panel, M2). Three want the screen here: a press that failed, a staged
+    # transaction with a hold behind it, and a restart the box already owes.
+    ev('root.actionMessage = "Could not change the hold on bash."')
+    p.pump(80)
+    p.check("three things are true at once", ev("root.vm.restartMessageVisible"), True)
+    stack("with three messages wanting the screen", "reportMessage", "stagedMessage")
+    p.check("...so exactly two are drawn, and no more", lev("popup.messageSlots.length"), 2)
+    p.check("...in priority order: what you just did, then what changed under you",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["report", "staged"])
+    p.check("...and the restart is not lost, it is in the footer, which is why it gives way first",
+            "restart pending" in str(lev("footerLabel.text")), True)
+    ev('root.actionMessage = ""')
+    p.pump(80)
+    p.check("with the failed press cleared, the restart comes back into the second slot",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["staged", "restart"])
+    p.check("...and the footer stops repeating what the message is now carrying",
+            "restart pending" in str(lev("footerLabel.text")), False)
+
+    # ...and the engine-missing case, which shows ALONE however much else is true.
+    ev("root.engineMissing = true")
+    ev("root.kemptState = null")
+    p.pump(80)
+    p.check("a box with no engine says that and nothing else",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["engineMissing"])
+    ev("root.engineMissing = false")
+    state(fixture("state-live.json"))
+    ev('root.postRunLine = ""')
+    ev("root.restartDismissed = false")
+    p.pump(80)
+
     state(CONFLICT3)
     p.check("three held packages read as the first one and a count, every word moved with it",
             lev("stagedMessage.text"),
@@ -1149,8 +1180,18 @@ QtObject {
     settle()
     ev('root.actionMessage = ""')
 
+    # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
+    # own reason in the tooltip of the button that tries again.
     state(fixture("state-stale.json"))
-    stack("with the last check failed over known counts", "staleMessage")
+    stack("with the last check failed over known counts")
+    p.check("...the footer says a check failed, on the line that dates the counts it explains",
+            "last check failed" in str(lev("footerLabel.text")), True)
+    p.check("...and the reason is on the button that would try again",
+            str(lev("refreshButton.PlasmaComponents.ToolTip.text")).endswith(
+                str(ev("root.vm.staleReason"))), True)
+    p.check("...for a screen reader too, since a tooltip is a pointer's channel",
+            str(lev("refreshButton.Accessible.description")).endswith(
+                str(ev("root.vm.staleReason"))), True)
 
     state(UPTODATE)
     stack("with nothing at all pending")
@@ -1219,9 +1260,12 @@ QtObject {
     state(fixture("state-live.json"))
     ev('root.actionMessage = "Could not change the hold on bash."')
     p.pump(50)
-    stack("after a button press that failed", "actionFailureMessage")
+    stack("after a button press that failed", "reportMessage")
     p.check("...saying what failed, in the words main.qml was given",
-            lev("actionFailureMessage.text"), "Could not change the hold on bash.")
+            lev("reportMessage.text"), "Could not change the hold on bash.")
+    p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
+    p.check("...with no Show Log on it, because a failed press wrote no log",
+            lev("reportMessage.actions[0].visible"), False)
     ev('root.actionMessage = ""')
     p.pump(50)
 
@@ -1407,11 +1451,13 @@ QtObject {
 
     # --- the stale explanation --------------------------------------------------------------------------
     state(fixture("state-stale.json"))
-    p.check("the stale message is an explanation, not an alarm",
-            lev("staleMessage.type"), lev("Kirigami.MessageType.Information"))
-    p.check("...carrying the CLI's own reason and the age of the counts under it",
-            lev("staleMessage.text"),
-            "dnf check failed (last successful check: 2026-08-25 10:59 +03:00)")
+    p.check("staleness is not a message at all any more: the popup fits two, and this was the fifth",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), [])
+    p.check("...the fact is on the footer's dateline",
+            "last check failed" in str(lev("footerLabel.text")), True)
+    p.check("...and the CLI's own reason, which is what a person has to act on, is one hover from "
+            "the button that acts", "dnf check failed"
+            in str(lev("refreshButton.PlasmaComponents.ToolTip.text")), True)
 
     # --- the post-run line -------------------------------------------------------------------------------
     state(fixture("state-live.json"))
@@ -1420,11 +1466,11 @@ QtObject {
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run that worked reports as a positive message",
-            lev("postRunMessage.type"), lev("Kirigami.MessageType.Positive"))
-    p.check("...saying what the run actually did", lev("postRunMessage.text"),
+            lev("reportMessage.type"), lev("Kirigami.MessageType.Positive"))
+    p.check("...saying what the run actually did", lev("reportMessage.text"),
             "Updated 4 packages in 2s")
     xdg_before = len(records("xdg-open"))
-    lev("postRunMessage.actions[0].trigger()")
+    lev("reportMessage.actions[0].trigger()")
     settle()
     p.check("...and its Show Log opens that run's own log", last_record("xdg-open"),
             [LAST_RUN["log"]])
@@ -1438,8 +1484,8 @@ QtObject {
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run that failed reports as an error instead",
-            lev("postRunMessage.type"), lev("Kirigami.MessageType.Error"))
-    p.check("...in the CLI's own worked-out reason", lev("postRunMessage.text"),
+            lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
+    p.check("...in the CLI's own worked-out reason", lev("reportMessage.text"),
             "Update failed: dnf5 exited 1 - could not resolve the transaction")
 
     nolog = dict(LAST_RUN)
@@ -1450,7 +1496,7 @@ QtObject {
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run old enough to have lost its log offers no Show Log to press",
-            lev("postRunMessage.actions[0].visible"), False)
+            lev("reportMessage.actions[0].visible"), False)
     open(RUNJSON, "w").write(json.dumps(LAST_RUN))
     ev("root.loadLastRun()")
     settle()
@@ -1700,6 +1746,7 @@ _ASSEMBLED_IN_LOGIC = {
     "held",                 # -> vm.footerText and vm.tooltipSub
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText
+    "lastCheckFailed",      # -> vm.footerText, beside the date it explains
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage

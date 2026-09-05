@@ -134,8 +134,7 @@ FOCUSED = """(function () {
   if (within(rowsView)) return "row:" + t;
   if (within(lastRunView)) return "lastRun:" + t;
   var msgs = {restartMessage: restartMessage, riskyMessage: riskyMessage,
-              staleMessage: staleMessage, postRunMessage: postRunMessage,
-              actionFailureMessage: actionFailureMessage};
+              stagedMessage: stagedMessage, reportMessage: reportMessage};
   for (var k in msgs) if (within(msgs[k])) return k + ":" + t;
   return "elsewhere:" + t;
 })()"""
@@ -472,11 +471,14 @@ p.check("the session-critical warning announces the sentence it is showing",
 p.check("...which is the one logic.js wrote, not a second copy",
         lev("riskyMessage.Accessible.name"), lev("popup.vm.riskyMessage"))
 
+# Staleness is no longer a message: it is three words on the footer's dateline, and the popup says
+# them out loud when the box goes stale - politely, because nothing needs interrupting.
 state(fixture("state-stale.json"))
 p.pump(120)
-p.check("the stale explanation announces itself too", lev("staleMessage.visible"), True)
-p.check("...with the words on screen", lev("staleMessage.Accessible.name"),
-        lev("staleMessage.text"))
+p.check("staleness is on the footer now, beside the date it explains",
+        "last check failed" in str(lev("footerLabel.text")), True)
+p.check("...and the reason a person has to act on is on the button that acts",
+        "dnf check failed" in str(lev("refreshButton.Accessible.description")), True)
 
 # ==================================================================================================
 # What AT-SPI is actually handed, with accessibility ACTIVE.
