@@ -72,6 +72,44 @@ var COPY = {
     checkForUpdates: "Check for Updates",
     updateNow: "Update Now",
 
+    // ...and what those two icon-only buttons DO, which is a different question from what they
+    // are called. `text` is already the accessible name of an icon-only button, so a description
+    // bound to `text` was the label read back twice and the one slot that could explain the
+    // effect, wasted (hostile panel, a11y P4). Same rule as the pin's two below.
+    checkForUpdatesDescription:
+        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
+    configureDescription:
+        "Check interval, where updates run, restart reminders, and the packages you hold.",
+
+    // --- the pin ---------------------------------------------------------------------------------
+    // The name carries the STATE, and that is a decision with a residual. A `checkable: false`
+    // button exposes no checked state to AT-SPI on Qt 6.11 (measured), and the one role that does
+    // - CheckBox - makes Breeze draw its sunken checked background on a control sitting directly
+    // under the system tray's own checked Keep Open pin. So the state is words: these four
+    // sentences, plus the "Held" token on the row and the glyph.
+    //
+    // TWO PAIRS, because a package that is not installed yet has no current version to be held AT.
+    // The CLI writes "?" for that `from`, and "Hold brandnew at ?" is not a sentence; what the pin
+    // does there is refuse the install, which is what it says.
+    holdAt: "Hold %1 at %2",
+    stopHolding: "Stop holding %1",
+    skipInstalling: "Skip installing %1",
+    stopSkipping: "Stop skipping %1",
+    // The description is the CONSEQUENCE. Per package, and Kempt only - a dnf user reads
+    // versionlock into a padlock, and this is where that is answered.
+    holdConsequence: "Kempt skips it on every update until you stop holding it.",
+    heldConsequence: "Kempt offers its update again.",
+    // The state, in words, on the row itself. The only cues used to be a glyph, a position and a
+    // 0.7 opacity dip - and an opacity dip is a contrast REDUCTION, which is the wrong direction
+    // for the rows a person deliberately protected (a11y P6).
+    heldToken: "Held",
+    // ...and the one line the Held heading owes a first-timer. A hold is Kempt's own list; it does
+    // not touch `dnf upgrade`, and nothing anywhere said so.
+    heldKemptOnly: "Held packages are skipped by Kempt only.",
+    // The version line as a sentence. On screen it is "3.105-… → 3.106-1.fc44", and that arrow
+    // goes through a screen reader's character table as a word nobody wants to hear.
+    versionRange: "from %1 to %2",
+
     // The offline path, named for what it does to the user rather than for the dnf5 flag that
     // implements it. The tooltip is the whole argument for choosing it.
     installOnNextRestart: "Install on Next Restart",
@@ -569,10 +607,16 @@ function looksLikeState(state) {
 // (lib/common.sh: `def newest(v): v | split(",") | last`). The widget copies that rule exactly,
 // because a popup that renders a version differently from `kempt summary` is the front-end
 // disagreeing with the CLI - the one thing this design forbids.
+// What a `from` looks like when there is no current version: the package is not installed, and
+// the update would ADD it. The CLI's own fallback, kept as a named constant because the popup has
+// to recognise it twice - once to say "Skip installing X" instead of "Hold X at ?", and once to
+// draw it as a word rather than as a punctuation mark.
+var VERSION_UNKNOWN = "?";
+
 function newestOf(versionSet) {
-    if (versionSet === null || versionSet === undefined) return "?";
+    if (versionSet === null || versionSet === undefined) return VERSION_UNKNOWN;
     var s = String(versionSet);
-    if (s === "") return "?";
+    if (s === "") return VERSION_UNKNOWN;
     var parts = s.split(",");
     return parts[parts.length - 1];
 }
@@ -922,17 +966,22 @@ function collectItems(state) {
 // A ListView with a flat model creates delegates lazily, so a box with 1200 pending updates costs
 // the same as a box with six. Building the flattening here (rather than nesting Repeaters in QML)
 // also means the grouping is something a node test can check.
-// Each row is {kind: "header", title} or {kind: "item", ...the item, plus `held`}.
+// Each row is {kind: "header", title, held} or {kind: "item", ...the item, plus `held`}.
+//
+// A header carries `held` for the same reason an item does: the popup draws one extra line under
+// the Held heading ("Held packages are skipped by Kempt only") and must not decide which heading
+// that is by comparing the title against the literal "Held" - the title is a string a translator
+// will change, and a comparison against it would silently stop matching in every other language.
 function rowsOf(sections, heldItems) {
     var rows = [], i, j;
     for (i = 0; i < sections.length; i++) {
-        rows.push({ kind: "header", title: sections[i].title });
+        rows.push({ kind: "header", title: sections[i].title, held: false });
         for (j = 0; j < sections[i].items.length; j++) rows.push(rowOf(sections[i].items[j], "item"));
     }
     // Held last and always its own group: the spec's promise is that a held item stays VISIBLE
     // with its waiting version, just out of the way of the things you can act on.
     if (heldItems.length > 0) {
-        rows.push({ kind: "header", title: "Held" });
+        rows.push({ kind: "header", title: "Held", held: true });
         for (i = 0; i < heldItems.length; i++) rows.push(rowOf(heldItems[i], "item"));
     }
     return rows;
@@ -1510,6 +1559,7 @@ function viewModel(state, updating, cliError, opts) {
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         COPY: COPY,
+        VERSION_UNKNOWN: VERSION_UNKNOWN,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,

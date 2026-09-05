@@ -1532,6 +1532,16 @@ assert_eq "$(sr "$CONF1" "$NOBK")" "" "...silenced by the conflict banner too"
 assert_eq "$(sr "$CONF3" "$NOBK")" "" "...by the plural one"
 assert_eq "$(sr "$GENERIC" "$HELDDNF")" "" "...and by the generic one"
 
+# --- the group headers carry which group they are ------------------------------------------------
+# The popup draws one extra line under the Held heading ("Held packages are skipped by Kempt only")
+# and must not decide which heading that is by comparing its title against a literal - the title is
+# a translated string. So the flag travels with the row.
+assert_eq "$(js 'L.rowsOf([{title:"System (dnf)",backend:"dnf",items:[{name:"a",from:"1",to:"2",held:false,backend:"dnf"}]}],[{name:"b",from:"1",to:"2",held:true,backend:"dnf"}]).filter(function (r) { return r.kind === "header"; }).map(function (r) { return r.title + ":" + r.held; })')" \
+  '["System (dnf):false","Held:true"]' \
+  "the Held heading says it is the held one, and a backend section says it is not"
+assert_eq "$(js 'V("held-only",false).rows[0].held')" "true" \
+  "...on a real capture whose every pending update is held"
+
 # --- the copy table -----------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
@@ -1587,6 +1597,40 @@ assert_eq "$(js 'L.COPY.stagedChanged')" "The staged update changed - take anoth
 # "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
   "[]" "no copy string claims a rebuild re-downloads anything, or calls removing it unstaging"
+# --- the pin, restated (hostile panel, proposal 1 / decision D1) ---------------------------------
+# The name carries the STATE, because a `checkable: false` button exposes no checked state to
+# AT-SPI on Qt 6.11 and the alternative - the CheckBox role - would draw Breeze's sunken checked
+# background on a control sitting directly under the tray's own checked Keep Open pin. Two pairs,
+# because a package that is not installed yet has no current version to be held AT.
+assert_eq "$(js 'L.COPY.holdAt')" "Hold %1 at %2" "copy: the pin on a pending row names the version"
+assert_eq "$(js 'L.COPY.stopHolding')" "Stop holding %1" "copy: ...and on a held one, the way out"
+assert_eq "$(js 'L.COPY.skipInstalling')" "Skip installing %1" \
+  "copy: a package with no current version is SKIPPED, not held at a version it does not have"
+assert_eq "$(js 'L.COPY.stopSkipping')" "Stop skipping %1" "copy: ...and its way out"
+# The description is the CONSEQUENCE. QQC2 already hands `text` to AT-SPI as the accessible name,
+# so a description bound to `text` was the same sentence spoken twice and the one slot that could
+# explain the effect, wasted (a11y P4).
+assert_eq "$(js 'L.COPY.holdConsequence')" \
+  "Kempt skips it on every update until you stop holding it." \
+  "copy: what holding a package actually does, per package and Kempt-only"
+assert_eq "$(js 'L.COPY.heldConsequence')" "Kempt offers its update again." \
+  "copy: ...and what stopping does"
+assert_eq "$(js 'L.COPY.heldToken')" "Held" \
+  "copy: the state as a word on the row, because an opacity dip is a contrast REDUCTION"
+assert_eq "$(js 'L.COPY.heldKemptOnly')" "Held packages are skipped by Kempt only." \
+  "copy: the one line the Held heading owes a dnf user who reads versionlock into it"
+assert_eq "$(js 'L.COPY.versionRange')" "from %1 to %2" \
+  "copy: the version line in words, because the arrow goes through a screen reader's character table"
+# The two icon-only buttons in the header. Their descriptions used to be their own labels read back,
+# which is the same gate failure the pin had: `text` is what makes an icon-only button speak, and
+# the description is the slot for what pressing it does.
+assert_eq "$(js 'L.COPY.checkForUpdatesDescription')" \
+  "Asks dnf and flatpak what is pending now, instead of waiting for the timer." \
+  "copy: what the refresh icon does, rather than its own name again"
+assert_eq "$(js 'L.COPY.configureDescription')" \
+  "Check interval, where updates run, restart reminders, and the packages you hold." \
+  "copy: ...and what is behind the gear"
+
 # The hold round trip's own three sentences. Two are ANNOUNCED rather than shown - the popup speaks
 # them through Accessible.announce when a hold lands - and the third is reported in the row that
 # failed rather than as a message at the top of the stack, where a failure used to land up to 300 px
@@ -2009,7 +2053,18 @@ assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "1" \
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting
 # the one that was added last.
-assert_eq "$(grep -c 'Accessible.name: text' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "7" \
+#
+# Bounded at both ends rather than counted over the whole file, and that is not tidiness: the
+# header's own icon-only buttons spell their names out too (a probe measured an EMPTY accessible
+# name on every button here when accessibility was active before construction), so a whole-file
+# count would be satisfied by those and pass with a message carrying nothing. The stack is one
+# contiguous run between the first InlineMessage and the list.
+STACK="$TESTTMP/message-stack.qml"
+awk '/Kirigami\.InlineMessage \{/ { f = 1 } /--- the list, and what stands in for it/ { f = 0 } f' \
+  "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml" > "$STACK"
+assert_eq "$([[ -s "$STACK" ]] && echo yes || echo no)" "yes" \
+  "premise: the popup still has a message stack to scan"
+assert_eq "$(grep -c 'Accessible.name: text' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
   "every message in the popup's stack announces its own text to a screen reader"
 # ...and the type is BOUND to the derived variant rather than declared. A hard-coded Positive here
 # is the bug this whole change exists to remove, and it is one careless edit away.

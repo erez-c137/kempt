@@ -1461,11 +1461,37 @@ if live is not None:
                 '  var hit = walk(o.children[i]); if (hit !== null) return hit; }'
                 ' return null; })(it)' % predicate)
 
-    HEADER_ROW = {"kind": "header", "title": "System (dnf)"}
+    # The heading is wrapped now: a ColumnLayout carrying Plasma's own section header and, under
+    # the Held one only, the line that tells a dnf user a hold is Kempt's own list.
+    SECTION = ('(function find(o) {'
+               ' if (o.label !== undefined && String(o.label) !== "") return o;'
+               ' for (var i = 0; i < o.children.length; i++) {'
+               '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
+               ' return null; })(it)')
+    HEADER_ROW = {"kind": "header", "title": "System (dnf)", "held": False}
+    HELD_HEADER_ROW = {"kind": "header", "title": "Held", "held": True}
     p.check("a group header is Plasma's own ListSectionHeader, not a bare Heading",
-            row(HEADER_ROW, 'String(it).indexOf("ListSectionHeader") >= 0'), True)
+            row(HEADER_ROW, 'String(%s).indexOf("ListSectionHeader") >= 0' % SECTION), True)
     p.check("...carrying the group's name in the property that component documents",
-            row(HEADER_ROW, "it.label"), "System (dnf)")
+            row(HEADER_ROW, "(%s).label" % SECTION), "System (dnf)")
+    p.check("...and handing that name to a screen reader, which the component itself refuses to "
+            "do: Kirigami marks its own label Accessible.ignored",
+            row(HEADER_ROW, "(%s).Accessible.name" % SECTION), "System (dnf)")
+    p.check("...as a heading, which is what a screen reader navigates a list by",
+            row(HEADER_ROW, "(%s).Accessible.role === Accessible.Heading" % SECTION), True)
+    # The extra line, and where it must NOT be. A backend section that grew it would be telling a
+    # person their pending updates are skipped.
+    KEMPT_ONLY = ('(function find(o) {'
+                  ' if (o.text !== undefined'
+                  '     && String(o.text) === "Held packages are skipped by Kempt only.")'
+                  '   return o.visible;'
+                  ' for (var i = 0; i < o.children.length; i++) {'
+                  '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
+                  ' return null; })(it)')
+    p.check("the Held heading carries the line that says a hold is Kempt's own list",
+            row(HELD_HEADER_ROW, KEMPT_ONLY), True)
+    p.check("...and a backend section does not, because its rows are not skipped at all",
+            row(HEADER_ROW, KEMPT_ONLY), False)
 
     # What a power user compares between two machines: the epoch, the release and the vendor tag all
     # carry meaning, and eliding the tail throws away exactly the half that differs.
@@ -1529,8 +1555,16 @@ p.check("...and the answer it computes is read exactly twice, by the gear and th
 
 # The group header's property. `label` is what ListSectionHeader documents and what its own example
 # uses; the pin is here because this is a one-word seam that a reviewer cannot see from the popup.
-p.check("the group header sets the property ListSectionHeader documents",
-        "PlasmaExtras.ListSectionHeader { label: modelData.title }" in _src, True)
+p.check("the group header sets the property ListSectionHeader documents, and the two the "
+        "component itself refuses to expose",
+        "PlasmaExtras.ListSectionHeader { Layout.fillWidth: true label: modelData.title"
+        " Accessible.role: Accessible.Heading Accessible.name: modelData.title }"
+        in _code_src, True)
+# ...and decides which heading gets the Kempt-only line from the ROW's own flag, never from its
+# title: the title is a string a translator will change, and a comparison against the literal
+# "Held" would silently stop matching in every other language.
+p.check("...and the Held line is gated on the row's flag rather than on the word Held",
+        "visible: modelData.held === true" in _code_src, True)
 
 # Founder amendment A1: the message a person can turn off must also be one they can close.
 p.check("the restart message carries a close button", "showCloseButton: true" in _src, True)
@@ -1565,6 +1599,11 @@ for _name in sorted(os.listdir(harness.UI)):
 _SUBSTITUTED_IN_QML = {
     "holdAnnounce",         # -> popup.announce, when a hold has landed
     "unholdAnnounce",       # -> popup.announce, when one has been lifted
+    "holdAt",               # -> the padlock's name and tooltip on a pending row
+    "stopHolding",          # -> ...on a held one, and the settings page's remove button
+    "skipInstalling",       # -> ...on a row whose package is not installed yet
+    "stopSkipping",         # -> ...and its way out
+    "versionRange",         # -> the version line's accessible name
 }
 
 _ASSEMBLED_IN_LOGIC = {

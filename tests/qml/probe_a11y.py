@@ -224,6 +224,20 @@ def uptodate_from(source, name, fresh=False):
     return path
 
 
+def pin_label(row):
+    """What the pin on this row says - which is also its accessible name.
+
+    Four spellings, because the state is carried by the NAME (a `checkable: false` button exposes
+    no checked state to AT-SPI on Qt 6.11) and because a package with no current version has
+    nothing to be held AT: "Hold brandnew at ?" is not a sentence.
+    """
+    if row["from"] == "?":
+        return ("Stop skipping %s" if row.get("held") else "Skip installing %s") % row["name"]
+    if row.get("held"):
+        return "Stop holding %s" % row["name"]
+    return "Hold %s at %s" % (row["name"], row["from"])
+
+
 def pins():
     """The pin stop this probe expects for every package row, in the list's own order.
 
@@ -232,13 +246,7 @@ def pins():
     that makes a list of twelve identical buttons usable from the keyboard.
     """
     rows = json.loads(str(lev("JSON.stringify(popup.vm.rows)")))
-    out = []
-    for r in rows:
-        if r.get("kind") != "item":
-            continue
-        out.append("row:" + ("Stop holding %s" % r["name"] if r.get("held")
-                             else "Hold %s at its current version" % r["name"]))
-    return out
+    return ["row:" + pin_label(r) for r in rows if r.get("kind") == "item"]
 
 
 # ==================================================================================================
@@ -306,9 +314,18 @@ lev("popup.focusPrimary()")
 p.pump(20)
 walk(3)
 p.check("the first pin is where three Tabs from Update Now lands", focused(), pins()[0])
-p.check("...and it introduces itself by naming its own package",
+p.check("...and it introduces itself by naming its own package, at its own version",
+        lev("popup.Window.activeFocusItem.text"),
+        "Hold aajohan-comfortaa-fonts at 3.105-0.9.20210729git2a87ac6.fc44")
+# The description is the CONSEQUENCE and not the name read back. QQC2 already hands `text` to
+# AT-SPI as the accessible name, so a description bound to `text` was the sentence spoken twice
+# and the one slot that could explain what pressing this does, wasted (hostile panel, a11y P4).
+p.check("...while the description says what holding it will DO, which nothing else says anywhere",
         lev("popup.Window.activeFocusItem.Accessible.description"),
-        "Hold aajohan-comfortaa-fonts at its current version")
+        "Kempt skips it on every update until you stop holding it.")
+p.check("...and is not the name a second time",
+        lev("popup.Window.activeFocusItem.Accessible.description"
+            " === popup.Window.activeFocusItem.text"), False)
 
 # Backwards, once, because a chain that only walks one way is a chain with a trap in it.
 lev("popup.focusPrimary()")
@@ -419,14 +436,24 @@ p.check("no other key asks the popup to close", closes() - before, 0)
 # ==================================================================================================
 # Icon-only buttons first. `text` is set on all of them - it is what the tooltip shows - but it is
 # never DRAWN, so without this the control is an unnamed icon to anybody not using a pointer.
-p.check("the Refresh icon says what it is", lev("refreshButton.Accessible.description"),
+p.check("the Refresh icon says what it is", lev("refreshButton.Accessible.name"),
         "Check for Updates")
-p.check("...and so does the gear", lev("configureButton.Accessible.description"),
-        "Configure Kempt…")
+p.check("...and so does the gear", lev("configureButton.Accessible.name"), "Configure Kempt…")
 p.check("...each one saying exactly what its tooltip says, so the two can never disagree",
+        [lev("refreshButton.Accessible.name") == lev("refreshButton.text"),
+         lev("configureButton.Accessible.name") == lev("configureButton.text")],
+        [True, True])
+# ...and the description is the second thing a screen reader reads, so it is the slot for what
+# pressing this DOES. Bound to `text` it was the label spoken twice and nothing learned (a11y P4).
+p.check("the Refresh icon also says what pressing it does",
+        lev("refreshButton.Accessible.description"),
+        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+p.check("...and the gear says what is behind it", lev("configureButton.Accessible.description"),
+        "Check interval, where updates run, restart reminders, and the packages you hold.")
+p.check("...neither of them repeating its own label",
         [lev("refreshButton.Accessible.description") == lev("refreshButton.text"),
          lev("configureButton.Accessible.description") == lev("configureButton.text")],
-        [True, True])
+        [False, False])
 
 # The message stack. Kirigami gives every InlineMessage the AlertMessage role and no NAME, so an
 # alert with nothing added announces its icon - "Warning" - and not a word about what happened.
@@ -450,6 +477,116 @@ p.pump(120)
 p.check("the stale explanation announces itself too", lev("staleMessage.visible"), True)
 p.check("...with the words on screen", lev("staleMessage.Accessible.name"),
         lev("staleMessage.text"))
+
+# ==================================================================================================
+# What AT-SPI is actually handed, with accessibility ACTIVE.
+# ==================================================================================================
+# Everything above asserts what the QML says. This asks the other question, and they are not the
+# same one: with accessibility activated the way a bridge activates it, QQC2 hands a button's
+# `text` over as its accessible name - and the hostile panel measured an EMPTY name on every
+# button, Update Now included, when accessibility was active before construction. So the popup
+# spells `Accessible.name: text` out, and this is the gate that says the spelling worked.
+#
+# Activated HERE rather than at the top of the file, after the popup is built, which is also what
+# the earlier assertions were written under: turning it on changes what QQuickItem reports.
+from PySide6.QtGui import QAccessible                              # noqa: E402
+
+QAccessible.setActive(True)
+p.check("accessibility can be activated on this Qt at all", QAccessible.isActive(), True)
+
+
+def at_of(item):
+    """(name, role) as an assistive technology would be handed them."""
+    if item is None:
+        return (None, None)
+    iface = QAccessible.queryAccessibleInterface(item)
+    if iface is None:
+        return (None, None)
+    return (iface.text(QAccessible.Text.Name), iface.role())
+
+
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
+lev("popup.focusPrimary()")
+p.pump(50)
+
+_ring = ["refreshButton", "configureButton"] + pins() + ["lastRun:Expand", "updateButton"]
+_unnamed, _mis_roled = [], []
+for _stop in _ring:
+    press(Qt.Key_Tab)
+    _where = focused()
+    _name, _role = at_of(lev("popup.Window.activeFocusItem"))
+    if not _name:
+        _unnamed.append((_where, _name))
+    if _role != QAccessible.Role.Button:
+        _mis_roled.append((_where, str(_role)))
+p.check("every stop in the tab ring reaches AT-SPI with a name on it", _unnamed, [])
+p.check("...and as a button, which is what it is", _mis_roled, [])
+
+# The pin, read the way an assistive technology reads it: name, then role, then description. The
+# name carries the state (there is no checked state to carry it - a `checkable: false` button
+# exposes none on Qt 6.11, and the CheckBox role that would draws Breeze's sunken checked
+# background under the tray's own checked Keep Open pin).
+lev("popup.focusPrimary()")
+p.pump(20)
+walk(3)
+_pin_name, _pin_role = at_of(lev("popup.Window.activeFocusItem"))
+p.check("the pin hands AT-SPI its own sentence, state and package and version included",
+        _pin_name, "Hold aajohan-comfortaa-fonts at 3.105-0.9.20210729git2a87ac6.fc44")
+p.check("...as a button", _pin_role, QAccessible.Role.Button)
+
+# The group headings. PlasmaExtras.ListSectionHeader marks its own label Accessible.ignored
+# (system ListSectionHeader.qml), so "Held" reached AT-SPI as role Client with an empty name -
+# which is the one thing that rescues the held state from being a colour and a position.
+state(fixture("state-held-only.json"))
+ev('root.postRunLine = ""')
+p.pump(150)
+lev("rowsView.positionViewAtBeginning()")
+p.pump(80)
+_heading = lev("""(function () {
+  var loader = rowsView.itemAtIndex(0);
+  if (loader === null || loader.item === null) return null;
+  var out = null;
+  (function walk(o) {
+     if (out !== null) return;
+     if (o.label !== undefined && String(o.label) !== "") { out = o; return; }
+     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
+  })(loader.item);
+  return out;
+})()""")
+_head_name, _head_role = at_of(_heading)
+p.check("the Held heading reaches AT-SPI by name", _head_name, "Held")
+p.check("...as a heading, which is what Orca navigates by", _head_role, QAccessible.Role.Heading)
+p.check("...with the one line a dnf user needs under it, because they read versionlock into this",
+        lev("""(function () {
+  var hit = false;
+  (function walk(o) {
+     if (hit) return;
+     if (o.text !== undefined
+         && String(o.text) === "Held packages are skipped by Kempt only." && o.visible) {
+       hit = true; return;
+     }
+     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
+  })(rowsView.itemAtIndex(0).item);
+  return hit; })()"""), True)
+
+# ...and the version line, which used to hand over "3.105… → 3.106-1.fc44" and send the arrow
+# through Orca's character table.
+_version = lev("""(function () {
+  var out = null;
+  (function walk(o) {
+     if (out !== null) return;
+     if (o.text !== undefined && String(o.text).indexOf(" → ") > 0) { out = o; return; }
+     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
+  })(rowsView.itemAtIndex(1).item);
+  return out; })()""")
+p.check("the version line says its two versions in words",
+        at_of(_version)[0], "from 3.105-0.9.20210729git2a87ac6.fc44 to 3.106-1.fc44")
+
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
 
 # --- and the rule behind those, applied to the whole widget ---------------------------------------
 # Live assertions can only cover the controls a probe happens to reach. These two are the rule
@@ -481,10 +618,26 @@ for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     p.check("every icon-only button in %s carries an accessible description" % _name,
             _s.count("Accessible.description"),
             _s.count("IconOnly") + _EXTRA_DESCRIPTIONS.get(_name, 0))
+    # ...and an explicit NAME, which is the half this gate used to miss entirely. `text` is what
+    # makes an icon-only button speak; a probe measured an EMPTY name on every button, Update Now
+    # included, when accessibility was activated before construction, so the belt is spelled out.
+    p.check("...and an explicit accessible name, because `text` alone was measured empty",
+            _s.count("Accessible.name: text") >= _s.count("IconOnly"), True)
+    # The bug the count above cannot see: a description that is the name read back. It passes a
+    # count and says nothing (a11y P4), so it is forbidden outright.
+    p.check("...and no icon-only button describes itself with its own label",
+            "Accessible.description: text" in _s, False)
 
 _popup = _code("FullRepresentation.qml")
+
+# Scoped to the message stack rather than counted over the whole file: the header's own icon-only
+# buttons spell their accessible names out too, so a whole-file count would be satisfied by those
+# and pass with a message carrying nothing. The stack is one contiguous run between the first
+# InlineMessage and the list.
+_raw = open(os.path.join(harness.UI, "FullRepresentation.qml")).read()
+_stack = _raw[_raw.index("Kirigami.InlineMessage {"):_raw.index("--- the list, and what stands")]
 p.check("every message in the stack announces its own words",
-        _popup.count("Accessible.name: text"), _popup.count("Kirigami.InlineMessage {"))
+        _stack.count("Accessible.name: text"), _stack.count("Kirigami.InlineMessage {"))
 
 # ==================================================================================================
 # The pins that keep the drivable seams honest.

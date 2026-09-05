@@ -585,9 +585,14 @@ KCM.SimpleKCM {
                     text: i18n("Stop holding %1", modelData.name)
                     display: QQC2.AbstractButton.IconOnly
                     // Icon-only, so `text` is never drawn and the tooltip is only for a pointer.
-                    // The same rule as the popup's pin: every icon-only button in this widget says
-                    // what it is, and names the package it would act on.
-                    Accessible.description: text
+                    // The same rule as the popup's padlock: every icon-only button in this widget
+                    // says what it is and names the package it would act on - through the NAME,
+                    // which QQC2 takes from `text`, spelled out here because a probe measured that
+                    // name empty when accessibility was active before construction.
+                    Accessible.name: text
+                    // ...and the description is the consequence, in the popup's own words for the
+                    // identical action, rather than the label read back a second time.
+                    Accessible.description: i18n("Kempt offers its update again.")
                     QQC2.ToolTip.text: text
                     QQC2.ToolTip.visible: hovered
                     QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay

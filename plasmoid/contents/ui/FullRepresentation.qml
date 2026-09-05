@@ -293,11 +293,18 @@ PlasmaExtras.Representation {
                 icon.name: "view-refresh"
                 display: PlasmaComponents.AbstractButton.IconOnly
                 text: i18n("Check for Updates")
-                // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8).
-                Accessible.description: i18n("Check for Updates")
+                Accessible.name: text
+                // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8) -
+                // and it says what pressing this DOES rather than repeating the label, which is
+                // what QQC2 already hands over as the name.
+                Accessible.description: i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
                 PlasmaComponents.ToolTip.text: text
-                PlasmaComponents.ToolTip.visible: hovered
+                PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                // Enter, which sent nothing at all before: QQC2 activates on Space only. The
+                // shipped Plasma pattern is per button, not one handler on the popup.
+                Keys.onReturnPressed: animateClick()
+                Keys.onEnterPressed: animateClick()
                 // The same belt Update Now wears: a control that is refusing must not act, however
                 // the press reached it.
                 onClicked: if (enabled) popup.plasmoidItem.doCheck()
@@ -337,11 +344,13 @@ PlasmaExtras.Representation {
                 // typographic tell that a widget was not written by KDE (hig-review.md P5).
                 text: i18n("Configure Kempt…")
                 // Icon-only, so `text` is never drawn and this is the only place the button says
-                // what it is. Bound rather than spelled out again: one sentence, one literal for
-                // a translator to find.
-                Accessible.description: text
+                // what it is. Spelled out rather than left to QQC2: a probe measured an empty name
+                // on every button here when accessibility was active before construction.
+                Accessible.name: text
+                // ...and what is behind it, which the label cannot say.
+                Accessible.description: i18n("Check interval, where updates run, restart reminders, and the packages you hold.")
                 PlasmaComponents.ToolTip.text: text
-                PlasmaComponents.ToolTip.visible: hovered
+                PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 onClicked: {
                     // The action is registered by the shell, and a plasmoid can be built in
@@ -668,10 +677,42 @@ PlasmaExtras.Representation {
 
                         Component {
                             id: headerComponent
-                            // Plasma's own section header rather than a bare Heading: it brings the
-                            // theme's SVG separator, it is what makes this read as a Plasma list,
-                            // and its trailing slot is where a per-section action would go later.
-                            PlasmaExtras.ListSectionHeader { label: modelData.title }
+                            ColumnLayout {
+                                spacing: 0
+
+                                // Plasma's own section header rather than a bare Heading: it
+                                // brings the theme's SVG separator, it is what makes this read as
+                                // a Plasma list, and its trailing slot is where a per-section
+                                // action would go later.
+                                PlasmaExtras.ListSectionHeader {
+                                    Layout.fillWidth: true
+                                    label: modelData.title
+                                    // Kirigami's ListSectionHeader marks its OWN label
+                                    // Accessible.ignored (system ListSectionHeader.qml), so every
+                                    // group title reached AT-SPI as an unnamed list item - and
+                                    // "Held" is the heading that rescues the held state from being
+                                    // a glyph and a position. Heading, because that is what a
+                                    // screen reader navigates a list by.
+                                    Accessible.role: Accessible.Heading
+                                    Accessible.name: modelData.title
+                                }
+
+                                // The one thing a first-timer is owed under that heading. A dnf
+                                // user reads versionlock into a padlock, and a hold is Kempt's own
+                                // list: `dnf upgrade` typed in a terminal ignores it entirely.
+                                // Gated on the row's own flag rather than on its title, which is a
+                                // string a translator will change.
+                                PlasmaComponents.Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: Kirigami.Units.smallSpacing
+                                    Layout.bottomMargin: Kirigami.Units.smallSpacing
+                                    visible: modelData.held === true
+                                    text: i18n("Held packages are skipped by Kempt only.")
+                                    wrapMode: Text.Wrap
+                                    opacity: 0.7
+                                    font: Kirigami.Theme.smallFont
+                                }
+                            }
                         }
 
                         Component {
@@ -892,6 +933,11 @@ PlasmaExtras.Representation {
                 // trap however the keyboard reached it, and the focus move above is not the only
                 // route in - a screen reader, a shortcut, or a future edit can all put focus back.
                 onClicked: if (visible) popup.plasmoidItem.startUpdate()
+
+                // Enter as well as Space, the shipped per-button Plasma pattern. Return and keypad
+                // Enter on this button used to send nothing at all.
+                Keys.onReturnPressed: animateClick()
+                Keys.onEnterPressed: animateClick()
             }
         }
     }

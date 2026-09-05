@@ -281,12 +281,29 @@ def pin(idx, expr):
                % (expr, PIN_OF, idx))
 
 
+def rows_now():
+    return json.loads(str(lev("JSON.stringify(popup.vm.rows)")))
+
+
 def row_index(name, held):
-    rows = json.loads(str(lev("JSON.stringify(popup.vm.rows)")))
-    for i, r in enumerate(rows):
+    for i, r in enumerate(rows_now()):
         if r.get("kind") == "item" and r.get("name") == name and bool(r.get("held")) == held:
             return i
     return -1
+
+
+def pin_label(name, held):
+    """What the padlock on this row says - which is also its accessible name.
+
+    Derived from the live view model rather than written out, because the pending spelling names
+    the version the package is being held AT and that comes from the fixture.
+    """
+    for r in rows_now():
+        if r.get("kind") == "item" and r.get("name") == name and bool(r.get("held")) == held:
+            if r["from"] == "?":
+                return ("Stop skipping %s" if held else "Skip installing %s") % name
+            return ("Stop holding %s" % name) if held else ("Hold %s at %s" % (name, r["from"]))
+    return "NO SUCH ROW"
 
 
 # ==================================================================================================
@@ -304,7 +321,7 @@ sev("clear()")
 pin(idx, "b.forceActiveFocus(Qt.TabFocusReason)")
 p.pump(60)
 p.check("the keyboard is on the pin of the row about to be pressed",
-        focused(), "Hold %s at its current version" % TARGET)
+        focused(), pin_label(TARGET, False))
 press(Qt.Key_Space)
 p.pump(200)
 
@@ -398,8 +415,9 @@ p.pump(60)
 press(Qt.Key_Space)
 settle()
 p.pump(300)
+_back_pending = pin_label(LONG_TARGET, False)
 p.check("a keyboard press takes the keyboard to the row wherever it has gone",
-        focused(), "Hold %s at its current version" % LONG_TARGET)
+        focused(), _back_pending)
 p.check("...scrolled into view rather than left below the fold",
         lev("(function (b) { var q = b.mapToItem(rowsView, 0, 0);"
             " return q.y >= -2 && q.y <= rowsView.height; })(popup.Window.activeFocusItem)"),
