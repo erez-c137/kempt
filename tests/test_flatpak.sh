@@ -197,7 +197,7 @@ assert_eq "$(awk -F'\t' '$1=="org.gimp.GIMP"{print $2}' <<<"$fp_sizes")" "997000
 # `bytes` is the unit that uses an ordinary space, so it proves the normalisation handles both
 # rather than having simply swapped one separator for the other.
 assert_eq "$(awk -F'\t' '$1=="com.example.NotInstalled"{print $2}' <<<"$fp_sizes")" "847" \
-  "a plain-space `bytes` row parses too"
+  "a plain-space bytes row parses too"
 # The fixture really does contain the NBSP. Without this, a fixture silently rewritten with an
 # ordinary space would keep all three assertions above green while the parser rotted.
 assert_eq "$(grep -c $'\xc2\xa0' "$FIXTURES/flatpak-remote-ls-sizes.tsv")" "2" \
