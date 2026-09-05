@@ -690,7 +690,7 @@ cmd_run() {
     # Checked before the dry run too: "what would happen" must include "nothing, you have no
     # terminal emulator". Silently spawning nothing is how a widget button becomes a mystery.
     command -v "$KEMPT_TERMINAL" >/dev/null \
-      || { echo "$KEMPT_TERMINAL not found - install it or run: kempt config set surface background" >&2; exit 4; }
+      || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit 4; }
     if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update"; return 0; fi
     # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
     # watcher (plasmoid/contents/ui/main.qml, pollWatch). Its own periodic checks re-baseline that
@@ -1353,7 +1353,7 @@ cmd_doctor() {
   if command -v "$KEMPT_TERMINAL" >/dev/null; then
     doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
   elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found - 'kempt run' exits 4 on this surface; install it or run: kempt config set surface background"
+    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found - 'kempt run' exits 4 on this surface; install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
   else
     doctor_info "terminal emulator '$KEMPT_TERMINAL' not found - not needed for surface=$surface"
   fi

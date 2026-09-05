@@ -127,6 +127,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   disappeared until a three-hour guard gave up. The terminal now re-checks on its way out on every
   exit path, including the window being closed under it, so the run ends when the terminal does.
   What the command reports is unchanged: the exit status is still the update's.
+- The message you get when the terminal emulator is not installed says what to do in the widget's
+  words instead of a bare shell incantation: "Kempt could not find konsole. Install it, or run
+  updates another way: kempt config set surface background (Settings > Run updates in > In the
+  background)". `kempt doctor` quotes the same remedy. The exit status is still 4.
 - A failed rebuild no longer strands a destroyed staged update behind a live boot symlink. dnf5
   destroys the existing transaction the moment a new stage begins, so a rebuild that failed - a
   full disk, a declined authentication - left nothing staged, the symlink still standing, and a

@@ -41,12 +41,20 @@ grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface war
 
 # No terminal emulator = the button does nothing, forever, silently. Fail loudly instead, and say
 # how to fix it. Checked in --dry-run too: "what would happen" has to include "nothing".
+#
+# Pinned whole, not by substring, because this message is read almost entirely INSIDE THE WIDGET:
+# a failed launch is reported in the popup in the CLI's own words. So it has to be a sentence
+# first and a shell incantation second, and it has to name the two places the setting lives - the
+# command, for someone in a terminal, and the control, for the person who has never opened one.
+# The UX panel of 2026-09-05 rated the old wording ("konsole not found - install it or run: ...")
+# a dead end for a first-timer, and a substring pin is what let it stay one.
 "$KEMPT" config set surface terminal
 assert_exit 4 "missing terminal emulator is a loud failure" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run
 termerr="$(KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run 2>&1 >/dev/null || true)"
-grep -q 'config set surface background' <<<"$termerr" \
-  && echo "ok: the error tells the user how to fix it" || { echo "FAIL: no remedy in the message"; _fail=1; }
+assert_eq "$termerr" \
+  "Kempt could not find kempt-no-such-terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" \
+  "the error names the emulator, the command and the control that change it"
 
 # --- the terminal run ends the widget's updating state, however that window exits ---------------
 #
