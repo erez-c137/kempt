@@ -67,7 +67,7 @@ p.wait_for(ev, "root.kemptState !== null", True)
 
 
 def settle():
-    p.wait_for(ev, "root.checking || root.holdInFlight", False, timeout_ms=15000)
+    p.wait_for(ev, "root.checking || root.pendingHold !== null", False, timeout_ms=15000)
     # promptExecutor too: the restart prompt runs on its own queue (see main.qml), so a settle
     # that only watched the other two could return with a dbus-send still in flight.
     p.wait_idle(ev, "executor", "tailExecutor", "promptExecutor")

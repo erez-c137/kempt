@@ -67,6 +67,8 @@ echo "-- main.qml: state machine, watcher, panel icon geometry"
 run_probe probe_state
 echo "-- FullRepresentation.qml: popup actions, log tail, run-end watcher"
 run_probe probe_popup
+echo "-- the hold round trip: the pending row, the keyboard, the announcement"
+run_probe probe_hold
 echo "-- configGeneral.qml: the settings page's apply path"
 run_probe probe_settings
 echo "-- the keyboard and the screen reader: focus on open, the tab ring, Escape"

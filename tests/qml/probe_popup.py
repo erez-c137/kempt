@@ -151,7 +151,7 @@ p.wait_for(ev, "root.kemptState !== null", True)
 
 
 def settle():
-    p.wait_for(ev, "root.checking || root.holdInFlight", False, timeout_ms=15000)
+    p.wait_for(ev, "root.checking || root.pendingHold !== null", False, timeout_ms=15000)
     # promptExecutor too: the restart prompt runs on its own queue (see main.qml), so a settle
     # that only watched the other two could return with a dbus-send still in flight.
     p.wait_idle(ev, "executor", "tailExecutor", "promptExecutor")
@@ -172,7 +172,8 @@ p.check("...the second being the backend:name pair, verbatim", p.argv("hold")[1]
 p.check("...and the injected command never ran",
         os.path.exists(os.path.join(p.sandbox, "PWNED")), False)
 p.check("a hold refreshes the list afterwards", p.call_count("check") >= 2, True)
-p.check("...and the pins are live again", ev("root.holdInFlight"), False)
+p.check("...and the round trip is over: the row moved, so nothing is pending any more",
+        ev("root.pendingHold"), None)
 
 ev('root.setHold("flatpak", "org.gimp.GIMP", false)')
 settle()
@@ -1557,6 +1558,15 @@ for _name in sorted(os.listdir(harness.UI)):
     if _name.endswith(".qml"):
         _QML_SRC += " " + " ".join(open(os.path.join(harness.UI, _name)).read().split())
 
+# ...and the third bucket, which is neither: a sentence with a name in it that the QML substitutes
+# itself. `i18n("Holding %1", name)` is one translatable unit with an argument, so the literal a
+# translator extracts ends at the comma rather than at the closing bracket - which is the only
+# thing that makes these different from the labels below.
+_SUBSTITUTED_IN_QML = {
+    "holdAnnounce",         # -> popup.announce, when a hold has landed
+    "unholdAnnounce",       # -> popup.announce, when one has been lifted
+}
+
 _ASSEMBLED_IN_LOGIC = {
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
@@ -1575,6 +1585,7 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineMissingCopyText: a clipboard payload of shell commands,
                             #    bound as data - and never a translatable unit at all
@@ -1585,6 +1596,10 @@ p.check("every string said to be assembled in logic.js is still in the copy tabl
         sorted(k for k in _ASSEMBLED_IN_LOGIC if k not in _COPY), [])
 for _key in sorted(_COPY):
     if _key in _ASSEMBLED_IN_LOGIC:
+        continue
+    if _key in _SUBSTITUTED_IN_QML:
+        p.check("the widget writes the agreed `%s` as a literal with its argument after it" % _key,
+                'i18n("%s", ' % _COPY[_key] in _QML_SRC, True)
         continue
     p.check("the widget writes the agreed `%s` as a literal a translator can extract" % _key,
             'i18n("%s")' % _COPY[_key] in _QML_SRC, True)

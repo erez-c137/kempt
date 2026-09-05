@@ -164,6 +164,19 @@ var COPY = {
     // indistinguishable from a broken button. main.qml assigns it, the way it assigns restartFailed.
     stagedChanged: "The staged update changed - take another look.",
 
+    // The hold round trip, in three sentences. Two of them are never DRAWN: the popup speaks them
+    // through one Accessible.announce when the row has actually moved, because until now a hold
+    // landed in complete silence - no message, no focus move, nothing (hostile panel, a11y P2).
+    // The %1 is substituted in the QML, which is why these two carry a placeholder rather than
+    // being assembled here: an announcement is one translatable sentence with a name in it.
+    holdAnnounce: "Holding %1",
+    unholdAnnounce: "No longer holding %1",
+    // ...and the failure, which is reported in the ROW that failed. It used to be the fifth
+    // InlineMessage at the top of the content, up to 300 px from the pin that caused it, saying
+    // neither hold nor unhold (HIG P6). main.qml substitutes and assigns it, the way it assigns
+    // restartFailed and stagedChanged.
+    holdFailed: "Could not change the hold on %1.",
+
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
     configure: "Configure Kempt…",
 

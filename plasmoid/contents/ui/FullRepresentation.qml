@@ -126,6 +126,103 @@ PlasmaExtras.Representation {
         else popup.forceActiveFocus(Qt.TabFocusReason);
     }
 
+    // --- what the popup says out loud ---------------------------------------------------------
+    // ONE function, and every announcement in this file goes through it. Two reasons, and the
+    // second is the one that made it a function rather than five call sites:
+    //   * `Accessible.announce` reaches an accessibility bridge and nothing else, so there is no
+    //     way for a test to hear it. `announced` is emitted alongside, and the probes spy on that.
+    //   * politeness is a decision, not a parameter to be re-argued at each call. Assertive is for
+    //     something that happened TO the person (a banner that flipped, a run that failed); polite
+    //     is for the outcome of something they just did.
+    // Qt 6.11 has the method and both politeness values (measured on this box, 2026-09-05); an
+    // older Qt would not, so the call is guarded rather than assumed.
+    signal announced(string sentence)
+
+    function announce(sentence, assertive) {
+        const said = String(sentence === undefined || sentence === null ? "" : sentence);
+        if (said.length === 0) return;
+        popup.announced(said);
+        if (typeof popup.Accessible.announce !== "function") return;
+        popup.Accessible.announce(said, assertive ? Accessible.AnnouncementPoliteness.Assertive
+                                                  : Accessible.AnnouncementPoliteness.Polite);
+    }
+
+    // --- the hold round trip, on this side ------------------------------------------------------
+    // main.qml runs the hold and the check that follows it; what arrives here is the moment the
+    // model has been replaced and the row has moved. Three things have to happen then, and none of
+    // them used to: the keyboard follows the package, the viewport stays where the person left it,
+    // and somebody says what happened.
+
+    // The package whose pin should take the keyboard as soon as its row exists again. Cleared by
+    // whoever claims it, so a rebuild that happens for some other reason cannot inherit it.
+    property string refocusName: ""
+    // How the press arrived. The two owe opposite things: a keyboard press must take the person to
+    // the row wherever it has gone, and a pointer press must not move the list under the pointer.
+    property bool refocusFromKeyboard: false
+    // Where the list was standing when the pin was pressed. The model is replaced wholesale, and a
+    // ListView handed a new model starts at 0 - measured at contentY 884 to 0 on the 24-package
+    // fixture and 1685 to 0 on an 80-row list.
+    property real savedContentY: 0
+
+    function claimRefocus(name) {
+        if (popup.refocusName === "" || name !== popup.refocusName) return false;
+        popup.refocusName = "";
+        return true;
+    }
+
+    function rowIndexOf(name) {
+        for (let i = 0; i < popup.vm.rows.length; i++) {
+            if (popup.vm.rows[i].kind === "item" && popup.vm.rows[i].name === name) return i;
+        }
+        return -1;
+    }
+
+    // Run one turn of the event loop after the model changed, so the ListView has had its layout.
+    // Doing the work here rather than only in the delegate's Component.onCompleted is what makes
+    // it work on a real list: a held row lands at the BOTTOM, under "Held", and a ListView only
+    // builds the delegates near its viewport - so on an ordinary 80-package update the delegate
+    // the refocus is waiting for does not exist until something scrolls to it.
+    function settleAfterHold() {
+        if (popup.refocusName !== "") {
+            const idx = popup.rowIndexOf(popup.refocusName);
+            if (idx < 0) popup.refocusName = "";
+            else {
+                // Contain, so a row already on screen does not move. This also BUILDS the
+                // delegate, which is what the two lines after it need.
+                rowsView.positionViewAtIndex(idx, ListView.Contain);
+                const loader = rowsView.itemAtIndex(idx);
+                if (loader && loader.item && popup.claimRefocus(popup.refocusName)) {
+                    loader.item.focusPin();
+                }
+            }
+        }
+        // ...and last, because focusing a pin scrolls its row into view (see UpdateItemDelegate's
+        // pinFocused): a pointer press gets its viewport back, whatever the focus move just did.
+        // Unconditional, so it still runs when a delegate claimed the refocus for itself above.
+        if (!popup.refocusFromKeyboard) {
+            rowsView.contentY = popup.savedContentY;
+            rowsView.returnToBounds();
+        }
+    }
+
+    Connections {
+        target: popup.plasmoidItem
+        function onHoldOutcome(name, hold, ok, message) {
+            if (!ok) {
+                // Assertive: the row now carries an error the person has to act on, and the pin
+                // under their hand is live again.
+                popup.announce(message, true);
+                return;
+            }
+            // Polite: they asked for this, and it worked. An assertive announcement here would
+            // interrupt whatever the reader was in the middle of, to confirm their own press.
+            const sentence = hold ? i18n("Holding %1", name)
+                                  : i18n("No longer holding %1", name);
+            popup.announce(sentence, false);
+            Qt.callLater(popup.settleAfterHold);
+        }
+    }
+
     // The open itself. main.qml owns `expanded` and therefore owns the announcement; what any
     // given surface does about it is that surface's business - the same split as closeRequested.
     //
@@ -586,13 +683,38 @@ PlasmaExtras.Representation {
                                 to: modelData.to
                                 held: modelData.held
                                 backend: modelData.backend
-                                busy: popup.plasmoidItem.holdInFlight
-                                onToggleHold: (backend, name, hold) => popup.plasmoidItem.setHold(backend, name, hold)
+                                // Which row is pending, never "a hold is running". The pressed row
+                                // keeps its button live and focused; the others stand down.
+                                pending: popup.plasmoidItem.pendingHold !== null
+                                         && popup.plasmoidItem.pendingHold.name === modelData.name
+                                         && popup.plasmoidItem.pendingHold.backend === modelData.backend
+                                otherPending: popup.plasmoidItem.pendingHold !== null && !pending
+                                // A failed hold belongs to the row it failed on, so the row is
+                                // where it is drawn.
+                                errorText: (popup.plasmoidItem.holdError !== null
+                                            && popup.plasmoidItem.holdError.name === modelData.name
+                                            && popup.plasmoidItem.holdError.backend === modelData.backend)
+                                           ? popup.plasmoidItem.holdError.text : ""
+                                onToggleHold: (backend, name, hold, keyboard) => {
+                                    // Noted BEFORE the CLI is asked, because the model is replaced
+                                    // by the check that follows and there is nothing left to read
+                                    // it off afterwards.
+                                    popup.refocusName = name;
+                                    popup.refocusFromKeyboard = keyboard;
+                                    popup.savedContentY = rowsView.contentY;
+                                    popup.plasmoidItem.setHold(backend, name, hold);
+                                }
                                 // Keyboard focus has arrived in this row. Contain scrolls the
                                 // least amount that makes the row whole, so a row already on
                                 // screen does not move under a mouse user who just clicked it.
                                 // See UpdateItemDelegate for what goes wrong without this.
                                 onPinFocused: rowsView.positionViewAtIndex(index, ListView.Contain)
+                                // The row the person acted on, rebuilt somewhere else in the list.
+                                // settleAfterHold covers the ordinary case; this covers a delegate
+                                // the view creates on its own schedule. Deferred, because at
+                                // Component.onCompleted the item is not in the window's scene yet
+                                // and forceActiveFocus there is a call that does nothing at all.
+                                Component.onCompleted: if (popup.claimRefocus(modelData.name)) Qt.callLater(focusPin)
                             }
                         }
                     }

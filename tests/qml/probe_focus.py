@@ -67,7 +67,7 @@ p.wait_for(ev, "root.kemptState !== null", True)
 
 
 def settle():
-    p.wait_for(ev, "root.checking || root.holdInFlight", False, timeout_ms=30000)
+    p.wait_for(ev, "root.checking || root.pendingHold !== null", False, timeout_ms=30000)
     p.wait_idle(ev, "executor", "tailExecutor", timeout_ms=30000)
 
 

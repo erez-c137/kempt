@@ -1587,6 +1587,16 @@ assert_eq "$(js 'L.COPY.stagedChanged')" "The staged update changed - take anoth
 # "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
   "[]" "no copy string claims a rebuild re-downloads anything, or calls removing it unstaging"
+# The hold round trip's own three sentences. Two are ANNOUNCED rather than shown - the popup speaks
+# them through Accessible.announce when a hold lands - and the third is reported in the row that
+# failed rather than as a message at the top of the stack, where a failure used to land up to 300 px
+# from the pin that caused it (hostile panel, HIG P6).
+assert_eq "$(js 'L.COPY.holdAnnounce')" "Holding %1" \
+  "copy: what the popup says out loud when a hold lands"
+assert_eq "$(js 'L.COPY.unholdAnnounce')" "No longer holding %1" \
+  "copy: ...and when one is lifted"
+assert_eq "$(js 'L.COPY.holdFailed')" "Could not change the hold on %1." \
+  "copy: a hold that failed, said in the row it failed on"
 assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
 assert_eq "$(js 'L.COPY.engineMissing')" \
   "Kempt's engine is not installed, so nothing can check for updates yet." \

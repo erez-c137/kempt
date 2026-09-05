@@ -25,7 +25,35 @@ PlasmoidItem {
     // measured from here - see Logic.watcherCheckDue and pollWatch. A `double`, not an `int`:
     // Date.now() is milliseconds since 1970 and does not fit in QML's 32-bit int.
     property double lastCheckFinished: 0
-    property bool holdInFlight: false      // a hold/unhold is running; the pins go inert meanwhile
+    // The hold whose ROUND TRIP is not finished: {backend, name}, or null. Deliberately not "a
+    // hold command is running": it stays set through the follow-up check as well, because the row
+    // does not move until that check lands, and the window in between is where the damage was.
+    //
+    // It replaces a global `holdInFlight` that every pin read as `enabled: !busy`, and the change
+    // is the whole of the hostile panel's finding 2. Qt strips focus from a control the instant it
+    // is disabled, so the keyboard left the pressed pin 30 ms after Space and landed on the
+    // delegate's anonymous Loader (a11y P1); meanwhile the row went on saying "Hold" and accepted
+    // a second press, and a second `hold dnf:<name>` really did reach the CLI (a11y P9). Naming
+    // the ONE row that is pending is what lets that row keep its button enabled and focused while
+    // the others stand down, and what lets its own handler refuse the duplicate at no cost to the
+    // keyboard.
+    property var pendingHold: null
+
+    // The last hold that failed: {backend, name, text}. Reported IN THAT ROW, under the version,
+    // rather than as a message at the top of the stack - see COPY.holdFailed. Cleared by the next
+    // press and by the next check, because it is a fact about one press and not about the box.
+    property var holdError: null
+
+    // A one-shot continuation for the next check that COMPLETES. setHold uses it to hold
+    // `pendingHold` open until the row has really moved, and it survives a coalesced re-check: if
+    // doCheck decides to run a second check, this stays set and fires after that one. The answer
+    // a caller is waiting for is the answer that includes its own write.
+    property var afterCheck: null
+
+    // What the popup says out loud when a hold finishes. This file owns the round trip, so it owns
+    // the news; what a surface DOES about it is that surface's business - the same split as
+    // popupShown(). `message` carries the sentence to speak when `ok` is false.
+    signal holdOutcome(string name, bool hold, bool ok, string message)
     // How many times we have re-asked after a check that answered with NOTHING. `kempt check`
     // prints an empty line and exits 0 when another check already holds the lock, and on a fresh
     // login that is the ordinary case rather than the exotic one: the CLI's own refresh is very
@@ -222,6 +250,10 @@ PlasmoidItem {
         // the whole plasmashell session, over a machine that had been checked several times since
         // and might no longer owe a restart at all.
         restartError = "";
+        // ...and the same rule for the row-level one. A hold that failed is about one press on one
+        // package; a check is the next event, and the row it is drawn under is about to be rebuilt
+        // from a fresh answer anyway.
+        holdError = null;
         // Asked again while one is running: coalesce, never drop. Dropping looks harmless because
         // the running check will finish anyway - but its answer was read BEFORE the change that
         // asked for this one, and the re-baseline below would then swallow that change as if we
@@ -285,6 +317,11 @@ PlasmoidItem {
                 root.doCheck();
                 return;
             }
+            // The answer is applied and no follow-up check is queued behind it, so anything that
+            // was waiting for a check to LAND is free now. Before the bounded retry below on
+            // purpose: that branch waits ten seconds before asking again, and a pin left spinning
+            // for ten seconds is the very state this replaced.
+            root.runAfterCheck();
             // Still nothing to show, and nothing of our OWN to report either (a CLI that failed
             // sets cliError and the popup says so - that is an answer, and re-asking would not
             // change it; an absent engine is the same, and the retry would only re-fail every ten
@@ -303,6 +340,15 @@ PlasmoidItem {
             root.firstCheckRetries = 0;
             firstCheckRetry.stop();
         });
+    }
+
+    // The one-shot continuation above, run and forgotten. Cleared BEFORE it is called, so a
+    // continuation that itself starts a check cannot be handed its own leftovers.
+    function runAfterCheck() {
+        if (afterCheck === null) return;
+        var done = afterCheck;
+        afterCheck = null;
+        done();
     }
 
     // One stat of the watched paths. `triggerCheck` is what separates the 30s watcher (which must
@@ -538,17 +584,31 @@ PlasmoidItem {
     // so it is quoted - see Logic.shellQuote. Nothing about a hold is stored in the widget: the
     // CLI owns the holds file, and the re-check is what moves the row between groups.
     function setHold(backend, name, hold) {
-        if (holdInFlight) return;
-        holdInFlight = true;
+        // One hold at a time, and this guard is what the other rows' disabled state is FOR. The
+        // pressed row keeps its button live so it can keep the keyboard, which means a second
+        // press on the pending package is a press this widget really does receive - and it has to
+        // reach the CLI as nothing at all.
+        if (pendingHold !== null) return;
+        pendingHold = { backend: backend, name: name };
+        holdError = null;
         actionMessage = "";
         var verb = hold ? " hold " : " unhold ";
         executor.run(kemptCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
                      function(stdout, stderr, rc) {
-            root.holdInFlight = false;
             if (rc !== 0) {
-                root.actionMessage = Logic.firstLineOf(stderr) || "Could not change the hold on " + name + ".";
+                // In the row, not at the top of the stack - and said out loud, because a row is
+                // where the person is standing and a message 300 px away is not a report.
+                var msg = Logic.firstLineOf(stderr)
+                          || Logic.COPY.holdFailed.split("%1").join(name);
+                root.holdError = { backend: backend, name: name, text: msg };
+                root.pendingHold = null;
+                root.holdOutcome(name, hold, false, msg);
                 return;
             }
+            // The row moves when the CHECK lands, not when this call returns, so the pending state
+            // stays set until then. That is the whole window the duplicate `hold` lived in.
+            root.afterCheck = function () { root.pendingHold = null;
+                                            root.holdOutcome(name, hold, true, ""); };
             root.doCheck();
         });
     }
