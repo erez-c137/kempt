@@ -1071,7 +1071,7 @@ assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...a
 # experiment: the key must move the restart surfaces and NOTHING else. Compared with those two
 # fields removed, inside ONE node process, because a whole-object comparison is the only form that
 # catches a key quietly changing something far from where it was added.
-STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; return JSON.stringify(v); }'
+STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; delete v.restartShowAction; return JSON.stringify(v); }'
 assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
 # ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
@@ -1542,6 +1542,47 @@ assert_eq "$(js 'L.rowsOf([{title:"System (dnf)",backend:"dnf",items:[{name:"a",
 assert_eq "$(js 'V("held-only",false).rows[0].held')" "true" \
   "...on a real capture whose every pending update is held"
 
+# --- a staged box says staged, at the top as well as in the banner (panel proposal 4 / D2) -------
+# Staging changed nothing at the top of the popup: the header still said "23 updates available" and
+# Update Now was still lit, directly under a green banner saying the same 23 were staged. The
+# reading a first-timer took from that was "so it did not work?".
+STAGED_HDR='{schema:1,status:"ok",actionable:23,held_total:0,last_check:"2026-09-05T10:31:00+03:00",last_success:"2026-09-05T10:31:00+03:00",backends:{},offline_staged:{staged_at:"2026-09-05T10:31:00+03:00",count:23,armed:true}}'
+assert_eq "$(js "L.viewModel($STAGED_HDR,false).headerText")" "23 updates staged for the next restart" \
+  "a staged box says so in its header instead of counting the same updates as available"
+assert_eq "$(js "L.viewModel($STAGED_HDR,false).tooltipMain")" "23 updates staged for the next restart" \
+  "...and the panel tooltip says the same, so hover and popup cannot disagree"
+# The badge is deliberately NOT touched: those updates really are still pending until the restart
+# runs, and the count-stays-true principle is not overturned by any of this (panel, D2).
+assert_eq "$(js "L.viewModel($STAGED_HDR,false).badgeText")" "23" \
+  "...while the badge stays the true actionable count, which the restart has not changed yet"
+assert_eq "$(js "L.viewModel($STAGED_HDR,false).stagedArmed")" "true" \
+  "...and the popup gets one boolean for the whole armed state, decided here"
+STAGED_ONE="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {actionable:1, offline_staged:{staged_at:'x',count:1,armed:true}}))")"
+assert_eq "$(js "L.viewModel($STAGED_ONE,false).headerText")" "1 update staged for the next restart" \
+  "one staged update takes the singular, noun and verb together"
+STAGED_NOCOUNT="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {offline_staged:{staged_at:'x',armed:true}}))")"
+assert_eq "$(js "L.viewModel($STAGED_NOCOUNT,false).headerText")" "Updates staged for the next restart" \
+  "a marker written before the CLI recorded a count loses the number, not the sentence"
+# ...and a box with no stage is untouched.
+assert_eq "$(js 'V("live",false).headerText')" "10 updates available" \
+  "a box with nothing staged still counts what is available"
+assert_eq "$(js 'V("live",false).stagedArmed')" "false" "...and says nothing is armed"
+
+# The restart message's OWN Restart button, while the staged banner is a warning. In that state a
+# restart applies the staged transaction the warning is about - the design already removed the
+# button from the warning for exactly that reason and left the identical one a row above it
+# (hostile panel, HIG M1).
+CONFLICT_HDR="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {reboot_needed:true, backends:{dnf:{enabled:true,items:[{name:'kf6-kio',from:'1',to:'2',held:true}]}}, offline_staged:{staged_at:'x',count:23,armed:true,holds_conflict:['kf6-kio'],names_source:'transaction'}}))")"
+assert_eq "$(js "L.viewModel($CONFLICT_HDR,false).stagedType")" "warning" \
+  "premise: a hold behind the stage turns the banner into a warning"
+assert_eq "$(js "L.viewModel($CONFLICT_HDR,false).restartMessageVisible")" "true" \
+  "premise: and the box owes a restart, so the restart message is up too"
+assert_eq "$(js "L.viewModel($CONFLICT_HDR,false).restartShowAction")" "false" \
+  "the restart message stands its own button down while a restart would install the held package"
+REBOOT_ONLY='{schema:1,status:"ok",actionable:0,held_total:0,reboot_needed:true,last_check:"2026-09-05T10:31:00+03:00",last_success:"2026-09-05T10:31:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($REBOOT_ONLY,false).restartShowAction")" "true" \
+  "...and offers it in the ordinary case, where a restart applies what is already installed"
+
 # --- the copy table -----------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
@@ -1576,6 +1617,14 @@ assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged - they install
   "copy: the staged message when the count is not known"
 assert_eq "$(js 'L.COPY.stagedTail')" "are staged - they install on the next restart" \
   "copy: the tail the counted spelling shares with it"
+# The HEADER while a transaction is armed. Three spellings, the same three the banner has and for
+# the same reasons: the count can be unknown, and one update moves the noun and the verb together.
+assert_eq "$(js 'L.COPY.stagedHeaderOne')" "1 update staged for the next restart" \
+  "copy: the header when exactly one update is staged"
+assert_eq "$(js 'L.COPY.stagedHeaderTail')" "updates staged for the next restart" \
+  "copy: ...the tail the counted spelling shares with it"
+assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates staged for the next restart" \
+  "copy: ...and the spelling for a marker that never carried a count"
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
   "Staged before your hold - %1 still installs on the next restart." \
   "copy: the staged banner when one held package is in the transaction anyway"
@@ -1670,7 +1719,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingCopyText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","riskyMessage","riskySummary","rows","sections","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineMissingCopyText","engineMissingMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","rebootNeeded","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

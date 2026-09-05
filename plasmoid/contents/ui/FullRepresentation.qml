@@ -147,6 +147,22 @@ PlasmaExtras.Representation {
                                                   : Accessible.AnnouncementPoliteness.Polite);
     }
 
+    // A message whose words changed under the reader. Kirigami gives every InlineMessage the
+    // AlertMessage role and no name, and a name change on an UNFOCUSED object is not spoken - it
+    // is readable in flat review and nothing else. So the banner that flips from "61 updates are
+    // staged" to "you held kf6-kio after this was prepared" changed its colour, its type and its
+    // buttons, silently, for the person who most needed to hear it.
+    //
+    // `spoken` is what stops one change being announced twice: `text` and `visible` are two
+    // bindings onto the same view-model change and both handlers fire. It is cleared when the
+    // message goes away, so a banner that comes back says itself again.
+    function speakMessage(item, assertive) {
+        if (!item.visible) { item.spoken = ""; return; }
+        if (item.text === item.spoken) return;
+        item.spoken = item.text;
+        popup.announce(item.text, assertive);
+    }
+
     // --- the hold round trip, on this side ------------------------------------------------------
     // main.qml runs the hold and the check that follows it; what arrives here is the moment the
     // model has been replaced and the row has moved. Three things have to happen then, and none of
@@ -459,6 +475,12 @@ PlasmaExtras.Representation {
                     // restarts anything itself.
                     text: i18n("Restart…")
                     icon.name: "system-reboot"
+                    // ...and it goes away while the staged banner is a warning. In that state a
+                    // restart applies the staged transaction the warning is about, so this button
+                    // offers the very install the person tried to stop - forty pixels above the
+                    // sentence saying so. logic.js decides it; nothing here re-derives it.
+                    enabled: popup.vm.restartShowAction
+                    visible: enabled
                     onTriggered: source => popup.plasmoidItem.promptRestart()
                 }
             ]
@@ -518,6 +540,12 @@ PlasmaExtras.Representation {
             // which for that person is no difference at all. The sentence already says everything.
             Accessible.name: text
             visible: popup.vm.stagedMessage.length > 0
+            // ...and it has to be HEARD, not merely readable. See popup.speakMessage. Assertive,
+            // because this is not the outcome of a press: it is the machine telling the person
+            // that what they were promised has changed under them.
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(stagedMessage, true)
+            onVisibleChanged: popup.speakMessage(stagedMessage, true)
             actions: [
                 Kirigami.Action {
                     // The same action the restart Warning offers, and never at the same time as it:
@@ -613,6 +641,11 @@ PlasmaExtras.Representation {
             text: popup.plasmoidItem.postRunLine
             visible: popup.plasmoidItem.postRunLine.length > 0
             Accessible.name: text
+            // Assertive: a run that has just finished, or failed, is the answer to the one thing
+            // the person was waiting for, and the popup may well not have the focus.
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(postRunMessage, true)
+            onVisibleChanged: popup.speakMessage(postRunMessage, true)
             actions: [
                 Kirigami.Action {
                     text: i18n("Show Log")
@@ -636,6 +669,9 @@ PlasmaExtras.Representation {
             text: popup.plasmoidItem.actionMessage
             Accessible.name: text
             visible: popup.plasmoidItem.actionMessage.length > 0
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(actionFailureMessage, true)
+            onVisibleChanged: popup.speakMessage(actionFailureMessage, true)
         }
 
         // --- the list, and what stands in for it when there is none --------------------------------
@@ -915,7 +951,14 @@ PlasmaExtras.Representation {
                 // over "Everything is up to date" was the founder's original complaint about this
                 // popup, and it is the correct call: an up-to-date box has no run to start, so
                 // there is no action to offer rather than an action being refused.
+                //
+                // ...and the third condition is the same rule applied to a state nobody had
+                // thought about: while a transaction is staged and armed, the work the person
+                // asked for is DONE and waiting for a restart, and this button would start it
+                // again, live, over the top of it. It sat lit under a green banner saying so
+                // (hostile panel, finding 3). Hidden and not disabled, by this file's own rule.
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
+                         && !popup.vm.stagedArmed
 
                 // ...which means this control can go off screen while the popup is open and the
                 // keyboard is standing on it. `actionable` reaches 0 on its own - the 30s watcher,

@@ -154,6 +154,16 @@ var COPY = {
     stagedOne: "1 update is staged - it installs on the next restart",
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
+    // ...and the HEADER over that banner, in the same three spellings and for the same reasons.
+    // Staging used to change nothing at the top of the popup: the header went on saying "23
+    // updates available" and Update Now stayed lit, directly under a green banner about the same
+    // 23 updates. What a first-timer read out of that was "so it did not work?" - which is the
+    // exact reading this widget exists to remove. The BADGE is deliberately untouched: those
+    // updates really are still pending until the restart runs, and the count stays true.
+    stagedHeaderOne: "1 update staged for the next restart",
+    stagedHeaderTail: "updates staged for the next restart",
+    stagedHeaderUnknown: "Updates staged for the next restart",
+
     // ...and the THREE more spellings the same banner has once a hold lands behind the stage. Not
     // extra lines under the sentence above: the sentence above is the reassurance, and a warning
     // appended to a reassurance is the contradiction one level down (spec 4.4, UX finding 1). The
@@ -705,6 +715,20 @@ function stagedMessageOf(staged) {
     // the test is `=== 1` and not `<= 1`. Same shape as the header's own count and the relative
     // times above it.
     return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
+}
+
+// stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
+// transaction is armed, or "" when none is.
+//
+// Same input, same tolerance and the same three spellings as stagedMessageOf above - deliberately
+// a second function rather than a flag on that one, because these are two different sentences with
+// two different jobs. The banner states what the next restart will DO; this replaces a count of
+// what is available, which while a stage is armed is a true number saying a false thing.
+function stagedHeaderOf(staged) {
+    if (!staged || typeof staged !== "object" || isArray(staged)) return "";
+    var n = staged.count;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedHeaderUnknown;
+    return n === 1 ? COPY.stagedHeaderOne : n + " " + COPY.stagedHeaderTail;
 }
 
 // stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words.
@@ -1290,6 +1314,26 @@ function viewModel(state, updating, cliError, opts) {
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 
+    // --- a transaction that is already staged and armed ------------------------------------------
+    // Derived HERE, above the header, because it changes what the header may say: while a stage is
+    // armed the pending count is a true number saying a false thing, and the popup's own banner is
+    // already saying the true one. Nine of the returned fields depend on this.
+    //
+    // heldDnf is walked out of the items collectItems already built rather than re-read from the
+    // state: those rows are what the popup is SHOWING as held, and a banner whose warning
+    // disagreed with the Held group under it would be the popup contradicting itself in one
+    // glance - the same failure the risky_pending isArray note below describes from the other end.
+    var heldDnf = false;
+    for (var h = 0; h < counted.heldItems.length; h++) {
+        if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
+    }
+    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
+    var stagedMessage = stagedVariant.message;
+    var staged = stagedMessage !== "";
+    // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
+    // variant, so "which banner is this" is decided in exactly one place.
+    var stagedWarning = stagedVariant.type === "warning";
+
     var tooltipMain, headerText;
     if (updating) {
         tooltipMain = "Updating…";
@@ -1308,6 +1352,12 @@ function viewModel(state, updating, cliError, opts) {
         headerText = (cliError !== "" || neverAnswered)
             ? "Kempt cannot check for updates"
             : "Could not read the update state";
+    } else if (staged) {
+        // The one place the count gives way. Not a second line under the count and not a badge
+        // emblem: the header is the sentence a person reads first, and while a stage is armed the
+        // honest answer to "where do I stand" is that the work is done and waiting for a restart.
+        headerText = stagedHeaderOf(state.offline_staged);
+        tooltipMain = headerText;
     } else {
         tooltipMain = countPhrase;
         headerText = countPhrase;
@@ -1412,16 +1462,6 @@ function viewModel(state, updating, cliError, opts) {
     // state: those rows are what the popup is SHOWING as held, and a banner whose warning
     // disagreed with the Held group under it would be the popup contradicting itself in one
     // glance - the same failure the risky_pending isArray note below describes from the other end.
-    var heldDnf = false;
-    for (var h = 0; h < counted.heldItems.length; h++) {
-        if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
-    }
-    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
-    var stagedMessage = stagedVariant.message;
-    var staged = stagedMessage !== "";
-    // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
-    // variant, so "which banner is this" is decided in exactly one place.
-    var stagedWarning = stagedVariant.type === "warning";
 
     // --- the footer status line ------------------------------------------------------------------
     // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
@@ -1508,6 +1548,10 @@ function viewModel(state, updating, cliError, opts) {
         riskyMessage: staged ? "" : riskyMessageOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),
         stagedMessage: stagedMessage,
+        // "there is an armed transaction", in one boolean, for the surfaces that have to stand
+        // down rather than say something about it. Update Now is hidden on this: pressing it over
+        // an armed stage starts a second, live update of the same packages.
+        stagedArmed: staged,
         // "positive" for the ordinary armed stage - nothing is wrong, the work is done and
         // waiting - and "warning" once a hold has landed behind it. A string rather than a
         // boolean because the QML binds it to a Kirigami.MessageType, and a third spelling
@@ -1542,6 +1586,13 @@ function viewModel(state, updating, cliError, opts) {
         lastSuccessText: lastSuccessText,
         rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
+        // ...and whether that message may carry its own Restart button. Everywhere else it may:
+        // a restart applies updates that are already installed, which is what the message says.
+        // NOT while the staged banner is a warning, and that is the whole point of the flip - in
+        // that state a restart installs the very package the warning says the person tried to keep
+        // out, and the design had already removed the button from the warning for exactly that
+        // reason while leaving the identical one a row above it (hostile panel, HIG M1).
+        restartShowAction: restartMessageVisible && !stagedWarning,
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.

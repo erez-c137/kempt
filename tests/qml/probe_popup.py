@@ -817,6 +817,23 @@ if live is not None:
     # through the stubbed CLI would look identical, and every assertion would pass anyway.
     lev("popup.vm = Qt.binding(function () { return popup.plasmoidItem.vm; })")
 
+    # Everything the popup says out loud. Accessible.announce reaches an accessibility bridge and
+    # nothing else, so the popup emits `announced` alongside it and this is what hears it.
+    _spy, _sev = p.create_inline("""
+import QtQuick
+QtObject {
+    id: spy
+    property var said: []
+    function hear(sentence) { var a = spy.said.slice(); a.push(sentence); spy.said = a; }
+    function clear() { spy.said = []; }
+}
+""", "popup-announce-spy.qml")
+    p.engine.rootContext().setContextProperty("popupAnnounceSpy", _spy)
+    lev("popup.announced.connect(popupAnnounceSpy.hear)")
+
+    def said():
+        return json.loads(str(_sev("JSON.stringify(said)")))
+
     def fixture(name):
         return os.path.join(harness.FIXTURES, name)
 
@@ -894,8 +911,22 @@ if live is not None:
     # joining it: leaving "Install on Next Restart" on screen over an armed transaction is an
     # invitation to stage the same updates twice, which is what happened on 2026-09-01.
     STAGED_RISKY = staged_from("state-risky-heavy.json", "state-staged-risky.json", 61)
+    _sev("clear()")
     state(STAGED_RISKY)
     stack("with that transaction already staged", "stagedMessage")
+    # The top of the popup, which is where the person looks first and where staging used to change
+    # nothing at all: the header went on counting the same updates as available and Update Now
+    # stayed lit under a green banner saying they were staged (hostile panel, finding 3).
+    p.check("...with the header saying staged rather than counting the same updates as available",
+            lev("popup.vm.headerText"), "61 updates staged for the next restart")
+    p.check("...the panel tooltip saying it too, so hover and popup cannot disagree",
+            ev("root.vm.tooltipMain"), "61 updates staged for the next restart")
+    p.check("...the badge still the true actionable count, which no restart has run yet",
+            ev("root.vm.badgeText"), str(ev("root.vm.actionable")))
+    p.check("...and Update Now GONE, because the work it would start is already done and waiting",
+            lev("updateButton.visible"), False)
+    p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
+            "and not spoken", said(), ["61 updates are staged - they install on the next restart"])
     p.check("...saying how many updates the restart will install",
             lev("stagedMessage.text"),
             "61 updates are staged - they install on the next restart")
@@ -991,6 +1022,20 @@ if live is not None:
             lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
     p.check("...which is the copy table's tooltip, not a second copy of it",
             lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
+
+    # HIG M1: the only Restart button on screen sat forty pixels above the sentence saying what a
+    # restart would install. The design had already removed it from the warning for that reason.
+    CONFLICT_REBOOT = conflict_from("state-reboot-needed.json", "state-staged-conflict-reboot.json",
+                                    ["kf6-kio"], "transaction", count=4)
+    ev("root.restartDismissed = false")
+    state(CONFLICT_REBOOT)
+    p.check("premise: a restart is owed AND the staged banner is a warning",
+            [lev("restartMessage.visible"), ev("root.vm.stagedType")], [True, "warning"])
+    p.check("the restart message stands its own button down rather than offering the install the "
+            "warning under it is about", lev("restartMessage.actions[0].visible"), False)
+    p.check("...inert as well as invisible", lev("restartMessage.actions[0].enabled"), False)
+    p.check("...and the staged warning has none either, so nothing on screen offers that restart",
+            lev("stagedMessage.actions[0].visible"), False)
 
     state(CONFLICT3)
     p.check("three held packages read as the first one and a count",
@@ -1620,6 +1665,9 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
+    "stagedHeaderOne",      # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
+    "stagedHeaderTail",     # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
+    "stagedHeaderUnknown",  # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
