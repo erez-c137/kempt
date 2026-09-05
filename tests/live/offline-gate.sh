@@ -103,24 +103,40 @@ is "...with exit 1" "$rc" "1"
 d=$("$K" doctor 2>&1)
 hasnt "a Kempt rebuild clears the drift" "$d" "not the one Kempt built"
 
-section "S5 stage failure over an armed stage (repos unreachable, cache emptied)"
+section "S5 rebuild fails on the network: the previous armed stage survives untouched"
+# Real dnf5, real failure: hold OTHER so the first stage never downloads its package, then unhold it
+# and cut the repositories off. The rebuild needs that one package, cannot get it, and dnf5 fails
+# before it has replaced anything - so the previous transaction must still be armed, and Kempt
+# must leave it alone.
+"$K" hold "dnf:$OTHER" >/dev/null 2>&1
+"$K" update --surface=offline --no-flatpak > /tmp/s5a.out 2>&1
+is "a stage without $OTHER is armed" "$(toml_status)" "ready"
+hasnt "...and really lacks $OTHER" "$(txnames)" "$OTHER"
+at5=$(jq -r .staged_at < "$STATE/offline_staged.json")
+"$K" unhold "dnf:$OTHER" >/dev/null 2>&1
 mkdir -p /tmp/repos.bak && cp /etc/yum.repos.d/*.repo /tmp/repos.bak/
 sed -i -e 's|^metalink=.*|baseurl=http://127.0.0.1:9/|' -e 's|^baseurl=.*|baseurl=http://127.0.0.1:9/|' /etc/yum.repos.d/*.repo
-rm -f "$PKGCACHE"/*.rpm 2>/dev/null
-: > /tmp/gate-notifications
+: > /tmp/gate-notifications; ev5=$(events | grep -c 'offline marker cleared')
 "$K" update --surface=offline --no-flatpak > /tmp/s5.out 2>&1; rc=$?
 [[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail" "$(tail -3 /tmp/s5.out)"
-has "event: the destroyed stage was discarded and the marker cleared" "$(events)" "rebuild failed, stage discarded"
-is "marker gone" "$(marker)" ""
-is "transaction gone (clean ran)" "$(toml_status)" "absent"
-[[ -L "$LINK" ]] && bad "boot symlink still standing" || ok "boot symlink gone"
-has "notification says what was lost" "$(notes)" "the previous staged update was discarded and could not be rebuilt"
+echo "  on disk after the failed rebuild: toml=$(toml_status) symlink=$([[ -L $LINK ]] && echo present || echo absent) marker=$([[ -n "$(marker)" ]] && echo present || echo absent)"
+is "the previous transaction is still armed" "$(toml_status)" "ready"
+[[ -L "$LINK" ]] && ok "the boot symlink still stands" || bad "the boot symlink is gone"
+hasnt "...and it is the same stage, still without $OTHER" "$(txnames)" "$OTHER"
+is "the marker is the same marker" "$(jq -r .staged_at < "$STATE/offline_staged.json" 2>/dev/null)" "$at5"
+is "no clean was run against it" "$(events | grep -c 'offline marker cleared')" "$ev5"
+has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
+has "notification says the previous one still installs" "$(notes)" "still installs on the next restart"
 cp /tmp/repos.bak/*.repo /etc/yum.repos.d/
 
-section "S6 stage failure AND clean failure (state d): the marker is kept for doctor"
+section "S6 dnf5 replaces the old stage and then fails (simulated): the unwind, with and without a working clean"
+# Real dnf5 keeps the old transaction on a download failure (S5). The other outcome, a new stage
+# that replaced the old one and then died, is simulated: the wrapper destroys the old transaction
+# the way a replace does and then fails, so the toml is absent when Kempt looks.
 mv /usr/bin/dnf5 /usr/bin/dnf5.real
 cat > /usr/bin/dnf5 <<'W'
 #!/bin/bash
+[[ "$*" == *"upgrade --offline"* && -e /tmp/gate-destroy-old ]] && { /usr/bin/dnf5.real -y -q offline clean >/dev/null 2>&1; echo "gate: the stage died after replacing the old transaction" >&2; exit 1; }
 [[ "$*" == *"offline clean"* && -e /tmp/gate-fail-clean ]] && { echo "gate: clean refused" >&2; exit 1; }
 [[ "$*" == *"offline reboot"* && -e /tmp/gate-fail-arm ]] && { echo "gate: arm refused" >&2; exit 1; }
 exec /usr/bin/dnf5.real "$@"
@@ -128,18 +144,32 @@ W
 chmod 755 /usr/bin/dnf5
 "$K" update --surface=offline --no-flatpak > /tmp/s6a.out 2>&1
 is "a fresh stage is armed" "$(toml_status)" "ready"
-sed -i -e 's|^metalink=.*|baseurl=http://127.0.0.1:9/|' -e 's|^baseurl=.*|baseurl=http://127.0.0.1:9/|' /etc/yum.repos.d/*.repo
-rm -f "$PKGCACHE"/*.rpm 2>/dev/null; touch /tmp/gate-fail-clean
-: > /tmp/gate-notifications
+touch /tmp/gate-destroy-old /tmp/gate-fail-clean; : > /tmp/gate-notifications
 "$K" update --surface=offline --no-flatpak > /tmp/s6.out 2>&1; rc=$?
 [[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail"
-[[ -n "$(marker)" ]] && ok "marker KEPT when the clean failed" || bad "marker removed although the clean failed"
+echo "  on disk after the refused clean: toml=$(toml_status) symlink=$([[ -L $LINK ]] && echo present || echo absent) marker=$([[ -n "$(marker)" ]] && echo present || echo absent)"
+[[ -n "$(marker)" ]] && ok "marker KEPT when the clean was refused" || bad "marker removed although the clean was refused"
 has "notification carries the clean command" "$(notes)" "sudo dnf5 offline clean"
 d=$("$K" doctor 2>&1); rc=$?
-is "doctor fails" "$rc" "1"
-has "...and names the clean command" "$d" "dnf5 offline clean"
-rm -f /tmp/gate-fail-clean; cp /tmp/repos.bak/*.repo /etc/yum.repos.d/
-dnf5.real -y -q offline clean >/dev/null 2>&1; rm -f "$STATE/offline_staged.json"
+if [[ "$(toml_status)" == absent && ! -L "$LINK" ]]; then
+  is "nothing stranded on disk: doctor passes" "$rc" "0"
+  has "...and says the transaction is gone" "$d" "transaction is gone"
+else
+  is "something stranded: doctor fails" "$rc" "1"
+  has "...and names the clean command" "$d" "dnf5 offline clean"
+fi
+rm -f /tmp/gate-fail-clean /tmp/gate-destroy-old; rm -f "$STATE/offline_staged.json"
+"$K" update --surface=offline --no-flatpak > /tmp/s6b.out 2>&1
+is "a fresh stage is armed again" "$(toml_status)" "ready"
+touch /tmp/gate-destroy-old; : > /tmp/gate-notifications
+"$K" update --surface=offline --no-flatpak > /tmp/s6c.out 2>&1; rc=$?
+[[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail"
+has "event: the destroyed stage was discarded and the marker cleared" "$(events)" "rebuild failed, stage discarded"
+is "marker gone" "$(marker)" ""
+is "transaction gone" "$(toml_status)" "absent"
+[[ -L "$LINK" ]] && bad "boot symlink still standing" || ok "boot symlink gone"
+has "notification says what was lost" "$(notes)" "the previous staged update was discarded and could not be rebuilt"
+rm -f /tmp/gate-destroy-old
 
 section "S7 arm failure: the stage is unwound"
 touch /tmp/gate-fail-arm; : > /tmp/gate-notifications

@@ -187,16 +187,19 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   widget's words instead of a bare shell incantation: "Kempt could not find konsole. Install it, or
   run updates another way: kempt config set surface background (Settings > Run updates in > In the
   background)". `kempt doctor` quotes the same remedy. The exit status is still 4.
-- **A failed rebuild no longer strands a destroyed staged update behind a live boot symlink.** dnf5
-  destroys the existing transaction the moment a new stage begins, so a rebuild that failed, a full
-  disk or a declined authentication, left nothing staged, the symlink still standing, and a marker
-  still promising the install: the next restart went into the offline updater, installed nothing,
-  and came back with no trace anywhere. Kempt now discards what the failed re-stage destroyed,
-  removes the marker with it, and fails the run saying the previous staged update was discarded and
-  could not be rebuilt. If that cleanup fails too, the marker is kept for `kempt doctor` and the
-  notification carries `sudo dnf5 offline clean`, as it now does for a failed arm whose cleanup
-  failed, where the command used to appear only on stderr, which nobody reads when the run was
-  started from the panel.
+- **A failed rebuild no longer strands a partial stage behind a live boot symlink, and no longer
+  discards a stage dnf5 kept.** Two things can happen when a re-stage fails, and the live container
+  gate measured both against real dnf5. A download that cannot complete fails before dnf5 touches
+  the previous transaction, which stays armed and installs on the next restart exactly as before:
+  Kempt now leaves it alone, fails the run saying the previous one is unchanged, and keeps the
+  conflict on screen so you can try again. A stage that dnf5 got far enough to store replaces the
+  previous transaction first, so a failure after that leaves a partial stage nothing arms with the
+  old boot symlink standing: the next restart went into the offline updater, installed nothing, and
+  came back with no trace anywhere. Kempt now discards that partial stage, removes its marker, and
+  fails the run saying the previous staged update was discarded. If that cleanup fails too, the
+  marker is kept for `kempt doctor` and the notification carries `sudo dnf5 offline clean`, as it
+  now does for a failed arm whose cleanup failed, where the command used to appear only on stderr,
+  which nobody reads when the run was started from the panel.
 - **A restart that could not install the staged update is announced instead of the banner just
   vanishing.** The popup's staged line disappears the moment the transaction stops being armed, and
   that used to be all that happened: no notification, no event, and a marker waiting forever for an

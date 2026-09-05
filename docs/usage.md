@@ -216,17 +216,22 @@ summary, the notification and the event log all say `staged but could not arm th
 install`. A downloaded transaction that nothing can apply is worse than no transaction at all,
 because every surface would go on describing it as a pending install.
 
-**Staging again replaces what is there, and the replacement is not a swap.** dnf5 destroys the
-existing transaction the moment a new stage begins, so a rebuild that fails does not leave the old
-staged update sitting there - it leaves nothing, with the boot symlink still standing, and the next
-restart detours into the offline updater and installs nothing at all. So whenever something was
-staged before the attempt and the stage fails, Kempt cleans up after itself and says so: the run
-fails with `the previous staged update was discarded and could not be rebuilt`, the marker goes
-with the transaction it described, and the event log records `offline marker cleared (rebuild
-failed, stage discarded)`. If the cleanup fails too, the reason and the notification both carry
+**Staging again replaces what is there, and what a failure leaves behind depends on how far dnf5
+got.** A rebuild that fails before dnf5 has replaced the previous transaction, which is what a
+download that cannot complete does, leaves that transaction exactly as it was: still armed, still
+installing on the next restart. Kempt leaves it alone too. The run fails with `could not rebuild
+the staged update - the previous one is unchanged and still installs on the next restart`, the
+marker stays, the event log records `offline restage failed (previous stage intact)`, and the
+conflict that prompted the rebuild stays on screen, so you can try again or remove the stage. A
+rebuild that fails after dnf5 has replaced the previous transaction leaves a partial stage nothing
+arms, with the old boot symlink still standing, and the next restart would detour into the offline
+updater and install nothing at all. That is the case Kempt cleans up: the run fails with `the
+previous staged update was discarded and could not be rebuilt`, the marker goes with the
+transaction it described, and the event log records `offline marker cleared (rebuild failed, stage
+discarded)`. If that cleanup fails too, the reason and the notification both carry
 `sudo dnf5 offline clean`, and the marker is kept deliberately so `kempt doctor` can name the same
-command from the other side. A failed **arm** whose cleanup also failed now puts that command on
-the notification as well: a warning on stderr reaches nobody who started the run from the panel.
+command from the other side. A failed **arm** whose cleanup also failed puts that command on the
+notification as well: a warning on stderr reaches nobody who started the run from the panel.
 
 A rebuild that works records `offline restage` in the event log, naming the holds that conflicted
 with the staged update it replaced - `offline restage (holds: kernel-core)` - because after the

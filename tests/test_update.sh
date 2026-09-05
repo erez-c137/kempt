@@ -398,11 +398,38 @@ assert_exit 0 "the rebuild fixture starts from a real armed stage" -- test -f "$
 old_pre="$(jq -r .pre_snapshot "$marker")"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 strc=0
+# The toml this file pins is `ready`: dnf5 failed BEFORE replacing the previous transaction, which
+# is what a download that cannot complete does (live container gate, 2026-09-05: toml ready,
+# symlink present, old set untouched). There is nothing to unwind, and a clean here would throw
+# away a perfectly good armed stage the user is still counting on.
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
 assert_eq "$strc" "1" "a rebuild whose stage fails fails the run"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and does NOT clean away the previous transaction dnf5 left armed"
+assert_exit 0 "the marker stays: it still describes the stage that still installs" -- test -f "$marker"
+assert_exit 0 "...and so does its snapshot copy" -- test -f "$old_pre"
+grep -q 'offline restage failed (previous stage intact)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log says the previous stage is intact" \
+  || { echo "FAIL: no restage-failed event"; _fail=1; }
+sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
+assert_eq "$(jq -r .error "$sthist")" \
+  "could not rebuild the staged update - the previous one is unchanged and still installs on the next restart" \
+  "...and the reason says the previous stage still installs, not that it was lost"
+
+# The other outcome: dnf5 got as far as replacing the previous transaction and then failed, so the
+# toml is a partial stage nothing arms (download-complete) with the old boot symlink standing over
+# it. That is the strand, and it is what the unwind is for.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+old_pre="$(jq -r .pre_snapshot "$marker")"
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
-  && echo "ok: ...and discards what the re-stage destroyed" \
-  || { echo "FAIL: no unwind after a failed stage"; _fail=1; }
+  && echo "ok: a re-stage that replaced the old transaction and then failed is cleaned up" \
+  || { echo "FAIL: no unwind after a failed stage that replaced the old transaction"; _fail=1; }
 assert_exit 0 "a rebuild that discarded the old stage leaves no marker" -- test ! -f "$marker"
 assert_exit 0 "...and no snapshot copy either" -- test ! -f "$old_pre"
 grep -q 'offline marker cleared (rebuild failed, stage discarded)' "$KEMPT_STATE_DIR/events.log" \
@@ -421,7 +448,8 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
-KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stage-clean-fail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stage-clean-fail" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
 assert_exit 0 "a rebuild whose cleanup failed too keeps the marker for the doctor" -- test -f "$marker"
 grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   && echo "ok: ...and the notification carries the command that clears it" \

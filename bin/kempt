@@ -398,7 +398,16 @@ cmd_update() {
       # nothing says so". `dnf5 offline clean` is idempotent (rc 0 on an empty offline directory),
       # and the run has already failed, so this is best-effort in exactly the way the arm's is.
       if [[ "$had_stage" == true ]]; then
-        if apply_with_retry "$log" priv_apply dnf-offline-clean; then
+        if [[ "$(offline_system_status)" == ready ]]; then
+          # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
+          # leaves the armed one untouched (live container gate, 2026-09-05: toml still ready,
+          # symlink present, old set unchanged). There is nothing to unwind, and a clean here would
+          # throw away a stage the user is still counting on. The marker stays - it still describes
+          # the stage that still installs - and the conflict that asked for the rebuild stays on
+          # every surface, so the person can try again or remove it themselves.
+          reason_override="could not rebuild the staged update - the previous one is unchanged and still installs on the next restart"
+          log_event "offline restage failed (previous stage intact)"
+        elif apply_with_retry "$log" priv_apply dnf-offline-clean; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
           # The marker described a transaction that no longer exists in any form: the re-stage
           # destroyed it and the clean took the remains. Left in place it would go on promising an

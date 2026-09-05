@@ -304,24 +304,31 @@ recurring. `DNF_SYSTEM_UPGRADE_NO_REBOOT` is the documented way to arm without r
 An arm that fails fails the run: the stage is discarded with `dnf-offline-clean` and **no marker
 is written**. The marker is a promise, and there is nothing left to promise.
 
-**A rebuild forfeits what it replaces.** Staging over an existing transaction is cancel-then-stage
-in dnf5: the old transaction is destroyed as the new one BEGINS, not swapped for it at the end
-(container-verified). So asking for a rebuild converts "the old staged update is still armed" from
-an end state into a forfeited one, and every failure path has to land somewhere honest. There are
-three end states, and the offline branch of `cmd_update` is written to reach one of them:
+**A rebuild forfeits what it replaces, once dnf5 has replaced it.** What a failed re-stage leaves
+behind depends on how far dnf5 got, and the live container gate (`tests/live/`, 2026-09-05)
+measured both outcomes against real dnf5: a download that cannot complete fails before the previous
+transaction is touched, leaving it armed and intact; a stage that dnf5 got far enough to store
+replaces the previous one first, so a failure after that point leaves a partial transaction nothing
+arms, under the old boot symlink. The offline branch of `cmd_update` therefore reads dnf5's status
+after a failed stage and lands in one of four end states:
 
 1. **New transaction armed, marker rewritten.** The ordinary case. `offline restage` records that
    there was an old one and which holds it conflicted with - a question that cannot be asked after
    the stage, because the transaction that contained the held package is gone.
-2. **Nothing staged, marker cleared, the user told.** The stage or the arm failed and
-   `dnf-offline-clean` succeeded. The run fails with a reason naming what was lost, and the marker
-   and its snapshot copy go with the transaction they described: a marker outliving its transaction
-   is a promise to the harvest, the doctor and the popup that no restart can keep.
-3. **The cleanup failed too.** Reachable only through a double failure. The toml and the boot
-   symlink now disagree and only root can settle it, so the command that settles it travels on the
-   failure notification as well as on stderr - stderr is nobody's surface when the run came from a
-   panel - and the marker is deliberately KEPT. Doctor's staged row and its boot-symlink row then
-   say two different true things about the box and name the one remedy between them.
+2. **The previous transaction untouched.** The stage failed with dnf5's status still `ready`.
+   Nothing is cleaned, the marker stays (it still describes the stage that still installs), the run
+   fails saying the previous one is unchanged, and the conflict that asked for the rebuild remains
+   on every surface. A clean here would throw away a stage the person is still counting on.
+3. **Nothing staged, marker cleared, the user told.** The stage failed with the previous
+   transaction gone or unarmed, or the arm failed, and `dnf-offline-clean` succeeded. The run fails
+   with a reason naming what was lost, and the marker and its snapshot copy go with the transaction
+   they described: a marker outliving its transaction is a promise to the harvest, the doctor and
+   the popup that no restart can keep.
+4. **The cleanup failed too.** Reachable only through a double failure. The toml and the boot
+   symlink may now disagree and only root can settle it, so the command that settles it travels on
+   the failure notification as well as on stderr - stderr is nobody's surface when the run came
+   from a panel - and the marker is deliberately KEPT. Doctor's staged row and its boot-symlink row
+   then say two different true things about the box and name the one remedy between them.
 
 Whether a transaction existed before the attempt is read from two places, either of which is
 enough: Kempt's marker, and dnf5's own status. The second is what covers a transaction Kempt did
