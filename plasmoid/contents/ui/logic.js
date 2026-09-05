@@ -116,6 +116,54 @@ var COPY = {
     stagedOne: "1 update is staged - it installs on the next restart",
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
+    // ...and the THREE more spellings the same banner has once a hold lands behind the stage. Not
+    // extra lines under the sentence above: the sentence above is the reassurance, and a warning
+    // appended to a reassurance is the contradiction one level down (spec 4.4, UX finding 1). The
+    // banner changes what it IS, so these replace stagedTail/stagedOne rather than joining them.
+    //
+    // "%1" and "%2", which nothing else in this table does, because these are the only entries
+    // whose subject is a package name that came out of another program. The alternative was four
+    // head/tail fragments, and a fragment is not something a reviewer can read as a sentence -
+    // which is the whole reason spec section 7 states these as sentences. stagedVariantOf below
+    // substitutes; tests/test_widget_logic.sh pins both the templates and the finished sentences.
+    //
+    // First the name, then a count of the rest. NOT familiesOf: that collapses kernel-core and
+    // kernel-modules into one decision, which is right when the question is "what is risky about
+    // this transaction" and wrong here, where the person is owed the number of packages their
+    // holds did not stop.
+    //
+    // "still installs" / "still install": singular and plural move the verb, the possessive AND
+    // the pronoun together, the same rule stagedOne follows above.
+    stagedConflictOne: "Staged before your hold - %1 still installs on the next restart.",
+    stagedConflictMore:
+        "Staged before your holds - %1 and %2 more still install on the next restart.",
+    // And the spelling for a stage whose package list could not be read at all. "may", because
+    // that is exactly what is known - the CLI said names_source "none", which means an empty
+    // conflict list is "cannot tell" and never "no conflict". A reader that stayed quiet here
+    // would be denying a conflict on no evidence; the spec's rule is that names may CONFIRM a
+    // conflict and may never DENY one.
+    stagedConflictUnknown:
+        "Staged before your holds - it may still install held packages on the next restart.",
+
+    // The one action a warning variant offers, and the whole cost of pressing it. Both facts are
+    // in the tooltip because both are real: it runs `kempt update --surface=offline`, which is a
+    // privileged verb (a polkit dialog), and dnf5 destroys the stored transaction the moment a
+    // re-stage begins (spec G2), so a rebuild that fails leaves nothing staged.
+    //
+    // What it deliberately does NOT say is "re-downloads". Container-measured (spec G8): a
+    // replace-stage reuses dnf5's package cache - re-staging with an exclude transferred 0.0 B,
+    // ">>> Already downloaded" - so a download warning here would be a cost this project invented.
+    // "removed", not "unstaged": the CLI's own remedy is `sudo dnf5 offline clean`, and it removes.
+    stagedRebuildAction: "Rebuild Staged Update",
+    stagedRebuildTooltip:
+        "Builds the staged update again with your current holds. Asks for authorization; "
+        + "if the rebuild fails, the current staged update is removed.",
+    // What the rebuild says instead of acting when the stage it was offered over is not the stage
+    // on disk any more. Short, and about the transaction rather than about the widget: the person
+    // pressed a button and nothing happened, and this is the only sentence that stops that being
+    // indistinguishable from a broken button. main.qml assigns it, the way it assigns restartFailed.
+    stagedChanged: "The staged update changed - take another look.",
+
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
     configure: "Configure Kempt…",
 
@@ -600,6 +648,83 @@ function stagedMessageOf(staged) {
     // the test is `=== 1` and not `<= 1`. Same shape as the header's own count and the relative
     // times above it.
     return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
+}
+
+// stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words.
+//
+//   { type: "positive" | "warning", message, conflictNames: [...], stagedAt: "" }
+//
+// THE PROBLEM THIS EXISTS FOR, in the user's own order: stage 83 updates with a kernel among
+// them, read something worrying, press the pin on kernel-core - and restart into the kernel you
+// just tried to keep out. Nothing lied. dnf5 built and stored that transaction at stage time, and
+// it offers no way to edit a stored one, so a hold applies from the NEXT transaction Kempt builds
+// while this one still installs the package. The person assembled a true belief out of Kempt's own
+// surfaces and reality contradicted it, which is the exact failure this project exists to remove.
+//
+// The popup is the last surface that could have said so, and it was saying the opposite: a green
+// Positive banner with a live Restart… button over the package they had just tried to stop. So the
+// banner does not GAIN a line here - a warning appended to a reassurance is the contradiction one
+// level down, and the reassurance is the half with the button on it. It changes what it is.
+//
+// The judgement itself is NOT re-derived here, exactly as stagedMessageOf does not re-derive
+// "armed". `holds_conflict` is the CLI's own answer - the held dnf packages that are in the stored
+// transaction anyway, computed at check time from dnf5's stored transaction read live - and
+// `names_source` says what an EMPTY list means: "transaction"/"marker" mean it was read and there
+// is nothing in it, "none" means it could not be read at all, so an empty list there is "cannot
+// tell". Two states, two sentences, and the difference between them is the whole honesty of this.
+//
+// heldDnf is the one fact this file has to supply itself: whether the box is holding any dnf
+// package at all (backends.dnf.items[] with held true). It gates the generic warning only - with
+// nothing held there is nothing to be vague ABOUT, and worrying a box that holds nothing over a
+// list nobody could read is noise. dnf only, and not because flatpak is less important: the
+// offline surface stages dnf and only dnf, so a held flatpak can never be in a staged transaction
+// (spec, UX finding 2).
+//
+// TOLERANCE, and it is the same rule the isArray note in viewModel argues for risky_pending: this
+// is JSON from another program, and a schema-1 reader tolerates a key of the wrong type by
+// IGNORING it. A string has a length and indexes into its own characters, so a duck-typed check
+// would warn about a package called "k". Everything malformed falls back to the banner that was
+// there before these fields existed, and nothing here throws.
+//
+// The ONE asymmetry in that tolerance is deliberate: a well-formed list of names warns whether or
+// not names_source is readable. The spec's rule is that names may CONFIRM a conflict and may never
+// DENY one, and a reader that demanded a valid names_source before believing a list of package
+// names would be denying one on a technicality.
+function stagedVariantOf(staged, heldDnf) {
+    var plain = { type: "positive", message: stagedMessageOf(staged), conflictNames: [],
+                  stagedAt: "" };
+    if (plain.message === "") return plain;
+    // Not shellQuote-adjacent, but the same instinct: a stamp that is not a string is not a stamp.
+    // main.qml compares this for EQUALITY against the state file at click time, and a number here
+    // would compare equal to a number there and spend the user's consent on a transaction they
+    // never saw.
+    if (typeof staged.staged_at === "string") plain.stagedAt = staged.staged_at;
+
+    var names = [], i, name;
+    if (isArray(staged.holds_conflict)) {
+        for (i = 0; i < staged.holds_conflict.length; i++) {
+            name = staged.holds_conflict[i];
+            // One bad entry discards the LIST, not just the entry. A sentence built from the
+            // survivors of a list we could not read is a count the user cannot check, and
+            // "kernel-core and 2 more" is only worth saying when the 2 is true.
+            if (typeof name !== "string" || name === "") { names = []; break; }
+            names.push(name);
+        }
+    }
+
+    if (names.length > 0) {
+        return { type: "warning",
+                 message: names.length === 1
+                     ? COPY.stagedConflictOne.replace("%1", names[0])
+                     : COPY.stagedConflictMore.replace("%1", names[0])
+                                              .replace("%2", String(names.length - 1)),
+                 conflictNames: names, stagedAt: plain.stagedAt };
+    }
+    if (staged.names_source === "none" && heldDnf) {
+        return { type: "warning", message: COPY.stagedConflictUnknown, conflictNames: [],
+                 stagedAt: plain.stagedAt };
+    }
+    return plain;
 }
 
 // The head of anything formatStamp can RENDER. Anything else it hands back verbatim, and
@@ -1219,9 +1344,22 @@ function viewModel(state, updating, cliError, opts) {
     var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
 
     // A transaction that is already staged and armed, which changes what the rest of the popup may
-    // offer. Derived once, here, because three of the returned fields depend on it.
-    var stagedMessage = usable ? stagedMessageOf(state.offline_staged) : "";
+    // offer. Derived once, here, because seven of the returned fields depend on it.
+    //
+    // heldDnf is walked out of the items collectItems already built rather than re-read from the
+    // state: those rows are what the popup is SHOWING as held, and a banner whose warning
+    // disagreed with the Held group under it would be the popup contradicting itself in one
+    // glance - the same failure the risky_pending isArray note below describes from the other end.
+    var heldDnf = false;
+    for (var h = 0; h < counted.heldItems.length; h++) {
+        if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
+    }
+    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
+    var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
+    // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
+    // variant, so "which banner is this" is decided in exactly one place.
+    var stagedWarning = stagedVariant.type === "warning";
 
     // --- the footer status line ------------------------------------------------------------------
     // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
@@ -1308,9 +1446,37 @@ function viewModel(state, updating, cliError, opts) {
         riskyMessage: staged ? "" : riskyMessageOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),
         stagedMessage: stagedMessage,
+        // "positive" for the ordinary armed stage - nothing is wrong, the work is done and
+        // waiting - and "warning" once a hold has landed behind it. A string rather than a
+        // boolean because the QML binds it to a Kirigami.MessageType, and a third spelling
+        // (Information, say) is a plausible next state for this banner rather than an exotic one.
+        stagedType: stagedVariant.type,
         // Never two Restart… buttons in one popup: the restart Warning already carries one
         // whenever it is on screen, and this is the same action in a second place.
-        stagedShowRestart: staged && !restartMessageVisible,
+        //
+        // ...and never a Restart… on a warning variant at all, which is the stricter rule and the
+        // reason the flip is worth anything. The person is looking at a sentence that says the
+        // next restart will install the package they tried to keep out; a button labelled
+        // Restart… under it is an invitation to do exactly that.
+        stagedShowRestart: staged && !restartMessageVisible && !stagedWarning,
+        // ...and what stands in its place. One action, only on the variants where there is
+        // something to change: rebuilding an ordinary armed stage would destroy a good
+        // transaction (spec G2) to produce the same one back.
+        stagedShowRebuild: stagedWarning,
+        // Published rather than left as a literal in the QML's Accessible.description, so the
+        // words a screen reader hears and the words the tooltip shows are one decision. The QML
+        // still writes the literal for i18n extraction; the probe ties the two together.
+        stagedRebuildTooltip: COPY.stagedRebuildTooltip,
+        // The stamp this banner was derived from, for main.qml's click-time re-verify. Consent is
+        // given to a BANNER, and a banner describes ONE transaction: between the render and the
+        // click that transaction can be consumed by a restart, replaced by another stage or
+        // cleaned away, and a rebuild is destructive at its start. "" means there is nothing to
+        // compare, which the re-verify reads as "do not act".
+        stagedStagedAt: stagedVariant.stagedAt,
+        // The names behind the sentence. The banner shows the first one and a count; anything that
+        // has to say them again - a test, an accessible description, a later surface - takes them
+        // from here rather than parsing them back out of the sentence.
+        stagedConflictNames: stagedVariant.conflictNames,
         lastSuccessText: lastSuccessText,
         rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
@@ -1341,6 +1507,7 @@ if (typeof module !== "undefined" && module.exports) {
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         riskyMessageOf: riskyMessageOf,
         stagedMessageOf: stagedMessageOf,
+        stagedVariantOf: stagedVariantOf,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,

@@ -465,6 +465,75 @@ PlasmoidItem {
         });
     }
 
+    // The conflict banner's one action, and it runs EXACTLY what stageOffline runs above:
+    // `kempt update --surface=offline`, detached the same way, the same polkit action, the same
+    // dialog. No new command shape, no new helper verb, no new argument - a rebuild is a stage,
+    // and dnf5 replaces the stored transaction with the one the current holds produce.
+    //
+    // What is new is the RE-VERIFY, and it is the reason this is not simply stageOffline() under a
+    // second label. Consent here is given to a BANNER, and a banner describes ONE transaction: the
+    // popup can sit open for an hour, and in that time the stage it is describing can be consumed
+    // by a restart, replaced by another stage, or cleaned away by hand. A rebuild is destructive at
+    // its START - dnf5 destroys the stored transaction the moment a re-stage begins, rather than
+    // swapping it at the end - so acting on a stale banner does not merely do the wrong thing, it
+    // throws away a transaction the person never agreed to lose. Consent given to one banner must
+    // not be spent on a different one (spec 4.4, systems finding 8).
+    //
+    // So: read the state file as it is NOW, and proceed only if it is still the same stage and
+    // still in conflict. Anything else runs nothing, re-derives from what was just read, and says
+    // so where the press happened.
+    //
+    // stateDir is NOT shellQuote'd, and that distinction is the rule findLog() below spells out:
+    // it is a shell expression this file wrote, whose ${...} expansion is the point of it, and
+    // single quotes would turn it into a literal directory name that cannot exist. Double quotes
+    // give it the expansion and still survive a space in $HOME. shellQuote is for values that came
+    // from OUTSIDE - package names, paths the CLI printed - which must never be interpreted.
+    function rebuildStaged() {
+        // The same guard stageOffline has, and it matters more here: two staging runs at once is
+        // the double-press this widget already learned about, with a destructive first step.
+        if (updating) return;
+        actionMessage = "";
+        // Read HERE, synchronously, before anything can move it. This is the stamp of the banner
+        // the person was actually looking at when they pressed, and the whole comparison below is
+        // against that - not against whatever root.vm says once the fresh state has been assigned
+        // into it, which would compare the new file with itself and always agree.
+        var offered = vm.stagedStagedAt;
+        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
+            // Deliberately NOT re-running `kempt check`. The file IS what check publishes, reading
+            // it costs nothing and cannot take a lock, and a check would put a command that can
+            // run for two minutes between the click and the action it was meant to authorise.
+            var fresh = Logic.parseState(stdout);
+            // Re-derived from the bytes just read, so the banner the user is looking at after a
+            // refusal is the truth rather than the thing they clicked. Only when there is something
+            // to derive from: null means we learned nothing, and rule 1 of the schema says keep
+            // what we had.
+            if (fresh !== null) root.kemptState = fresh;
+            var vmNow = Logic.viewModel(fresh, false, "");
+            // Three conditions, and all three are about the SAME transaction still being there and
+            // still being wrong: a stage is published at all, it is the one this banner was built
+            // from (staged_at, compared as published - see logic.js stagedStagedAt for why a
+            // non-string publishes nothing), and it would still raise a warning. The third is what
+            // stops a rebuild running over a stage whose conflict somebody else already resolved.
+            if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
+                    || !vmNow.stagedShowRebuild) {
+                root.actionMessage = Logic.COPY.stagedChanged;
+                return;
+            }
+            // `executor`, not `root.executor`: an id is resolved lexically and is NOT a property
+            // of the object that declares it, so `root.executor` is undefined and calling .run on
+            // it throws inside the callback - silently, as far as the person who pressed is
+            // concerned. The probe caught exactly that.
+            executor.run("setsid sh -c "
+                         + Logic.shellQuote(root.kemptCmd + " update --surface=offline")
+                         + " >/dev/null 2>&1 &", 10000,
+                         function(stdout2, stderr2, rc2) {
+                if (rc2 === 0) root.enterUpdating();
+                else root.actionMessage = Logic.firstLineOf(stderr2)
+                                          || "Could not rebuild the staged update.";
+            });
+        });
+    }
+
     // The pin toggle. The name comes out of the CLI's own JSON and goes back into a shell command,
     // so it is quoted - see Logic.shellQuote. Nothing about a hold is stored in the widget: the
     // CLI owns the holds file, and the re-check is what moves the row between groups.

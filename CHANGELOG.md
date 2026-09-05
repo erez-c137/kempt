@@ -29,6 +29,30 @@ release.
 - `state.json`'s `offline_staged` gains `holds_conflict` (the held packages the staged update will
   install anyway) and `names_source` (whether an empty list means "no conflict" or "cannot tell").
   Both are additive, present only while a stage is armed, and readers must tolerate their absence.
+- The panel widget stops contradicting itself about a staged update you have held something in.
+  Stage an offline update, then pin `kernel-core` in the popup, and until now the popup went on
+  showing a green "61 updates are staged - they install on the next restart" with a live
+  **Restart…** button - directly over the package you had just tried to keep out. The banner now
+  turns into a warning and says what is actually true: *Staged before your hold - kernel-core still
+  installs on the next restart.* (or "kernel-core and 2 more" with several). The **Restart…**
+  button goes away with it, because offering a restart there is offering the install you were
+  trying to stop.
+- The same banner offers **Rebuild Staged Update**, which builds the staged update again with your
+  current holds. It runs the same `kempt update --surface=offline` as **Install on Next Restart** -
+  the same authorization prompt, no new command - and its tooltip says both costs before you press
+  it: it asks for authorization, and if the rebuild fails the current staged update is removed. It
+  does not download everything again; dnf5 reuses the package cache. The tooltip is the accessible
+  description too, so a screen reader reads the cost out before the authorization dialog takes the
+  focus - and the banner's flip is carried by its words rather than by its colour.
+- Where Kempt cannot read the staged package list at all and you are holding dnf packages, the
+  banner says the weaker true thing instead of the reassuring false one: *Staged before your
+  holds - it may still install held packages on the next restart.* With nothing held it stays
+  green, and a held flatpak never triggers it - the offline surface stages dnf only.
+- Pressing **Rebuild Staged Update** re-checks the staged update before it acts. A popup can sit
+  open for an hour, and in that time a restart can apply the staged update, or something can
+  replace it. A rebuild destroys the stored transaction as it starts, so a click over a staged
+  update that has moved runs nothing at all and says *The staged update changed - take another
+  look.* with the banner re-drawn from what is really there.
 - `kempt doctor` compares each polkit action's `exec.path` annotation with the helper path this
   CLI actually hands to pkexec. When the two disagree - a package installed over a checkout
   install, or the reverse - pkexec has no matching action, so every privileged run falls back to

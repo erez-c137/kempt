@@ -462,12 +462,25 @@ def _code(name):
     return " ".join(" ".join(lines).split())
 
 
+# Descriptions that belong to something OTHER than an icon-only button, named here so the count
+# below can stay an equality. Equality is what makes it a gate: `>=` would go on passing when a new
+# icon-only button arrived with no description, because some unrelated description elsewhere was
+# already covering for it.
+#
+# FullRepresentation.qml has one. The Rebuild Staged Update action is a labelled button, not an
+# icon-only one, and it carries a description anyway: its tooltip discloses that the rebuild asks
+# for authorization and that a failed rebuild removes the current staged update, and a polkit
+# dialog takes the focus the instant it is pressed. A disclosure that has not been heard by then is
+# never heard, so the same words are bound to Accessible.description.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 1}
+
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
     if "IconOnly" not in _s:
         continue
     p.check("every icon-only button in %s carries an accessible description" % _name,
-            _s.count("Accessible.description"), _s.count("IconOnly"))
+            _s.count("Accessible.description"),
+            _s.count("IconOnly") + _EXTRA_DESCRIPTIONS.get(_name, 0))
 
 _popup = _code("FullRepresentation.qml")
 p.check("every message in the stack announces its own words",
