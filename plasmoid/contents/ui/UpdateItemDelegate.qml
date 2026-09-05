@@ -40,7 +40,7 @@ RowLayout {
     // the top of the popup, because that is where the hand is.
     required property string errorText
 
-    // `keyboard` is how the press arrived: the pin's visualFocus, which QQC2 sets only for the
+    // `keyboard` is how the press arrived: the padlock's visualFocus, which QQC2 sets only for
     // keyboard focus reasons. The popup needs it because the two presses owe opposite things after
     // the row moves - the keyboard has to be taken to the row, and a pointer must not have the
     // list scrolled out from under it.
@@ -77,7 +77,8 @@ RowLayout {
             Layout.fillWidth: true
             text: row.name
             // The name is the line that gives way. It elides on purpose: a package name long
-            // enough to need the whole row would otherwise push the pin off the end of it, and a
+            // enough to need the whole row would otherwise push the padlock off the end of it,
+            // and a
             // truncated name is still recognisable in a way a truncated version string is not.
             elide: Text.ElideRight
             // NO opacity dip on a held row. It used to drop to 0.7, which is a contrast REDUCTION
@@ -121,7 +122,8 @@ RowLayout {
 
         // What went wrong with the last hold on this package. Here rather than in the message
         // stack at the top of the popup: a failed hold used to arrive as the fifth InlineMessage,
-        // up to 300 px from the pin that caused it, saying neither hold nor unhold (HIG P6). It is
+        // up to 300 px from the padlock that caused it, saying neither hold nor unhold (HIG P6).
+        // It is
         // announced as well, so the report reaches a screen reader at the same moment.
         PlasmaComponents.Label {
             Layout.fillWidth: true
@@ -150,7 +152,7 @@ RowLayout {
         // tray's own checked Keep Open pin. So the name carries the state instead.
         checkable: false
         // The row's full height, which is 43 px against the button's own 30: WCAG 2.5.5 wants 44,
-        // adjacent pins were 13 px apart, and the row is already that tall.
+        // adjacent padlocks were 13 px apart, and the row is already that tall.
         Layout.fillHeight: true
         // ONLY for a hold on some other row. The pressed row's own button stays live, which is the
         // whole finding: a control that disables itself under the press throws the keyboard onto
@@ -179,7 +181,7 @@ RowLayout {
         // A ListView only builds the delegates near its viewport, so on a real Fedora update -
         // a hundred packages, most of them never rendered - the focus chain contains only the
         // rows that happen to exist, and Tab walks as far as the last one and then leaves the
-        // list entirely. Measured on the 24-package fixture, 2026-08-27: 17 pins reachable, 7
+        // list entirely. Measured on the 24-package fixture, 2026-08-27: 17 padlocks reachable, 7
         // unreachable. Announcing the focus lets the list scroll this row into view, which puts
         // the focus ring back on screen AND builds the rows after it.
         onActiveFocusChanged: if (activeFocus) row.pinFocused()

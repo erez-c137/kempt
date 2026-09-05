@@ -1234,10 +1234,21 @@ QtObject {
 
     # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
     # own reason in the tooltip of the button that tries again.
+    _sev("clear()")
     state(fixture("state-stale.json"))
     stack("with the last check failed over known counts")
     p.check("...the footer says a check failed, on the line that dates the counts it explains",
             "last check failed" in str(lev("footerLabel.text")), True)
+    p.check("...and says it out loud, because a footer nobody is standing on is not announced by "
+            "anything otherwise", said(), [lev("footerLabel.text")])
+    # ...once. This line is rewritten every thirty seconds by the clock ("Checked 4 min ago"), and
+    # a screen reader does not want to hear that: the announcement is keyed on the REASON.
+    _sev("clear()")
+    ev("root.nowMs = Date.now() + 3600000")
+    p.pump(80)
+    p.check("...and the clock rewriting that line says nothing at all", said(), [])
+    ev("root.refreshClock()")
+    p.pump(50)
     p.check("...and the reason is on the button that would try again",
             str(lev("refreshButton.PlasmaComponents.ToolTip.text")).endswith(
                 str(ev("root.vm.staleReason"))), True)

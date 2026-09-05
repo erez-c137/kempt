@@ -89,7 +89,8 @@ PlasmaExtras.Representation {
 
     // Klipper's precedent. On the popup rather than on any one control because key events travel
     // from whatever holds focus UP the parent chain: one handler here catches Escape from the
-    // buttons, the pins and the message actions alike, and no control has to remember to forward
+    // buttons, the padlocks and the message actions alike, and no control has to remember to
+    // forward
     // it. Accepted, so a host that would also act on it does not get a second go.
     Keys.onEscapePressed: event => {
         popup.closeRequested();
@@ -181,13 +182,15 @@ PlasmaExtras.Representation {
     // them used to: the keyboard follows the package, the viewport stays where the person left it,
     // and somebody says what happened.
 
-    // The package whose pin should take the keyboard as soon as its row exists again. Cleared by
+    // The package whose padlock should take the keyboard as soon as its row exists again. Cleared
+    // by
     // whoever claims it, so a rebuild that happens for some other reason cannot inherit it.
     property string refocusName: ""
     // How the press arrived. The two owe opposite things: a keyboard press must take the person to
     // the row wherever it has gone, and a pointer press must not move the list under the pointer.
     property bool refocusFromKeyboard: false
-    // Where the list was standing when the pin was pressed. The model is replaced wholesale, and a
+    // Where the list was standing when the padlock was pressed. The model is replaced wholesale,
+    // and a
     // ListView handed a new model starts at 0 - measured at contentY 884 to 0 on the 24-package
     // fixture and 1685 to 0 on an 80-row list.
     property real savedContentY: 0
@@ -224,7 +227,7 @@ PlasmaExtras.Representation {
                 }
             }
         }
-        // ...and last, because focusing a pin scrolls its row into view (see UpdateItemDelegate's
+        // ...and last, because focusing a padlock scrolls its row into view (see the delegate's
         // pinFocused): a pointer press gets its viewport back, whatever the focus move just did.
         // Unconditional, so it still runs when a delegate claimed the refocus for itself above.
         if (!popup.refocusFromKeyboard) {
@@ -237,7 +240,8 @@ PlasmaExtras.Representation {
         target: popup.plasmoidItem
         function onHoldOutcome(name, hold, ok, message) {
             if (!ok) {
-                // Assertive: the row now carries an error the person has to act on, and the pin
+                // Assertive: the row now carries an error the person has to act on, and the
+                // padlock
                 // under their hand is live again.
                 popup.announce(message, true);
                 return;
