@@ -120,6 +120,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Closing the update terminal, or answering its risky-transaction question with `abort`, no longer
+  leaves the widget showing an empty updating pane for up to three hours. Both of those exits used
+  to end the run without writing anything down, and a new `state.json` is the only thing that takes
+  the popup out of its updating state, so the package list, **Update Now** and **Refresh** all
+  disappeared until a three-hour guard gave up. The terminal now re-checks on its way out on every
+  exit path, including the window being closed under it, so the run ends when the terminal does.
+  What the command reports is unchanged: the exit status is still the update's.
 - A failed rebuild no longer strands a destroyed staged update behind a live boot symlink. dnf5
   destroys the existing transaction the moment a new stage begins, so a rebuild that failed - a
   full disk, a declined authentication - left nothing staged, the symlink still standing, and a

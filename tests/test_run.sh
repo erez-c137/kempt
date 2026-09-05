@@ -47,4 +47,164 @@ assert_exit 4 "missing terminal emulator is a loud failure" \
 termerr="$(KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run 2>&1 >/dev/null || true)"
 grep -q 'config set surface background' <<<"$termerr" \
   && echo "ok: the error tells the user how to fix it" || { echo "FAIL: no remedy in the message"; _fail=1; }
+
+# --- the terminal run ends the widget's updating state, however that window exits ---------------
+#
+# The widget leaves its updating state on exactly ONE event: state.json changing under its watcher
+# (plasmoid/contents/ui/main.qml, pollWatch). Its own periodic checks re-baseline that watcher
+# rather than ending a run, and the only other way out is a three-hour guard. So a terminal run
+# that exits without rewriting state.json parks the popup on an empty "Updating…" pane - no list,
+# no Update Now, no Refresh - for up to three hours. Two everyday exits used to do exactly that:
+# answering the risky-transaction prompt with its default (abort exits 0 BEFORE cmd_update's own
+# post-run check) and closing the window mid-run. Hence the wrapper re-checks on every exit path,
+# and the four assertions below are that promise, one exit path each.
+#
+# Everything above this line is --dry-run, which can only ever assert what a launch would look
+# like. These run the wrapper for real, so they need the same offline stubs a check needs.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) exit 0 ;;
+esac
+STUB
+chmod +x "$TESTTMP/refresh-stub"
+export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+export KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
+export KEMPT_SKIP_REFRESH=1
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"; chmod +x "$TESTTMP/dnf-reboot-no"
+export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
+"$KEMPT" config set include_flatpak false   # no flatpak stubs needed: the check under test is dnf's
+
+EVENTS="$KEMPT_STATE_DIR/events.log"
+STATE="$KEMPT_STATE_DIR/state.json"
+STDIN_PATH="$TESTTMP/term-stdin"            # where the launched window's stdin comes from, per case
+echo /dev/null > "$STDIN_PATH"
+
+# A terminal stub that RUNS what it was handed instead of pretending to, and records enough for the
+# assertions to be about behaviour: the script itself, the exit status the window left with, and
+# the process GROUP - because that is what closing a terminal window signals, konsole's child shell
+# and everything it started, not one pid. setsid put this stub at the head of its own group.
+cat > "$TESTTMP/stub-terminal-run" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$TESTTMP/term-argv"
+ps -o pgid= -p \$\$ | tr -d ' ' > "$TESTTMP/term-pgid"
+shift                                       # drop -e; what is left is: bash -c <script>
+rc=0
+"\$@" <"\$(cat "$STDIN_PATH")" >"$TESTTMP/term-out" 2>&1 || rc=\$?
+printf '%s\n' "\$rc" > "$TESTTMP/term-rc"
+STUB
+chmod +x "$TESTTMP/stub-terminal-run"
+
+# The same stub without the running: (a) is about the string handed over, and a capture that
+# executes nothing keeps a failure there unambiguous.
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" > "%s"\n' "$TESTTMP/term-argv" \
+  > "$TESTTMP/stub-terminal-capture"
+chmod +x "$TESTTMP/stub-terminal-capture"
+
+# `kempt run` detaches and returns, so every assertion here has to wait for the window it launched.
+# Polling with a ceiling rather than a fixed sleep: fast where it can be, a failure rather than a
+# hang where it cannot.
+wait_until() {  # predicate... - true within ~15s
+  local i
+  for ((i = 0; i < 150; i++)); do "$@" && return 0; sleep 0.1; done
+  return 1
+}
+launched()  { [[ -e "$TESTTMP/term-argv" ]]; }
+finished()  { [[ -e "$TESTTMP/term-rc" ]]; }
+# The inode, not the mtime: write_state goes through atomic_write, so a rewrite REPLACES the file.
+# mtime has one-second granularity on some filesystems and these runs finish inside one second.
+state_inode() { stat -c %i "$STATE" 2>/dev/null || echo none; }
+check_events() { grep -c ' check ' "$EVENTS" 2>/dev/null || true; }
+reset_capture() { rm -f "$TESTTMP/term-argv" "$TESTTMP/term-rc" "$TESTTMP/term-out" "$TESTTMP/term-pgid"; }
+
+"$KEMPT" config set surface terminal
+"$KEMPT" config set auto_accept true
+
+# (a) the string the terminal is handed carries the check, on the exit path rather than only after
+# a clean update.
+reset_capture
+KEMPT_TERMINAL="$TESTTMP/stub-terminal-capture" "$KEMPT" run
+wait_until launched && echo "ok: the terminal was launched" \
+  || { echo "FAIL: the terminal stub was never launched"; _fail=1; }
+argv="$(cat "$TESTTMP/term-argv" 2>/dev/null || true)"
+grep -q "check" <<<"$argv" \
+  && echo "ok: the launched script re-checks" || { echo "FAIL: no check in the launched script"; echo "  got: $argv"; _fail=1; }
+grep -qE "trap .*EXIT" <<<"$argv" \
+  && echo "ok: the check is on an EXIT trap" || { echo "FAIL: no EXIT trap in the launched script"; echo "  got: $argv"; _fail=1; }
+grep -qE "trap .*HUP INT TERM" <<<"$argv" \
+  && echo "ok: HUP, INT and TERM are trapped too" || { echo "FAIL: no signal traps in the launched script"; echo "  got: $argv"; _fail=1; }
+
+export KEMPT_TERMINAL="$TESTTMP/stub-terminal-run"
+
+# (b) the abort. Not a simulation of one: KEMPT_RISKY_RE makes curl session-critical, so the REAL
+# risky prompt is asked, and stdin at /dev/null answers it the way Enter and Ctrl-D do - with the
+# default. cmd_update exits 0 there, before its own post-run check, having written nothing at all.
+export KEMPT_RISKY_RE='^curl'
+export KEMPT_ASSUME_TTY=1
+"$KEMPT" check >/dev/null            # a state.json and an events.log to compare against
+before_inode="$(state_inode)"; before_events="$(check_events)"
+reset_capture
+echo /dev/null > "$STDIN_PATH"
+"$KEMPT" run
+wait_until finished && echo "ok: the aborted window closed" \
+  || { echo "FAIL: the aborted window never finished"; _fail=1; }
+grep -q "aborted" "$TESTTMP/term-out" 2>/dev/null \
+  && echo "ok: it really was the risky prompt's abort" \
+  || { echo "FAIL: the run under test did not abort at the prompt"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
+assert_eq "$(cat "$TESTTMP/term-rc")" "0" "an aborted run leaves the window with the update's 0"
+assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo untouched)" \
+  "rewritten" "an abort still rewrites state.json, so the widget's updating state ends"
+assert_eq "$([[ "$(check_events)" -gt "$before_events" ]] && echo logged || echo silent)" \
+  "logged" "and the check it ran is in the events log"
+
+# (c) the window closed while the question is still on screen. The prompt reads from a FIFO nothing
+# ever writes to, so `kempt update` sits at it exactly as it does while a person reads the
+# recommendation; then the process group is SIGHUPed, which is what closing the window does.
+# Read-write on the FIFO deliberately: opening one for writing ALONE blocks until a reader arrives,
+# which is a deadlock against a window that has not started yet.
+mkfifo "$TESTTMP/prompt-fifo"
+exec 6<>"$TESTTMP/prompt-fifo"
+echo "$TESTTMP/prompt-fifo" > "$STDIN_PATH"
+before_inode="$(state_inode)"; before_events="$(check_events)"
+reset_capture
+"$KEMPT" run
+# The question itself never reaches this file: bash prints a `read -p` prompt only when stdin is
+# a terminal, and here it is a FIFO. The one-name package listing printed immediately before the
+# read is the last thing that does, so it is what "the window is waiting" looks like from out here.
+# Losing the last microseconds of that race would not weaken the assertion either - SIGHUP to the
+# group kills whatever `kempt update` is doing, and the trap under test fires either way.
+at_prompt() { grep -q '^  curl$' "$TESTTMP/term-out" 2>/dev/null; }
+wait_until at_prompt && echo "ok: the window is waiting at the risky question" \
+  || { echo "FAIL: the window never reached the risky question"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
+kill -HUP -"$(cat "$TESTTMP/term-pgid")" 2>/dev/null || true
+rechecked() { [[ "$(state_inode)" != "$before_inode" ]]; }
+wait_until rechecked && echo "ok: a closed window still rewrites state.json" \
+  || { echo "FAIL: SIGHUP left state.json untouched - the widget would spin for three hours"; _fail=1; }
+assert_eq "$([[ "$(check_events)" -gt "$before_events" ]] && echo logged || echo silent)" \
+  "logged" "the check after a closed window is in the events log too"
+exec 6>&-
+
+# (d) the status the window leaves with is the UPDATE's. A check that fails must never turn a good
+# run into a bad one, and a check that succeeds must never launder a failed one. The update lock is
+# the cheapest deterministic non-zero: this test process holds it, so `kempt update` exits 3.
+echo /dev/null > "$STDIN_PATH"
+exec 7>"$KEMPT_STATE_DIR/lock"
+flock -n 7 || { echo "FAIL: the test could not take the update lock"; _fail=1; }
+before_inode="$(state_inode)"; before_events="$(check_events)"
+reset_capture
+env -u KEMPT_ASSUME_TTY "$KEMPT" run    # no tty, no prompt: this run reaches the lock
+wait_until finished && echo "ok: the locked-out window closed" \
+  || { echo "FAIL: the locked-out window never finished"; _fail=1; }
+assert_eq "$(cat "$TESTTMP/term-rc")" "3" "the wrapper exits with the update's status, not the check's"
+assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo untouched)" \
+  "rewritten" "a failed run rewrites state.json too"
+assert_eq "$([[ "$(check_events)" -gt "$before_events" ]] && echo logged || echo silent)" \
+  "logged" "and logs its check"
+exec 7>&-
+
+# Nothing this file started may outlive it: a wrapper still sitting at a prompt would keep the
+# sandbox open and show up in `ps` long after the suite said ALL PASS.
+if [[ -e "$TESTTMP/term-pgid" ]]; then kill -TERM -"$(cat "$TESTTMP/term-pgid")" 2>/dev/null || true; fi
+
 finish
