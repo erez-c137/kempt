@@ -186,11 +186,15 @@ at_prompt() { grep -q '^  curl$' "$TESTTMP/term-out" 2>/dev/null; }
 wait_until at_prompt && echo "ok: the window is waiting at the risky question" \
   || { echo "FAIL: the window never reached the risky question"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
 kill -HUP -"$(cat "$TESTTMP/term-pgid")" 2>/dev/null || true
-rechecked() { [[ "$(state_inode)" != "$before_inode" ]]; }
-wait_until rechecked && echo "ok: a closed window still rewrites state.json" \
-  || { echo "FAIL: SIGHUP left state.json untouched - the widget would spin for three hours"; _fail=1; }
-assert_eq "$([[ "$(check_events)" -gt "$before_events" ]] && echo logged || echo silent)" \
-  "logged" "the check after a closed window is in the events log too"
+# The check writes state.json and THEN appends its event line, and SIGHUP took the stub with the
+# window, so there is no term-rc to wait for here: waiting on the inode alone read the events log
+# in the gap between the two writes on a slow runner (CI, 2026-09-05). Wait for the line, which is
+# the later of the two, then the inode is a plain assertion.
+logged_check() { [[ "$(check_events)" -gt "$before_events" ]]; }
+wait_until logged_check && echo "ok: the check after a closed window is in the events log too" \
+  || { echo "FAIL: SIGHUP left no check in the events log - the widget would spin for three hours"; _fail=1; }
+assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo untouched)" \
+  "rewritten" "a closed window still rewrites state.json"
 exec 6>&-
 
 # (d) the status the window leaves with is the UPDATE's. A check that fails must never turn a good
