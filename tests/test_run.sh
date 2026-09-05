@@ -96,7 +96,12 @@ echo /dev/null > "$STDIN_PATH"
 cat > "$TESTTMP/stub-terminal-run" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" > "$TESTTMP/term-argv"
-ps -o pgid= -p \$\$ | tr -d ' ' > "$TESTTMP/term-pgid"
+# The process GROUP without ps: procps-ng is not in Fedora's minimal buildroot and %check runs
+# there, so a suite that needs ps makes every package build fail. Field 5 of /proc/self/stat is
+# the pgrp; the comm field before it is parenthesised and can contain spaces, so the prefix is
+# dropped up to the closing paren rather than counted through.
+{ read -r st < /proc/self/stat; st=\${st#*") "}; st=\${st#* }; st=\${st#* }
+  printf '%s\n' "\${st%% *}"; } > "$TESTTMP/term-pgid"
 shift                                       # drop -e; what is left is: bash -c <script>
 rc=0
 "\$@" <"\$(cat "$STDIN_PATH")" >"$TESTTMP/term-out" 2>&1 || rc=\$?

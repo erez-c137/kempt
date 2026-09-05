@@ -75,21 +75,35 @@ assert_eq "$(stat -c %a "$marker")" "600" "...and lands 0600 over a marker that 
 printf '%s\n' "$old" > "$marker"
 cat > "$TESTTMP/slow-writer" <<EOF
 #!/usr/bin/env bash
+# set -m puts the pipeline in a process group of its own so the test can kill BOTH halves of it.
+# Killing this script alone left the pipeline running: it finished its write about two seconds
+# later, either into a sandbox the assertions below had already moved past (the marker came back
+# underneath them - the intermittent failure that never reproduced) or into one the EXIT trap had
+# already removed (the stray "mv: cannot stat .../.atomic.*" that surfaced in the NEXT file's
+# output and looked like it came from somewhere else).
+set -m
 source "$REPO_ROOT/lib/common.sh"
 { printf '{"staged_at":"2026-09-05T01:00:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b",'
   touch "$TESTTMP/writing"
   sleep 2
-  printf '"staged":2,"armed":true}\n'; } | write_offline_marker
+  printf '"staged":2,"armed":true}\n'; } | write_offline_marker &
+jobs -p > "$TESTTMP/writer-pgid"
+wait
 EOF
 chmod +x "$TESTTMP/slow-writer"
 "$TESTTMP/slow-writer" & wpid=$!
 # Wait for the EVENT, never a fixed interval: the touch is the writer saying it has started and
 # has not finished, which is the only moment this assertion means anything.
-for _ in $(seq 1 200); do [[ -e "$TESTTMP/writing" ]] && break; sleep 0.02; done
+# Both files: the pgid is what the kill below needs, and it is written by a different process
+# than the one that touches "writing".
+for _ in $(seq 1 200); do
+  [[ -e "$TESTTMP/writing" && -s "$TESTTMP/writer-pgid" ]] && break; sleep 0.02
+done
 assert_exit 0 "the slow writer really got going" -- test -e "$TESTTMP/writing"
 assert_eq "$(cat "$marker")" "$old" \
   "a marker being rewritten is never observable half-written"
-{ kill -9 "$wpid"; wait "$wpid" || true; } 2>/dev/null
+{ kill -9 -- -"$(cat "$TESTTMP/writer-pgid")" || true
+  kill -9 "$wpid"; wait "$wpid" || true; } 2>/dev/null
 after="$(cat "$marker")"
 if [[ "$after" == "$old" ]]; then
   echo "ok: a writer killed mid-write leaves the marker it found, never a truncated one"
