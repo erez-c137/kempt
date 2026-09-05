@@ -71,13 +71,15 @@ status:
 
 | Function | Input | Output |
 | --- | --- | --- |
-| `<backend>_check` | none (it queries the world through overridable command variables) | items JSON: `[{"name": "...", "from": "...", "to": "..."}]`. Empty is `[]` with exit 0. Non-zero means the check failed. |
+| `<backend>_check` | Optionally, a path to write a sizes TSV to (`name<TAB>bytes`). `flatpak_check` takes one and `cmd_check` passes it; dnf publishes its sizes from a separate `dnf_sizes` instead. Everything else it queries through overridable command variables. A backend that produces no sizes publishes no `download_bytes`. | items JSON: `[{"name": "...", "from": "...", "to": "..."}]`. Empty is `[]` with exit 0. Non-zero means the check failed. |
 | `<backend>_snapshot` | none | TSV, `name<TAB>version`, sorted by name, **exactly one row per name** |
 
 Anything a backend parses lives in a pure function that takes stdin plus an installed-lookup
 file, so it can be tested against a recorded fixture with no package manager present:
 `dnf_parse_check_update`, `flatpak_parse_remote_ls`. Two required functions plus that parser is
-the whole per-backend contract: three functions in one file.
+the whole *required* contract, and it is the minimum that works rather than the shape either
+shipped file has. Both of those define more: a sizes producer each, dnf's own installed lookup, and
+flatpak's refresh and apply.
 
 One more function exists and is deliberately **not** per-backend: `dnf_reboot_needed`, in
 `backends/dnf.sh`. `cmd_update` calls it unconditionally at the end of every run, whatever
@@ -164,6 +166,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, and which packages went in and were left out, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,writer.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+| `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes. The age bound is the whole design: a live concurrent writer's temp is never eligible, and a crash between the write and the rename leaves nothing that outlives the hour |
 
 Three of those files are locks. `lock` and `check.lock` serialize runs and checks; `writer.lock`
 serializes the three commands that rewrite the two files in the config directory - `kempt config
@@ -204,7 +207,6 @@ bumping `schema`.
       "enabled": true,
       "actionable": 7,
       "held": 0,
-      "actionable": 7,
       "download_bytes": 11978084,
       "items": [
         { "name": "curl", "from": "8.18.0-8.fc44", "to": "8.18.0-9.fc44", "held": false,
@@ -246,7 +248,6 @@ bumping `schema`.
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item in it has a `size_bytes`** - partial coverage omits the key rather than publishing a total that is quietly short. Additive key. |
 | `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A backend switched off contributes nothing and does not suppress it. Additive key. |
 | `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
-
 | `offline_staged` | object, optional | Present **only** while an offline transaction is staged by Kempt **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when it was staged, `count` is how many updates it covers (`null` for a marker written before the count was recorded, never a guess), `armed` is always `true` - the key's absence is how "not armed" is expressed. A staged transaction whose status is anything else is a discrepancy for `kempt doctor`, not a pending install, and must never be published here. Additive key. |
 | `offline_staged.holds_conflict` | array of strings | dnf package names that are in the staged transaction **and** currently held - the packages a restart will install despite the hold, because dnf5 built that transaction before the hold existed and offers no way to edit a stored one. Sorted, unique, dnf only (a flatpak hold cannot reach an offline transaction). Read it together with `names_source`: an empty array is only a claim when that field says so. Present only inside `offline_staged`; additive, and readers must tolerate its absence in files written by older builds. |
 | `offline_staged.names_source` | `"transaction"`, `"marker"` or `"none"` | Which list `holds_conflict` was computed from, and therefore what an EMPTY list means. `transaction`: dnf5's own stored transaction was read live - empty means **no conflict**. `marker`: that read failed and the marker's own list was used, which was itself transaction-derived - empty still means no conflict. `none`: nothing may be denied - a marker written before names were recorded, or one whose names came only from a check, which cannot see the packages the resolver added. Under `none` an empty list means **cannot tell**, and a surface that renders it as "no conflict" is making a claim the data does not support. Present only inside `offline_staged`; additive. |
@@ -524,7 +525,8 @@ never reaches, while `wait $!` still returns the job's real exit status so the p
 handling is unchanged. It is applied to writes only, and never to `main.qml`'s executor, whose
 timeout has to be able to kill a wedged `kempt check` outright.
 
-**ONE component, three instances.** The file is one; the queues are deliberately not.
+**ONE component, one queue per kind of caller.** The file is one; the queues are deliberately not,
+and the table below is the whole list.
 
 | Instance | Lives in | Carries | Why it is separate |
 | --- | --- | --- | --- |
@@ -532,6 +534,7 @@ timeout has to be able to kill a wedged `kempt check` outright.
 | `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is strictly FIFO, so a 2-second tail sharing it with a 120-second check would put ~60 tails ahead of every button press and the Refresh button would look dead for two minutes. |
 | `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` returns as soon as KDE has been ASKED to draw its confirmation screen: no lock, no package database, milliseconds. Behind a 120-second check it sat unsent with nothing on screen to say why, which is indistinguishable from a broken button. |
 | `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog is built by the shell in its own object tree and cannot reach `main.qml` at all. Even if it could, a settings dialog that takes two minutes to populate because a check is running is a broken dialog. |
+| `pwExecutor` | `configGeneral.qml` | `enable-passwordless` and `disable-passwordless`, and nothing else | The same argument one level down: those two buttons wait on a human in an authentication dialog, and parking every other read, write and hold on the page behind that wait is the `executor`/`tailExecutor` split again. |
 
 The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
 that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
@@ -666,13 +669,14 @@ needs to be:
   comparison, the icon-size snap - in engine-agnostic JavaScript with a CommonJS guard at the
   bottom. `tests/test_widget_logic.sh` loads that same file with node and pins every rule.
 - The QML that remains is bindings. `tests/test_widget_logic.sh` compiles every `.qml` against
-  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs five
-  probes that instantiate the real files against a stubbed `kempt` on a real `PATH` - the settings
-  page's apply path, the popup's actions, the state machine, the executor, and the keyboard.
-  The last of those is the only one that builds a window: `activeFocus` is a property of a
-  scene, so an item with no window never becomes the active focus item and has nowhere for a
-  Tab key to be delivered. It uses an offscreen one, and the other four stay windowless on
-  purpose, because every assertion in them was written under those conditions.
+  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs one probe
+  per `tests/qml/probe_*.py` against a stubbed `kempt` on a real `PATH`: the executor, the state
+  machine, the popup's actions, the settings page's apply path, the keyboard and the screen
+  reader, where focus goes when a control vanishes, and the restart message. Two of them build a
+  window, and only those two: `activeFocus` is a property of a scene, so an item with no window
+  never becomes the active focus item and has nowhere for a Tab key to be delivered. Those two use
+  an offscreen window; the rest stay windowless on purpose, because every assertion in them was
+  written under those conditions.
 - Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
   dependency of Kempt itself.
 
@@ -751,6 +755,16 @@ Rules that reviews will hold you to:
 - **Guard the not-installed case.** A pending package with no installed row must come out as
   `from: "?"`, never as an empty string. GNU `join -a1 -e '?' -o ...` is what does that; jq's
   `//` does not catch empty strings.
+- **Sizes are optional, and partial sizes are worse than none.** If your package manager already
+  carries the download size in the metadata a check reads, emit `name<TAB>bytes` alongside the
+  items - `flatpak_check` writes it to the path it is handed, `dnf_sizes` is a function of its
+  own - and `cmd_check` prices the backend from it. Skip it and the backend simply publishes no
+  `download_bytes`, which is a supported state; publish a total that covers only some items and
+  the figure is quietly short, which is not.
+- **A network fetch belongs in `maybe_refresh_metadata`, not in your check.** If the backend needs
+  to reach the network before it can answer, add a `<backend>_refresh` and a second arm to that one
+  gate, the way `flatpak_refresh` does. It carries the whole project's interval, mains-power and
+  metered-connection policy; a backend that fetches inside its own check has none of it.
 
 ### 2. Add a verb to `libexec/kempt-apply` (only if root is really needed)
 
@@ -783,13 +797,16 @@ name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrad
 ### 2b. Wire it in: every place that names a backend
 
 There is no registry and no discovery. Backends are named literally, in more places than the
-sketch above suggests, and a missed one fails quietly rather than loudly. The complete list is
-**thirteen places, one of them optional**, so nobody has to find it by grep:
+sketch above suggests, and a missed one fails quietly rather than loudly. **The table below is the
+complete list**, so nobody has to find it by grep; one row is optional and says so. No count is
+quoted here on purpose - the last one drifted, which is exactly the failure this table exists to
+prevent.
 
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
 | `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
 | `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
+| `maybe_refresh_metadata` (`lib/common.sh`) | `include_flatpak` and `flatpak_refresh`, both by name: one gate, two arms, one interval and one timestamp for the whole metadata fetch | Its own arm and its own enable gate, if the backend needs a network fetch before a check can answer. Skip it and the backend answers from whatever its cache happened to hold, indefinitely, with nothing saying so. |
 | `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
 | `cmd_update` | Before and after snapshots, the apply runner and its arguments (`apply_with_retry "$log" priv_apply dnf-upgrade ...` for dnf, `apply_with_retry "$log" flatpak_apply ...` for flatpak), per-backend status, held lists, and the history entry's `backends` object | The same set again, plus a runner: the verb from step 2 behind `priv_apply`, or the backend's own apply function when it needs no root. |
 | `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
@@ -877,6 +894,7 @@ destructive paths without ever running them.
 
 | Variable | Default | Used for |
 | --- | --- | --- |
+| `KEMPT_ROOT` | the directory above `lib/common.sh` | The tree the CLI reads ITSELF out of: `VERSION`, `backends/` and the passwordless rules template all resolve inside it, `kempt doctor`'s first line prints it, and `install.sh`'s absence from it is what tells doctor a packaged install from a checkout. Point it at a tree with no `VERSION` and `kempt --version` answers `kempt unknown`, which is also what an incomplete install looks like |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
 | `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
@@ -894,12 +912,14 @@ destructive paths without ever running them.
 | `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions. Doctor reads each action's `exec.path` annotation out of it and compares that with the helper path this CLI hands to pkexec |
+| `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The USER's copy of the widget package. It means opposite things to `kempt doctor` on the two installs, which is why it is read and never written: on a checkout install it IS the install, and doctor diffs it against `plasmoid/`; on a packaged one its mere existence is a FAIL, because Plasma prefers a user copy over `/usr/share`, so a store-installed widget goes on being the one the panel loads while every package update lands in a directory nothing reads |
 | `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged |
 | `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction - the resolved package set a restart will install. **Read, never written**, and read LIVE rather than snapshotted: it is the only source that sees the packages the resolver added and a transaction something else replaced. `root:root` 0644 in a 0755 directory (verified in a container, 2026-09-05), which is what lets an unprivileged check reconcile a hold against it. `tests/lib.sh` PINS this at a recorded transaction rather than poisoning it, so the suite's default is the parsing path; pointing it at anything unparsable drives the degraded one |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |
+| `KEMPT_DBUS_SEND` | `dbus-send` | The one signal `install.sh` emits, `org.kde.KIconLoader.iconChanged` on the session bus, so a plasmashell that started before the icon directory existed looks again. Best-effort by design: no session bus costs nothing. `tests/lib.sh` points it at `true`, so no suite run can reach a real session bus |
 | `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
 
 The `*_ECHO` seams exist for tests only. The two that live in root-owned code,
@@ -928,5 +948,13 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
   *install*, and `allow_active` means an active **local** session, not one over SSH.
 - **`flatpak update` also updates runtimes**, but the pending list and the summary track apps, so
   a run can change more than it itemizes.
-- **The install is a symlink into the checkout.** Proper packaging is the answer for shipping
-  this to other people, and it is v2 work.
+- **Two installs, and the build rewrites two files to serve the second one.** A checkout install
+  is a symlink into the checkout; the RPM is the answer for shipping this to other people, and it
+  shipped in 0.1.0. The two disagree about exactly one thing, the helper directory, and it is not
+  negotiable at runtime: the polkit action pins `exec.path` and pkexec matches an action by that
+  path and by nothing else. So `kempt.spec`'s `%prep` runs one `sed` over
+  `polkit/io.github.erez_c137.kempt.policy` and `lib/common.sh`, replacing `/usr/local/libexec`
+  with the FHS libexec directory, before anything is packaged. The shipped library therefore
+  differs from the tag by those two lines, deliberately. The check stage keeps a pristine copy of
+  the tree and runs the suite against that, because the suite asserts the tree as shipped from git
+  rather than as packaged.
