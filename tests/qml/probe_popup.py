@@ -328,6 +328,48 @@ p.wait_for(ev, "root.updating", False, timeout_ms=8000)
 p.check("a finished run takes the widget out of the updating state", ev("root.updating"), False)
 settle()
 
+# --- one press, one terminal ------------------------------------------------------------------
+# `kempt run` launches the surface and RETURNS, and it is allowed fifteen seconds to do it. The
+# guard at the top of startUpdate tested `updating`, which is false for all of them - so a double
+# press opened two terminals, both asking the risky question (hostile panel, 14).
+open(RUNRC, "w").write("0")
+p.clear_calls()
+ev("root.startUpdate(); root.startUpdate(); root.startUpdate()")
+p.check("the first press is in flight and the widget says so", ev("root.runRequested"), True)
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("three presses inside that window start ONE run", p.call_count("run"), 1)
+p.check("...and the flag is down once the CLI has come back", ev("root.runRequested"), False)
+p.check("...with the pane naming the surface that run is really using",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingHere"))
+
+# --- the way out of a pane nothing is going to end ---------------------------------------------
+# A terminal run that is aborted - the default answer to the one question Kempt asks, on the
+# default configuration - never writes state.json, and only a state.json change ends this state.
+p.clear_calls()
+before_check = p.call_count("check")
+ev("root.checkAgain()")
+p.wait_for(ev, "root.updating", False, timeout_ms=15000)
+settle()
+p.check("the escape hatch asks for a fresh check", p.call_count("check") - before_check, 1)
+p.check("...and leaves the updating state when that check lands", ev("root.updating"), False)
+p.check("...with nothing left claiming a surface", ev("root.runningSurface"), "")
+p.check("...and it refuses when nothing is running, rather than checking twice for no reason",
+        (lambda before: (ev("root.checkAgain()"), p.call_count("check") - before)[1])(
+            p.call_count("check")), 0)
+
+# --- Stage offline and a rebuild are not terminal runs, whatever the setting says ---------------
+before_update = p.call_count("update")
+ev("root.stageOffline()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+p.check("staging says it is preparing an install rather than calling itself an update",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingOffline"))
+p.check("...on the offline surface, whatever `surface` is configured to",
+        [ev("root.runningSurface"), ev("root.effectiveSurface")], ["offline", "popup"])
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+
 # --- a run that could not start says why, in the CLI's words ----------------------------------
 open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
@@ -347,7 +389,7 @@ settle()
 
 # --- the log tail runs on its own queue -------------------------------------------------------
 action_serial = ev("executor.serial")
-ev("root.enterUpdating()")
+ev('root.enterUpdating("popup")')
 p.wait_for(ev, 'root.logPath !== ""', True, timeout_ms=8000)
 p.check("the newest log file is found", os.path.basename(str(ev("root.logPath"))),
         "20260825T000000.log")
@@ -385,11 +427,21 @@ p.wait_for(ev, 'root.effectiveSurface', "terminal", timeout_ms=8000)
 p.check("confirmation on collapses the effective surface to terminal",
         ev("root.effectiveSurface"), "terminal")
 p.check("...while the STORED surface is untouched", ev("root.surface"), "popup")
+# ...and the tail follows the surface the RUNNING transaction is using, not the configured one: a
+# settings change mid-run does not move where the transaction already in flight is writing. What
+# must never happen is tailing for a run that writes nothing here, so that is what is driven.
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor", "tailExecutor")
+ev('root.enterUpdating("terminal")')
 tail_serial = ev("tailExecutor.serial")
 ev("root.pollLog()")
 p.pump(300)
-p.check("...and the popup stops tailing a log the run will not write there",
+p.check("...and the popup does not tail a log a terminal run is not writing here",
         ev("tailExecutor.serial"), tail_serial)
+p.check("...and says where that run really is, rather than naming the configured surface",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), "Updating in a terminal window…")
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor", "tailExecutor")
 
 open(AUTO, "w").write("true\n")
 ev("root.readSurface()")

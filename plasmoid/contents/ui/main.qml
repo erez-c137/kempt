@@ -175,6 +175,20 @@ PlasmoidItem {
     // watching, rather than the run before it.
     property double updateStartedMs: 0
 
+    // Which surface the run IN FLIGHT is using - one of the CLI's four, or "" when nothing is
+    // running. Deliberately not `effectiveSurface`, which is what a run started NOW would use: the
+    // pane used to read the configured value and say "Updating in the terminal surface…" over a
+    // staging run started from Install on Next Restart, and it kept saying whatever the settings
+    // said even when the settings changed mid-run.
+    property string runningSurface: ""
+
+    // A `kempt run` has been asked for and has not come back yet. Not the same as `updating`,
+    // which only begins once that call succeeds: `run` launches the surface and returns, and it is
+    // allowed fifteen seconds to do it. In that window the button stayed enabled and the guard at
+    // the top of startUpdate tested `updating`, which was still false - so a double press opened
+    // two terminals, both asking the risky question (hostile panel, 14).
+    property bool runRequested: false
+
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
     // popup is open and never while it is shut. 0 means "no clock yet", which logic.js answers by
     // falling back to the absolute stamp - never a wrong relative time.
@@ -503,11 +517,15 @@ PlasmoidItem {
     // every check and every pin behind it, and the kill timer would only disconnect the reader
     // anyway: the child would keep running, unwatched.
     function startUpdate() {
-        if (updating) return;
+        if (updating || runRequested) return;
+        runRequested = true;
         actionMessage = "";
         executor.run(kemptCmd + " run", 15000, function(stdout, stderr, rc) {
+            root.runRequested = false;
             if (rc === 0) {
-                root.enterUpdating();
+                // The surface the CLI just launched, remembered for the pane. Read here rather
+                // than in the pane, because the setting can change while the run is in flight.
+                root.enterUpdating(root.effectiveSurface);
                 return;
             }
             // The CLI's own words. rc 4 is a missing terminal emulator and its message carries the
@@ -531,7 +549,8 @@ PlasmoidItem {
         executor.run("setsid sh -c " + Logic.shellQuote(kemptCmd + " update --surface=offline")
                      + " >/dev/null 2>&1 &", 10000,
                      function(stdout, stderr, rc) {
-            if (rc === 0) root.enterUpdating();
+            // Offline whatever the configured surface says: this command carries --surface=offline.
+            if (rc === 0) root.enterUpdating("offline");
             else root.actionMessage = Logic.firstLineOf(stderr) || "Could not stage the offline update.";
         });
     }
@@ -598,7 +617,7 @@ PlasmoidItem {
                          + Logic.shellQuote(root.kemptCmd + " update --surface=offline")
                          + " >/dev/null 2>&1 &", 10000,
                          function(stdout2, stderr2, rc2) {
-                if (rc2 === 0) root.enterUpdating();
+                if (rc2 === 0) root.enterUpdating("offline");
                 else root.actionMessage = Logic.firstLineOf(stderr2)
                                           || "Could not rebuild the staged update.";
             });
@@ -707,7 +726,10 @@ PlasmoidItem {
 
     // --- the updating state ----------------------------------------------------------------------
 
-    function enterUpdating() {
+    function enterUpdating(surface) {
+        // Resolved, so this is always one of the four the CLI knows while a run is in flight and
+        // the pane can switch on it without a fifth branch for "we do not know".
+        runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
         // Noted BEFORE anything is launched, so the entry the run writes can only ever be stamped
         // at or after this - see updateStartedMs, and Logic.runFinishedSince for the comparison.
@@ -715,12 +737,13 @@ PlasmoidItem {
         logTail = "";
         logPath = "";
         updateGuard.restart();
-        if (effectiveSurface === "popup") findLog();
+        if (runningSurface === "popup") findLog();
     }
 
     function leaveUpdating() {
         if (!updating) return;
         updating = false;
+        runningSurface = "";
         updateGuard.stop();
         // The transient line is DERIVED from the entry, so the entry has to arrive first. The
         // executor is callback-based, so "first" means inside the callback - setting the line
@@ -739,6 +762,24 @@ PlasmoidItem {
         });
     }
 
+    // The way out of an updating state nothing is going to end.
+    //
+    // A run ends when the CLI writes state.json. A terminal run that is aborted - which is the
+    // DEFAULT answer to the one question Kempt asks, on the default configuration - exits before
+    // the CLI's own post-run check, and so does closing the window; nothing is written, so the
+    // popup sat on an empty pane with no list, no Update Now and a disabled Refresh until the
+    // three-hour guard fired (hostile panel, finding 1). The engine half of this fixes the wrapper;
+    // this is the half a person can press.
+    //
+    // The updating state is left when the check LANDS rather than at the press, so the popup comes
+    // back with fresh counts rather than with the ones it had before the run. afterCheck is the
+    // same one-shot the hold round trip uses.
+    function checkAgain() {
+        if (!updating || checking) return;
+        afterCheck = function () { root.leaveUpdating(); };
+        doCheck();
+    }
+
     // The newest log file, found once per run.
     // stateDir is NOT shellQuote'd, and that distinction is the whole rule: it is a shell
     // expression this file wrote, whose ${...} expansion is the point of it, and single quotes
@@ -754,7 +795,9 @@ PlasmoidItem {
     }
 
     function pollLog() {
-        if (!updating || effectiveSurface !== "popup" || logPath === "") return;
+        // The RUNNING surface, not the configured one: a settings change mid-run does not move
+        // where the transaction already in flight is writing.
+        if (!updating || runningSurface !== "popup" || logPath === "") return;
         // One tail in flight at a time. The timer ticks every 2 seconds, and a `tail` that takes
         // longer than that - a loaded box, a log on a slow disk, an executor already sitting on
         // its 10-second timeout - would have the next tick queued behind it before it came back,
@@ -924,7 +967,7 @@ PlasmoidItem {
         repeat: true
         // Only while a run is actually in flight AND the output is meant to land here. On any
         // other surface this never starts, so there is no tail process at all.
-        running: root.updating && root.effectiveSurface === "popup" && root.expanded
+        running: root.updating && root.runningSurface === "popup" && root.expanded
         onTriggered: root.pollLog()
     }
 
@@ -938,6 +981,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             root.updating = false;
+            root.runningSurface = "";
             root.actionMessage = "Stopped waiting for the update to report back. Check: kempt summary";
             root.doCheck();
         }

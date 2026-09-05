@@ -115,6 +115,22 @@ var COPY = {
     // goes through a screen reader's character table as a word nobody wants to hear.
     versionRange: "from %1 to %2",
 
+    // --- the pane a run replaces the popup with ---------------------------------------------------
+    // It used to read "Updating in the %1 surface…", filled in with the CONFIGURED surface rather
+    // than the one the run is actually using - and "surface" is a word nobody outside this repo
+    // knows (hostile panel, first-run vocabulary). One sentence per surface, each naming where to
+    // look, and staging says what it is rather than calling itself an update.
+    updatingTerminal: "Updating in a terminal window…",
+    updatingBackground: "Updating in the background…",
+    updatingHere: "Updating…",
+    updatingOffline: "Preparing the install for the next restart…",
+    // ...and the way out. A terminal run that is aborted or whose window is closed never writes
+    // state.json, and only a state.json change ends the widget's updating state - so the popup sat
+    // on an empty pane, with no list, no Update Now and a disabled Refresh, until a three-hour
+    // guard fired. On the default configuration that is what happens when a first-timer takes the
+    // default answer to the one question Kempt asks (hostile panel, finding 1).
+    notUpdatingCheckAgain: "Not updating? Check again",
+
     // The offline path, named for what it does to the user rather than for the dnf5 flag that
     // implements it. The tooltip is the whole argument for choosing it.
     installOnNextRestart: "Install on Next Restart",
@@ -400,6 +416,21 @@ function isTrue(value) {
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
+}
+
+// updatingLabelOf(surface) -> what the pane says while a run on that surface is in flight.
+//
+// Takes the surface the RUNNING transaction is using, which is not always the configured one: with
+// confirmation on, `kempt run` collapses every surface to terminal, and Install on Next Restart
+// stages offline whatever the setting says. Anything unrecognised falls back to terminal for the
+// same reason resolveSurface does - that is what the CLI itself would have run.
+function updatingLabelOf(surface) {
+    switch (resolveSurface(surface)) {
+    case "popup":      return COPY.updatingHere;
+    case "background": return COPY.updatingBackground;
+    case "offline":    return COPY.updatingOffline;
+    default:           return COPY.updatingTerminal;
+    }
 }
 
 // effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use.
@@ -1491,8 +1522,8 @@ function viewModel(state, updating, cliError, opts) {
 
     var tooltipMain, headerText;
     if (updating) {
-        tooltipMain = "Updating…";
-        headerText = "Updating…";
+        tooltipMain = COPY.updatingHere;
+        headerText = COPY.updatingHere;
     } else if (engineMissing) {
         // Names the missing piece instead of quoting the shell. What the panel used to put here
         // was `sh: line 1: kempt: command not found`, which is true, unreadable, and about a
@@ -1815,6 +1846,8 @@ if (typeof module !== "undefined" && module.exports) {
         isTrue: isTrue,
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
+        updatingLabelOf: updatingLabelOf,
+        SURFACES: SURFACES,
         holdsOf: holdsOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,

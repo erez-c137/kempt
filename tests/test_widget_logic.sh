@@ -1738,6 +1738,38 @@ assert_eq "$(js 'L.COPY.restartFailed')" "Could not open the restart prompt." \
   "copy: what a restart prompt that would not open says, in the message itself, never silently"
 assert_eq "$(js 'L.COPY.checkForUpdates')" "Check for Updates" "copy: the refresh action"
 assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
+# --- the updating pane -----------------------------------------------------------------------
+# It said "Updating in the terminal surface…" - the CONFIGURED surface, not the running one, in a
+# word nobody outside this repo knows. And it was the whole popup for up to three hours after a
+# terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh
+# (hostile panel, finding 1).
+assert_eq "$(js 'L.COPY.updatingTerminal')" "Updating in a terminal window…" \
+  "copy: the pane names the window the update is actually running in"
+assert_eq "$(js 'L.COPY.updatingBackground')" "Updating in the background…" \
+  "copy: ...or says there is no window to look for"
+assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
+  "copy: ...or nothing at all, when the output is arriving right here"
+assert_eq "$(js 'L.COPY.updatingOffline')" "Preparing the install for the next restart…" \
+  "copy: ...and staging is not updating, so it does not say updating"
+assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not updating? Check again" \
+  "copy: the way out of a pane that is waiting for a run nobody is running any more"
+# One surface, one sentence, and no surface without one: the pane switches on the running surface
+# and a fifth value would draw an empty label.
+assert_eq "$(js 'L.SURFACES.length')" "4" "premise: the CLI knows four surfaces"
+assert_eq "$(js 'L.SURFACES.map(function (s) { return L.updatingLabelOf(s); }).filter(function (t) { return t === ""; })')" \
+  "[]" "every surface the CLI knows has a sentence for the pane"
+assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingTerminal')" "terminal names its window"
+assert_eq "$(js 'L.updatingLabelOf("popup")')" "$(js 'L.COPY.updatingHere')" "the in-widget run says nothing extra"
+assert_eq "$(js 'L.updatingLabelOf("background")')" "$(js 'L.COPY.updatingBackground')" "background says so"
+assert_eq "$(js 'L.updatingLabelOf("offline")')" "$(js 'L.COPY.updatingOffline')" "offline is a preparation, not an update"
+# Anything else is terminal, which is what the CLI itself falls back to (resolve_surface).
+assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingTerminal')" \
+  "an unknown surface reads as the one the CLI would actually run"
+assert_eq "$(js 'L.updatingLabelOf("")')" "$(js 'L.COPY.updatingTerminal')" "...and so does no answer at all"
+# ...and the word nobody outside this repo knows is gone from the copy table entirely.
+assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /surface/i.test(L.COPY[k]); })')" \
+  "[]" "no string the popup shows a person uses the word surface"
+
 assert_eq "$(js 'L.COPY.installOnNextRestart')" "Install on Next Restart" "copy: the offline action"
 assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
   "Applies the update during a restart, so nothing changes underneath your running desktop." \

@@ -363,7 +363,10 @@ PlasmaExtras.Representation {
                 PlasmaComponents.BusyIndicator {
                     id: refreshBusy
                     anchors.centerIn: parent
+                    // ...including the window between pressing Update Now and `kempt run` coming
+                    // back, when nothing else on screen says anything is happening yet.
                     running: popup.plasmoidItem.checking || popup.plasmoidItem.updating
+                             || popup.plasmoidItem.runRequested
                     visible: running
                     implicitWidth: Kirigami.Units.iconSizes.small
                     implicitHeight: Kirigami.Units.iconSizes.small
@@ -981,6 +984,12 @@ PlasmaExtras.Representation {
                 // (hostile panel, finding 3). Hidden and not disabled, by this file's own rule.
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed
+                // ...and refusing from the press until `kempt run` comes back. That call launches
+                // the surface and returns, and it is allowed fifteen seconds to do it: the guard
+                // in startUpdate tested `updating`, which is still false for all of them, so a
+                // double press opened TWO terminals, both asking the risky question. Disabled
+                // rather than hidden here, because the action still exists - it is happening.
+                enabled: !popup.plasmoidItem.runRequested
 
                 // ...which means this control can go off screen while the popup is open and the
                 // keyboard is standing on it. `actionable` reaches 0 on its own - the 30s watcher,
@@ -1003,6 +1012,20 @@ PlasmaExtras.Representation {
                 // Enter on this button used to send nothing at all.
                 Keys.onReturnPressed: animateClick()
                 Keys.onEnterPressed: animateClick()
+
+                // ...and the press says so on the button itself. Over the icon rather than beside
+                // it, at the icon's own size, so the footer does not change width the moment it is
+                // pressed: the whole point of the spinner is that nothing else has moved yet.
+                PlasmaComponents.BusyIndicator {
+                    id: updateBusy
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: updateButton.leftPadding
+                    running: popup.plasmoidItem.runRequested
+                    visible: running
+                    implicitWidth: Kirigami.Units.iconSizes.small
+                    implicitHeight: Kirigami.Units.iconSizes.small
+                }
             }
         }
     }
@@ -1011,15 +1034,76 @@ PlasmaExtras.Representation {
     // Only reached for a run WE started. The log pane appears only on the in-popup surface, since
     // that is the surface whose whole point is that the output comes here.
     ColumnLayout {
+        id: updatingPane
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
         visible: popup.plasmoidItem.updating
         spacing: Kirigami.Units.smallSpacing
 
+        // The pane replaces the whole content area, so every control the keyboard was standing on
+        // goes with it. Measured before this: focus stayed on the INVISIBLE Update Now, and the
+        // utterance over a stuck pane was "Update Now push button" for a control nobody was
+        // drawing; Tab from there landed on a nameless RowLayout (hostile panel, a11y H1).
+        // Both directions, because both are a swap: in, to the one control this pane has; out, to
+        // whatever the popup's own rule says is primary now.
+        onVisibleChanged: {
+            if (visible) {
+                if (popup.canTakeFocus(checkAgainButton)) {
+                    checkAgainButton.forceActiveFocus(Qt.TabFocusReason);
+                }
+            } else {
+                popup.focusPrimary();
+            }
+        }
+
         PlasmaComponents.Label {
+            id: updatingLabel
             Layout.fillWidth: true
-            text: popup.plasmoidItem.effectiveSurface === "popup" ? i18n("Updating…") : i18n("Updating in the %1 surface…", popup.plasmoidItem.effectiveSurface)
+            // The surface the run is REALLY using, in words rather than in this repo's vocabulary.
+            // It used to read "Updating in the %1 surface…" filled in with the CONFIGURED surface,
+            // so a staging run started from Install on Next Restart announced itself as a terminal
+            // one, and "surface" is a word nobody outside this project knows. The literals are
+            // written here, not read out of logic.js, because i18n() extracts literals - see the
+            // copy table's own header - and Logic.updatingLabelOf is what a node test pins.
+            text: {
+                switch (popup.plasmoidItem.runningSurface) {
+                case "popup":      return i18n("Updating…");
+                case "background": return i18n("Updating in the background…");
+                case "offline":    return i18n("Preparing the install for the next restart…");
+                default:           return i18n("Updating in a terminal window…");
+                }
+            }
             wrapMode: Text.WordWrap
+        }
+
+        // The way out. A terminal run that is aborted - the DEFAULT answer to the one question
+        // Kempt asks, on the default configuration - never writes state.json, and only a state.json
+        // change ends this pane. Without this the popup sat here, with no list, no Update Now and a
+        // disabled Refresh, for three hours (hostile panel, finding 1).
+        //
+        // FLAT, not raised: it is a way out of a wrong state, not the thing this pane is for, and
+        // a raised button here would read as "press this to finish the update".
+        //
+        // Deliberately NOT Kirigami.LinkButton, which is what a link-styled control would normally
+        // be. Measured on this box: that component is a QQC2.Label with a MouseArea over it - no
+        // focus ring, no place in the Tab ring, no animateClick, and nothing that answers Space.
+        // This pane's whole problem was a keyboard left on a control nobody was drawing, so its
+        // one control has to be a real one. A flat ToolButton is Plasma's own low-emphasis action.
+        PlasmaComponents.ToolButton {
+            id: checkAgainButton
+            Layout.alignment: Qt.AlignLeft
+            flat: true
+            display: PlasmaComponents.AbstractButton.TextOnly
+            text: i18n("Not updating? Check again")
+            // Refuses while the check it started is running, so it cannot be pressed twice into
+            // the same answer. Disabled rather than hidden: this is the pane's only control, and a
+            // control that leaves the screen takes the keyboard with it.
+            enabled: !popup.plasmoidItem.checking
+            Accessible.name: text
+            Accessible.description: i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+            Keys.onReturnPressed: animateClick()
+            Keys.onEnterPressed: animateClick()
+            onClicked: popup.plasmoidItem.checkAgain()
         }
 
         // A tail, so it stays at the tail. The text is replaced wholesale every two seconds, and
@@ -1032,7 +1116,7 @@ PlasmaExtras.Representation {
             id: logFlick
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: popup.plasmoidItem.effectiveSurface === "popup"
+            visible: popup.plasmoidItem.runningSurface === "popup"
             clip: true
             contentWidth: logText.paintedWidth
             contentHeight: logText.paintedHeight
@@ -1061,7 +1145,7 @@ PlasmaExtras.Representation {
 
         Item {
             Layout.fillHeight: true
-            visible: popup.plasmoidItem.effectiveSurface !== "popup"
+            visible: popup.plasmoidItem.runningSurface !== "popup"
         }
     }
 }
