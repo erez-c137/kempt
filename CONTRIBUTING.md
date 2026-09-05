@@ -20,7 +20,7 @@ cd kempt
 tests/run_tests.sh
 ```
 
-You need bash 4+, `jq` and GNU coreutils. You do **not** need dnf, flatpak, polkit or root to
+You need bash 4+, `jq`, `flock` (util-linux) and GNU coreutils. You do **not** need dnf, flatpak, polkit or root to
 work on Kempt: every impure command goes through an environment seam, and the suite stubs all of
 them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the full list.
 
@@ -35,6 +35,23 @@ Syntax-check everything before you commit:
 ```bash
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
 ```
+
+Then lint it, because CI does and a first pull request should not go red on a tool nobody
+mentioned. This is `.github/workflows/ci.yml`'s own command with `$GITHUB_WORKSPACE` replaced by
+the checkout you are standing in:
+
+```bash
+shellcheck -x -s bash \
+  --source-path="$PWD" \
+  --source-path="$PWD/lib" \
+  --source-path="$PWD/backends" \
+  bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+```
+
+`sudo dnf install ShellCheck` if you do not have it. `-x` follows `source`, and the three
+`--source-path` entries are what let it resolve `bin/kempt`'s runtime-computed `$ROOT`; without
+them every sourced file comes back as an informational SC1091. Every finding gets a real fix or a
+one-line `disable` naming the constraint - there are no file-level suppressions in this tree.
 
 **Never run a real privileged update while developing.** Use the seams and the `--destdir` mode
 of `install.sh`, which stages every file into a prefix with no `pkexec` and no prompts:
@@ -172,19 +189,19 @@ Documentation is a first-class deliverable here, and it is held to the same stan
 ## Bumping the version
 
 `VERSION` at the root of the checkout is the only place this project writes its version down.
-`kempt --version` reads it, `kempt doctor` opens with it, and `tests/test_version.sh` pins the
-widget's `plasmoid/metadata.json` to it - so a bump is one edit and one test run:
+`kempt --version` reads it and `kempt doctor` opens with it - so a bump is one edit to `VERSION`,
+then `tests/test_version.sh`, which fails until `plasmoid/metadata.json`, the metainfo's newest
+`<release>` and `kempt.spec`'s `Version:` all agree:
 
 ```bash
 printf '0.2.0\n' > VERSION
-tests/test_version.sh          # fails until metadata.json agrees
+tests/test_version.sh          # names every file that does not agree yet
 ```
 
-Then edit `KPlugin.Version` in `plasmoid/metadata.json` to match, and add the release's section to
-`CHANGELOG.md`. Anything else that carries a number at release time - the git tag, an RPM
-`Version:`, an AppStream `<release version=>` - is expected to agree with `VERSION` as well, and
-those are the ones nothing checks for you yet. Bump in its own commit, so the diff that says what
-the release is stays readable.
+The git tag is the one number left to a human, along with the spec's `%changelog`, which needs a
+dated entry of its own. Which file to edit and in what order is step 1 of
+[docs/RELEASING.md](docs/RELEASING.md#the-release); add the release's section to `CHANGELOG.md`,
+and bump in its own commit, so the diff that says what the release is stays readable.
 
 A bump is the first step of a release rather than the whole of one:
 [docs/RELEASING.md](docs/RELEASING.md) is the numbered checklist for the rest, and it also says
