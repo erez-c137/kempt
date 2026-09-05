@@ -3,8 +3,7 @@
 All notable changes to Kempt are recorded here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project will follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from its first
-release.
+project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -100,9 +99,24 @@ release.
   freedesktop convention, and the field now says so.
 - The roadmap opens with what shipped instead of a finished to-do list, and gained honest
   entries for Fedora Atomic and fwupd.
-- Working notes (implementation plans, review-panel transcripts, store records) moved out of
-  the public docs tree; `docs/` now carries only the documentation a user, contributor or
-  reviewer benefits from.
+- Working notes that were never the project's (posting drafts, store-ops records, outreach
+  strategy) moved out of the repository entirely. What stays under `docs/plans/`, `docs/specs/`
+  and `docs/research/` is the dated working archive CONTRIBUTING.md names as such: public,
+  useful as evidence for why something is built the way it is, and deliberately outside the
+  conventions the published pages are held to.
+- The documentation now describes the install most people actually have. Every sentence that
+  names a path, a verify step or an uninstall command says which kind of install it is about,
+  and gives both where both exist: from the package the root helpers are in `/usr/libexec`, the
+  CLI is `/usr/bin/kempt` (a symlink into `/usr/share/kempt`), the widget is under
+  `/usr/share/plasma/plasmoids`, and it uninstalls with `sudo dnf remove kempt`; from a checkout
+  those are `/usr/local/libexec`, `~/.local/bin/kempt`, `~/.local/share/plasma/plasmoids` and
+  `./install.sh --uninstall`. The install guide gained the packaged install end to end - what
+  lands where, a real `kempt doctor` report from a packaged box with the four odd-looking lines
+  explained, and the fact that the widget is already in your tray, so adding it from Add Widgets
+  as well is what gives people two Kempt icons. What a package reviewer needs is now stated in
+  one place: SECURITY.md opens with the fact that nothing Kempt installs is setuid and every
+  escalation goes through polkit, and says which versions are supported instead of saying there
+  has not been a release.
 
 ### Fixed
 

@@ -1,17 +1,20 @@
 # Security policy
 
-Kempt installs two small root helpers and a polkit action, so security reports are taken
-seriously and handled privately.
+**Nothing Kempt installs is setuid, and every escalation goes through polkit.** The two root
+helpers are `root:root` 0755 and are launched by `pkexec` against two action ids; nothing else in
+the tree ever runs as root. Neither `install.sh` nor `kempt.spec` sets any mode other than 0755 and
+0644, so no Kempt file can gain privilege on its own. Security reports are taken seriously and
+handled privately.
 
 ## Supported versions
 
 | Version | Supported |
 | --- | --- |
-| v1 (current development line) | Yes |
+| 0.1.x | Yes (the newest 0.1.z) |
 | Anything older | No |
 
-There is no released version yet. Until there is, "supported" means the tip of the default
-branch.
+Security fixes ship as a new patch release and a COPR rebuild, so the fix reaches a packaged user
+through `dnf upgrade` like any other update; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Reporting a vulnerability
 

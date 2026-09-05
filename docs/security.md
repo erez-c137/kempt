@@ -9,13 +9,21 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 Two files, and nothing else:
 
-- `/usr/local/libexec/kempt-refresh` - package metadata only.
-- `/usr/local/libexec/kempt-apply` - the dnf upgrade verbs.
+- `kempt-refresh` - package metadata only.
+- `kempt-apply` - the dnf upgrade verbs.
 
-Both are `root:root` 0755 **copies**, installed once by `install.sh`. The CLI itself, its
-library and the backends never run as root. That split matters because the CLI is a symlink into
-a user-writable git checkout: editing the repo changes what your user runs, and can never change
-what root runs. Replacing the privileged half requires root already.
+They are `/usr/libexec/kempt-{refresh,apply}` from the package and `/usr/local/libexec/...` from a
+checkout install. The polkit action's `exec.path` pins whichever this build uses, and `kempt doctor`
+prints it: the two can never be reconciled at runtime, because pkexec matches an action by that
+path and by nothing else.
+
+Both are `root:root` 0755 **copies** either way, installed once by `install.sh` or owned by the
+package. The CLI itself, its library and the backends never run as root.
+
+On a checkout install, that split does a second job: the CLI is a symlink into a user-writable git
+checkout, so editing the repo changes what your user runs and can never change what root runs.
+Replacing the privileged half requires root already. A packaged install has no user-writable half
+to reason about - the whole tree under `/usr/share/kempt` is root-owned.
 
 ## Two polkit actions, on purpose
 
@@ -352,9 +360,10 @@ Recorded here rather than quietly fixed later:
   next restart will install, with no dialog to notice. This is the retention window described
   above rather than anything specific to the offline path, and the same bound applies: it can
   stage what a Kempt run would stage, not a package of its choosing. What limits it today is the
-  window's own length, which Kempt does not set and cannot shorten. A `kempt doctor` line
-  comparing the marker against dnf5's stored transaction is planned for the release that records
-  the staged package names, which is what would let a swap be detected after the fact.
+  window's own length, which Kempt does not set and cannot shorten. What is no longer invisible is
+  the swap itself: `kempt doctor` now compares Kempt's marker against dnf5's stored transaction and
+  FAILs with both directions of the difference when they disagree. That makes a replacement
+  detectable after the fact; it does not prevent one.
 - **dnf5 publishes the staged package list to every account on the box.** The stored transaction
   lives at `/usr/lib/sysimage/libdnf5/offline/transaction.json`, `root:root` mode 644 in a 755
   directory (verified in a container, 2026-09-05), and it carries the full resolved NEVRA list. So

@@ -1,4 +1,4 @@
-.TH KEMPT 1 "2026-08-25" "Kempt" "User Commands"
+.TH KEMPT 1 "2026-09-05" "Kempt" "User Commands"
 .SH NAME
 kempt \- one-click system updates for Fedora, from the terminal or the Plasma panel
 .SH SYNOPSIS
@@ -47,6 +47,8 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt enable\-passwordless
 .br
 .B kempt disable\-passwordless
+.br
+.B kempt help
 .br
 .B kempt \-\-version
 .SH DESCRIPTION
@@ -122,11 +124,14 @@ counts back from the newest and defaults to 1. Corrupt entries are skipped with 
 .TP
 .B summary \-\-json
 Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated
-before any of it is printed, and a damaged newest entry falls back to the next\-newest with a
-warning on stderr. Takes no
+before any of it is printed, and a damaged newest entry produces no output at all, with a warning
+on stderr naming it; it never falls back to an older run. That is the difference from the human
+mode above, and it is deliberate: this mode answers "what did the last run do", and serving the run
+underneath is how the widget came to announce an older run's package count as the run that had just
+finished. Takes no
 .IR N .
-With no runs recorded, or with every entry damaged, it prints nothing and exits 0: empty output
-means "no data", never an empty run.
+With no runs recorded, or with the newest entry damaged, it prints nothing and exits 0: empty
+output means "no data", never an empty run and never a different one.
 .TP
 .B history
 List past runs, newest first: timestamp, surface, status and what the run changed. The last
@@ -158,8 +163,8 @@ Check this installation and print one line per check, prefixed
 .BR ok ", " info " or " FAIL :
 both root helpers at the polkit\-annotated paths and owned by root, the polkit action file,
 .BR jq ,
-the terminal emulator, flatpak, the configuration file's syntax, a writable state directory,
-an intact checkout, and any staged offline transaction. Every check runs even after one fails.
+the terminal emulator, flatpak, dnf, the configuration file's syntax, a writable state directory,
+an intact tree, and any staged offline transaction or live boot symlink. Every check runs even after one fails.
 Exit status 1 when anything failed. A staged transaction that was downloaded but never armed is a
 .B FAIL
 naming the command that clears it: it will install on no restart, and every other surface
@@ -239,7 +244,12 @@ one prints
 rather than failing, because a build that cannot say what it is must still be able to update the
 machine.
 .BR "kempt doctor" 's
-first line reports the same version and the checkout it came from.
+first line reports the same version and the tree it came from.
+.TP
+.BR help ", " \-\-help ", " \-h
+Print the command list and exit. It is also what a bare
+.B kempt
+with no arguments prints, and what an unknown command prints on stderr before exiting 2.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config
@@ -270,8 +280,19 @@ See
 .I docs/configuration.md
 in the source tree for the full reference.
 .SH FILES
+Kempt has two kinds of install and they put their own files in different places. Where both are
+listed below, the first path is the package and the second is a checkout install; everything under
+your home directory is the same either way.
 .TP
-.I <checkout>/VERSION
+.IR /usr/bin/kempt " or " ~/.local/bin/kempt
+The command itself. Both are symlinks into the tree the CLI resolves with
+.BR readlink (1):
+.I /usr/share/kempt/bin/kempt
+from the package,
+.I <checkout>/bin/kempt
+from a checkout.
+.TP
+.IR /usr/share/kempt/VERSION " or " <checkout>/VERSION
 The project's version, and the single source of truth for it: the widget's
 .I metadata.json
 is pinned to this file by the test suite, and a release's tag, RPM version and AppStream release
@@ -301,11 +322,18 @@ appears here in the authentication helper's own words.
 The event log, mode 0600. One line per thing Kempt did. Past 2500 lines it is rewritten to the
 last 2000; nothing else deletes from it.
 .TP
-.I /usr/local/libexec/kempt-refresh
+.IR /usr/libexec/kempt-refresh " or " /usr/local/libexec/kempt-refresh
 Root helper: package metadata only, no authentication dialog.
 .TP
-.I /usr/local/libexec/kempt-apply
+.IR /usr/libexec/kempt-apply " or " /usr/local/libexec/kempt-apply
 Root helper: the dnf upgrade verbs, one authentication per run.
+.IP
+The two builds pin different directories and cannot be reconciled at runtime: pkexec matches an
+action by its
+.B exec.path
+annotation and by nothing else, so the polkit action pins whichever this build uses.
+.B kempt doctor
+prints the path it resolved and FAILs when the two disagree.
 .TP
 .I /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 The two polkit actions.
@@ -313,26 +341,38 @@ The two polkit actions.
 .I /etc/polkit-1/rules.d/49-kempt.rules
 Present only while passwordless mode is enabled.
 .TP
-.I ~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/
-The Plasma panel widget, installed by
+.IR /usr/share/plasma/plasmoids/io.github.erez_c137.kempt/ " or " ~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/
+The Plasma panel widget. The package owns its copy; a checkout install copies it into your home
+directory with
+.BR kpackagetool6 ,
+so re-run
 .B install.sh
-with
-.BR kpackagetool6 .
-Unlike the CLI it is a copy, not a symlink, so re-run
-.B install.sh
-after changing it. Installing it does not add it to a panel; that is Add Widgets.
+after changing anything under
+.IR plasmoid/ ,
+because unlike the CLI it is a copy and not a symlink. Kempt declares itself a system-tray entry
+and is enabled by default, so it appears in the tray on its own; Add Widgets puts a SECOND copy on
+the panel itself. Plasma prefers the home-directory copy over the packaged one, which is why
+.B kempt doctor
+FAILs on a user copy found alongside a packaged install.
 .TP
-.I ~/.local/share/icons/hicolor/scalable/apps/kempt.svg
-The widget's icon, in the user's icon theme, which is how its name resolves in Add Widgets.
+.IR /usr/share/icons/hicolor/scalable/apps/kempt.svg " or " ~/.local/share/icons/hicolor/scalable/apps/kempt.svg
+The widget's icon, in the system or the user icon theme, which is how its name resolves in Add
+Widgets. Six sizes are installed under this one name.
 .SH EXIT STATUS
 .TP
 .B 0
 Success, including declining at the session\-critical recommendation prompt.
 .TP
 .B 1
-The run itself failed (a backend returned non\-zero), or
+The run itself failed (a backend returned non\-zero),
 .B doctor
-found at least one problem.
+found at least one problem, or a writer could not take the writers' lock.
+.BR "config set" ,
+.B hold
+and
+.B unhold
+hold that lock across their whole read\-modify\-write and refuse rather than write after 30
+seconds, so one of those three can exit 1 with no run having failed and nothing having changed.
 .TP
 .B 2
 Usage error: unknown command, option or argument.

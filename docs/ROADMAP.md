@@ -26,6 +26,13 @@ GitHub, in COPR (Fedora 43 to 45 and rawhide, x86_64 and aarch64) and on the KDE
   opens with it, and the widget's `metadata.json` is pinned to the same `VERSION` file by the test
   suite - so "which build is this?" has an answer in a bug report, and the two halves of the
   project cannot claim to be different releases of it.
+- **The download size next to the button that starts it.** Shipped in 0.1.0. The popup footer
+  reads `Checked 4 min ago · ~140 MB`, from metadata already on disk: about 1.4 s (dnf) and 0.12 s
+  (flatpak) inside `kempt check`, with no depsolve, no network and no transaction, which is what
+  keeps it away from dnfdragora's re-index-on-open and Discover's resolved-transaction stalls. It
+  is an **estimate with error in both directions** (flatpak ships ostree deltas, dnf pulls
+  dependencies `--upgrades` never lists), so it says `~` and never "up to", and it is dropped
+  entirely rather than guessed when any item's size is unknown.
 - **One network boundary, both backends.** Checks are read-only against local caches on the dnf
   and the Flatpak side alike, and every fetch happens in `maybe_refresh_metadata` - once every
   three hours, on mains power, on an unmetered link. A check on a train answers from what is
@@ -70,17 +77,6 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
   hook it can call in both of its worlds (a QML engine, and node under the tests), and turning
   the phrases that are assembled from parts into whole i18np() sentences so a translator sees a
   sentence rather than fragments.
-- **Download size next to Update Now.** "Is this 40 MB or 4 GB" is the one question the popup
-  cannot answer today, and the only gap in the user panel that made a persona close the popup and
-  do nothing. **Specced** in
-  [docs/research/2026-08-27-download-size.md](research/2026-08-27-download-size.md): both backends
-  already carry the number in metadata on disk, so it costs about 1.4 s (dnf) and 0.12 s (flatpak)
-  inside `kempt check` with no depsolve, no network and no transaction - which is what keeps it
-  away from dnfdragora's re-index-on-open and Discover's resolved-transaction stalls. It lands in
-  the state file as optional additive keys, is rendered as one approximate figure next to the
-  button, and is dropped entirely rather than guessed when any item's size is unknown. It is an
-  **estimate with error in both directions** (flatpak ships ostree deltas, dnf pulls dependencies
-  `--upgrades` never lists), so the wording must never imply a bound.
 - **A defer: "later", "tonight", "only on Wi-Fi".** From the user panel: two of six personas
   currently "handle" the popup by closing it, which is the worst outcome an updater can produce.
   One wants it because of what she is doing right now, the other because of what he is connected
@@ -121,9 +117,9 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
   Fedora Bodhi karma. Never generated prose.
 - **`dnf5 check-update --json`** migration - retires the text-parser bug class by
   construction.
-- **Backend registry** - today adding a backend touches twelve call sites, one of them optional
-  (listed in `docs/architecture.md`, and one of the eleven required ones changes
-  `assemble_state`'s signature); a registry makes "one file per package manager" literally true.
+- **Backend registry** - today adding a backend touches every row of the wiring table in
+  `docs/architecture.md`, one of them optional, and one of the required ones changes
+  `assemble_state`'s signature; a registry makes "one file per package manager" literally true.
   Prerequisite for:
 - **apt and pacman backends** - the universal-updater vision becomes real.
 - **Per-version holds** ("skip this one bad release, auto-clear on the next"),
