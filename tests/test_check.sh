@@ -516,7 +516,8 @@ cat > "$TESTTMP/notify-stub" <<STUB
 printf '%s\n' "\$*" >> "$notify_log"
 STUB
 chmod +x "$TESTTMP/notify-stub"
-detour_check() { KEMPT_NOTIFY="$TESTTMP/notify-stub" "$KEMPT" check >/dev/null; }
+# Without cmp on PATH (nocmp_dir): the decision "did the package set move" must not need diffutils.
+detour_check() { PATH="$(nocmp_dir):$PATH" KEMPT_NOTIFY="$TESTTMP/notify-stub" "$KEMPT" check >/dev/null; }
 
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
 stage_marker boot-before-reboot 61

@@ -629,10 +629,10 @@ cmd_update() {
       # Leave the marker alone: harvest_offline handles a dead pointer on its own (it clears the
       # marker), and guessing here could throw away a real staged transaction.
       echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
-    elif cmp -s "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
+    elif same_content "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
       # STILL PENDING: staging writes no rpm changes of its own, so a baseline that still matches
       # the world this run started from means no restart has applied it yet.
-      if [[ "$dnf_status" == "ok" ]] && ! cmp -s "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv"; then
+      if [[ "$dnf_status" == "ok" ]] && ! same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv"; then
         # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against, and
         # dnf5 refuses one whose cookie has moved - so after a live install the armed stage is not
         # a pending update at all, it is a failed offline boot waiting to happen. Discarding it is
@@ -947,7 +947,7 @@ harvest_offline() {
   # honest "not applied yet" - the offline-update screen can be declined, and the next restart
   # will run it. With the transaction GONE there is nothing left to wait for, and this is where
   # that used to become a permanent dead end.
-  if cmp -s "$pre" "$now_snap"; then
+  if same_content "$pre" "$now_snap"; then
     rm -f "$now_snap"
     if [[ "$toml_status" == absent ]]; then
       clear_gone_stage "$pre"
@@ -1280,7 +1280,7 @@ doctor_install_files() {  # label src dst [src dst ...]
     src="$1"; dst="$2"; shift 2
     if [[ ! -r "$src" ]]; then nosrc=1
     elif [[ ! -e "$dst" ]]; then missing=1
-    elif ! cmp -s "$src" "$dst"; then differ=1; fi
+    elif ! same_content "$src" "$dst"; then differ=1; fi
   done
   # A label covers more than one file (the helpers are two) because the fix is one command: what
   # the reader needs is "re-run the installer", not which of the pair drifted.

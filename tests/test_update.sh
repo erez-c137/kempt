@@ -861,7 +861,9 @@ sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+# Without cmp on PATH (nocmp_dir): "the stage is still pending" and "the set moved" are decided
+# from content, not from a diffutils binary a minimal box may not have.
+PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a live rpm change discards the stage it invalidated" \
   || { echo "FAIL: the superseded stage was left armed and doomed"; _fail=1; }

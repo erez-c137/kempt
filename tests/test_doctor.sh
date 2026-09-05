@@ -420,7 +420,9 @@ grep -q '49-kempt.rules.in' "$TESTTMP/last_output" \
 # this section existed nothing anywhere said so. The staged install exported at the top of this
 # file is what stands in for one here.
 doctor_staged() {  # -> $TESTTMP/last_output, via assert_exit
-  env KEMPT_POLICY_FILE="$S_POLICY" "$KEMPT" doctor
+  # Without cmp on PATH (nocmp_dir): "match checkout" must be decided without diffutils, or a
+  # minimal box reports every helper as drifted.
+  env PATH="$(nocmp_dir):$PATH" KEMPT_POLICY_FILE="$S_POLICY" "$KEMPT" doctor
 }
 
 assert_exit 0 "a freshly staged install matches the checkout it came from" -- doctor_staged

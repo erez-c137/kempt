@@ -179,6 +179,18 @@ log_event() {  # text
   return 0
 }
 
+# Byte-for-byte equality of two readable files, with coreutils alone. `cmp` is diffutils, and
+# diffutils is not on a minimal Fedora image (a container, a server install): there the harvest's
+# `cmp -s` exited 127, which read as "the files differ", and an unchanged box across a restart was
+# harvested as "applied - no package changes" with its marker deleted, while doctor reported every
+# helper as drifted from the checkout. Found by the live container gate on 2026-09-05. Two files
+# that cannot be read are NOT equal: a caller that could read neither has no grounds to say the
+# package set did not move, so the unreadable case is its own status.
+same_content() {  # file file → 0 equal, 1 different, 2 unreadable
+  [[ -r "$1" && -r "$2" ]] || return 2
+  [[ "$(sha256sum < "$1")" == "$(sha256sum < "$2")" ]]
+}
+
 atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays atomic)
   local dest="$1" tmp
   tmp="$(mktemp -p "$(dirname "$dest")" .atomic.XXXXXX)"

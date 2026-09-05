@@ -56,7 +56,8 @@ jobs:
       # impure command reaches the system through an environment seam that tests/lib.sh stubs, so
       # dnf5, flatpak, rpm, pkexec and notify-send are never invoked and need not exist. Verified
       # on the dev box by running the whole suite under a stripped PATH containing only
-      # bash/jq/flock/coreutils/sed/gawk/grep/findutils/diffutils, with dnf, dnf5, flatpak, rpm,
+      # bash/jq/flock/coreutils/sed/gawk/grep/findutils (diffutils only for the tests' own file
+      # comparisons; the shipped code compares with coreutils alone), with dnf, dnf5, flatpak, rpm,
       # pkexec, notify-send, systemctl, apt, python3 and perl all unreachable: ALL PASS.
       - name: Check the runner has what the suite needs
         run: |

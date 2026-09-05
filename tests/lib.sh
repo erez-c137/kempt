@@ -107,6 +107,21 @@ STUB
   chmod +x "$1"
 }
 
+# A PATH prefix on which `cmp` is absent, the way it is on any box without diffutils (a minimal
+# container image, a server install). The shipped code must decide "did the package set move" from
+# content it can read with coreutils alone: found by the live container gate on 2026-09-05, where
+# a missing cmp made every boot-changed check harvest an unchanged box as "applied - no package
+# changes" and delete the marker. Use as: PATH="$(nocmp_dir):$PATH" "$KEMPT" ...
+nocmp_dir() {
+  local d="$TESTTMP/nocmp"
+  if [[ ! -x "$d/cmp" ]]; then
+    mkdir -p "$d"
+    printf '#!/bin/sh\necho "cmp: command not found" >&2; exit 127\n' > "$d/cmp"
+    chmod +x "$d/cmp"
+  fi
+  printf '%s\n' "$d"
+}
+
 assert_eq() {  # got expected label
   if [[ "$1" != "$2" ]]; then echo "FAIL: $3"; echo "  expected: $2"; echo "  got:      $1"; _fail=1
   else echo "ok: $3"; fi

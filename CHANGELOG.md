@@ -74,7 +74,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   armed, and readers must tolerate their absence.
 - **The build proves itself.** The RPM runs the full bash test suite in its check stage, on a
   pristine copy of the tree, so a build root that cannot pass the suite cannot ship the package;
-  proven in a Fedora rawhide mock build. A new docs test fails the suite on a markdown table broken
+  proven in a Fedora rawhide mock build. A live container gate (`tests/live/run-offline-gate.sh`)
+  runs the offline lifecycle against real dnf5 with failures injected, on demand. A new docs test fails the suite on a markdown table broken
   in two and on an environment seam the code reads that the architecture doc does not list.
 - **For readers and contributors:** a ["Why bash"](docs/architecture.md#why-bash) section in the
   architecture doc, the recurring question answered once with its costs included, linked from the
@@ -220,6 +221,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lock closed its file descriptor with a form of `exec` that also pointed the whole process's error
   output at nothing, permanently, so anything Kempt tried to tell you after a `kempt config set`,
   `kempt hold` or `kempt unhold` was written into the void, with nothing failing and nothing logged.
+- **A box without diffutils no longer misreads its own staged update.** On a minimal Fedora image
+  (a container, a server install) `cmp` is absent, and Kempt compared its package snapshots with
+  `cmp -s`, taking a missing command's exit status for "the files differ": an unchanged box was
+  harvested across a restart as "applied, no package changes" with its marker deleted, a live
+  update over a staged one was not detected, and `kempt doctor` reported every helper as drifted
+  from the checkout. Found by the new live container gate under `tests/live/`, which runs the
+  whole offline lifecycle against real dnf5 in a throwaway container with failures injected at the
+  stage, the cleanup and the arm. Comparisons now need only coreutils.
 - **The test suite runs green from a release tarball,** not only a git checkout: the doctor version
   assertion no longer assumes git history, and the log test stubs its terminal emulator instead of
   leaning on the CI workflow's shim.
