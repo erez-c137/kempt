@@ -253,11 +253,13 @@ main() {
   ln -sfn "$ROOT/docs/man/kempt.1" "$MAN1_DIR/kempt.1"
   # Paths passed as POSITIONAL ARGS, never interpolated into the root shell's script: a checkout
   # path containing a quote would otherwise break the command - or inject into it, as root.
-  # mkdir -p first: a fresh Fedora box has no /usr/local/libexec at all.
+  # mkdir -p first: a fresh Fedora box has no /usr/local/libexec at all. With an explicit mode,
+  # because pkexec sets no umask of its own: root inherits the CALLER's, and a bare `mkdir -p`
+  # honours it, so `umask 000` would leave the directory holding a root-exec'd helper 0777.
   # $1..$3 belong to the ROOT shell and must survive this file unexpanded; see the uninstall
   # branch above for why interpolating them instead would be the bug.
   # shellcheck disable=SC2016
-  run pkexec bash -c 'mkdir -p /usr/local/libexec \
+  run pkexec bash -c 'mkdir -p -m 0755 /usr/local/libexec \
   && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
     "$ROOT/libexec/kempt-refresh" "$ROOT/libexec/kempt-apply" "$ROOT/polkit/$POLICY" \

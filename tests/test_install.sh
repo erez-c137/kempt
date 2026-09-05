@@ -139,8 +139,12 @@ grep -qF -- "_ $REPO_ROOT/libexec/kempt-refresh $REPO_ROOT/libexec/kempt-apply $
 # The widget arm names the checkout too, and this assertion is about the ROOT script's three
 # arguments - so the (single-line, unprivileged) kpackagetool command is excluded from the count.
 assert_eq "$(grep -v 'Plasma/Applet' <<<"$out" | grep -oF "$REPO_ROOT" | wc -l)" "3" "each path appears exactly once, as an argument"
-grep -q 'mkdir -p /usr/local/libexec' <<<"$out" \
-  && echo "ok: creates /usr/local/libexec (a fresh Fedora box has none)" || { echo "FAIL: mkdir -p missing"; _fail=1; }
+# The MODE is the assertion, not just the mkdir: pkexec sets no umask, so root inherits the
+# caller's, and a bare `mkdir -p` under `umask 000` leaves the directory that holds a root-exec'd
+# helper world-writable.
+grep -q 'mkdir -p -m 0755 /usr/local/libexec' <<<"$out" \
+  && echo "ok: creates /usr/local/libexec with an explicit mode (a fresh Fedora box has none)" \
+  || { echo "FAIL: mkdir -p -m 0755 missing"; _fail=1; }
 assert_eq "$(grep -c '^pkexec' <<<"$out")" "1" "one pkexec prompt for the whole root install"
 
 # Real mode is also what a user runs to UPDATE an install, and it must say that the checkout
