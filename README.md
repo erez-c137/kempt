@@ -20,11 +20,15 @@ Needs Fedora with Plasma 6. One package carries the CLI, the root helpers and th
 ```bash
 sudo dnf copr enable erez-c137/kempt
 sudo dnf install kempt
+kempt doctor          # verify the install: helpers, polkit action, tools, config, state
 ```
 
-Then add the widget: right-click the panel > Add Widgets > search for Kempt. From then on
-Kempt updates through dnf like everything else it manages, and shows up in its own popup when
-it does.
+Kempt puts itself in your system tray, under **System Services**. It may take a
+`plasmashell --replace` or a log-out to appear the first time. To have it on the panel itself
+instead, add it from **Add Widgets** and turn the tray entry off; doing both gives you two Kempt
+icons. From then on Kempt updates through dnf like everything else it manages, and shows up in its
+own popup when it does. What lands where, and how to remove it, is in
+[the install guide](docs/install.md#installed-from-the-package).
 
 The widget alone is also on the [KDE Store](https://store.kde.org/p/2370353/) and in Plasma's
 own **Get New Widgets** browser - but it needs the CLI, so the package above is the whole
@@ -95,14 +99,14 @@ kempt doctor          # verify the install: helpers, polkit action, tools, confi
 the CLI runs out of it, and only the root helpers, the polkit action and the widget are
 copies. If `kempt` is not found afterwards, `~/.local/bin` was not on your `PATH` when this
 shell started; log out and back in. Full detail, including the Discover-notifier opt-out and
-how to undo everything, is in the [install guide](docs/install.md).
+how to undo everything, is in the [install guide](docs/install.md#from-a-checkout-developers).
 
 ## Documentation
 
 | Document | What is in it |
 | --- | --- |
-| [docs/install.md](docs/install.md) | Requirements, what the installer does, what lands where, passwordless setup, uninstall |
-| [docs/usage.md](docs/usage.md) | Every subcommand, its options, its output and its exit codes, plus a typical day |
+| [docs/install.md](docs/install.md) | Both installs end to end: the package (what lands where, the tray default, `dnf remove`) and the checkout (what `install.sh` does, and what it does not), plus passwordless setup and uninstall |
+| [docs/usage.md](docs/usage.md) | Every subcommand, its options, its output and its exit codes; and the Plasma widget: what the badge and each icon state mean, where it lives, and what the popup does |
 | [docs/configuration.md](docs/configuration.md) | Every config key with type and default, the run surfaces, holds, file locations, retention |
 | [docs/architecture.md](docs/architecture.md) | How it is built, why it is bash, the state JSON schema, and how to add a backend for your distro |
 | [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |

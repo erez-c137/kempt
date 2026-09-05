@@ -22,7 +22,113 @@ The offline surface additionally needs a dnf5 that supports staged transactions.
 dnf5 upgrade --help | grep -- --offline
 ```
 
-## Install
+## Installed from the package
+
+This is the install the README leads with, and the one most people have:
+
+```bash
+sudo dnf copr enable erez-c137/kempt
+sudo dnf install kempt
+```
+
+One package carries the CLI, the two root helpers, the polkit action and the widget, and `dnf`
+keeps all of them in step from then on. Nothing in it is a symlink into your home directory and
+nothing in it is yours to edit: the whole tree is root-owned. That is also why `kempt doctor`
+compares nothing on a packaged box, where the checkout install has three `match checkout` lines.
+There is no checkout for the installed copies to have drifted from.
+
+### What the package installs
+
+| Path | Owner | What it is |
+| --- | --- | --- |
+| `/usr/bin/kempt` | `root:root` | The command you type. It is a **symlink** to `/usr/share/kempt/bin/kempt`, because the CLI resolves its own tree with `readlink -f`: a real file here would send it looking for `/usr/lib/common.sh`. |
+| `/usr/share/kempt/bin/`, `lib/`, `backends/` | `root:root` | The CLI, its library and the two backends. `lib/` and `backends/` are sourced and never executed, so the packaged copies ship without the shebang line the checkout keeps for shellcheck. |
+| `/usr/share/kempt/VERSION` | `root:root` 0644 | What `kempt --version` and `kempt doctor`'s first line read. |
+| `/usr/share/kempt/polkit/49-kempt.rules.in` | `root:root` 0644 | The template `kempt enable-passwordless` renders. Without it that command has nothing to render and fails on the day somebody runs it, not before. |
+| `/usr/libexec/kempt-refresh` | `root:root` 0755 | Root helper: package metadata only, no authentication dialog. |
+| `/usr/libexec/kempt-apply` | `root:root` 0755 | Root helper: the dnf upgrade verbs, one authentication per run. |
+| `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | The two polkit actions. Their `exec.path` pins `/usr/libexec`, not the `/usr/local/libexec` a checkout install pins. |
+| `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` | `root:root` | The panel widget, in the system-wide plasmoid directory rather than yours. |
+| `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The same six-rung icon ladder described below, in the system icon theme. |
+| `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`, with no symlink to make. |
+| `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. |
+| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Only after `kempt enable-passwordless`. It names one username, so it is the administrator's file and is **not** part of the package. |
+
+Your settings and state are not installed by the package either. They are created on first use, in
+the same two places a checkout install uses: `~/.config/kempt/` (config, holds) and
+`~/.local/state/kempt/` (state, history, logs, snapshots). See
+[configuration.md](configuration.md#files-and-retention).
+
+### The widget is already in your tray
+
+**Do not add it from Add Widgets as well.** `plasmoid/metadata.json` marks Kempt enabled by default
+and declares it a system-tray entry under *System Services*, so the tray enables it on its own the
+first time Plasma meets the plugin. It may take a `plasmashell --replace` or a log-out to appear.
+Adding it from Add Widgets on top of that gives you two Kempt icons, which is legal and probably
+not what you want. Both places, and how to turn either off, are in
+[usage.md](usage.md#where-it-lives-the-system-tray-or-the-panel-itself).
+
+### Verify it
+
+```bash
+kempt doctor
+```
+
+On a packaged box that has not run anything yet:
+
+```
+info  kempt 0.1.1 (/usr/share/kempt)
+ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
+ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
+ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
+ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
+ok    polkit exec.path (apply): /usr/libexec/kempt-apply
+ok    jq: /usr/bin/jq (jq-1.8.1)
+ok    terminal emulator: /usr/bin/konsole
+ok    flatpak: /usr/bin/flatpak
+ok    dnf: /usr/bin/dnf5
+ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
+ok    state dir writable: /home/you/.local/state/kempt (created on first use)
+ok    checkout intact: /usr/share/kempt
+info  version: kempt 0.1.1
+info  install: packaged - the package manager keeps these files in step
+ok    widget engine: /usr/share/kempt/bin/kempt
+
+Recent events (kempt log):
+  none
+
+kempt doctor: all checks passed
+```
+
+Four of those lines read oddly until you know what they are asking:
+
+- **`checkout intact`** is named for the developer install but checks whichever tree the CLI
+  resolved. Here it is asking whether `lib/`, `backends/` and the passwordless rules template are
+  all present under `/usr/share/kempt`.
+- **`version:`** carries no commit on a packaged box. The checkout install appends
+  `(checkout a1b2c3d clean)`; there is no `.git` under `/usr/share/kempt` to read one from.
+- **`install: packaged`** is how doctor tells the two apart, and it decides it by the absence of
+  `install.sh` in the tree - the one file a package deliberately does not ship.
+- **`widget engine`** resolves `kempt` through the widget's own `PATH` (`~/.local/bin` first) and
+  compares it with the CLI that printed the report. A leftover `~/.local/bin/kempt` from an older
+  checkout install wins there and nowhere else, so the panel would run one Kempt while everything
+  above describes another. That is a `FAIL`, and it names both files.
+
+A widget installed from the KDE Store before the package is the other thing doctor catches here;
+see [Installing from the KDE Store first](#installing-from-the-kde-store-first).
+
+### Removing the package
+
+```bash
+sudo dnf remove kempt
+```
+
+That takes every path in the table above. Two things survive it deliberately: the passwordless
+rule, which is not part of the package (remove it with `kempt disable-passwordless` first, or
+delete the file by hand), and your own `~/.config/kempt/` and `~/.local/state/kempt/`, which hold
+your settings, holds and update history.
+
+## From a checkout (developers)
 
 ```bash
 git clone https://github.com/erez-c137/kempt.git
@@ -187,16 +293,19 @@ consent.
 
 ## Verify the install
 
+Either kind of install, and this is the first command to run after either one:
+
 ```bash
 kempt doctor
 ```
 
 Expect `kempt doctor: all checks passed` and exit status 0. It checks the two root helpers at
-the polkit-annotated paths (present, `root:root` 0755), the polkit action file, `jq`, your
-terminal emulator, flatpak, your config file's syntax, a writable state directory and an intact
-checkout, and it prints one line per check so a failure names itself. Run it first: if the
-authentication prompt was declined, or the checkout has since moved, this is the command that
-says so. Full detail in [usage.md](usage.md#doctor).
+the polkit-annotated paths (present, `root:root` 0755), the polkit action file and the `exec.path`
+each action pins, `jq`, your terminal emulator, flatpak, dnf, your config file's syntax, a writable
+state directory and an intact tree, and it prints one line per check so a failure names itself. Run
+it first: if the authentication prompt was declined, or the checkout has since moved, this is the
+command that says so. A packaged install prints [a slightly different report](#verify-it), because
+it has no checkout to compare its copies against. Full detail in [usage.md](usage.md#doctor).
 
 Then the real answer:
 
@@ -241,6 +350,12 @@ The exact grant, and why it is safe to scope it this way, is in
 
 ## Updating Kempt
 
+**From the package**, nothing here applies: `sudo dnf upgrade` takes Kempt along with everything
+else, and Kempt lists itself in its own popup while it is pending. That is the whole procedure, and
+[RELEASING.md](RELEASING.md) says why there is no self-update code behind it.
+
+**From a checkout**, it is two steps, because only one of the installed pieces is a symlink:
+
 ```bash
 cd /path/to/kempt && git pull
 ```
@@ -257,15 +372,15 @@ force that: removing it would take the widget off your panel and out of your tra
 Then `kempt doctor` confirms every copy matches the checkout:
 
 ```
-info  version: kempt 0.1.0 (checkout a1b2c3d clean)
+info  version: kempt 0.1.1 (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout
 ```
 
 A `DIFFER` line there is the pull you have not installed yet, and it names the command that fixes
-it. Kempt never updates itself; see [RELEASING.md](RELEASING.md) for why, and for what changes
-once Kempt ships as a package.
+it. A packaged install has none of these three lines: it prints `install: packaged` instead,
+because the package manager owns those copies and keeps them in step.
 
 ## Staged install (packagers and testers)
 
@@ -281,6 +396,9 @@ This is the path the test suite uses; it is also the starting point for real pac
 is the answer for distributing Kempt to other users (the symlink install is a developer install).
 
 ## Uninstall
+
+From the package, it is `sudo dnf remove kempt`; see
+[Removing the package](#removing-the-package). From a checkout:
 
 ```bash
 ./install.sh --uninstall
