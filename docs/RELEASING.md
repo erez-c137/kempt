@@ -6,11 +6,11 @@ executed against this tree is
 and the road into the official Fedora repos is
 [docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).
 
-**What exists and what does not.** `kempt.spec` is committed at the repo root and has been built,
-linted, installed and smoke-tested in a Fedora 44 container, and the AppStream metainfo is
-committed next to it. Step 8's zip commands were run against this tree. What has **never** been
-run is COPR itself: step 7 is still read from upstream documentation, and the repo has to be
-public before an SCM-tracked COPR package can clone it at all.
+**What has been run.** Steps 1 to 9 have all been run, for 0.1.0 and 0.1.1. `kempt.spec` is
+committed at the repo root and has been built, linted, installed and smoke-tested in a Fedora 44
+container, and the AppStream metainfo is committed next to it. Step 8's zip commands were run
+against this tree. COPR is live: `erez-c137/kempt` builds for fedora-43, fedora-44, fedora-45 and
+rawhide, on x86_64 and aarch64, and both releases reached users through it.
 
 ## Kempt never updates itself
 
@@ -42,13 +42,17 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    four different releases of one install. It does not check the spec's `%changelog`, which needs
    a new dated entry of its own, or the git tag in step 5 - those are on you.
 
-2. **Move the CHANGELOG.** Rename the `## [Unreleased]` heading to `## [0.2.0] - YYYY-MM-DD`
-   using the release date, and open a fresh empty `## [Unreleased]` above it. Nothing else in the
-   file changes: the entries were written as the work landed.
+   Nothing checks **SECURITY.md's supported-versions table** either, and it is the page a Fedora
+   reviewer opens second. If this release changes which versions are covered, say so there in the
+   same commit: somebody on a packaged release has to be able to tell whether they still are.
 
-   Release notes copy: see the voice guides, owed. The CHANGELOG is the maintainer's record and
-   ships as it is; announcement text and public release notes are a separate pass that needs the
-   founder's voice guides first.
+2. **Move the CHANGELOG, and the roadmap with it.** Rename the `## [Unreleased]` heading to
+   `## [0.2.0] - YYYY-MM-DD` using the release date, and open a fresh empty `## [Unreleased]`
+   above it. Nothing else in that file changes: the entries were written as the work landed.
+
+   Then move whatever this release shipped out of `docs/ROADMAP.md`'s plan sections and into its
+   **Shipped** section, in that section's style. Nothing checks this either, and the failure mode
+   is a roadmap presenting a built feature as an unbuilt plan to everyone who reads the page.
 
 3. **Run the full suite**, serially, and read the count.
 
@@ -87,9 +91,10 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
 7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
    COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
    passed: the spec builds, lints to zero rpmlint findings, installs and smokes clean on Fedora 44
-   ([the verification note](research/2026-09-02-rpm-spec-verification.md)), and the 0.1.0 release
-   went through this exact procedure end to end (project created, rpkg SCM build green on
-   fedora-44 and rawhide, `dnf copr enable` + `dnf install kempt` verified in a clean container).
+   ([the verification note](research/2026-09-02-rpm-spec-verification.md)), and both the 0.1.0 and
+   the 0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM
+   builds green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
+   `dnf copr enable` + `dnf install kempt` verified in a clean container).
    A red COPR build is therefore about COPR, the chroot or the tag, not about the spec.
 
    The project (`erez-c137/kempt`) and its one package exist; a release is two commands - point
