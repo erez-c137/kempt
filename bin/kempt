@@ -1573,6 +1573,31 @@ cmd_doctor() {
     # widget; the skew comparison below is the right question there.
     if [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
       doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR - Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+    elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+      # The panel half is its own package, so a CLI that works perfectly can sit on a box with no
+      # widget at all and nothing would say why. Info, not a failure: the CLI is the whole tool
+      # for anyone who wanted the CLI.
+      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid"
+    fi
+
+    # The environment can point this process at a different update path than the one every row
+    # above just described, and on a PACKAGED install nothing else notices - the file comparisons
+    # that catch it on a checkout are exactly what this branch has no checkout to make. Six lines
+    # in ~/.config/environment.d are enough to make `kempt update` report "0 updated" while
+    # running nothing at all, and without this row the report underneath would say "all checks
+    # passed": a box that has silently stopped taking security updates, certified healthy by its
+    # own diagnostic. Only the three seams that decide what RUNS - the others change what is read,
+    # and the rows above already describe what they point at.
+    # Gated on a tree this user cannot WRITE, which is the one packaged-ness test an environment
+    # variable cannot fake: /usr/share/kempt belongs to the package manager, and a checkout or a
+    # test fixture belongs to whoever is running this. Without that gate the suite's own sandbox -
+    # which sets all three seams, by design - would trip the row on every run.
+    local overridden=() seam
+    for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
+      [[ " $KEMPT_ENV_OVERRIDES " == *" $seam "* ]] && overridden+=("$seam")
+    done
+    if [[ ${#overridden[@]} -gt 0 && ! -w "$ROOT" ]]; then
+      doctor_fail "privileged path overridden in the environment: ${overridden[*]} - these are test seams, and while they are set this report describes a path that is not the one 'kempt update' takes. Unset them (look in ~/.config/environment.d and your shell profile) and run this again"
     fi
   else
     doctor_install_files helpers \

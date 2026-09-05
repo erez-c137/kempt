@@ -95,7 +95,10 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    the 0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM
    builds green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
    `dnf copr enable` + `dnf install kempt` verified in a clean container).
-   A red COPR build is therefore about COPR, the chroot or the tag, not about the spec.
+   That history is a reason to look at COPR, the chroot and the tag first - it is NOT a reason to
+   assume the spec is innocent. It was not, once: the 0.1.2 suite grew a call to `ps`, which is in
+   neither `BuildRequires` nor Fedora's minimal buildroot, and `%check` failed every build until
+   the call went away. Read the log before deciding which half is at fault.
 
    The project (`erez-c137/kempt`) and its one package exist; a release is two commands - point
    the package at the new tag, then build it:
@@ -121,7 +124,7 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
 
    ```bash
    sudo dnf copr enable erez-c137/kempt
-   sudo dnf install kempt
+   sudo dnf install kempt-plasmoid
    ```
 
 8. **KDE Store upload of the widget**, for people who are not on an RPM distro. The archive is a

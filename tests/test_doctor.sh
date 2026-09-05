@@ -549,6 +549,56 @@ grep -qF 'plasmashell --replace' "$TESTTMP/last_output" \
   && echo "ok: ...and that the shell has to reload before it takes effect" \
   || { echo "FAIL: the plasmashell reload is not named"; _fail=1; }
 
+# --- the widget is its own package, and a packaged install has to say so ------------------------
+# The CLI and the panel widget ship separately (kempt / kempt-plasmoid), so a perfectly healthy CLI
+# can sit on a box with no widget in the panel and nothing anywhere would explain why.
+doctor_packaged "$TESTTMP/absent-user-widget" > "$TESTTMP/skew.txt" 2>&1 || true
+grep -qF 'panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid' \
+     "$TESTTMP/skew.txt" \
+  && echo "ok: a packaged install with no widget names the package that carries it" \
+  || { echo "FAIL: no widget-package line"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+# ...and says nothing once the package IS installed. The line is a pointer, not a nag.
+SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
+env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \
+    KEMPT_SYSTEM_PLASMOID_DIR="$SYS_WIDGET" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+grep -q 'panel widget not installed' "$TESTTMP/skew.txt" \
+  && { echo "FAIL: told a box with the widget package that it has no widget"; _fail=1; } \
+  || echo "ok: ...and stays quiet once the widget package is there"
+
+# --- a packaged install refuses to certify a hijacked update path -------------------------------
+# The seams below are how the suite runs, and on a real box they are how `kempt update` becomes a
+# no-op that reports success: six lines in ~/.config/environment.d pointing them at /bin/true, and
+# every other row in this report goes on describing an install those lines have stepped around. A
+# checkout catches it by comparing files; a packaged install has no checkout to compare, so this
+# is the only thing standing between a box that quietly stopped updating and a report saying it is
+# healthy.
+# Read-only, because that is what makes it a package rather than a fixture: the row is gated on a
+# tree the caller cannot write, which is the one thing about a packaged install that an
+# environment variable cannot fake.
+chmod a-w "$NOGIT"
+for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
+  env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \
+      "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+  grep -qF "privileged path overridden in the environment" "$TESTTMP/skew.txt" \
+    && grep -qF "$seam" "$TESTTMP/skew.txt" \
+    && echo "ok: a packaged install names $seam as an override rather than certifying itself" \
+    || { echo "FAIL: $seam override not reported"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+done
+grep -q 'all checks passed' "$TESTTMP/skew.txt" \
+  && { echo "FAIL: a hijacked packaged install still certified itself"; _fail=1; } \
+  || echo "ok: ...and does not end with 'all checks passed'"
+chmod u+w "$NOGIT"
+# The fix has to be findable: the person reading this did not set these on purpose.
+grep -qF 'look in ~/.config/environment.d and your shell profile' "$TESTTMP/skew.txt" \
+  && echo "ok: ...and says where such a setting comes from" \
+  || { echo "FAIL: no pointer to where the override lives"; _fail=1; }
+# A CHECKOUT is where the suite lives, and there the file comparisons already tell the truth about
+# what is installed, so the same seams must NOT fail - or no test in this suite could run doctor.
+doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
+grep -q 'privileged path overridden' "$TESTTMP/skew.txt" \
+  && { echo "FAIL: a checkout was told its test seams are an override"; _fail=1; } \
+  || echo "ok: a checkout says nothing about them - its file comparisons answer the question"
+
 # On a CHECKOUT install that same directory IS the install - install.sh puts it there with the
 # same kpackagetool6 - so there is nothing shadowing anything and nothing to remove. A warning
 # here would be telling a developer to delete their own widget.

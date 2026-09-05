@@ -28,11 +28,26 @@ This is the install the README leads with, and the one most people have:
 
 ```bash
 sudo dnf copr enable erez-c137/kempt
-sudo dnf install kempt
+sudo dnf install kempt-plasmoid
 ```
 
-One package carries the CLI, the two root helpers, the polkit action and the widget, and `dnf`
-keeps all of them in step from then on. Nothing in it is a symlink into your home directory and
+Two packages, and the one above brings the other:
+
+| Package | What it is | Requires |
+| --- | --- | --- |
+| `kempt` | The CLI, the two root helpers, the polkit action, the man page and this documentation. A complete tool on its own - it needs nothing from a desktop, and on a server or in a container that is the point. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
+| `kempt-plasmoid` | The panel widget and its icons. | `kempt` of the same version, `plasma-workspace` |
+
+They are separate because `kempt` alone is 0.7 MB of bash and had no business requiring
+`plasma-workspace`, which on a clean Fedora pulls 787 packages and 2.9 GB - a desktop, on a
+machine that asked for an update tool. `kempt-plasmoid` also carries a `Supplements` on
+`kempt` **and** `plasma-workspace` together, so a box that already runs Plasma picks the widget up
+automatically when it installs or upgrades the CLI.
+
+> **Upgrading from 0.1.1**, where one package carried everything: if the widget disappears from
+> your panel after the upgrade, `sudo dnf install kempt-plasmoid` puts it back.
+
+`dnf` keeps all of it in step from then on. Nothing in it is a symlink into your home directory and
 nothing in it is yours to edit: the whole tree is root-owned. That is also why `kempt doctor`
 compares nothing on a packaged box, where the checkout install has three `match checkout` lines.
 There is no checkout for the installed copies to have drifted from.
@@ -48,10 +63,11 @@ There is no checkout for the installed copies to have drifted from.
 | `/usr/libexec/kempt-refresh` | `root:root` 0755 | Root helper: package metadata only, no authentication dialog. |
 | `/usr/libexec/kempt-apply` | `root:root` 0755 | Root helper: the dnf upgrade verbs, one authentication per run. |
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | The two polkit actions. Their `exec.path` pins `/usr/libexec`, not the `/usr/local/libexec` a checkout install pins. |
-| `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` | `root:root` | The panel widget, in the system-wide plasmoid directory rather than yours. |
-| `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The same six-rung icon ladder described below, in the system icon theme. |
+| `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` | `root:root` | The panel widget, in the system-wide plasmoid directory rather than yours. **From `kempt-plasmoid`.** |
+| `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The same six-rung icon ladder described below, in the system icon theme. **From `kempt-plasmoid`.** |
 | `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`, with no symlink to make. |
-| `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. |
+| `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. **From `kempt-plasmoid`.** |
+| `/usr/share/doc/kempt/` | `root:root` | The README and the whole `docs/` tree, so the links in them resolve on the machine as well as on the forge. |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Only after `kempt enable-passwordless`. It names one username, so it is the administrator's file and is **not** part of the package. |
 
 Your settings and state are not installed by the package either. They are created on first use, in

@@ -27,6 +27,12 @@ sandbox() {  # fresh dirs per test file; call first
   # the developer has Kempt installed. Nothing on this PATH means "no kempt for the widget", which
   # doctor reports as info; the cases that need the ok and FAIL branches build their own directory.
   export KEMPT_WIDGET_PATH="$TESTTMP/no-widget-path"
+  # Pinned for the same reason as the seam above: unset, doctor stats the REAL
+  # /usr/share/plasma/plasmoids directory, so whether the developer happens to have the widget
+  # package installed would decide whether a packaged-install report carries the "widget is a
+  # separate package" line. Pointed at nothing, "not installed" is the answer, which is the branch
+  # worth exercising by default.
+  export KEMPT_SYSTEM_PLASMOID_DIR="$TESTTMP/no-system-plasmoid"
   # Poisoned, not merely unset like the *_CMD seams below, and the difference matters: unset, this
   # one falls back to the REAL `flatpak remote-ls` WITHOUT --cached, which fetches flathub's
   # summary over the network. Any test file that leaves KEMPT_SKIP_REFRESH unset reaches

@@ -1,7 +1,7 @@
 Name:           kempt
 Version:        0.1.1
 Release:        1%{?dist}
-Summary:        One-click system updates from the Plasma panel
+Summary:        One-click system updates for Fedora, with holds and offline staging
 
 # MIT AND CC0-1.0: every original file is MIT; the one CC0-1.0 file the binary RPM ships is
 # the AppStream metainfo, whose metadata_license is CC0-1.0 by freedesktop convention.
@@ -36,19 +36,46 @@ Requires:       jq
 Requires:       dnf5
 Requires:       polkit
 Requires:       util-linux-core
-Requires:       hicolor-icon-theme
-Requires:       plasma-workspace
+# `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
+# dnf5: `dnf5 -q repoquery --whatprovides "dnf5-command(needs-restarting)"` returns dnf5-plugins,
+# and dnf5 itself only provides dnf5-command(offline). Without it reboot_needed is permanently
+# false with a warning on stderr that no widget user will ever read, so a restart owed after a
+# kernel update is simply never offered. The virtual provide, not the package name, so a future
+# re-home of the subcommand does not break this.
+Requires:       dnf5-command(needs-restarting)
 # Optional backend: the CLI runs fine without it (include_flatpak simply reports disabled).
 Recommends:     flatpak
-# The `terminal` run surface launches this; the CLI exits 4 with a clear message without it.
-Suggests:       konsole
+# Both of these are weak on purpose and neither used to be declared at all.
+# notify-send is how every detached surface reports what it did; without it those runs finish
+# silently. konsole is what the DEFAULT surface launches, so with it only Suggested (which dnf
+# does not install) `kempt doctor` reported a FAIL on a fresh, correct install - the first command
+# the docs tell a new user to run.
+Recommends:     libnotify
+Recommends:     konsole
 
 %description
-Kempt is a Plasma 6 panel widget and a bash command-line tool. It shows
-which dnf5 and Flatpak updates are pending with the version each package
-moves from and to, counts only the updates you have not held, and applies
-them with one click. The badge and the update run through the same command
-path, so the count and the transaction cannot disagree.
+Kempt shows which dnf5 and Flatpak updates are pending with the version each
+package moves from and to, counts only the updates you have not held, and
+applies them in a terminal, in the background, or staged for the next restart.
+The panel widget is packaged separately as kempt-plasmoid, so this package
+brings in nothing from the desktop.
+
+%package plasmoid
+Summary:        Plasma 6 panel widget for Kempt
+Requires:       %{name} = %{version}-%{release}
+Requires:       plasma-workspace
+Requires:       hicolor-icon-theme
+# So a Plasma box that installs or upgrades the CLI gets the widget without having to know the
+# subpackage exists, while a server or a container that has no Plasma gets neither it nor the
+# 2.9 GiB of desktop it would drag in. The split is the whole reason this subpackage exists:
+# `Requires: plasma-workspace` on the CLI turned `dnf install kempt` into 787 packages.
+Supplements:    (%{name} = %{version}-%{release} and plasma-workspace)
+
+%description plasmoid
+The system tray widget: a badge with the number of updates you have not held,
+a popup listing each one with the versions it moves between, and one button
+that runs the update. It drives the kempt command, so the badge and the
+transaction cannot disagree.
 
 %prep
 %autosetup
@@ -120,6 +147,18 @@ install -D -m 0644 docs/man/kempt.1 %{buildroot}%{_mandir}/man1/kempt.1
 install -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
     %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
+# %%doc ships docs/ whole, so README's relative links resolve on an installed system instead of
+# being a table of dead ends: 15 of its 17 now do, against 1 before. The two that do not are
+# LICENSE and docs/man/kempt.1, and both are files this package installs PROPERLY elsewhere -
+# %%license and %%{_mandir} - so shipping a second copy under %%doc to satisfy a link would be the
+# worse trade.
+# The development half is pruned here rather than in %%prep because the man page above is
+# installed OUT of docs/, and %%doc reads the tree as it stands at the end of this section: plans
+# and most research notes are working papers.
+rm -rf docs/plans docs/man
+find docs/research -mindepth 1 -maxdepth 1 \
+     ! -name '2026-08-24-similar-tools-survey.md' -exec rm -rf {} +
+
 %check
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
 # The bash half of the test suite, in full, against the pristine copy - the suite asserts
@@ -134,18 +173,42 @@ bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
 appstreamcli validate --no-net --explain \
     %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
+# The one thing the suite above CANNOT check, because it runs against the pristine copy: the
+# packaging rewrite in %%prep. If that sed ever misses a file, pkexec has no action for the path
+# the CLI asks it to run, every privileged call falls back to an authentication dialog, and
+# background checks time out - a failure nobody sees until the package is on someone's machine.
+# So: assert the four paths, in the buildroot, as installed.
+for f in %{buildroot}%{_libexecdir}/kempt-refresh %{buildroot}%{_libexecdir}/kempt-apply; do
+    test -x "$f" || { echo "packaging check: missing helper $f" >&2; exit 1; }
+done
+grep -q '<annotate key="org.freedesktop.policykit.exec.path">%{_libexecdir}/kempt-refresh</annotate>' \
+    %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+grep -q '<annotate key="org.freedesktop.policykit.exec.path">%{_libexecdir}/kempt-apply</annotate>' \
+    %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+grep -q 'KEMPT_REFRESH_HELPER_PATH:-%{_libexecdir}/kempt-refresh' \
+    %{buildroot}%{_datadir}/%{name}/lib/common.sh
+grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
+    %{buildroot}%{_datadir}/%{name}/lib/common.sh
+! grep -rq '/usr/local/libexec' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
+    %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+
 %files
 %license LICENSE
-%doc README.md CHANGELOG.md docs/usage.md docs/configuration.md docs/security.md
+# The whole set README links to, with docs/ kept as a directory so those links resolve here the
+# way they resolve on the forge.
+%doc README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md docs
 %{_bindir}/kempt
 %{_datadir}/%{name}/
-%attr(0755,root,root) %{_libexecdir}/kempt-refresh
-%attr(0755,root,root) %{_libexecdir}/kempt-apply
+%{_libexecdir}/kempt-refresh
+%{_libexecdir}/kempt-apply
 %{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+%{_mandir}/man1/kempt.1*
+
+%files plasmoid
+%license LICENSE
 %{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt/
 %{_datadir}/icons/hicolor/*/apps/kempt.svg
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
-%{_mandir}/man1/kempt.1*
 
 %changelog
 * Fri Sep 04 2026 Erez <erez.c137@protonmail.com> - 0.1.1-1

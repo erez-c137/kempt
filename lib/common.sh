@@ -28,6 +28,14 @@ KEMPT_BOOT_ID="${KEMPT_BOOT_ID:-}"
 # file without moving the real one.
 KEMPT_ROOT="${KEMPT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
+# WHICH seams arrived from the environment, recorded before the defaults below erase the
+# difference. Every KEMPT_* variable exists for the test suite, and three of them decide what
+# actually runs as root; set on a real box they make `kempt update` a no-op that reports success.
+# `kempt doctor` reads this so it can refuse to certify a box whose update path has been pointed
+# somewhere else. compgen -e, not the whole variable list: only an EXPORTED value can have come
+# from outside this process.
+KEMPT_ENV_OVERRIDES="$(compgen -e 2>/dev/null | grep '^KEMPT_' | sort | tr '\n' ' ' || true)"
+
 KEMPT_CONFIG_DIR="${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 KEMPT_STATE_DIR="${KEMPT_STATE_DIR:-$HOME/.local/state/kempt}"
 KEMPT_PKEXEC="${KEMPT_PKEXEC-pkexec}"
@@ -54,6 +62,9 @@ KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.er
 # A seam is what lets either question be driven from a staged tree instead of the developer's own
 # live widget.
 KEMPT_PLASMOID_DIR="${KEMPT_PLASMOID_DIR:-$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt}"
+# Where the PACKAGE puts the widget, as opposed to the user-scope directory above. Read by doctor
+# only, and only to tell a packaged install that the panel half is a separate package.
+KEMPT_SYSTEM_PLASMOID_DIR="${KEMPT_SYSTEM_PLASMOID_DIR:-/usr/share/plasma/plasmoids/io.github.erez_c137.kempt}"
 # The PATH the panel widget's own command line builds. plasmoid/contents/ui/main.qml runs the CLI
 # as `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`, so ~/.local/bin wins for the widget and
 # for nothing else - which is how a stale developer symlink there goes on shadowing a packaged

@@ -15,13 +15,19 @@ next restart, pins on every row to hold a package back, and the download size in
 
 ## Install
 
-Needs Fedora with Plasma 6. One package carries the CLI, the root helpers and the widget:
+Needs Fedora with Plasma 6. The widget package brings the command-line half and the root helpers
+with it, so this is the whole install:
 
 ```bash
 sudo dnf copr enable erez-c137/kempt
-sudo dnf install kempt
+sudo dnf install kempt-plasmoid
 kempt doctor          # verify the install: helpers, polkit action, tools, config, state
 ```
+
+Two packages, because the command-line half is a complete tool on its own and has no business
+pulling a desktop onto a machine that does not have one: `kempt` is the CLI, the root helpers and
+the polkit action; `kempt-plasmoid` is the panel widget, and it requires `kempt`. On a box that
+already runs Plasma, installing either one gets you both.
 
 Kempt puts itself in your system tray, under **System Services**. It may take a
 `plasmashell --replace` or a log-out to appear the first time. To have it on the panel itself
