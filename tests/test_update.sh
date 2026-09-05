@@ -350,6 +350,127 @@ assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")"
 # every run since the staging rewrote dnf-before.tsv, and the marker's own copy is still there
 assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
 
+# --- and the same escalation the other way round: nobody reads stderr in a panel ------------------
+# A cleanup that failed leaves the box in the one state a person has to act on by hand, and the run
+# that produced it is usually a click in the widget. The warning above goes to stderr and to a log
+# file; the notification is the only surface that reaches the person who pressed the button, so it
+# carries the command verbatim. The reason stays the ARM: the step that failed is what a reader
+# has to chase, and the cleanup rides alongside it rather than replacing it.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.bothfail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
+  && echo "ok: the failure notification carries the command that clears what is left" \
+  || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
+armdbl="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$armdbl")" "staged but could not arm the restart install" \
+  "...while the recorded reason still names the step that failed"
+
+# --- a REBUILD whose STAGE fails, which is the state nothing used to unwind -----------------------
+# Ground truth, container-verified: staging over an armed transaction is cancel-then-stage. The old
+# transaction is destroyed the moment the re-stage begins, not swapped for the new one at the end.
+# So a stage that fails leaves no transaction, a toml that is not `ready`, and the /system-update
+# symlink still standing - and the next restart detours into the offline updater and installs
+# nothing at all. Only a failed ARM used to unwind; a failed stage left exactly that behind, with a
+# marker still promising the install.
+cat > "$TESTTMP/apply-stub.stagefail" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-offline-stage ]] && { echo "No space left on device" >&2; exit 1; }
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.stagefail"
+cat > "$TESTTMP/apply-stub.stage-clean-fail" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+case "\$1" in dnf-offline-stage|dnf-offline-clean) exit 1 ;; esac
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.stage-clean-fail"
+
+# The fixture is a REAL armed stage - the marker a `kempt update --surface=offline` writes, over
+# the `ready` toml this file runs against - because what the unwind has to get right is the
+# lifecycle of the file that command produces, not of a hand-built stand-in.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_exit 0 "the rebuild fixture starts from a real armed stage" -- test -f "$marker"
+old_pre="$(jq -r .pre_snapshot "$marker")"
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+strc=0
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
+assert_eq "$strc" "1" "a rebuild whose stage fails fails the run"
+grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
+  && echo "ok: ...and discards what the re-stage destroyed" \
+  || { echo "FAIL: no unwind after a failed stage"; _fail=1; }
+assert_exit 0 "a rebuild that discarded the old stage leaves no marker" -- test ! -f "$marker"
+assert_exit 0 "...and no snapshot copy either" -- test ! -f "$old_pre"
+grep -q 'offline marker cleared (rebuild failed, stage discarded)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log says which of the two it was" \
+  || { echo "FAIL: no rebuild-failed clearing event"; _fail=1; }
+sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
+assert_eq "$(jq -r .error "$sthist")" "the previous staged update was discarded and could not be rebuilt" \
+  "...naming what the user lost, not the first error-shaped line in the log"
+
+# The double failure - state (d). The clean failed too, so the toml and the boot symlink disagree
+# and only a person with root can fix it. The marker STAYS: `kempt doctor` reads it against the
+# toml and fails on that row, the symlink row fails beside it, and both name the same command.
+# Clearing it here would turn the first of those into the benign "staged outside Kempt" info.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stage-clean-fail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+assert_exit 0 "a rebuild whose cleanup failed too keeps the marker for the doctor" -- test -f "$marker"
+grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
+  && echo "ok: ...and the notification carries the command that clears it" \
+  || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
+dblhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$dblhist")" \
+  "the previous staged update was discarded and could not be rebuilt, and could not be cleaned up - run: sudo dnf5 offline clean" \
+  "...and the reason carries it too, because there is nothing left to chase in the log"
+
+# Nothing staged before the attempt: there is nothing to unwind, and a clean fired anyway would be
+# a privileged call made for no reason. The reason comes from the log, as it always did.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "a first stage that fails unwinds nothing - there was nothing there"
+nsthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+[[ "$(jq -r .error "$nsthist")" == "the previous staged update was discarded and could not be rebuilt" ]] \
+  && { echo "FAIL: a first stage reported a previous one being lost"; _fail=1; } \
+  || echo "ok: ...and says nothing about a previous stage that never existed"
+
+# A rebuild that WORKED, which is the whole point of the failure paths above: the run is what a
+# hold-behind-a-stage tells the user to do, and the event log is the only record of why it ran.
+# The conflicting holds are read BEFORE the stage, because afterwards the question cannot be asked
+# again - the transaction that contained the held package is gone.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+first_at="$(jq -r .staged_at "$marker")"
+"$KEMPT" hold dnf:librepo >/dev/null 2>&1
+# The one sleep this case needs, and for the same reason the double-staging probe below keeps one:
+# staged_at has second resolution and the assertion is that the rebuild wrote a NEW marker.
+sleep 1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+grep -q 'offline restage (holds: librepo)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: a rebuild over a conflicting hold records the hold it was for" \
+  || { echo "FAIL: no restage event - got: $(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" || true) restage lines"; _fail=1; }
+[[ "$(jq -r .staged_at "$marker")" != "$first_at" ]] \
+  && echo "ok: ...and the marker is the new stage's, not the one it replaced" \
+  || { echo "FAIL: the marker still describes the replaced stage"; _fail=1; }
+assert_eq "$(jq -c '.staged_names' "$marker")" '["ca-certificates","librepo","openldap"]' \
+  "...read from the transaction that is there now"
+assert_eq "$(jq -r '.armed' "$marker")" "true" "...and armed, like any other stage"
+"$KEMPT" unhold dnf:librepo >/dev/null 2>&1
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" check >/dev/null
+
 # --- and that count is asked for NOW. It is the only thing the user is ever told about a
 # transaction they cannot open, it is what the popup and `kempt doctor` repeat back for as long as
 # the stage is armed, and it used to be copied out of the last check's state.json - a number written

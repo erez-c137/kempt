@@ -495,6 +495,75 @@ rm -f "$marker" "$pre"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "a transaction Kempt did not stage is not published as Kempt's"
 
+# --- the restart that detoured and installed nothing ---------------------------------------------
+# The state a failed rebuild leaves behind, seen from the other side of the reboot: the transaction
+# is there but is not `ready`, the boot symlink was still standing, so the restart went into the
+# offline updater, found nothing it could apply, and came back. Nothing was installed, and nothing
+# ever will be from this transaction - only `dnf5 offline reboot` arms one, and nothing is going to
+# run that on its own.
+#
+# The old reconciliation keyed on the toml's PRESENCE alone, so this was silent: the boot changed,
+# the package set had not moved, the transaction was still there, and the check said "not applied
+# yet" forever. Meanwhile `offline_staged` had already vanished from the state (it is published for
+# `ready` and nothing else), so the popup's staged banner disappeared with no explanation at all.
+#
+# So: announce ONCE, and demote the marker to `armed: false`. Never clear it - the marker is what
+# lets `kempt doctor` say this transaction can never install, and without it that row degrades into
+# "an offline transaction is staged outside Kempt", which is a misattribution of Kempt's own stage.
+notify_log="$TESTTMP/detour-notifications"
+cat > "$TESTTMP/notify-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$notify_log"
+STUB
+chmod +x "$TESTTMP/notify-stub"
+detour_check() { KEMPT_NOTIFY="$TESTTMP/notify-stub" "$KEMPT" check >/dev/null; }
+
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
+stage_marker boot-before-reboot 61
+before_marker="$(jq -Sc . "$marker")"
+: > "$notify_log"
+detour_check
+assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
+assert_eq "$(cat "$notify_log")" \
+  "Kempt Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean." \
+  "...the one notification that keeps the banner's disappearance from being silent"
+assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
+  "...and the event log carries the status it was announced for"
+assert_eq "$(jq -r '.armed' "$marker")" "false" "...and the marker is demoted rather than deleted"
+assert_json_eq "$(jq -c 'del(.armed)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
+  "...with every other field of it kept"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "...while nothing is published as a pending install, because nothing is"
+
+# Announce-once, keyed on the marker itself. A box checks every ten minutes; a second notification
+# would be 144 of them a day about one dead transaction.
+after_marker="$(jq -Sc . "$marker")"
+: > "$notify_log"
+detour_check
+assert_eq "$(cat "$notify_log")" "" "the second check says nothing about it again"
+assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
+  "...and records nothing again either"
+assert_eq "$(jq -Sc . "$marker")" "$after_marker" "...and leaves the marker exactly as it demoted it"
+
+# Demoted is not the same as gone: the transaction really vanishing still clears the marker, on the
+# same branch, by the same rule as ever.
+KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" detour_check
+assert_exit 0 "a demoted marker whose transaction then vanishes is still cleared" -- test ! -f "$marker"
+
+# The SAME toml status in the SAME boot means the opposite thing: a stage that is being written
+# right now. `dnf5 upgrade --offline` sits at download-complete for the whole of the download, and
+# a check that fired in that window and called it dead would announce a transaction that is about
+# to be armed perfectly.
+stage_marker boot-t4 61
+inflight_marker="$(jq -Sc . "$marker")"
+: > "$notify_log"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" detour_check
+assert_eq "$(cat "$notify_log")" "" "a download-complete stage in this boot is a stage in flight, not a dead one"
+assert_eq "$(events_since 'offline stage cannot install')" "1" "...so nothing new is announced"
+assert_eq "$(jq -Sc . "$marker")" "$inflight_marker" "...and the marker is left alone"
+rm -f "$marker" "$pre"
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+
 # --- the hold that arrived after the stage, published for every surface --------------------------
 # The trap this closes, in one sequence: stage 83 packages, learn something about the kernel, run
 # `kempt hold dnf:kernel-core`, restart - and kernel-core installs, because dnf5 built that

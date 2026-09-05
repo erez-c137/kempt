@@ -303,6 +303,29 @@ recurring. `DNF_SYSTEM_UPGRADE_NO_REBOOT` is the documented way to arm without r
 An arm that fails fails the run: the stage is discarded with `dnf-offline-clean` and **no marker
 is written**. The marker is a promise, and there is nothing left to promise.
 
+**A rebuild forfeits what it replaces.** Staging over an existing transaction is cancel-then-stage
+in dnf5: the old transaction is destroyed as the new one BEGINS, not swapped for it at the end
+(container-verified). So asking for a rebuild converts "the old staged update is still armed" from
+an end state into a forfeited one, and every failure path has to land somewhere honest. There are
+three end states, and the offline branch of `cmd_update` is written to reach one of them:
+
+1. **New transaction armed, marker rewritten.** The ordinary case. `offline restage` records that
+   there was an old one and which holds it conflicted with - a question that cannot be asked after
+   the stage, because the transaction that contained the held package is gone.
+2. **Nothing staged, marker cleared, the user told.** The stage or the arm failed and
+   `dnf-offline-clean` succeeded. The run fails with a reason naming what was lost, and the marker
+   and its snapshot copy go with the transaction they described: a marker outliving its transaction
+   is a promise to the harvest, the doctor and the popup that no restart can keep.
+3. **The cleanup failed too.** Reachable only through a double failure. The toml and the boot
+   symlink now disagree and only root can settle it, so the command that settles it travels on the
+   failure notification as well as on stderr - stderr is nobody's surface when the run came from a
+   panel - and the marker is deliberately KEPT. Doctor's staged row and its boot-symlink row then
+   say two different true things about the box and name the one remedy between them.
+
+Whether a transaction existed before the attempt is read from two places, either of which is
+enough: Kempt's marker, and dnf5's own status. The second is what covers a transaction Kempt did
+not stage, which a re-stage destroys identically.
+
 **The three files.**
 
 | File | Owner | Says |
@@ -327,6 +350,9 @@ establish is expressed by an ABSENT key rather than an empty one: no `staged_nam
 "nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
 `staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
 list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
+`armed` is the one field a later run rewrites: reconciliation flips it to `false` when a restart
+proved the transaction cannot install (below), and that flip is also the record that this was
+already announced.
 Every name is filtered through `KEMPT_NAME_RE` as it is written, and one name that fails drops the
 whole list - one gate covers jq, the shell, QML and a terminal.
 
@@ -363,11 +389,37 @@ the world (`harvest_offline`):
 | --- | --- | --- | --- | --- |
 | yes | ready / any non-absent | same as staged | - | Still pending. Nothing happens |
 | yes | absent | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
-| yes | any | different | unchanged | Still pending if the transaction is there; cleared if it is not - this second case used to be a permanent dead end, waiting forever for an apply that had already been discarded |
+| yes | absent | different | unchanged | The transaction was thrown away. Clear the marker - this used to be a permanent dead end, waiting forever for an apply that had already been discarded |
+| yes | ready | different | unchanged | Still pending: the restart declined the offline update, or it is queued for the next one |
+| yes | present, not `ready` | different | unchanged | **Detour boot.** Announce once, demote the marker to `armed: false`, never clear |
 | yes | any | different | changed | **Harvested**: one history entry, surface `offline (applied on reboot)`, diffed against the marker's own snapshot copy |
 
 The boot session is the gate rather than the package set, because "the installed set moved" was
 never evidence that the stage applied - a live run, or a manual `dnf install`, moves it too.
+
+**Reconciling a detour boot.** A transaction that is present but not `ready`, across a boot that
+changed, with the package set where the stage left it, has one reading: the boot symlink was
+standing over a transaction nothing could apply, so the restart went into the offline updater,
+installed nothing and came back. That transaction can never install on a later restart either -
+only `dnf5 offline reboot` arms one, and nothing is going to run it by itself. Three rules hold
+this branch together:
+
+- **Announce once.** The notification and the event line are said exactly once, and the key is the
+  marker itself: `armed: false` IS the record that it has been said. A box checking every ten
+  minutes would otherwise repeat it 144 times a day about one dead transaction.
+- **Never clear.** The marker is what lets `kempt doctor` say *staged update can never install*.
+  Without it that row degrades into *an offline transaction is staged outside Kempt*, which
+  misattributes Kempt's own stage to somebody else and drops the diagnosis. Clearing stays what it
+  always was: for a marker over a transaction dnf5 says has GONE.
+- **Never reclassify a same-boot stage.** `download-complete` in the boot that staged it is the
+  legitimate transient of a stage still being written - `dnf5 upgrade --offline` sits there for the
+  whole download - and a check that fired in that window and called it dead would announce a
+  transaction about to be armed perfectly.
+
+The reader that keeps this honest is `offline_staged_state`, which publishes nothing at all unless
+dnf5 says `ready`: the popup's staged banner therefore disappears the moment the transaction stops
+being armed, and the notification is what stops that disappearance from being the only thing that
+happens.
 
 **Superseding.** A staged transaction records the rpm database cookie it was built against, and
 dnf5 refuses one whose cookie has moved. So a live `kempt update` that installs anything has
