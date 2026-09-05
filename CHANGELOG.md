@@ -235,6 +235,56 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The test suite runs green from a release tarball,** not only a git checkout: the doctor version
   assertion no longer assumes git history, and the log test stubs its terminal emulator instead of
   leaning on the CI workflow's shim.
+- **Something else updating your packages is no longer mistaken for your staged update
+  installing.** If `dnf-automatic`, GNOME Software or a terminal `sudo dnf5 upgrade` changed
+  anything between staging an offline update and the next boot, Kempt announced "Staged updates
+  were applied on reboot", wrote a history entry naming the other tool's packages, and deleted its
+  own record - while the staged transaction sat there, still armed, still going to install on the
+  next restart, with every surface now silent about it. An applied offline transaction removes
+  dnf5's stored transaction, its `transaction.json` and `/system-update`; while any of that is
+  still present the update has not run, and Kempt now waits instead of claiming otherwise.
+- **A staged update that can no longer install says so, instead of being promised forever.** Being
+  armed is two things: dnf5's `ready` status and the `/system-update` symlink. Kempt read only the
+  status, so a transaction whose symlink was gone was advertised as "installs on the next restart"
+  after every restart, indefinitely, with `kempt doctor` reporting the box as healthy. It is now
+  announced once, demoted, and given a doctor row that names the fix. **This is easy to hit:
+  running `sudo dnf5 install <anything>` while an update is staged removes that symlink and leaves
+  the status at `ready`** - dnf5's behaviour, documented nowhere, found by running the real thing.
+  Re-stage with `kempt update --surface=offline`, or clear it with `sudo dnf5 offline clean`.
+- **`kempt doctor` stops certifying a packaged install whose update path has been redirected.**
+  Three lines in `~/.config/environment.d` pointing Kempt's helper seams at `/bin/true` made
+  `kempt update` report "0 updated" having run nothing, the widget stay green, and doctor say "all
+  checks passed" - a box silently no longer taking security updates, certified by its own
+  diagnostic. A checkout install catches this by comparing files against the tree; a packaged one
+  has no tree to compare, so it now names the override instead.
+- **The check in front of passwordless updates tests the rendered rule for equality**, rather than
+  looking for the clauses it ought to contain. Presence tests catch a rule that loses something and
+  are blind to one that gains something: a template carrying the required scope clause, the correct
+  action id and a single rule block, plus an unconditional grant inside that same block, passed
+  every check and would have installed passwordless root for every polkit action from any session.
+- **The panel widget is now its own package.** `kempt` is the command-line half, the root helpers
+  and the polkit action; `kempt-plasmoid` is the widget and requires both. `sudo dnf install kempt`
+  used to pull in `plasma-workspace` and with it 787 packages and 2.9 GB - a desktop, onto whatever
+  asked for an update tool. A box already running Plasma still gets the widget automatically.
+  **Upgrading from 0.1.1: if the widget disappears from your panel, `sudo dnf install
+  kempt-plasmoid` puts it back.**
+- **The package declares what it actually runs.** `dnf5 needs-restarting` lives in `dnf5-plugins`,
+  not in `dnf5`, and without it the restart reminder was permanently silent - a restart owed after
+  a kernel update was never offered. `notify-send` is how every background run reports what it did
+  and was declared nowhere. `konsole` is what the default surface launches, and being merely
+  suggested meant `kempt doctor` reported a failure on a fresh, correct install - the first command
+  the documentation tells you to run. It passes now, checked from the installed package.
+- **The README you get with the package is no longer a table of dead links,** and the page that
+  explains what was installed and how to remove it is shipped at all: `/usr/share/doc/kempt/`
+  carries the documentation tree, so 15 of its 17 links resolve on the machine, against 1 before.
+- **A checkout under a path containing an apostrophe can run updates.** The terminal wrapper
+  hand-quoted the path, so the quote closed early and **Update Now** opened a window that did
+  nothing at all.
+- **The test suite no longer needs `ps`**, which is in neither the package's build requirements nor
+  Fedora's minimal build root, so every package build of 0.1.2 would have failed its own test
+  stage. And a test that killed a slow writer killed only half of it: the survivor finished its
+  write seconds later, into a sandbox that had already moved on - the source of both a stray error
+  line in CI output and the intermittent failures that never reproduced afterwards.
 
 ## [0.1.1] - 2026-09-04
 
