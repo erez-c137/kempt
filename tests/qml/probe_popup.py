@@ -995,9 +995,12 @@ QtObject {
 
     state(CONFLICT1)
     stack("with a hold on a package the staged update contains", "stagedMessage")
-    p.check("...the banner names the package and what the restart will do with it",
+    p.check("...the banner tells it in the person's own order of events, with both ways out and "
+            "the cost of the one on the button",
             lev("stagedMessage.text"),
-            "Staged before your hold - kernel-core still installs on the next restart.")
+            "You held kernel-core after the next-restart install was prepared, so it still"
+            " installs. Rebuild it to skip kernel-core, or stop holding kernel-core to keep the"
+            " current plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
     p.check("...as a Warning, because the reassurance is no longer true",
             lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
     # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1038,16 +1041,20 @@ QtObject {
             lev("stagedMessage.actions[0].visible"), False)
 
     state(CONFLICT3)
-    p.check("three held packages read as the first one and a count",
+    p.check("three held packages read as the first one and a count, every word moved with it",
             lev("stagedMessage.text"),
-            "Staged before your holds - kernel-core and 2 more still install on the next restart.")
+            "You held kernel-core and 2 more after the next-restart install was prepared, so they"
+            " still install. Rebuild it to skip them, or stop holding them to keep the current"
+            " plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
     p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
     state(GENERIC)
     stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
     p.check("...the banner says may, because that is what is known",
             lev("stagedMessage.text"),
-            "Staged before your holds - it may still install held packages on the next restart.")
+            "You added holds after the next-restart install was prepared, so it may still install"
+            " held packages. Rebuild it to apply your holds. Rebuilding asks for authorization;"
+            " if it fails, nothing stays staged.")
     p.check("...as a warning all the same", lev("stagedMessage.type"),
             lev("Kirigami.MessageType.Warning"))
     p.check("...offering the same rebuild, which applies every current hold whatever the list said",
@@ -1368,6 +1375,21 @@ QtObject {
     state(fixture("state-risky-heavy.json"))
     p.check("the session-critical message says what to DO about it",
             lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
+    # Information, not Warning. Nothing is wrong: there is a safer of two ways to do this, and an
+    # amber box above a button labelled Install on Next Restart read as an order to restart now
+    # (hostile panel, first-run 3).
+    p.check("...as Information, because nothing is broken - one path is safer than the other",
+            lev("riskyMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...in the sentence that recommends the button standing under it",
+            lev("riskyMessage.text"),
+            "This update includes a kernel. The safest way is to install it on the next restart,"
+            " so nothing changes under the running desktop.")
+    p.check("...never telling anybody to restart when something unnamed finishes",
+            "Restart when it finishes" in str(lev("riskyMessage.text")), False)
+    # Two restart-shaped buttons used to share `system-reboot` and sit adjacent, one opening KDE's
+    # logout prompt and the other staging a transaction (hostile panel, M3).
+    p.check("...under the icon for installing software, not the one for restarting a machine",
+            lev("riskyMessage.actions[0].icon.name"), "system-software-update")
     p.check("...and not the count sentence as well, which for a kernel-free set is the same words",
             lev("riskyMessage.text") == ev("root.vm.riskySummary"), False)
     p.check("...offering the offline install under a name that is not dnf jargon",
@@ -1555,6 +1577,22 @@ QtObject {
     p.check("...while the package name still elides, so a long one cannot push the pin off the row",
             row(ITEM_ROW, "(%s).elide === Text.ElideRight" % name), True)
 
+    # A package that is not installed yet. The CLI writes "?" for its current version and the row
+    # drew "? → 9.9.9-1.fc44", which reads as "the widget does not know" (hostile panel, first-run
+    # and a11y S4). The DATA keeps the sentinel; the row draws the word.
+    NEW_ROW = {"kind": "item", "name": "brandnew", "from": "?", "to": "1.0-1.fc44",
+               "held": False, "backend": "dnf"}
+    new_version = labelled('String(o.text).indexOf("1.0-1.fc44") >= 0')
+    p.check("a package with no current version reads as new rather than as a question mark",
+            row(NEW_ROW, "(%s).text" % new_version), "new → 1.0-1.fc44")
+    p.check("...and says the same thing to a screen reader",
+            row(NEW_ROW, "(%s).Accessible.name" % new_version), "from new to 1.0-1.fc44")
+    # ...and its padlock offers the only thing a hold can mean there: do not install it at all.
+    new_pin = labelled('String(o.text).indexOf("brandnew") >= 0'
+                       ' && o.animateClick !== undefined')
+    p.check("...while the padlock offers a refusal to install rather than a hold at no version",
+            row(NEW_ROW, "(%s).text" % new_pin), "Skip installing brandnew")
+
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
 # every assertion above passing.
@@ -1657,6 +1695,8 @@ _ASSEMBLED_IN_LOGIC = {
     "restartFailed",        # -> root.restartError, rendered inside the restart message
     "kernelRestart",        # -> riskyMessageOf -> vm.riskyMessage
     "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.riskyMessage
+    "riskySessionOne",      # -> riskyMessageOf -> vm.riskyMessage (the family list goes in)
+    "riskySessionMore",     # -> riskyMessageOf -> vm.riskyMessage (a count and the family list)
     "held",                 # -> vm.footerText and vm.tooltipSub
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText
@@ -1671,6 +1711,7 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
+    "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
     "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own

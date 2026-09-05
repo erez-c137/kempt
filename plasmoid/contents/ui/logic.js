@@ -103,6 +103,11 @@ var COPY = {
     // 0.7 opacity dip - and an opacity dip is a contrast REDUCTION, which is the wrong direction
     // for the rows a person deliberately protected (a11y P6).
     heldToken: "Held",
+    // What a row draws where the CLI wrote "?" - a package that is not installed yet, whose update
+    // would ADD it. "? → 9.9.9-1.fc44" reads as "the widget does not know", on every row of a
+    // fresh box (hostile panel, first-run and a11y S4). The DATA keeps the "?": it is the CLI's
+    // own sentinel and the padlock recognises it too.
+    versionNew: "new",
     // ...and the one line the Held heading owes a first-timer. A hold is Kempt's own list; it does
     // not touch `dnf upgrade`, and nothing anywhere said so.
     heldKemptOnly: "Held packages are skipped by Kempt only.",
@@ -116,13 +121,34 @@ var COPY = {
     installOnNextRestartTooltip:
         "Applies the update during a restart, so nothing changes underneath your running desktop.",
 
-    // What a session-critical transaction is told to do about it. Two sentences, because a box
-    // with the NVIDIA driver in the set has a second, worse failure mode (a kernel module built
-    // against a kernel that is not the running one), and naming it is what makes the advice
-    // credible to the person it happens to.
-    kernelRestart: "This includes a kernel update. Restart when it finishes.",
+    // What a session-critical transaction is told to do about it. Four spellings, because two
+    // things vary: whether a kernel is in the set, and whether the NVIDIA driver is with it (a box
+    // with that driver has a second, worse failure mode - a kernel module built against a kernel
+    // that is not the running one - and naming it is what makes the advice credible).
+    //
+    // "Restart when it finishes." is gone, and it is the sentence this whole message existed to
+    // fix. It recommended the LIVE path while the only button underneath it offered the offline
+    // one, over an amber box, before anything had started - so a first-timer read an order to
+    // restart now and had no idea what "it" was (hostile panel, first-run 3). What replaces it
+    // says what the button does and why: install on the next restart, so nothing changes under the
+    // desktop that is running. The message type goes with it, from Warning to Information: nothing
+    // is wrong, there is a safer of two ways to do this.
+    kernelRestart:
+        "This update includes a kernel. The safest way is to install it on the next restart, "
+        + "so nothing changes under the running desktop.",
     kernelNvidiaRestart:
-        "This includes a kernel update and the NVIDIA driver. Restart when it finishes.",
+        "This update includes a kernel and the NVIDIA driver. The safest way is to install them "
+        + "on the next restart, so nothing changes under the running desktop.",
+    // ...and the same recommendation for a set with no kernel in it, which used to get the bare
+    // count instead ("20 session-critical pending (dbus, glibc, kf6, mesa, ...)") - true, and no
+    // answer at all to the question the person actually has. The family list is kept, capped where
+    // the count sentence caps it, because it is the evidence for the claim.
+    riskySessionOne:
+        "This update touches 1 package the running desktop depends on (%1). "
+        + "The safest way is to install it on the next restart.",
+    riskySessionMore:
+        "This update touches %1 packages the running desktop depends on (%2). "
+        + "The safest way is to install them on the next restart.",
 
     // Status-line vocabulary. `held` is a suffix to a number ("3 held"); it is a word rather than
     // a sentence because the same word has to serve the tooltip, which was already saying it.
@@ -182,16 +208,30 @@ var COPY = {
     //
     // "still installs" / "still install": singular and plural move the verb, the possessive AND
     // the pronoun together, the same rule stagedOne follows above.
-    stagedConflictOne: "Staged before your hold - %1 still installs on the next restart.",
+    // IN THE USER'S ORDER OF EVENTS. "Staged before your hold - dbus still installs" named the
+    // mechanism rather than what the person did, and once the green banner was gone "Staged" had
+    // no antecedent at all; the other way out - stop holding the package and the current plan
+    // stands - was offered nowhere (hostile panel, M4 and first-run 8). So: what you did, what
+    // follows from it, and both remedies.
+    stagedConflictOne:
+        "You held %1 after the next-restart install was prepared, so it still installs. "
+        + "Rebuild it to skip %1, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
-        "Staged before your holds - %1 and %2 more still install on the next restart.",
+        "You held %1 and %2 more after the next-restart install was prepared, so they still "
+        + "install. Rebuild it to skip them, or stop holding them to keep the current plan.",
     // And the spelling for a stage whose package list could not be read at all. "may", because
     // that is exactly what is known - the CLI said names_source "none", which means an empty
     // conflict list is "cannot tell" and never "no conflict". A reader that stayed quiet here
     // would be denying a conflict on no evidence; the spec's rule is that names may CONFIRM a
     // conflict and may never DENY one.
     stagedConflictUnknown:
-        "Staged before your holds - it may still install held packages on the next restart.",
+        "You added holds after the next-restart install was prepared, so it may still install "
+        + "held packages. Rebuild it to apply your holds.",
+    // ...and the cost, as the banner's SECOND SENTENCE. It was disclosed only in the action's
+    // tooltip, which is to say only to somebody who had already hovered the button they were
+    // deciding about (hostile panel, M4). Short, because it is the third sentence in the box and
+    // the tooltip still carries the long form.
+    stagedRebuildCost: "Rebuilding asks for authorization; if it fails, nothing stays staged.",
 
     // The one action a warning variant offers, and the whole cost of pressing it. Both facts are
     // in the tooltip because both are real: it runs `kempt update --surface=offline`, which is a
@@ -210,7 +250,9 @@ var COPY = {
     // on disk any more. Short, and about the transaction rather than about the widget: the person
     // pressed a button and nothing happened, and this is the only sentence that stops that being
     // indistinguishable from a broken button. main.qml assigns it, the way it assigns restartFailed.
-    stagedChanged: "The staged update changed - take another look.",
+    stagedChanged:
+        "The staged update changed since this was offered. Nothing was rebuilt; "
+        + "check the banner above.",
 
     // The hold round trip, in three sentences. Two of them are never DRAWN: the popup speaks them
     // through one Accessible.announce when the row has actually moved, because until now a hold
@@ -317,6 +359,16 @@ var BADGE_MAX = 999;
 function shellQuote(s) {
     if (s === undefined || s === null) return "''";
     return "'" + String(s).split("'").join("'\\''") + "'";
+}
+
+// fill(template, token, value) -> every occurrence replaced, not just the first.
+//
+// String.replace with a string needle replaces ONE occurrence, and stagedConflictOne names its
+// package three times ("You held dbus ... Rebuild it to skip dbus, or stop holding dbus ..."), so
+// a replace() there would ship a banner reading "Rebuild it to skip %1". split/join rather than a
+// regex because the value is a package name from another program and a regex would interpret it.
+function fill(template, token, value) {
+    return String(template).split(token).join(value);
 }
 
 // Is this really an array? `typeof v.length === "number"` is not enough: a STRING has a length,
@@ -654,13 +706,20 @@ function familiesOf(names, max) {
     };
 }
 
-// "20 session-critical pending (dbus, glibc, kernel, kf6, ...)" - the popup's offline
-// recommendation, worded from the same parts as the CLI's notification.
+// "dbus, glibc, kernel, kf6, ..." - the families in a risky set, capped, as both sentences below
+// name them. One function, because a count sentence and a recommendation that listed the same set
+// differently would be the popup disagreeing with itself about the same transaction.
+function riskyFamiliesOf(names) {
+    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN);
+    return fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
+}
+
+// "20 session-critical pending (dbus, glibc, kernel, kf6, ...)" - the count, worded from the same
+// parts as the CLI's notification. Published as vm.riskySummary and deliberately not drawn: the
+// popup shows the RECOMMENDATION below, which answers the next question.
 function riskySummaryOf(names) {
     if (!names || !names.length) return "";
-    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN);
-    return names.length + " session-critical pending ("
-        + fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "") + ")";
+    return names.length + " session-critical pending (" + riskyFamiliesOf(names) + ")";
 }
 
 // riskyMessageOf(names) -> what to DO about a session-critical transaction, in one sentence.
@@ -688,7 +747,15 @@ function riskyMessageOf(names) {
     // kernel warning depend on where "kernel" falls in an alphabetical sort. Four families
     // ahead of it (akmod, alsa, atk, bash is an ordinary Fedora transaction, not a contrived
     // one) and the most important sentence this popup has silently stops being said.
-    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) return riskySummaryOf(names);
+    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) {
+        // No kernel: the offline install really is the safer path and nothing has to be said about
+        // the running kernel. Singular and plural are whole literals, because the count, the noun
+        // and the pronoun ("it" / "them") all move together.
+        var fams = riskyFamiliesOf(names);
+        return names.length === 1
+            ? fill(COPY.riskySessionOne, "%1", fams)
+            : fill(fill(COPY.riskySessionMore, "%1", String(names.length)), "%2", fams);
+    }
     for (var i = 0; i < names.length; i++) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
     }
@@ -793,17 +860,23 @@ function stagedVariantOf(staged, heldDnf) {
         }
     }
 
+    // The cost is joined on HERE rather than written into each of the three templates: it is one
+    // fact about one button, it is identical in all three, and three copies of it would drift the
+    // first time one was edited. It only ever rides a warning, because the warning is the only
+    // variant that offers the button it is about.
     if (names.length > 0) {
         return { type: "warning",
-                 message: names.length === 1
-                     ? COPY.stagedConflictOne.replace("%1", names[0])
-                     : COPY.stagedConflictMore.replace("%1", names[0])
-                                              .replace("%2", String(names.length - 1)),
+                 message: (names.length === 1
+                     ? fill(COPY.stagedConflictOne, "%1", names[0])
+                     : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
+                            "%2", String(names.length - 1)))
+                     + " " + COPY.stagedRebuildCost,
                  conflictNames: names, stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
-        return { type: "warning", message: COPY.stagedConflictUnknown, conflictNames: [],
-                 stagedAt: plain.stagedAt };
+        return { type: "warning",
+                 message: COPY.stagedConflictUnknown + " " + COPY.stagedRebuildCost,
+                 conflictNames: [], stagedAt: plain.stagedAt };
     }
     return plain;
 }

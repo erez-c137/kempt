@@ -819,8 +819,10 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
  3 updates available                                 [refresh] [gear]   <- header: the count,
  --------------------------------------------------------------------     Refresh, settings
  (!) Restart to apply installed updates          [Restart…]      [x]   <- one message per
- (!) This includes a kernel update. Restart when it finishes.              thing that needs
-                                        [Install on Next Restart]         saying, in order
+ (i) This update includes a kernel. The safest way is to                   thing that needs
+     install it on the next restart, so nothing changes                    saying, in order
+     under the running desktop.
+                                        [Install on Next Restart]
  (i) dnf check failed: repo 'updates' unavailable
      (last successful check: 2026-08-27 09:14 +03:00)
 
@@ -873,14 +875,17 @@ at `999+` because a panel has no room, and the popup has plenty.
    below. It has a close button; the rest do not.
 3. **What the next restart will install**, once an offline update is staged and armed. This one
    has three spellings, and which one you get is the whole subject of *The staged banner* below.
-4. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
-   NVIDIA driver is in the set) when the transaction would rewrite things a running desktop is
-   using. Its button is **Install on Next Restart**, which hands the whole transaction to the
-   next reboot - the same recommendation `kempt check` publishes as `risky_pending`, and the same
-   thing as `kempt update --surface=offline`. With no kernel in the set the message is the plain
-   count instead: `20 session-critical pending (dbus, glibc, kf6, mesa, ...)`. It stays away
-   entirely while something is staged: the staged banner has taken its place, and offering to
-   stage the same transaction twice is how you end up with two.
+4. **"This update includes a kernel. The safest way is to install it on the next restart, so
+   nothing changes under the running desktop."** (and a second sentence naming the driver when
+   NVIDIA is in the set) when the transaction would rewrite things a running desktop is using.
+   Information rather than a warning: nothing is wrong, there is a safer of two ways to do this.
+   Its button is **Install on Next Restart**, which hands the whole transaction to the next
+   reboot - the same recommendation `kempt check` publishes as `risky_pending`, and the same thing
+   as `kempt update --surface=offline`. With no kernel in the set it makes the same recommendation
+   and names what is in the set instead: `This update touches 20 packages the running desktop
+   depends on (dbus, glibc, kf6, mesa, ...). The safest way is to install them on the next
+   restart.` It stays away entirely while something is staged: the staged banner has taken its
+   place, and offering to stage the same transaction twice is how you end up with two.
 5. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
    Information rather than a warning, because the counts are still the best known truth.
 6. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
@@ -910,12 +915,15 @@ records a hold, and the banner is the surface that carries the consequence. So t
 being green:
 
 ```
- (!) Staged before your hold - kernel-core still installs on the next restart.
-                                                    [Rebuild Staged Update]
+ (!) You held kernel-core after the next-restart install was prepared, so it
+     still installs. Rebuild it to skip kernel-core, or stop holding kernel-core
+     to keep the current plan. Rebuilding asks for authorization; if it fails,
+     nothing stays staged.                          [Rebuild Staged Update]
 ```
 
 With more than one held package it names the first and counts the rest, and every word moves with
-it: `Staged before your holds - kernel-core and 2 more still install on the next restart.`
+it: `You held kernel-core and 2 more after the next-restart install was prepared, so they still
+install. Rebuild it to skip them, or stop holding them to keep the current plan.`
 
 The **Restart…** button is gone on purpose. The sentence beside it says the next restart installs
 the thing you just tried to keep out, and a restart button under that sentence would be an
@@ -936,14 +944,16 @@ package can only shrink the set.
 
 If the staged update moved between the banner being drawn and the button being pressed - a restart
 applied it, something re-staged, someone ran `dnf5 offline clean` - nothing runs, and the popup
-says `The staged update changed - take another look.` with the banner re-drawn from what is
-actually on disk. Consent given to one staged update is not spent on a different one.
+says `The staged update changed since this was offered. Nothing was rebuilt; check the banner
+above.` with the banner re-drawn from what is actually on disk. Consent given to one staged update is not spent on a different one.
 
 There is a third spelling, for when Kempt cannot read the staged package list at all (a stage made
 by an older build, or a dnf5 record it does not recognise) and you are holding dnf packages:
 
 ```
- (!) Staged before your holds - it may still install held packages on the next restart.
+ (!) You added holds after the next-restart install was prepared, so it may
+     still install held packages. Rebuild it to apply your holds. Rebuilding
+     asks for authorization; if it fails, nothing stays staged.
                                                     [Rebuild Staged Update]
 ```
 

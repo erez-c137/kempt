@@ -63,6 +63,10 @@ RowLayout {
     // says so - see COPY.skipInstalling.
     readonly property bool newPackage: row.from === Logic.VERSION_UNKNOWN
 
+    // ...and what the version line draws in its place. One property, read by the line and by its
+    // accessible name, so the two cannot say different things about the same row.
+    readonly property string fromText: row.newPackage ? i18n("new") : row.from
+
     spacing: Kirigami.Units.smallSpacing
 
     ColumnLayout {
@@ -99,7 +103,7 @@ RowLayout {
                 Layout.fillWidth: true
                 // logic.js has already reduced any comma-joined multilib or installonly set to the
                 // newest member, the same way `kempt summary` renders it.
-                text: row.from + " → " + row.to
+                text: row.fromText + " → " + row.to
                 // FULL, always. This is the line a person compares between two machines, and the
                 // epoch, the release and the vendor tag all carry meaning - `2:24.19.0-1nodesource`
                 // says something `2:24.19.0-1no…` does not. Eliding throws away the tail, which is
@@ -111,7 +115,7 @@ RowLayout {
                 font: Kirigami.Theme.smallFont
                 // ...and the same fact in words, because that arrow reaches a screen reader
                 // through its character table and "3.105 right arrow 3.106" is not a version.
-                Accessible.name: i18n("from %1 to %2", row.from, row.to)
+                Accessible.name: i18n("from %1 to %2", row.fromText, row.to)
             }
         }
 

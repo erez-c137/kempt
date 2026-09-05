@@ -601,7 +601,11 @@ PlasmaExtras.Representation {
         Kirigami.InlineMessage {
             id: riskyMessage
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
+            // INFORMATION, not Warning. Nothing here is broken: one of two ways of doing the same
+            // update is safer than the other, and the message says which. An amber box over a
+            // button labelled Install on Next Restart, before anything had started, read as an
+            // order to restart the machine now (hostile panel, first-run 3).
+            type: Kirigami.MessageType.Information
             text: popup.vm.riskyMessage
             Accessible.name: text
             visible: popup.vm.riskyMessage.length > 0
@@ -609,7 +613,12 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     // Named for what it does to the user rather than for the dnf5 flag behind it.
                     text: i18n("Install on Next Restart")
-                    icon.name: "system-reboot"
+                    // ...and drawn as what it does: this INSTALLS software, at a moment of the
+                    // machine's choosing. `system-reboot` sat on this button and on Restart… at
+                    // the same time, two adjacent restart-shaped actions under one icon, one of
+                    // which opens KDE's logout prompt and one of which stages a transaction
+                    // (hostile panel, M3). `system-reboot` is Restart…'s alone now.
+                    icon.name: "system-software-update"
                     tooltip: i18n("Applies the update during a restart, so nothing changes underneath your running desktop.")
                     onTriggered: source => popup.plasmoidItem.stageOffline()
                 }
