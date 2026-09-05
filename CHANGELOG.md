@@ -60,6 +60,11 @@ release.
   holds. The widget runs its own commands one at a time, so the settings page could not trip this
   by itself; two terminals, a script, or the CLI racing the widget could. The three commands now
   take a lock across the read and the write; reading is unaffected and takes no lock.
+- Warnings no longer disappear after the first setting or hold a command writes. Releasing the
+  writers' lock closed its file descriptor with a form of `exec` that also pointed the whole
+  process's error output at nothing, permanently - so anything Kempt tried to tell you after a
+  `kempt config set`, `kempt hold` or `kempt unhold` was written into the void, with nothing
+  failing and nothing logged.
 - A staged update is no longer disowned by a badly timed check. The offline marker is written
   atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`
   and the event log as private - and a marker that reads back empty, unparsable or absurdly

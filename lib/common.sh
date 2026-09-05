@@ -293,7 +293,13 @@ writer_lock() {
     return 1
   }
 }
-writer_unlock() { flock -u 7 2>/dev/null || true; exec 7>&- 2>/dev/null || true; }
+# The close is wrapped in a group, and the braces are load-bearing: an `exec` with no command
+# applies its redirections to the SHELL and keeps them. Written flat as `exec 7>&- 2>/dev/null`,
+# releasing this lock also sent the process's own stderr to /dev/null for the rest of its life - so
+# every warning after the first `kempt hold`, `kempt unhold` or `kempt config set` was written into
+# nothing. The group's redirection covers the group and is undone with it; the fd close inside is
+# still permanent, which is the part that was wanted.
+writer_unlock() { flock -u 7 2>/dev/null || true; { exec 7>&-; } 2>/dev/null || true; }
 
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
@@ -675,7 +681,7 @@ acquire_lock() {
   exec 8>"$LOCK_FILE"
   flock -n 8
 }
-release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; }
+release_lock() { flock -u 8 2>/dev/null || true; { exec 8>&-; } 2>/dev/null || true; }  # braces: see writer_unlock
 
 # The boot session. A staged transaction can only be applied by a REBOOT, so the marker records
 # this and the harvest compares: same session means the stage is still pending, whatever else
