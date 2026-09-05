@@ -565,6 +565,54 @@ no-op, and removing one that was never there succeeds.
 Holds are **Kempt's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
 outside Kempt ignores them.
 
+### Holding a package that is already staged
+
+A hold applies from the **next** transaction Kempt builds. If an offline update is already staged
+and armed, dnf5 built that transaction before your hold existed, and there is no way to edit a
+stored one - so the next restart installs the package anyway. The hold is still recorded, and it
+still applies to everything Kempt does from here on; it just cannot reach backwards.
+
+Kempt says so rather than letting you find out at the restart:
+
+```bash
+kempt hold dnf:kernel-core
+```
+
+```
+The staged update still contains kernel-core and installs it on the next restart.
+When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).
+```
+
+Two remedies, because there are two things you might want. `kempt update --surface=offline` builds
+the staged update again with your current holds, which asks for authorization and discards the
+current one as it starts. `sudo dnf5 offline clean` removes the staged update outright, so the next
+restart installs nothing.
+
+Nothing about this blocks or prompts. **The hold is always recorded and the command always exits
+0** - it is a warning printed on stderr, not a question, and it reads the same whether you typed it
+at a terminal or clicked the pin in the panel.
+
+Where Kempt cannot read the staged package list - a stage made by an older build, or a dnf5 whose
+record it does not recognise - it says the weaker thing rather than nothing:
+
+```
+The staged update was built before this hold and may still install kernel-core on the next restart. Rebuilding applies all current holds.
+When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).
+```
+
+That is deliberate. A warning here can be wrong by naming a package that is not in the staged
+update; it is never allowed to be wrong by staying silent about one that is.
+
+`kempt unhold` carries the mirror, for the case where you released a hold expecting the package
+back in:
+
+```
+The staged update was built without kernel-core - the next restart will not install it. Rebuild when ready: kempt update --surface=offline.
+```
+
+A restart that has already applied the staged update ends all of this: the staged update is gone,
+and the hold is an ordinary hold again.
+
 ## config
 
 ```

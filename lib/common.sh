@@ -86,6 +86,15 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # it is armed. 0644 on Fedora (verified), so it is READ without any privileged call - which is what
 # lets an ordinary check reconcile the two. Nothing here ever writes it; dnf5 owns it.
 KEMPT_OFFLINE_TOML="${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml}"
+# The staged transaction ITSELF, as dnf5 stores it: the resolved package set the next restart will
+# install, resolver-added packages included. Root-owned 0644 in a 0755 directory (verified in a
+# Fedora 44 container, 2026-09-05), so it is world-readable by dnf5's own design - which is what
+# lets an unprivileged `kempt check` or `kempt hold` say whether a package is in there. **Read,
+# never written**; dnf5 owns it, the same way it owns the toml above.
+# Read LIVE rather than snapshotted at stage time, and that is the point of it: a snapshot cannot
+# see a transaction somebody else replaced, and a check-derived list cannot see the packages the
+# resolver added. Only this file knows what is actually going to install.
+KEMPT_OFFLINE_TXJSON="${KEMPT_OFFLINE_TXJSON:-/usr/lib/sysimage/libdnf5/offline/transaction.json}"
 # The other half of dnf5's arming, and the half that actually decides what a boot does: systemd's
 # system-update-generator looks for THIS symlink and nothing else (systemd.offline-updates(7)).
 # `dnf5 offline reboot` creates it; the toml above only says what the transaction thinks it is. The
@@ -293,7 +302,13 @@ writer_lock() {
     return 1
   }
 }
-writer_unlock() { flock -u 7 2>/dev/null || true; exec 7>&- 2>/dev/null || true; }
+# The close is wrapped in a group, and the braces are load-bearing: an `exec` with no command
+# applies its redirections to the SHELL and keeps them. Written flat as `exec 7>&- 2>/dev/null`,
+# releasing this lock also sent the process's own stderr to /dev/null for the rest of its life - so
+# every warning after the first `kempt hold`, `kempt unhold` or `kempt config set` was written into
+# nothing. The group's redirection covers the group and is undone with it; the fd close inside is
+# still permanent, which is the part that was wanted.
+writer_unlock() { flock -u 7 2>/dev/null || true; { exec 7>&-; } 2>/dev/null || true; }
 
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
@@ -675,7 +690,7 @@ acquire_lock() {
   exec 8>"$LOCK_FILE"
   flock -n 8
 }
-release_lock() { flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; }
+release_lock() { flock -u 8 2>/dev/null || true; { exec 8>&-; } 2>/dev/null || true; }  # braces: see writer_unlock
 
 # The boot session. A staged transaction can only be applied by a REBOOT, so the marker records
 # this and the harvest compares: same session means the stage is still pending, whatever else
@@ -705,6 +720,97 @@ offline_system_status() {  # → ready | absent | dnf5's own status word
   printf '%s\n' "${s:-absent}"
 }
 
+# One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
+# shape a hold is validated against and the root helper mirrors. Shared because the staged set can
+# come from two places (dnf5's stored transaction, or the check made just before staging) and a name
+# from either ends up in jq, in the shell, in QML and on a terminal.
+# ALL or nothing, deliberately: a caller that dropped the one bad name would be left holding a list
+# it could still use to say "this package is not in the transaction", which is a denial made on
+# evidence that has already proved untrustworthy.
+# Empty stdin is vacuously valid - "no names" is a legitimate list, and it is the callers, not this,
+# that decide whether an empty list may deny anything.
+names_all_valid() {  # stdin: one name per line → 0 when every line passes KEMPT_NAME_RE
+  local n
+  # `|| [[ -n "$n" ]]`: read returns 1 on a final line with no newline after it, having already
+  # filled $n. Without that arm the LAST name in the list is never tested, which is the one position
+  # a gate must not have a hole in.
+  while IFS= read -r n || [[ -n "$n" ]]; do
+    [[ "$n" =~ $KEMPT_NAME_RE ]] || return 1
+  done
+  return 0
+}
+
+# What the stored transaction will INSTALL, by name, sorted and deduplicated - or nothing at all.
+#
+# The one rule that shapes every branch below: a list from here is allowed to make Kempt stay
+# SILENT about a held package, so anything short of a clean parse must produce no list rather than
+# a short one. Hence rc 1 plus empty output for every surprise, and callers that fall back
+# (`names="$(offline_txjson_names)" || ...`) rather than treating "" as "nothing staged".
+#
+# Actions: dnf5 records each upgraded package TWICE - the incoming build as `Upgrade` and the
+# outgoing one as `Replaced`. Only the four actions that put a package on the disk are read;
+# `Replaced`, `Remove` and `Removed` are the transaction taking one AWAY, and a user who held a
+# package being removed is already getting what they asked for.
+#
+# The name is read out of the nevra from the RIGHT - drop `.arch`, then `-release`, then
+# `-[epoch:]version` - because neither end of the string is safe from the left: package names carry
+# hyphens (ca-certificates, kernel-core, qt6-qtbase-common) and an epoch adds a `1:` inside the
+# version field where a left-to-right reader would not expect one.
+#
+# The count jq emits ahead of the names is not decoration: a nevra carrying a newline would reach a
+# line-based caller as two names, each of which passes the gate on its own. Comparing the count
+# against the lines received is what refuses that.
+#
+# Size cap: KEMPT_TXJSON_MAX_BYTES, its own and not the marker's. The marker is a Kempt-owned file
+# with a fixed shape, so a megabyte of it is garbage by definition; this file is dnf5's and grows
+# with the transaction - about 200 bytes per entry and two entries per upgraded package, so a
+# 1 MB cap would have refused an ordinary 2,500-package update. 8 MB is past any transaction a
+# desktop stages and still refuses a file that is not a record. Past it the honest cost stands:
+# no list, and Kempt warns generically instead of denying a conflict - the safe direction.
+offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero status
+  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
+  local sz
+  sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
+  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
+  local out
+  # `error` for every surprise, so jq's own exit status carries the degradation out - one mechanism
+  # instead of a shape check per branch on the shell side.
+  # `[inputs][0]`: the same corrupt-tolerance state_prev_items and offline_marker_read use, so a
+  # multi-document or truncated file dies inside jq rather than out here.
+  out="$(jq -r -n '
+      def basename($n):
+        ($n | sub("\\.[^.]*$"; "") | split("-")) as $p
+        | if ($p | length) < 3 then "" else ($p[0:-2] | join("-")) end;
+      ([inputs][0] // error("no document")) as $t
+      | if ($t | type) != "object" then error("not an object") else . end
+      | ($t.version // "1.0") as $v
+      | if ($v | type) != "string" or ($v | startswith("1.") | not) then error("version") else . end
+      | ($t.rpms) as $r
+      | if ($r | type) != "array" then error("rpms") else . end
+      # Checked over the WHOLE array, not only the entries that survive the action filter: an entry
+      # shaped differently from what we expect is a record we cannot claim to have read.
+      | [ $r[]
+          | if type != "object" then error("entry") else . end
+          | if (.nevra | type) != "string" then error("nevra") else . end ] as $entries
+      # `.action as $a` first: jq evaluates index()`s argument against index()`s OWN input (the
+      # array), so an inline index(.action) dies with "Cannot index array with string action" -
+      # the same trap mark_held carries a note about.
+      | [ $entries[]
+          | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
+          | basename(.nevra) ]
+      | unique
+      | (length | tostring), .[]' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
+  local n rest
+  n="${out%%$'\n'*}"
+  [[ "$n" =~ ^[0-9]+$ ]] || return 1
+  (( n == 0 )) && return 0
+  rest="${out#*$'\n'}"
+  [[ "$out" == *$'\n'* ]] || return 1
+  [[ "$(grep -c '' <<<"$rest")" == "$n" ]] || return 1
+  names_all_valid <<<"$rest" || return 1
+  printf '%s\n' "$rest"
+}
+
 # The marker's ONE write. It records what a restart is about to install, so it goes down the way
 # state.json and events.log do: atomically, and private to the user.
 # 0600 comes from atomic_write's temp - mktemp creates it 0600 and the rename carries that mode to
@@ -720,6 +826,9 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # the file is not a marker: it is whatever else ended up at that path, and a reader that parses it
 # anyway is a reader that will parse whatever it is handed.
 KEMPT_MARKER_MAX_BYTES=1048576
+# dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
+# see offline_txjson_names.
+KEMPT_TXJSON_MAX_BYTES=8388608
 
 # The marker, read defensively, or nothing - and "nothing" means SKIP THIS CHECK, never "the stage
 # is gone". That distinction is the whole point: a reader can arrive mid-write (see above), so a
@@ -742,14 +851,147 @@ offline_marker_read() {  # → the marker as one line of JSON, or nothing
 # promise is worth when the transaction under it never armed - it installs on no restart, and every
 # surface went on advertising it. So the key exists for `ready` and nothing else; an unarmed or
 # vanished stage is a discrepancy for `kempt doctor` to explain, not a pending install to publish.
-offline_staged_state() {  # → {staged_at, count, armed} JSON, or nothing
+#
+# It also answers the question a staged transaction raises the moment a hold is added after it:
+# which held packages are in there anyway. dnf5 offers no way to edit a stored transaction, so a
+# hold applies from the NEXT one Kempt builds - which is correct, and was invisible. The predicate
+# is a set intersection and never a clock: the staged names against the dnf names currently held.
+# Order-free, restore-proof, and immune to the in-flight-stage race that a timestamp comparison
+# loses whichever way round it is written.
+#
+# `names_source` is the field that keeps the answer honest, because an empty `holds_conflict` means
+# two completely different things:
+#   transaction  the live record parsed. Empty means NO CONFLICT - dnf5's own record of what will
+#                install does not contain the held package.
+#   marker       the live record did not parse and the marker's own list came from a transaction.
+#                Still transaction-derived evidence, so it may still deny.
+#   none         nothing may be denied. A legacy marker with no names, or - and this is the one
+#                worth stating - a marker whose names came from a CHECK. A check cannot see the
+#                packages the resolver added, so a list built from one may confirm a conflict and
+#                must never be the reason Kempt stays quiet about a held package. Under "none" an
+#                empty list means "cannot tell", and every reader has to treat it that way.
+# Flatpak holds never enter the intersection: the offline surface stages dnf and nothing else, so a
+# flatpak hold cannot conflict with a staged transaction and must never fire a false one.
+offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_source} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
   [[ "$(offline_system_status)" == ready ]] || return 0
+  local names="" names_source=none
+  if names="$(offline_txjson_names)"; then
+    names_source=transaction
+  elif jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
+         <<<"$marker" >/dev/null 2>&1; then
+    # Shape-tested before it is read: a marker claiming a transaction-derived list without one is
+    # a marker that cannot deny anything, and `.staged_names[]?` alone would have said "no names"
+    # in exactly the same words as a list that was genuinely empty.
+    names="$(jq -r '.staged_names[] | select(type == "string")' <<<"$marker" 2>/dev/null || true)"
+    names_source=marker
+  fi
+  local conflict='[]'
+  if [[ "$names_source" != none ]]; then
+    # printf '%s' rather than a here-string on both sides: <<< appends a newline, and an empty list
+    # would arrive at jq as one empty-string element.
+    local names_json holds_json
+    names_json="$(printf '%s' "$names" | jq -Rn '[inputs]')"
+    holds_json="$(holds_for dnf | jq -Rn '[inputs]')"
+    # `. as $x` first: jq evaluates index()'s argument against index()'s OWN input (here $h, an
+    # array), so an inline index(.) reads the wrong thing - the trap mark_held carries a note about.
+    conflict="$(jq -cn --argjson n "$names_json" --argjson h "$holds_json" \
+                  '[$n[] | . as $x | select($h | index($x))] | unique')"
+  fi
   # count: markers written before the field existed carry no number, and null is the honest answer.
   # Every reader drops the figure from its sentence rather than inventing one.
-  jq -c '{staged_at: (.staged_at // null), count: (.staged // null), armed: true}' <<<"$marker"
+  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" \
+    '{staged_at: (.staged_at // null), count: (.staged // null), armed: true,
+      holds_conflict: $conflict, names_source: $nsrc}' <<<"$marker"
+}
+
+# The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just
+# released? Lower stakes than the hold case - an update missed rather than a feared one applied -
+# and it needs its own recorded answer, because the transaction can never supply one: a package
+# absent from it was either excluded at stage time or simply had no update, and those look
+# identical from the inside. `staged_excluded` is that answer, written when the stage was made.
+#
+# The legacy fallback, for a marker written before the field existed: warn only when the package is
+# pending RIGHT NOW. A package with no update to miss cannot have been missed, and warning about
+# one would be nagging about a decision nobody made.
+offline_stage_built_without() {  # name → 0 when an armed stage left it out
+  local marker
+  marker="$(offline_marker_read)"
+  [[ -n "$marker" ]] || return 1
+  [[ "$(offline_system_status)" == ready ]] || return 1
+  if jq -e '(.staged_excluded | type) == "array"' <<<"$marker" >/dev/null 2>&1; then
+    jq -e --arg n "$1" '.staged_excluded | index($n)' <<<"$marker" >/dev/null 2>&1
+    return
+  fi
+  jq -e -n --arg n "$1" '[inputs][0].backends.dnf.items[]? | select(.name == $n)' \
+    "$STATE_FILE" >/dev/null 2>&1
+}
+
+# --- what a hold over an armed stage says ---------------------------------------------------------
+# Copy lives here rather than at the call site for the same reason KEMPT_AUTH_DECLINED does: more
+# than one surface will render it (the CLI today, `kempt doctor`'s conflict line next), and two
+# copies of a sentence are two sentences that drift. Every word below is the reviewed wording -
+# "The staged update" is doctor's existing noun and dnf5 holds exactly one; "on the next restart"
+# is the promise the popup already makes in those words; "removes it", never "unstage".
+
+# A set of package names as a human reads it, capped at four. A Qt or KDE bump legitimately puts
+# dozens of names in a conflict set, and a sentence that lists all of them is a sentence nobody
+# finishes. The cap is why the tail says "and N more" rather than trailing off.
+names_phrase() {  # stdin: one name per line → "a" | "a and b" | "a, b and c" | "a, b, c, d, and N more"
+  local -a all=() shown init
+  local n
+  # Same unterminated-last-line arm as names_all_valid: a caller that pipes `printf '%s'`
+  # rather than a here-string hands over a list with no newline after the final name.
+  while IFS= read -r n || [[ -n "$n" ]]; do [[ -n "$n" ]] && all+=("$n"); done
+  local total=${#all[@]}
+  (( total == 0 )) && return 0
+  shown=("${all[@]:0:4}")
+  if (( total > 4 )); then
+    # printf reuses its format for every argument, so this is "a, b, c, d, " and the tail is cut.
+    local joined; joined="$(printf '%s, ' "${shown[@]}")"
+    printf '%s, and %d more\n' "${joined%, }" "$(( total - 4 ))"
+    return 0
+  fi
+  if (( total == 1 )); then printf '%s\n' "${shown[0]}"; return 0; fi
+  # The last name joins with "and" and no comma before it: "a, b and c", never "a, b, c".
+  init=("${shown[@]:0:$(( total - 1 ))}")
+  local head; head="$(printf '%s, ' "${init[@]}")"
+  printf '%s and %s\n' "${head%, }" "${shown[-1]}"
+}
+
+# Both remedies, on every surface that warns: the frightened holder may want the stage GONE rather
+# than rebuilt, and a warning that only offers the rebuild leaves them looking for the other half.
+# shellcheck disable=SC2034  # read by cmd_hold in bin/kempt, which sources this through a runtime $ROOT
+KEMPT_STAGED_RECIPE='When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).'
+
+hold_staged_warning() {  # stdin: the conflicting names → the sentence naming them
+  local names total phrase
+  names="$(cat)"
+  total="$(printf '%s' "$names" | grep -c '' || true)"
+  phrase="$(printf '%s' "$names" | names_phrase)"
+  [[ -n "$phrase" ]] || return 0
+  # The verb moves with the noun - "installs it" for one package, "installs them" for several -
+  # the same rule staged_summary_line follows for its count.
+  if [[ "$total" == 1 ]]; then
+    printf 'The staged update still contains %s and installs it on the next restart.\n' "$phrase"
+  else
+    printf 'The staged update still contains %s and installs them on the next restart.\n' "$phrase"
+  fi
+}
+
+# What is said when no list may be trusted: a legacy marker with no names, or one whose names came
+# from a check. "may still install" is the whole difference from the sentence above, and it is
+# deliberate - this warning can be wrong by warning about a package that is not in the transaction,
+# and must never be wrong by staying quiet about one that is.
+hold_generic_warning() {  # name → the sentence
+  printf 'The staged update was built before this hold and may still install %s on the next restart. Rebuilding applies all current holds.\n' "$1"
+}
+
+# The mirror, and the quieter one: an update missed rather than a feared one applied.
+unhold_staged_warning() {  # name → the sentence
+  printf 'The staged update was built without %s - the next restart will not install it. Rebuild when ready: kempt update --surface=offline.\n' "$1"
 }
 
 # The ONE definition of "what a run changed" as a phrase. Two renderers used to carry their own

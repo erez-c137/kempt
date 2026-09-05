@@ -310,7 +310,12 @@ cmd_update() {
   # A reason this run works out for itself, where the log cannot be trusted to yield it: a failed
   # arm leaves dnf5's own words in the log, and the first error-shaped line there is about a
   # symlink, not about what the person pressed a button for.
-  local reason_override="" staged_fresh=""
+  # staged_check_names / staged_excluded_json: the two lists the pre-stage check yields, kept
+  # alongside the count because all three come out of ONE answer and must describe one transaction.
+  # staged_check_ok is the difference between "the check said nothing is pending" and "the check
+  # could not answer", which an empty list cannot carry on its own.
+  local reason_override="" staged_fresh="" staged_check_names="" staged_check_ok=false
+  local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
     # How many updates this stage is about to carry, asked NOW. It is the only thing anyone is ever
     # told about a transaction they cannot open - the marker records it, the event line reports it,
@@ -321,13 +326,23 @@ cmd_update() {
     # A check that cannot answer must not stop the stage: the count degrades to the stale one with a
     # warning, the same way the risky-transaction pre-check degrades. Losing a number is not worth
     # refusing to update the machine.
-    local cerr; cerr="$(mktemp)"
-    staged_fresh="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || {
+    # Captured ONCE into a file rather than asked three times: the count, the held-and-pending set
+    # and the pending names all describe the same transaction, and three separate checks could
+    # legitimately disagree with each other about it.
+    local cerr cjson; cerr="$(mktemp)"; cjson="$(mktemp)"
+    if dnf_check 2>"$cerr" | mark_held dnf > "$cjson"; then
+      staged_check_ok=true
+      # Each read guarded: past this point the run is inside the body of an `if`, where errexit is
+      # live again, and a jq that died would take down a stage over a nicety.
+      staged_fresh="$(jq '[.[] | select(.held | not)] | length' "$cjson")" || staged_fresh=""
+      staged_check_names="$(jq -r '.[] | select(.held | not) | .name' "$cjson")" || staged_check_names=""
+      staged_excluded_json="$(jq -c '[.[] | select(.held) | .name]' "$cjson")" || staged_excluded_json='[]'
+    else
       staged_fresh=""
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
       echo "warning: could not count the updates being staged: $(explain_helper_error "$(stderr_tail "$cerr")")" >&2
-    }
-    rm -f "$cerr"
+    fi
+    rm -f "$cerr" "$cjson"
     # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads: the transaction
     # sits at status="download-complete" and no boot will ever apply it. `dnf5 offline reboot`
     # (arming) is what flips it to "ready" and creates /system-update, which is the only thing
@@ -446,11 +461,47 @@ cmd_update() {
     # that would otherwise accumulate one file per staged run, forever.
     rm -f "$SNAP_DIR"/offline-pre-*.tsv
     cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
+    # WHICH packages, alongside how many - because a hold added after this moment cannot change the
+    # transaction dnf5 has now stored, and the only honest thing Kempt can do about that is name the
+    # package. Read from dnf5's own stored transaction, which exists as of the stage above: it is
+    # the only source that sees the packages the resolver added and a transaction someone else
+    # replaced. The check is the fallback and is LABELLED as the fallback, because a check-derived
+    # list may confirm a conflict and may never deny one.
+    local staged_names="" staged_names_source=none
+    if staged_names="$(offline_txjson_names)"; then
+      staged_names_source=transaction
+    elif [[ "$staged_check_ok" == true ]]; then
+      staged_names="$staged_check_names"; staged_names_source=check
+    fi
+    # The one gate, at the one moment a name is written down. All or nothing: a list with a name
+    # filtered out of it is a list that can still be used to deny a conflict it never saw.
+    # printf '%s', never a here-string: <<< on an empty list produces one empty line, which is a
+    # name that fails the gate and would drop a legitimately empty list.
+    if [[ "$staged_names_source" != none ]] && ! printf '%s' "$staged_names" | names_all_valid; then
+      staged_names=""; staged_names_source=none
+    fi
+    # The excluded list comes from the holds file, which architecture.md promises is the user's to
+    # edit by hand - so it gets the same gate rather than being trusted for having passed hold_add
+    # at some point in the past.
+    if ! jq -e 'type == "array" and all(.[]; type == "string")' <<<"$staged_excluded_json" >/dev/null 2>&1 \
+       || ! jq -r '.[]' <<<"$staged_excluded_json" | names_all_valid; then
+      staged_excluded_json='[]'
+    fi
+    local staged_names_json
+    staged_names_json="$(printf '%s' "$staged_names" | jq -Rn '[inputs]')" || staged_names_json='[]'
     # boot_id: only a REBOOT can apply a staged transaction, so the harvest compares boot
     # sessions instead of guessing from the package set (see harvest_offline).
+    # The names are ADDITIVE, and absent when there are none: a `staged_names: []` would read as
+    # "the transaction installs nothing", which is a claim, where the truth is that nobody could
+    # find out. Same rule the count follows, and the same rule every reader of this file follows -
+    # a marker written before these fields existed must go on working everywhere.
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
-      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' \
+      --arg nsrc "$staged_names_source" --argjson names "$staged_names_json" \
+      --argjson excl "$staged_excluded_json" \
+      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true,
+        staged_names_source:$nsrc, staged_excluded:$excl}
+       + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
   fi
 
@@ -838,14 +889,59 @@ cmd_hold() {
   # exit status and report a rejected name as exit 1 instead of the 2 the contract promises. This
   # way errexit ends the command with the helper's own rc and no event is written.
   hold_add "$b" "$n"
-  log_event "hold $b:$n"
+  # AFTER the write, and it changes nothing about it. dnf5 has no way to edit a transaction it has
+  # already stored, so a hold added over an armed stage applies from the NEXT transaction Kempt
+  # builds - correct, and until now invisible: the user held the kernel, restarted, and the kernel
+  # installed. All Kempt can honestly do is SAY so, on stderr, and hand over the two commands that
+  # act on it. It never prompts, never blocks and never changes the exit status: recording a hold
+  # is bookkeeping (I1), and the rebuild already has a first-class command of its own.
+  # Interactive and non-interactive are identical because there is nothing to be interactive about;
+  # a warning that only appeared at a terminal would be missing from the case that needs it most, a
+  # pin clicked in the panel.
+  # dnf only. The offline surface stages dnf and nothing else, so a flatpak hold can never conflict
+  # with an armed transaction and must never fire a false one.
+  local note=""
+  if [[ "$b" == dnf ]]; then
+    # The SAME predicate state.json publishes for the widget, computed by the one reader that
+    # reconciles the marker, dnf5's status and dnf5's stored transaction. Called after hold_add on
+    # purpose: the intersection is against the holds as they now stand, so this package is in it if
+    # and only if the stage contains it.
+    local staged; staged="$(offline_staged_state)"
+    if [[ -n "$staged" ]]; then
+      if jq -e --arg n "$n" '.holds_conflict | index($n)' <<<"$staged" >/dev/null 2>&1; then
+        hold_staged_warning <<<"$n" >&2
+        printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
+        note=" (staged update still contains it)"
+      elif [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]]; then
+        # No list may be trusted here - a legacy marker, or one whose names came from a check - so
+        # the generic warning is what is left. It can be wrong by warning about a package that is
+        # not in the transaction; it can never be wrong by staying quiet about one that is.
+        hold_generic_warning "$n" >&2
+        # The recipe follows the generic warning too: "rebuilding applies all current holds" is
+        # only useful to someone who knows the command, and both remedies belong on every surface.
+        printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
+      fi
+    fi
+  fi
+  # The suffix is only ever appended to a CONFIRMED conflict. The generic warning is a caveat, not a
+  # finding, and an event log that recorded it as one would be evidence of something that was never
+  # established.
+  log_event "hold $b:$n$note"
 }
 cmd_unhold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   hold_remove "$b" "$n"
-  log_event "unhold $b:$n"
+  # The mirror, and the quieter half of the same truth: releasing a hold does not put the package
+  # back into a transaction that was built without it. Same rules - after the write, stderr only,
+  # dnf only, exit status untouched.
+  local note=""
+  if [[ "$b" == dnf ]] && offline_stage_built_without "$n"; then
+    unhold_staged_warning "$n" >&2
+    note=" (staged update was built without it)"
+  fi
+  log_event "unhold $b:$n$note"
 }
 cmd_holds()  { holds_all; }
 

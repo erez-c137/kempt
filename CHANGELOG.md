@@ -10,6 +10,25 @@ release.
 
 ### Added
 
+- Holding a package that a staged update already contains now tells you so. Stage an offline
+  update, read something worrying about the kernel, run `kempt hold dnf:kernel-core` - and until
+  now the restart installed it anyway, silently. dnf5 built that transaction before the hold
+  existed and offers no way to edit a stored one, so the hold applies from the next update Kempt
+  builds; the command now says exactly that on stderr and offers both remedies:
+  `kempt update --surface=offline` to build the staged update again with your current holds, or
+  `sudo dnf5 offline clean` to remove it. The hold is recorded either way and the command still
+  exits 0 - it warns, it never blocks, and it never asks a question. `kempt unhold` carries the
+  mirror: the staged update was built without this package, so the next restart will not install
+  it.
+- The warning is honest about what it does not know. Kempt reads the staged package list from
+  dnf5's own stored transaction, live, so it sees the packages the resolver pulled in as well as
+  the ones you asked for. Where that cannot be read - an older stage, or a record this build does
+  not recognise - it says "may still install" instead of staying quiet. It can be wrong by naming
+  a package that is not in there; it is never allowed to be wrong by saying nothing about one that
+  is. Flatpak holds are never involved: the offline surface stages dnf only.
+- `state.json`'s `offline_staged` gains `holds_conflict` (the held packages the staged update will
+  install anyway) and `names_source` (whether an empty list means "no conflict" or "cannot tell").
+  Both are additive, present only while a stage is armed, and readers must tolerate their absence.
 - `kempt doctor` compares each polkit action's `exec.path` annotation with the helper path this
   CLI actually hands to pkexec. When the two disagree - a package installed over a checkout
   install, or the reverse - pkexec has no matching action, so every privileged run falls back to
@@ -60,6 +79,11 @@ release.
   holds. The widget runs its own commands one at a time, so the settings page could not trip this
   by itself; two terminals, a script, or the CLI racing the widget could. The three commands now
   take a lock across the read and the write; reading is unaffected and takes no lock.
+- Warnings no longer disappear after the first setting or hold a command writes. Releasing the
+  writers' lock closed its file descriptor with a form of `exec` that also pointed the whole
+  process's error output at nothing, permanently - so anything Kempt tried to tell you after a
+  `kempt config set`, `kempt hold` or `kempt unhold` was written into the void, with nothing
+  failing and nothing logged.
 - A staged update is no longer disowned by a badly timed check. The offline marker is written
   atomically and mode 0600 - it lists what the next restart installs, so it joins `state.json`
   and the event log as private - and a marker that reads back empty, unparsable or absurdly

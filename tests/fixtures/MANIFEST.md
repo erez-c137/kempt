@@ -346,3 +346,37 @@ test runs in is "if a stage exists, it is armed". That is the world the offline 
 `test_update.sh` assume - a marker they wrote means an install is genuinely pending - and pinning
 it is what keeps them off the real `/usr/lib/sysimage/libdnf5/offline/` of whatever box runs the
 suite, where a leftover stage (or none) would decide how the reconciliation branches behave.
+
+## tests/fixtures/offline-transaction-full.json
+**Captured live**, 2026-09-05, from `/usr/lib/sysimage/libdnf5/offline/transaction.json` in a
+Fedora 44 container running dnf5 5.4.3.0 - byte for byte, package paths and all. Produced by
+`dnf5 -y -q upgrade --offline ca-certificates librepo openldap` followed by
+`DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 -y -q offline reboot`, so the transaction it records is a
+real armed stage rather than a hand-built one. The matching
+`offline-transaction-state.toml` was captured alongside it (`status = "ready"`, the `cmd_line`
+above recorded verbatim, `rpmdb_cookie` present) and is not shipped: nothing reads those keys, and
+`offline-ready.toml` is already the suite's toml pin.
+
+Three structural details the parser depends on, none of them guesses:
+
+- **Every upgraded package appears twice.** The incoming build carries `"action":"Upgrade"` and a
+  `package_path`; the outgoing one carries `"action":"Replaced"` and `"repo_id":"@System"` with no
+  path. Reading both sides would report a package the transaction REMOVES as one it installs.
+- **`ca-certificates` is a hyphenated name**, and it is the reason the name cannot be taken as
+  "up to the first `-`". Every kernel package a user would think of holding has the same shape.
+- **`"version":"1.0"`** is dnf5's own format stamp on the file, which is what the parser's
+  1.x check reads. These fixtures happen to carry no epoch; `name-1:ver-rel.arch` is the shape the
+  synthetic nevras in `tests/test_offline_txjson.sh` cover instead.
+
+This is also the suite's DEFAULT: `sandbox()` points `KEMPT_OFFLINE_TXJSON` here, so the world every
+test runs in is "the staged transaction contains ca-certificates, librepo and openldap". A test that
+writes a marker and holds one of those three sees a conflict warning by design.
+
+## tests/fixtures/offline-transaction-excluded.json
+**Captured live**, same container and session, 2026-09-05: the same three packages re-staged as
+`dnf5 -y -q upgrade --offline --exclude=librepo ca-certificates openldap` and armed the same way.
+`librepo` is ABSENT from `rpms` - both its incoming and its outgoing entry - which is what a hold
+does to a transaction Kempt builds, and it is the fixture that lets a test assert the difference
+between "this package is in the staged set" and "this package is not" against real dnf5 output
+rather than an edit of it. The `--exclude` is recorded in the matching toml's `cmd_line`, which is
+how the re-stage is known to be the one described here.

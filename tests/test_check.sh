@@ -435,6 +435,12 @@ assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "the state says a stag
 assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and how many updates it covers"
 assert_eq "$(jq -r '.offline_staged.staged_at' "$st")" "2026-09-02T10:31:00+03:00" "...and when it was staged"
 assert_eq "$(jq -r .schema "$st")" "1" "offline_staged is additive: the schema does not move"
+# The two fields the widget cannot derive for itself - it reads state.json and cannot stat a file,
+# let alone dnf5's. With no dnf hold in place there is nothing to conflict, and the source says the
+# emptiness is a FINDING (the transaction was read) rather than an absence of evidence.
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" "no hold, so nothing conflicts with the stage"
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "transaction" \
+  "...and the empty list is one dnf5's own transaction vouches for"
 
 # A marker written before the count existed still describes a real pending install. null is the
 # honest answer - every reader drops the number from the sentence rather than inventing one.
@@ -488,6 +494,78 @@ rm -f "$marker" "$pre"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "a transaction Kempt did not stage is not published as Kempt's"
+
+# --- the hold that arrived after the stage, published for every surface --------------------------
+# The trap this closes, in one sequence: stage 83 packages, learn something about the kernel, run
+# `kempt hold dnf:kernel-core`, restart - and kernel-core installs, because dnf5 built that
+# transaction before the hold existed and offers no way to edit a stored one. The hold is recorded
+# and correct; it applies from the NEXT transaction Kempt builds. Nothing said so.
+#
+# The predicate is a SET INTERSECTION and never a clock: the staged names against the dnf names
+# currently held. Order-free, restore-proof, and immune to the in-flight-stage race a timestamp
+# comparison loses either way round.
+#
+# Computed here, in the check, because the widget parses state.json and can stat nothing at all -
+# it cannot read the marker, and it certainly cannot read dnf5's transaction.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+export KEMPT_BOOT_ID="boot-t4"
+printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
+stage_marker boot-t4 61
+"$KEMPT" hold dnf:librepo >/dev/null 2>&1
+"$KEMPT" hold flatpak:org.gimp.GIMP >/dev/null 2>&1
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" '["librepo"]' \
+  "a package held after the stage, and in that stage, is named"
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "transaction" \
+  "...on the authority of dnf5's own record, not a snapshot of it"
+# The offline surface stages dnf and nothing else, so a flatpak hold can never conflict with a
+# staged transaction. It is filtered at the source rather than left to come out empty by accident.
+"$KEMPT" hold dnf:vim-common >/dev/null 2>&1
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" '["librepo"]' \
+  "a hold on a package that is not in the transaction changes nothing"
+assert_eq "$(jq -c '.backends.flatpak.items | map(select(.held)) | length' "$st")" "1" \
+  "...and the flatpak hold is real, it just cannot reach an offline transaction"
+"$KEMPT" unhold dnf:vim-common >/dev/null 2>&1
+"$KEMPT" unhold flatpak:org.gimp.GIMP >/dev/null 2>&1
+
+# The live record unreadable, and a marker whose own names came from the transaction: the marker
+# decides. This is the fallback the marker's copy exists for - dnf5 cleaning up after a boot, or a
+# format we no longer parse - and it is still transaction-derived evidence, so it may still deny.
+jq '. + {staged_names_source:"transaction", staged_names:["ca-certificates","librepo","openldap"], staged_excluded:[]}' \
+  "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" '["librepo"]' \
+  "a transaction record that will not parse falls back to the marker's own list"
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "marker" "...and says which list answered"
+
+# The same marker with a CHECK-derived list, and the answer changes: names_source is "none" and the
+# conflict list is empty even though the name is sitting right there in it. That is the suppression
+# rule doing its job - a check cannot see the packages the resolver added, so a list built from one
+# may confirm a conflict but must never be the reason Kempt stays quiet about a held package. An
+# empty list under "none" means CANNOT TELL, and every surface reading this must treat it that way.
+jq '.staged_names_source = "check"' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "none" \
+  "a marker whose names only ever came from a check cannot deny a conflict"
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" \
+  "...so it publishes no conflict list at all, and the source says why"
+
+# A marker written before any of this existed - the legacy shape, which every reader must still
+# work against. It knows no names, so there is nothing to intersect and nothing to claim.
+stage_marker boot-t4 61
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "none" "a marker with no names says so"
+assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" "...and claims no conflict either way"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...while everything it does know is published as before"
+
+# Not armed, so there is no staged transaction to conflict WITH: the whole key stays absent rather
+# than growing an empty conflict list nobody should read.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "an unarmed stage publishes no conflict fields, because it publishes nothing"
+"$KEMPT" unhold dnf:librepo >/dev/null 2>&1
+rm -f "$marker" "$pre"
 unset KEMPT_BOOT_ID
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 
