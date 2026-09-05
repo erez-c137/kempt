@@ -2381,7 +2381,7 @@ assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$USAGE")" "1" \
 # harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
 assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$USAGE")" "0" \
   "usage.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'when that run recorded a log' "$USAGE")" "1" \
+assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$USAGE")" "1" \
   "...it says when the button is there instead"
 assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
   "...and the QML really does bind both Show Log buttons to a log path being present"

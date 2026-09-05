@@ -657,7 +657,7 @@ restart installs nothing.
 
 Nothing about this blocks or prompts. **The hold is always recorded and the command always exits
 0** - it is a warning printed on stderr, not a question, and it reads the same whether you typed it
-at a terminal or clicked the pin in the panel.
+at a terminal or pressed the padlock in the panel.
 
 Where Kempt cannot read the staged package list - a stage made by an older build, or a dnf5 whose
 record it does not recognise - it says the weaker thing rather than nothing:
@@ -818,23 +818,22 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 ```
  3 updates available                                 [refresh] [gear]   <- header: the count,
  --------------------------------------------------------------------     Refresh, settings
- (!) Restart to apply installed updates          [Restart…]      [x]   <- one message per
- (i) This update includes a kernel. The safest way is to                   thing that needs
-     install it on the next restart, so nothing changes                    saying, in order
+ (!) Restart to apply installed updates          [Restart…]      [x]   <- at most TWO messages,
+ (i) This update includes a kernel. The safest way is to                   in priority order
+     install it on the next restart, so nothing changes
      under the running desktop.
                                         [Install on Next Restart]
- (i) dnf check failed: repo 'updates' unavailable
-     (last successful check: 2026-08-27 09:14 +03:00)
 
  System (dnf)                                                          <- the pending list,
-   nodejs                                                     [pin]       grouped by backend
+   nodejs                                                     [🔓]       grouped by backend
    2:24.19.0-1nodesource → 2:24.20.0-1nodesource
  Apps (flatpak)
-   org.mozilla.firefox                                        [pin]
+   org.mozilla.firefox                                        [🔓]
    140 → 141
  Held                                                                  <- held items stay
-   kernel-core                                                [pin]       visible, out of
-   6.15.1 → 6.15.3                                                        the running
+ Held packages are skipped by Kempt only.                                 visible, out of
+   kernel-core                                                [🔒]       the running
+   Held  6.15.1 → 6.15.3
 
  Last update 18 min ago · 4 packages                            [v]    <- expands to what
  --------------------------------------------------------------------     that run installed
@@ -844,8 +843,12 @@ With updates pending, on a box that also owes a restart and has a kernel in the 
 ```
 
 **The header** is one row: where you stand, then two buttons. The words are `3 updates
-available`, or `Up to date`, `Updating…`, `No update data yet` before the first check has
-answered, `Kempt's engine is not installed` on a box that has the widget and not the CLI (see
+available`, or `Up to date`, or `Up to date · 2 held` when the only pending updates are ones you
+are holding - "up to date" over a list of rows with waiting versions in it would be a lie by
+omission. While an offline update is staged and waiting it reads `23 updates staged for the next
+restart` instead, because a count of what is "available" is a true number saying a false thing
+about a box where the work is already done. It also says `Updating…`, `No update data yet` before
+the first check has answered, `Kempt's engine is not installed` on a box that has the widget and not the CLI (see
 [install.md](install.md#installing-from-the-kde-store-first)),
 `Kempt cannot check for updates` when the CLI itself could not be run, or
 `Could not read the update state` when the state file is there and this widget cannot read it -
@@ -854,7 +857,11 @@ checkout and the widget is an installed copy. It is never capped - the badge on 
 at `999+` because a panel has no room, and the popup has plenty.
 
 - **Refresh** (the circular arrow) re-checks now instead of waiting for the timer. Its tooltip
-  and its accessible name are both *Check for Updates*. While a check or a run is in flight it
+  and its accessible name are both *Check for Updates*; the description a screen reader hears
+  after the name says what pressing it does. When the last check failed, its tooltip and that
+  description also carry the reason - `dnf check failed: repo 'updates' unavailable` - because
+  this is the button that tries again, and that reason used to be a whole message of its own.
+  While a check or a run is in flight it
   greys out and a spinner appears beside it: it stays where it is rather than disappearing,
   because a control that leaves the screen takes the keyboard focus with it. The same entry is
   registered as a contextual action, so it is also in the system tray's **More actions** menu and
@@ -865,17 +872,39 @@ at `999+` because a panel has no room, and the popup has plenty.
   It is hidden inside the system tray, because the tray draws its own heading with a gear in it
   and two gears opening one dialog is one gear too many.
 
-**The messages** appear only when they apply, always in this order:
+**The messages** appear only when they apply, and **at most two are ever on screen at once**.
+The popup is 468 x 432 px by default and it can be squeezed smaller than that; five messages left
+the pending list 95 px tall, and at the minimum size they pushed it off the popup entirely. So the
+order below is a priority order, and anything a fuller stack displaces shows nothing at all rather
+than stacking below the fold. The one fact that would be lost that way - a restart you owe - is
+the reason the restart message gives way first: the footer says `restart pending` whenever its
+message is not the thing carrying it.
+
+The order:
 
 1. **Kempt's engine is not installed**, with the commands that install it. Only on a box that has
    the widget and not the CLI, which is what installing from the KDE Store on its own leaves you
    with. Information rather than an error, because nothing is broken: see
-   [install.md](install.md#installing-from-the-kde-store-first).
-2. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
-   below. It has a close button; the rest do not.
+   [install.md](install.md#installing-from-the-kde-store-first). This one shows **alone**:
+   everything under it presumes an engine that answered.
+2. **What just happened**: `Updated 4 packages in 2s`, `No package changes`, or
+   `Update failed: <the reason>` as an error - or, for a button press that failed rather than a
+   run, whatever the CLI said about it. One slot, and the later of the two wins: they are never
+   the same event and the newer one is always the one being asked about. **Show Log** is on it
+   when a *run* recorded a log file, which is every run Kempt performed; the entries harvested
+   after an offline (on-reboot) update carry no log path, so they carry no button either rather
+   than one that would open your home directory. It is transient - it clears when you close the
+   popup or the next check starts, and the persistent **Last update** row stays out of the way
+   while it is up.
 3. **What the next restart will install**, once an offline update is staged and armed. This one
    has three spellings, and which one you get is the whole subject of *The staged banner* below.
-4. **"This update includes a kernel. The safest way is to install it on the next restart, so
+   While it is up, **Update Now is hidden**: the work it would start is already done and waiting,
+   and pressing it would run the same updates again, live, over the top of them.
+4. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
+   below. It has a close button; the rest do not. Its button goes away while the staged banner is
+   a warning, because in that state a restart is exactly what installs the package you were trying
+   to keep out.
+5. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** (and a second sentence naming the driver when
    NVIDIA is in the set) when the transaction would rewrite things a running desktop is using.
    Information rather than a warning: nothing is wrong, there is a safer of two ways to do this.
@@ -886,16 +915,15 @@ at `999+` because a panel has no room, and the popup has plenty.
    depends on (dbus, glibc, kf6, mesa, ...). The safest way is to install them on the next
    restart.` It stays away entirely while something is staged: the staged banner has taken its
    place, and offering to stage the same transaction twice is how you end up with two.
-5. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
-   Information rather than a warning, because the counts are still the best known truth.
-6. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>` as an error. **Show Log** is on it when that run recorded a log
-   file, which is every run Kempt performed; the entries harvested after an offline (on-reboot)
-   update carry no log path, so they carry no button either rather than one that would open your
-   home directory. It is transient - it clears when you close the popup or the next check starts,
-   and the persistent **Last update** row stays out of the way while it is up. One event, one line
-   at a time.
-7. A button press that failed and has something to say.
+
+A failed check is **not** on that list any more. It used to be a blue box whose first word was
+"failed", carrying the CLI's raw text with no next step, competing for room with four other
+things. The fact is on the footer now - `Checked 2 hours ago · last check failed`, which is the
+line it was always explaining - and the reason is one hover from the Refresh button, which is the
+thing that tries again.
+
+A failed **hold** is not on the list either: it is reported under the version of the row it failed
+on, where your hand already is. See *The list* below.
 
 **The staged banner** is the one message that changes its mind about you, and it is worth reading
 once before it happens.
@@ -907,12 +935,12 @@ button of its own when the restart message above is not already showing one:
  (=) 61 updates are staged - they install on the next restart   [Restart…]
 ```
 
-Then you hold something. Pin `kernel-core` in the list, or run `kempt hold dnf:kernel-core` in a
-terminal - it makes no difference which. dnf5 built and stored that transaction before your hold
-existed, and there is no way to edit a stored one, so the hold cannot reach backwards and the
-restart would install the package anyway. The pin does not silently rewrite anything either: it
-records a hold, and the banner is the surface that carries the consequence. So the banner stops
-being green:
+Then you hold something. Press the padlock on `kernel-core` in the list, or run
+`kempt hold dnf:kernel-core` in a terminal - it makes no difference which. dnf5 built and stored
+that transaction before your hold existed, and there is no way to edit a stored one, so the hold
+cannot reach backwards and the restart would install the package anyway. The padlock does not
+silently rewrite anything either: it records a hold, and the banner is the surface that carries
+the consequence. So the banner stops being green:
 
 ```
  (!) You held kernel-core after the next-restart install was prepared, so it
@@ -970,9 +998,40 @@ command-line side and the second remedy, `sudo dnf5 offline clean`.
 **The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
 package and the versions it is moving between. The version line is never truncated: it wraps onto
 a second line instead, because `2:24.19.0-1nodesource` is the line you compare between two
-machines and the tail is the half that differs. A name too long for the row elides instead. The
-pin on each row holds or unholds that package - the same `kempt hold` as the CLI - and the row
-moves between the pending list and the Held group on the next check.
+machines and the tail is the half that differs. A name too long for the row elides instead. A
+package that is not installed yet - the update would add it - shows `new → 1.0-1.fc44` rather than
+a question mark.
+
+**The padlock** at the end of each row holds or stops holding that package: the same `kempt hold`
+the CLI runs, written to the same file, visible to `kempt holds`. It is the state and not the
+action, so you can read a list at a glance:
+
+- **🔓 open** - the package is pending and will be updated. The button says
+  *Hold nodejs at 2:24.19.0-1nodesource*, and what it will do if you press it:
+  *Kempt skips it on every update until you stop holding it.*
+- **🔒 closed** - the package is held. The button says *Stop holding nodejs*, and
+  *Kempt offers its update again.*
+
+A held row also says **Held** in words, before its version, and the group heading has one line
+under it: *Held packages are skipped by Kempt only.* A hold is Kempt's own list. `sudo dnf
+upgrade` typed in a terminal does not know about it, and it is not a dnf versionlock.
+
+For a package that is not installed yet there is nothing to hold it *at*, so the padlock offers
+*Skip installing brandnew* instead.
+
+**What happens when you press it.** The row's own button keeps working and keeps the keyboard
+focus, its padlock turns into a spinner, and the other rows' padlocks stand down until it is
+finished - one hold at a time, and a second press on the row already working reaches the CLI as
+nothing at all. The row does not move when the command returns: it moves when the check that
+follows lands, which is when the popup can tell you the truth. Then the keyboard follows that
+package into its new group, and the popup says what happened out loud for a screen reader:
+*Holding nodejs*, or *No longer holding nodejs*. If you pressed with the mouse, the list stays
+exactly where you left it; if you pressed with the keyboard, the row is scrolled into view so the
+focus ring is on screen.
+
+If the hold fails, the reason is printed in that row, under the version, and announced - not as a
+message at the top of the popup three hundred pixels away from the padlock you pressed. It clears
+on your next press or the next check.
 
 **Last update 18 min ago · 4 packages** is what the previous run actually installed, read from
 that run's own history entry (`kempt summary --json`). Expand it for the package list, with
@@ -981,11 +1040,13 @@ squeeze the pending list out of sight.
 
 **The footer** dates the counts above it. `Checked 4 min ago` is relative and ticks while the
 popup is open; hover it for the exact timestamp, offset included - the offset is there so the
-two lines cannot silently disagree about which clock they are on. It gains ` · 1 held` when anything is held,
-` · ~140 MB` when the download size is known and there is something to update, and
-` · restart pending` when a restart is owed but the message above is not on screen. Before any
-check has ever succeeded it reads `No successful check yet`, which is not the same thing as never
-having checked.
+two lines cannot silently disagree about which clock they are on. It gains
+` · last check failed` when the counts above it are stale, with the reason in the Refresh button's
+tooltip; ` · 1 held` when anything is held; ` · ~140 MB` when the download size is known and there
+is something to update; and ` · restart pending` when a restart is owed and the message that would
+say so is not on screen - including when the two-message cap displaced it. Before any check has
+ever succeeded it reads `No successful check yet`, which is not the same thing as never having
+checked.
 
 The size sits next to **Update Now** because it answers the question that button raises: pressing
 this costs about that much. It is an estimate and it says so with a `~` - never "up to", which
@@ -995,11 +1056,31 @@ thanks to its own delta format. Under a megabyte it reads `< 1 MB` rather than a
 nobody acts on, and when the number is not known it says **nothing at all** rather than `0 MB`.
 Held items are never counted: a hold is not going to be downloaded.
 
-**Update Now** runs `kempt run`, which opens whatever surface you configured. With the surface
-set to **In this widget**, the popup shows the run's live log while it works; on the other
-surfaces the output goes where you chose and the popup says so. If a run cannot start, the
-widget shows the CLI's own message, remedy included. You do not have to keep the popup open -
-updates keep running if you close it.
+**Update Now** runs `kempt run`, which opens whatever surface you configured. It refuses and shows
+a spinner from the moment you press it until the CLI has come back, so one press is one run rather
+than one terminal window per click. It is hidden - not greyed - when there is nothing to run, and
+hidden as well while an offline update is staged and waiting, because that work is already done.
+
+While a run is in flight the popup is replaced by a pane that says where it is:
+
+- `Updating in a terminal window…`
+- `Updating in the background…`
+- `Updating…` when the output is arriving right here (the **In this widget** surface, whose live
+  log fills the rest of the pane)
+- `Preparing the install for the next restart…` when it is a stage rather than an update
+
+That is the surface the run is really using, which is not always the one in your settings: with
+confirmation on, only a terminal can ask the question, and **Install on Next Restart** stages
+offline whatever the setting says.
+
+The pane also carries **Not updating? Check again**. A run ends, as far as the widget is
+concerned, when the CLI writes its state file - so a terminal run you aborted, or whose window you
+closed, leaves the popup waiting for something that is never coming. Press it and the widget
+checks, then comes back with fresh counts. The keyboard is put on that link when the pane appears
+and back on the popup's own primary button when it goes.
+
+If a run cannot start, the widget shows the CLI's own message, remedy included. You do not have to
+keep the popup open - updates keep running if you close it.
 
 **Opening the popup re-checks** when the last successful check is older than the smaller of your
 check interval and five minutes. It never blocks the popup: the counts you already have stay on
