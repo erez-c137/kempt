@@ -917,6 +917,9 @@ cmd_hold() {
         # the generic warning is what is left. It can be wrong by warning about a package that is
         # not in the transaction; it can never be wrong by staying quiet about one that is.
         hold_generic_warning "$n" >&2
+        # The recipe follows the generic warning too: "rebuilding applies all current holds" is
+        # only useful to someone who knows the command, and both remedies belong on every surface.
+        printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
       fi
     fi
   fi

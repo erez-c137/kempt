@@ -761,15 +761,17 @@ names_all_valid() {  # stdin: one name per line → 0 when every line passes KEM
 # line-based caller as two names, each of which passes the gate on its own. Comparing the count
 # against the lines received is what refuses that.
 #
-# Size cap: KEMPT_MARKER_MAX_BYTES, for the same reason the marker has one - past a megabyte the
-# file is not a record we recognise. The honest cost is that a transaction large enough to write
-# more than a megabyte of JSON (a release upgrade, not an ordinary update) degrades to no list, and
-# that is the safe direction: Kempt warns generically instead of denying a conflict.
+# Size cap: KEMPT_TXJSON_MAX_BYTES, its own and not the marker's. The marker is a Kempt-owned file
+# with a fixed shape, so a megabyte of it is garbage by definition; this file is dnf5's and grows
+# with the transaction - about 200 bytes per entry and two entries per upgraded package, so a
+# 1 MB cap would have refused an ordinary 2,500-package update. 8 MB is past any transaction a
+# desktop stages and still refuses a file that is not a record. Past it the honest cost stands:
+# no list, and Kempt warns generically instead of denying a conflict - the safe direction.
 offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero status
   [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
   local sz
   sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
-  (( sz > 0 && sz <= KEMPT_MARKER_MAX_BYTES )) || return 1
+  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
   local out
   # `error` for every surprise, so jq's own exit status carries the degradation out - one mechanism
   # instead of a shape check per branch on the shell side.
@@ -824,6 +826,9 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # the file is not a marker: it is whatever else ended up at that path, and a reader that parses it
 # anyway is a reader that will parse whatever it is handed.
 KEMPT_MARKER_MAX_BYTES=1048576
+# dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
+# see offline_txjson_names.
+KEMPT_TXJSON_MAX_BYTES=8388608
 
 # The marker, read defensively, or nothing - and "nothing" means SKIP THIS CHECK, never "the stage
 # is gone". That distinction is the whole point: a reader can arrive mid-write (see above), so a

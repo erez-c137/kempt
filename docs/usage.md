@@ -597,6 +597,7 @@ record it does not recognise - it says the weaker thing rather than nothing:
 
 ```
 The staged update was built before this hold and may still install kernel-core on the next restart. Rebuilding applies all current holds.
+When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).
 ```
 
 That is deliberate. A warning here can be wrong by naming a package that is not in the staged

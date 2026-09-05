@@ -170,15 +170,15 @@ printf '{"rpms":[{"nevra":"aa\\nbb-1.0-1.fc44.x86_64","action":"Upgrade"}],"vers
   > "$TESTTMP/newline.json"
 assert_degrades "$TESTTMP/newline.json" "a name carrying a newline drops the list"
 
-# Size, for the same reason the marker has a cap: past it the file is not a record this program
-# wrote or expects, and a reader that parses whatever it is handed is a reader that can be handed
-# anything. The honest cost is written down where the cap is: a transaction big enough to pass a
-# megabyte of JSON degrades to no list, which is the safe direction.
+# Size. The cap is the transaction file's own (KEMPT_TXJSON_MAX_BYTES, 8 MB), not the marker's 1 MB:
+# this file is dnf5's and grows with the transaction, and a reader that parses whatever it is
+# handed is a reader that can be handed anything. The honest cost is written down where the cap
+# is: a transaction big enough to pass it degrades to no list, which is the safe direction.
 { printf '{"rpms":[{"nevra":"aaa-1.0-1.fc44.x86_64","action":"Upgrade","pad":"'
-  head -c 1100000 /dev/zero | tr '\0' 'a'
+  head -c 8500000 /dev/zero | tr '\0' 'a'
   printf '"}],"version":"1.0"}\n'; } > "$TESTTMP/huge.json"
 assert_exit 0 "the oversized fixture really is valid JSON" -- jq -e . "$TESTTMP/huge.json"
-assert_degrades "$TESTTMP/huge.json" "a transaction record over 1 MB yields no list"
+assert_degrades "$TESTTMP/huge.json" "a transaction record over 8 MB yields no list"
 
 # Unreadable, which is the state on any box where dnf5 has not staged anything and the one this
 # runs as an ordinary user in. Mode 000 rather than a missing file: the two arrive at the same

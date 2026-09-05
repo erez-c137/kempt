@@ -156,8 +156,8 @@ assert_eq "$(tx_broken "$KEMPT" hold dnf:tar 2>&1 >/dev/null || true)" "" \
 # warning as the only honest answer, for every name.
 jq '.staged_names_source = "check"' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 assert_eq "$(tx_broken "$KEMPT" hold dnf:tar 2>&1 >/dev/null || true)" \
-  "The staged update was built before this hold and may still install tar on the next restart. Rebuilding applies all current holds." \
-  "a check-derived list cannot deny anything, so the generic warning fires"
+  "The staged update was built before this hold and may still install tar on the next restart. Rebuilding applies all current holds."$'\n'"$KEMPT_STAGED_RECIPE" \
+  "a check-derived list cannot deny anything, so the generic warning fires, recipe and all"
 assert_eq "$(events_tail)" "hold dnf:tar" \
   "...and an unconfirmed conflict is not recorded as one"
 
@@ -165,8 +165,8 @@ assert_eq "$(events_tail)" "hold dnf:tar" \
 # is left, and it is the reason the warning exists in that form at all.
 jq 'del(.staged_names, .staged_names_source, .staged_excluded)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 assert_eq "$(tx_broken "$KEMPT" hold dnf:curl 2>&1 >/dev/null || true)" \
-  "The staged update was built before this hold and may still install curl on the next restart. Rebuilding applies all current holds." \
-  "a legacy marker with no names warns generically rather than staying quiet"
+  "The staged update was built before this hold and may still install curl on the next restart. Rebuilding applies all current holds."$'\n'"$KEMPT_STAGED_RECIPE" \
+  "a legacy marker with no names warns generically rather than staying quiet, and still names the way out"
 # ...and with the live record readable again, that same legacy marker needs no fallback at all: the
 # transaction is right there, and it is the primary source precisely so a legacy marker costs
 # nothing.
