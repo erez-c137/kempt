@@ -72,24 +72,110 @@ var COPY = {
     checkForUpdates: "Check for Updates",
     updateNow: "Update Now",
 
+    // ...and what those two icon-only buttons DO, which is a different question from what they
+    // are called. `text` is already the accessible name of an icon-only button, so a description
+    // bound to `text` was the label read back twice and the one slot that could explain the
+    // effect, wasted (hostile panel, a11y P4). Same rule as the pin's two below.
+    checkForUpdatesDescription:
+        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
+    configureDescription:
+        "Check interval, where updates run, restart reminders, and the packages you hold.",
+
+    // --- the pin ---------------------------------------------------------------------------------
+    // The name carries the STATE, and that is a decision with a residual. A `checkable: false`
+    // button exposes no checked state to AT-SPI on Qt 6.11 (measured), and the one role that does
+    // - CheckBox - makes Breeze draw its sunken checked background on a control sitting directly
+    // under the system tray's own checked Keep Open pin. So the state is words: these four
+    // sentences, plus the "Held" token on the row and the glyph.
+    //
+    // TWO PAIRS, because a package that is not installed yet has no current version to be held AT.
+    // The CLI writes "?" for that `from`, and "Hold brandnew at ?" is not a sentence; what the pin
+    // does there is refuse the install, which is what it says.
+    holdAt: "Hold %1 at %2",
+    stopHolding: "Stop holding %1",
+    skipInstalling: "Skip installing %1",
+    stopSkipping: "Stop skipping %1",
+    // The description is the CONSEQUENCE. Per package, and Kempt only - a dnf user reads
+    // versionlock into a padlock, and this is where that is answered.
+    holdConsequence: "Kempt skips it on every update until you stop holding it.",
+    heldConsequence: "Kempt offers its update again.",
+    // The state, in words, on the row itself. The only cues used to be a glyph, a position and a
+    // 0.7 opacity dip - and an opacity dip is a contrast REDUCTION, which is the wrong direction
+    // for the rows a person deliberately protected (a11y P6).
+    heldToken: "Held",
+    // What a row draws where the CLI wrote "?" - a package that is not installed yet, whose update
+    // would ADD it. "? → 9.9.9-1.fc44" reads as "the widget does not know", on every row of a
+    // fresh box (hostile panel, first-run and a11y S4). The DATA keeps the "?": it is the CLI's
+    // own sentinel and the padlock recognises it too.
+    versionNew: "new",
+    // ...and the one line the Held heading owes a first-timer. A hold is Kempt's own list; it does
+    // not touch `dnf upgrade`, and nothing anywhere said so.
+    heldKemptOnly: "Held packages are skipped by Kempt only.",
+    // The version line as a sentence. On screen it is "3.105-… → 3.106-1.fc44", and that arrow
+    // goes through a screen reader's character table as a word nobody wants to hear.
+    versionRange: "from %1 to %2",
+
+    // --- the pane a run replaces the popup with ---------------------------------------------------
+    // It used to read "Updating in the %1 surface…", filled in with the CONFIGURED surface rather
+    // than the one the run is actually using - and "surface" is a word nobody outside this repo
+    // knows (hostile panel, first-run vocabulary). One sentence per surface, each naming where to
+    // look, and staging says what it is rather than calling itself an update.
+    updatingTerminal: "Updating in a terminal window…",
+    updatingBackground: "Updating in the background…",
+    updatingHere: "Updating…",
+    updatingOffline: "Preparing the install for the next restart…",
+    // ...and the way out. A terminal run that is aborted or whose window is closed never writes
+    // state.json, and only a state.json change ends the widget's updating state - so the popup sat
+    // on an empty pane, with no list, no Update Now and a disabled Refresh, until a three-hour
+    // guard fired. On the default configuration that is what happens when a first-timer takes the
+    // default answer to the one question Kempt asks (hostile panel, finding 1).
+    notUpdatingCheckAgain: "Not updating? Check again",
+
     // The offline path, named for what it does to the user rather than for the dnf5 flag that
     // implements it. The tooltip is the whole argument for choosing it.
     installOnNextRestart: "Install on Next Restart",
     installOnNextRestartTooltip:
         "Applies the update during a restart, so nothing changes underneath your running desktop.",
 
-    // What a session-critical transaction is told to do about it. Two sentences, because a box
-    // with the NVIDIA driver in the set has a second, worse failure mode (a kernel module built
-    // against a kernel that is not the running one), and naming it is what makes the advice
-    // credible to the person it happens to.
-    kernelRestart: "This includes a kernel update. Restart when it finishes.",
+    // What a session-critical transaction is told to do about it. Four spellings, because two
+    // things vary: whether a kernel is in the set, and whether the NVIDIA driver is with it (a box
+    // with that driver has a second, worse failure mode - a kernel module built against a kernel
+    // that is not the running one - and naming it is what makes the advice credible).
+    //
+    // "Restart when it finishes." is gone, and it is the sentence this whole message existed to
+    // fix. It recommended the LIVE path while the only button underneath it offered the offline
+    // one, over an amber box, before anything had started - so a first-timer read an order to
+    // restart now and had no idea what "it" was (hostile panel, first-run 3). What replaces it
+    // says what the button does and why: install on the next restart, so nothing changes under the
+    // desktop that is running. The message type goes with it, from Warning to Information: nothing
+    // is wrong, there is a safer of two ways to do this.
+    kernelRestart:
+        "This update includes a kernel. The safest way is to install it on the next restart, "
+        + "so nothing changes under the running desktop.",
     kernelNvidiaRestart:
-        "This includes a kernel update and the NVIDIA driver. Restart when it finishes.",
+        "This update includes a kernel and the NVIDIA driver. The safest way is to install them "
+        + "on the next restart, so nothing changes under the running desktop.",
+    // ...and the same recommendation for a set with no kernel in it, which used to get the bare
+    // count instead ("20 session-critical pending (dbus, glibc, kf6, mesa, ...)") - true, and no
+    // answer at all to the question the person actually has. The family list is kept, capped where
+    // the count sentence caps it, because it is the evidence for the claim.
+    riskySessionOne:
+        "This update touches 1 package the running desktop depends on (%1). "
+        + "The safest way is to install it on the next restart.",
+    riskySessionMore:
+        "This update touches %1 packages the running desktop depends on (%2). "
+        + "The safest way is to install them on the next restart.",
 
     // Status-line vocabulary. `held` is a suffix to a number ("3 held"); it is a word rather than
     // a sentence because the same word has to serve the tooltip, which was already saying it.
     held: "held",
     restartPending: "restart pending",
+    // What the footer gains while the counts above it are stale. It replaces a whole InlineMessage
+    // - a blue "i" box whose first word was "failed", carrying raw CLI text and no next step, and
+    // the fifth thing competing for a popup that fits two (hostile panel, M2 and M5). The line it
+    // joins is the DATELINE for those counts, which is exactly what staleness is about; the
+    // reason goes in the tooltip of the button that tries again.
+    lastCheckFailed: "last check failed",
     // What the footer says instead of a date. "No SUCCESSFUL check", not "not checked": the
     // footer's whole job is to date the counts by last_success, so its fallback has to be a
     // statement about last_success too. A box whose every check since install has failed HAS
@@ -116,6 +202,16 @@ var COPY = {
     stagedOne: "1 update is staged - it installs on the next restart",
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
+    // ...and the HEADER over that banner, in the same three spellings and for the same reasons.
+    // Staging used to change nothing at the top of the popup: the header went on saying "23
+    // updates available" and Update Now stayed lit, directly under a green banner about the same
+    // 23 updates. What a first-timer read out of that was "so it did not work?" - which is the
+    // exact reading this widget exists to remove. The BADGE is deliberately untouched: those
+    // updates really are still pending until the restart runs, and the count stays true.
+    stagedHeaderOne: "1 update staged for the next restart",
+    stagedHeaderTail: "updates staged for the next restart",
+    stagedHeaderUnknown: "Updates staged for the next restart",
+
     // ...and the THREE more spellings the same banner has once a hold lands behind the stage. Not
     // extra lines under the sentence above: the sentence above is the reassurance, and a warning
     // appended to a reassurance is the contradiction one level down (spec 4.4, UX finding 1). The
@@ -134,16 +230,30 @@ var COPY = {
     //
     // "still installs" / "still install": singular and plural move the verb, the possessive AND
     // the pronoun together, the same rule stagedOne follows above.
-    stagedConflictOne: "Staged before your hold - %1 still installs on the next restart.",
+    // IN THE USER'S ORDER OF EVENTS. "Staged before your hold - dbus still installs" named the
+    // mechanism rather than what the person did, and once the green banner was gone "Staged" had
+    // no antecedent at all; the other way out - stop holding the package and the current plan
+    // stands - was offered nowhere (hostile panel, M4 and first-run 8). So: what you did, what
+    // follows from it, and both remedies.
+    stagedConflictOne:
+        "You held %1 after the next-restart install was prepared, so it still installs. "
+        + "Rebuild it to skip %1, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
-        "Staged before your holds - %1 and %2 more still install on the next restart.",
+        "You held %1 and %2 more after the next-restart install was prepared, so they still "
+        + "install. Rebuild it to skip them, or stop holding them to keep the current plan.",
     // And the spelling for a stage whose package list could not be read at all. "may", because
     // that is exactly what is known - the CLI said names_source "none", which means an empty
     // conflict list is "cannot tell" and never "no conflict". A reader that stayed quiet here
     // would be denying a conflict on no evidence; the spec's rule is that names may CONFIRM a
     // conflict and may never DENY one.
     stagedConflictUnknown:
-        "Staged before your holds - it may still install held packages on the next restart.",
+        "You added holds after the next-restart install was prepared, so it may still install "
+        + "held packages. Rebuild it to apply your holds.",
+    // ...and the cost, as the banner's SECOND SENTENCE. It was disclosed only in the action's
+    // tooltip, which is to say only to somebody who had already hovered the button they were
+    // deciding about (hostile panel, M4). Short, because it is the third sentence in the box and
+    // the tooltip still carries the long form.
+    stagedRebuildCost: "Rebuilding asks for authorization; if it fails, nothing stays staged.",
 
     // The one action a warning variant offers, and the whole cost of pressing it. Both facts are
     // in the tooltip because both are real: it runs `kempt update --surface=offline`, which is a
@@ -162,7 +272,22 @@ var COPY = {
     // on disk any more. Short, and about the transaction rather than about the widget: the person
     // pressed a button and nothing happened, and this is the only sentence that stops that being
     // indistinguishable from a broken button. main.qml assigns it, the way it assigns restartFailed.
-    stagedChanged: "The staged update changed - take another look.",
+    stagedChanged:
+        "The staged update changed since this was offered. Nothing was rebuilt; "
+        + "check the banner above.",
+
+    // The hold round trip, in three sentences. Two of them are never DRAWN: the popup speaks them
+    // through one Accessible.announce when the row has actually moved, because until now a hold
+    // landed in complete silence - no message, no focus move, nothing (hostile panel, a11y P2).
+    // The %1 is substituted in the QML, which is why these two carry a placeholder rather than
+    // being assembled here: an announcement is one translatable sentence with a name in it.
+    holdAnnounce: "Holding %1",
+    unholdAnnounce: "No longer holding %1",
+    // ...and the failure, which is reported in the ROW that failed. It used to be the fifth
+    // InlineMessage at the top of the content, up to 300 px from the pin that caused it, saying
+    // neither hold nor unhold (HIG P6). main.qml substitutes and assigns it, the way it assigns
+    // restartFailed and stagedChanged.
+    holdFailed: "Could not change the hold on %1.",
 
     // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
     configure: "Configure Kempt…",
@@ -258,6 +383,16 @@ function shellQuote(s) {
     return "'" + String(s).split("'").join("'\\''") + "'";
 }
 
+// fill(template, token, value) -> every occurrence replaced, not just the first.
+//
+// String.replace with a string needle replaces ONE occurrence, and stagedConflictOne names its
+// package three times ("You held dbus ... Rebuild it to skip dbus, or stop holding dbus ..."), so
+// a replace() there would ship a banner reading "Rebuild it to skip %1". split/join rather than a
+// regex because the value is a package name from another program and a regex would interpret it.
+function fill(template, token, value) {
+    return String(template).split(token).join(value);
+}
+
 // Is this really an array? `typeof v.length === "number"` is not enough: a STRING has a length,
 // and iterating one yields characters that would render as packages.
 function isArray(v) { return Object.prototype.toString.call(v) === "[object Array]"; }
@@ -281,6 +416,21 @@ function isTrue(value) {
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
+}
+
+// updatingLabelOf(surface) -> what the pane says while a run on that surface is in flight.
+//
+// Takes the surface the RUNNING transaction is using, which is not always the configured one: with
+// confirmation on, `kempt run` collapses every surface to terminal, and Install on Next Restart
+// stages offline whatever the setting says. Anything unrecognised falls back to terminal for the
+// same reason resolveSurface does - that is what the CLI itself would have run.
+function updatingLabelOf(surface) {
+    switch (resolveSurface(surface)) {
+    case "popup":      return COPY.updatingHere;
+    case "background": return COPY.updatingBackground;
+    case "offline":    return COPY.updatingOffline;
+    default:           return COPY.updatingTerminal;
+    }
 }
 
 // effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use.
@@ -556,10 +706,16 @@ function looksLikeState(state) {
 // (lib/common.sh: `def newest(v): v | split(",") | last`). The widget copies that rule exactly,
 // because a popup that renders a version differently from `kempt summary` is the front-end
 // disagreeing with the CLI - the one thing this design forbids.
+// What a `from` looks like when there is no current version: the package is not installed, and
+// the update would ADD it. The CLI's own fallback, kept as a named constant because the popup has
+// to recognise it twice - once to say "Skip installing X" instead of "Hold X at ?", and once to
+// draw it as a word rather than as a punctuation mark.
+var VERSION_UNKNOWN = "?";
+
 function newestOf(versionSet) {
-    if (versionSet === null || versionSet === undefined) return "?";
+    if (versionSet === null || versionSet === undefined) return VERSION_UNKNOWN;
     var s = String(versionSet);
-    if (s === "") return "?";
+    if (s === "") return VERSION_UNKNOWN;
     var parts = s.split(",");
     return parts[parts.length - 1];
 }
@@ -587,13 +743,20 @@ function familiesOf(names, max) {
     };
 }
 
-// "20 session-critical pending (dbus, glibc, kernel, kf6, ...)" - the popup's offline
-// recommendation, worded from the same parts as the CLI's notification.
+// "dbus, glibc, kernel, kf6, ..." - the families in a risky set, capped, as both sentences below
+// name them. One function, because a count sentence and a recommendation that listed the same set
+// differently would be the popup disagreeing with itself about the same transaction.
+function riskyFamiliesOf(names) {
+    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN);
+    return fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
+}
+
+// "20 session-critical pending (dbus, glibc, kernel, kf6, ...)" - the count, worded from the same
+// parts as the CLI's notification. Published as vm.riskySummary and deliberately not drawn: the
+// popup shows the RECOMMENDATION below, which answers the next question.
 function riskySummaryOf(names) {
     if (!names || !names.length) return "";
-    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN);
-    return names.length + " session-critical pending ("
-        + fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "") + ")";
+    return names.length + " session-critical pending (" + riskyFamiliesOf(names) + ")";
 }
 
 // riskyMessageOf(names) -> what to DO about a session-critical transaction, in one sentence.
@@ -621,7 +784,15 @@ function riskyMessageOf(names) {
     // kernel warning depend on where "kernel" falls in an alphabetical sort. Four families
     // ahead of it (akmod, alsa, atk, bash is an ordinary Fedora transaction, not a contrived
     // one) and the most important sentence this popup has silently stops being said.
-    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) return riskySummaryOf(names);
+    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) {
+        // No kernel: the offline install really is the safer path and nothing has to be said about
+        // the running kernel. Singular and plural are whole literals, because the count, the noun
+        // and the pronoun ("it" / "them") all move together.
+        var fams = riskyFamiliesOf(names);
+        return names.length === 1
+            ? fill(COPY.riskySessionOne, "%1", fams)
+            : fill(fill(COPY.riskySessionMore, "%1", String(names.length)), "%2", fams);
+    }
     for (var i = 0; i < names.length; i++) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
     }
@@ -648,6 +819,61 @@ function stagedMessageOf(staged) {
     // the test is `=== 1` and not `<= 1`. Same shape as the header's own count and the relative
     // times above it.
     return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
+}
+
+// --- how many messages the popup may show at once ------------------------------------------------
+//
+// Two. Measured: at the default popup size (26 x 24 grid units = 468 x 432 px) five messages left
+// the list 95 px tall, and at Layout.minimumHeight the messages alone overflowed - they sit
+// OUTSIDE the ScrollView, so nothing scrolled and the list, which is what the popup is for, was
+// simply gone (hostile panel, M2).
+//
+// This is a RULE and not four visibility bindings, which is why it lives here where a node test
+// can state it. A binding can say "am I true"; only something that sees all four can say "am I one
+// of the two that fit".
+var MESSAGE_CAP = 2;
+
+// Priority order, and each position is an argument:
+//   report   the thing the person just did - a run that finished, or a press that failed. First,
+//            because it is the answer to a question they asked seconds ago.
+//   staged   what the next restart will install, and whether a hold landed behind it. The one
+//            message that changes what the rest of the popup may offer.
+//   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
+//            pending" whenever this message is not on screen, so the fact is never lost.
+//   kernel   the offline recommendation. Last because it is advice about a transaction that is
+//            still sitting there, and it will still be there next time the popup is opened.
+var MESSAGE_ORDER = ["report", "staged", "restart", "kernel"];
+
+// messageStack(wants) -> the names of the messages that may actually be drawn, in order.
+//
+// `engineMissing` is not in the order at all: it shows ALONE. Everything below it presumes an
+// engine that answered, and a box with no CLI has nothing else true to say.
+//
+// Anything displaced shows NOTHING. It does not shuffle into the next slot when something above
+// it goes away mid-glance, and it does not stack below the fold - a message the person cannot see
+// is a message that is not being shown, and pretending otherwise is how five of them got here.
+function messageStack(wants) {
+    var w = (wants && typeof wants === "object") ? wants : {};
+    if (w.engineMissing) return ["engineMissing"];
+    var out = [], i;
+    for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
+        if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
+    }
+    return out;
+}
+
+// stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
+// transaction is armed, or "" when none is.
+//
+// Same input, same tolerance and the same three spellings as stagedMessageOf above - deliberately
+// a second function rather than a flag on that one, because these are two different sentences with
+// two different jobs. The banner states what the next restart will DO; this replaces a count of
+// what is available, which while a stage is armed is a true number saying a false thing.
+function stagedHeaderOf(staged) {
+    if (!staged || typeof staged !== "object" || isArray(staged)) return "";
+    var n = staged.count;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedHeaderUnknown;
+    return n === 1 ? COPY.stagedHeaderOne : n + " " + COPY.stagedHeaderTail;
 }
 
 // stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words.
@@ -712,17 +938,23 @@ function stagedVariantOf(staged, heldDnf) {
         }
     }
 
+    // The cost is joined on HERE rather than written into each of the three templates: it is one
+    // fact about one button, it is identical in all three, and three copies of it would drift the
+    // first time one was edited. It only ever rides a warning, because the warning is the only
+    // variant that offers the button it is about.
     if (names.length > 0) {
         return { type: "warning",
-                 message: names.length === 1
-                     ? COPY.stagedConflictOne.replace("%1", names[0])
-                     : COPY.stagedConflictMore.replace("%1", names[0])
-                                              .replace("%2", String(names.length - 1)),
+                 message: (names.length === 1
+                     ? fill(COPY.stagedConflictOne, "%1", names[0])
+                     : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
+                            "%2", String(names.length - 1)))
+                     + " " + COPY.stagedRebuildCost,
                  conflictNames: names, stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
-        return { type: "warning", message: COPY.stagedConflictUnknown, conflictNames: [],
-                 stagedAt: plain.stagedAt };
+        return { type: "warning",
+                 message: COPY.stagedConflictUnknown + " " + COPY.stagedRebuildCost,
+                 conflictNames: [], stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -909,17 +1141,22 @@ function collectItems(state) {
 // A ListView with a flat model creates delegates lazily, so a box with 1200 pending updates costs
 // the same as a box with six. Building the flattening here (rather than nesting Repeaters in QML)
 // also means the grouping is something a node test can check.
-// Each row is {kind: "header", title} or {kind: "item", ...the item, plus `held`}.
+// Each row is {kind: "header", title, held} or {kind: "item", ...the item, plus `held`}.
+//
+// A header carries `held` for the same reason an item does: the popup draws one extra line under
+// the Held heading ("Held packages are skipped by Kempt only") and must not decide which heading
+// that is by comparing the title against the literal "Held" - the title is a string a translator
+// will change, and a comparison against it would silently stop matching in every other language.
 function rowsOf(sections, heldItems) {
     var rows = [], i, j;
     for (i = 0; i < sections.length; i++) {
-        rows.push({ kind: "header", title: sections[i].title });
+        rows.push({ kind: "header", title: sections[i].title, held: false });
         for (j = 0; j < sections[i].items.length; j++) rows.push(rowOf(sections[i].items[j], "item"));
     }
     // Held last and always its own group: the spec's promise is that a held item stays VISIBLE
     // with its waiting version, just out of the way of the things you can act on.
     if (heldItems.length > 0) {
-        rows.push({ kind: "header", title: "Held" });
+        rows.push({ kind: "header", title: "Held", held: true });
         for (i = 0; i < heldItems.length; i++) rows.push(rowOf(heldItems[i], "item"));
     }
     return rows;
@@ -1224,14 +1461,69 @@ function viewModel(state, updating, cliError, opts) {
 
     var countPhrase = "";
     if (usable) {
-        countPhrase = actionable === 0 ? COPY.upToDate
+        // "Up to date" over a list of rows with waiting versions in it is a lie by omission, and
+        // the popup draws exactly that whenever every pending update is held (hostile panel, P8).
+        // Nothing is ACTIONABLE, which is what the badge and the button are about; the header is
+        // the sentence, and the sentence owes the held count.
+        countPhrase = actionable === 0
+            ? (heldTotal > 0 ? COPY.upToDate + DOT + heldTotal + " " + COPY.held : COPY.upToDate)
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 
+    // --- a transaction that is already staged and armed ------------------------------------------
+    // Derived HERE, above the header, because it changes what the header may say: while a stage is
+    // armed the pending count is a true number saying a false thing, and the popup's own banner is
+    // already saying the true one. Nine of the returned fields depend on this.
+    //
+    // heldDnf is walked out of the items collectItems already built rather than re-read from the
+    // state: those rows are what the popup is SHOWING as held, and a banner whose warning
+    // disagreed with the Held group under it would be the popup contradicting itself in one
+    // glance - the same failure the risky_pending isArray note below describes from the other end.
+    var heldDnf = false;
+    for (var h = 0; h < counted.heldItems.length; h++) {
+        if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
+    }
+    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
+    var stagedMessage = stagedVariant.message;
+    var staged = stagedMessage !== "";
+    // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
+    // variant, so "which banner is this" is decided in exactly one place.
+    var stagedWarning = stagedVariant.type === "warning";
+
+    // What to DO about a session-critical set, which is a different question from how big it is.
+    //
+    // Silent while a transaction is already staged, and that is not a tidying-up: this message IS
+    // the "Install on Next Restart" offer, and offering it over a transaction that is already
+    // armed invites a second staging of the same updates. On 2026-09-01 that is exactly what
+    // happened - staged at 10:31, nothing visibly changed, staged again at 10:36. The staged
+    // message takes its place and explains why nothing is being offered. riskySummary is
+    // deliberately NOT silenced: those packages really are still pending until the restart runs.
+    //
+    // isArray, not a duck-typed length check. A STRING has a numeric length and indexes into its
+    // own characters, so `risky_pending: "kernel-core"` used to walk out of here as "11
+    // session-critical pending (c, e, k, l, ...)" - eleven package families invented out of one
+    // word. The state file is JSON from another program and a schema-1 reader has to tolerate a
+    // key of the wrong type; tolerating it means ignoring it, not iterating it.
+    var riskyMessage = staged ? "" : riskyMessageOf(
+        usable && isArray(state.risky_pending) ? state.risky_pending : []);
+
+    // Strictly the boolean, and only out of a state this build can read. In this schema `false`
+    // means "nothing to say", NEVER "no restart needed", and that is not a theoretical caution:
+    // backends/dnf.sh's dnf_reboot_needed answers false plus a warning whenever the command could
+    // not work the verdict out - rc 1 with an empty stdout (a cold user cache, the DEFAULT state
+    // on a fresh install) and every unexpected rc both land there. So a false is indistinguishable
+    // from "we could not tell", and nothing here renders an affirmative from it: a message when it
+    // is true, silence otherwise. docs/architecture.md's state schema table states the same rule
+    // for every reader.
+    //
+    // Derived up here rather than with the restart message below, because the panel TOOLTIP reads
+    // it too now: a pending restart used to be invisible from the panel entirely.
+    var rebootNeeded = usable && state.reboot_needed === true;
+
     var tooltipMain, headerText;
     if (updating) {
-        tooltipMain = "Updating…";
-        headerText = "Updating…";
+        tooltipMain = COPY.updatingHere;
+        headerText = COPY.updatingHere;
     } else if (engineMissing) {
         // Names the missing piece instead of quoting the shell. What the panel used to put here
         // was `sh: line 1: kempt: command not found`, which is true, unreadable, and about a
@@ -1246,6 +1538,12 @@ function viewModel(state, updating, cliError, opts) {
         headerText = (cliError !== "" || neverAnswered)
             ? "Kempt cannot check for updates"
             : "Could not read the update state";
+    } else if (staged) {
+        // The one place the count gives way. Not a second line under the count and not a badge
+        // emblem: the header is the sentence a person reads first, and while a stage is armed the
+        // honest answer to "where do I stand" is that the work is done and waiting for a restart.
+        headerText = stagedHeaderOf(state.offline_staged);
+        tooltipMain = headerText;
     } else {
         tooltipMain = countPhrase;
         headerText = countPhrase;
@@ -1299,6 +1597,11 @@ function viewModel(state, updating, cliError, opts) {
             subParts.push(staleReason);
             subParts.push("last successful check: " + lastSuccessText);
         }
+        // A pending restart was invisible from the panel: neither the icon nor this line mentioned
+        // it, so the one fact that needs an action from the person could only be found by opening
+        // the popup. Discover's own notifier has a "Restart is required" state (hostile panel, 4).
+        // Last, because it is a fact about the machine rather than about the counts above it.
+        if (rebootNeeded) subParts.push(COPY.restartPending);
     }
 
     // What the popup shows where the list would be, when there is no list to show.
@@ -1329,15 +1632,7 @@ function viewModel(state, updating, cliError, opts) {
     var remedyCommand = (!engineMissing && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
-    // Strictly the boolean, and only out of a state this build can read. In this schema `false`
-    // means "nothing to say", NEVER "no restart needed", and that is not a theoretical caution:
-    // backends/dnf.sh's dnf_reboot_needed answers false plus a warning whenever the command could
-    // not work the verdict out - rc 1 with an empty stdout (a cold user cache, the DEFAULT state
-    // on a fresh install) and every unexpected rc both land there. So a false is indistinguishable
-    // from "we could not tell", and nothing here renders an affirmative from it: a message when it
-    // is true, silence otherwise. docs/architecture.md's state schema table states the same rule
-    // for every reader.
-    var rebootNeeded = usable && state.reboot_needed === true;
+    // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
     // Absent is not false: the caller simply did not say, and the CLI's default is true.
     var restartReminder = (opts.restartReminder === undefined || opts.restartReminder === null)
         ? true : isTrue(opts.restartReminder);
@@ -1350,16 +1645,6 @@ function viewModel(state, updating, cliError, opts) {
     // state: those rows are what the popup is SHOWING as held, and a banner whose warning
     // disagreed with the Held group under it would be the popup contradicting itself in one
     // glance - the same failure the risky_pending isArray note below describes from the other end.
-    var heldDnf = false;
-    for (var h = 0; h < counted.heldItems.length; h++) {
-        if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
-    }
-    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
-    var stagedMessage = stagedVariant.message;
-    var staged = stagedMessage !== "";
-    // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
-    // variant, so "which banner is this" is decided in exactly one place.
-    var stagedWarning = stagedVariant.type === "warning";
 
     // --- the footer status line ------------------------------------------------------------------
     // "Checked ..." is derived from last_success and NOT last_check, because the counts above it
@@ -1370,6 +1655,25 @@ function viewModel(state, updating, cliError, opts) {
     // age to date. "Not checked yet" would have conflated that with a box that never ran a check
     // at all - and the two differ precisely on the bad day, where a stale state carries a
     // last_check and an empty last_success.
+    // --- which messages actually fit ------------------------------------------------------------
+    // Decided HERE and not in the popup, because the footer depends on the answer: a restart the
+    // cap displaced has to reappear as "restart pending" on the status line, and a popup that made
+    // this decision by itself would leave logic.js unable to tell whether it had.
+    //
+    // `reportShown` is the one input this file cannot derive. The post-run line and a failed
+    // press are main.qml's own state, not the CLI's, so the caller passes the answer in - the same
+    // way it passes the clock and the two halves of the restart reminder.
+    var messageSlots = messageStack({
+        engineMissing: engineMissingMessage !== "",
+        report: opts.reportShown === true,
+        // ...including `updating`, because a run hides the whole stack. Without it the popup's own
+        // dismissal guard could not tell a run starting from the user closing the message.
+        restart: restartMessageVisible && !updating,
+        staged: staged,
+        kernel: riskyMessage !== ""
+    });
+    var restartShown = messageSlots.indexOf("restart") >= 0;
+
     var footerParts = [];
     if (usable) {
         // Three answers, and the third one is silence. A stamp that is present and unreadable
@@ -1381,6 +1685,11 @@ function viewModel(state, updating, cliError, opts) {
         else if (isRenderableStamp(state.last_success)) {
             footerParts.push("Checked " + relativeTime(state.last_success, opts.nowMs));
         }
+        // ...and the staleness, right beside the date it explains. This is the whole of the stale
+        // InlineMessage now: three words on the line that dates the counts, with the CLI's own
+        // reason one hover away on the button that tries again. It is not an alarm - the counts
+        // above are still the best known truth - and it never was worth a box of its own.
+        if (stale) footerParts.push(COPY.lastCheckFailed);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
@@ -1399,7 +1708,10 @@ function viewModel(state, updating, cliError, opts) {
     // Beside Update Now, which is the question it answers: pressing this costs about this much.
     // Same two conditions as the tooltip, and the same silence when either fails.
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
-    if (rebootNeeded && !restartMessageVisible) footerParts.push(COPY.restartPending);
+    // ...and the restart, whenever the message is not the thing carrying it. That now includes a
+    // restart the CAP displaced, which is what makes displacing it honest rather than merely
+    // quiet: the fact is never lost, it moves to the line that always has room.
+    if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
 
     return {
         iconState: iconState,
@@ -1443,9 +1755,12 @@ function viewModel(state, updating, cliError, opts) {
         // The staged message takes its place and explains why nothing is being offered.
         // riskySummary above is deliberately NOT silenced: those packages really are still
         // pending until the restart runs, and the count stays true.
-        riskyMessage: staged ? "" : riskyMessageOf(
-            usable && isArray(state.risky_pending) ? state.risky_pending : []),
+        riskyMessage: riskyMessage,
         stagedMessage: stagedMessage,
+        // "there is an armed transaction", in one boolean, for the surfaces that have to stand
+        // down rather than say something about it. Update Now is hidden on this: pressing it over
+        // an armed stage starts a second, live update of the same packages.
+        stagedArmed: staged,
         // "positive" for the ordinary armed stage - nothing is wrong, the work is done and
         // waiting - and "warning" once a hold has landed behind it. A string rather than a
         // boolean because the QML binds it to a Kirigami.MessageType, and a third spelling
@@ -1480,6 +1795,16 @@ function viewModel(state, updating, cliError, opts) {
         lastSuccessText: lastSuccessText,
         rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
+        // ...and whether that message may carry its own Restart button. Everywhere else it may:
+        // a restart applies updates that are already installed, which is what the message says.
+        // NOT while the staged banner is a warning, and that is the whole point of the flip - in
+        // that state a restart installs the very package the warning says the person tried to keep
+        // out, and the design had already removed the button from the warning for exactly that
+        // reason while leaving the identical one a row above it (hostile panel, HIG M1).
+        restartShowAction: restartShown && !stagedWarning,
+        // Which messages the popup may draw, in order, and never more than two of them. The rule
+        // and its reasons are messageStack above.
+        messageSlots: messageSlots,
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
@@ -1497,6 +1822,7 @@ function viewModel(state, updating, cliError, opts) {
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         COPY: COPY,
+        VERSION_UNKNOWN: VERSION_UNKNOWN,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,
@@ -1508,6 +1834,8 @@ if (typeof module !== "undefined" && module.exports) {
         riskyMessageOf: riskyMessageOf,
         stagedMessageOf: stagedMessageOf,
         stagedVariantOf: stagedVariantOf,
+        messageStack: messageStack,
+        MESSAGE_CAP: MESSAGE_CAP,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
@@ -1518,6 +1846,8 @@ if (typeof module !== "undefined" && module.exports) {
         isTrue: isTrue,
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
+        updatingLabelOf: updatingLabelOf,
+        SURFACES: SURFACES,
         holdsOf: holdsOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,

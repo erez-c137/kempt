@@ -67,7 +67,7 @@ p.wait_for(ev, "root.kemptState !== null", True)
 
 
 def settle():
-    p.wait_for(ev, "root.checking || root.holdInFlight", False, timeout_ms=30000)
+    p.wait_for(ev, "root.checking || root.pendingHold !== null", False, timeout_ms=30000)
     p.wait_idle(ev, "executor", "tailExecutor", timeout_ms=30000)
 
 
@@ -115,6 +115,7 @@ FOCUSED = """(function () {
   if (it === refreshButton) return "refreshButton";
   if (it === configureButton) return "configureButton";
   if (it === popup) return "popup";
+  if (it === checkAgainButton) return "checkAgainButton";
   var t = (it.text === undefined || it.text === null) ? "" : String(it.text);
   return "elsewhere:" + t;
 })()"""
@@ -281,6 +282,60 @@ p.check("...and with nothing pending and Refresh refusing, that is the gear",
         landed, "configureButton")
 open(SLEEP, "w").write("0")
 settle()
+
+# ==================================================================================================
+# F5. the pane that replaces the whole content area, and where the keyboard goes with it
+# ==================================================================================================
+# Measured before this (hostile panel, a11y H1): a run replaces the content wholesale, the keyboard
+# stayed on the INVISIBLE Update Now, and the utterance over the stuck pane was "Update Now push
+# button" for a control nobody was drawing. Tab from there landed on a nameless RowLayout. On the
+# default configuration that state could last three hours.
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
+lev("popup.focusPrimary()")
+p.pump(50)
+p.check("premise: the keyboard is on Update Now, with a run to start", focused(), "updateButton")
+
+ev('root.enterUpdating("terminal")')
+p.pump(120)
+p.check("a run swaps the pane in and takes the primary button off the screen",
+        lev("updateButton.visible"), False)
+p.check("...so the keyboard moves to a control that is actually drawn", focused(),
+        "checkAgainButton")
+p.check("...visibly, which is the whole point of a focus ring",
+        lev("checkAgainButton.visualFocus"), True)
+p.check("...and it is a real control, not the pane or nothing at all",
+        [lev("popup.Window.activeFocusItem.visible"),
+         lev("popup.Window.activeFocusItem.enabled")], [True, True])
+p.check("...naming the surface the run is really using rather than the configured one",
+        lev("updatingLabel.text"), "Updating in a terminal window…")
+
+# ...and Space on it really is the way out, from the keyboard, without a pointer.
+before_check = p.call_count("check")
+press(Qt.Key_Space)
+p.wait_for(ev, "root.updating", False, timeout_ms=20000)
+settle()
+p.check("Space on the hatch asks for a check", p.call_count("check") - before_check >= 1, True)
+p.check("...and the pane goes when that check lands", ev("root.updating"), False)
+p.pump(120)
+p.check("...handing the keyboard back to a control that is on screen",
+        [focused() != "nothing",
+         lev("popup.Window.activeFocusItem.visible && popup.Window.activeFocusItem.enabled")],
+        [True, True])
+
+# The other three surfaces say where to look, which "Updating in the terminal surface…" never did.
+for _surface, _said in (("popup", "Updating…"),
+                        ("background", "Updating in the background…"),
+                        ("offline", "Preparing the install for the next restart…")):
+    ev('root.enterUpdating("%s")' % _surface)
+    p.pump(80)
+    p.check("a run on the %s surface says where to look for it" % _surface,
+            lev("updatingLabel.text"), _said)
+    ev("root.leaveUpdating()")
+    settle()
+    ev('root.postRunLine = ""')
+    p.pump(60)
 
 # focusPrimary's own rule, stated once and driven in both directions, so a later edit cannot make
 # it "the first control in the row" again.

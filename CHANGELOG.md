@@ -85,6 +85,34 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The panel widget's per-package pin is a **padlock** now: open on a package that is pending,
+  closed on one you are holding. The pushpin it replaces is Plasma's own "Keep Open" icon - it is
+  the pin in the system tray heading, in the calendar popup and in the folder-view popup, three
+  shipped uses with one meaning - and Kempt drew a whole column of them directly underneath the
+  tray's. The crossed-out version used for held rows draws its slash in the colour scheme's
+  negative red, so the two packages you had deliberately protected carried the popup's only red
+  mark and read as cancelled. The padlock shows the state rather than the action, and the state is
+  also in words: a **Held** token before the version, and a button that says
+  *Hold glibc at 2.41-3.fc44* or *Stop holding glibc* rather than "Hold glibc at its current
+  version". Held rows no longer dim, which was a contrast reduction applied to exactly the rows
+  somebody chose to keep.
+- A staged update changes what the top of the popup says. The header reads
+  *23 updates staged for the next restart* instead of counting the same 23 as available, the panel
+  tooltip says the same on hover, and **Update Now** is hidden while the stage is armed. The badge
+  keeps the true count: those packages really are still pending until the restart runs.
+- The kernel notice is Information rather than a Warning, and says what its own button does:
+  *This update includes a kernel. The safest way is to install it on the next restart, so nothing
+  changes under the running desktop.* It used to read "This includes a kernel update. Restart when
+  it finishes." in amber, over a button offering the opposite path, before anything had started.
+  **Install on Next Restart** takes the software-update icon; the reboot icon is **Restart…**'s
+  alone, so two adjacent restart-shaped actions stop sharing a glyph.
+- The staged-conflict banner is written in your order of events, with both ways out and the cost
+  of the button it offers: *You held dbus after the next-restart install was prepared, so it still
+  installs. Rebuild it to skip dbus, or stop holding dbus to keep the current plan. Rebuilding asks
+  for authorization; if it fails, nothing stays staged.* The second remedy was previously offered
+  nowhere, and the cost lived only in a tooltip.
+- A package that is not installed yet reads `new → 1.0-1.fc44` in the list instead of
+  `? → 1.0-1.fc44`, which looked like the widget not knowing.
 - The number of updates a staged transaction carries is worked out by a check made just before
   staging, instead of being copied out of the last check's `state.json`. It is the one thing
   anyone is ever told about a transaction they cannot open, and it used to be whatever figure
@@ -131,6 +159,50 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   words instead of a bare shell incantation: "Kempt could not find konsole. Install it, or run
   updates another way: kempt config set surface background (Settings > Run updates in > In the
   background)". `kempt doctor` quotes the same remedy. The exit status is still 4.
+- Pressing a package's padlock in the panel widget no longer feels like a mistake. Every padlock
+  in the list used to go inert on the press, and Qt takes keyboard focus away from a control the
+  moment it is disabled - so 30 ms after Space the keyboard was on an anonymous container with
+  nothing to say. The row went on offering "Hold", and a second press really did send a second
+  `kempt hold` to the CLI. Then the list snapped to the top, the row reappeared under **Held**
+  below the fold, and nothing was said in any channel. Now only the *other* rows stand down; the
+  one you pressed keeps its button, keeps the keyboard, shows a spinner in place of its padlock,
+  and refuses a second press itself. When the follow-up check lands the keyboard follows that
+  package into its new group, a mouse press leaves the list exactly where you left it, and the
+  popup says *Holding kernel-core* out loud for a screen reader. A hold that fails is reported in
+  its own row, under the version, instead of as a message at the top of the popup.
+- The popup shows at most two messages at once. Five of them left the pending list 95 px tall at
+  the default size, and at the minimum size pushed it off the popup entirely - they sit outside
+  the scrolling area, so nothing scrolled and the list was simply gone. A failed check folds into
+  the footer (`Checked 2 hours ago · last check failed`, with the reason in the Refresh button's
+  tooltip), the post-run line and a failed button press share one slot, and anything the cap
+  displaces shows nothing rather than stacking below the fold. A displaced restart is never lost:
+  the footer says `restart pending` whenever its message is not the thing carrying it.
+- **Update Now** is no longer offered over a staged update, and no longer starts two runs. It was
+  lit directly under a green banner saying the same updates were already staged and waiting, so
+  pressing it started them again, live; and because `kempt run` takes up to fifteen seconds to
+  launch a surface and return, a double press opened two terminal windows, both asking whether to
+  update a running desktop. It is hidden while a stage is armed, and refuses with a spinner from
+  the press until the CLI comes back.
+- The updating pane says where the run actually is - *Updating in a terminal window…*,
+  *Updating in the background…*, *Updating…*, or *Preparing the install for the next restart…* -
+  instead of naming the configured surface in a word ("surface") that appears nowhere else a
+  person can see. It also carries **Not updating? Check again**, which is the way out of a pane
+  waiting on a terminal run that was aborted or whose window was closed: nothing writes the state
+  file in that case, and the popup used to wait three hours. Keyboard focus moves to that link
+  when the pane appears and back to a real control when it goes; it used to stay on the hidden
+  **Update Now**.
+- The restart message drops its own **Restart…** button while the staged banner is a warning. In
+  that state a restart is what installs the package you were trying to keep out, and the only
+  restart button on screen sat forty pixels above the sentence saying so.
+- The **Held** group heading reaches a screen reader as a heading with a name - Kirigami's own
+  section header marks its label ignored - and carries one line saying a hold is Kempt's list
+  only, which `sudo dnf upgrade` does not know about. The header over a held-only list says
+  *Up to date · 2 held* rather than *Up to date* over rows with waiting versions in them, the
+  panel tooltip says `restart pending` when one is owed, and Enter activates the padlock, Update
+  Now and Refresh, which previously answered only to Space.
+- The panel icon stops using Breeze's `update-high` for its own failures. Plasma's own notifier
+  uses that icon for security updates, so it promised security fixes and delivered "Kempt cannot
+  check for updates"; the warning emblem it already draws carries the error instead.
 - A failed rebuild no longer strands a destroyed staged update behind a live boot symlink. dnf5
   destroys the existing transaction the moment a new stage begins, so a rebuild that failed - a
   full disk, a declined authentication - left nothing staged, the symlink still standing, and a

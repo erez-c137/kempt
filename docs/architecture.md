@@ -571,14 +571,37 @@ has applies first: while a run of ours is in flight, a rebuild does nothing at a
 
 Kirigami gives every `InlineMessage` the AlertMessage role and **no accessible name**, so a screen
 reader announcing one reads out its icon - "Positive", "Warning" - and nothing about what happened.
-Every message in the popup's stack therefore carries `Accessible.name: text`, including the two
-that only ever report a failure: a message nobody can hear is a message that is not being shown.
+Every message in the popup's stack therefore carries `Accessible.name: text`, including the one
+that only ever reports a failure: a message nobody can hear is a message that is not being shown.
 
-That binding is load-bearing rather than tidy in one place particularly. The staged banner
-*changes type* when a hold lands behind a staged update, and the whole point of the change is the
-new sentence: for a person who cannot see the colour, a flip that arrived only as a palette change
-would be no flip at all. The words are the message; the colour is a second channel for the people
-who have it.
+That binding does less than it looks like it does, and the correction matters. A name change on an
+object that does **not** hold focus is not announced by anything: it makes the message readable in
+flat review, where a screen-reader user has to go looking, and that is all. So the staged banner
+could change its type, its colour, its sentence and its buttons - which is the whole point of the
+flip when a hold lands behind a staged update - and a person who cannot see the colour would be
+told none of it, because they were not standing on the banner when it happened.
+
+That is why the announcements exist. The popup has one `announce(sentence, assertive)` function,
+and every announcement in the widget goes through it: it calls `Accessible.announce` (Qt 6.8 and
+later) and emits `announced(string)` alongside, because `Accessible.announce` reaches an
+accessibility bridge and nothing else, so `announced` is the only thing a test can hear.
+
+What is announced, and how:
+
+| What | Politeness | Why |
+| --- | --- | --- |
+| `Holding X` / `No longer holding X` | Polite | The outcome of a press the person just made. Interrupting them to confirm their own action is rude. |
+| A hold that failed | Assertive | The row now carries an error and the padlock under their hand is live again. |
+| The staged banner, when its words change while it is visible | Assertive | It is not the outcome of a press: it is the machine saying that what it promised has changed. |
+| The post-run line and a failed press | Assertive | The answer to the one thing the person was waiting for, and the popup may not have the focus. |
+| The footer, when the box goes stale | Polite | Nothing has gone wrong that needs interrupting; the counts above are still the best truth and this dates them. It is keyed on the *reason*, not on the whole line, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. |
+
+Each message that announces itself keeps a `spoken` string, because `text` and `visible` are two
+bindings onto the same view-model change and both handlers fire; it is cleared when the message
+goes away, so a banner that comes back says itself again.
+
+The colour is a second channel for the people who have it. The words are the message, and the
+announcement is what makes the words arrive.
 
 The **Rebuild Staged Update** action carries the same discipline one level down. Its tooltip
 discloses the two costs - it asks for authorization, and a failed rebuild removes the current

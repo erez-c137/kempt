@@ -151,7 +151,7 @@ p.wait_for(ev, "root.kemptState !== null", True)
 
 
 def settle():
-    p.wait_for(ev, "root.checking || root.holdInFlight", False, timeout_ms=15000)
+    p.wait_for(ev, "root.checking || root.pendingHold !== null", False, timeout_ms=15000)
     # promptExecutor too: the restart prompt runs on its own queue (see main.qml), so a settle
     # that only watched the other two could return with a dbus-send still in flight.
     p.wait_idle(ev, "executor", "tailExecutor", "promptExecutor")
@@ -172,7 +172,8 @@ p.check("...the second being the backend:name pair, verbatim", p.argv("hold")[1]
 p.check("...and the injected command never ran",
         os.path.exists(os.path.join(p.sandbox, "PWNED")), False)
 p.check("a hold refreshes the list afterwards", p.call_count("check") >= 2, True)
-p.check("...and the pins are live again", ev("root.holdInFlight"), False)
+p.check("...and the round trip is over: the row moved, so nothing is pending any more",
+        ev("root.pendingHold"), None)
 
 ev('root.setHold("flatpak", "org.gimp.GIMP", false)')
 settle()
@@ -327,6 +328,48 @@ p.wait_for(ev, "root.updating", False, timeout_ms=8000)
 p.check("a finished run takes the widget out of the updating state", ev("root.updating"), False)
 settle()
 
+# --- one press, one terminal ------------------------------------------------------------------
+# `kempt run` launches the surface and RETURNS, and it is allowed fifteen seconds to do it. The
+# guard at the top of startUpdate tested `updating`, which is false for all of them - so a double
+# press opened two terminals, both asking the risky question (hostile panel, 14).
+open(RUNRC, "w").write("0")
+p.clear_calls()
+ev("root.startUpdate(); root.startUpdate(); root.startUpdate()")
+p.check("the first press is in flight and the widget says so", ev("root.runRequested"), True)
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("three presses inside that window start ONE run", p.call_count("run"), 1)
+p.check("...and the flag is down once the CLI has come back", ev("root.runRequested"), False)
+p.check("...with the pane naming the surface that run is really using",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingHere"))
+
+# --- the way out of a pane nothing is going to end ---------------------------------------------
+# A terminal run that is aborted - the default answer to the one question Kempt asks, on the
+# default configuration - never writes state.json, and only a state.json change ends this state.
+p.clear_calls()
+before_check = p.call_count("check")
+ev("root.checkAgain()")
+p.wait_for(ev, "root.updating", False, timeout_ms=15000)
+settle()
+p.check("the escape hatch asks for a fresh check", p.call_count("check") - before_check, 1)
+p.check("...and leaves the updating state when that check lands", ev("root.updating"), False)
+p.check("...with nothing left claiming a surface", ev("root.runningSurface"), "")
+p.check("...and it refuses when nothing is running, rather than checking twice for no reason",
+        (lambda before: (ev("root.checkAgain()"), p.call_count("check") - before)[1])(
+            p.call_count("check")), 0)
+
+# --- Stage offline and a rebuild are not terminal runs, whatever the setting says ---------------
+before_update = p.call_count("update")
+ev("root.stageOffline()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+p.check("staging says it is preparing an install rather than calling itself an update",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingOffline"))
+p.check("...on the offline surface, whatever `surface` is configured to",
+        [ev("root.runningSurface"), ev("root.effectiveSurface")], ["offline", "popup"])
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+
 # --- a run that could not start says why, in the CLI's words ----------------------------------
 open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
@@ -346,7 +389,7 @@ settle()
 
 # --- the log tail runs on its own queue -------------------------------------------------------
 action_serial = ev("executor.serial")
-ev("root.enterUpdating()")
+ev('root.enterUpdating("popup")')
 p.wait_for(ev, 'root.logPath !== ""', True, timeout_ms=8000)
 p.check("the newest log file is found", os.path.basename(str(ev("root.logPath"))),
         "20260825T000000.log")
@@ -384,11 +427,21 @@ p.wait_for(ev, 'root.effectiveSurface', "terminal", timeout_ms=8000)
 p.check("confirmation on collapses the effective surface to terminal",
         ev("root.effectiveSurface"), "terminal")
 p.check("...while the STORED surface is untouched", ev("root.surface"), "popup")
+# ...and the tail follows the surface the RUNNING transaction is using, not the configured one: a
+# settings change mid-run does not move where the transaction already in flight is writing. What
+# must never happen is tailing for a run that writes nothing here, so that is what is driven.
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor", "tailExecutor")
+ev('root.enterUpdating("terminal")')
 tail_serial = ev("tailExecutor.serial")
 ev("root.pollLog()")
 p.pump(300)
-p.check("...and the popup stops tailing a log the run will not write there",
+p.check("...and the popup does not tail a log a terminal run is not writing here",
         ev("tailExecutor.serial"), tail_serial)
+p.check("...and says where that run really is, rather than naming the configured surface",
+        ev("Logic.updatingLabelOf(root.runningSurface)"), "Updating in a terminal window…")
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor", "tailExecutor")
 
 open(AUTO, "w").write("true\n")
 ev("root.readSurface()")
@@ -816,6 +869,23 @@ if live is not None:
     # through the stubbed CLI would look identical, and every assertion would pass anyway.
     lev("popup.vm = Qt.binding(function () { return popup.plasmoidItem.vm; })")
 
+    # Everything the popup says out loud. Accessible.announce reaches an accessibility bridge and
+    # nothing else, so the popup emits `announced` alongside it and this is what hears it.
+    _spy, _sev = p.create_inline("""
+import QtQuick
+QtObject {
+    id: spy
+    property var said: []
+    function hear(sentence) { var a = spy.said.slice(); a.push(sentence); spy.said = a; }
+    function clear() { spy.said = []; }
+}
+""", "popup-announce-spy.qml")
+    p.engine.rootContext().setContextProperty("popupAnnounceSpy", _spy)
+    lev("popup.announced.connect(popupAnnounceSpy.hear)")
+
+    def said():
+        return json.loads(str(_sev("JSON.stringify(said)")))
+
     def fixture(name):
         return os.path.join(harness.FIXTURES, name)
 
@@ -865,9 +935,7 @@ if live is not None:
                 ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
                 ("riskyMessage", "the session-critical warning"),
-                ("staleMessage", "the stale explanation"),
-                ("postRunMessage", "the post-run line"),
-                ("actionFailureMessage", "the failed-action message")]
+                ("reportMessage", "the report of the last thing that happened")]
 
     def stack(situation, *shown):
         """Assert the WHOLE stack for one real state: what is up, and what is not."""
@@ -893,8 +961,22 @@ if live is not None:
     # joining it: leaving "Install on Next Restart" on screen over an armed transaction is an
     # invitation to stage the same updates twice, which is what happened on 2026-09-01.
     STAGED_RISKY = staged_from("state-risky-heavy.json", "state-staged-risky.json", 61)
+    _sev("clear()")
     state(STAGED_RISKY)
     stack("with that transaction already staged", "stagedMessage")
+    # The top of the popup, which is where the person looks first and where staging used to change
+    # nothing at all: the header went on counting the same updates as available and Update Now
+    # stayed lit under a green banner saying they were staged (hostile panel, finding 3).
+    p.check("...with the header saying staged rather than counting the same updates as available",
+            lev("popup.vm.headerText"), "61 updates staged for the next restart")
+    p.check("...the panel tooltip saying it too, so hover and popup cannot disagree",
+            ev("root.vm.tooltipMain"), "61 updates staged for the next restart")
+    p.check("...the badge still the true actionable count, which no restart has run yet",
+            ev("root.vm.badgeText"), str(ev("root.vm.actionable")))
+    p.check("...and Update Now GONE, because the work it would start is already done and waiting",
+            lev("updateButton.visible"), False)
+    p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
+            "and not spoken", said(), ["61 updates are staged - they install on the next restart"])
     p.check("...saying how many updates the restart will install",
             lev("stagedMessage.text"),
             "61 updates are staged - they install on the next restart")
@@ -963,9 +1045,12 @@ if live is not None:
 
     state(CONFLICT1)
     stack("with a hold on a package the staged update contains", "stagedMessage")
-    p.check("...the banner names the package and what the restart will do with it",
+    p.check("...the banner tells it in the person's own order of events, with both ways out and "
+            "the cost of the one on the button",
             lev("stagedMessage.text"),
-            "Staged before your hold - kernel-core still installs on the next restart.")
+            "You held kernel-core after the next-restart install was prepared, so it still"
+            " installs. Rebuild it to skip kernel-core, or stop holding kernel-core to keep the"
+            " current plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
     p.check("...as a Warning, because the reassurance is no longer true",
             lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
     # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -991,17 +1076,68 @@ if live is not None:
     p.check("...which is the copy table's tooltip, not a second copy of it",
             lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
 
+    # HIG M1: the only Restart button on screen sat forty pixels above the sentence saying what a
+    # restart would install. The design had already removed it from the warning for that reason.
+    CONFLICT_REBOOT = conflict_from("state-reboot-needed.json", "state-staged-conflict-reboot.json",
+                                    ["kf6-kio"], "transaction", count=4)
+    ev("root.restartDismissed = false")
+    state(CONFLICT_REBOOT)
+    p.check("premise: a restart is owed AND the staged banner is a warning",
+            [lev("restartMessage.visible"), ev("root.vm.stagedType")], [True, "warning"])
+    p.check("the restart message stands its own button down rather than offering the install the "
+            "warning under it is about", lev("restartMessage.actions[0].visible"), False)
+    p.check("...inert as well as invisible", lev("restartMessage.actions[0].enabled"), False)
+    p.check("...and the staged warning has none either, so nothing on screen offers that restart",
+            lev("stagedMessage.actions[0].visible"), False)
+
+    # --- the cap, with more true things to say than there is room for ---------------------------
+    # Five messages left the list 95 px tall at the default popup size, and at the minimum they
+    # overflowed the popup entirely - they sit outside the ScrollView, so nothing scrolled and the
+    # list was gone (hostile panel, M2). Three want the screen here: a press that failed, a staged
+    # transaction with a hold behind it, and a restart the box already owes.
+    ev('root.actionMessage = "Could not change the hold on bash."')
+    p.pump(80)
+    p.check("three things are true at once", ev("root.vm.restartMessageVisible"), True)
+    stack("with three messages wanting the screen", "reportMessage", "stagedMessage")
+    p.check("...so exactly two are drawn, and no more", lev("popup.messageSlots.length"), 2)
+    p.check("...in priority order: what you just did, then what changed under you",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["report", "staged"])
+    p.check("...and the restart is not lost, it is in the footer, which is why it gives way first",
+            "restart pending" in str(lev("footerLabel.text")), True)
+    ev('root.actionMessage = ""')
+    p.pump(80)
+    p.check("with the failed press cleared, the restart comes back into the second slot",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["staged", "restart"])
+    p.check("...and the footer stops repeating what the message is now carrying",
+            "restart pending" in str(lev("footerLabel.text")), False)
+
+    # ...and the engine-missing case, which shows ALONE however much else is true.
+    ev("root.engineMissing = true")
+    ev("root.kemptState = null")
+    p.pump(80)
+    p.check("a box with no engine says that and nothing else",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["engineMissing"])
+    ev("root.engineMissing = false")
+    state(fixture("state-live.json"))
+    ev('root.postRunLine = ""')
+    ev("root.restartDismissed = false")
+    p.pump(80)
+
     state(CONFLICT3)
-    p.check("three held packages read as the first one and a count",
+    p.check("three held packages read as the first one and a count, every word moved with it",
             lev("stagedMessage.text"),
-            "Staged before your holds - kernel-core and 2 more still install on the next restart.")
+            "You held kernel-core and 2 more after the next-restart install was prepared, so they"
+            " still install. Rebuild it to skip them, or stop holding them to keep the current"
+            " plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
     p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
     state(GENERIC)
     stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
     p.check("...the banner says may, because that is what is known",
             lev("stagedMessage.text"),
-            "Staged before your holds - it may still install held packages on the next restart.")
+            "You added holds after the next-restart install was prepared, so it may still install"
+            " held packages. Rebuild it to apply your holds. Rebuilding asks for authorization;"
+            " if it fails, nothing stays staged.")
     p.check("...as a warning all the same", lev("stagedMessage.type"),
             lev("Kirigami.MessageType.Warning"))
     p.check("...offering the same rebuild, which applies every current hold whatever the list said",
@@ -1096,8 +1232,29 @@ if live is not None:
     settle()
     ev('root.actionMessage = ""')
 
+    # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
+    # own reason in the tooltip of the button that tries again.
+    _sev("clear()")
     state(fixture("state-stale.json"))
-    stack("with the last check failed over known counts", "staleMessage")
+    stack("with the last check failed over known counts")
+    p.check("...the footer says a check failed, on the line that dates the counts it explains",
+            "last check failed" in str(lev("footerLabel.text")), True)
+    p.check("...and says it out loud, because a footer nobody is standing on is not announced by "
+            "anything otherwise", said(), [lev("footerLabel.text")])
+    # ...once. This line is rewritten every thirty seconds by the clock ("Checked 4 min ago"), and
+    # a screen reader does not want to hear that: the announcement is keyed on the REASON.
+    _sev("clear()")
+    ev("root.nowMs = Date.now() + 3600000")
+    p.pump(80)
+    p.check("...and the clock rewriting that line says nothing at all", said(), [])
+    ev("root.refreshClock()")
+    p.pump(50)
+    p.check("...and the reason is on the button that would try again",
+            str(lev("refreshButton.PlasmaComponents.ToolTip.text")).endswith(
+                str(ev("root.vm.staleReason"))), True)
+    p.check("...for a screen reader too, since a tooltip is a pointer's channel",
+            str(lev("refreshButton.Accessible.description")).endswith(
+                str(ev("root.vm.staleReason"))), True)
 
     state(UPTODATE)
     stack("with nothing at all pending")
@@ -1166,9 +1323,12 @@ if live is not None:
     state(fixture("state-live.json"))
     ev('root.actionMessage = "Could not change the hold on bash."')
     p.pump(50)
-    stack("after a button press that failed", "actionFailureMessage")
+    stack("after a button press that failed", "reportMessage")
     p.check("...saying what failed, in the words main.qml was given",
-            lev("actionFailureMessage.text"), "Could not change the hold on bash.")
+            lev("reportMessage.text"), "Could not change the hold on bash.")
+    p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
+    p.check("...with no Show Log on it, because a failed press wrote no log",
+            lev("reportMessage.actions[0].visible"), False)
     ev('root.actionMessage = ""')
     p.pump(50)
 
@@ -1322,6 +1482,21 @@ if live is not None:
     state(fixture("state-risky-heavy.json"))
     p.check("the session-critical message says what to DO about it",
             lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
+    # Information, not Warning. Nothing is wrong: there is a safer of two ways to do this, and an
+    # amber box above a button labelled Install on Next Restart read as an order to restart now
+    # (hostile panel, first-run 3).
+    p.check("...as Information, because nothing is broken - one path is safer than the other",
+            lev("riskyMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...in the sentence that recommends the button standing under it",
+            lev("riskyMessage.text"),
+            "This update includes a kernel. The safest way is to install it on the next restart,"
+            " so nothing changes under the running desktop.")
+    p.check("...never telling anybody to restart when something unnamed finishes",
+            "Restart when it finishes" in str(lev("riskyMessage.text")), False)
+    # Two restart-shaped buttons used to share `system-reboot` and sit adjacent, one opening KDE's
+    # logout prompt and the other staging a transaction (hostile panel, M3).
+    p.check("...under the icon for installing software, not the one for restarting a machine",
+            lev("riskyMessage.actions[0].icon.name"), "system-software-update")
     p.check("...and not the count sentence as well, which for a kernel-free set is the same words",
             lev("riskyMessage.text") == ev("root.vm.riskySummary"), False)
     p.check("...offering the offline install under a name that is not dnf jargon",
@@ -1339,11 +1514,13 @@ if live is not None:
 
     # --- the stale explanation --------------------------------------------------------------------------
     state(fixture("state-stale.json"))
-    p.check("the stale message is an explanation, not an alarm",
-            lev("staleMessage.type"), lev("Kirigami.MessageType.Information"))
-    p.check("...carrying the CLI's own reason and the age of the counts under it",
-            lev("staleMessage.text"),
-            "dnf check failed (last successful check: 2026-08-25 10:59 +03:00)")
+    p.check("staleness is not a message at all any more: the popup fits two, and this was the fifth",
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), [])
+    p.check("...the fact is on the footer's dateline",
+            "last check failed" in str(lev("footerLabel.text")), True)
+    p.check("...and the CLI's own reason, which is what a person has to act on, is one hover from "
+            "the button that acts", "dnf check failed"
+            in str(lev("refreshButton.PlasmaComponents.ToolTip.text")), True)
 
     # --- the post-run line -------------------------------------------------------------------------------
     state(fixture("state-live.json"))
@@ -1352,11 +1529,11 @@ if live is not None:
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run that worked reports as a positive message",
-            lev("postRunMessage.type"), lev("Kirigami.MessageType.Positive"))
-    p.check("...saying what the run actually did", lev("postRunMessage.text"),
+            lev("reportMessage.type"), lev("Kirigami.MessageType.Positive"))
+    p.check("...saying what the run actually did", lev("reportMessage.text"),
             "Updated 4 packages in 2s")
     xdg_before = len(records("xdg-open"))
-    lev("postRunMessage.actions[0].trigger()")
+    lev("reportMessage.actions[0].trigger()")
     settle()
     p.check("...and its Show Log opens that run's own log", last_record("xdg-open"),
             [LAST_RUN["log"]])
@@ -1370,8 +1547,8 @@ if live is not None:
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run that failed reports as an error instead",
-            lev("postRunMessage.type"), lev("Kirigami.MessageType.Error"))
-    p.check("...in the CLI's own worked-out reason", lev("postRunMessage.text"),
+            lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
+    p.check("...in the CLI's own worked-out reason", lev("reportMessage.text"),
             "Update failed: dnf5 exited 1 - could not resolve the transaction")
 
     nolog = dict(LAST_RUN)
@@ -1382,7 +1559,7 @@ if live is not None:
     ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
     p.pump(50)
     p.check("a run old enough to have lost its log offers no Show Log to press",
-            lev("postRunMessage.actions[0].visible"), False)
+            lev("reportMessage.actions[0].visible"), False)
     open(RUNJSON, "w").write(json.dumps(LAST_RUN))
     ev("root.loadLastRun()")
     settle()
@@ -1460,11 +1637,37 @@ if live is not None:
                 '  var hit = walk(o.children[i]); if (hit !== null) return hit; }'
                 ' return null; })(it)' % predicate)
 
-    HEADER_ROW = {"kind": "header", "title": "System (dnf)"}
+    # The heading is wrapped now: a ColumnLayout carrying Plasma's own section header and, under
+    # the Held one only, the line that tells a dnf user a hold is Kempt's own list.
+    SECTION = ('(function find(o) {'
+               ' if (o.label !== undefined && String(o.label) !== "") return o;'
+               ' for (var i = 0; i < o.children.length; i++) {'
+               '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
+               ' return null; })(it)')
+    HEADER_ROW = {"kind": "header", "title": "System (dnf)", "held": False}
+    HELD_HEADER_ROW = {"kind": "header", "title": "Held", "held": True}
     p.check("a group header is Plasma's own ListSectionHeader, not a bare Heading",
-            row(HEADER_ROW, 'String(it).indexOf("ListSectionHeader") >= 0'), True)
+            row(HEADER_ROW, 'String(%s).indexOf("ListSectionHeader") >= 0' % SECTION), True)
     p.check("...carrying the group's name in the property that component documents",
-            row(HEADER_ROW, "it.label"), "System (dnf)")
+            row(HEADER_ROW, "(%s).label" % SECTION), "System (dnf)")
+    p.check("...and handing that name to a screen reader, which the component itself refuses to "
+            "do: Kirigami marks its own label Accessible.ignored",
+            row(HEADER_ROW, "(%s).Accessible.name" % SECTION), "System (dnf)")
+    p.check("...as a heading, which is what a screen reader navigates a list by",
+            row(HEADER_ROW, "(%s).Accessible.role === Accessible.Heading" % SECTION), True)
+    # The extra line, and where it must NOT be. A backend section that grew it would be telling a
+    # person their pending updates are skipped.
+    KEMPT_ONLY = ('(function find(o) {'
+                  ' if (o.text !== undefined'
+                  '     && String(o.text) === "Held packages are skipped by Kempt only.")'
+                  '   return o.visible;'
+                  ' for (var i = 0; i < o.children.length; i++) {'
+                  '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
+                  ' return null; })(it)')
+    p.check("the Held heading carries the line that says a hold is Kempt's own list",
+            row(HELD_HEADER_ROW, KEMPT_ONLY), True)
+    p.check("...and a backend section does not, because its rows are not skipped at all",
+            row(HEADER_ROW, KEMPT_ONLY), False)
 
     # What a power user compares between two machines: the epoch, the release and the vendor tag all
     # carry meaning, and eliding the tail throws away exactly the half that differs.
@@ -1482,6 +1685,22 @@ if live is not None:
             row(ITEM_ROW, "(%s).wrapMode !== Text.NoWrap" % version), True)
     p.check("...while the package name still elides, so a long one cannot push the pin off the row",
             row(ITEM_ROW, "(%s).elide === Text.ElideRight" % name), True)
+
+    # A package that is not installed yet. The CLI writes "?" for its current version and the row
+    # drew "? → 9.9.9-1.fc44", which reads as "the widget does not know" (hostile panel, first-run
+    # and a11y S4). The DATA keeps the sentinel; the row draws the word.
+    NEW_ROW = {"kind": "item", "name": "brandnew", "from": "?", "to": "1.0-1.fc44",
+               "held": False, "backend": "dnf"}
+    new_version = labelled('String(o.text).indexOf("1.0-1.fc44") >= 0')
+    p.check("a package with no current version reads as new rather than as a question mark",
+            row(NEW_ROW, "(%s).text" % new_version), "new → 1.0-1.fc44")
+    p.check("...and says the same thing to a screen reader",
+            row(NEW_ROW, "(%s).Accessible.name" % new_version), "from new to 1.0-1.fc44")
+    # ...and its padlock offers the only thing a hold can mean there: do not install it at all.
+    new_pin = labelled('String(o.text).indexOf("brandnew") >= 0'
+                       ' && o.animateClick !== undefined')
+    p.check("...while the padlock offers a refusal to install rather than a hold at no version",
+            row(NEW_ROW, "(%s).text" % new_pin), "Skip installing brandnew")
 
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
@@ -1528,8 +1747,16 @@ p.check("...and the answer it computes is read exactly twice, by the gear and th
 
 # The group header's property. `label` is what ListSectionHeader documents and what its own example
 # uses; the pin is here because this is a one-word seam that a reviewer cannot see from the popup.
-p.check("the group header sets the property ListSectionHeader documents",
-        "PlasmaExtras.ListSectionHeader { label: modelData.title }" in _src, True)
+p.check("the group header sets the property ListSectionHeader documents, and the two the "
+        "component itself refuses to expose",
+        "PlasmaExtras.ListSectionHeader { Layout.fillWidth: true label: modelData.title"
+        " Accessible.role: Accessible.Heading Accessible.name: modelData.title }"
+        in _code_src, True)
+# ...and decides which heading gets the Kempt-only line from the ROW's own flag, never from its
+# title: the title is a string a translator will change, and a comparison against the literal
+# "Held" would silently stop matching in every other language.
+p.check("...and the Held line is gated on the row's flag rather than on the word Held",
+        "visible: modelData.held === true" in _code_src, True)
 
 # Founder amendment A1: the message a person can turn off must also be one they can close.
 p.check("the restart message carries a close button", "showCloseButton: true" in _src, True)
@@ -1557,24 +1784,46 @@ for _name in sorted(os.listdir(harness.UI)):
     if _name.endswith(".qml"):
         _QML_SRC += " " + " ".join(open(os.path.join(harness.UI, _name)).read().split())
 
+# ...and the third bucket, which is neither: a sentence with a name in it that the QML substitutes
+# itself. `i18n("Holding %1", name)` is one translatable unit with an argument, so the literal a
+# translator extracts ends at the comma rather than at the closing bracket - which is the only
+# thing that makes these different from the labels below.
+_SUBSTITUTED_IN_QML = {
+    "holdAnnounce",         # -> popup.announce, when a hold has landed
+    "unholdAnnounce",       # -> popup.announce, when one has been lifted
+    "holdAt",               # -> the padlock's name and tooltip on a pending row
+    "stopHolding",          # -> ...on a held one, and the settings page's remove button
+    "skipInstalling",       # -> ...on a row whose package is not installed yet
+    "stopSkipping",         # -> ...and its way out
+    "versionRange",         # -> the version line's accessible name
+}
+
 _ASSEMBLED_IN_LOGIC = {
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message
     "kernelRestart",        # -> riskyMessageOf -> vm.riskyMessage
     "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.riskyMessage
+    "riskySessionOne",      # -> riskyMessageOf -> vm.riskyMessage (the family list goes in)
+    "riskySessionMore",     # -> riskyMessageOf -> vm.riskyMessage (a count and the family list)
     "held",                 # -> vm.footerText and vm.tooltipSub
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText
+    "lastCheckFailed",      # -> vm.footerText, beside the date it explains
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
+    "stagedHeaderOne",      # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
+    "stagedHeaderTail",     # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
+    "stagedHeaderUnknown",  # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
+    "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineMissingCopyText: a clipboard payload of shell commands,
                             #    bound as data - and never a translatable unit at all
@@ -1585,6 +1834,10 @@ p.check("every string said to be assembled in logic.js is still in the copy tabl
         sorted(k for k in _ASSEMBLED_IN_LOGIC if k not in _COPY), [])
 for _key in sorted(_COPY):
     if _key in _ASSEMBLED_IN_LOGIC:
+        continue
+    if _key in _SUBSTITUTED_IN_QML:
+        p.check("the widget writes the agreed `%s` as a literal with its argument after it" % _key,
+                'i18n("%s", ' % _COPY[_key] in _QML_SRC, True)
         continue
     p.check("the widget writes the agreed `%s` as a literal a translator can extract" % _key,
             'i18n("%s")' % _COPY[_key] in _QML_SRC, True)

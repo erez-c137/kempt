@@ -25,7 +25,35 @@ PlasmoidItem {
     // measured from here - see Logic.watcherCheckDue and pollWatch. A `double`, not an `int`:
     // Date.now() is milliseconds since 1970 and does not fit in QML's 32-bit int.
     property double lastCheckFinished: 0
-    property bool holdInFlight: false      // a hold/unhold is running; the pins go inert meanwhile
+    // The hold whose ROUND TRIP is not finished: {backend, name}, or null. Deliberately not "a
+    // hold command is running": it stays set through the follow-up check as well, because the row
+    // does not move until that check lands, and the window in between is where the damage was.
+    //
+    // It replaces a global `holdInFlight` that every pin read as `enabled: !busy`, and the change
+    // is the whole of the hostile panel's finding 2. Qt strips focus from a control the instant it
+    // is disabled, so the keyboard left the pressed pin 30 ms after Space and landed on the
+    // delegate's anonymous Loader (a11y P1); meanwhile the row went on saying "Hold" and accepted
+    // a second press, and a second `hold dnf:<name>` really did reach the CLI (a11y P9). Naming
+    // the ONE row that is pending is what lets that row keep its button enabled and focused while
+    // the others stand down, and what lets its own handler refuse the duplicate at no cost to the
+    // keyboard.
+    property var pendingHold: null
+
+    // The last hold that failed: {backend, name, text}. Reported IN THAT ROW, under the version,
+    // rather than as a message at the top of the stack - see COPY.holdFailed. Cleared by the next
+    // press and by the next check, because it is a fact about one press and not about the box.
+    property var holdError: null
+
+    // A one-shot continuation for the next check that COMPLETES. setHold uses it to hold
+    // `pendingHold` open until the row has really moved, and it survives a coalesced re-check: if
+    // doCheck decides to run a second check, this stays set and fires after that one. The answer
+    // a caller is waiting for is the answer that includes its own write.
+    property var afterCheck: null
+
+    // What the popup says out loud when a hold finishes. This file owns the round trip, so it owns
+    // the news; what a surface DOES about it is that surface's business - the same split as
+    // popupShown(). `message` carries the sentence to speak when `ok` is false.
+    signal holdOutcome(string name, bool hold, bool ok, string message)
     // How many times we have re-asked after a check that answered with NOTHING. `kempt check`
     // prints an empty line and exits 0 when another check already holds the lock, and on a fresh
     // login that is the ordinary case rather than the exotic one: the CLI's own refresh is very
@@ -117,6 +145,26 @@ PlasmoidItem {
     // persistent Last update row is hidden, and it clears when the popup closes or a check starts.
     property string postRunLine: ""
 
+    // Which of the two reports is the LATEST, and therefore the one the popup shows: "run" for
+    // postRunLine, "failure" for actionMessage, "" for neither. They used to be two InlineMessages
+    // stacked one above the other, in a popup that fits two messages in total (hostile panel, M2).
+    //
+    // Kept as a third property rather than as a timestamp on each, because these two are assigned
+    // from a dozen places between them and a stamp that one assignment forgot would silently pick
+    // the wrong winner. A change handler cannot be forgotten: it fires on every assignment there
+    // is, including the ones that clear.
+    property string reportLatest: ""
+    onActionMessageChanged: reportLatest = actionMessage.length > 0 ? "failure"
+                            : (postRunLine.length > 0 ? "run" : "")
+    onPostRunLineChanged: reportLatest = postRunLine.length > 0 ? "run"
+                          : (actionMessage.length > 0 ? "failure" : "")
+    readonly property string reportText: reportLatest === "failure" ? actionMessage
+                                         : (reportLatest === "run" ? postRunLine : "")
+    // A failed press is an error; a run is an error when the run failed, whatever its counts say.
+    readonly property bool reportFailed:
+        reportLatest === "failure"
+        || (reportLatest === "run" && lastRun !== null && lastRun.failed)
+
     // When the run we are watching STARTED, as milliseconds. Only meaningful while `updating` is
     // true, and 0 means we never saw one start.
     //
@@ -126,6 +174,20 @@ PlasmoidItem {
     // Logic.runFinishedSince check that the entry we got back is actually from after we started
     // watching, rather than the run before it.
     property double updateStartedMs: 0
+
+    // Which surface the run IN FLIGHT is using - one of the CLI's four, or "" when nothing is
+    // running. Deliberately not `effectiveSurface`, which is what a run started NOW would use: the
+    // pane used to read the configured value and say "Updating in the terminal surface…" over a
+    // staging run started from Install on Next Restart, and it kept saying whatever the settings
+    // said even when the settings changed mid-run.
+    property string runningSurface: ""
+
+    // A `kempt run` has been asked for and has not come back yet. Not the same as `updating`,
+    // which only begins once that call succeeds: `run` launches the surface and returns, and it is
+    // allowed fifteen seconds to do it. In that window the button stayed enabled and the guard at
+    // the top of startUpdate tested `updating`, which was still false - so a double press opened
+    // two terminals, both asking the risky question (hostile panel, 14).
+    property bool runRequested: false
 
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
     // popup is open and never while it is shut. 0 means "no clock yet", which logic.js answers by
@@ -144,7 +206,12 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
-                                                engineMissing: engineMissing })
+                                                engineMissing: engineMissing,
+                                                // The one input logic.js cannot derive: the
+                                                // post-run line and a failed press are this
+                                                // file's own state, not the CLI's, and the
+                                                // message cap has to see them.
+                                                reportShown: reportText.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -222,6 +289,10 @@ PlasmoidItem {
         // the whole plasmashell session, over a machine that had been checked several times since
         // and might no longer owe a restart at all.
         restartError = "";
+        // ...and the same rule for the row-level one. A hold that failed is about one press on one
+        // package; a check is the next event, and the row it is drawn under is about to be rebuilt
+        // from a fresh answer anyway.
+        holdError = null;
         // Asked again while one is running: coalesce, never drop. Dropping looks harmless because
         // the running check will finish anyway - but its answer was read BEFORE the change that
         // asked for this one, and the re-baseline below would then swallow that change as if we
@@ -285,6 +356,11 @@ PlasmoidItem {
                 root.doCheck();
                 return;
             }
+            // The answer is applied and no follow-up check is queued behind it, so anything that
+            // was waiting for a check to LAND is free now. Before the bounded retry below on
+            // purpose: that branch waits ten seconds before asking again, and a pin left spinning
+            // for ten seconds is the very state this replaced.
+            root.runAfterCheck();
             // Still nothing to show, and nothing of our OWN to report either (a CLI that failed
             // sets cliError and the popup says so - that is an answer, and re-asking would not
             // change it; an absent engine is the same, and the retry would only re-fail every ten
@@ -303,6 +379,15 @@ PlasmoidItem {
             root.firstCheckRetries = 0;
             firstCheckRetry.stop();
         });
+    }
+
+    // The one-shot continuation above, run and forgotten. Cleared BEFORE it is called, so a
+    // continuation that itself starts a check cannot be handed its own leftovers.
+    function runAfterCheck() {
+        if (afterCheck === null) return;
+        var done = afterCheck;
+        afterCheck = null;
+        done();
     }
 
     // One stat of the watched paths. `triggerCheck` is what separates the 30s watcher (which must
@@ -432,11 +517,15 @@ PlasmoidItem {
     // every check and every pin behind it, and the kill timer would only disconnect the reader
     // anyway: the child would keep running, unwatched.
     function startUpdate() {
-        if (updating) return;
+        if (updating || runRequested) return;
+        runRequested = true;
         actionMessage = "";
         executor.run(kemptCmd + " run", 15000, function(stdout, stderr, rc) {
+            root.runRequested = false;
             if (rc === 0) {
-                root.enterUpdating();
+                // The surface the CLI just launched, remembered for the pane. Read here rather
+                // than in the pane, because the setting can change while the run is in flight.
+                root.enterUpdating(root.effectiveSurface);
                 return;
             }
             // The CLI's own words. rc 4 is a missing terminal emulator and its message carries the
@@ -460,7 +549,8 @@ PlasmoidItem {
         executor.run("setsid sh -c " + Logic.shellQuote(kemptCmd + " update --surface=offline")
                      + " >/dev/null 2>&1 &", 10000,
                      function(stdout, stderr, rc) {
-            if (rc === 0) root.enterUpdating();
+            // Offline whatever the configured surface says: this command carries --surface=offline.
+            if (rc === 0) root.enterUpdating("offline");
             else root.actionMessage = Logic.firstLineOf(stderr) || "Could not stage the offline update.";
         });
     }
@@ -527,7 +617,7 @@ PlasmoidItem {
                          + Logic.shellQuote(root.kemptCmd + " update --surface=offline")
                          + " >/dev/null 2>&1 &", 10000,
                          function(stdout2, stderr2, rc2) {
-                if (rc2 === 0) root.enterUpdating();
+                if (rc2 === 0) root.enterUpdating("offline");
                 else root.actionMessage = Logic.firstLineOf(stderr2)
                                           || "Could not rebuild the staged update.";
             });
@@ -538,17 +628,31 @@ PlasmoidItem {
     // so it is quoted - see Logic.shellQuote. Nothing about a hold is stored in the widget: the
     // CLI owns the holds file, and the re-check is what moves the row between groups.
     function setHold(backend, name, hold) {
-        if (holdInFlight) return;
-        holdInFlight = true;
+        // One hold at a time, and this guard is what the other rows' disabled state is FOR. The
+        // pressed row keeps its button live so it can keep the keyboard, which means a second
+        // press on the pending package is a press this widget really does receive - and it has to
+        // reach the CLI as nothing at all.
+        if (pendingHold !== null) return;
+        pendingHold = { backend: backend, name: name };
+        holdError = null;
         actionMessage = "";
         var verb = hold ? " hold " : " unhold ";
         executor.run(kemptCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
                      function(stdout, stderr, rc) {
-            root.holdInFlight = false;
             if (rc !== 0) {
-                root.actionMessage = Logic.firstLineOf(stderr) || "Could not change the hold on " + name + ".";
+                // In the row, not at the top of the stack - and said out loud, because a row is
+                // where the person is standing and a message 300 px away is not a report.
+                var msg = Logic.firstLineOf(stderr)
+                          || Logic.COPY.holdFailed.split("%1").join(name);
+                root.holdError = { backend: backend, name: name, text: msg };
+                root.pendingHold = null;
+                root.holdOutcome(name, hold, false, msg);
                 return;
             }
+            // The row moves when the CHECK lands, not when this call returns, so the pending state
+            // stays set until then. That is the whole window the duplicate `hold` lived in.
+            root.afterCheck = function () { root.pendingHold = null;
+                                            root.holdOutcome(name, hold, true, ""); };
             root.doCheck();
         });
     }
@@ -622,7 +726,10 @@ PlasmoidItem {
 
     // --- the updating state ----------------------------------------------------------------------
 
-    function enterUpdating() {
+    function enterUpdating(surface) {
+        // Resolved, so this is always one of the four the CLI knows while a run is in flight and
+        // the pane can switch on it without a fifth branch for "we do not know".
+        runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
         // Noted BEFORE anything is launched, so the entry the run writes can only ever be stamped
         // at or after this - see updateStartedMs, and Logic.runFinishedSince for the comparison.
@@ -630,12 +737,13 @@ PlasmoidItem {
         logTail = "";
         logPath = "";
         updateGuard.restart();
-        if (effectiveSurface === "popup") findLog();
+        if (runningSurface === "popup") findLog();
     }
 
     function leaveUpdating() {
         if (!updating) return;
         updating = false;
+        runningSurface = "";
         updateGuard.stop();
         // The transient line is DERIVED from the entry, so the entry has to arrive first. The
         // executor is callback-based, so "first" means inside the callback - setting the line
@@ -654,6 +762,24 @@ PlasmoidItem {
         });
     }
 
+    // The way out of an updating state nothing is going to end.
+    //
+    // A run ends when the CLI writes state.json. A terminal run that is aborted - which is the
+    // DEFAULT answer to the one question Kempt asks, on the default configuration - exits before
+    // the CLI's own post-run check, and so does closing the window; nothing is written, so the
+    // popup sat on an empty pane with no list, no Update Now and a disabled Refresh until the
+    // three-hour guard fired (hostile panel, finding 1). The engine half of this fixes the wrapper;
+    // this is the half a person can press.
+    //
+    // The updating state is left when the check LANDS rather than at the press, so the popup comes
+    // back with fresh counts rather than with the ones it had before the run. afterCheck is the
+    // same one-shot the hold round trip uses.
+    function checkAgain() {
+        if (!updating || checking) return;
+        afterCheck = function () { root.leaveUpdating(); };
+        doCheck();
+    }
+
     // The newest log file, found once per run.
     // stateDir is NOT shellQuote'd, and that distinction is the whole rule: it is a shell
     // expression this file wrote, whose ${...} expansion is the point of it, and single quotes
@@ -669,7 +795,9 @@ PlasmoidItem {
     }
 
     function pollLog() {
-        if (!updating || effectiveSurface !== "popup" || logPath === "") return;
+        // The RUNNING surface, not the configured one: a settings change mid-run does not move
+        // where the transaction already in flight is writing.
+        if (!updating || runningSurface !== "popup" || logPath === "") return;
         // One tail in flight at a time. The timer ticks every 2 seconds, and a `tail` that takes
         // longer than that - a loaded box, a log on a slow disk, an executor already sitting on
         // its 10-second timeout - would have the next tick queued behind it before it came back,
@@ -839,7 +967,7 @@ PlasmoidItem {
         repeat: true
         // Only while a run is actually in flight AND the output is meant to land here. On any
         // other surface this never starts, so there is no tail process at all.
-        running: root.updating && root.effectiveSurface === "popup" && root.expanded
+        running: root.updating && root.runningSurface === "popup" && root.expanded
         onTriggered: root.pollLog()
     }
 
@@ -853,6 +981,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             root.updating = false;
+            root.runningSurface = "";
             root.actionMessage = "Stopped waiting for the update to report back. Check: kempt summary";
             root.doCheck();
         }

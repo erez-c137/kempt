@@ -99,8 +99,13 @@ Item {
             switch (compactRoot.iconState) {
             case "updates": return "update-low";
             case "stale":   return compactRoot.badgeVisible ? "update-low" : "update-none";
-            case "error":   return "update-high";
-            default:        return "update-none";   // uptodate, updating, unknown
+            // NOT update-high. Plasma's own notifier uses the high icon for SECURITY updates, so
+            // a Plasma user who sees it opens the popup expecting security fixes and reads "Kempt
+            // cannot check for updates" (hostile panel, 4). The error state is drawn by the
+            // warning emblem hanging off the icon below, which is a statement about the widget
+            // rather than about the transaction; update-high is reserved for a future security
+            // classification, which is the one thing that would earn it.
+            default:        return "update-none";   // error, uptodate, updating, unknown
             }
         }
         // Dimmed means "we do not know yet", which is a different statement from "up to date".
