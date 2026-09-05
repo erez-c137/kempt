@@ -620,13 +620,20 @@ grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$REPO_RO
 # was downloaded and never armed - with every surface reporting a pending install that no restart
 # could deliver, and nothing anywhere able to say so.
 D_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
+# Armed is TWO things - dnf5 at `ready` AND the /system-update symlink - and the sandbox pins the
+# symlink at a path that does not exist, because that is the state of every box that has not just
+# staged something. So the whole staged section below runs with a live one, and the cases that are
+# ABOUT the symlink being gone point the seam back at nothing themselves.
+export KEMPT_OFFLINE_LINK="$TESTTMP/armed-system-update"
+ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
+NO_LINK="$TESTTMP/no-system-update"
 mkdir -p "$KEMPT_STATE_DIR"
 doctor_out() { "$KEMPT" doctor > "$TESTTMP/staged.txt" 2>&1 || true; }
 
 # Nothing staged and no marker: nothing to say, and doctor does not say it. A line per run about a
 # transaction that does not exist is noise on every box that has never staged one.
 rm -f "$D_MARKER"
-doctor_out
+KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out   # nothing staged means no symlink either
 grep -qiE '^(ok|info|FAIL)  .*staged' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a box with nothing staged still reported on it"; _fail=1; } \
   || echo "ok: no staged transaction, no line about one"
@@ -675,7 +682,7 @@ grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
 
 # A marker whose transaction is gone. Nothing for the user to do: the next check clears it, and
 # saying so is more useful than either silence or an alarm.
-KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" doctor_out
+KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
 grep -qE '^info  staged update: the transaction is gone' "$TESTTMP/staged.txt" \
   && echo "ok: a marker with no transaction left is reported, and not as a problem" \
   || { echo "FAIL: no gone-transaction line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
@@ -880,10 +887,31 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "2" \
 
 # No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
 # this the two conditions could be read as one and the check would fire on the toml alone.
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
 assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "1" \
   "no boot symlink, no symlink row - the unarmed transaction is reported once"
+# The INVERSE of the row above, and it had no row at all: dnf5 says `ready` and the symlink is
+# GONE. Arming is both, systemd removes the symlink once system-update.target has been reached,
+# and only `dnf5 offline reboot` makes it again - so this transaction installs on no restart,
+# ever. Every surface used to call it a pending install and doctor exited 0.
+printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":7,"armed":true}\n' > "$D_MARKER"
+assert_exit 1 "a ready transaction with no boot symlink fails the checkup" \
+  env KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+grep -qF 'staged update can never install: dnf5 says "ready" but' "$TESTTMP/last_output" \
+  && echo "ok: ...and the row says the transaction can never install" \
+  || { echo "FAIL: no ready-without-symlink row"; _fail=1; grep -i staged "$TESTTMP/last_output" | sed 's/^/    /'; }
+grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
+  && echo "ok: ...and offers the re-stage that fixes it" \
+  || { echo "FAIL: the row does not say how to re-arm it"; _fail=1; }
+# ...and with the symlink there, the same transaction is fine. The two conditions are one row, and
+# reading them as one would make every armed stage a failure.
+assert_exit 0 "the same transaction with its symlink standing is not a problem" \
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
+
 rm -f "$D_MARKER" "$D_LINK"
+# ...and out of the staged section: back to a box with no restart marker, which is what every
+# case below assumes and what a box that has not just staged something actually looks like.
+export KEMPT_OFFLINE_LINK="$NO_LINK"
 
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops
 # at the first failure sends the user round the loop once per problem.

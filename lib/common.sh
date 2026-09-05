@@ -910,6 +910,12 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
   [[ "$(offline_system_status)" == ready ]] || return 0
+  # A marker the harvest has DEMOTED describes a stage that cannot install, whatever dnf5's status
+  # still says - the `ready` transaction whose /system-update symlink is gone is exactly that, and
+  # the status gate above cannot see it. Publishing it anyway would re-make the promise
+  # reconcile_detour_stage exists to withdraw, on every check, for good.
+  # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
+  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
   local names="" names_source=none
   if names="$(offline_txjson_names)"; then
     names_source=transaction
@@ -954,6 +960,9 @@ offline_stage_built_without() {  # name → 0 when an armed stage left it out
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 1
   [[ "$(offline_system_status)" == ready ]] || return 1
+  # Same demote gate as offline_staged_state: a stage that can no longer install cannot have
+  # missed anything the user is about to release.
+  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 1
   if jq -e '(.staged_excluded | type) == "array"' <<<"$marker" >/dev/null 2>&1; then
     jq -e --arg n "$1" '.staged_excluded | index($n)' <<<"$marker" >/dev/null 2>&1
     return

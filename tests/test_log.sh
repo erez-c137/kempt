@@ -184,6 +184,9 @@ assert_eq "$(events_like ' run done ')" "0" \
 jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$KEMPT_STATE_DIR/offline_staged.json" \
   > "$TESTTMP/m.json" && mv "$TESTTMP/m.json" "$KEMPT_STATE_DIR/offline_staged.json"
 cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"     # the transaction applied during boot
+# ...and applying it removed dnf5's transaction with it, which is the other half of "applied":
+# a moved package set with the transaction still armed is something else having moved it.
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
 : > "$EV"
 "$KEMPT" check >/dev/null
 assert_eq "$(events_like '^.* harvest applied ')" "1" \

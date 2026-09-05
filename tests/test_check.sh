@@ -479,15 +479,18 @@ stage_marker boot-before-reboot 61
 assert_exit 0 "a rebooted box with no transaction left stops waiting for it" -- test ! -f "$marker"
 assert_eq "$(events_since 'offline marker cleared (stage gone)')" "2" "...and says so the same way"
 
-# ...and the same shape with the transaction STILL THERE stays pending, which is the whole reason
-# the branch above needs the toml: a reboot that did not get round to installing it (the user
-# chose "Restart Later" at the offline-update screen, or the transaction is queued for the next
-# one) must not have its marker thrown away.
+# ...and the same shape with the transaction STILL THERE and STILL ARMED stays pending, which is
+# the whole reason the branch above needs the toml: a reboot that has not yet got round to running
+# the transaction must not have its marker thrown away. Armed is TWO things - `ready` and the
+# /system-update symlink - so the symlink has to be there for this to be that case.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+LIVE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$LIVE_LINK"
+export KEMPT_OFFLINE_LINK="$LIVE_LINK"
 stage_marker boot-before-reboot 61
 "$KEMPT" check >/dev/null
 assert_exit 0 "an untouched transaction after a reboot is still pending" -- test -f "$marker"
 assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and is still published as one"
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
 rm -f "$marker" "$pre"
 
 # No marker at all: an offline transaction somebody else staged is not Kempt's to announce.
@@ -562,6 +565,43 @@ KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" detour_check
 assert_eq "$(cat "$notify_log")" "" "a download-complete stage in this boot is a stage in flight, not a dead one"
 assert_eq "$(events_since 'offline stage cannot install')" "1" "...so nothing new is announced"
 assert_eq "$(jq -Sc . "$marker")" "$inflight_marker" "...and the marker is left alone"
+# The state nothing used to name at all: `ready`, with the /system-update symlink GONE. Arming is
+# TWO things - the status and the symlink - and Kempt read the symlink in exactly one place, in
+# one direction, inside doctor. systemd.offline-updates(7) is explicit that the symlink is the
+# mechanism and that systemd removes it once system-update.target has been reached, so a boot that
+# has been and gone leaving the status at `ready` is a boot that did not run the transaction and
+# never will: only `dnf5 offline reboot` makes that symlink again. The popup said "installs on the
+# next restart" after every restart, forever, and `kempt doctor` exited 0 the whole time.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+before_dead="$(events_since 'offline stage cannot install')"
+stage_marker boot-before-reboot 61
+: > "$notify_log"
+detour_check
+assert_exit 0 "a ready transaction with no restart marker keeps its marker for the doctor" -- test -f "$marker"
+assert_eq "$(jq -r '.armed' "$marker")" "false" "...but the marker is demoted, so no surface promises it"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "...and it stops being published as a pending install"
+grep -q 'can no longer install' "$notify_log" \
+  && echo "ok: ...and the user is told, in the same words the detour uses" \
+  || { echo "FAIL: no announcement for a ready transaction that cannot install"; _fail=1; }
+assert_eq "$(events_since 'offline stage cannot install')" "$((before_dead + 1))" \
+  "...exactly once, not once per check"
+: > "$notify_log"
+detour_check
+assert_eq "$(cat "$notify_log")" "" "a second check says nothing more about it"
+# ...and while the symlink IS there, the same transaction is still a pending install: this must
+# not become "any ready stage is dead".
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
+stage_marker boot-before-reboot 61
+detour_check
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
+  "a ready transaction whose restart marker still stands is still pending"
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
+stage_marker boot-before-reboot 61
+detour_check   # back to the demoted state the announce-once cases below expect
+rm -f "$marker" "$pre"
+
 rm -f "$marker" "$pre"
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 

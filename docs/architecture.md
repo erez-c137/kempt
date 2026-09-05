@@ -393,17 +393,31 @@ restarts anything itself.
 **Harvesting.** The next `kempt check` reconciles, inside the check lock, before anything reads
 the world (`harvest_offline`):
 
-| Marker | dnf5 status | Boot | Package set | Outcome |
-| --- | --- | --- | --- | --- |
-| yes | ready / any non-absent | same as staged | - | Still pending. Nothing happens |
-| yes | absent | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
-| yes | absent | different | unchanged | The transaction was thrown away. Clear the marker - this used to be a permanent dead end, waiting forever for an apply that had already been discarded |
-| yes | ready | different | unchanged | Still pending: the restart declined the offline update, or it is queued for the next one |
-| yes | present, not `ready` | different | unchanged | **Detour boot.** Announce once, demote the marker to `armed: false`, never clear |
-| yes | any | different | changed | **Harvested**: one history entry, surface `offline (applied on reboot)`, diffed against the marker's own snapshot copy |
+| Marker | dnf5 status | `/system-update` | Boot | Package set | Outcome |
+| --- | --- | --- | --- | --- | --- |
+| yes | ready / any non-absent | - | same as staged | - | Still pending. Nothing happens |
+| yes | absent | - | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
+| yes | absent | - | different | unchanged | The transaction was thrown away. Clear the marker - this used to be a permanent dead end, waiting forever for an apply that had already been discarded |
+| yes | ready | present | different | unchanged | Still pending: the restart has not got round to running it |
+| yes | ready | **gone** | different | unchanged | **Detour boot.** The symlink is half of arming and systemd removes it once `system-update.target` is reached, so a boot that has been and gone leaving `ready` behind is one that walked past this transaction. Announce once, demote to `armed: false`, never clear |
+| yes | present, not `ready` | - | different | unchanged | **Detour boot.** Same three rules |
+| yes | absent | - | different | changed | **Harvested**: one history entry, surface `offline (applied on reboot)`, diffed against the marker's own snapshot copy |
+| yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker is left where it is |
 
-The boot session is the gate rather than the package set, because "the installed set moved" was
-never evidence that the stage applied - a live run, or a manual `dnf install`, moves it too.
+Two gates, and neither is the package set on its own.
+
+The boot session is the first, because "the installed set moved" was never evidence that the stage
+applied - a live run, or a manual `dnf install`, moves it too.
+
+**dnf5's own transaction is the second**, and it is the one that says an apply really happened:
+applying an offline transaction removes all three of the state toml, `transaction.json` and
+`/system-update` (verified against dnf5 5.4.3 by running `dnf5 offline _execute`, the command the
+offline environment itself runs). So while any of that is still on the box, a package set that
+moved across a reboot means something ELSE moved it - `sudo dnf5 upgrade` typed in a terminal,
+`dnf-automatic`, GNOME Software. Harvesting there wrote a history entry naming the other tool's
+packages, announced "Staged updates were applied on reboot", and deleted the marker and baseline
+of a transaction that was still armed and still going to install on the next restart - after which
+no surface mentioned it again and `kempt doctor` called it "staged outside Kempt".
 
 **Reconciling a detour boot.** A transaction that is present but not `ready`, across a boot that
 changed, with the package set where the stage left it, has one reading: the boot symlink was

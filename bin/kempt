@@ -969,6 +969,41 @@ harvest_offline() {
       # counts - download-complete, download-incomplete, or a status this build has never heard of -
       # because the only status a restart can install is the one that made the symlink.
       reconcile_detour_stage "$marker" "$toml_status"
+    elif [[ -n "$boot" && "$boot" != unknown && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+      # `ready` and yet no /system-update: arming is TWO things, the status and the symlink, and
+      # this is the half that was never read outside doctor. systemd.offline-updates(7) is explicit
+      # that the symlink is the mechanism and that systemd removes it once system-update.target has
+      # been reached, so a boot that has been and gone leaving the status at `ready` is a boot that
+      # did not run the transaction and never will - only `dnf5 offline reboot` makes that symlink
+      # again. Without this arm the popup said "installs on the next restart" after every restart,
+      # forever, and doctor exited 0 the whole time.
+      reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+    fi
+    return 0
+  fi
+
+  # The package set MOVED across a reboot, and that is evidence of an apply only when dnf5's
+  # transaction is gone with it. Verified against real dnf5: applying an offline transaction
+  # removes all three of the toml, the /system-update symlink and transaction.json. So while any
+  # of that is still on the box, the set moved because something ELSE moved it - `sudo dnf5
+  # upgrade` typed in a terminal, dnf-automatic, GNOME Software, a plain `dnf install`. Harvesting
+  # here wrote a history entry naming the OTHER tool's packages, announced "Staged updates were
+  # applied on reboot", and deleted the marker and the baseline of a transaction that was still
+  # armed and still going to install on the next restart - after which no surface mentioned it
+  # again and doctor called it "staged outside Kempt".
+  if [[ "$toml_status" != absent ]]; then
+    rm -f "$now_snap"
+    if [[ "$toml_status" != ready ]] \
+       || [[ -n "$boot" && "$boot" != unknown && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+      reconcile_detour_stage "$marker" "$toml_status"
+    elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
+      # Once, not once per check: this lasts until the restart that installs it. The baseline is
+      # now stale - a later harvest will diff against a set the other tool has already moved - and
+      # that is the residual transaction identity (issue #9) closes properly. Recording a wrong
+      # apply is the part that had to stop.
+      log_event "harvest deferred: packages moved outside Kempt while the stage is still armed"
+      jq -c '. + {set_moved: true}' <<<"$marker" | write_offline_marker \
+        || echo "warning: could not record that the package set moved under a staged update" >&2
     fi
     return 0
   fi
@@ -1530,6 +1565,13 @@ cmd_doctor() {
     else
       doctor_fail "boot symlink is live over a transaction that is not armed (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; clear it with: sudo dnf5 offline clean"
     fi
+  elif [[ "$dr_toml" == ready && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+    # The INVERSE, and it had no row at all: a transaction dnf5 calls `ready` with no symlink in
+    # front of it. Arming is both, and systemd removes the symlink once system-update.target has
+    # been reached (systemd.offline-updates(7)), so this is a transaction a restart has already
+    # walked past - it cannot install on any future one either, because only `dnf5 offline reboot`
+    # makes that symlink again. Every surface used to call this a pending install, forever.
+    doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` re-arms it - re-stage it with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
   fi
 
   # Which build this is, in the form a maintainer can act on. The opening line already names the

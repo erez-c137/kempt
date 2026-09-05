@@ -251,6 +251,22 @@ doctor` keeps its exact diagnosis of what is on the box. The notification is the
 staged banner disappears the moment the transaction stops being armed, and without this the
 disappearance would be the only thing that ever happened.
 
+**Installing anything with dnf while an update is staged un-arms it**, and you get the same
+message. This is dnf5's behaviour, not Kempt's, and it is not written down anywhere: running
+`sudo dnf5 install <anything>` while an offline transaction is armed removes the `/system-update`
+symlink and leaves the stored transaction saying `ready`. The transaction is still there, dnf5
+still calls it ready, and no restart will run it - only `dnf5 offline reboot` creates that symlink
+again. So the honest answer is the one above: re-stage it (`kempt update --surface=offline`), or
+clear it. Kempt reads both halves of "armed" - the status **and** the symlink - because reading
+only the status meant promising "installs on the next restart" after every restart, for good.
+
+**Something else updating your packages does not count as your staged update installing.** If
+`dnf-automatic`, GNOME Software or a terminal `dnf5 upgrade` moves the installed set while a stage
+is armed, Kempt records `harvest deferred` once and leaves the stage where it is. It used to read
+"the package set moved across a reboot" as "the staged update applied", which wrote a history entry
+naming the other tool's packages, announced an install that had not happened, and threw away the
+record of a transaction that was still going to install on the next restart.
+
 Flatpak has no offline mechanism, so an offline run still updates Flatpak apps live. That is
 safe for the running session in a way an rpm transaction is not.
 

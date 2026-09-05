@@ -94,11 +94,22 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 # A staged transaction can only be applied by a REBOOT, and the marker records the boot session
 # it was staged in. Nothing else in a test can change /proc, so "the machine rebooted" is
 # simulated by rewriting that field - which is exactly what the harvest gates on.
+# TWO things, not one, and the second is what the harvest now reads: applying an offline
+# transaction REMOVES dnf5's state toml, transaction.json and /system-update. Verified against
+# dnf5 5.4.3 in a container (`dnf5 offline _execute`, all three gone afterwards). While the
+# transaction is still on the box, a package set that moved means something ELSE moved it - a
+# terminal `dnf5 upgrade`, dnf-automatic, GNOME Software - and the harvest refuses to claim it.
+# So a test that says "the reboot installed it" has to say both halves, or it is asserting a state
+# no machine can be in.
 simulate_reboot() {
   local m="$KEMPT_STATE_DIR/offline_staged.json"
+  export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
   [[ -f "$m" ]] || return 0
   jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
 }
+# ...and back to a box carrying an armed transaction, for the blocks that stage again afterwards.
+transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"; }
+transaction_gone()  { export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"; }
 
 # History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
 # so a test can never choose the name the NEXT run will write. The `sleep 1`s that used to sit at
@@ -840,7 +851,9 @@ before_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
 assert_exit 0 "unapplied stage keeps its marker" -- test -f "$KEMPT_STATE_DIR/offline_staged.json"
 assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$before_n" "unapplied stage records nothing"
 
-# applied on reboot: the installed set moved
+# applied on reboot: the installed set moved, AND dnf5's transaction went with it. Both halves,
+# because the set moving on its own is what a terminal `dnf5 upgrade` looks like.
+transaction_gone
 cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/notifications"
 push_history_back   # per-second names: keep the harvested entry from landing on an older one
@@ -883,6 +896,7 @@ marker="$KEMPT_STATE_DIR/offline_staged.json"
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 assert_exit 0 "offline stage left a marker" -- test -f "$marker"
 sup_pre="$(jq -r .pre_snapshot "$marker")"
@@ -915,6 +929,7 @@ exit 0
 STUB
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 push_history_back
 : > "$WORLD/apply-calls"
@@ -936,6 +951,7 @@ assert_eq "$(jq -c '[.backends.dnf.updated[].name]' "$hr")" '["kernel-core"]' \
 
 # --- history filenames are per-second, and a harvest fires from a check a live run may have
 # triggered in the same second. An existing entry must never be overwritten.
+transaction_gone    # this block is a harvest too: the reboot that ran it left nothing behind
 pre2="$KEMPT_STATE_DIR/snapshots/offline-pre-collide.tsv"
 cp "$TESTTMP/rb-live.tsv" "$pre2"
 jq -n --arg snap "$pre2" '{staged_at:"x", pre_snapshot:$snap}' > "$marker"
@@ -1026,6 +1042,7 @@ cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 first_pre="$(jq -r .pre_snapshot "$marker")"
 # The one sleep that has to stay. Everywhere else the collision is with a file already on disk,
@@ -1034,6 +1051,7 @@ first_pre="$(jq -r .pre_snapshot "$marker")"
 # stagings produced DIFFERENT offline-pre-$ts.tsv names. Faking that would delete the guard: with
 # both stagings on one filename the sweep is never exercised and this probe proves nothing.
 sleep 1
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 second_pre="$(jq -r .pre_snapshot "$marker")"
 [[ "$first_pre" != "$second_pre" ]] && echo "ok: the second staging really wrote a new copy" \
@@ -1059,6 +1077,7 @@ STUB
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/apply-calls"
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no check has run yet
 simulate_reboot
@@ -1103,6 +1122,7 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/apply-calls"
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 pre_c="$(jq -r .pre_snapshot "$marker")"
 cp "$pre_c" "$TESTTMP/baseline-copy.tsv"
@@ -1121,6 +1141,7 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 pre_boot="$(jq -r .pre_snapshot "$marker")"
 assert_eq "$(jq -r '.boot_id | length > 0' "$marker")" "true" "staging records the boot session"
@@ -1166,9 +1187,11 @@ export KEMPT_BOOT_ID=unknown
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 : > "$WORLD/notifications"
+transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 assert_eq "$(jq -r .boot_id "$marker")" "unknown" "a box without a readable boot id stages an unknown session"
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+transaction_gone    # the reboot ran it, so dnf5's transaction is gone - the other half of "applied"
 push_history_back   # `ls | tail -1` below must find the harvest, not the staging entry
 "$KEMPT" check >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: an unknown boot session falls back to the snapshot comparison" \
