@@ -845,22 +845,91 @@ at `999+` because a panel has no room, and the popup has plenty.
    [install.md](install.md#installing-from-the-kde-store-first).
 2. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
    below. It has a close button; the rest do not.
-3. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
+3. **What the next restart will install**, once an offline update is staged and armed. This one
+   has three spellings, and which one you get is the whole subject of *The staged banner* below.
+4. **"This includes a kernel update. Restart when it finishes."** (and a second sentence when the
    NVIDIA driver is in the set) when the transaction would rewrite things a running desktop is
    using. Its button is **Install on Next Restart**, which hands the whole transaction to the
    next reboot - the same recommendation `kempt check` publishes as `risky_pending`, and the same
    thing as `kempt update --surface=offline`. With no kernel in the set the message is the plain
-   count instead: `20 session-critical pending (dbus, glibc, kf6, mesa, ...)`.
-4. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
+   count instead: `20 session-critical pending (dbus, glibc, kf6, mesa, ...)`. It stays away
+   entirely while something is staged: the staged banner has taken its place, and offering to
+   stage the same transaction twice is how you end up with two.
+5. **The stale explanation**: what went wrong, and how old the counts under it therefore are.
    Information rather than a warning, because the counts are still the best known truth.
-5. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
+6. **What the run that just finished did**: `Updated 4 packages in 2s`, `No package changes`, or
    `Update failed: <the reason>` as an error. **Show Log** is on it when that run recorded a log
    file, which is every run Kempt performed; the entries harvested after an offline (on-reboot)
    update carry no log path, so they carry no button either rather than one that would open your
    home directory. It is transient - it clears when you close the popup or the next check starts,
    and the persistent **Last update** row stays out of the way while it is up. One event, one line
    at a time.
-6. A button press that failed and has something to say.
+7. A button press that failed and has something to say.
+
+**The staged banner** is the one message that changes its mind about you, and it is worth reading
+once before it happens.
+
+Ordinarily it is green, it says what the next restart will do, and it carries a **Restart…**
+button of its own when the restart message above is not already showing one:
+
+```
+ (=) 61 updates are staged - they install on the next restart   [Restart…]
+```
+
+Then you hold something. Pin `kernel-core` in the list, or run `kempt hold dnf:kernel-core` in a
+terminal - it makes no difference which. dnf5 built and stored that transaction before your hold
+existed, and there is no way to edit a stored one, so the hold cannot reach backwards and the
+restart would install the package anyway. The pin does not silently rewrite anything either: it
+records a hold, and the banner is the surface that carries the consequence. So the banner stops
+being green:
+
+```
+ (!) Staged before your hold - kernel-core still installs on the next restart.
+                                                    [Rebuild Staged Update]
+```
+
+With more than one held package it names the first and counts the rest, and every word moves with
+it: `Staged before your holds - kernel-core and 2 more still install on the next restart.`
+
+The **Restart…** button is gone on purpose. The sentence beside it says the next restart installs
+the thing you just tried to keep out, and a restart button under that sentence would be an
+invitation to do exactly that. What is offered instead is **Rebuild Staged Update**, which runs
+the same `kempt update --surface=offline` as **Install on Next Restart**: it builds the staged
+update again with your current holds. Its tooltip says the cost before you press it, and so does
+the screen reader:
+
+> Builds the staged update again with your current holds. Asks for authorization; if the rebuild
+> fails, the current staged update is removed.
+
+Both halves of that are real. It asks for authorization because staging is a privileged operation,
+the same polkit dialog **Install on Next Restart** raises. And dnf5 replaces a stored transaction
+by destroying the old one first rather than swapping at the end, so a rebuild that fails - a full
+disk, a cancelled password prompt - removes the current staged update rather than leaving it in
+place. It does not download everything again: dnf5 reuses the package cache, and excluding a
+package can only shrink the set.
+
+If the staged update moved between the banner being drawn and the button being pressed - a restart
+applied it, something re-staged, someone ran `dnf5 offline clean` - nothing runs, and the popup
+says `The staged update changed - take another look.` with the banner re-drawn from what is
+actually on disk. Consent given to one staged update is not spent on a different one.
+
+There is a third spelling, for when Kempt cannot read the staged package list at all (a stage made
+by an older build, or a dnf5 record it does not recognise) and you are holding dnf packages:
+
+```
+ (!) Staged before your holds - it may still install held packages on the next restart.
+                                                    [Rebuild Staged Update]
+```
+
+`may`, because that is exactly what is known. A banner here can be wrong by warning about a stage
+that contains nothing you hold; it is never allowed to be wrong by reassuring you about one that
+does. With nothing held at all it stays green: there is nothing to be vague about. Flatpak holds
+never trigger any of this - the offline surface stages dnf and only dnf, so a held flatpak cannot
+be in a staged transaction.
+
+The same conflict is reported by `kempt hold` in a terminal and by `kempt doctor`; see
+[Holding a package that is already staged](#holding-a-package-that-is-already-staged) for the
+command-line side and the second remedy, `sudo dnf5 offline clean`.
 
 **The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
 package and the versions it is moving between. The version line is never truncated: it wraps onto

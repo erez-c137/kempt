@@ -536,6 +536,53 @@ timeout has to be able to kill a wedged `kempt check` outright.
 The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
 that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
 
+**Rebuild Staged Update runs the same command as Install on Next Restart**, and that is a design
+constraint rather than a convenience. Both are `kempt update --surface=offline`, detached with
+`setsid` and never waited on; one polkit action, one dialog, one verb the helper already knows. A
+second staging path would have been a second privileged surface to review, and there is nothing
+about a rebuild that a stage does not already do - dnf5 replaces a stored transaction by building
+a new one.
+
+What the rebuild adds is a **precondition re-verify at click time**. The action is offered by a
+banner, and a banner describes one transaction; a popup can sit open for an hour, and in that time
+the staged update it names can be applied by a restart, replaced by another stage, or removed by
+hand. That matters more than an ordinary stale click because the re-stage is destructive at its
+*start*: dnf5 destroys the stored transaction the moment a replacement begins, rather than
+swapping at the end. Acting on a stale banner would therefore throw away a staged update the
+person never agreed to lose. So `rebuildStaged()` in `main.qml`:
+
+1. captures the `staged_at` the banner was derived from, synchronously, before anything can move
+   it (`vm.stagedStagedAt`, published by `logic.js` from `offline_staged.staged_at`);
+2. reads the current `state.json` through the executor - a `cat`, not another `kempt check`: the
+   file is what `check` publishes, reading it takes no lock, and a check can run for two minutes
+   between the click and the action it was meant to authorise;
+3. re-derives a view model from those bytes and proceeds only if a staged update is still
+   published, its `staged_at` is the one that was on screen, and it would still raise a warning;
+4. otherwise runs nothing, assigns the freshly read state so the banner re-draws from the truth,
+   and reports `The staged update changed - take another look.` where the press happened.
+
+Consent given to one staged update is never spent on a different one. The same guard `stageOffline`
+has applies first: while a run of ours is in flight, a rebuild does nothing at all.
+
+### What the message stack says to a screen reader
+
+Kirigami gives every `InlineMessage` the AlertMessage role and **no accessible name**, so a screen
+reader announcing one reads out its icon - "Positive", "Warning" - and nothing about what happened.
+Every message in the popup's stack therefore carries `Accessible.name: text`, including the two
+that only ever report a failure: a message nobody can hear is a message that is not being shown.
+
+That binding is load-bearing rather than tidy in one place particularly. The staged banner
+*changes type* when a hold lands behind a staged update, and the whole point of the change is the
+new sentence: for a person who cannot see the colour, a flip that arrived only as a palette change
+would be no flip at all. The words are the message; the colour is a second channel for the people
+who have it.
+
+The **Rebuild Staged Update** action carries the same discipline one level down. Its tooltip
+discloses the two costs - it asks for authorization, and a failed rebuild removes the current
+staged update - and `Accessible.description` is bound to that same tooltip, because a polkit dialog
+takes the focus the instant the button is pressed. A disclosure that has not been heard by then is
+never heard.
+
 ### Where the popup's last-run line comes from
 
 The persistent `Last update 18 min ago · 4 packages` row and the transient line the popup shows

@@ -924,6 +924,178 @@ if live is not None:
     p.check("an unknown count loses the number, not the sentence",
             lev("stagedMessage.text"), ev("Logic.COPY.stagedUnknownCount"))
 
+    # --- the banner FLIPS when a hold lands behind the stage (spec 4.4) ------------------------
+    # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
+    # worrying, press the pin on kernel-core - and restart into the kernel you just tried to keep
+    # out. dnf5 built that transaction before the hold existed and offers no way to edit a stored
+    # one, so the hold is real and so is the install. Before this, the popup's last chance to say
+    # so was a green Positive banner with a live Restart… button over the very package the person
+    # had just tried to stop, and appending a line to it would have been the contradiction one
+    # level down. So the message changes TYPE, loses the restart, and gains one action.
+    def conflict_from(source, name, names, names_source, count=61):
+        """A capture with an armed stage AND the CLI's conflict verdict on it.
+
+        Derived rather than added to tests/fixtures/ for the same reason as staged_from: it is a
+        shipped capture plus one key, so it cannot drift away from the real document shape.
+        holds_conflict and names_source are what WP-B publishes - the held packages the stored
+        transaction will install anyway, and whether an empty list means "no conflict" or
+        "could not tell".
+        """
+        doc = json.load(open(fixture(source)))
+        doc["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": count,
+                                 "armed": True, "holds_conflict": list(names),
+                                 "names_source": names_source}
+        path = os.path.join(p.sandbox, name)
+        open(path, "w").write(json.dumps(doc))
+        return path
+
+    CONFLICT1 = conflict_from("state-risky-heavy.json", "state-staged-conflict1.json",
+                              ["kernel-core"], "transaction")
+    CONFLICT3 = conflict_from("state-risky-heavy.json", "state-staged-conflict3.json",
+                              ["kernel-core", "kernel-modules", "systemd"], "transaction")
+    # names_source "none" over a state whose dnf items are all HELD: the staged list could not be
+    # read at all, so an empty holds_conflict is "cannot tell" rather than "nothing to report", and
+    # a box that is holding dnf packages is owed the vague warning instead of the reassurance.
+    GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [], "none")
+
+    REBUILD_TIP = ("Builds the staged update again with your current holds. Asks for "
+                   "authorization; if the rebuild fails, the current staged update is removed.")
+
+    state(CONFLICT1)
+    stack("with a hold on a package the staged update contains", "stagedMessage")
+    p.check("...the banner names the package and what the restart will do with it",
+            lev("stagedMessage.text"),
+            "Staged before your hold - kernel-core still installs on the next restart.")
+    p.check("...as a Warning, because the reassurance is no longer true",
+            lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
+    # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
+    # no name, so a screen reader announcing this one would otherwise read out its icon - and the
+    # difference between the two banners would be a colour, which is not a difference at all.
+    p.check("...announced to a screen reader as the sentence, not as a change of colour",
+            lev("stagedMessage.Accessible.name"), lev("stagedMessage.text"))
+    p.check("...offering two actions in the list, one of which is standing down",
+            lev("stagedMessage.actions.length"), 2)
+    p.check("...and the Restart… button is NOT one of them: offering a restart here offers the "
+            "very install they tried to stop", lev("stagedMessage.actions[0].visible"), False)
+    p.check("...inert as well as invisible", lev("stagedMessage.actions[0].enabled"), False)
+    p.check("...the one action offered is the rebuild", lev("stagedMessage.actions[1].text"),
+            "Rebuild Staged Update")
+    p.check("...and it is on screen", lev("stagedMessage.actions[1].visible"), True)
+    p.check("...disclosing the authorization and the discard cost in its tooltip",
+            lev("stagedMessage.actions[1].tooltip"), REBUILD_TIP)
+    # ...and the same words to a screen reader, which is the load-bearing half: a polkit dialog
+    # takes focus the moment this is pressed, so a person who has not heard the cost by then hears
+    # it never (spec, UX finding 9).
+    p.check("...in the same words a screen reader gets, before polkit takes the focus",
+            lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
+    p.check("...which is the copy table's tooltip, not a second copy of it",
+            lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
+
+    state(CONFLICT3)
+    p.check("three held packages read as the first one and a count",
+            lev("stagedMessage.text"),
+            "Staged before your holds - kernel-core and 2 more still install on the next restart.")
+    p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
+
+    state(GENERIC)
+    stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
+    p.check("...the banner says may, because that is what is known",
+            lev("stagedMessage.text"),
+            "Staged before your holds - it may still install held packages on the next restart.")
+    p.check("...as a warning all the same", lev("stagedMessage.type"),
+            lev("Kirigami.MessageType.Warning"))
+    p.check("...offering the same rebuild, which applies every current hold whatever the list said",
+            lev("stagedMessage.actions[1].visible"), True)
+    p.check("...and no restart", lev("stagedMessage.actions[0].visible"), False)
+
+    # The unchanged case, asserted again from the other side of the flip: the plain armed stage is
+    # still Positive with a live Restart… and no rebuild. This is the regression pin - a variant
+    # that fired too eagerly would turn every ordinary staged transaction into a warning.
+    state(STAGED_RISKY)
+    p.check("an armed stage with no hold behind it is the Positive banner it always was",
+            lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
+    p.check("...with the restart still on it", lev("stagedMessage.actions[0].visible"), True)
+    p.check("...and no rebuild offered", lev("stagedMessage.actions[1].visible"), False)
+
+    # --- the precondition re-verify, at click time (spec 4.4, systems finding 8) ----------------
+    # Consent is given to a BANNER, and the banner describes one transaction. Between rendering it
+    # and the click, that transaction can be consumed by a restart, replaced by another stage, or
+    # cleaned away - and a rebuild is destructive at its start (dnf5 destroys the stored
+    # transaction the moment a re-stage begins, spec G2). So the click re-reads state.json and
+    # proceeds only if it is still looking at the same stage, still in conflict. Anything else and
+    # it runs nothing and says so.
+    # The 30-second watcher would otherwise be a coin toss inside this section: it polls mtimes,
+    # and rewriting the state file under the widget is exactly what it exists to notice. A check it
+    # triggered would re-read the STUB's fixture and put the old stage back mid-assertion. Its own
+    # behaviour is pinned further up this file; here it is noise.
+    ev("watchTimer.running = false")
+
+    def mutate_state(source, **changes):
+        """Rewrite the state file UNDER the running widget, without telling it."""
+        doc = json.load(open(source))
+        if changes.get("drop_staged"):
+            doc.pop("offline_staged", None)
+        else:
+            doc["offline_staged"].update(changes)
+        open(STATE_JSON, "w").write(json.dumps(doc))
+
+    state(CONFLICT1)
+    p.check("premise: the banner is derived from the stage staged at 10:31",
+            ev("root.vm.stagedStagedAt"), "2026-09-02T10:31:00+03:00")
+    mutate_state(CONFLICT1, staged_at="2026-09-05T08:00:00+03:00")
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    lev("stagedMessage.actions[1].trigger()")
+    settle()
+    p.check("a rebuild clicked over a stage that has since been replaced runs NOTHING",
+            p.call_count("update"), 0)
+    p.check("...and does not pretend an update started", ev("root.updating"), False)
+    p.check("...it says the stage moved, in the popup, where the press happened",
+            ev("root.actionMessage"), ev("Logic.COPY.stagedChanged"))
+    p.check("...and the banner is re-derived from what is really on disk now",
+            ev("root.vm.stagedStagedAt"), "2026-09-05T08:00:00+03:00")
+
+    # The stage cleaned away entirely between the render and the click: same refusal, and the
+    # banner goes with it rather than standing over nothing.
+    state(CONFLICT1)
+    mutate_state(CONFLICT1, drop_staged=True)
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    lev("stagedMessage.actions[1].trigger()")
+    settle()
+    p.check("a rebuild clicked over a stage that is gone runs nothing either",
+            p.call_count("update"), 0)
+    p.check("...and the banner goes with it", ev("root.vm.stagedMessage"), "")
+
+    # ...and the path that DOES act: nothing moved, so the click spends the consent it was given,
+    # on the same command Install on Next Restart runs. Same verb, same polkit action, same dialog.
+    state(CONFLICT1)
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    lev("stagedMessage.actions[1].trigger()")
+    p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+    # calls_matching and not argv(): argv.<verb> is the LAST call's arguments and survives from
+    # the stageOffline test far above, so it would answer correctly for a rebuild that never ran.
+    # The call log is cleared right before the trigger, so only this press can fill it.
+    p.check("an unchanged stage rebuilds through the offline surface, exactly once",
+            p.calls_matching("update"), ["update --surface=offline"])
+    p.check("...with nothing to apologise for", ev("root.actionMessage"), "")
+    p.check("...and the popup goes into its updating state", ev("root.updating"), True)
+    ev("root.leaveUpdating()")
+    settle()
+
+    # A rebuild asked for while a run is already in flight does nothing, the same guard
+    # stageOffline has: two staging runs at once is the double-press this widget already learned
+    # about, with a destructive first step this time.
+    ev("root.enterUpdating()")
+    p.clear_calls()
+    ev("root.rebuildStaged()")
+    settle()
+    p.check("a rebuild asked for during a run is not a second run", p.call_count("update"), 0)
+    ev("root.leaveUpdating()")
+    settle()
+    ev('root.actionMessage = ""')
+
     state(fixture("state-stale.json"))
     stack("with the last check failed over known counts", "staleMessage")
 
@@ -1399,6 +1571,10 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
+    "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
+    "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
+    "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
+    "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
     "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineMissingCopyText: a clipboard payload of shell commands,
                             #    bound as data - and never a translatable unit at all

@@ -380,20 +380,36 @@ PlasmaExtras.Representation {
             }
         }
 
-        // What the next restart will install. Positive rather than Warning, and that is the whole
-        // point of it being here: nothing is wrong, nothing needs pressing, and the work the person
-        // asked for is done and waiting. Before this, a staged transaction looked exactly like an
-        // un-staged one - the offline offer below was still on screen - and pressing it again was
-        // the obvious thing to do.
+        // What the next restart will install. Usually Positive, and that is the whole point of it
+        // being here: nothing is wrong, nothing needs pressing, and the work the person asked for
+        // is done and waiting. Before this, a staged transaction looked exactly like an un-staged
+        // one - the offline offer below was still on screen - and pressing it again was the
+        // obvious thing to do.
         //
         // vm.stagedMessage is empty unless the CLI has reconciled its marker against dnf5's own
         // transaction status and found one that is genuinely ARMED, so this message is never shown
         // over a stage that no restart would install.
+        //
+        // ...and it FLIPS. Once a hold lands on a package the stored transaction contains, the
+        // reassurance above is false - dnf5 built that transaction before the hold existed and
+        // offers no way to edit a stored one, so the restart installs the package anyway. A second
+        // line under a green checkmark would have been the contradiction one level down, with the
+        // button still on the reassuring half; so the whole message changes type, drops the
+        // restart, and offers the one action that changes the outcome. logic.js decides which
+        // banner this is (stagedVariantOf); nothing here re-derives it.
         Kirigami.InlineMessage {
             id: stagedMessage
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Positive
+            // Bound, never declared. A literal Positive here is the bug this whole message exists
+            // to remove, and it is one careless edit away - so the type comes from the view model
+            // the same way the text does, and tests/test_widget_logic.sh guards the binding.
+            type: popup.vm.stagedType === "warning"
+                  ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
             text: popup.vm.stagedMessage
+            // The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage
+            // role and no name, so without this a screen reader announces the icon - "Positive",
+            // then later "Warning" - and the difference between the two banners would be a colour,
+            // which for that person is no difference at all. The sentence already says everything.
             Accessible.name: text
             visible: popup.vm.stagedMessage.length > 0
             actions: [
@@ -402,11 +418,42 @@ PlasmaExtras.Representation {
                     // vm.stagedShowRestart is false while that message is on screen. Two buttons
                     // for one outcome in one small window is how a person ends up pressing both.
                     // enabled/visible together, the pattern the Show Log action above already uses.
+                    //
+                    // It also goes away on every warning variant, which is the stricter half of
+                    // that rule: the sentence beside it says the next restart will install the
+                    // package they tried to keep out, and a Restart… button under that sentence is
+                    // an invitation to do exactly that.
                     text: i18n("Restart…")
                     icon.name: "system-reboot"
                     enabled: popup.vm.stagedShowRestart
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.promptRestart()
+                },
+                Kirigami.Action {
+                    // ...and what stands in its place. ONE action, offered only where there is
+                    // something to change: rebuilding an ordinary armed stage would destroy a good
+                    // transaction to produce the same one back.
+                    //
+                    // system-software-update, the icon already on Update Now below, because this
+                    // runs the same verb: `kempt update --surface=offline`, the very command
+                    // Install on Next Restart runs. view-refresh would have been wrong twice over -
+                    // it is this popup's icon for "check again", and it is already on the Refresh
+                    // button and the contextual action, so it would say "re-check" on a button
+                    // that stages a transaction. system-reboot is taken by the button standing
+                    // down right beside it.
+                    text: i18n("Rebuild Staged Update")
+                    icon.name: "system-software-update"
+                    // The tooltip is the disclosure, not a hint: authorization, and the cost of a
+                    // rebuild that fails (dnf5 destroys the stored transaction the moment a
+                    // re-stage begins, so there is no "keep the old one" outcome to fall back on).
+                    // Accessible.description carries the identical words because a polkit dialog
+                    // takes the focus the moment this is pressed - a screen-reader user who has not
+                    // heard the cost by then hears it never.
+                    tooltip: i18n("Builds the staged update again with your current holds. Asks for authorization; if the rebuild fails, the current staged update is removed.")
+                    Accessible.description: tooltip
+                    enabled: popup.vm.stagedShowRebuild
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.rebuildStaged()
                 }
             ]
         }
