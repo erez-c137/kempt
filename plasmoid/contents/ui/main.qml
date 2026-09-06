@@ -205,8 +205,17 @@ PlasmoidItem {
     // `stat -c %Y a b c d` on a box without flatpak returns THREE numbers and every field after
     // the missing one shifts left - state.json would be read in the flatpak column, and
     // Logic.watchChange would attribute our own writes to the package database and dnf's to us.
+    // rpmdb.sqlite and NOT the /var/lib/rpm directory that used to be here. Fedora's rpm database
+    // is sqlite and is modified IN PLACE, so the directory's mtime does not move for an install or
+    // a remove: on a machine updated tonight it still read April. Watching the directory was true
+    // of the old Berkeley DB layout, where a transaction replaced files inside it, and it means
+    // this half of the refresh has never once fired on Fedora - a `dnf upgrade` typed in a
+    // terminal went unnoticed until the next timed check, up to an hour later, which is the exact
+    // thing this poll exists to prevent. The directory stays in the list as well: it is what moves
+    // if a future rpm layout goes back to replacing files, and an extra stat costs nothing.
     readonly property string watchCmd:
-        "for p in /var/lib/rpm /var/lib/flatpak \"" + stateDir + "/state.json\" \"" + configDir
+        "for p in /var/lib/rpm/rpmdb.sqlite /var/lib/rpm /var/lib/flatpak \"" + stateDir
+        + "/state.json\" \"" + configDir
         + "/config\"; do stat -c %Y \"$p\" 2>/dev/null || echo 0; done | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers

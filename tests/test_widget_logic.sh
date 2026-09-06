@@ -2047,32 +2047,51 @@ assert_eq "$(js 'L.resolveIconSizeSetting("toString")')" "auto" "an inherited pr
 assert_eq "$(js 'L.resolveIconSize("toString", 44)')" "22" "...and does not reach the icon as a size"
 
 # --- the watcher stamp: WHICH path moved, not merely that one did -------------------------------
-# main.qml polls four mtimes every 30 seconds: /var/lib/rpm, /var/lib/flatpak, our state file, our
-# config file - in that order. Comparing the stamp as ONE string says only that something moved,
-# and /var/lib/rpm moves continuously all the way through a dnf transaction. So a run of ours
-# "finished" about thirty seconds after it started: the spinner stopped, a summary of the PREVIOUS
-# run appeared, and a `kempt check` went off to queue for the dnf lock the transaction was holding.
-# Only field 2 - our own state file, which the CLI rewrites on its way out of a run - ends a run.
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 4").any')" "false" \
+# main.qml polls FIVE mtimes every 30 seconds: /var/lib/rpm/rpmdb.sqlite, /var/lib/rpm,
+# /var/lib/flatpak, our state file, our config file - in that order. Comparing the stamp as ONE
+# string says only that something moved, and the package database moves continuously all the way
+# through a dnf transaction. So a run of ours "finished" about thirty seconds after it started: the
+# spinner stopped, a summary of the PREVIOUS run appeared, and a `kempt check` went off to queue
+# for the dnf lock the transaction was still holding. Only our own state file, which the CLI
+# rewrites on its way out of a run, ends a run.
+# The first TWO fields are one question asked twice: rpmdb.sqlite is the file Fedora's rpm writes,
+# and the directory is what an older layout wrote. Both mean "packages moved".
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 5").any')" "false" \
   "an unchanged stamp is not a change"
-assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 3 4").state')" "false" \
-  "the rpm database moving does NOT mean a run ended"
-assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 3 4").packages')" "true" \
-  "...it is a package-database change, which is what it is"
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 9 3 4").state')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 4 5").packages')" "true" \
+  "the rpm database file moving is a package-database change"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 4 5").state')" "false" \
+  "...and does NOT mean a run ended"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 9 3 4 5").packages')" "true" \
+  "the rpm directory moving counts the same way, for a layout that writes it"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 9 4 5").state')" "false" \
   "...and neither does flatpak's"
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 9 4").state')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 9 5").state')" "true" \
   "our own state file moving DOES mean a run ended"
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 9 4").packages')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 9 5").packages')" "false" \
   "...and it is not reported as a package change"
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 9").config')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 9").config')" "true" \
   "the config file moving is a config change - the settings page's only way in"
-assert_eq "$(js 'L.watchChange("1 2 3 4","1 2 3 9").state')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 9").state')" "false" \
   "...and does not end a run either"
-assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 9 4").state')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 9 5").state')" "true" \
   "a transaction that ALSO wrote state.json still ends the run"
-assert_eq "$(js 'L.watchChange("1 2 3 4","9 2 9 4").packages')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 9 5").packages')" "true" \
   "...and still reports the package change alongside it"
+
+# THE path that has to be in there. Fedora's rpm database is sqlite and is modified IN PLACE, so
+# /var/lib/rpm's own mtime does not move for an install or a remove - on a machine updated tonight
+# it read four months old. Watching only the directory meant this half of the refresh had never
+# fired on Fedora at all: a `dnf upgrade` typed in a terminal went unnoticed until the next timed
+# check, up to an hour later, which is the one thing the 30-second poll exists to prevent.
+grep -q 'stat -c %Y' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
+  && echo "ok: the widget still stats mtimes to notice changes" \
+  || { echo "FAIL: the watcher no longer stats anything"; _fail=1; }
+grep -q '/var/lib/rpm/rpmdb.sqlite' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
+  && echo "ok: ...and watches the rpm database FILE, which is what Fedora actually writes" \
+  || { echo "FAIL: the watcher does not stat rpmdb.sqlite - foreign dnf changes go unnoticed"; _fail=1; }
+assert_eq "$(js 'L.WATCH_FIELDS')" "5" \
+  "logic.js expects as many fields as main.qml stats, or every column shifts"
 # The padding in watchCmd is what makes those field numbers mean anything: `stat` prints NOTHING
 # for a path that does not exist, so an unpadded stamp on a box with no flatpak has three fields
 # and state.json is read in the flatpak column - every state write attributed to the package

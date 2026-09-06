@@ -206,8 +206,8 @@ if os.path.exists(STATE_JSON):
     os.remove(STATE_JSON)
 rebaseline()
 f = fields()
-p.check("the watch stamp is four fields even when two of the paths do not exist", len(f), 4)
-p.check("...the missing ones padded with a zero rather than left out", [f[2], f[3]], ["0", "0"])
+p.check("the watch stamp is five fields even when two of the paths do not exist", len(f), 5)
+p.check("...the missing ones padded with a zero rather than left out", [f[3], f[4]], ["0", "0"])
 p.check("...and the ones that do exist carry a real mtime", f[0].isdigit() and f[0] != "0", True)
 
 # The command itself, read off the live property: this is the string a shell is really handed.
@@ -215,7 +215,7 @@ watchcmd = str(ev("root.watchCmd"))
 p.check("the watch command pads every path it stats", "|| echo 0" in watchcmd, True)
 raw = subprocess.run(["sh", "-c", watchcmd], capture_output=True, text=True,
                      env=dict(os.environ, HOME=p.home))
-p.check("...and running it in a real shell does return four fields", len(raw.stdout.split()), 4)
+p.check("...and running it in a real shell does return five fields", len(raw.stdout.split()), 5)
 
 # Now the states. A run of ours is in flight; the package database moves, as it does all the way
 # through a dnf transaction.
@@ -239,7 +239,7 @@ p.check("...and does NOT send a check off to fight the transaction for the dnf l
         p.call_count("check"), before_check)
 p.check("...nor re-read the config for it", p.call_count("config"), before_cfg)
 
-f = fields(); f[1] = "1"
+f = fields(); f[2] = "1"      # field 2 is flatpak: rpmdb.sqlite and the rpm directory precede it
 ev("root.watchStamp = %r" % " ".join(f))
 poll(True)
 p.check("flatpak's database moving mid-run does not end it either", ev("root.updating"), True)
@@ -321,7 +321,7 @@ p.check("...and the icon follows it", ev("root.vm.iconState"), "updating")
 
 harness.touch(STATE_JSON, "2032-01-01")
 rebaseline()
-f = fields(); f[2] = "1"
+f = fields(); f[3] = "1"      # field 3 is our own state file, the one thing that ends a run
 ev("root.watchStamp = %r" % " ".join(f))
 poll(True)
 p.wait_for(ev, "root.updating", False, timeout_ms=8000)

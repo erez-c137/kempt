@@ -266,6 +266,13 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 - **The test suite runs green from a release tarball,** not only a git checkout: the doctor version
   assertion no longer assumes git history, and the log test stubs its terminal emulator instead of
   leaning on the CI workflow's shim.
+- **The panel notices an update you ran in a terminal, which it never has on Fedora.** The widget
+  polls a few paths every 30 seconds so that an update applied from anywhere shows up in seconds,
+  and one of them was `/var/lib/rpm`. Fedora's rpm database is sqlite and is modified in place, so
+  that directory's mtime does not move for an install or a remove: on a machine updated tonight it
+  read four months old. This half of the refresh had therefore never fired, and a `sudo dnf5
+  upgrade` typed in a terminal went unnoticed until the next timed check, up to an hour later -
+  the one thing the poll exists to prevent. It now watches the database file as well.
 - **Closing the update window now really does end the run, on a machine where the check takes
   time.** The recovery check that rewrites the state file - the one event that takes the popup out
   of its updating pane - was running inside the terminal's own process group. Closing a window

@@ -436,9 +436,14 @@ function resolveIconSize(setting, cell, steps) {
 // PREVIOUS run, and starts a `kempt check` that wants the lock the transaction is holding. Only
 // OUR state file says a run ended, and these field names are that distinction (here, not in QML,
 // so node can pin them).
-var WATCH_FIELDS = 4;
-var WATCH_STATE_FIELD = 2;      // the order in main.qml's watchCmd: rpm, flatpak, state, config
-var WATCH_CONFIG_FIELD = 3;
+// The five paths main.qml stats, in its order: rpmdb.sqlite, the rpm directory, flatpak,
+// state.json, config. The first two are one question - "did the package database move" - asked of
+// the file Fedora actually writes and of the directory an older rpm layout wrote. Anything that is
+// not the state file or the config file counts as packages, so both land there without a rule of
+// their own.
+var WATCH_FIELDS = 5;
+var WATCH_STATE_FIELD = 3;
+var WATCH_CONFIG_FIELD = 4;
 
 // watchChange(prev, next) -> { any, packages, state, config, comparable }
 // `comparable` is false when either stamp is not the four fields main.qml asks for (an older
