@@ -121,6 +121,7 @@ how to undo everything, is in the [install guide](docs/install.md#from-a-checkou
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed |
 | [CHANGELOG.md](CHANGELOG.md) | What each release shipped |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, the test-harness rules reviews enforce, shell and docs conventions |
+| [AGENTS.md](AGENTS.md) | Two-minute orientation for a new maintainer, human or AI: the map, and the four rules that bite |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Short: be respectful, stay on topic, how to report a problem |
 

@@ -844,7 +844,9 @@ name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrad
 
 There is no registry and no discovery. Backends are named literally, in more places than the
 sketch above suggests, and a missed one fails quietly rather than loudly. **The table below is the
-complete list**, so nobody has to find it by grep; one row is optional and says so. No count is
+complete list - the CLI, the panel widget and the man page**, so nobody has to find it by grep; one
+row is optional and says so. It was CLI-only once, and following it exactly still shipped a popup
+heading reading `apt` and a panel that never noticed the new backend changing anything. No count is
 quoted here on purpose - the last one drifted, which is exactly the failure this table exists to
 prevent.
 
@@ -864,6 +866,16 @@ prevent.
 | `kempt_default` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true` | A default for `include_<name>`. Miss it and `config_get include_<name>` answers the **empty string**, `is_true` reads that as false, and the backend is silently OFF on every box whose config file has never named it. Nothing warns: the check simply reports the backend disabled, forever, and the enable gate above looks correctly wired. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `kempt update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
+| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the popup lists them in | A title and a place in the order. Miss it and the popup still lists your packages, under the raw backend key - the section heading reads `apt`. |
+| The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm` and `/var/lib/flatpak`, stat'ed every 30s so an update applied from anywhere shows up within seconds | The path your backend's database lives at. Miss it and the panel never notices your backend changing anything: the badge only moves on Kempt's own state file, so an update applied in a terminal sits there until the next timed check. |
+| `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. A man page that documents two of three backends is the kind of wrong that outlives the person who wrote it. |
+
+**Packaging needs nothing**, and that is deliberate rather than luck: `kempt.spec` ships
+`backends/` as a directory and strips shebangs from `backends/*.sh` with a glob. It named the two
+files once, which meant a third backend would have installed 0644 with its shebang intact and
+rpmlint would have rejected the package - after the contributor had followed this table and done
+everything right. If you ever find yourself listing backend files by name in the spec, that is the
+bug coming back.
 
 What is already generic and needs nothing: the totals in `assemble_state`'s `wrap`,
 `run_counts_phrase`, and the held-items line in `render_summary`. All three iterate

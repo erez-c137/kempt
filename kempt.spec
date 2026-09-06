@@ -198,7 +198,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %license LICENSE
 # The whole set README links to, with docs/ kept as a directory so those links resolve here the
 # way they resolve on the forge.
-%doc README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md docs
+%doc README.md CHANGELOG.md CONTRIBUTING.md AGENTS.md SECURITY.md CODE_OF_CONDUCT.md docs
 %{_bindir}/kempt
 %{_datadir}/%{name}/
 %{_libexecdir}/kempt-refresh

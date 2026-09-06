@@ -69,14 +69,28 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
     (`.../icons/hicolor/{16x16,22x22,scalable}/apps/`) and letting `QIcon::fromTheme` pick the
     size itself - more machinery, but it is the route the metadata icon already takes, since a
     package-local icon name does not resolve from the theme (measured on Plasma 6.7).
-- **Translations.** The popup's sentences are DERIVED rather than written: the counts, the footer
-  dateline, the last-run row and the post-run line are all assembled in
+- **Translations. Kempt cannot be translated today, and it is worth being plain about that**,
+  because the QML is full of `i18n()` calls (73 of them) and that looks like a tool which is
+  ready for translators. It is not, for two separate reasons.
+
+  The first is that there is no catalogue and no way to make one: no `.pot`, no `.po`, no
+  extraction step, and no translation domain, so even the strings that ARE wrapped have nothing
+  to be translated into. That half is ordinary work - a domain, `Messages.sh`, and extraction
+  wired into the release.
+
+  The second is the harder one. The popup's sentences are DERIVED rather than written: the counts,
+  the footer dateline, the last-run row and the post-run line are all assembled in
   `plasmoid/contents/ui/logic.js`, which is plain JavaScript with no `i18n()` in it - the QML
-  around it is wrapped, that file is not. So a translated Kempt would still say "3 updates
-  available" and "Checked 4 min ago" in English. Wrapping it means giving logic.js a translation
-  hook it can call in both of its worlds (a QML engine, and node under the tests), and turning
-  the phrases that are assembled from parts into whole i18np() sentences so a translator sees a
-  sentence rather than fragments.
+  around it is wrapped, that file is not. Roughly fifteen to twenty sentences are built from parts
+  and are therefore structurally untranslatable: word order is a language's business, and a
+  sentence glued together in JavaScript has already decided it. Fixing that means giving logic.js
+  a translation hook it can call in both of its worlds (a QML engine, and node under the tests),
+  and turning the assembled phrases into whole `i18np()` sentences so a translator sees a sentence
+  rather than fragments.
+
+  Doing the first without the second would ship a half-translated popup, which reads worse than an
+  English one. So they go together, and until they do the honest answer to "can I translate Kempt"
+  is no.
 - **A defer: "later", "tonight", "only on Wi-Fi".** From the user panel: two of six personas
   currently "handle" the popup by closing it, which is the worst outcome an updater can produce.
   One wants it because of what she is doing right now, the other because of what he is connected

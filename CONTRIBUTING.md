@@ -9,6 +9,9 @@ it.
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
+New here? [AGENTS.md](AGENTS.md) is the two-minute version: the map of the tree, and the four
+rules that will bite you if nobody tells you first. This file is the long form.
+
 ## Dev setup
 
 There is no build step - that is a design choice, argued in
