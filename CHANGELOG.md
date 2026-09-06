@@ -280,6 +280,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A checkout under a path containing an apostrophe can run updates.** The terminal wrapper
   hand-quoted the path, so the quote closed early and **Update Now** opened a window that did
   nothing at all.
+- **A staged update made while a check is running is no longer thrown away by it.** Clicking
+  **Install on Next Restart** just as a background check reached the end of its work produced
+  "Updates staged - they install on the next restart" and then, a second later, a panel showing
+  nothing staged - over a transaction that was armed and would install on the next restart, which
+  Kempt had now forgotten. Two contradictory notifications arrived back to back.
+- **One slow helper no longer freezes every later check.** The check's lock was handed to the root
+  helper and everything it started, so anything left running after a helper timed out kept holding
+  it: the next check waited for that straggler, and after a minute every check served a stale
+  answer without saying so. A staged update's post-restart reconciliation waits behind the same
+  lock, so it stalled too.
 - **The test suite no longer needs `ps`**, which is in neither the package's build requirements nor
   Fedora's minimal build root, so every package build of 0.1.2 would have failed its own test
   stage. And a test that killed a slow writer killed only half of it: the survivor finished its
