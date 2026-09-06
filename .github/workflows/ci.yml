@@ -108,14 +108,18 @@ jobs:
       # Both files SKIP loudly rather than fail when a dependency is missing, which is right for a
       # contributor's laptop and wrong here: this job exists to run them. So the run is checked for
       # a skip line and fails on one, or the job would go green having done nothing at all.
+      # `bash <file>`, never `./<file>`: the test files are mode 0644 by house convention and
+      # run_tests.sh invokes them the same way.
       - name: The derivation layer (logic.js under node) and the .qml compile check
+        shell: bash
         run: |
           set -o pipefail   # without it `tee` hands back its own status and a failing suite goes green
-          tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
+          bash tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
           grep -q '^skip:' /tmp/logic.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true
 
       - name: The QML probes, against the real Qt 6 engine
+        shell: bash
         run: |
           set -o pipefail
-          tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
+          bash tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
           grep -q '^skip:' /tmp/qml.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true
