@@ -8,6 +8,29 @@
 # Not part of tests/run_tests.sh: it needs the network, root, and a Fedora image, and it takes
 # minutes. It is the house rule "live container run before merging offline work" written down.
 set -u
+
+# REFUSED unless this is a throwaway container, and that is a check rather than a sentence now.
+# What follows renames /usr/bin/dnf5, empties dnf5's package cache and points every repository at a
+# dead address. On a real Fedora machine that is a broken package manager and a lost afternoon, and
+# the only thing standing between this file and that was the paragraph above asking politely.
+# Three independent signals, any one of which is enough: podman/docker leave /run/.containerenv or
+# /.dockerenv, and the runner exports KEMPT_GATE_CONTAINER. KEMPT_GATE_I_MEAN_IT is the deliberate
+# override for someone doing this in a VM they are willing to lose.
+if [[ ! -e /run/.containerenv && ! -e /.dockerenv
+      && -z "${KEMPT_GATE_CONTAINER:-}" && -z "${KEMPT_GATE_I_MEAN_IT:-}" ]]; then
+  cat >&2 <<'REFUSE'
+kempt: refusing to run the live gate here.
+
+This script breaks the package manager on purpose: it shadows /usr/bin/dnf5, empties dnf5's
+package cache and points every repository at a dead address. It is only ever safe in a container
+you are about to throw away.
+
+Run it the intended way:   tests/live/run-offline-gate.sh
+That builds the container, runs this inside it, and removes it afterwards.
+REFUSE
+  exit 2
+fi
+
 ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh

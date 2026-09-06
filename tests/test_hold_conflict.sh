@@ -99,10 +99,15 @@ events_tail() { tail -1 "$KEMPT_STATE_DIR/events.log" 2>/dev/null | cut -d' ' -f
 # stderr and the exit status together, because either alone would pass for the wrong reason: a
 # warning that also failed the command would break the "recording never blocks" invariant, and a
 # clean exit that said nothing is the bug this whole file is about.
-hold_stderr() {  # args... → the warning on stdout, and asserts the command still exited 0
+# `_fail=1` here would be set inside the SUBSHELL that every one of this function's twelve call
+# sites wraps it in, and lost on the way out - so the invariant this file exists to protect,
+# "recording a hold never blocks", could be violated twelve times and the suite would still be
+# green. A file survives the subshell; the assertion at the end of this file reads it.
+BLOCKED="$TESTTMP/hold-blocked"; : > "$BLOCKED"
+hold_stderr() {  # args... → the warning on stdout, and records any non-zero exit for the check below
   local rc=0 out
   out="$("$KEMPT" "$@" 2>&1 >/dev/null)" || rc=$?
-  [[ "$rc" == 0 ]] || { echo "FAIL: kempt $* exited $rc, and recording a hold must never fail" >&2; _fail=1; }
+  [[ "$rc" == 0 ]] || printf 'kempt %s exited %s\n' "$*" "$rc" >> "$BLOCKED"
   printf '%s\n' "$out"
 }
 
@@ -242,5 +247,14 @@ assert_eq "$(hold_stderr hold dnf:openldap)" "$(printf '%s\n%s\n' \
 rm -f "$marker"
 assert_eq "$(hold_stderr hold dnf:openldap)" "" \
   "after the harvest the same hold is silent: it applies to the next transaction, and says nothing about a past one"
+
+# The invariant every case above depends on: recording a hold WARNS, and never fails. Checked once
+# here rather than inside hold_stderr, which cannot fail the run from inside a command substitution.
+if [[ -s "$BLOCKED" ]]; then
+  echo "FAIL: a hold command exited non-zero - recording a hold must never block:"; _fail=1
+  sed 's/^/    /' "$BLOCKED"
+else
+  echo "ok: every hold and unhold above exited 0 - recording warns, it never blocks"
+fi
 
 finish

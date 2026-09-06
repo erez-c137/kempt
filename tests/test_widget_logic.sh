@@ -21,7 +21,7 @@ LOGIC="$REPO_ROOT/plasmoid/contents/ui/logic.js"
 # check layout, bindings at runtime or anything visual: that is the founder's visual gate.
 qml_check() {
   if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
-    echo "ok: SKIPPED - PySide6 is absent, so the .qml files were NOT compile-checked in this run"
+    skip "PySide6 is absent, so the .qml files were NOT compile-checked in this run"
     return 0
   fi
   local out="$TESTTMP/qmlcheck.txt" want rc=0
@@ -64,7 +64,7 @@ PY
 # node is not a dependency of Kempt itself, so its absence must not fail the suite - but it must
 # be LOUD, because a silent skip here means the widget's whole derivation layer went unverified.
 if ! command -v node >/dev/null 2>&1; then
-  echo "ok: SKIPPED - node is not installed, so logic.js was NOT verified in this run"
+  skip "node is not installed, so logic.js was NOT verified in this run"
   echo "    (install nodejs and re-run: these are the only tests the widget's derivation layer has)"
   qml_check
   finish
@@ -152,8 +152,14 @@ assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0
 # A state written before this feature existed has no such key, and must render exactly as it did.
 nokey='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{}}'
 assert_eq "$(js "L.viewModel($nokey,false).downloadText")" "" "a state with no download_bytes shows nothing"
-assert_eq "$(js "L.viewModel($nokey,false).footerText")" "$(js "L.viewModel($nokey,false).footerText")" \
-  "...and its footer is unchanged"
+# Against the SAME state carrying the key, not against itself: the previous form compared one
+# expression with the identical expression, so it passed however the footer rendered - including
+# if a state with no download_bytes had started showing a figure, which is the whole claim.
+assert_eq "$(js "L.viewModel($nokey,false).footerText")" "Checked 2026-08-24 23:59 +03:00" \
+  "...and its footer is the plain one, with no figure appended"
+assert_eq "$(js "L.viewModel(Object.assign({}, $nokey, {download_bytes:12345678}),false).footerText")" \
+  "Checked 2026-08-24 23:59 +03:00 $(printf '\xc2\xb7') ~12.3 MB" \
+  "...while the same state WITH the field does show one, so the difference is the field"
 # Every captured fixture predates the field, so this pins the no-regression claim to real files.
 assert_eq "$(js 'V("live",false).downloadText')" "" "the captured live state renders no figure"
 assert_eq "$(js 'V("held-only",false).downloadText')" "" "nor does the held-only one"
@@ -2205,7 +2211,13 @@ import xml.dom.minidom, sys; xml.dom.minidom.parse('$XML')"
 # writing a key the CLI has no default for - is exactly the case where nobody remembers.
 PAGE_KEYS="$(grep -o 'setIfChanged("[a-z_]*"' "$REPO_ROOT/plasmoid/contents/ui/configGeneral.qml" \
              | cut -d'"' -f2 | sort -u)"
-assert_eq "$(wc -l <<<"$PAGE_KEYS")" "6" "the settings page writes six settings"
+# NOT a count. A magic number here means adding a seventh setting correctly still fails the
+# suite, in this file, with a message about counting - which sends the reader somewhere the
+# problem is not. The real risk the line guards is the grep above silently matching nothing, so
+# that is what it asserts; the canonical list of keys lives in tests/qml/probe_settings.py, where
+# adding one is supposed to be a deliberate edit.
+[[ -n "$PAGE_KEYS" ]] && echo "ok: the settings page writes settings this test can see" \
+  || { echo "FAIL: found no setIfChanged keys in configGeneral.qml - the grep above has rotted"; _fail=1; }
 for key in $PAGE_KEYS; do
   assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "the CLI has a default for $key, which the page writes"
 done
@@ -2245,7 +2257,7 @@ assert_eq "$(jq -r '.KPlugin | has("X-Plasma-NotificationAreaCategory")' "$META"
 # and pick a category one of them uses.
 KDE_TRAY_META="$(grep -l 'X-Plasma-NotificationAreaCategory' /usr/share/plasma/plasmoids/*/metadata.json 2>/dev/null || true)"
 if [[ -z "$KDE_TRAY_META" ]]; then
-  echo "ok: SKIPPED - no Plasma tray applet on this box to compare the metadata convention against"
+  skip "no Plasma tray applet on this box to compare the metadata convention against"
 else
   # shellcheck disable=SC2086
   KDE_CATEGORIES="$(jq -r '.["X-Plasma-NotificationAreaCategory"]' $KDE_TRAY_META | sort -u)"

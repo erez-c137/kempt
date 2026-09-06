@@ -25,13 +25,27 @@ PROBE_WATCHDOG=120
 # PySide6 is not a dependency of Kempt itself, so its absence must not fail the suite - but it must
 # be LOUD, because a silent skip here means the widget's QML went unexecuted.
 if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
-  echo "ok: SKIPPED - PySide6 is absent, so the widget's QML was NOT executed in this run"
+  skip "PySide6 is absent, so the widget's QML was NOT executed in this run"
   echo "    (install python3-pyside6 and re-run: these probes are the only tests that run the"
   echo "     real QML - the rest of the widget's coverage is logic.js under node)"
   finish
 fi
 
-pycount() { ps -eo args --no-headers | grep -c '^python3' || true; }
+# From /proc, not from `ps`: procps-ng is absent on a minimal image and in Fedora's build root,
+# and there `ps` failed, this counted 0, and the leak assertion at the end of the file passed
+# without ever having counted anything - the guard that exists because of the 2,200-process
+# incident, failing open. Counting OUR probes by name rather than every python3 on the box, so an
+# unrelated python3 service starting mid-run is not read as a leaked probe and a leaked probe is
+# not hidden inside the slack allowed for one.
+pycount() {
+  local n=0 p line
+  for p in /proc/[0-9]*/cmdline; do
+    line="$(tr '\0' ' ' < "$p" 2>/dev/null)" || continue
+    [[ "$line" == *probe_* || "$line" == *safe_probe* ]] && n=$((n + 1))
+  done
+  printf '%s\n' "$n"
+}
+[[ -r /proc/self/cmdline ]] || { echo "FAIL: /proc is unreadable, so the probe leak census cannot run - refusing to start the battery"; _fail=1; finish; }
 
 # Everything already on the box before we add to it. The probes are the only python3 this file
 # starts, so anything above this at the end is ours and is a leak.

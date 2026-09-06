@@ -6,6 +6,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURES="$REPO_ROOT/tests/fixtures"
 _fail=0
 
+# A SKIP is not a pass, and printing it with the same "ok:" prefix made it one: a run with no
+# PySide6 and no node prints ALL PASS having executed neither the widget's QML nor its derivation
+# layer, which between them carry more than half the suite's assertions. This prints the skip AND
+# records it, so tests/run_tests.sh can say at the end what the run did not cover.
+skip() {  # reason... → print it, record it, and carry on
+  echo "skip: $*"
+  [[ -n "${KEMPT_TEST_SKIPS:-}" ]] \
+    && printf '%s: %s\n' "$(basename "${BASH_SOURCE[1]:-$0}")" "$*" >> "$KEMPT_TEST_SKIPS"
+  return 0
+}
+
 sandbox() {  # fresh dirs per test file; call first
   TESTTMP="$(mktemp -d "${TMPDIR:-/tmp}/kempt-test.XXXXXX")"
   export HOME="$TESTTMP/home"; mkdir -p "$HOME"
@@ -86,6 +97,7 @@ sandbox() {  # fresh dirs per test file; call first
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_AUTOSTART_SRC KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \
+        KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_RULES_DST KEMPT_CHECK_LOCK_WAIT \
         KEMPT_REFRESH_HELPER_PATH KEMPT_APPLY_HELPER_PATH KEMPT_PLASMOID_DIR
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }

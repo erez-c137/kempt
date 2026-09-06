@@ -80,3 +80,42 @@ jobs:
       # files at all, so a suite that silently stopped existing cannot pass as green.
       - name: Run the suite
         run: tests/run_tests.sh
+
+  # The widget's own halves, which the job above CANNOT run: logic.js needs node, and the QML
+  # probes need PySide6 plus the Plasma and Kirigami QML modules the widget imports. Neither was
+  # installed on the runner, so both skipped - and a skip printed with the same "ok:" prefix as a
+  # pass. Every green badge on this repo until now covered the CLI and nothing of the panel, while
+  # CONTRIBUTING.md told contributors those two files carry more than half the suite's assertions.
+  #
+  # In a Fedora container because that is where the Plasma QML modules are a dnf install away, and
+  # because it is the platform Kempt ships to. Verified against fedora:44: all eight probes green,
+  # nothing left resident.
+  widget:
+    name: widget (node + QML)
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v7
+
+      # plasma-workspace is the heavy one and it is not optional: probe_state.py imports
+      # org.kde.plasma.plasmoid, which is where that module lives.
+      - name: Install the widget's test dependencies
+        run: |
+          dnf -y install jq util-linux-core nodejs python3-pyside6 kf6-kirigami plasma-workspace
+          node --version
+          python3 -c 'import PySide6; print("PySide6", PySide6.__version__)'
+
+      # Both files SKIP loudly rather than fail when a dependency is missing, which is right for a
+      # contributor's laptop and wrong here: this job exists to run them. So the run is checked for
+      # a skip line and fails on one, or the job would go green having done nothing at all.
+      - name: The derivation layer (logic.js under node) and the .qml compile check
+        run: |
+          set -o pipefail   # without it `tee` hands back its own status and a failing suite goes green
+          tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
+          grep -q '^skip:' /tmp/logic.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true
+
+      - name: The QML probes, against the real Qt 6 engine
+        run: |
+          set -o pipefail
+          tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
+          grep -q '^skip:' /tmp/qml.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true

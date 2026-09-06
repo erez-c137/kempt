@@ -358,9 +358,11 @@ establish is expressed by an ABSENT key rather than an empty one: no `staged_nam
 "nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
 `staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
 list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
-`armed` is the one field a later run rewrites: reconciliation flips it to `false` when a restart
-proved the transaction cannot install (below), and that flip is also the record that this was
-already announced.
+Two fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
+a restart proved the transaction cannot install (below), and that flip is also the record that it
+has already been announced. `set_moved` is added when the harvest finds the installed set changed
+under a stage that is still armed - something other than this stage moved it - and it exists for
+the same reason: to say that once, rather than on every check for as long as the stage waits.
 Every name is filtered through `KEMPT_NAME_RE` as it is written, and one name that fails drops the
 whole list - one gate covers jq, the shell, QML and a terminal.
 
@@ -957,6 +959,7 @@ destructive paths without ever running them.
 | `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination. Pinned: an absolute `*.rules` path, either in `/etc/polkit-1/rules.d/` (the admin one of polkit's four rules directories) or outside every system prefix - `/etc`, `/run`, `/usr`, `/var`, `/boot`, `/opt` - which is what the test seam uses |
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions. Doctor reads each action's `exec.path` annotation out of it and compares that with the helper path this CLI hands to pkexec |
 | `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The USER's copy of the widget package. It means opposite things to `kempt doctor` on the two installs, which is why it is read and never written: on a checkout install it IS the install, and doctor diffs it against `plasmoid/`; on a packaged one its mere existence is a FAIL, because Plasma prefers a user copy over `/usr/share`, so a store-installed widget goes on being the one the panel loads while every package update lands in a directory nothing reads |
+| `KEMPT_CHECK_LOCK_WAIT` | `60` | Seconds a check waits for `check.lock` before giving up and serving the previous state instead. A seam only so the suite can reach that branch: at a fixed minute it cost a minute per test, so the one path that hands a reader the state file directly had no coverage at all - and it was serving multi-document files under exit 0 |
 | `KEMPT_SYSTEM_PLASMOID_DIR` | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt` | Where the PACKAGE puts the widget. Read only by `kempt doctor`, and only on a packaged install: the CLI and the panel widget ship as two packages (`kempt` and `kempt-plasmoid`), so a perfectly healthy CLI can sit on a box with nothing in the panel, and this is what lets the report say which package carries the missing half. `tests/lib.sh` pins it at a path that does not exist, so a suite run does not depend on whether the developer happens to have the widget package installed |
 | `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged |

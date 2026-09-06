@@ -117,9 +117,11 @@ install -D -m 0644 polkit/49-kempt.rules.in \
 # and 0755 would advertise an entry point that does nothing when you run it. The shebang stays in
 # the checkout, where shellcheck and editors read the dialect off it; the installed copy is a
 # library and says so.
+# Globbed, not listed by name: a THIRD backend added to backends/ would otherwise keep its
+# shebang, install 0644 with it, and rpmlint would reject the package - after the contributor
+# followed docs/architecture.md, which says the backend table is everything they need to touch.
 sed -i '1{/^#!/d}' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
-                   %{buildroot}%{_datadir}/%{name}/backends/dnf.sh \
-                   %{buildroot}%{_datadir}/%{name}/backends/flatpak.sh
+                   %{buildroot}%{_datadir}/%{name}/backends/*.sh
 
 # Root helpers. Mode 0755, owned by root: the polkit action execs these and nothing else.
 install -D -m 0755 libexec/kempt-refresh %{buildroot}%{_libexecdir}/kempt-refresh

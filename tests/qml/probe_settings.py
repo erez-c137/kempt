@@ -565,7 +565,7 @@ for k, v in DEFAULTS:
     setval(k, v)
 p.clear_calls()
 page6, ev6 = build()
-p.check("all six settings are read on open",
+p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
         ["auto_accept", "include_flatpak", "refresh_interval_min", "restart_reminder",
          "surface", "widget_icon_size"])

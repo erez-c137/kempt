@@ -683,6 +683,34 @@ export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 # sees exactly what it saw before.
 assert_eq "$(jq -r .schema "$st")" "1" "the schema is not bumped by an additive field"
 
+# --- the check that gives up on the lock hands back ONE document ---------------------------------
+# When a check cannot take the lock it serves the previous state file directly, and that is the one
+# path in Kempt that promises "never corrupt bytes under exit 0". It was reading the file with
+# `jq -e .`, which is precisely the form the same file documents 780 lines further down as the bug
+# it fixed elsewhere: a MULTI-DOCUMENT file is valid input to jq, so that form printed BOTH
+# documents, and the widget's JSON.parse throws on the second. A state file grows a second document
+# when a write is interrupted, which is exactly when a reader is most likely to be waiting on it.
+lock_state="$KEMPT_STATE_DIR/state.json"
+printf '{"schema":1,"marker":"FIRST"}\n{"schema":1,"marker":"SECOND"}\n' > "$lock_state"
+# Hold the lock from another process for longer than the check will wait for it.
+( flock 9; sleep 5 ) 9>"$KEMPT_STATE_DIR/check.lock" &
+lock_holder=$!
+for _ in $(seq 1 200); do
+  flock -w 0 -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null || break; sleep 0.02
+done
+KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check > "$TESTTMP/served.json" 2>"$TESTTMP/served.err"
+served_rc=$?
+kill "$lock_holder" 2>/dev/null; wait "$lock_holder" 2>/dev/null || true
+assert_eq "$served_rc" "0" "a check that cannot take the lock still exits 0"
+grep -q 'serving previous state' "$TESTTMP/served.err" \
+  && echo "ok: ...and says on stderr that the answer is the previous one" \
+  || { echo "FAIL: no warning about serving the previous state"; _fail=1; }
+assert_eq "$(jq -s 'length' "$TESTTMP/served.json" 2>/dev/null || echo PARSE-ERROR)" "1" \
+  "...and hands back exactly ONE json document, whatever the file holds"
+assert_eq "$(jq -r '.marker' "$TESTTMP/served.json" 2>/dev/null)" "FIRST" \
+  "...the first one, which is the state the last complete write left"
+rm -f "$lock_state"
+
 # --- a stage made WHILE a harvest is running is not deleted by it -------------------------------
 # The marker is shared mutable state between two commands holding DIFFERENT locks: the harvest runs
 # under check.lock, `kempt update` writes the marker under the update lock, and neither waits for
@@ -725,6 +753,43 @@ assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || 
   "...while the applied transaction is still written to history"
 rm -f "$marker" "$race_pre"
 
+# --- something else moved the packages under a stage that is still armed -------------------------
+# Applying an offline transaction removes dnf5's stored transaction, its transaction.json and the
+# /system-update symlink. So a package set that moved across a reboot while all of that is STILL
+# there was moved by something else - dnf-automatic, GNOME Software, a terminal `sudo dnf5
+# upgrade`. Harvesting it wrote a history entry naming the other tool's packages, announced an
+# install that had not happened, and deleted the record of a transaction that was still going to
+# install. Recorded once instead, and the stage is left exactly as it is.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
+moved_pre="$KEMPT_STATE_DIR/snapshots/moved-pre.tsv"
+printf 'bash\t1-1\nzsh\t1-1\n' > "$moved_pre"
+jq -n --arg s "$moved_pre" '{staged_at:"MOVED", pre_snapshot:$s, boot_id:"boot-old", staged:2, armed:true}' \
+  > "$marker"
+printf '#!/usr/bin/env bash\nprintf "bash\\t2-1\\nzsh\\t1-1\\n"\n' > "$TESTTMP/moved-installed"
+chmod +x "$TESTTMP/moved-installed"
+hist_before="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)"
+before_def="$(events_since 'harvest deferred')"
+: > "$notify_log"
+KEMPT_DNF_INSTALLED_CMD="$TESTTMP/moved-installed" KEMPT_NOTIFY="$TESTTMP/notify-stub" \
+  KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
+assert_exit 0 "a stage whose packages moved underneath it keeps its marker" -- test -f "$marker"
+assert_eq "$(jq -r '.armed' "$marker")" "true" "...and stays armed, because it is"
+assert_eq "$(jq -r '.staged_at' "$marker")" "MOVED" "...and is still the stage that was made"
+assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "$hist_before" \
+  "...and no history entry is invented for an install that did not happen"
+grep -q 'applied on reboot' "$notify_log" \
+  && { echo "FAIL: announced somebody else's packages as the staged update installing"; _fail=1; } \
+  || echo "ok: ...and the user is not told their staged update was applied"
+assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
+  "...the deferral is recorded"
+assert_eq "$(jq -r '.set_moved' "$marker")" "true" "...on the marker, which is how it is recorded"
+KEMPT_DNF_INSTALLED_CMD="$TESTTMP/moved-installed" KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
+  "...exactly once, not once per check for as long as the stage waits"
+rm -f "$marker" "$moved_pre"
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+
 # --- the check lock is not handed to the helpers ------------------------------------------------
 # bash sets no FD_CLOEXEC and a flock lives on the open file description, so it is held while ANY
 # descriptor referring to it is open - a child's included. A grandchild outliving `timeout 120`
@@ -748,6 +813,6 @@ if [[ -s "$TESTTMP/helper-fds" ]]; then
          sed 's/^/    /' "$TESTTMP/helper-fds"; } \
     || echo "ok: the refresh helper is handed no descriptor for the check lock"
 else
-  echo "ok: SKIPPED - the refresh helper was not reached in this run, so its descriptors say nothing"
+  skip "the refresh helper was not reached in this run, so its descriptors say nothing"
 fi
 finish

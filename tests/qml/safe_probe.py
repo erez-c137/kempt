@@ -28,9 +28,38 @@ CEILING = 10  # more python3 than this already on the box and we are not adding 
 
 
 def pycount():
-    out = subprocess.run(["ps", "-eo", "args", "--no-headers"],
-                         capture_output=True, text=True).stdout
-    return sum(1 for ln in out.splitlines() if ln.startswith("python3"))
+    """How many python3 are resident. Read from /proc, NOT from `ps`.
+
+    This census is the guard that exists because a probe battery once reached ~2,200 Qt
+    processes and OOM-killed production. It used to shell out to `ps`, which is procps-ng and
+    is absent from a minimal Fedora image and from Fedora's build root: there the subprocess
+    raised FileNotFoundError, the exception escaped, and the battery reported that no probe
+    processes had survived - a safety guard failing OPEN, in the one place that must not.
+    /proc is always there on Linux and needs no package at all.
+
+    Counting OUR probes by name rather than every python3 on the box. The old form matched a
+    line beginning "python3", which missed a probe started as /usr/bin/python3 and counted
+    unrelated python3 services as if they were leaked probes - on a box that runs other things
+    that is noise in both directions, and this census only means anything if it is exact.
+    """
+    n = 0
+    try:
+        entries = os.listdir("/proc")
+    except OSError as exc:
+        raise SystemExit("REFUSING TO RUN: cannot read /proc, so the process census "
+                         "that keeps this battery from filling the machine is not "
+                         "available (%s)" % exc)
+    for pid in entries:
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as fh:
+                argv0 = fh.read().split(b"\0", 1)[0]
+        except OSError:
+            continue                       # it exited while we looked; not ours to count
+        if b"probe_" in argv0 or b"safe_probe" in argv0:
+            n += 1
+    return n
 
 
 def main():

@@ -867,6 +867,12 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # No marker Kempt writes is anywhere near this big (the largest is a few hundred bytes), so past it
 # the file is not a marker: it is whatever else ended up at that path, and a reader that parses it
 # anyway is a reader that will parse whatever it is handed.
+# How long a check waits for the check lock before serving the previous state instead. A seam
+# only so the suite can reach that branch: at the fixed minute it used to be, the timeout path -
+# the one that hands a reader the state file directly - cost a minute per test and was never
+# covered. Left at 60 everywhere except the one file that exercises it.
+KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
+
 KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.

@@ -371,7 +371,7 @@ if _en_pick="$(cd "$KEMPT_STATE_DIR/history" && LC_ALL=en_US.UTF-8 ls -1 ./*.jso
   assert_eq "$([[ "$_c_pick" != "$_en_pick" ]] && echo differs || echo same)" "differs" \
     "premise: an unpinned sort picks a different entry under en_US.UTF-8"
 else
-  echo "ok: SKIPPED premise (en_US.UTF-8 is not installed on this box)"
+  skip "premise - en_US.UTF-8 is not installed on this box"
 fi
 
 # The guard. Every locale must get the same answer, and it must be the byte-order one.

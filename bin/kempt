@@ -25,9 +25,14 @@ cmd_check() {
   kempt_init_dirs
   # serialize checks: last FINISHER used to win, letting a slow stale result overwrite a fresh one
   exec 9>"$KEMPT_STATE_DIR/check.lock"
-  if ! flock -w 60 9; then
+  if ! flock -w "$KEMPT_CHECK_LOCK_WAIT" 9; then
     echo "warning: another check holds the lock; serving previous state" >&2
-    jq -e . "$STATE_FILE" 2>/dev/null || true   # validated: never hand a reader corrupt bytes under rc 0
+    # `[inputs][0]`, and NOT `jq -e .`: a multi-document state file is perfectly valid input to
+    # jq, so the plain form printed BOTH documents under exit 0 and the widget's JSON.parse threw
+    # on the second - out of the one path here that promises a caller is never handed corrupt
+    # bytes. The same idiom guards prev_ls sixteen lines below and `summary --json`, which carries
+    # the full story; this line claimed to be validated and was the form the others fixed.
+    jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
     return 0
   fi
   # inside the check lock, before anything reads the world: two overlapping checks must not both
@@ -641,7 +646,17 @@ cmd_update() {
     elif same_content "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
       # STILL PENDING: staging writes no rpm changes of its own, so a baseline that still matches
       # the world this run started from means no restart has applied it yet.
-      if [[ "$dnf_status" == "ok" ]] && ! same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv"; then
+      # same_content answers THREE ways - equal, different, unreadable - and the difference
+      # matters here more than anywhere else in the tree, because the branch below DISCARDS a
+      # staged transaction. `! same_content` collapses "unreadable" into "different", so a snapshot
+      # that could not be read would be taken as proof the package set moved and throw the stage
+      # away. Only a positive "different" (rc 1) is allowed to do that.
+      local moved=0
+      same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv" || moved=$?
+      if [[ $moved -eq 2 ]]; then
+        echo "warning: could not compare this run's package snapshots - the staged update was left as it was" | tee -a "$log" >&2
+      fi
+      if [[ "$dnf_status" == "ok" && $moved -eq 1 ]]; then
         # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against, and
         # dnf5 refuses one whose cookie has moved - so after a live install the armed stage is not
         # a pending update at all, it is a failed offline boot waiting to happen. Discarding it is
@@ -1053,9 +1068,9 @@ harvest_offline() {
 
 cmd_config() {
   case "${1:-}" in
-    get) [[ -n "${2:-}" ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
+    get) [[ -n "${2:-}" && $# -le 3 ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
          config_get "$2" "${3-}" ;;
-    set) [[ -n "${2:-}" && -n "${3+x}" ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
+    set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
          config_set "$2" "$3" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
@@ -1124,7 +1139,9 @@ cmd_unhold() {
   fi
   log_event "unhold $b:$n$note"
 }
-cmd_holds()  { holds_all; }
+# Refuses a stray argument like every other command: `kempt holds --json` silently printing the
+# plain list is how somebody writes a script against an option that does not exist.
+cmd_holds()  { [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; holds_all; }
 
 # `kempt log` - the event log, newest last, the way a log reads.
 # Deliberately the plainest command here: no filtering, no formatting, no colour. The file is
@@ -1776,7 +1793,9 @@ cmd_disable_passwordless() {
 
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
-#   1 the run itself failed (a backend returned non-zero), or `doctor` found a problem
+#   1 the run itself failed (a backend returned non-zero), `doctor` found a problem, or a writer
+#     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
+#     same table and calls that third case the one that surprises people - keep the two in step
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)

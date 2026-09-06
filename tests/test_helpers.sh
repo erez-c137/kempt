@@ -75,7 +75,7 @@ if LC_ALL=en_US.UTF-8 bash -c '[[ "é" =~ ^[A-Za-z]$ ]]' 2>/dev/null; then
   assert_exit 2 "apply: caller locale cannot widen the name pattern" \
     env LC_ALL=en_US.UTF-8 KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade '--exclude=évil'
 else
-  echo "ok: SKIPPED locale probe (en_US.UTF-8 unavailable)"
+  skip "locale probe - en_US.UTF-8 is not installed on this box"
 fi
 
 # Root-helper hardening: absolute interpreter + pinned, EXPORTED PATH. Exported matters: without
