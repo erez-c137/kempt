@@ -105,9 +105,12 @@ jobs:
           node --version
           python3 -c 'import PySide6; print("PySide6", PySide6.__version__)'
 
-      # Both files SKIP loudly rather than fail when a dependency is missing, which is right for a
-      # contributor's laptop and wrong here: this job exists to run them. So the run is checked for
-      # a skip line and fails on one, or the job would go green having done nothing at all.
+      # Both files SKIP loudly rather than fail when a dependency is missing, which is right on a
+      # contributor's laptop and wrong here: this job exists to run them, and without this check it
+      # would go green having done nothing at all. Matched on the TWO dependency skips by name, not
+      # on any skip: test_widget_logic.sh also skips one case that compares Kempt's metadata
+      # against another Plasma tray applet installed on the box, and a container legitimately has
+      # none - failing on that would be failing on the environment rather than on coverage.
       # `bash <file>`, never `./<file>`: the test files are mode 0644 by house convention and
       # run_tests.sh invokes them the same way.
       - name: The derivation layer (logic.js under node) and the .qml compile check
@@ -115,11 +118,13 @@ jobs:
         run: |
           set -o pipefail   # without it `tee` hands back its own status and a failing suite goes green
           bash tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
-          grep -q '^skip:' /tmp/logic.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true
+          grep -qE '^skip: (node is not installed|PySide6 is absent)' /tmp/logic.log \
+            && { echo "::error::node or PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
 
       - name: The QML probes, against the real Qt 6 engine
         shell: bash
         run: |
           set -o pipefail
           bash tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
-          grep -q '^skip:' /tmp/qml.log && { echo "::error::a dependency was missing, so this job skipped what it exists to run"; exit 1; } || true
+          grep -qE '^skip: PySide6 is absent' /tmp/qml.log \
+            && { echo "::error::PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
