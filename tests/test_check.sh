@@ -682,4 +682,72 @@ export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 # Schema 1 stays schema 1. Every field here is additive, so a reader written before this feature
 # sees exactly what it saw before.
 assert_eq "$(jq -r .schema "$st")" "1" "the schema is not bumped by an additive field"
+
+# --- a stage made WHILE a harvest is running is not deleted by it -------------------------------
+# The marker is shared mutable state between two commands holding DIFFERENT locks: the harvest runs
+# under check.lock, `kempt update` writes the marker under the update lock, and neither waits for
+# the other. Between the harvest's read and its delete there is a package snapshot and a diff -
+# 0.5 to 1.5 s on a real box - and a stage landing inside that window used to be deleted by it:
+# "Updates staged - they install on the next restart", and a second later the panel shows nothing
+# staged, over a transaction that is armed and will install.
+# Injected at exactly that moment rather than raced: the snapshot seam itself writes the new
+# marker, which is the same interleaving without the flakiness of a real race.
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"   # the reboot applied and cleared it
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+race_pre="$KEMPT_STATE_DIR/snapshots/race-pre.tsv"
+mkdir -p "$KEMPT_STATE_DIR/snapshots"
+printf 'bash\t1-1\nzsh\t1-1\n' > "$race_pre"
+jq -n --arg s "$race_pre" '{staged_at:"STAGE-A", pre_snapshot:$s, boot_id:"boot-old", staged:2, armed:true}' \
+  > "$marker"
+# ONCE, on the first call only: this seam is read again later in the same check, and a stub that
+# rewrote the marker every time would re-create it after the harvest and make the assertions below
+# pass whether or not the harvest deleted it.
+cat > "$TESTTMP/racing-installed" <<STUB
+#!/usr/bin/env bash
+if [[ ! -e "$TESTTMP/raced" ]]; then
+  : > "$TESTTMP/raced"
+  # The stage that lands mid-harvest, written the way cmd_update writes it.
+  jq -n '{staged_at:"STAGE-B", pre_snapshot:"$TESTTMP/b.tsv", boot_id:"boot-new", staged:9, armed:true}' \
+    > "$marker"
+fi
+printf 'bash\t2-1\nzsh\t1-1\n'
+STUB
+chmod +x "$TESTTMP/racing-installed"
+KEMPT_DNF_INSTALLED_CMD="$TESTTMP/racing-installed" KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
+assert_exit 0 "a stage written while the harvest ran survives it" -- test -f "$marker"
+assert_eq "$(jq -r '.staged_at' "$marker")" "STAGE-B" \
+  "...and it is the NEW stage that is on disk, not the one the harvest read"
+assert_eq "$(events_since 'offline marker kept (a new stage arrived while the check ran)')" "1" \
+  "...and the harvest records that it kept somebody else's marker"
+# The harvest's own work still happened: the reboot really did apply the old transaction, so it is
+# still reported. Keeping the new marker must not cost the user the record of the old run.
+assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "1" \
+  "...while the applied transaction is still written to history"
+rm -f "$marker" "$race_pre"
+
+# --- the check lock is not handed to the helpers ------------------------------------------------
+# bash sets no FD_CLOEXEC and a flock lives on the open file description, so it is held while ANY
+# descriptor referring to it is open - a child's included. A grandchild outliving `timeout 120`
+# therefore kept the CHECK lock: the next check blocked for its whole life, and past 60 s every
+# check after that served stale state without saying so. harvest_offline runs inside that lock, so
+# a staged transaction's post-reboot harvest is stuck behind it too.
+cat > "$TESTTMP/fd-refresh" <<STUB
+#!/usr/bin/env bash
+for fd in /proc/self/fd/*; do
+  printf '%s -> %s\n' "\${fd##*/}" "\$(readlink "\$fd" 2>/dev/null)"
+done > "$TESTTMP/helper-fds"
+[[ "\$1" == check ]] && exit 0
+exit 0
+STUB
+chmod +x "$TESTTMP/fd-refresh"
+: > "$TESTTMP/helper-fds"
+KEMPT_REFRESH_HELPER="$TESTTMP/fd-refresh" KEMPT_SKIP_REFRESH= "$KEMPT" check >/dev/null 2>&1
+if [[ -s "$TESTTMP/helper-fds" ]]; then
+  grep -q 'check\.lock' "$TESTTMP/helper-fds" \
+    && { echo "FAIL: the refresh helper inherited the check lock"; _fail=1
+         sed 's/^/    /' "$TESTTMP/helper-fds"; } \
+    || echo "ok: the refresh helper is handed no descriptor for the check lock"
+else
+  echo "ok: SKIPPED - the refresh helper was not reached in this run, so its descriptors say nothing"
+fi
 finish

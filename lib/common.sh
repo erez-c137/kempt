@@ -378,8 +378,16 @@ config_set() {  # key value
 # action file is installed, pkexec falls back to an auth DIALOG - a background check would hang
 # forever waiting on a password nobody is there to type. priv_apply stays untimed on purpose:
 # there, interactive auth is the legitimate flow.
-priv_refresh() { timeout 120 ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@"; }
-priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@"; }
+# `9>&-` on both: bash sets no FD_CLOEXEC, and a flock lives on the open file description, so it
+# is held for as long as ANY descriptor referring to it stays open - a child's included. fd 9 is
+# the CHECK lock (cmd_check), and a grandchild that outlives the `timeout 120` above therefore
+# goes on holding it: measured, the next `kempt check` blocked for the straggler's whole life, and
+# past 60 s every check after it serves stale state while saying nothing. harvest_offline runs
+# inside that lock, so a staged transaction's post-reboot harvest is stuck behind it too.
+# fd 8, the UPDATE lock, is left inherited on purpose - the terminal surface's `tee` holds it
+# deliberately, and lib/common.sh's acquire_lock says so.
+priv_refresh() { timeout 120 ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
+priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
 # The tail of a captured stderr file, flattened to one line for a JSON string or a warning.
 # The trailing `sed` is not cosmetic: `tr '\n' ' '` turns the file's final newline into a SPACE,
@@ -871,6 +879,22 @@ KEMPT_TXJSON_MAX_BYTES=8388608
 # staged. Clearing stays what it was - a marker that parses, over a transaction dnf5 says is gone.
 # `[inputs][0]` plus the type guard is state_prev_items' corrupt-tolerance: a multi-document,
 # truncated or non-object file degrades to nothing instead of taking the check down with it.
+# Compare-and-swap on the stage's identity, for the two commands that BOTH write this file while
+# holding DIFFERENT locks: the harvest runs under check.lock (fd 9) and `kempt update` writes the
+# marker under the update lock (fd 8), so neither waits for the other. Between the read at the top
+# of a harvest and the delete at the bottom there is a full package snapshot and a diff - measured
+# at 0.5 to 1.5 s on a 2700-package box - and a stage that lands inside that window used to be
+# deleted by it: the user clicked "Install on Next Restart", was told the update was staged, and a
+# second later the panel showed nothing staged, over a transaction that was armed and would
+# install. `staged_at` is the identity because it is what the widget's own click-time re-verify
+# already compares.
+offline_marker_still() {  # marker-json → 0 when the file still holds that same stage
+  local now
+  now="$(offline_marker_read)"
+  [[ "$(jq -r '.staged_at // empty' <<<"$now" 2>/dev/null)" \
+     == "$(jq -r '.staged_at // empty' <<<"$1" 2>/dev/null)" ]]
+}
+
 offline_marker_read() {  # → the marker as one line of JSON, or nothing
   [[ -f "$OFFLINE_MARKER" ]] || return 0
   local sz

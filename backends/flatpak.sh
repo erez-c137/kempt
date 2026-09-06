@@ -130,7 +130,9 @@ flatpak_snapshot() { $KEMPT_FLATPAK_LIST_CMD | sort_name_version | collapse_vers
 # of this call is its side effect (it rewrites the local summary), and the pending list it happens
 # to print is flatpak_check's job to produce, so letting it out would contaminate whatever the
 # caller was capturing.
-flatpak_refresh() { $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1; }
+# 9>&- for the same reason priv_refresh closes it: this runs inside the check lock, it talks to
+# the network, and anything it leaves behind would hold that lock open after it is gone.
+flatpak_refresh() { $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1 9>&-; }
 
 # The backend's apply step, called from cmd_update through apply_with_retry. Argument shape is
 # the one the hold logic produces: an optional -y, then the app ids left standing after the held

@@ -888,7 +888,13 @@ cmd_history() {
 # Its own function because harvest_offline reaches this conclusion from two different directions,
 # and the two must not drift about what "clearing" removes: the snapshot copy belongs to the
 # marker, so it goes too, or it is orphaned in snapshots/ with nothing left to name it.
-clear_gone_stage() {  # marker-owned pre-snapshot path, possibly empty
+clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the marker it came from
+  # Never delete a marker somebody else wrote while this ran: see offline_marker_still.
+  if [[ -n "${2:-}" ]] && ! offline_marker_still "$2"; then
+    rm -f ${1:+"$1"}
+    log_event "offline marker kept (a new stage arrived while the check ran)"
+    return 0
+  fi
   rm -f "$OFFLINE_MARKER" ${1:+"$1"}
   log_event "offline marker cleared (stage gone)"
 }
@@ -911,6 +917,10 @@ reconcile_detour_stage() {  # marker-json toml-status
   # the announcing default anyway - a marker written before this field existed describes a stage
   # that was armed, because nothing else was ever written down.
   if jq -e '.armed == false' <<<"$1" >/dev/null 2>&1; then return 0; fi
+  # ...and never write the OLD marker back over a stage made while this check was running: the
+  # write below is a read-modify-write of a file `kempt update` owns under a different lock.
+  offline_marker_still "$1" || {
+    log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
   notify "Kempt" "Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean."
   log_event "offline stage cannot install (status $2) - announced"
   # Additive, like every other field of this file: `armed: false` is added and everything already
@@ -942,7 +952,7 @@ harvest_offline() {
   if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
     # Same boot: nothing can have APPLIED the stage, whatever the package set says. But it can
     # still have been thrown away, and that is the one thing worth acting on here.
-    [[ "$toml_status" == absent ]] && clear_gone_stage "$pre"
+    [[ "$toml_status" == absent ]] && clear_gone_stage "$pre" "$marker"
     return 0
   fi
   # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
@@ -963,7 +973,7 @@ harvest_offline() {
   if same_content "$pre" "$now_snap"; then
     rm -f "$now_snap"
     if [[ "$toml_status" == absent ]]; then
-      clear_gone_stage "$pre"
+      clear_gone_stage "$pre" "$marker"
     elif [[ "$toml_status" != ready ]]; then
       # Present but not armed, across a boot that changed: the detour above. Anything but `ready`
       # counts - download-complete, download-incomplete, or a status this build has never heard of -
@@ -1001,6 +1011,7 @@ harvest_offline() {
       # now stale - a later harvest will diff against a set the other tool has already moved - and
       # that is the residual transaction identity (issue #9) closes properly. Recording a wrong
       # apply is the part that had to stop.
+      offline_marker_still "$marker" || return 0   # a newer stage owns the file now
       log_event "harvest deferred: packages moved outside Kempt while the stage is still armed"
       jq -c '. + {set_moved: true}' <<<"$marker" | write_offline_marker \
         || echo "warning: could not record that the package set moved under a staged update" >&2
@@ -1020,7 +1031,17 @@ harvest_offline() {
      reboot_needed:false, log:"",
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
-  rm -f "$OFFLINE_MARKER" "$now_snap" "$pre"   # $pre is the marker-owned copy
+  rm -f "$now_snap"
+  # The history entry above is honest whatever happened next - the transaction really did apply -
+  # but the MARKER may no longer be the one this harvest read: a stage made while the snapshot and
+  # diff were running owns the file now, and deleting it would make the panel forget a transaction
+  # that is armed and will install.
+  if offline_marker_still "$marker"; then
+    rm -f "$OFFLINE_MARKER"
+  else
+    log_event "offline marker kept (a new stage arrived while the check ran)"
+  fi
+  rm -f "$pre"   # $pre is this harvest's own marker-owned copy either way
   # Same counts phrase as a live run's notification: a staged transaction that only installed or
   # removed packages must not be announced as "0 packages".
   local harvested; harvested="$(run_counts_phrase "$hist")"
