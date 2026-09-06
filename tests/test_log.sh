@@ -264,6 +264,29 @@ rm -f "$KEMPT_STATE_DIR/last_refresh"     # the 3h window, reopened
 : > "$EV"
 "$KEMPT" check >/dev/null 2>&1 || true
 assert_eq "$(events_like ' refresh failed')" "1" "...and one that did not is recorded too"
+
+# A refresh that never answers, which is what an authentication dialog nobody is at looks like:
+# a background check cannot answer one, so it waits out the whole timeout. The number was
+# hardcoded at 120 until now, so no test could reach this branch without waiting two minutes -
+# and the branch that runs when a real box is left at a password prompt had never been executed.
+# The assertion that matters is the DURATION: it proves the timeout fired rather than the helper
+# finishing on its own.
+printf '#!/usr/bin/env bash\nsleep 30\n' > "$TESTTMP/refresh-hangs"; chmod +x "$TESTTMP/refresh-hangs"
+rm -f "$KEMPT_STATE_DIR/last_refresh"
+: > "$EV"
+t0=$(date +%s)
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-hangs" KEMPT_REFRESH_TIMEOUT=1 "$KEMPT" check >/dev/null 2>&1 || true
+elapsed=$(( $(date +%s) - t0 ))
+assert_eq "$(events_like ' refresh failed')" "1" "a refresh that never answers is recorded as failed"
+[[ $elapsed -lt 15 ]] \
+  && echo "ok: ...and the check gives up on it rather than waiting for it (${elapsed}s)" \
+  || { echo "FAIL: the check waited ${elapsed}s for a refresh that was never going to answer"; _fail=1; }
+# The point of giving up: the check still ANSWERS. The same helper serves the pending-list read,
+# so a helper that never replies costs two timeouts and the answer is "stale" - which is the
+# honest one. A check that cannot find out must say so, not publish a stale count as current.
+assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "stale" \
+  "...and says it could not find out, rather than publishing an old count as current"
+export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-declined"
 # The arms fail independently: a dnf refresh nobody authorised must not cancel a flatpak fetch
 # that needs no authorisation at all.
 assert_eq "$(events_like ' refresh flatpak ok')" "1" "a declined dnf refresh still lets flatpak fetch"

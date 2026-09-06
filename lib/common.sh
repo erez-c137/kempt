@@ -353,7 +353,12 @@ config_set() {  # key value
 # next `kempt check` blocks for the straggler's whole life, and past 60s every check after it
 # serves stale state while saying nothing. harvest_offline runs inside that lock too.
 # fd 8, the UPDATE lock, is left inherited on purpose - see acquire_lock.
-priv_refresh() { timeout 120 ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
+# How long a metadata refresh may take before the check gives up and reports stale. The wait that
+# actually happens is a polkit dialog nobody is at: a background check cannot answer one, so it
+# sits here for the full two minutes. A seam only so the suite can reach that branch - hardcoded,
+# no test could drive it without waiting two minutes, and it had none.
+KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
+priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
 # The tail of a captured stderr file, flattened to one line for a JSON string or a warning, in one
