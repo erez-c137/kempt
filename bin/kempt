@@ -9,10 +9,7 @@ source "$ROOT/backends/flatpak.sh"
 
 command -v jq >/dev/null || { echo "kempt: requires jq" >&2; exit 3; }
 
-# Every bug report against a packaged tool starts with a version number, and until this existed
-# "which build is this?" had no answer anywhere: `kempt help` listed the commands, `kempt doctor`
-# reported jq's version but not its own, and there are no git tags. Both spellings are accepted
-# because both get typed - `--version` is the convention, `version` is what people guess.
+# Both spellings, because both get typed.
 cmd_version() {
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   printf 'kempt %s\n' "$(kempt_version)"
@@ -23,43 +20,38 @@ cmd_check() {
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   kempt_init_dirs
-  # serialize checks: last FINISHER used to win, letting a slow stale result overwrite a fresh one
+  # serialize checks: without this the last FINISHER wins and a stale result overwrites a fresh one
   exec 9>"$KEMPT_STATE_DIR/check.lock"
   if ! flock -w "$KEMPT_CHECK_LOCK_WAIT" 9; then
     echo "warning: another check holds the lock; serving previous state" >&2
-    # `[inputs][0]`, and NOT `jq -e .`: a multi-document state file is perfectly valid input to
-    # jq, so the plain form printed BOTH documents under exit 0 and the widget's JSON.parse threw
-    # on the second - out of the one path here that promises a caller is never handed corrupt
-    # bytes. The same idiom guards prev_ls sixteen lines below and `summary --json`, which carries
-    # the full story; this line claimed to be validated and was the form the others fixed.
+    # `[inputs][0]`, and NOT `jq -e .`: a multi-document state file is valid input to jq, so the
+    # plain form prints BOTH documents under exit 0 and the widget's JSON.parse throws on the
+    # second. House idiom - same guard on prev_ls below, in state_prev_items and `summary --json`.
     jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
     return 0
   fi
-  # inside the check lock, before anything reads the world: two overlapping checks must not both
-  # harvest the same staged transaction into two history entries
+  # inside the check lock, before anything reads the world: two overlapping checks must not turn
+  # one staged transaction into two history entries
   harvest_offline
   maybe_refresh_metadata
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
-  # Download sizes, per backend, in files because attach_sizes joins against a TSV. Both start
-  # EMPTY and stay empty on any failure: the figure is a nicety on top of the check, and the check
-  # must answer with or without it. Nothing below is allowed to change `status`.
+  # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
+  # nothing below may change `status`: the check must answer with or without a size.
   local dnf_sz fp_sz dnf_priced=false fp_priced=false
   dnf_sz="$(mktemp)"; fp_sz="$(mktemp)"
-  # -n/[inputs][0]: same corrupt-tolerance as state_prev_items. A multi-doc state file made the
-  # plain form emit one last_success PER DOCUMENT, newline-joined into a single string - which
-  # reaches the widget as "Invalid Date".
+  # -n/[inputs][0]: the corrupt-tolerance idiom above (a multi-doc file joins one last_success per
+  # document into one string).
   prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
   errf="$(mktemp)"
   if dnf_items="$(dnf_check 2>"$errf")"; then
-    # Priced only when the check ANSWERED. A stale backend serves the items from the previous
-    # state, and those already carry whatever sizes they were written with - re-pricing them from
-    # a fresh query would put today's bytes on yesterday's list.
+    # Priced only when the check ANSWERED: a stale backend serves the previous state's items,
+    # which carry their own sizes - re-pricing puts today's bytes on yesterday's list.
     dnf_priced=true
     dnf_sizes > "$dnf_sz" 2>/dev/null || : > "$dnf_sz"
   else
-    # explain_helper_error only rewrites the one case the raw text gets WRONG (a missing root
-    # helper reported by `timeout` as a failure to run a command, which reads as a timeout).
-    # This is the dnf branch on purpose: it is the only check path that goes through a root helper.
+    # explain_helper_error rewrites the one case the raw text gets WRONG: a missing root helper,
+    # which `timeout` reports as a failure to run a command and reads as a timeout. dnf only -
+    # the one check path that goes through a root helper.
     serr="$(explain_helper_error "$(stderr_tail "$errf")")"
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
@@ -80,48 +72,35 @@ cmd_check() {
   rm -f "$dnf_sz" "$fp_sz"
   local dnf_bytes fp_bytes=""
   dnf_bytes="$(backend_download_bytes <<<"$dnf_items")"
-  # A backend that is switched off gets no figure rather than a zero: `download_bytes: 0` on a
-  # disabled backend reads as "nothing to download from it", which is a claim, where the truth is
-  # that nobody asked.
+  # A switched-off backend gets no figure rather than a zero: `download_bytes: 0` would claim
+  # "nothing to download from it" where the truth is that nobody asked.
   [[ "$fp_enabled" == true ]] && fp_bytes="$(backend_download_bytes <<<"$fp_items")"
-  # Published for the widget so it can offer "Install on Next Restart" without re-deriving the
-  # rule. dnf only: a flatpak app cannot take the session down mid-transaction.
+  # Published so the widget can offer "Install on Next Restart" without re-deriving the rule.
+  # dnf only: a flatpak app cannot take the session down mid-transaction.
   local risky
   risky="$(risky_names <<<"$dnf_items" | jq -Rn '[inputs]')"
-  # Whether a restart is owed RIGHT NOW, as opposed to the history entry's reboot_needed, which
-  # records whether one was owed when a particular run finished. That distinction is the whole
-  # point: a history entry keeps claiming a restart long after the user has performed one, and it
-  # says nothing at all when the restart is owed because of a `sudo dnf5 upgrade` typed in a
-  # terminal. Rewritten by every check, this clears itself and it notices what Kempt did not do.
-  # Cheap and safe to ask on this path: dnf_reboot_needed is cache-only, repo-less and closes its
-  # own stdin, so it neither touches the network nor can prompt (do NOT add a second redirect
-  # here - it would fight the one the backend already applies).
-  # Called unconditionally, like the one in cmd_update, and for the same reason: there is no
-  # include_dnf key in this CLI - assemble_state hardcodes `dnf: ($dnf | wrap(true))` - so a gate
-  # on it today would be a gate on a constant. THE RULE: if dnf ever gains an include_<name>
-  # gate, this call goes behind it, right next to the flatpak one above.
+  # Whether a restart is owed RIGHT NOW - unlike a history entry's reboot_needed, which is about
+  # the moment one run finished. Rewritten by every check, so it clears itself after a restart and
+  # notices a `sudo dnf5 upgrade` typed in a terminal.
+  # Safe here: dnf_reboot_needed is cache-only, repo-less and closes its own stdin, so it cannot
+  # reach the network or prompt (do NOT add a second redirect - it fights the backend's own).
+  # Unconditional because this CLI has no include_dnf key; THE RULE: if dnf gains one, this call
+  # goes behind it, next to the flatpak gate above. Same in cmd_update.
   local reboot
   reboot="$(dnf_reboot_needed)"
-  # Same shape guard as cmd_update: a surprise value reaching --argjson fails jq and would lose
-  # the entire check - every pending package - over a reboot verdict nobody asked for.
-  # Unreachable today, and deliberately kept: dnf_reboot_needed answers true or false for every
-  # rc-and-stdout combination it has, so no stub a test can put behind KEMPT_DNF_CMD gets a third
-  # value this far, and deleting both guards leaves the whole suite green. It is a boundary on
-  # the backend contract rather than a live branch - a backend that later grows a third answer
-  # degrades to false here instead of taking the check down with it.
+  # Shape guard, twinned with cmd_update's: a surprise value reaching --argjson fails jq and loses
+  # the whole check. Nothing reaches it today - it is a boundary on the backend contract.
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
-  # AFTER harvest_offline, which is where the marker's lifecycle is decided: a stage the harvest
-  # just consumed or cleared must not be published one line later as still pending.
+  # AFTER harvest_offline, where the marker's lifecycle is decided: a stage it just consumed or
+  # cleared must not be published one line later as still pending.
   local staged_state
   staged_state="$(offline_staged_state)"
   local state
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
-  # One line per check. The two outcomes cmd_check actually has are the two it records: `ok` with
-  # the numbers the badge is about to show, and `stale` with the reason, which already names the
-  # backend that failed ("dnf check failed: ..."). The lock-timeout return above records nothing
-  # on purpose - it served a previous answer and looked at nothing, so there is no event.
+  # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
+  # nothing on purpose: it served a previous answer and looked at nothing.
   if [[ "$status" == "ok" ]]; then
     local counts
     counts="$(jq -r '"actionable=\(.actionable) held=\(.held_total)"' <<<"$state" 2>/dev/null)" \
@@ -134,9 +113,8 @@ cmd_check() {
 
 KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
 
-# Surfaces are a closed set. An unknown one (typo in the config, a stale value from an older
-# widget) must not silently mean "detached, and definitely not offline": fall back to the one
-# surface that can always show a human what happened, and say so.
+# Surfaces are a closed set. An unknown one (a config typo, an older widget's value) must not
+# silently mean "detached": fall back to the surface that can show a human what happened.
 resolve_surface() {  # surface → a known surface (single definition: cmd_update and cmd_run must never drift)
   case "$1" in
     terminal|popup|background|offline) printf '%s\n' "$1" ;;
@@ -145,39 +123,24 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
 }
 
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
-# boundary: dnf goes through the root helper (priv_apply), flatpak runs as the user
-# (flatpak_apply). Everything this function owns is the same for both: the run log, the live tee,
-# and the retry.
-#
-# The retry names flatpak's lock wordings as well as dnf's. Three shapes exist, across two
-# libraries, and the path sits in the MIDDLE of two of them - which is why the patterns are
-# `.*`-joined rather than literal:
-#     Unable to lock %s                 flatpak CLI and libflatpak
-#     Locking repo %s failed            libostree (the CLI also carries `Locking repo failed (%s)`)
-#     Opening lock file %s/.lock failed  libostree and the CLI
-# (Read 2026-08-27 with `strings` on /usr/bin/flatpak, /usr/lib64/libflatpak.so.0 and
-# /usr/lib64/libostree-1.so.1, flatpak 1.18.1.) `\b` keeps `Unlocking repo failed` - a different
-# error, and not a lock we should wait on - out of the match.
-#
-# What is VERIFIED is the wording and the gap: not one of these says "rpm", "package",
-# "transaction" or "held", so the dnf-shaped half of the predicate below never matched them, and a
-# flatpak lock failure was therefore reported on attempt 1 while the message above it promised
-# three. What is NOT verified is whether flatpak fails or blocks when it loses the race - forcing
-# real lock contention was attempted and never contended, so no claim is made about it here. The
-# retry is correct either way: if flatpak blocks, this predicate never sees a line to match.
+# boundary: dnf through the root helper (priv_apply), flatpak as the user (flatpak_apply). The run
+# log, the live tee and the retry are the same for both.
+# The predicate matches flatpak's lock wordings as well as dnf's. None of flatpak's say "rpm",
+# "package", "transaction" or "held", and all three carry the path in the MIDDLE (`Unable to lock
+# %s`, `Locking repo %s failed`, `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns
+# rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
   local attempt rc before_sz
   for attempt in 1 2 3; do
     rc=0
-    # Only THIS attempt's output decides whether to retry. A fixed `tail -n 20` re-read the
-    # previous attempt's lock error and could keep retrying a run whose real failure had nothing
-    # to do with a lock (and the bare word "lock" matches package names like `lockdev`).
+    # Only THIS attempt's output may decide whether to retry: a fixed `tail -n 20` re-reads the
+    # previous attempt's lock error and retries a run that failed for another reason entirely.
     before_sz=0; [[ -f "$log" ]] && before_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
-      # terminal surface: user must SEE live output (and any interactive prompt when auto_accept=false).
-      # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt even if a future caller invokes
-      # apply_with_retry bare - a bare `; rc=` form would abort the run instead of retrying.
+      # terminal surface: the user must SEE live output, and any prompt when auto_accept=false.
+      # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt for a caller that invokes
+      # apply_with_retry bare, where `; rc=` would abort the run instead of retrying.
       "$runner" "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
     else
       "$runner" "$@" >>"$log" 2>&1 || rc=$?
@@ -200,8 +163,7 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
 }
 
 # Pre-flight failure: nothing has been changed and nothing will be. Loud on stderr, exit 5 (never
-# a bare backend rc escaping through errexit), and a notification when the caller is a detached
-# surface - nobody is reading stderr there. Reads cmd_update's $surface.
+# a bare backend rc through errexit), and a notification where nobody reads stderr. Reads $surface.
 preflight_abort() {  # message
   echo "$1" >&2
   [[ "$surface" != "terminal" ]] && notify "Kempt" "Update did not start: $1"
@@ -209,28 +171,21 @@ preflight_abort() {  # message
 }
 
 # --- the sections of cmd_update ------------------------------------------------------------------
-# Four blocks lifted out of a 484-line cmd_update so that each has a name and a stated
-# contract. They are SECTIONS, not helpers: each is called from exactly one place, in one
-# order, and reads the run's locals through bash's dynamic scope. The header on each says what
-# it reads and what it changes, which is the thing a 484-line function could not tell you.
+# These four are SECTIONS, not helpers: each is called from exactly one place, in one order, and
+# reads and writes the run's locals through bash's DYNAMIC scope rather than arguments. Each
+# header says what it reads and what it changes - that is the contract; do not reuse them.
 
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
-# Reads: surface, auto. Changes nothing the rest of the run depends on.
-# Reads cmd_update's locals directly rather than taking them as arguments: bash scopes
-# `local` DYNAMICALLY, so a function called from cmd_update sees them. That is deliberate
-# here and it is the reason this is not a general-purpose helper - it is one section of
-# cmd_update with a name, called from exactly one place, in the order the comments describe.
+# Reads: surface. Writes: surface - answering "s" at the prompt switches this run to offline.
 recommend_offline_if_risky() {
-  # Risky-transaction recommendation (spec §Run surfaces). Live surfaces stay available - this
-  # recommends, it never blocks; the user always decides. An offline run IS the recommendation,
-  # so it is never nagged. Deliberately BEFORE acquire_lock: an abort must leave no lock residue
-  # and no history entry, having changed nothing at all.
+  # spec §Run surfaces. Recommends, never blocks; an offline run IS the recommendation, so it is
+  # never nagged.
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
     rerr="$(mktemp)"
-    # A pre-check that cannot run is not the same as "nothing risky": say so, then proceed -
-    # this is advice, and losing it must never stop the user from updating.
+    # A pre-check that cannot run is not "nothing risky": say so, then proceed - losing advice
+    # must never stop the user updating.
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
@@ -241,23 +196,21 @@ recommend_offline_if_risky() {
       rcount="$(wc -l <<<"$risky_list")"
       if [[ "$surface" == "terminal" && ( -t 0 || -n "${KEMPT_ASSUME_TTY:-}" ) ]]; then
         echo "Recommendation: this update touches $rcount session-critical packages (a live upgrade can break the running desktop):"
-        # ONE NAME PER FAMILY, same rule as the notification. A Qt or KDE bump legitimately
-        # produces hundreds of matches, and the first eight alphabetically are all the same
-        # family: a 12-package qt6 bump used to fill the whole listing and push the pending
-        # KERNEL out of sight. Families are the prefix up to the first - or . (kernel-core and
-        # kernel-modules are one decision, not two); the tail counts every name not shown.
+        # ONE NAME PER FAMILY, same rule as the notification below, or a Qt bump's first eight
+        # names alphabetically push a pending KERNEL out of sight. A family is the prefix up to
+        # the first - or . (kernel-core and kernel-modules are one decision); the tail counts on.
         local reps shown nshown
         reps="$(awk '{ f = $0; sub(/[-.].*/, "", f); if (!(f in seen)) { seen[f] = 1; print } }' <<<"$risky_list")"
         shown="$(head -8 <<<"$reps")"        # still capped: a box can always surprise us with 30 families
         nshown="$(grep -c '' <<<"$shown")"
-        # $shown is MULTI-LINE and every line needs the indent; ${var//} substitutes across the
-        # whole string, where ^ is not a line anchor and the first line gets nothing.
+        # $shown is MULTI-LINE and every line needs the indent; in ${var//} the ^ is not a line
+        # anchor, so only the first line would get one.
         # shellcheck disable=SC2001
         sed 's/^/  /' <<<"$shown"
         (( rcount > nshown )) && echo "  ... and $(( rcount - nshown )) more"
         local ans tries
         for tries in 1 2; do
-          # `|| ans=""` keeps EOF (Ctrl-D) out of errexit; EOF and Enter both mean "I did not
+          # `|| ans=""` keeps EOF (Ctrl-D) out of errexit. EOF and Enter both mean "I did not
           # answer", and the safe answer to a risk warning is to NOT proceed.
           read -rp "[u]pdate live / [s]tage offline / [a]bort (default: abort) " ans || ans=""
           case "${ans,,}" in
@@ -269,8 +222,7 @@ recommend_offline_if_risky() {
           esac
         done
       else
-        # families, not names: unique prefixes up to the first - or . keep the notification
-        # readable when 168 qt6-* packages are pending.
+        # families, not names - same rule as the terminal listing above.
         # per-line strip on a MULTI-LINE list: ${risky_list//[-.]*/} is a glob, not a regex, and
         # its * crosses newlines - it would eat the whole list from the first - or . onwards.
         # shellcheck disable=SC2001
@@ -282,32 +234,21 @@ recommend_offline_if_risky() {
   fi
 }
 
-# The flatpak half of a run. dnf has already run by the time this is called, so a flatpak
-# failure is REPORTED and never fatal: crashing here would lose the history entry and the
-# notification for an update that has already changed the system.
-# Reads: include_fp, yflag, log. Writes: fp_status (its own answer) and status (the run's,
-# which only ever moves to "failed").
-# Reads cmd_update's locals directly rather than taking them as arguments: bash scopes
-# `local` DYNAMICALLY, so a function called from cmd_update sees them. That is deliberate
-# here and it is the reason this is not a general-purpose helper - it is one section of
-# cmd_update with a name, called from exactly one place, in the order the comments describe.
+# The flatpak half of a run. dnf has already run by now, so a flatpak failure is REPORTED and
+# never fatal: crashing loses the history entry and notification for a system that already changed.
+# Reads: include_fp, yflag, log. Writes: fp_status, and status (which only ever moves to "failed").
 apply_flatpak_updates() {
-  # NOT `local`: this is the caller's variable, which is the whole point of the header above. A
-  # `local` here would shadow it, leave cmd_update's copy unset, and take the run down on the
-  # history entry under `set -u`.
+  # NOT `local`: this is the caller's variable (see the header). A `local` would shadow it, leave
+  # cmd_update's copy unset, and take the run down on the history entry under `set -u`.
   fp_status="skipped"
   if is_true "$include_fp"; then
     fp_status="ok"
     local held_fp ids=()
     held_fp="$(holds_for flatpak)"
     if [[ -n "$held_fp" ]]; then
-      # holds exist → per-app updates of every pending, non-held, INSTALLED app
-      # (installed pre-filter: the ONLY installed check there is now - flatpak errors out on an
-      # id it does not have, and the root helper's backstop went with the privilege boundary)
-      # dnf has already run by now, so a flatpak-side failure must be REPORTED, never fatal:
-      # crashing here would lose the history entry and the notification for an update that
-      # already changed the system. Empty installed set → no ids pass the filter → nothing is
-      # attempted, and the run says flatpak failed.
+      # holds exist → per-app updates of every pending, non-held, INSTALLED app. That pre-filter
+      # is the ONLY installed check there is (flatpak errors out on an id it does not have), so an
+      # empty installed set means no ids pass and the run reports flatpak failed.
       local installed_fp id
       installed_fp="$(flatpak_snapshot | cut -f1)" \
         || { installed_fp=""; fp_status="failed"; status="failed"; echo "warning: flatpak installed lookup failed - no flatpak apps updated" | tee -a "$log" >&2; }
@@ -326,19 +267,12 @@ apply_flatpak_updates() {
   fi
 }
 
-# The offline marker: what Kempt records about a stage it has just made, and the only thing
-# any later reader has to go on. Writes a file and nothing else - no caller local depends on
-# anything it sets.
+# The offline marker: what Kempt records about a stage it has just made, and all any later reader
+# has to go on.
 # Reads: surface, dnf_status, staged_fresh, staged_check_names, staged_check_ok,
 # staged_excluded_json, ts. Writes: staged, the count the run's own event line reports.
-# Reads cmd_update's locals directly rather than taking them as arguments: bash scopes
-# `local` DYNAMICALLY, so a function called from cmd_update sees them. That is deliberate
-# here and it is the reason this is not a general-purpose helper - it is one section of
-# cmd_update with a name, called from exactly one place, in the order the comments describe.
 write_stage_marker() {
-  # NOT `local`: the run's own `offline staged N` event line reports this number, so it has to be
-  # the caller's variable. See the header - what this writes is stated there for exactly this
-  # reason.
+  # NOT `local`: the run's `offline staged N` event line reports it, so it is the caller's variable.
   staged=""
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
     staged="$staged_fresh"
@@ -346,45 +280,40 @@ write_stage_marker() {
       || staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
     local staged_json="null"
     [[ "$staged" =~ ^[0-9]+$ ]] && staged_json="$staged"
-    # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv.
-    # Sweep first: only the newest staging can be harvested, so older copies are dead weight
-    # that would otherwise accumulate one file per staged run, forever.
+    # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv. Sweep first:
+    # only the newest staging can be harvested, so older copies accumulate forever.
     rm -f "$SNAP_DIR"/offline-pre-*.tsv
     cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
-    # WHICH packages, alongside how many - because a hold added after this moment cannot change the
-    # transaction dnf5 has now stored, and the only honest thing Kempt can do about that is name the
-    # package. Read from dnf5's own stored transaction, which exists as of the stage above: it is
-    # the only source that sees the packages the resolver added and a transaction someone else
-    # replaced. The check is the fallback and is LABELLED as the fallback, because a check-derived
-    # list may confirm a conflict and may never deny one.
+    # WHICH packages, alongside how many: a hold added after this moment cannot change the stored
+    # transaction, so all Kempt can do is name what is in it. Read from dnf5's own transaction -
+    # the only source that sees packages the resolver added, or one someone else replaced. The
+    # check is the fallback and LABELLED so: it may confirm a conflict and may never deny one.
     local staged_names="" staged_names_source=none
     if staged_names="$(offline_txjson_names)"; then
       staged_names_source=transaction
     elif [[ "$staged_check_ok" == true ]]; then
       staged_names="$staged_check_names"; staged_names_source=check
     fi
-    # The one gate, at the one moment a name is written down. All or nothing: a list with a name
-    # filtered out of it is a list that can still be used to deny a conflict it never saw.
-    # printf '%s', never a here-string: <<< on an empty list produces one empty line, which is a
-    # name that fails the gate and would drop a legitimately empty list.
+    # The one gate, at the one moment a name is written down, and all-or-nothing: a list with one
+    # name filtered out could still be used to deny a conflict it never saw.
+    # printf '%s', never <<<: a here-string on an empty list produces one empty line, which fails
+    # the gate and would drop a legitimately empty list.
     if [[ "$staged_names_source" != none ]] && ! printf '%s' "$staged_names" | names_all_valid; then
       staged_names=""; staged_names_source=none
     fi
     # The excluded list comes from the holds file, which architecture.md promises is the user's to
-    # edit by hand - so it gets the same gate rather than being trusted for having passed hold_add
-    # at some point in the past.
+    # edit by hand, so it gets the same gate rather than being trusted to hold_add's past checks.
     if ! jq -e 'type == "array" and all(.[]; type == "string")' <<<"$staged_excluded_json" >/dev/null 2>&1 \
        || ! jq -r '.[]' <<<"$staged_excluded_json" | names_all_valid; then
       staged_excluded_json='[]'
     fi
     local staged_names_json
     staged_names_json="$(printf '%s' "$staged_names" | jq -Rn '[inputs]')" || staged_names_json='[]'
-    # boot_id: only a REBOOT can apply a staged transaction, so the harvest compares boot
-    # sessions instead of guessing from the package set (see harvest_offline).
-    # The names are ADDITIVE, and absent when there are none: a `staged_names: []` would read as
-    # "the transaction installs nothing", which is a claim, where the truth is that nobody could
-    # find out. Same rule the count follows, and the same rule every reader of this file follows -
-    # a marker written before these fields existed must go on working everywhere.
+    # boot_id: only a REBOOT applies a stage, so the harvest compares boot sessions rather than
+    # guessing from the package set (see harvest_offline).
+    # Fields are ADDITIVE and absent when unknown - `staged_names: []` would claim "the
+    # transaction installs nothing" where the truth is that nobody could find out. Every reader
+    # follows that rule, so a marker written before these fields existed still works.
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --argjson names "$staged_names_json" \
@@ -399,16 +328,11 @@ write_stage_marker() {
 # What a LIVE run owes a staged transaction it found sitting there. Side effects only: it may
 # discard the stage, rebase its baseline, or leave it alone, and it warns on the run's log.
 # Reads: surface, snapshots_ok, dnf_status, log.
-# Reads cmd_update's locals directly rather than taking them as arguments: bash scopes
-# `local` DYNAMICALLY, so a function called from cmd_update sees them. That is deliberate
-# here and it is the reason this is not a general-purpose helper - it is one section of
-# cmd_update with a name, called from exactly one place, in the order the comments describe.
 reconcile_stage_after_live_run() {
-  # What a live run owes a staged transaction it found sitting there. The lifecycle: staging
-  # downloads AND arms, so any restart installs it, and the check after that restart harvests it
-  # into a history entry of its own. A live run can arrive at any point in that, and the three
-  # cases below are not variations on one rule - they are three different situations.
-  # snapshots_ok (plus -s as a floor): none of them may be decided on a truncated or empty snapshot.
+  # The lifecycle this sits inside: staging downloads AND arms, so any restart installs it, and
+  # the check after that restart harvests it. A live run can arrive at any point in that, and the
+  # three cases below are three situations, not variations on one rule. snapshots_ok (plus -s as
+  # a floor): none may be decided on a truncated or empty snapshot.
   if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && "$snapshots_ok" == true && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
     local mpre
     mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
@@ -419,23 +343,20 @@ reconcile_stage_after_live_run() {
     elif same_content "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
       # STILL PENDING: staging writes no rpm changes of its own, so a baseline that still matches
       # the world this run started from means no restart has applied it yet.
-      # same_content answers THREE ways - equal, different, unreadable - and the difference
-      # matters here more than anywhere else in the tree, because the branch below DISCARDS a
-      # staged transaction. `! same_content` collapses "unreadable" into "different", so a snapshot
-      # that could not be read would be taken as proof the package set moved and throw the stage
-      # away. Only a positive "different" (rc 1) is allowed to do that.
+      # same_content answers THREE ways - equal, different, unreadable - and the branch below
+      # DISCARDS a staged transaction, so only a positive "different" (rc 1) may reach it.
+      # `! same_content` would collapse "unreadable" into "different".
       local moved=0
       same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv" || moved=$?
       if [[ $moved -eq 2 ]]; then
         echo "warning: could not compare this run's package snapshots - the staged update was left as it was" | tee -a "$log" >&2
       fi
       if [[ "$dnf_status" == "ok" && $moved -eq 1 ]]; then
-        # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against, and
-        # dnf5 refuses one whose cookie has moved - so after a live install the armed stage is not
-        # a pending update at all, it is a failed offline boot waiting to happen. Discarding it is
-        # the only outcome that leaves the box in a state its own tools describe truthfully.
-        # The marker goes with the stage, not before it: a marker without a stage would tell the
-        # popup and the doctor that an install is coming that nothing can deliver.
+        # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against and
+        # dnf5 refuses one whose cookie has moved, so after a live install the armed stage is a
+        # failed offline boot waiting to happen.
+        # ORDER: the marker goes with the stage, never before it - a marker without a stage
+        # promises the popup and the doctor an install nothing can deliver.
         if apply_with_retry "$log" priv_apply dnf-offline-clean; then
           rm -f "$OFFLINE_MARKER" "$mpre"
           log_event "offline stage dropped (superseded by live update)"
@@ -445,19 +366,17 @@ reconcile_stage_after_live_run() {
           echo "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean" | tee -a "$log" >&2
         fi
       else
-        # No rpm moved (a flatpak-only run), so the cookie still matches and the stage is still
-        # good. Rebasing the baseline onto the after-snapshot keeps the post-reboot harvest
-        # diffing the staged transaction and nothing else.
-        # atomic_write, not cp: the widget's timer can fire a check that reads this baseline at any
-        # moment, and a half-copied baseline would be diffed as a real transaction.
+        # No rpm moved (a flatpak-only run), so the cookie still matches and the stage is good.
+        # Rebasing the baseline onto the after-snapshot keeps the post-reboot harvest diffing the
+        # staged transaction and nothing else. atomic_write, not cp: the widget's timer can read
+        # this baseline at any moment, and a half-copied one would diff as a real transaction.
         atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
           || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
       fi
     fi
-    # ALREADY APPLIED (baselines differ): a restart ran the staged transaction and no check has
-    # harvested it yet. Nothing is pending, so there is nothing to supersede or rebase - and doing
-    # either would fold that delta into the baseline and the transaction would never be reported
-    # at all. Leave it: the self-refresh below harvests it normally.
+    # ALREADY APPLIED (baselines differ): a restart ran the stage and no check has harvested it.
+    # Nothing to supersede or rebase - either folds that delta into the baseline and the
+    # transaction is never reported. The self-refresh below harvests it.
   fi
 }
 
@@ -487,8 +406,8 @@ cmd_update() {
   ts="$(date +%Y%m%dT%H%M%S)"; start="$(date +%s)"
   log="$LOG_DIR/$ts.log"
 
-  # snapshots (before). A pre-run snapshot that fails means we could never say what changed, so
-  # the run stops BEFORE changing anything (see preflight_abort).
+  # snapshots (before). Without one we can never say what changed, so a failure stops the run
+  # BEFORE anything is touched (see preflight_abort).
   dnf_snapshot > "$SNAP_DIR/dnf-before.tsv" \
     || preflight_abort "cannot read the installed package set - aborting before any change"
   if is_true "$include_fp"; then
@@ -497,9 +416,7 @@ cmd_update() {
   fi
 
   # Recorded here and not a line earlier: everything above can still decline to run without
-  # touching the system - the risky recommendation's abort, a lock someone else holds, a
-  # pre-flight snapshot that will not read - and a "run start" for a run that never started is
-  # exactly the kind of line that makes a log untrustworthy. Past this point the system changes.
+  # touching the system. Past this point the system changes.
   log_event "run start surface=$surface"
 
   # dnf
@@ -507,35 +424,28 @@ cmd_update() {
   is_true "$auto" && yflag=(-y)
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
-  # A reason this run works out for itself, where the log cannot be trusted to yield it: a failed
-  # arm leaves dnf5's own words in the log, and the first error-shaped line there is about a
-  # symlink, not about what the person pressed a button for.
-  # staged_check_names / staged_excluded_json: the two lists the pre-stage check yields, kept
-  # alongside the count because all three come out of ONE answer and must describe one transaction.
-  # staged_check_ok is the difference between "the check said nothing is pending" and "the check
-  # could not answer", which an empty list cannot carry on its own.
-  # notify_tail: what the FAILED notification says BEYOND the reason. A cleanup that also failed
-  # leaves work only root can do, and stderr is nobody's surface when the run came from a panel.
+  # reason_override - a reason worked out here, because after a failed arm the log's first
+  #   error-shaped line is about a symlink.
+  # staged_check_names / staged_excluded_json - the pre-stage check's two lists, kept with the
+  #   count because all three come out of ONE answer and describe one transaction.
+  # staged_check_ok - "nothing is pending" as against "the check could not answer".
+  # notify_tail - what the FAILED notification says BEYOND the reason, for a cleanup that also
+  #   failed and left work only root can do.
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
   local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
-    # How many updates this stage is about to carry, asked NOW. It is the only thing anyone is ever
-    # told about a transaction they cannot open - the marker records it, the event line reports it,
-    # and the popup and `kempt doctor` repeat it back for as long as the stage is armed - and it
-    # used to be copied out of the last check's state.json, a number written by whatever check ran
-    # last, against different metadata, possibly days ago. Held packages are dropped here exactly as
-    # they are from the transaction itself (the --exclude list above is built from the same holds).
-    # A check that cannot answer must not stop the stage: the count degrades to the stale one with a
-    # warning, the same way the risky-transaction pre-check degrades. Losing a number is not worth
-    # refusing to update the machine.
-    # Captured ONCE into a file rather than asked three times: the count, the held-and-pending set
-    # and the pending names all describe the same transaction, and three separate checks could
-    # legitimately disagree with each other about it.
+    # How many updates this stage carries, asked NOW rather than copied from the last check's
+    # state.json: it is the only thing anyone is told about a transaction they cannot open. Held
+    # packages drop out here exactly as they do from the transaction - the --exclude list above is
+    # built from the same holds. A check that cannot answer must not stop the stage: the count
+    # degrades to the stale one with a warning.
+    # Captured ONCE into a file, not asked three times: the count, the held-and-pending set and
+    # the pending names must describe one transaction, and three checks could disagree.
     local cerr cjson; cerr="$(mktemp)"; cjson="$(mktemp)"
     if dnf_check 2>"$cerr" | mark_held dnf > "$cjson"; then
       staged_check_ok=true
-      # Each read guarded: past this point the run is inside the body of an `if`, where errexit is
-      # live again, and a jq that died would take down a stage over a nicety.
+      # Each read guarded: inside an `if` body errexit is live again, and a jq that died would
+      # take down a stage over a nicety.
       staged_fresh="$(jq '[.[] | select(.held | not)] | length' "$cjson")" || staged_fresh=""
       staged_check_names="$(jq -r '.[] | select(.held | not) | .name' "$cjson")" || staged_check_names=""
       staged_excluded_json="$(jq -c '[.[] | select(.held) | .name]' "$cjson")" || staged_excluded_json='[]'
@@ -546,82 +456,72 @@ cmd_update() {
     fi
     rm -f "$cerr" "$cjson"
     # Whether a transaction existed BEFORE this attempt - the one fact every failure path below
-    # needs and none of them can work out afterwards. Staging over an armed transaction is
-    # cancel-then-stage (container-verified): dnf5 destroys the old one the moment the new one
-    # begins, rather than swapping them at the end. So a stage that FAILS leaves no transaction, a
-    # toml that is not `ready`, and the `/system-update` symlink still standing over it - and the
-    # next restart detours into the offline updater and installs nothing at all.
-    # Two sources, either enough on its own: Kempt's marker, and dnf5's own status. The second is
-    # what covers a transaction Kempt did not stage - the re-stage destroys that one identically.
+    # needs and none can work out afterwards. Staging over an armed transaction is
+    # cancel-then-stage: dnf5 destroys the old one as the new one begins, so a FAILED stage leaves
+    # no transaction, a toml that is not `ready`, and the `/system-update` symlink still standing
+    # over it - and the next restart detours into the offline updater, installing nothing.
+    # Two sources, either enough alone: Kempt's marker and dnf5's status - the second covers a
+    # transaction Kempt did not stage, which the re-stage destroys identically.
     local had_stage=false prev_marker prev_pre="" prev_conflict=""
     prev_marker="$(offline_marker_read)"
     [[ -n "$prev_marker" || "$(offline_system_status)" != absent ]] && had_stage=true
     if [[ -n "$prev_marker" ]]; then
       prev_pre="$(jq -r '.pre_snapshot // empty' <<<"$prev_marker" 2>/dev/null || true)"
-      # The holds that conflict with the transaction about to be replaced, read now because after
-      # the stage the question can no longer be asked: the transaction that contained the held
-      # package is gone. It is the only record of what a rebuild was FOR.
+      # The holds that conflict with the transaction about to be replaced, read NOW because after
+      # the stage it is gone and the question cannot be asked. The only record of what a rebuild
+      # was FOR.
       prev_conflict="$(offline_staged_state | jq -r '.holds_conflict[]?' 2>/dev/null || true)"
     fi
-    # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads: the transaction
-    # sits at status="download-complete" and no boot will ever apply it. `dnf5 offline reboot`
-    # (arming) is what flips it to "ready" and creates /system-update, which is the only thing
-    # systemd's system-update-generator looks for. Arming HERE and not at the restart click is what
-    # makes the button's promise true: once staged, ANY restart installs - the popup's, the K menu's,
-    # a terminal `reboot`. One pkexec flow covers both calls because auth_admin_keep still holds the
-    # authorization seconds later.
+    # STAGE THEN ARM, and both or neither. `dnf5 upgrade --offline` only downloads - the
+    # transaction sits at status="download-complete" and no boot applies it - while `dnf5 offline
+    # reboot` (arming) flips it to "ready" and creates /system-update, the only thing systemd's
+    # system-update-generator looks for. Arming HERE, not at the restart click, is what makes the
+    # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
+    # auth_admin_keep still holds seconds later.
     if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
       if ! apply_with_retry "$log" priv_apply dnf-offline-arm; then
         dnf_status="failed"; status="failed"
         reason_override="staged but could not arm the restart install"
-        # Unwind, or the box keeps a downloaded transaction that nothing can apply and every later
-        # check, doctor run and popup describes an install that is pending forever. Best-effort:
-        # the run has already failed, and a cleanup that also fails must not overwrite the reason
-        # with its own - that would send the reader after the wrong problem entirely.
+        # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
+        # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
+        # that also fails must not overwrite the reason with its own.
         apply_with_retry "$log" priv_apply dnf-offline-clean \
           || { echo "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean" | tee -a "$log" >&2
-               # Escalated past stderr, because this is state (d): the toml and the boot symlink
-               # now disagree and only a person with root can settle it. The reason stays the ARM -
-               # the step that failed is what a reader has to chase - so the command travels on the
-               # notification instead of rewriting it.
+               # Escalated past stderr because this is state (d): the toml and the boot symlink
+               # now disagree and only root can settle it. The reason stays the ARM - the step
+               # that failed - so the command travels on the notification instead.
                notify_tail=" - the staged update could not be removed; run: sudo dnf5 offline clean"; }
       elif [[ "$had_stage" == true ]]; then
         # A rebuild that worked. `offline staged N` below reports the new transaction; this line
-        # reports that there was an old one and what it was replaced for.
+        # reports that there was an old one, and what it was replaced for.
         log_event "offline restage${prev_conflict:+ (holds: $(printf '%s\n' "$prev_conflict" | names_phrase))}"
       fi
     else
       dnf_status="failed"; status="failed"
       # Unwind a failed STAGE too, not only a failed arm (invariant I3): consenting to a rebuild
-      # forfeits the old transaction the instant the re-stage begins, so every failure path from
-      # here has to land in "nothing staged, and the user told" - never in "the old one is gone and
-      # nothing says so". `dnf5 offline clean` is idempotent (rc 0 on an empty offline directory),
-      # and the run has already failed, so this is best-effort in exactly the way the arm's is.
+      # forfeits the old transaction the instant the re-stage begins, so every failure path here
+      # must land in "nothing staged, and the user told" - never "the old one is gone and nothing
+      # says so". `dnf5 offline clean` is idempotent, so this is best-effort like the arm's.
       if [[ "$had_stage" == true ]]; then
         if [[ "$(offline_system_status)" == ready ]]; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
-          # leaves the armed one untouched (live container gate, 2026-09-05: toml still ready,
-          # symlink present, old set unchanged). There is nothing to unwind, and a clean here would
-          # throw away a stage the user is still counting on. The marker stays - it still describes
-          # the stage that still installs - and the conflict that asked for the rebuild stays on
-          # every surface, so the person can try again or remove it themselves.
+          # leaves the armed one untouched, toml and symlink included. Nothing to unwind, and a
+          # clean would throw away a stage the user still counts on. The marker stays.
           reason_override="could not rebuild the staged update - the previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
         elif apply_with_retry "$log" priv_apply dnf-offline-clean; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
-          # The marker described a transaction that no longer exists in any form: the re-stage
-          # destroyed it and the clean took the remains. Left in place it would go on promising an
-          # install to the harvest, the doctor and the popup that no restart can deliver.
+          # The marker described a transaction that no longer exists: the re-stage destroyed it,
+          # the clean took the remains. Left in place it promises an install nothing can deliver.
           if [[ -n "$prev_marker" ]]; then
             rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}
             log_event "offline marker cleared (rebuild failed, stage discarded)"
           fi
         else
           reason_override="the previous staged update was discarded and could not be rebuilt, and could not be cleaned up - run: sudo dnf5 offline clean"
-          # Marker KEPT here, deliberately - this is state (d) again. doctor reads it against the
-          # toml and fails on that row, the boot-symlink row fails beside it, and both name the one
-          # command that fixes it. Clearing it would replace the first of those two lines with the
-          # benign "an offline transaction is staged outside Kempt" info.
+          # Marker KEPT here, deliberately - state (d) again. doctor reads it against the toml
+          # and FAILs on that row, the boot-symlink row FAILs beside it, and both name the command
+          # that fixes it. Clearing it downgrades the first to a benign "staged outside Kempt".
         fi
       fi
     fi
@@ -636,17 +536,15 @@ cmd_update() {
   apply_flatpak_updates
   # snapshots (after) + reports
   # Reports must never crash cmd_update after the system already changed - degrade to empty +
-  # warning. That covers the SNAPSHOT too, not just the diff: the run is over either way, and the
-  # history entry (plus the notification that carries it) must still be written.
+  # warning, snapshot as well as diff: the run is over either way, and the history entry (with the
+  # notification that carries it) must still be written.
   # `if fn; then` disables errexit inside fn, so both snapshot functions return status explicitly.
-  # An empty after-snapshot is NOT usable as a diff input: it would report every package REMOVED.
+  # An empty after-snapshot is NOT usable as a diff input: it reports every package REMOVED.
   local empty_report='{"updated":[],"added":[],"removed":[]}'
   # snapshots_ok gates the offline-marker rebase below and NOTHING else. A snapshot that dies
-  # mid-stream leaves a TRUNCATED but non-empty dnf-after.tsv (the redirection created the file
-  # before the command ran) - harmless as a report input, fatal as a harvest baseline, where
-  # every package missing from the truncation would come back as newly installed. That case is
-  # caught by the SNAPSHOT branch below; the flag is also set in the diff-failure branch as
-  # belt-and-braces, since a diff that rejects its input says the snapshot is malformed too.
+  # mid-stream leaves a TRUNCATED but non-empty dnf-after.tsv (the redirection creates the file
+  # before the command runs) - harmless as a report input, fatal as a harvest baseline, where
+  # every package missing from the truncation comes back as newly installed.
   local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
   if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
@@ -666,28 +564,19 @@ cmd_update() {
   # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the verdict rule and the
   # -C / --disablerepo / </dev/null hardening (an uncached needs-restarting does network I/O and
   # can prompt on stdin, and this runs from detached surfaces where nobody can answer). Its seam
-  # is KEMPT_DNF_CMD. The shape guard keeps a surprise value out of --argjson: a jq failure here
-  # would lose the history entry of a run that already changed the system. Same standing as its
-  # twin in cmd_check, including the part where nothing can reach it today - see the note there.
+  # is KEMPT_DNF_CMD. Shape guard: see the twin in cmd_check.
   reboot="$(dnf_reboot_needed)"
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
 
   # offline staging marker (harvested by cmd_check after reboot). Only ever written for a stage
-  # that ARMED: an unarmed transaction installs on no restart at all, and a marker is a promise to
-  # every later reader - the harvest, the doctor, the popup - that one is coming.
-  # N comes from the check the offline branch made just before staging, so it describes the
-  # transaction that was actually built rather than whatever the last check happened to say. The
-  # staged set still cannot be read back out of dnf5 without a second privileged call, so this
-  # count is the closest thing to it there is - and when that check could not answer, the last
-  # check's figure is what is left and is used, stale, rather than reporting nothing.
-  # Read into one variable here rather than at the event line below because the marker and the
-  # event must not be able to disagree about it.
+  # that ARMED: an unarmed transaction installs on no restart, and a marker promises every later
+  # reader - the harvest, the doctor, the popup - that one is coming.
+  # Read into one variable here, not at the event line below, so the two cannot disagree.
   local staged=""   # write_stage_marker fills this in; the event line below reports it
   write_stage_marker
-  # Why it failed, worked out ONCE and then handed to everything that renders it: the history
-  # entry (and through it the summary), the notification, and the event log. Before this, all
-  # three said only "see <log>", which is not an answer when the log is four hundred lines of dnf
-  # progress and the real cause was that somebody closed the authentication dialog.
+  # Why it failed, worked out ONCE and handed to everything that renders it: the history entry
+  # (and through it the summary), the notification, and the event log. "See <log>" is no answer
+  # when the log is four hundred lines of dnf progress.
   local reason=""
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
 
@@ -706,10 +595,8 @@ cmd_update() {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
 
-  # What the run did, in the event log's fixed vocabulary. A successful OFFLINE run gets its own
-  # line rather than "run done", because nothing has been applied yet - the transaction is armed and
-  # waiting for a restart, and the harvest is what will report it. N is the count the marker above
-  # worked out and recorded, read from the same variable so the two can never disagree.
+  # A successful OFFLINE run gets its own event line rather than "run done": nothing has been
+  # applied yet, and the harvest after the restart is what reports it.
   if [[ "$status" == "ok" ]]; then
     if [[ "$surface" == "offline" ]]; then
       log_event "offline staged ${staged:-?}"
@@ -719,41 +606,37 @@ cmd_update() {
       log_event "run done rc=0 updated=$upd reboot=$([[ "$reboot" == true ]] && echo needed || echo no)"
     fi
   else
-    # rc 1 is what this command exits with on a failed run (the return at the bottom), so the
-    # line and the shell agree.
+    # rc 1 is what this command exits with on a failed run (the return at the bottom).
     log_event "run failed rc=1: $reason"
   fi
 
   # tell the human
   render_summary "$hist"
   if [[ "$surface" != "terminal" ]]; then
-    # Same truth as the summary: a run that installed and removed packages must never be
-    # announced as "0 packages updated".
+    # Same truth as the summary: a run that installed and removed packages is never "0 updated".
     local phrase
     phrase="$(run_counts_phrase "$hist")"
-    # The failure branch is reached FIRST for an offline run that failed. The staged notification
-    # is a claim about the future - that a restart will install these - and a run whose stage was
-    # discarded because it could not be armed has no such future to promise.
+    # ORDER: a failed offline run takes the failure branch, not the staged one. "Installs on the
+    # next restart" is a claim about the future, and a stage that was discarded has none.
     if [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       notify "Kempt" "Updates staged - they install on the next restart"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
-      # The same reason the summary and the event line carry. A notification that says only
-      # "see the log" is a notification that has told you nothing you can act on.
+      # The same reason the summary and the event line carry: "see the log" is not an answer.
       notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log$notify_tail"
     fi
   fi
   reconcile_stage_after_live_run
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
-  # already emptied. Never allowed to change the run's own verdict.
+  # already emptied. Never allowed to change the run's verdict.
   cmd_check >/dev/null 2>&1 || true
   [[ "$status" == "ok" ]]
 }
 
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
-# cmd_update re-checks auto_accept itself - this guard is for the LAUNCH decision (a detached run
-# can never answer a prompt), that one is for direct `kempt update` callers.
+# cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
+# can never answer a prompt.
 cmd_run() {
   local dry="" surface auto
   # An unrecognised argument must never fall through to a real launch.
@@ -770,35 +653,26 @@ cmd_run() {
 
   if [[ "$surface" == "terminal" ]]; then
     # Checked before the dry run too: "what would happen" must include "nothing, you have no
-    # terminal emulator". Silently spawning nothing is how a widget button becomes a mystery.
+    # terminal emulator".
     command -v "$KEMPT_TERMINAL" >/dev/null \
       || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit 4; }
     if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update"; return 0; fi
     # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
-    # watcher (plasmoid/contents/ui/main.qml, pollWatch). Its own periodic checks re-baseline that
-    # watcher rather than ending a run, and the only other way out is a three-hour guard. So every
-    # exit from this window has to rewrite state.json, or the popup sits on an empty "Updating…"
-    # pane - no list, no Update Now, no Refresh - for up to three hours. Two everyday exits used to
-    # skip it: the risky prompt's abort (cmd_update exits 0 there, BEFORE its own post-run check)
-    # and the user closing the window mid-run. Verified by the UX panel, 2026-09-05, finding 1.
-    #
-    # Hence two traps, and they are not redundant. The EXIT trap covers every ordinary exit whatever
-    # the status; the HUP/INT/TERM traps exist because bash does NOT run an EXIT trap when it dies
-    # of an untrapped fatal signal, and closing a terminal window SIGHUPs the foreground process
-    # group. They do nothing but `exit`, which is what makes the EXIT trap fire.
-    #
-    # The check is quiet and its status discarded: its only job here is to rewrite state.json for
-    # the watcher, and a check that fails must not turn a good run into a failed one. What leaves
-    # this shell is $ec - the UPDATE's status - on both paths.
-    #
-    # run_check is guarded so the ordinary path checks once, BEFORE the "press any key" prompt: the
-    # window must not be closable until the state has been rewritten, and the EXIT trap then finds
-    # the work already done.
-    #
-    # This builds a script for ANOTHER shell, so the path has to be quoted for THAT shell. printf
-    # %q rather than hand-written single quotes: a checkout under a path containing an apostrophe
-    # closed the quote early and produced a wrapper that fails `bash -n`, which the person at the
-    # keyboard sees as "Update Now" doing nothing at all. The detached branch below, same reason.
+    # watcher (plasmoid/contents/ui/main.qml, pollWatch), or a three-hour guard. So EVERY exit
+    # from this window must rewrite state.json, or the popup sits on an empty "Updating…" pane for
+    # up to three hours. The two easy to miss: the risky prompt's abort (cmd_update exits 0 there,
+    # BEFORE its own post-run check) and the user closing the window mid-run.
+    # Hence two traps, NOT redundant: EXIT covers every ordinary exit whatever the status, and
+    # HUP/INT/TERM exist because bash runs no EXIT trap when it dies of an untrapped fatal signal
+    # and closing a terminal window SIGHUPs the foreground process group. They do nothing but
+    # `exit`, which is what makes EXIT fire.
+    # The check is quiet and its status discarded, so it cannot turn a good run into a failed one;
+    # $ec, the UPDATE's status, is what leaves this shell on both paths. run_check is guarded so
+    # the ordinary path checks once BEFORE the "press any key" prompt - the window must not be
+    # closable until the state has been rewritten.
+    # printf %q, not hand-written quotes: this builds a script for ANOTHER shell, and a checkout
+    # path containing an apostrophe would close the quote early and yield a wrapper that fails
+    # `bash -n`. Same in the detached branch below.
     local wrapper self_q
     printf -v self_q '%q' "$SELF"
     wrapper="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
@@ -814,15 +688,13 @@ cmd_run() {
 }
 
 cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry, verbatim
-  # --json exists for the popup, which needs what the last run DID as data. Re-deriving that from
-  # the human text would put a second, lossier copy of render_summary's rules in the widget, and
-  # the two would drift. So this hands over the history entry itself and derives nothing.
+  # --json exists for the popup, which needs what the last run DID as data. It hands over the
+  # history entry and derives nothing: re-deriving would put a second, lossier copy of
+  # render_summary's rules in the widget.
   local json=false
   if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
-  # N means nothing to --json: it answers one question, about the last run. Ignoring a stray
-  # argument would be worse than refusing it - `kempt summary --json 2` would silently serve the
-  # WRONG run under exit 0. The same guard catches `kempt summary 2 --json`, which is the same
-  # mistake with the words in the other order, and a trailing argument generally.
+  # N means nothing to --json, which answers one question, about the last run - and ignoring the
+  # stray argument would silently serve the WRONG run under exit 0.
   if [[ "$json" == true ]]; then
     [[ $# -eq 0 ]] || { echo "usage: kempt summary --json  (takes no N)" >&2; exit 2; }
   else
@@ -830,30 +702,18 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   fi
   local n="${1:-1}" f out i files=()
   [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "usage: kempt summary [N]  (N >= 1, 1 = latest)" >&2; exit 2; }
-  # newest first. `|| true`: an empty history dir makes ls exit 2, and under pipefail that would
-  # kill the whole command before it could say the friendly thing. No runs yet is NOT an error.
-  #
-  # LC_ALL=C on the sort, and it is not redundant with the pin at the top of lib/common.sh. Which
-  # entry is "newest" here is decided by BYTE ORDER, and glibc's collating locales do not order
-  # these names the same way: history filenames are per-second, so a harvest that fires in the
-  # same second as a run takes the `-offline` suffix, and `20260827T120000-offline.json` sorts
-  # BELOW `20260827T120000.json` under C (`-` is 0x2D, `.` is 0x2E) but ABOVE it under
-  # en_US.UTF-8, which ignores punctuation at the first level. Verified on this box: the same two
-  # files, the same `sort -r`, two different winners. The global pin happens to prevent that
-  # today, and it was declared for an unrelated reason - byte-identical collation for the package
-  # pipelines' sort/join - so this line says what IT needs rather than inheriting it from 470
-  # lines away. Determinism is the whole promise: --json answers about one run, and which run it
-  # names must not depend on the user's locale.
-  #
-  # `ls` is not parsing names here: the SHELL expands the glob, and ls only echoes what it was
-  # handed and fails on the unmatched literal a nullglob-less shell leaves behind on an empty
-  # history dir. That existence filter is the job; the ordering above is imposed by sort, not ls.
+  # newest first. `|| true`: an empty history dir makes ls exit 2, which pipefail would turn into
+  # a dead command. No runs yet is NOT an error.
+  # LC_ALL=C on the sort is NOT redundant with lib/common.sh's pin - do not delete it as such.
+  # "Newest" is byte order, and the locales disagree: `20260827T120000-offline.json` (a harvest in
+  # the same second as a run) sorts BELOW `20260827T120000.json` under C but ABOVE it under
+  # en_US.UTF-8, which ignores punctuation at the first level.
+  # `ls` is not parsing names: the SHELL expands the glob, ls is the existence filter, sort orders.
   # shellcheck disable=SC2012
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   # Nothing recorded is not an error in either mode. --json says it with EMPTY stdout, this
-  # project's own convention for "no data" (the same one the state schema states for `kempt
-  # check`), never a fabricated empty run that a reader would count as a real one.
+  # project's "no data" convention - never a fabricated empty run a reader would count.
   if [[ ${#files[@]} -eq 0 ]]; then
     [[ "$json" == true ]] || echo "no update runs recorded yet"
     exit 0
@@ -863,37 +723,17 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
     i=$(( ${#files[@]} - 1 ))
     echo "note: only ${#files[@]} run(s) recorded - showing the oldest" >&2
   fi
-  # --json answers about ONE run - the newest - and never walks back to the one underneath.
-  #
-  # It used to, on the same reasoning the human branch below still uses: a damaged entry should
-  # not cost the reader every other run. That reasoning does not carry across, because the two
-  # modes are asked different questions. A person typing `kempt summary` wants the last run they
-  # can be shown, and the warning on stderr tells them one is missing. --json's one caller is the
-  # widget, whose question is "what did the run that just finished DO?" - and when that run's
-  # entry cannot be read, the honest answer is that we do not know. Serving the previous run there
-  # handed the popup an older run's package count and duration, which it announced as the run that
-  # had just finished ("Updated 4 packages in 41s"), in words no reader could tell from the truth.
-  #
-  # So: empty stdout under exit 0, this project's "no data" convention - the same one `kempt
-  # check` keeps, and the same one this command already uses for a box with no history at all.
-  # Logic.lastRunOf answers null for it and every caller renders no row, so the popup says nothing
-  # rather than something false. The warning still names the entry on stderr.
-  #
-  # Validated before a single byte reaches the caller, the way cmd_check validates the previous
-  # state it serves: never hand a reader corrupt bytes under exit 0. Then `cat`, not jq's
-  # rendering of the file, so what the caller parses is exactly what the run recorded - every
-  # field, including ones this build has never heard of. That last choice is why the guard has to
-  # be this strict: `cat` prints the file, so whatever the guard waves through is what the
-  # widget's JSON.parse receives.
-  #   [inputs] | length == 1   the house idiom from prev_ls and state_prev_items above, here
-  #     for the same bug: a MULTI-DOCUMENT file is perfectly valid input to jq, so `jq -e .`
-  #     passed it and `cat` then emitted two documents - one JSON.parse throw, out of the
-  #     one command that promises a caller is never handed corrupt bytes under exit 0.
+  # --json answers about ONE run - the newest - and deliberately never walks back to the one
+  # underneath, though the human branch below does: the widget asks what the run that just
+  # finished DID, and an older entry would be announced as that run. A damaged newest entry is
+  # therefore empty stdout under exit 0, the "no data" convention.
+  # `cat`, not jq's rendering, so the caller gets exactly what the run recorded - fields this
+  # build has never heard of included. Hence the strict guard, since whatever it waves through
+  # reaches the widget's JSON.parse:
+  #   [inputs] | length == 1   house idiom (see cmd_check) - a MULTI-DOCUMENT file is valid jq
+  #     input, so `jq -e .` passes it and `cat` then emits two documents.
   #   .[0] | type == "object"  `jq -e` fails only on null and false, so `[]`, `42` and
-  #     `"a string"` all counted as valid entries here while render_summary below refused
-  #     them - two modes disagreeing about the same file.
-  # The expression answers true or false and nothing else, so jq's exit code is the entire
-  # verdict; a test on its output would add nothing.
+  #     `"a string"` would pass here while render_summary below refuses them.
   if [[ "$json" == true ]]; then
     if jq -e -n '[inputs] | length == 1 and (.[0]|type == "object")' "${files[$i]}" >/dev/null 2>&1; then
       cat "${files[$i]}"; return 0
@@ -903,14 +743,12 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   fi
   for (( ; i < ${#files[@]}; i++ )); do
     # One damaged entry must not be the last word the PERSON gets: warn, fall back to the next
-    # newest. The -n test is load-bearing here: render_summary exits 0 having printed NOTHING for
-    # a zero-byte entry, and "rendered nothing" must not pass for a successful render (the same
-    # empty-stdout-is-not-data trap as `kempt check`).
+    # newest. The -n test is load-bearing - render_summary exits 0 having printed NOTHING for a
+    # zero-byte entry, and that must not pass for a successful render.
     if out="$(render_summary "${files[$i]}" 2>/dev/null)" && [[ -n "$out" ]]; then
       printf '%s\n' "$out"
-      # Below the run, because it answers the other question: what is about to happen. Only the
-      # human mode gets it - --json hands over one run's history entry verbatim, and a staged
-      # transaction belongs to the box, not to that run.
+      # Below the run, answering the other question: what is about to happen. Human mode only -
+      # a staged transaction belongs to the box, not to the run --json hands over.
       staged_summary_line
       return 0
     fi
@@ -927,18 +765,16 @@ cmd_history() {
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
   local phrase err
   for f in "${files[@]}"; do
-    # capture before printing: a damaged entry must not emit half a row, and must not take the
-    # whole listing down with it - every other run is still perfectly readable.
-    # run_counts_phrase, not a local ".updated | length": counting upgrades alone printed
-    # "0 updated" for a run whose own summary, from the same entry, says "+2 installed,
-    # -1 removed". Same entry, same command, two different truths.
+    # capture before printing: a damaged entry must not emit half a row, nor take the whole
+    # listing down - every other run is still perfectly readable.
+    # run_counts_phrase, not a local ".updated | length": counting upgrades alone prints
+    # "0 updated" for a run whose own summary says "+2 installed, -1 removed".
     if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
        && [[ -n "$row" ]] \
        && phrase="$(run_counts_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
-      # The reason, on the rows that have one. A listing whose failed rows say "failed, no
-      # package changes" and nothing else sends the reader to a log file to learn that the
-      # authentication dialog was closed. Entries written before the field existed have no
-      # .error, and `// ""` keeps them rendering exactly as they did.
+      # The reason, on the rows that have one, or a failed row sends the reader to a log file
+      # to learn the authentication dialog was closed. `// ""` keeps older entries rendering the
+      # same.
       err="$(jq -r '.error // ""' "$f" 2>/dev/null || true)"
       printf '%s  %s%s\n' "$row" "$phrase" "${err:+  ($err)}"
     else
@@ -949,18 +785,14 @@ cmd_history() {
 
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
 # what turns it into a normal history entry.
-# The harvest is GATED ON THE BOOT SESSION, because "the installed set moved" was never evidence
-# that the stage had applied: a live kempt run, a manual `dnf install cowsay`, anything at all
-# would trip it, consume the marker and label someone else's change "offline (applied on reboot)".
-# A staged transaction can only be applied by a reboot, so same boot session = still pending,
-# full stop. Residual caveat (spec): once the boot HAS changed, the diff can also contain rpm
-# changes made by other tools since staging - what it reports is still truthful.
-# A staged transaction that is no longer there is not pending, whatever the boot session or the
-# package set says. Clearing is the whole outcome: nothing was applied, so there is nothing to
-# report - only the event line, which is the last trace the staged transaction ever leaves.
-# Its own function because harvest_offline reaches this conclusion from two different directions,
-# and the two must not drift about what "clearing" removes: the snapshot copy belongs to the
-# marker, so it goes too, or it is orphaned in snapshots/ with nothing left to name it.
+# GATED ON THE BOOT SESSION: "the installed set moved" is no evidence the stage applied - a live
+# kempt run or a manual `dnf install cowsay` trips it too, and would label someone else's change
+# "offline (applied on reboot)". Only a reboot can apply a stage, so same boot = still pending.
+#
+# clear_gone_stage: a stage that is no longer there is not pending, whatever the boot session or
+# package set says, and nothing is reported but the event line. Its own function because
+# harvest_offline reaches it from two directions and they must not drift about what "clearing"
+# removes: the snapshot copy belongs to the marker, so it goes too or it is orphaned.
 clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the marker it came from
   # Never delete a marker somebody else wrote while this ran: see offline_marker_still.
   if [[ -n "${2:-}" ]] && ! offline_marker_still "$2"; then
@@ -972,23 +804,18 @@ clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the mar
   log_event "offline marker cleared (stage gone)"
 }
 
-# The restart happened, the package set did not move, and the transaction is still there but is not
-# `ready`. That combination reads one way only: the boot symlink was standing over a transaction
-# nothing could apply, so the restart detoured into the offline updater, installed nothing, and came
-# back - and this transaction can never install on a later restart either, because only
-# `dnf5 offline reboot` arms one and nothing is going to run that by itself.
-# Announced ONCE and DEMOTED, and this is the one branch that must not CLEAR. The marker is what
-# lets `kempt doctor` say "staged update can never install"; without it that row degrades into "an
-# offline transaction is staged outside Kempt", which misattributes Kempt's own stage to somebody
-# else and drops the exact diagnosis on the floor.
-# The announce-once key is the marker itself rather than a second file: `armed: false` IS the record
-# that this has already been said. A box that checks every ten minutes would otherwise say it 144
-# times a day about one dead transaction.
+# The restart happened, the package set did not move, and the transaction is still there but is
+# not `ready`: the boot symlink stood over a transaction nothing could apply, so the restart
+# detoured into the offline updater, installed nothing and came back - and no later restart can
+# install it either, because only `dnf5 offline reboot` arms one.
+# The one branch that must NOT CLEAR: the marker is what lets `kempt doctor` say "staged update
+# can never install"; without it that row degrades to "staged outside Kempt".
+# The announce-once key is the marker itself - `armed: false` IS the record that this was said,
+# and a box checking every ten minutes would otherwise repeat it 144 times a day.
 reconcile_detour_stage() {  # marker-json toml-status
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats FALSE as empty,
-  # so `//` would read the demoted marker as armed and announce it again on every check. Absent is
-  # the announcing default anyway - a marker written before this field existed describes a stage
-  # that was armed, because nothing else was ever written down.
+  # so `//` would read the demoted marker as armed and announce it again on every check. Absent
+  # means announce - a marker written before this field existed describes a stage that was armed.
   if jq -e '.armed == false' <<<"$1" >/dev/null 2>&1; then return 0; fi
   # ...and never write the OLD marker back over a stage made while this check was running: the
   # write below is a read-modify-write of a file `kempt update` owns under a different lock.
@@ -996,9 +823,8 @@ reconcile_detour_stage() {  # marker-json toml-status
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
   notify "Kempt" "Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean."
   log_event "offline stage cannot install (status $2) - announced"
-  # Additive, like every other field of this file: `armed: false` is added and everything already
-  # there is kept, so the pre-snapshot pointer, the names and the boot id all survive for the
-  # doctor rows that read them.
+  # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
+  # pointer, the names and the boot id survive for the doctor rows that read them.
   jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
     || echo "warning: could not record that the staged update was announced - the next check may repeat it" >&2
 }
@@ -1006,30 +832,26 @@ reconcile_detour_stage() {  # marker-json toml-status
 harvest_offline() {
   local pre now_snap ts report hist boot toml_status marker
   # ONE defensive read, and nothing below runs without it. Every branch here either clears the
-  # marker or turns it into a history entry, and both are far too destructive to do on a file we
-  # could not parse: a torn or oversized marker says nothing about the transaction (see
-  # offline_marker_read). It used to fall straight through to the stale-pointer branch below and be
-  # DELETED - one bad read and Kempt disowned an armed stage that was sitting there, still going to
-  # install on the next restart, with every surface now silent about it.
+  # marker or turns it into a history entry, both far too destructive to do on a file we could not
+  # parse (see offline_marker_read): falling through disowns an armed stage that will still
+  # install, with every surface silent about it.
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
   # Legacy markers (staged before this gate existed) and an unreadable boot_id fall back to the
   # snapshot comparison below - never to "never harvest".
   boot="$(jq -r '.boot_id // empty' <<<"$marker")"
   pre="$(jq -r '.pre_snapshot // empty' <<<"$marker")"
-  # dnf5's own view, read here because the marker cannot tell "waiting for a restart" from
-  # "the transaction is gone". Both of the dead ends this resolves used to last forever: a manual
-  # `dnf5 offline clean`, or a supersede that discarded the stage and could not remove the marker,
-  # left a marker whose apply was never coming, and every check re-read it and kept waiting.
+  # dnf5's own view, because the marker cannot tell "waiting for a restart" from "the transaction
+  # is gone" - and a manual `dnf5 offline clean` would otherwise leave one every check waits on.
   toml_status="$(offline_system_status)"
   if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
-    # Same boot: nothing can have APPLIED the stage, whatever the package set says. But it can
-    # still have been thrown away, and that is the one thing worth acting on here.
+    # Same boot: nothing can have APPLIED the stage, whatever the package set says - but it can
+    # still have been thrown away, the one thing worth acting on here.
     [[ "$toml_status" == absent ]] && clear_gone_stage "$pre" "$marker"
     return 0
   fi
-  # A marker whose snapshot is gone can never be harvested: clear it instead of re-reading a dead
-  # pointer on every check for the rest of time.
+  # A marker whose snapshot is gone can never be harvested: clear it rather than re-read a dead
+  # pointer on every check forever.
   [[ -n "$pre" && -f "$pre" ]] || {
     rm -f "$OFFLINE_MARKER"
     log_event "harvest cleared stale marker"
@@ -1040,40 +862,31 @@ harvest_offline() {
     || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2
          log_event "harvest skipped snapshot failed"; return 0; }
   # The package set did not move across a reboot. With the transaction still there that is the
-  # honest "not applied yet" - the offline-update screen can be declined, and the next restart
-  # will run it. With the transaction GONE there is nothing left to wait for, and this is where
-  # that used to become a permanent dead end.
+  # honest "not applied yet" (the offline-update screen can be declined); with it GONE there is
+  # nothing left to wait for.
   if same_content "$pre" "$now_snap"; then
     rm -f "$now_snap"
     if [[ "$toml_status" == absent ]]; then
       clear_gone_stage "$pre" "$marker"
     elif [[ "$toml_status" != ready ]]; then
       # Present but not armed, across a boot that changed: the detour above. Anything but `ready`
-      # counts - download-complete, download-incomplete, or a status this build has never heard of -
-      # because the only status a restart can install is the one that made the symlink.
+      # counts, including a status this build has never heard of - the only one a restart can
+      # install is the one that made the symlink.
       reconcile_detour_stage "$marker" "$toml_status"
     elif [[ -n "$boot" && "$boot" != unknown && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
       # `ready` and yet no /system-update: arming is TWO things, the status and the symlink, and
-      # this is the half that was never read outside doctor. systemd.offline-updates(7) is explicit
-      # that the symlink is the mechanism and that systemd removes it once system-update.target has
-      # been reached, so a boot that has been and gone leaving the status at `ready` is a boot that
-      # did not run the transaction and never will - only `dnf5 offline reboot` makes that symlink
-      # again. Without this arm the popup said "installs on the next restart" after every restart,
-      # forever, and doctor exited 0 the whole time.
+      # systemd removes the symlink once system-update.target is reached
+      # (systemd.offline-updates(7)) - so a boot that came and went leaving `ready` did not run
+      # the transaction, and no later one will either.
       reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
     fi
     return 0
   fi
 
-  # The package set MOVED across a reboot, and that is evidence of an apply only when dnf5's
-  # transaction is gone with it. Verified against real dnf5: applying an offline transaction
-  # removes all three of the toml, the /system-update symlink and transaction.json. So while any
-  # of that is still on the box, the set moved because something ELSE moved it - `sudo dnf5
-  # upgrade` typed in a terminal, dnf-automatic, GNOME Software, a plain `dnf install`. Harvesting
-  # here wrote a history entry naming the OTHER tool's packages, announced "Staged updates were
-  # applied on reboot", and deleted the marker and the baseline of a transaction that was still
-  # armed and still going to install on the next restart - after which no surface mentioned it
-  # again and doctor called it "staged outside Kempt".
+  # The package set MOVED across a reboot, which is evidence of an apply ONLY when dnf5's
+  # transaction is gone with it: applying one removes all three of the toml, the /system-update
+  # symlink and transaction.json. While any of that is still there, something ELSE moved the set,
+  # and harvesting would name the other tool's packages and drop a still-armed marker.
   if [[ "$toml_status" != absent ]]; then
     rm -f "$now_snap"
     if [[ "$toml_status" != ready ]] \
@@ -1081,9 +894,8 @@ harvest_offline() {
       reconcile_detour_stage "$marker" "$toml_status"
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
-      # now stale - a later harvest will diff against a set the other tool has already moved - and
-      # that is the residual transaction identity (issue #9) closes properly. Recording a wrong
-      # apply is the part that had to stop.
+      # now stale - a later harvest diffs against a set the other tool already moved - and that
+      # residual is what transaction identity (issue #9) closes properly.
       offline_marker_still "$marker" || return 0   # a newer stage owns the file now
       log_event "harvest deferred: packages moved outside Kempt while the stage is still armed"
       jq -c '. + {set_moved: true}' <<<"$marker" | write_offline_marker \
@@ -1094,9 +906,8 @@ harvest_offline() {
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
     || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
-  # History filenames are per-second, and this harvest runs inside a check that a live update run
-  # may have triggered in the very same second. Never overwrite an entry that already exists -
-  # that silently destroyed the live run's own history entry.
+  # History filenames are per-second and this harvest runs inside a check a live run may have
+  # triggered in the same second. Never overwrite an existing entry - it destroys that run's own.
   hist="$HIST_DIR/$ts.json"
   [[ -e "$hist" ]] && hist="$HIST_DIR/$ts-offline.json"
   jq -n --arg ts "$(now_iso)" --argjson dnf "$report" '
@@ -1105,21 +916,19 @@ harvest_offline() {
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
   rm -f "$now_snap"
-  # The history entry above is honest whatever happened next - the transaction really did apply -
-  # but the MARKER may no longer be the one this harvest read: a stage made while the snapshot and
-  # diff were running owns the file now, and deleting it would make the panel forget a transaction
-  # that is armed and will install.
+  # The history entry above is honest whatever happened next, but the MARKER may no longer be the
+  # one this harvest read: a stage made while the snapshot and diff ran owns the file now, and
+  # deleting it makes the panel forget an armed transaction.
   if offline_marker_still "$marker"; then
     rm -f "$OFFLINE_MARKER"
   else
     log_event "offline marker kept (a new stage arrived while the check ran)"
   fi
   rm -f "$pre"   # $pre is this harvest's own marker-owned copy either way
-  # Same counts phrase as a live run's notification: a staged transaction that only installed or
-  # removed packages must not be announced as "0 packages".
+  # Same counts phrase as a live run's notification: a transaction that only installed or removed
+  # packages must not be announced as "0 packages".
   local harvested; harvested="$(run_counts_phrase "$hist")"
-  # The one harvest outcome that changed something, and the only place the reboot's own result is
-  # ever recorded: the run that staged it ended hours and one boot ago.
+  # The only place the reboot's own result is recorded: the run that staged it ended a boot ago.
   log_event "harvest applied ($harvested)"
   notify "Kempt" "Staged updates were applied on reboot - $harvested"
 }
@@ -1139,27 +948,22 @@ cmd_hold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
-  # Separate statements, not `hold_add ... && log_event ...`: an AND list would swallow hold_add's
-  # exit status and report a rejected name as exit 1 instead of the 2 the contract promises. This
-  # way errexit ends the command with the helper's own rc and no event is written.
+  # Separate statements, not `hold_add ... && log_event ...`: an AND list swallows hold_add's exit
+  # status and reports a rejected name as exit 1 instead of the 2 the contract promises. This way
+  # errexit ends the command with the helper's own rc and no event is written.
   hold_add "$b" "$n"
-  # AFTER the write, and it changes nothing about it. dnf5 has no way to edit a transaction it has
-  # already stored, so a hold added over an armed stage applies from the NEXT transaction Kempt
-  # builds - correct, and until now invisible: the user held the kernel, restarted, and the kernel
-  # installed. All Kempt can honestly do is SAY so, on stderr, and hand over the two commands that
-  # act on it. It never prompts, never blocks and never changes the exit status: recording a hold
-  # is bookkeeping (I1), and the rebuild already has a first-class command of its own.
-  # Interactive and non-interactive are identical because there is nothing to be interactive about;
-  # a warning that only appeared at a terminal would be missing from the case that needs it most, a
-  # pin clicked in the panel.
-  # dnf only. The offline surface stages dnf and nothing else, so a flatpak hold can never conflict
-  # with an armed transaction and must never fire a false one.
+  # AFTER the write, and it changes nothing about it. dnf5 cannot edit a transaction it has already
+  # stored, so a hold added over an armed stage applies from the NEXT transaction Kempt builds -
+  # correct, and invisible unless said: hold the kernel, restart, and the kernel installs. So this
+  # warns on stderr and does nothing else: never prompts, never blocks, never changes the exit
+  # status (a hold is bookkeeping, I1), and is identical interactive or not, because the case that
+  # needs it most is a pin clicked in the panel. dnf only - the offline surface stages dnf alone,
+  # so a flatpak hold can never conflict with an armed transaction.
   local note=""
   if [[ "$b" == dnf ]]; then
-    # The SAME predicate state.json publishes for the widget, computed by the one reader that
-    # reconciles the marker, dnf5's status and dnf5's stored transaction. Called after hold_add on
-    # purpose: the intersection is against the holds as they now stand, so this package is in it if
-    # and only if the stage contains it.
+    # The SAME predicate state.json publishes for the widget, from the one reader that reconciles
+    # the marker, dnf5's status and its stored transaction. AFTER hold_add on purpose: the
+    # intersection is against the holds as they now stand.
     local staged; staged="$(offline_staged_state)"
     if [[ -n "$staged" ]]; then
       if jq -e --arg n "$n" '.holds_conflict | index($n)' <<<"$staged" >/dev/null 2>&1; then
@@ -1167,19 +971,17 @@ cmd_hold() {
         printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
         note=" (staged update still contains it)"
       elif [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]]; then
-        # No list may be trusted here - a legacy marker, or one whose names came from a check - so
-        # the generic warning is what is left. It can be wrong by warning about a package that is
-        # not in the transaction; it can never be wrong by staying quiet about one that is.
+        # No list may be trusted here (a legacy marker, or names that came from a check), so the
+        # generic warning is what is left: wrong only by warning about a package that is not in
+        # the transaction, never by staying quiet about one that is.
         hold_generic_warning "$n" >&2
-        # The recipe follows the generic warning too: "rebuilding applies all current holds" is
-        # only useful to someone who knows the command, and both remedies belong on every surface.
+        # The recipe follows the generic warning too - both remedies belong on every surface.
         printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
       fi
     fi
   fi
-  # The suffix is only ever appended to a CONFIRMED conflict. The generic warning is a caveat, not a
-  # finding, and an event log that recorded it as one would be evidence of something that was never
-  # established.
+  # The suffix is only ever appended to a CONFIRMED conflict: the generic warning is a caveat, not
+  # a finding, and the event log must not record it as one.
   log_event "hold $b:$n$note"
 }
 cmd_unhold() {
@@ -1187,9 +989,8 @@ cmd_unhold() {
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   hold_remove "$b" "$n"
-  # The mirror, and the quieter half of the same truth: releasing a hold does not put the package
-  # back into a transaction that was built without it. Same rules - after the write, stderr only,
-  # dnf only, exit status untouched.
+  # The mirror: releasing a hold does not put the package back into a transaction that was built
+  # without it. Same rules as cmd_hold - after the write, stderr only, dnf only, status untouched.
   local note=""
   if [[ "$b" == dnf ]] && offline_stage_built_without "$n"; then
     unhold_staged_warning "$n" >&2
@@ -1198,14 +999,11 @@ cmd_unhold() {
   log_event "unhold $b:$n$note"
 }
 # Refuses a stray argument like every other command: `kempt holds --json` silently printing the
-# plain list is how somebody writes a script against an option that does not exist.
+# plain list is how a script gets written against an option that does not exist.
 cmd_holds()  { [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; holds_all; }
 
-# `kempt log` - the event log, newest last, the way a log reads.
-# Deliberately the plainest command here: no filtering, no formatting, no colour. The file is
-# already one fact per line in a fixed vocabulary, and the answer to "did my OK land?" is the
-# last three lines of it. Anything more would be a second opinion about text that is meant to be
-# read with grep.
+# `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
+# already one fact per line in a fixed vocabulary, meant to be read with grep.
 cmd_log() {
   local n=30
   while [[ $# -gt 0 ]]; do
@@ -1216,37 +1014,30 @@ cmd_log() {
       *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N]" >&2; exit 2 ;;
     esac
   done
-  # No file yet is the ordinary state of a fresh install, not an error - the same answer shape
-  # `kempt summary` gives a box with no runs: a sentence on STDOUT and exit 0, so a script that
-  # reads this command does not have to tell "nothing happened" apart from "something broke".
+  # No file yet is the ordinary state of a fresh install, not an error - same answer shape as
+  # `kempt summary` on a box with no runs: a sentence on STDOUT and exit 0.
   [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
   tail -n "$n" "$EVENTS_FILE"
 }
 
 # --- kempt doctor ---
 # The trap this closes: with the root helpers missing, `kempt check` exits 0 with status "stale"
-# and 0 pending - which reads to a human, and to a badge, as "you are up to date". Every command
-# here degrades instead of crashing (deliberately), so nothing else ever says "this install is
-# incomplete". Doctor is the one command whose whole job is to say it.
-# Every check runs and every problem is printed: a checkup that stops at the first failure sends
-# the user round the loop once per problem.
+# and 0 pending, which reads to a human and to a badge as "you are up to date". Every other command
+# degrades instead of crashing, deliberately, so doctor is the one that says the install is broken.
+# Every check runs and every problem is printed: stopping at the first sends the user round the
+# loop once per problem.
 DOCTOR_FAILS=0
 doctor_ok()   { printf 'ok    %s\n' "$1"; }
 doctor_info() { printf 'info  %s\n' "$1"; }
 doctor_fail() { printf 'FAIL  %s\n' "$1"; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 )); }
 
-# The hold that arrived after the stage, on the report a worried person actually runs. INFO and not
-# FAIL, for two reasons that agree: doctor has ok/info/FAIL and nothing between, and a package
-# installing despite a hold is a legitimate state - dnf5 built that transaction before the hold
-# existed and offers no way to edit a stored one. A FAIL for something legitimate is how a report
-# teaches its readers to skip FAILs. The bluntness lives in the sentence instead.
-# The sentence leads with what happens and ends with BOTH remedies, through the one copy of them
-# (KEMPT_STAGED_RECIPE, shared with the warning `kempt hold` prints): the person who held a kernel
-# may want the staged update GONE rather than rebuilt, and a line offering only the rebuild leaves
-# them looking for the other half.
-# Read from offline_staged_state, not from the marker: that is the one function that applies the
-# suppression rule (a check-derived list may confirm a conflict and may never deny one), and doctor
-# must not grow a second opinion about which list is allowed to answer.
+# The hold that arrived after the stage. INFO and not FAIL: a package installing despite a hold is
+# a legitimate state (see cmd_hold), and a FAIL for something legitimate teaches readers to skip
+# FAILs - the bluntness lives in the sentence instead. It carries BOTH remedies through the one
+# copy of them, KEMPT_STAGED_RECIPE, since someone who held a kernel may want the stage gone
+# rather than rebuilt.
+# Read from offline_staged_state, never the marker: that is the one function applying the
+# suppression rule, and doctor must not grow a second opinion about which list may answer.
 doctor_staged_conflict_row() {
   local staged names total phrase
   staged="$(offline_staged_state)" || return 0
@@ -1255,7 +1046,7 @@ doctor_staged_conflict_row() {
   if [[ -n "$names" ]]; then
     total="$(printf '%s' "$names" | grep -c '' || true)"
     phrase="$(printf '%s' "$names" | names_phrase)"
-    # The verb moves with the noun, the same rule the staged count line and the hold warning follow.
+    # The verb moves with the noun, as in the staged count line and the hold warning.
     if [[ "$total" == 1 ]]; then
       doctor_info "staged update: it installs $phrase on the next restart despite the hold - the hold was recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
     else
@@ -1263,54 +1054,46 @@ doctor_staged_conflict_row() {
     fi
     return 0
   fi
-  # Nothing may be denied here: names_source `none` means the list came from a check (which cannot
-  # see the packages the resolver added) or from nowhere at all. With a dnf hold on the box the
-  # honest line is the generic one - wrong only in the direction that warns about a package which
-  # is not in there, never in the direction that stays quiet about one that is.
+  # Nothing may be DENIED here: names_source `none` means the list came from a check (blind to
+  # what the resolver added) or from nowhere, so the generic line is the honest one.
   [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]] || return 0
   [[ -n "$(holds_for dnf)" ]] || return 0
   doctor_info "staged update: it may still install held packages on the next restart - Kempt cannot read what this transaction contains, and a hold recorded after it was staged cannot change it. $KEMPT_STAGED_RECIPE"
 }
 
-# What Kempt staged against what dnf5 has stored right now. FAIL, because unlike the row above this
-# is nothing anyone chose: within the authentication keep window anything running as this user can
-# replace an armed transaction, and then every Kempt surface is describing a set that is not there.
-# It is also the detector for that residual, which is why the comparison is against the LIVE record
-# rather than against anything remembered.
-# Only a transaction-derived marker list may be compared. A check-derived one disagrees with the
-# stored transaction routinely and legitimately (the resolver adds packages a check never sees), so
-# comparing it would produce a FAIL a week on a perfectly healthy box - and a record that will not
-# parse yields nothing to compare at all. Both cases claim nothing, which is the same rule the
-# conflict row above follows.
+# What Kempt staged against what dnf5 has stored right now - the LIVE record, never anything
+# remembered. FAIL, because unlike the row above this is nothing anyone chose: within the
+# authentication keep window anything running as this user can replace an armed transaction, and
+# every Kempt surface then describes a set that is not there.
+# Only a transaction-derived marker list may be compared: a check-derived one disagrees with the
+# stored transaction routinely and legitimately, so it would FAIL weekly on a healthy box.
 doctor_staged_drift_row() {  # marker json
   local msrc live live_json rec_json plus minus
   msrc="$(jq -r '.staged_names_source // empty' <<<"$1" 2>/dev/null || true)"
   [[ "$msrc" == transaction ]] || return 0
   live="$(offline_txjson_names)" || return 0
-  # jq for the set arithmetic rather than sort/comm: jq's `unique` orders by codepoint and `sort`
-  # orders by the locale, and two lists ordered by different rules compare as different.
+  # jq for the set arithmetic, not sort/comm: `unique` orders by codepoint and `sort` by locale,
+  # and two lists ordered by different rules compare as different.
   live_json="$(printf '%s' "$live" | jq -Rn '[inputs] | unique')" || return 0
   rec_json="$(jq -c '[.staged_names[]? | select(type == "string")] | unique' <<<"$1" 2>/dev/null)" || return 0
   [[ "$(jq -n --argjson a "$live_json" --argjson b "$rec_json" '$a == $b')" == true ]] && return 0
   # `. as $x` before index(): jq evaluates index()'s argument against index()'s OWN input, so the
-  # inline form reads the wrong thing - the trap mark_held carries a note about.
+  # inline form reads the wrong thing (the trap mark_held carries a note about).
   plus="$(jq -r --argjson b "$rec_json" '.[] | select(. as $x | $b | index($x) | not)' <<<"$live_json")"
   minus="$(jq -r --argjson a "$live_json" '.[] | select(. as $x | $a | index($x) | not)' <<<"$rec_json")"
   local -a clauses=()
-  # Capped and counted by the shared renderer, for the reason it exists: a Qt bump legitimately puts
-  # dozens of names on each side of this comparison.
+  # Capped and counted by the shared renderer: a Qt bump puts dozens of names on each side.
   [[ -n "$plus" ]] && clauses+=("$(printf '%s\n' "$plus" | sed 's/^/+/' | names_phrase) in dnf5's record only")
   [[ -n "$minus" ]] && clauses+=("$(printf '%s\n' "$minus" | sed 's/^/-/' | names_phrase) in Kempt's only")
   local diff; diff="$(printf '%s, ' "${clauses[@]}")"
   doctor_fail "staged update is not the one Kempt built: dnf5's record differs from what Kempt staged (${diff%, }) - the transaction was replaced after Kempt staged it, so the next restart installs a set no Kempt surface describes. Rebuild it with: kempt update --surface=offline, or remove it with: sudo dnf5 offline clean"
 }
 
-# The `exec.path` annotation the installed policy pins for one action id, and the only half of that
-# file worth comparing: pkexec matches an action by that path and by nothing else.
-# awk rather than xmllint, because a checkup must not need a dependency the rest of the tool does
-# not have. The honest limit is that it reads the one-line form this project ships,
-# `<annotate key="...">path</annotate>`; a policy reformatted with the value on its own line reads
-# as "no annotation", which lands on the info branch rather than on a wrong verdict.
+# The `exec.path` annotation the installed policy pins for one action id - the only half of that
+# file worth comparing, since pkexec matches an action by that path and by nothing else.
+# awk rather than xmllint: a checkup must not need a dependency the rest of the tool does not have.
+# It reads only the one-line form this project ships, `<annotate key="...">path</annotate>`; a
+# policy with the value on its own line reads as "no annotation" and lands on the info branch.
 policy_exec_path() {  # action_id file -> the annotated path, or "" if there is none
   awk -v want="$1" '
     /<action[ \t]+id="/ {
@@ -1325,23 +1108,18 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 
 # The half of the polkit action a readable file can still get wrong. The RPM installs the helpers
 # under /usr/libexec and rewrites the annotation to match (kempt.spec); install.sh uses
-# /usr/local/libexec. A box carrying both - a package installed over a checkout, or a checkout CLI
-# left on the PATH after packaging - hands pkexec a path no action names, so it falls back to an
-# authentication dialog, which a background check cannot answer: it waits out priv_refresh's 120s
-# timeout and reports the check stale, on every check, forever. Doctor asked only whether the
-# policy file was READABLE, so that box read as "ok" from top to bottom.
-#
-# Compared only when the helper seam IS the annotated path, the same condition doctor_helper uses
-# for ownership and for the same reason: with a stub in play, what this CLI runs is not something
-# polkit was ever asked about, so there is no verdict to give.
+# /usr/local/libexec. A box carrying both hands pkexec a path no action names, so it falls back to
+# an authentication dialog a background check cannot answer: priv_refresh times out after 120s and
+# the check reports stale, forever.
+# Compared only when the helper seam IS the annotated path (as doctor_helper does for ownership):
+# with a stub in play, what this CLI runs is not what polkit was asked about.
 doctor_exec_path() {  # label action_id helper_seam annotated_path
   local label="$1" action="$2" seam="$3" annotated="$4" pinned
   if [[ "$seam" != "$annotated" ]]; then
     doctor_info "polkit exec.path ($label): not compared - the helper seam points elsewhere ($seam)"
     return 0
   fi
-  # A policy file that is missing or unreadable is already a FAIL on its own line above, and one
-  # problem must not be counted twice.
+  # Missing or unreadable is already a FAIL above; one problem must not be counted twice.
   if [[ ! -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_info "polkit exec.path ($label): not compared - $KEMPT_POLICY_FILE is not readable"
     return 0
@@ -1352,29 +1130,26 @@ doctor_exec_path() {  # label action_id helper_seam annotated_path
   elif [[ "$pinned" == "$annotated" ]]; then
     doctor_ok "polkit exec.path ($label): $pinned"
   else
-    # Both paths, because which one is wrong depends on which install the reader meant to have -
-    # and so both remedies, because the fix is a different command for each kind.
+    # Both paths and both remedies: which one is wrong depends on the install the reader meant.
     doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated - pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
   fi
 }
 
-# ...and the other half of a split install, on the widget's side of it. The panel runs the CLI
-# through its own PATH order (see KEMPT_WIDGET_PATH), so the kempt the widget uses and the kempt
-# that printed this report can be two different files - and every line above describes the second
-# one. Nothing here is executed: the lookup is resolved and compared, exactly like the paths above.
+# ...and the other half of a split install, on the widget's side. The panel runs the CLI through
+# its own PATH order (see KEMPT_WIDGET_PATH), so the kempt the widget uses and the kempt that
+# printed this report can be two different files. Nothing here is executed.
 doctor_widget_engine() {
   local w
   # A subshell, so the widget's PATH order decides this one lookup and nothing else in the run.
   # shellcheck disable=SC2123  # assigning PATH IS the check: it is the widget's own lookup order
   w="$(PATH="$KEMPT_WIDGET_PATH"; command -v kempt 2>/dev/null || true)"
   if [[ -z "$w" ]]; then
-    # info, not FAIL: the widget already says this itself. main.qml turns rc 127 into
-    # engineMissing, which is a message in the panel - a second one here would only duplicate it.
+    # info, not FAIL: main.qml turns rc 127 into engineMissing, a message in the panel already.
     doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH) - the panel reports the engine as missing"
     return 0
   fi
   # Resolved, because ~/.local/bin/kempt is a symlink on every checkout install: the question is
-  # which FILE runs, not which name was found first.
+  # which FILE runs, not which name came first.
   w="$(readlink -f "$w" 2>/dev/null || printf '%s' "$w")"
   if [[ "$w" == "$SELF" ]]; then
     doctor_ok "widget engine: $w"
@@ -1394,8 +1169,7 @@ doctor_helper() {  # label seam_path annotated_path
     doctor_info "root helper ($label): $path (seam override, ownership not checked)"
     return 0
   fi
-  # stat can fail on a path we cannot reach (an unsearchable parent). A helper we cannot INSPECT
-  # is not the same as a broken one: report what is known instead of inventing a verdict.
+  # stat can fail on an unreachable path, and a helper we cannot INSPECT is not a broken one.
   own="$(stat -c '%U:%G %a' "$path" 2>/dev/null)" || {
     doctor_info "root helper ($label): $path (present, ownership not readable)"; return 0; }
   if [[ "$own" == "root:root 755" ]]; then
@@ -1408,15 +1182,10 @@ doctor_helper() {  # label seam_path annotated_path
 # --- install skew -------------------------------------------------------------------------------
 # A checkout install is a SYMLINK for the CLI and a COPY for everything that cannot be one: the two
 # root helpers (root execs a file it owns, never a link into a user's tree), the polkit action, and
-# the widget package kpackagetool6 copies into the user's plasmoid directory. So `git pull` moves
-# the CLI and leaves those three behind, and nothing said so - the code root ran went on being the
-# code from the last ./install.sh, indefinitely and silently. These two report the mismatch.
-#
-# Compared by CONTENT, never by mtime: re-running the installer rewrites files it did not change,
-# and a checkout whose timestamps came from a fresh clone is younger than a correct install.
-# No privilege is needed for either - the installed copies are world-readable (verified on a real
-# install: root:root 0755 for the helpers, root:root 0644 for the policy), so `cmp` and `diff` read
-# them as the user.
+# the widget kpackagetool6 copies into the user's plasmoid directory. So `git pull` moves the CLI
+# and silently leaves those three behind, root still running the last ./install.sh's code.
+# Compared by CONTENT, never mtime: the installer rewrites files it did not change, and a fresh
+# clone is younger than a correct install. No privilege needed - the copies are world-readable.
 doctor_install_files() {  # label src dst [src dst ...]
   local label="$1"; shift
   local src dst missing=0 differ=0 nosrc=0
@@ -1426,13 +1195,12 @@ doctor_install_files() {  # label src dst [src dst ...]
     elif [[ ! -e "$dst" ]]; then missing=1
     elif ! same_content "$src" "$dst"; then differ=1; fi
   done
-  # A label covers more than one file (the helpers are two) because the fix is one command: what
-  # the reader needs is "re-run the installer", not which of the pair drifted.
+  # One label covers several files (the helpers are two) because the fix is one command.
   if [[ $nosrc -eq 1 ]]; then
     doctor_info "$label: not compared - the checkout has no copy to compare against"
   elif [[ $missing -eq 1 ]]; then
-    # info, not FAIL: a missing installed copy is already a FAIL on its own line above, and one
-    # problem must not be counted twice in the summary.
+    # info, not FAIL: a missing installed copy is already a FAIL above, and one problem must not
+    # be counted twice.
     doctor_info "$label: not installed - run ./install.sh"
   elif [[ $differ -eq 1 ]]; then
     doctor_fail "$label: DIFFER from checkout - run ./install.sh"
@@ -1446,8 +1214,7 @@ doctor_install_dir() {  # label src dst
   if [[ ! -d "$src" ]]; then
     doctor_info "$label: not compared - the checkout has no copy to compare against"
   elif [[ ! -d "$dst" ]]; then
-    # The widget is the one optional piece: install.sh says so, and a box with no kpackagetool6
-    # gets a working CLI and no plasmoid. Its absence is therefore not a problem to report.
+    # The widget is optional: a box with no kpackagetool6 gets a working CLI and no plasmoid.
     doctor_info "$label: not installed (the CLI works without it)"
   elif ! command -v diff >/dev/null; then
     doctor_info "$label: not compared - diff is not installed"
@@ -1456,7 +1223,7 @@ doctor_install_dir() {  # label src dst
   else
     # `plasmashell --replace` as well as the installer: kpackagetool6 upgrades the package in
     # place and Plasma keeps the QML it already loaded, so a re-install alone changes nothing the
-    # user can see until the shell reloads.
+    # user can see.
     doctor_fail "$label: DIFFER from checkout - run ./install.sh, then plasmashell --replace"
   fi
 }
@@ -1464,15 +1231,14 @@ doctor_install_dir() {  # label src dst
 # --- the rows of `kempt doctor`, one function per group ------------------------------------------
 # cmd_doctor below is the ORDER of the report and nothing else. Each function here owns one group
 # of rows, keeps its own locals, and communicates only through DOCTOR_FAILS - which doctor_fail
-# increments and the summary reads. Split out of a 300-line cmd_doctor: the rows never shared
-# state, so the length was the only thing making them hard to change.
+# increments and the summary reads. Keep it that way: the rows share no other state.
 
 doctor_privileged_rows() {
   doctor_helper refresh "$KEMPT_REFRESH_HELPER" "$KEMPT_REFRESH_HELPER_PATH"
   doctor_helper apply   "$KEMPT_APPLY_HELPER"   "$KEMPT_APPLY_HELPER_PATH"
 
-  # Without the action file, pkexec has no policy for these helpers and falls back to an
-  # authentication DIALOG - which a background check cannot answer, so it times out after 120s.
+  # Without the action file pkexec has no policy for these helpers and falls back to an
+  # authentication DIALOG - see doctor_exec_path.
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
@@ -1486,13 +1252,13 @@ doctor_privileged_rows() {
 }
 
 doctor_tool_rows() {
-  # jq: a missing one exits 3 before this command can run, so this line can only ever say ok. It
-  # is here to name WHICH jq answered, not to catch an absence.
+  # jq: a missing one exits 3 before this command runs, so this line only ever says ok - it names
+  # WHICH jq answered rather than catching an absence.
   doctor_ok "jq: $(command -v jq) ($(jq --version 2>/dev/null || echo 'version unknown'))"
 
-  # The terminal emulator matters only where it is actually launched: surface=terminal, plus any
-  # surface at all when auto_accept=false (which forces terminal, because only a terminal can
-  # answer dnf's prompt). Saying FAIL on a detached surface would be a warning nobody can act on.
+  # The terminal emulator matters only where it is launched: surface=terminal, plus any surface
+  # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
+  # warning nobody can act on.
   local surface auto term_needed=false
   surface="$(config_get surface)"; auto="$(config_get auto_accept)"
   case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
@@ -1505,8 +1271,8 @@ doctor_tool_rows() {
     doctor_info "terminal emulator '$KEMPT_TERMINAL' not found - not needed for surface=$surface"
   fi
 
-  # flatpak: ask about the command the BACKEND actually runs (first word of its seam), not a
-  # hardcoded name that a test or a power user may have redirected.
+  # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
+  # name a test or a power user may have redirected.
   local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
   if command -v "$fp_cmd" >/dev/null; then
     doctor_ok "flatpak: $(command -v "$fp_cmd")"
@@ -1516,15 +1282,11 @@ doctor_tool_rows() {
     doctor_info "flatpak command '$fp_cmd' not found - include_flatpak=false, so it is not needed"
   fi
 
-  # The reboot verdict is the one thing Kempt asks a dnf command directly - the pending list and
-  # the update itself both go through the root helper - and it is asked on the hourly DETACHED
-  # path, where dnf_reboot_needed's "reboot check failed (rc=127)" goes to a stderr nobody is
-  # attached to and the event log records nothing at all. A permanently broken check therefore
-  # looks exactly like a permanently answered one: reboot_needed false, forever. This line is
-  # where it becomes visible. Asked of the first word of the backend's seam, like the flatpak
-  # check above, so a seam carrying arguments still resolves to a command name.
-  # info, not FAIL: updates are untouched and the key degrades in the safe direction, so this is
-  # worth saying out loud and not worth exiting 1 over.
+  # The reboot verdict is the one thing Kempt asks a dnf command directly, on the hourly DETACHED
+  # path where its "reboot check failed (rc=127)" reaches a stderr nobody reads and no event line -
+  # so a permanently broken check looks exactly like a permanently answered one: reboot_needed
+  # false, forever. This row is where it becomes visible. First word of the seam, like flatpak
+  # above. info, not FAIL: updates are untouched and it degrades in the safe direction.
   local dnf_cmd; dnf_cmd="${KEMPT_DNF_CMD%% *}"
   if command -v "$dnf_cmd" >/dev/null; then
     doctor_ok "dnf: $(command -v "$dnf_cmd")"
@@ -1534,9 +1296,8 @@ doctor_tool_rows() {
 }
 
 doctor_config_row() {
-  # The config file is read with `grep "^key="`, so a line that is not key=value is ignored
-  # forever: the setting the user believes they wrote never applies, silently. Validated exactly
-  # as config_set validates, so doctor accepts precisely what `kempt config set` writes.
+  # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
+  # setting the user believes they wrote never applies. Validated exactly as config_set validates.
   local line n=0 bad=0 keys=0 k
   if [[ ! -e "$CONFIG_FILE" ]]; then
     doctor_ok "config file: none yet, built-in defaults apply ($CONFIG_FILE)"
@@ -1555,9 +1316,8 @@ doctor_config_row() {
         keys=$(( keys + 1 ))
       fi
     done < "$CONFIG_FILE"
-    # "1 setting" / "2 settings", the same way the problem count below pluralizes itself. The
-    # `if` form, not `[[ ... ]] && x=y`: a false test as the last command of a branch returns 1
-    # and errexit would kill the checkup halfway through.
+    # The `if` form, not `[[ ... ]] && x=y`: a false test as a branch's last command returns 1 and
+    # errexit would kill the checkup halfway through.
     if [[ $bad -eq 0 ]]; then
       local sword=settings
       if [[ $keys -eq 1 ]]; then sword=setting; fi
@@ -1567,8 +1327,8 @@ doctor_config_row() {
 }
 
 doctor_state_dir_row() {
-  # "Writable" means "can be written OR created": on a fresh install nothing has run yet, and a
-  # checkup must not CREATE the directory it is checking. Walk up to the nearest existing ancestor.
+  # "Writable" means "can be written OR created": nothing has run yet on a fresh install, and a
+  # checkup must not CREATE the directory it checks - so walk up to the nearest existing ancestor.
   local probe="$KEMPT_STATE_DIR"
   while [[ ! -e "$probe" ]]; do
     [[ "$probe" == */* && "$probe" != / ]] || break
@@ -1587,8 +1347,7 @@ doctor_state_dir_row() {
 
 doctor_checkout_row() {
   # The CLI is a symlink INTO the checkout, so a missing file here is a broken install. What is
-  # sourced at startup would have failed already; what is not (the passwordless rules template)
-  # fails on the day it is needed and never before.
+  # sourced fails at startup; what is not (the rules template) fails only on the day it is needed.
   local missing=() rel
   for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-kempt.rules.in; do
     [[ -r "$ROOT/$rel" ]] || missing+=("$rel")
@@ -1601,27 +1360,21 @@ doctor_checkout_row() {
 }
 
 doctor_offline_rows() {
-  # The staged offline transaction, read as TWO facts side by side rather than reconciled. That is
-  # what makes this doctor's line and nobody else's: every other surface reads the two together and
-  # publishes one answer, so a marker sitting over a transaction that can never install looks, from
-  # the outside, exactly like a pending update. The founder's box spent a day in that state - 61
-  # packages promised on every restart, downloaded, never armed, delivered by nothing.
-  # Silent when there is neither a marker nor a transaction, which is most boxes most of the time:
-  # a line per run about something that does not exist is noise, not a checkup.
+  # The staged offline transaction, read as TWO facts side by side rather than reconciled - which
+  # makes this doctor's line and nobody else's. Every other surface reads them together and
+  # publishes one answer, so a marker over a transaction that can never install looks from outside
+  # exactly like a pending update. Silent when there is neither, which is most boxes.
   local dr_toml dr_count dr_marker
   dr_toml="$(offline_system_status)"
-  # Read the way every other reader reads it. The raw jq that used to sit here answered `empty` for
-  # a torn or garbage file and fell straight through to the armed row below, so the one report whose
-  # job is to catch a disagreement between two files was describing a pending install off a file it
-  # could not parse. offline_marker_read refuses an empty, unparsable or over-1 MB marker, and every
-  # reader treats that as "skip this check" rather than as "the stage is gone".
+  # Read the way every other reader reads it - never raw jq, which answers `empty` for a torn file
+  # and would fall through to the armed row below. offline_marker_read refuses an empty,
+  # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
   dr_marker="$(offline_marker_read)"
   if [[ -n "$dr_marker" ]]; then
     dr_count="$(jq -r '.staged // empty' <<<"$dr_marker" 2>/dev/null || true)"
     case "$dr_toml" in
       ready)
-        # One package is its own sentence, verb included. These rows get pasted into bug reports
-        # verbatim, and "1 packages" is exactly the line that gets quoted back. Zero is plural.
+        # One package is its own sentence, verb included; zero is plural.
         if [[ "$dr_count" == 1 ]]; then
           doctor_info "staged update: 1 package installs on the next restart"
         elif [[ "$dr_count" =~ ^[0-9]+$ ]]; then
@@ -1629,41 +1382,34 @@ doctor_offline_rows() {
         else
           doctor_info "staged update: it installs on the next restart"
         fi
-        # Both only for `ready`: an unarmed transaction installs nothing on any restart, so which
-        # packages it holds and whether they are the ones Kempt staged are questions about a
-        # transaction that is not going to run.
+        # Both only for `ready`: what an unarmed transaction holds, and whether Kempt built it,
+        # are questions about a transaction that is not going to run.
         doctor_staged_conflict_row
         doctor_staged_drift_row "$dr_marker" ;;
       absent)
-        # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it,
-        # so this is worth reporting and not worth failing over.
+        # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it.
         doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
       *)
-        # Anything that is not `ready` is not armed, and an unarmed transaction is applied by no
-        # restart. FAIL rather than info because it is a real defect with an exact remedy, and the
-        # remedy needs root - so it cannot be a kempt subcommand and has to be spelled out.
+        # Not `ready` means not armed, and no restart applies it. FAIL rather than info: a real
+        # defect with an exact remedy, spelled out because the remedy needs root.
         doctor_fail "staged update can never install: the transaction was downloaded but never armed (status \"$dr_toml\"), so no restart applies it - clear it with: sudo dnf5 offline clean" ;;
     esac
   elif [[ -f "$OFFLINE_MARKER" ]]; then
-    # A marker is there and cannot be read. Reported as itself rather than falling through to the
-    # line below, which would attribute Kempt's own stage to somebody else. info, not FAIL: a torn
-    # read is a moment, not a defect - `update` and `check` hold different locks, so a check can
-    # arrive mid-write - and there is nothing here for the user to do.
+    # A marker is there and cannot be read. Reported as itself, not through the line below, which
+    # would attribute Kempt's own stage to somebody else. info, not FAIL: a torn read is a moment
+    # (update and check hold different locks, so a check can arrive mid-write).
     doctor_info "staged update: the marker cannot be read, so nothing here describes what Kempt staged: $OFFLINE_MARKER (dnf5 says \"$dr_toml\") - a marker that will not parse is skipped rather than cleared, so the next check leaves it where it is"
   elif [[ "$dr_toml" != absent ]]; then
-    # Not Kempt's: it staged nothing and will harvest nothing. Still worth a line - somebody
-    # reading this report because a restart installed things they did not expect has just found
-    # their answer.
+    # Not Kempt's: it staged nothing and will harvest nothing. Still worth a line for somebody
+    # reading this because a restart installed things they did not expect.
     doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
   fi
 
-  # The boot symlink, which is the half of arming that decides what the next restart actually does.
-  # Kempt read the toml and never this, so a symlink standing over a transaction that is not `ready`
-  # was invisible here whenever no marker existed - and that is a state the box reaches on its own:
-  # re-staging destroys the old transaction before the new one exists, so a stage that fails in
-  # between leaves exactly this. The boot then detours into the offline updater, installs nothing,
-  # and leaves no trace anywhere. Marker or no marker, because the symlink is the boot's business
-  # and the marker is Kempt's: when both apply, the two rows say two different things.
+  # The boot symlink, the half of arming that decides what the next restart does. A symlink over a
+  # transaction that is not `ready` is a state the box reaches on its own: re-staging destroys the
+  # old transaction before the new one exists, so a stage failing in between leaves exactly this,
+  # and the boot detours into the offline updater and installs nothing. Checked marker or no
+  # marker - the symlink is the boot's business, the marker is Kempt's.
   # -L is lstat: the symlink itself, never its target. system-update-generator does not resolve it
   # either, so a dangling one detours the boot exactly as a live one does.
   if [[ -L "$KEMPT_OFFLINE_LINK" && "$dr_toml" != ready ]]; then
@@ -1673,28 +1419,23 @@ doctor_offline_rows() {
       doctor_fail "boot symlink is live over a transaction that is not armed (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; clear it with: sudo dnf5 offline clean"
     fi
   elif [[ "$dr_toml" == ready && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
-    # The INVERSE, and it had no row at all: a transaction dnf5 calls `ready` with no symlink in
-    # front of it. Arming is both, and systemd removes the symlink once system-update.target has
-    # been reached (systemd.offline-updates(7)), so this is a transaction a restart has already
-    # walked past - it cannot install on any future one either, because only `dnf5 offline reboot`
-    # makes that symlink again. Every surface used to call this a pending install, forever.
+    # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
+    # transaction and no future one can install it either - see reconcile_detour_stage. Without
+    # this row every surface calls it a pending install, forever.
     doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` re-arms it - re-stage it with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
   fi
 }
 
 doctor_version_row() {
-  # Which build this is, in the form a maintainer can act on. The opening line already names the
-  # release and the tree; this one names the COMMIT, which is the difference between "0.1.0" and
-  # the twelve commits of 0.1.0 that a reporter might actually be running. `dirty` covers untracked
-  # files as well as modified ones, because a new backend file changes behaviour exactly as much as
+  # Which build this is. The opening line already names the release and the tree; this one names
+  # the COMMIT, the difference between "0.1.0" and the twelve commits of 0.1.0 a reporter might be
+  # running. `dirty` covers untracked files too - a new backend file changes behaviour as much as
   # an edited one. Every git call is tolerated failing: a tarball install has no .git, a packaged
-  # one has no git binary to require, and a version line is a diagnostic - it must never be the
-  # thing that stops the checkup.
+  # one need not have git, and a version line must never be the thing that stops the checkup.
   local ver_line sha tree
   ver_line="version: kempt $(kempt_version)"
   sha=""
-  # The `if` form, not `[[ ... ]] && x=y`: a false test in that shape returns 1 as a whole
-  # statement and errexit would kill the checkup here, which is the one place it must not stop.
+  # The `if` form, not `[[ ... ]] && x=y`: see doctor_config_row - errexit would kill the checkup.
   if [[ -e "$ROOT/.git" ]]; then
     sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
   fi
@@ -1708,43 +1449,34 @@ doctor_version_row() {
 
 doctor_install_rows() {
   # A packaged install has nothing to compare and nothing to drift: the RPM ships bin/, lib/ and
-  # backends/ under /usr/share/kempt and none of libexec/, polkit/ or plasmoid/, because those
-  # three become files the package manager owns and keeps in step. install.sh's absence is what
-  # says which kind of install this is - it is the file the fix message would tell you to run, and
-  # it is exactly what a packaged tree does not ship.
+  # backends/ under /usr/share/kempt and none of libexec/, polkit/ or plasmoid/, because the
+  # package manager owns those three and keeps them in step. install.sh's absence is what says
+  # which kind of install this is - it is the file the fix message would name, and exactly what a
+  # packaged tree does not ship.
   if [[ ! -r "$ROOT/install.sh" ]]; then
     doctor_info "install: packaged - the package manager keeps these files in step"
-    # ...and the one thing a packaged install can be silently wrong about. The widget is
-    # installable on its own from the KDE Store, and kpackagetool6 puts what it installs in the
-    # USER's plasmoid directory; the package puts its copy in /usr/share, and Plasma PREFERS the
-    # user one. So a store install that predates the package goes on being the widget Plasma
-    # loads, and every package update after it lands in a directory nothing reads - for good, and
-    # invisibly: the stale copy renders perfectly. Nothing else in this report would catch it,
-    # because every other packaged file is one the package manager owns.
-    # Only in this branch. On a checkout that same directory IS the install (install.sh puts it
-    # there with the same tool), and the message would be telling a developer to delete their own
-    # widget; the skew comparison below is the right question there.
+    # ...and the one thing a packaged install can be silently wrong about. kpackagetool6 (the KDE
+    # Store route) installs into the USER's plasmoid directory, the package into /usr/share, and
+    # Plasma PREFERS the user one - so a store install predating the package stays the widget
+    # Plasma loads, invisibly, and no other row would catch it.
+    # Only in this branch: on a checkout that directory IS the install, and the message would tell
+    # a developer to delete their own widget. The skew comparison below covers that case.
     if [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
       doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR - Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
     elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
-      # The panel half is its own package, so a CLI that works perfectly can sit on a box with no
-      # widget at all and nothing would say why. Info, not a failure: the CLI is the whole tool
-      # for anyone who wanted the CLI.
+      # The panel half is its own package, so a working CLI can sit on a box with no widget and
+      # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
       doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid"
     fi
 
-    # The environment can point this process at a different update path than the one every row
-    # above just described, and on a PACKAGED install nothing else notices - the file comparisons
-    # that catch it on a checkout are exactly what this branch has no checkout to make. Six lines
-    # in ~/.config/environment.d are enough to make `kempt update` report "0 updated" while
-    # running nothing at all, and without this row the report underneath would say "all checks
-    # passed": a box that has silently stopped taking security updates, certified healthy by its
-    # own diagnostic. Only the three seams that decide what RUNS - the others change what is read,
-    # and the rows above already describe what they point at.
-    # Gated on a tree this user cannot WRITE, which is the one packaged-ness test an environment
-    # variable cannot fake: /usr/share/kempt belongs to the package manager, and a checkout or a
-    # test fixture belongs to whoever is running this. Without that gate the suite's own sandbox -
-    # which sets all three seams, by design - would trip the row on every run.
+    # The environment can point this process at a different update path than the rows above
+    # describe, and on a PACKAGED install nothing else notices: a few lines in
+    # ~/.config/environment.d make `kempt update` report "0 updated" while running nothing, under
+    # a report that still says "all checks passed". Only the three seams that decide what RUNS -
+    # the others change what is READ, and the rows above cover those.
+    # Gated on a tree this user cannot WRITE, the one packaged-ness test an environment variable
+    # cannot fake. Without that gate the suite's own sandbox, which sets all three seams by
+    # design, trips the row on every run.
     local overridden=() seam
     for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
       [[ " $KEMPT_ENV_OVERRIDES " == *" $seam "* ]] && overridden+=("$seam")
@@ -1764,9 +1496,9 @@ doctor_install_rows() {
 
 doctor_recent_events() {
   # Not a check, and deliberately below every check that is: doctor answers "is this install
-  # sound", and the next question a person asks after that is "then why did my change not take
-  # effect?". The last five events answer it in place, without anyone needing to know that
-  # `kempt log` exists. Indented, so nothing here can be mistaken for a report line.
+  # sound", and the next question is "then why did my change not take effect?". The last five
+  # events answer that in place, without anyone needing to know `kempt log` exists. Indented, so
+  # nothing here can be mistaken for a report line.
   echo
   echo "Recent events (kempt log):"
   if [[ -s "$EVENTS_FILE" ]]; then
@@ -1779,9 +1511,9 @@ doctor_recent_events() {
 
 cmd_doctor() {
   DOCTOR_FAILS=0
-  # First line, and info rather than ok: it is not a check that can pass or fail, it is the fact
-  # every other line in this report has to be read against. A doctor report pasted into a bug
-  # report without it describes an unknown build.
+  # First line, and info rather than ok: not a check that can pass or fail, but the fact every
+  # other line has to be read against - a report pasted into a bug report without it describes an
+  # unknown build.
   doctor_info "kempt $(kempt_version) ($KEMPT_ROOT)"
   doctor_privileged_rows
 
@@ -1792,9 +1524,9 @@ cmd_doctor() {
   doctor_offline_rows
   doctor_version_row
   doctor_install_rows
-  # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone, and
-  # the packaged one is where it bites hardest - a leftover ~/.local/bin/kempt from a checkout wins
-  # over /usr/bin/kempt for the panel and for nothing else.
+  # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone - a
+  # leftover ~/.local/bin/kempt from a checkout wins over /usr/bin/kempt for the panel and for
+  # nothing else.
   doctor_widget_engine
 
   doctor_recent_events
@@ -1811,22 +1543,17 @@ cmd_doctor() {
 
 RULES_DST="${KEMPT_RULES_DST:-/etc/polkit-1/rules.d/49-kempt.rules}"
 
-# The destination is a path this command hands to a ROOT install(1), so its shape is pinned.
-# "Absolute and ending in .rules" was too loose, and so was the /etc-only fence that replaced it:
-# either one would let this command plant a root-owned file in another tool's configuration
-# directory (/etc/cron.d, /etc/sudoers.d, /usr/lib/udev/rules.d - anywhere that tolerates an
-# unexpected filename).
-# polkit reads FOUR rules directories, not one (polkit(8)): /etc/polkit-1/rules.d,
-# /run/polkit-1/rules.d, /usr/local/share/polkit-1/rules.d and /usr/share/polkit-1/rules.d.
-# Kempt pins the ADMINISTRATOR's one, /etc/polkit-1/rules.d, because the other three belong to
-# packages and to the runtime. Fencing only /etc left all three of those open, plus every other
-# system directory: /usr/share/polkit-1/rules.d/50-default.rules is a file Fedora actually ships,
-# and it was an accepted destination for a root install(1).
-# So: the polkit admin directory is accepted by name, every system prefix is refused outright,
-# and what is left (a /tmp path, which is what the test seam uses) is accepted so the suite can
-# exercise the production path without ever touching system policy.
-# The comparison is on the realpath -m form (it resolves `..` without requiring the path to
-# exist), so a destination cannot walk out of the directory it claims to be in.
+# The destination is a path this command hands to a ROOT install(1), so its shape is pinned, and
+# neither "absolute and ending in .rules" nor an /etc-only fence is tight enough: either lets this
+# plant a root-owned file in another tool's configuration directory (/etc/cron.d, /etc/sudoers.d,
+# /usr/lib/udev/rules.d).
+# polkit reads FOUR rules directories (polkit(8)); Kempt pins the ADMINISTRATOR's one,
+# /etc/polkit-1/rules.d, because the other three belong to packages and to the runtime - and
+# /usr/share/polkit-1/rules.d/50-default.rules is a file Fedora actually ships.
+# So: that directory is accepted by name, every system prefix is refused outright, and what is
+# left (a /tmp path, which the test seam uses) is accepted so the suite can exercise the
+# production path without touching system policy. Compared on the realpath -m form, which resolves
+# `..` without requiring the path to exist, so a destination cannot walk out of its directory.
 check_rules_dst() {
   local p
   p="$(realpath -m -- "$RULES_DST" 2>/dev/null)" || p=""
@@ -1845,12 +1572,11 @@ cmd_enable_passwordless() {
   local tmp
   check_rules_dst
   tmp="$(mktemp)"
-  # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result;
-  # it writes nothing on failure, so an unverified rule can never reach install(1).
-  # One event per invocation, carrying the exit status this command ends with - so a grant that
-  # was refused at the authentication dialog is recorded as plainly as one that succeeded. This
-  # is the setting with the largest security consequence Kempt can change, and it was the only
-  # one that left no trace at all of having been attempted.
+  # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result; it
+  # writes nothing on failure, so an unverified rule can never reach install(1).
+  # One event per invocation carrying this command's exit status - a grant refused at the
+  # authentication dialog is recorded as plainly as one that succeeded. Largest security
+  # consequence Kempt can change.
   if ! render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in" "$tmp"; then
     rm -f "$tmp"; log_event "passwordless enable rc=2"; exit 2
   fi
@@ -1867,10 +1593,10 @@ cmd_enable_passwordless() {
 
 cmd_disable_passwordless() {
   check_rules_dst
-  # Nothing to remove is not a failure, and it must not raise an auth prompt to discover that.
-  # The negative test is only trusted where we can actually search the directory: the real
-  # /etc/polkit-1/rules.d is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for
-  # a file that exists - claiming "not enabled" there would leave a live grant in place.
+  # Nothing to remove is not a failure, and discovering that must not raise an auth prompt. The
+  # negative test is trusted only where the directory is searchable: the real /etc/polkit-1/rules.d
+  # is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for a file that exists, and
+  # "not enabled" would leave a live grant in place.
   if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
     log_event "passwordless disable rc=0"
     echo "passwordless was not enabled"; return 0
@@ -1878,8 +1604,8 @@ cmd_disable_passwordless() {
   local rc=0
   ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} rm -f "$RULES_DST" || rc=$?
   log_event "passwordless disable rc=$rc"
-  # The rc is still the command's own: captured only so the event can name it, then handed
-  # straight back. errexit used to do this and its behaviour is preserved exactly.
+  # The rc is still the command's own: captured only so the event can name it, then handed back
+  # unchanged - exactly what errexit would have done here.
   [[ $rc -eq 0 ]] || return $rc
   echo "Passwordless updates disabled"
 }
