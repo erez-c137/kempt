@@ -1075,6 +1075,10 @@ render_summary() {  # history-json-file → human text
       + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     heldline,
-    "Reboot: " + (if .reboot_needed then "needed" else "not needed" end)
+    # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
+    # the check could not work the answer out, which it reports the same way, and the state
+    # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not
+    # needed" was this file telling the reader something Kempt does not know.
+    (if .reboot_needed then "Reboot: needed" else empty end)
   ' "$1"
 }

@@ -98,7 +98,12 @@ grep -q 'FAILED - see /tmp/y.log' <<<"$f" && echo "ok: failure names the log" ||
 grep -q 'System (dnf): 0 updated \[failed\]' <<<"$f" && echo "ok: failing backend is marked" || { echo "FAIL: backend status marker"; _fail=1; }
 grep -q 'Apps (flatpak): 0 updated \[skipped\]' <<<"$f" && echo "ok: skipped backend is marked" || { echo "FAIL: skipped marker"; _fail=1; }
 grep -q 'Held' <<<"$f" && { echo "FAIL: empty held list printed a line"; _fail=1; } || echo "ok: no held line when nothing is held"
-grep -q 'Reboot: not needed' <<<"$f" && echo "ok: no-reboot line" || { echo "FAIL: no-reboot line"; _fail=1; }
+# NOT "Reboot: not needed". `reboot_needed: false` also means the check could not work the answer
+# out - it reports both the same way - and the state schema forbids rendering an affirmative from
+# it. A summary that says "not needed" is telling the reader something Kempt does not know.
+grep -q 'Reboot:' <<<"$f" \
+  && { echo "FAIL: a summary claimed something about a restart it cannot know"; _fail=1; } \
+  || echo "ok: no reboot line at all when none is owed, because false is not an answer"
 
 # Installonly sets (kernel*, gpg-pubkey) legitimately carry SEVERAL versions comma-joined - the
 # JSON keeps all of them, the human reads newest → newest instead of a wall of commas.
