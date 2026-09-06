@@ -266,6 +266,14 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 - **The test suite runs green from a release tarball,** not only a git checkout: the doctor version
   assertion no longer assumes git history, and the log test stubs its terminal emulator instead of
   leaning on the CI workflow's shim.
+- **Closing the update window now really does end the run, on a machine where the check takes
+  time.** The recovery check that rewrites the state file - the one event that takes the popup out
+  of its updating pane - was running inside the terminal's own process group. Closing a window
+  sends that group a hangup and the emulator kills whatever is still in it moments later, and a
+  real check takes seconds because it asks dnf, so it died mid-flight and the popup sat on an
+  empty updating pane until its three-hour watchdog gave up. The check now runs in a session of
+  its own, where the teardown cannot reach it. The test that covered this passed because its check
+  answered instantly; there is now one that takes time.
 - **Holding every pending update and then staging one is no longer reported as a failure.** dnf5
   prints "Nothing to do", exits 0 and stores no transaction when there is nothing to stage, so
   arming it failed with "No offline transaction is stored" - and Kempt announced *Update FAILED

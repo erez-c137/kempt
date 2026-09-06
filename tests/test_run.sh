@@ -202,6 +202,38 @@ assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo
   "rewritten" "a closed window still rewrites state.json"
 exec 6>&-
 
+# (c2) the same close, with a check that takes TIME - which is the only kind a real box has.
+# Case (c) passes with the recovery check in the terminal's own process group, because the check
+# here answers instantly. A real one talks to dnf and takes seconds, and closing a window SIGHUPs
+# the group and then SIGKILLs whatever is still in it moments later: the check is killed
+# mid-flight, state.json is never rewritten, and the popup sits on an empty updating pane for the
+# three hours until its watchdog gives up. Measured on a real machine, and this is the case that
+# was missing - so the check is detached into a session of its own, where the teardown cannot
+# reach it.
+slow_installed="$TESTTMP/slow-installed"
+printf '#!/usr/bin/env bash\nsleep 3\nprintf "curl\\t8.9.1-1.fc44\\n"\n' > "$slow_installed"
+chmod +x "$slow_installed"
+echo /dev/null > "$STDIN_PATH"
+before_inode="$(state_inode)"; before_events="$(check_events)"
+reset_capture
+KEMPT_DNF_INSTALLED_CMD="$slow_installed" "$KEMPT" run
+for _ in $(seq 1 200); do [[ -s "$TESTTMP/term-pgid" ]] && break; sleep 0.05; done
+sleep 0.5
+pg="$(cat "$TESTTMP/term-pgid" 2>/dev/null)"
+if [[ -n "$pg" ]]; then
+  kill -HUP -"$pg" 2>/dev/null || true
+  sleep 0.2
+  kill -KILL -"$pg" 2>/dev/null || true      # what a terminal emulator does to a lingering group
+  logged_check() { [[ "$(check_events)" -gt "$before_events" ]]; }
+  wait_until logged_check \
+    && echo "ok: a check that takes time still lands after the window is killed" \
+    || { echo "FAIL: the recovery check died with the window - the popup would spin for three hours"; _fail=1; }
+  assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo untouched)" \
+    "rewritten" "...and state.json is rewritten, which is what ends the popup's updating state"
+else
+  echo "FAIL: the terminal stub never recorded its process group"; _fail=1
+fi
+
 # (d) the status the window leaves with is the UPDATE's. A check that fails must never turn a good
 # run into a bad one, and a check that succeeds must never launder a failed one. The update lock is
 # the cheapest deterministic non-zero: this test process holds it, so `kempt update` exits 3.

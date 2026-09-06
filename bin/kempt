@@ -617,7 +617,9 @@ cmd_update() {
   # applied yet, and the harvest after the restart is what reports it.
   if [[ "$status" == "ok" ]]; then
     if [[ "$surface" == "offline" ]]; then
-      log_event "offline staged ${staged:-?}"
+      # Not when nothing was staged: "offline staged ?" over a run that logged "found nothing to
+      # stage" is two lines contradicting each other about the same second.
+      [[ "$staged_nothing" == true ]] || log_event "offline staged ${staged:-?}"
     else
       local upd
       upd="$(jq -r '[.backends[].updated | length] | add // 0' "$hist" 2>/dev/null)" || upd="?"
@@ -702,8 +704,19 @@ cmd_run() {
     # `bash -n`. Same in the detached branch below.
     local wrapper self_q
     printf -v self_q '%q' "$SELF"
+    # TWO ways to run the same check, and the difference is the whole point.
+    #   run_check   - the ordinary path, synchronous, before the "press any key" prompt, so the
+    #                 window cannot be closed until the state has been rewritten.
+    #   detach_check - the signal path. This shell and everything in its process group are about
+    #                 to be killed, and the check is the ONE event that takes the popup out of its
+    #                 updating state. Run in the group, it dies mid-flight: closing a terminal
+    #                 SIGHUPs the group and the emulator SIGKILLs whatever is still there moments
+    #                 later, while a real check takes SECONDS because it talks to dnf. setsid puts
+    #                 it in a session of its own, where neither signal reaches it.
+    #   `checked` makes them exclusive: whichever runs first, the other returns.
     wrapper="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
-    wrapper+="trap 'ec=\$?; run_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
+    wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
+    wrapper+="trap 'ec=\$?; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
     wrapper+="$self_q update; ec=\$?; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
     setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
   else

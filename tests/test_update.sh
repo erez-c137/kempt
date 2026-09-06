@@ -447,6 +447,9 @@ assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" 
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and nothing is cleaned up, because nothing was made"
 assert_exit 1 "no marker is written for a stage that does not exist" -- test -f "$marker"
+grep -q 'offline staged ?' "$KEMPT_STATE_DIR/events.log" \
+  && { echo "FAIL: the log says 'offline staged ?' for a run that staged nothing"; _fail=1; } \
+  || echo "ok: ...and no staged-count line contradicts it in the same second"
 grep -q 'offline stage found nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event names the reason, so the log does not read as a fault" \
   || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'offline' "$KEMPT_STATE_DIR/events.log" | tail -3; }
