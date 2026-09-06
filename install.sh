@@ -36,7 +36,7 @@ ICON_THEME_BASE="$HOME/.local/share/icons/hicolor"
 #             at those sizes; they share the symbolic glyphs' 2 px tooth / 1 px gap grid.
 # One name, "kempt", resolves to all of them: an XDG icon theme picks the directory whose size
 # matches the request, and hicolor's index.theme lists every fixed-size dir before scalable/apps,
-# so an exact-size dir wins. docs/research/brand/README.md has the kiconfinder6 queries.
+# so an exact-size dir wins.
 # "<hicolor size dir>:<drawing under plasmoid/contents/icons/>"
 ICON_LADDER=(
   "scalable:kempt.svg"

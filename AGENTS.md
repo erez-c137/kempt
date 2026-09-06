@@ -79,3 +79,12 @@ thorough. If you find yourself writing "this used to", write the rule in the pre
 
 **No em dashes in anything a user reads.** Spaced hyphens, or rewrite the sentence. This applies to
 the README, the docs, the changelog, and every string the CLI or the widget prints.
+
+**Public files name nobody and describe no process.** Everything here is read by people who have
+only this repository, so: no names and no third person about whoever wrote it, no trace of how the
+work was produced (no reviews, finding numbers, work-package codes, or the names of tools used to
+write it), no email addresses outside `kempt.spec`'s `%changelog`, `SECURITY.md` and
+`CODE_OF_CONDUCT.md`, and no working papers - design notes, research and plans are not
+documentation, they stay private, and a fact worth having is restated in the docs rather than
+linked to. `tests/test_docs.sh` enforces what a grep can; the voice is yours.
+CONTRIBUTING.md has the long form.

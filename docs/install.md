@@ -211,7 +211,7 @@ pixel grids themselves, because nothing drawn on the shared 256 unit grid lands 
 down there. All six are installed under the one name `kempt`, and the theme picks the
 directory matching the requested size - a fixed-size directory always beats `scalable/`. Which
 drawing serves which size, and the measurements behind each, are in
-`docs/research/brand/README.md`.
+the icon sources in the repository.
 
 Installing that file is not quite enough on its own, so `install.sh` also emits one D-Bus signal:
 

@@ -1,8 +1,7 @@
 # Roadmap
 
 Where Kempt is going, in order. Dates are deliberately absent - each stage ships when it
-meets the bar of the one before it. Deferred-item details live in the spec's v2 section
-(`docs/specs/2026-08-24-kempt-design.md`); this page is the ordered view.
+meets the bar of the one before it.
 
 ## Shipped - v0.1.x, public since 2026-09-03
 
@@ -46,8 +45,7 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
 - **First contact.** The announcement wave, and treating every early report as the gift it
   is - what the first outside users hit outranks everything below.
 - **The road into the official Fedora repos**: self-review done, tool runs clean, review
-  ticket next. The staged plan is
-  [docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).
+  ticket next.
 
 ## v1.x - ready for other people
 
@@ -118,9 +116,8 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
   "install missing thing" dialog) can only draw from repos that are already enabled, so a
   store-installed widget can only ever offer a working install button once the engine lives in
   Fedora proper. Until then the widget's Copy Commands button is the truthful ceiling.
-  **The full staged plan - review request, sponsorship routes, dist-git mechanics, steady-state
-  duties, and the other-distros ordering - is in
-  [docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).**
+  The route runs through a review request, a sponsorship, dist-git, and then the steady-state
+  duties of a Fedora package.
 
 ## v2 - the differentiator release
 

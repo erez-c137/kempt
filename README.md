@@ -125,8 +125,7 @@ how to undo everything, is in the [install guide](docs/install.md#from-a-checkou
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Short: be respectful, stay on topic, how to report a problem |
 
-Design and background: [the design spec](docs/specs/2026-08-24-kempt-design.md) and the
-[prior-art survey](docs/research/2026-08-24-similar-tools-survey.md) that shaped it.
+How it is built, and why, is in [docs/architecture.md](docs/architecture.md).
 
 ## Contributing
 

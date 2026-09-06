@@ -15,8 +15,8 @@ source "$(dirname "$0")/lib.sh"; sandbox
 # --- a table split in two by a blank line --------------------------------------------------------
 # The rule is exactly the rendering rule: a blank line ENDS a table, so a row, a blank line and
 # another row is one table that renders and one block of text that does not.
-# docs/research/ is excluded for the reason CONTRIBUTING.md gives about the same tree - it is a
-# working archive rather than published documentation, and the em-dash sweep already exempts it.
+# Every .md in the tree, with no exclusions. The working papers that used to need one are not
+# published any more - they live with the project's private notes, outside this repository.
 broken=""
 while IFS= read -r f; do
   hits="$(awk '
@@ -29,7 +29,7 @@ while IFS= read -r f; do
   if [[ -n "$hits" ]]; then
     broken+="${f#"$REPO_ROOT"/} line(s): ${hits% }"$'\n'
   fi
-done < <(find "$REPO_ROOT" -name '*.md' -not -path '*/.git/*' -not -path '*/docs/research/*' | sort)
+done < <(find "$REPO_ROOT" -name '*.md' -not -path '*/.git/*' -not -path '*/internal/*' | sort)
 assert_eq "${broken%$'\n'}" "" "no Markdown table is split in two by a blank line"
 
 # --- every environment seam has a row in the seams table -----------------------------------------
@@ -105,5 +105,25 @@ done < <(find "$REPO_ROOT" \
            -type f -print)
 assert_eq "${leaked% }" "" \
   "no public file talks about the project's own review process"
+
+# --- and no email address outside the three places a format requires one -------------------------
+# The RPM %changelog's format is `Name <email>`, a security policy has to say where to send a
+# report, and a code of conduct has to say who to tell. Everywhere else an address is either a
+# leak or a maintenance burden, and both were in this tree.
+mail_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+mail_ok=("$REPO_ROOT/kempt.spec" "$REPO_ROOT/SECURITY.md" "$REPO_ROOT/CODE_OF_CONDUCT.md"
+         "$REPO_ROOT/tests/test_docs.sh")
+addressed=""
+while IFS= read -r f; do
+  skip=false
+  for x in "${mail_ok[@]}"; do [[ "$f" == "$x" ]] && skip=true; done
+  [[ "$skip" == true ]] && continue
+  grep -qIE "$mail_re" "$f" 2>/dev/null && addressed+="${f#"$REPO_ROOT/"} "
+done < <(find "$REPO_ROOT" \
+           -path "$REPO_ROOT/.git" -prune -o \
+           -path "$REPO_ROOT/internal" -prune -o \
+           -type f -print)
+assert_eq "${addressed% }" "" \
+  "no email address outside the spec changelog, SECURITY.md and CODE_OF_CONDUCT.md"
 
 finish

@@ -6,7 +6,7 @@
   EXACT at - 176 grid units of comb map to 22 device pixels, so every tooth is 2 px of
   solid cream. It does not survive below that (11 elements into 15 or 11 device pixels,
   all on half-pixel boundaries), which is why 22 and 16 px have their own hand-hinted
-  drawings rather than this one. See docs/research/brand/README.md.
+  drawings rather than this one.
   Hand-authored. Two flat colours only: slate #1F5885 tile, cream #F2F0E3 comb.
   No gradient, no bevel, no shadow.
 

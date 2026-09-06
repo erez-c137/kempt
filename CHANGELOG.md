@@ -173,10 +173,8 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 - **The RPM License field is `MIT AND CC0-1.0`:** the packaged AppStream metainfo is CC0-1.0 by
   freedesktop convention, and the field now says so.
 - **The roadmap opens with what shipped** instead of a finished to-do list, and gained honest
-  entries for Fedora Atomic and fwupd. Working notes that were never the project's (posting drafts,
-  store-ops records, outreach strategy) moved out of the repository entirely; what stays under
-  `docs/plans/`, `docs/specs/` and `docs/research/` is the dated working archive CONTRIBUTING.md
-  names as such.
+  entries for Fedora Atomic and fwupd. Working notes that were never the project's - posting
+  drafts, store-ops records, outreach strategy - moved out of the repository entirely.
 
 ### Fixed
 
@@ -549,7 +547,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   `/usr/libexec`, and `kempt doctor` says `install: packaged`. Building it that way found two
   bugs a first user would have hit: `kempt --version` printed `kempt unknown` because `VERSION`
   was not in the package, and `kempt enable-passwordless` had no rules template to render. The
-  transcript is [docs/research/2026-09-02-rpm-spec-verification.md](docs/research/2026-09-02-rpm-spec-verification.md).
+  transcript is kept with the project's working notes.
 - **The version agreement now covers every file that states one.** `tests/test_version.sh` already
   pinned the widget's `KPlugin.Version` to `VERSION`; it pins the metainfo's newest release and
   `kempt.spec`'s `Version:` to it as well. A software centre cannot advertise a release the CLI

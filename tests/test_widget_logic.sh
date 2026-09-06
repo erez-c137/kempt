@@ -2359,7 +2359,7 @@ assert_eq "$(grep -c 'popup.vm.stagedType === "warning"' "$REPO_ROOT/plasmoid/co
 
 # --- no three ASCII dots anywhere a person can read ---------------------------------------------
 # KDE's own convention, and the one typographic tell that a widget was not written by KDE
-# (docs/research/2026-08-26-popup-panel/hig-review.md P5): an ellipsis is U+2026, not three
+# An ellipsis is U+2026, not three
 # periods. The popup already got this right on the configure button and wrong in four other
 # places, which is exactly the shape a convention takes when nothing enforces it - so this is the
 # enforcement rather than another round of finding them by eye.

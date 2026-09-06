@@ -184,10 +184,28 @@ Documentation is a first-class deliverable here, and it is held to the same stan
   grep -rnP '\x{2014}' *.md docs/*.md docs/man/   # U+2014 EM DASH; expect no output
   ```
 
-  `docs/plans/`, `docs/specs/` and `docs/research/` are working archives rather than published
-  documentation, and are deliberately outside the sweep.
-
 - Concise beats complete. A reader who finishes a page should know what to do next.
+
+### What belongs in a public file
+
+Everything in this repository is read by people who have only this repository. That rules four
+things out, in code comments as much as in documentation:
+
+- **Nobody's name, and no third person.** Not "the maintainer decided", not a first name, not
+  "so-and-so's machine". A fact does not need an owner: "61 packages staged at 10:31 and nothing
+  changed" is the evidence, and whose machine it was adds nothing a reader can use.
+- **No trace of how the work was produced.** No review exercises, no finding numbers, no
+  work-package codes, no names of tools used to write it. A comment saying a rule came out of a
+  review is telling the reader about the project's process instead of about the code.
+- **No email address**, except in the three places a format requires one: `kempt.spec`'s
+  `%changelog`, `SECURITY.md` and `CODE_OF_CONDUCT.md`.
+- **No working papers.** Design notes, research, plans and review reports are not documentation
+  and are not published: they live with the project's private notes, outside this repository.
+  When a fact in one of them matters to a reader, state the fact in the documentation. Do not
+  link to the paper - a public file pointing at a private one is worse than saying nothing.
+
+`tests/test_docs.sh` enforces the mechanical half of this, alongside the em-dash rule. It cannot
+check voice, so that part is yours.
 
 ## Bumping the version
 

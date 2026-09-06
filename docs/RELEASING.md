@@ -1,10 +1,6 @@
 # Releasing Kempt
 
-The procedure for cutting a release, in the order a maintainer runs it. What was actually
-executed against this tree is
-[docs/research/2026-09-02-rpm-spec-verification.md](research/2026-09-02-rpm-spec-verification.md),
-and the road into the official Fedora repos is
-[docs/plans/2026-09-04-official-fedora-packaging.md](plans/2026-09-04-official-fedora-packaging.md).
+The procedure for cutting a release, in the order a maintainer runs it.
 
 **What has been run.** Steps 1 to 9 have all been run, for 0.1.0 and 0.1.1. `kempt.spec` is
 committed at the repo root and has been built, linted, installed and smoke-tested in a Fedora 44
@@ -91,7 +87,7 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
 7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
    COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
    passed: the spec builds, lints to zero rpmlint findings, installs and smokes clean on Fedora 44
-   ([the verification note](research/2026-09-02-rpm-spec-verification.md)), and both the 0.1.0 and
+   and both the 0.1.0 and
    the 0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM
    builds green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
    `dnf copr enable` + `dnf install kempt` verified in a clean container).

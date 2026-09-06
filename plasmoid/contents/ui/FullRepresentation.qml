@@ -9,7 +9,7 @@
 // derived values: anything that is a DERIVED string or list belongs in the view model, and adding
 // a derivation here instead is the drift to watch for.
 //
-// The SHAPE is Plasma's own, with the evidence in docs/research/2026-08-26-popup-panel/
+// The SHAPE is Plasma's own:
 // hig-review.md:
 //   header  - the pending count and a refresh icon. Nothing else. A PlasmoidHeading is a
 //             T.ToolBar, and a toolbar is for flat controls, not for messages.

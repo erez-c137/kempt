@@ -157,9 +157,7 @@ install -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 # The development half is pruned here rather than in %%prep because the man page above is
 # installed OUT of docs/, and %%doc reads the tree as it stands at the end of this section: plans
 # and most research notes are working papers.
-rm -rf docs/plans docs/man
-find docs/research -mindepth 1 -maxdepth 1 \
-     ! -name '2026-08-24-similar-tools-survey.md' -exec rm -rf {} +
+rm -rf docs/man
 
 %check
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/*

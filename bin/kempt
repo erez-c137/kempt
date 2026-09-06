@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kempt - one-click system updates. See docs/specs/2026-08-24-kempt-design.md
+# Kempt - one-click system updates. See docs/architecture.md
 set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(dirname "$(dirname "$SELF")")"
