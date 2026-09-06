@@ -66,9 +66,14 @@ while IFS= read -r v; do
     undocumented+="$v "
   fi
 done < <(
+  # The root helpers and the widget are in this list too. They read seams of their own
+  # (KEMPT_*_ECHO in the helpers, the state and config directories in the widget), and leaving
+  # them out meant a seam could be added there and documented nowhere without the suite noticing.
   grep -ohE '\$\{KEMPT_[A-Z0-9_]+:?-' \
     "$REPO_ROOT/lib/common.sh" "$REPO_ROOT/bin/kempt" \
     "$REPO_ROOT"/backends/*.sh "$REPO_ROOT/install.sh" \
+    "$REPO_ROOT"/libexec/* "$REPO_ROOT"/plasmoid/contents/ui/*.qml \
+    "$REPO_ROOT"/plasmoid/contents/ui/*.js \
   | sed 's/^\${//; s/[-:].*$//' | sort -u
 )
 assert_eq "${undocumented% }" "" \
