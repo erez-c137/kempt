@@ -94,6 +94,20 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
   architecture doc, the recurring question answered once with its costs included, linked from the
   README and CONTRIBUTING; issue forms (the bug report asks for `kempt doctor` output and how Kempt
   was installed), a pull request template, and dependabot watching the CI action pins.
+- **[AGENTS.md](AGENTS.md), a two-minute orientation for a new maintainer**, human or AI: what the
+  two halves are, where things live, and the four rules that bite - never run the update paths
+  while testing, the environment seams are the test boundary and the docs test enforces them, the
+  live gate breaks a package manager on purpose and refuses to run outside a container, and Qt
+  probes must be supervised. Each one is there because it has already cost somebody an afternoon.
+- **CI now tests the panel widget.** Its two halves need node and PySide6 plus the Plasma and
+  Kirigami QML modules, the runner had none of them, and both files skipped - printing a skip that
+  looked exactly like a pass. Every green badge until now covered the command line and nothing of
+  the panel. A Fedora container job runs them both and fails if a dependency is missing, and the
+  suite's own summary now names what a run did not cover instead of ending at "ALL PASS".
+- **The "adding a backend" guide is complete**, which it claimed to be and was not: it covered the
+  CLI and said nothing about the popup's section titles or the panel's file watcher, so a
+  contributor who followed it exactly shipped a heading reading `apt` and a panel that never
+  noticed their backend changing anything.
 
 ### Changed
 
