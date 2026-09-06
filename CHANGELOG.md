@@ -7,6 +7,19 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 0.1.1
+
+**Nothing to do: `sudo dnf upgrade`.** The panel widget and the command line are two packages now,
+`kempt-plasmoid` and `kempt`, and on a machine running Plasma the upgrade installs the widget
+package alongside the upgraded command line in the same transaction. Verified end to end on a
+Fedora 44 machine carrying 0.1.1 from the COPR: it comes out with both packages, the widget in
+place, and `kempt doctor: all checks passed`.
+
+If you have turned dnf's weak dependencies off (`install_weak_deps=False`), that automatic step is
+the thing you have turned off. Run `sudo dnf install kempt-plasmoid` once.
+
+Nothing else changes. Your settings, holds, history and any staged update are where you left them.
+
 ### Added
 
 - **A hold added after an offline update was staged is no longer a silent trap.** Stage an offline
@@ -83,6 +96,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   was installed), a pull request template, and dependabot watching the CI action pins.
 
 ### Changed
+
+- **The panel widget is now its own package: `kempt-plasmoid`.** `kempt` is the command line, the
+  root helpers and the polkit action; `kempt-plasmoid` is the panel widget and needs both. They
+  were one package, and that one package required `plasma-workspace`, so `sudo dnf install kempt`
+  on a machine without a desktop pulled in 787 packages and 2.9 GB to run 0.7 MB of shell. See
+  **Upgrading from 0.1.1** above for what this means if you already have Kempt.
 
 - **The panel widget's per-package pin is a padlock:** open on a package that is pending, closed on
   one you are holding. The pushpin it replaces is Plasma's own "Keep Open" icon, the pin in the
@@ -262,12 +281,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are blind to one that gains something: a template carrying the required scope clause, the correct
   action id and a single rule block, plus an unconditional grant inside that same block, passed
   every check and would have installed passwordless root for every polkit action from any session.
-- **The panel widget is now its own package.** `kempt` is the command-line half, the root helpers
-  and the polkit action; `kempt-plasmoid` is the widget and requires both. `sudo dnf install kempt`
-  used to pull in `plasma-workspace` and with it 787 packages and 2.9 GB - a desktop, onto whatever
-  asked for an update tool. A box already running Plasma still gets the widget automatically.
-  **Upgrading from 0.1.1: if the widget disappears from your panel, `sudo dnf install
-  kempt-plasmoid` puts it back.**
 - **The package declares what it actually runs.** `dnf5 needs-restarting` lives in `dnf5-plugins`,
   not in `dnf5`, and without it the restart reminder was permanently silent - a restart owed after
   a kernel update was never offered. `notify-send` is how every background run reports what it did

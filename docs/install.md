@@ -44,8 +44,12 @@ machine that asked for an update tool. `kempt-plasmoid` also carries a `Suppleme
 `kempt` **and** `plasma-workspace` together, so a box that already runs Plasma picks the widget up
 automatically when it installs or upgrades the CLI.
 
-> **Upgrading from 0.1.1**, where one package carried everything: if the widget disappears from
-> your panel after the upgrade, `sudo dnf install kempt-plasmoid` puts it back.
+> **Upgrading from 0.1.1**, where one package carried everything: `sudo dnf upgrade` is all of it.
+> On a machine running Plasma, dnf installs `kempt-plasmoid` alongside the upgraded `kempt` in the
+> same transaction, so the panel is untouched - run end to end on a Fedora 44 box carrying 0.1.1
+> from the COPR, ending at both packages installed and `kempt doctor: all checks passed`. The one
+> exception is a machine with weak dependencies switched off (`install_weak_deps=False`), which is
+> precisely the mechanism that does it: there, run `sudo dnf install kempt-plasmoid` once.
 
 `dnf` keeps all of it in step from then on. Nothing in it is a symlink into your home directory and
 nothing in it is yours to edit: the whole tree is root-owned. That is also why `kempt doctor`
