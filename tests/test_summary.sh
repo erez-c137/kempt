@@ -305,8 +305,8 @@ assert_newest_rejected() {
 
 # Two entries stamped in the SAME second - a live run and the offline harvest that follows it -
 # which is the one case where the file NAMES decide which run is "newest" and the timestamps
-# cannot. `ls | sort -r` is that decision, and `sort` reads the locale: adopted from the review's
-# cli_review.sh, which drove it under two of them to prove the answer does not move.
+# cannot. `ls | sort -r` is that decision, and `sort` reads the locale, so this is driven under
+# two of them to prove the answer does not move.
 same_second_newest() {  # LC_ALL -> the surface of the entry --json serves
   rm -f "$HIST_DIR"/*.json
   cat > "$HIST_DIR/20260827T130000.json" <<'J'

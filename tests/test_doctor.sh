@@ -616,8 +616,8 @@ grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$REPO_RO
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
 # TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
 # reads them reconciled; doctor reads them side by side, and its whole value is the case where they
-# disagree. The founder's box spent a day in exactly that state - a marker over a transaction that
-# was downloaded and never armed - with every surface reporting a pending install that no restart
+# disagree. A real box spent a day in exactly that state - a marker over a transaction that was
+# downloaded and never armed - with every surface reporting a pending install that no restart
 # could deliver, and nothing anywhere able to say so.
 D_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 # Armed is TWO things - dnf5 at `ready` AND the /system-update symlink - and the sandbox pins the
@@ -665,9 +665,9 @@ grep -qF 'info  staged update: it installs on the next restart' "$TESTTMP/staged
   && echo "ok: an unknown count loses the number, not the line" \
   || { echo "FAIL: no countless staged line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
 
-# THE FOUNDER'S BOX, and the reason this section exists. `dnf5 upgrade --offline` leaves the
-# transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it installs on no
-# restart ever, and the marker over it makes every other surface promise that it will.
+# THE STUCK STAGE FROM A REAL BOX, and the reason this section exists. `dnf5 upgrade --offline`
+# leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
+# installs on no restart ever, and the marker over it makes every other surface promise it will.
 printf '{"staged_at":"2026-09-01T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
 assert_exit 1 "a stage that was never armed is a problem, and doctor exits on it" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor

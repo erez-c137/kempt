@@ -324,7 +324,7 @@ which must yield no size row at all rather than a zero, so "not known" stays dis
 
 ## tests/fixtures/offline-download-complete.toml
 **Captured live**, 2026-09-02, from `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml`
-on this box - byte for byte, cookie and all. It is the founder's own stuck stage: 61 packages
+on this box - byte for byte, cookie and all. It is a real stuck stage: 61 packages
 staged on 2026-09-01 by a Kempt build that downloaded them and never armed the transaction, so
 `status` is still `download-complete`, `/system-update` was never created, and no number of
 restarts could ever install it. That file is the bug this fixture exists to keep fixed.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""main.qml's state machine, and the panel icon it drives (Task W2).
+"""main.qml's state machine, and the panel icon it drives.
 
 doCheck's three-way contract is the part that matters most here, because two of its three branches
 are about what the widget must NOT do. `kempt check` printing nothing with exit 0 means another
@@ -212,8 +212,8 @@ p.check("nothing is left pending afterwards", ev("root.recheckPending"), False)
 p.check("nothing is left in flight afterwards", ev("root.checking"), False)
 
 # ...and the caller that reaches this most often is the popup opening, which docs/usage.md used to
-# describe as waiting for the running check rather than asking for another. Adopted from the
-# review's probe_review.py finding 4: it does ask, and asking is right - the running check read
+# describe as waiting for the running check rather than asking for another. It does ask, and
+# asking is right - the running check read
 # the system BEFORE whatever prompted this open, so treating its answer as good enough would leave
 # the counts stale until the hourly timer. What must not happen is a QUEUE of them.
 open(MODE, "w").write("slow")
@@ -233,9 +233,9 @@ p.check("...and two opens during one check cost exactly one extra check, not two
 
 # The box with no successful check at all: there is no stamp to be old, so every open asks. That
 # is the box whose counts are most worth getting - a fresh install behind a broken repo has
-# nothing to show and no other way to learn it has started working. Adopted from the review's
-# probe_review.py finding 5, which read this as a possible bug; it is the intended answer, and it
-# is documented now rather than left to be re-found.
+# nothing to show and no other way to learn it has started working. This reads as a possible bug
+# and is the intended answer, which is why it is written down here rather than left to be
+# re-found.
 open(MODE, "w").write("never")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
@@ -401,8 +401,8 @@ p.check("the badge fits its count and stays inside the panel cell at every size"
 
 # The icon is requested at a size the theme hints, so a hinted symbolic renders 1:1 instead of
 # being scaled by a fraction and going soft. WHICH step it lands on is Logic.resolveIconSize, and
-# its ladder is pinned to what the system tray draws rather than to "the largest that fits" - the
-# founder's screenshot was a 32px Kempt icon standing in a row of 22px tray entries. This proves
+# its ladder is pinned to what the system tray draws rather than to "the largest that fits" - a
+# real tray drew a 32px Kempt icon standing in a row of 22px entries. This proves
 # the binding actually feeds Kirigami.Icon the laddered number at real panel thicknesses.
 obj, cev = cell(32)
 small, smallmed, medium = cev("shell.steps0"), cev("shell.steps1"), cev("shell.steps2")
@@ -447,7 +447,7 @@ p.check("a cell smaller than the smallest hinted icon still gets a whole number 
 
 # --- the widget_icon_size setting, bound ------------------------------------------------------
 # The three named sizes and the automatic one, on the SAME 44px panel - the ordinary Plasma
-# default, and the thickness the founder was actually looking at.
+# default, and the thickness this was found at on a real box.
 for setting, want in (("auto", smallmed), ("small", small), ("medium", smallmed),
                       ("large", medium)):
     obj, cev = cell(44, "7", setting)

@@ -35,7 +35,7 @@ case "\$1" in
 esac
 exit 0
 STUB
-# The declined authentication, in pkexec's own words. This is the string the founder would
+# The declined authentication, in pkexec's own words. This is the string a person would
 # actually see, and the point of the mapping is that they never see it in a summary.
 cat > "$TESTTMP/apply-declined" <<'STUB'
 #!/usr/bin/env bash

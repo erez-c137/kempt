@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """The restart message: asking for the prompt, and what the popup remembers about it.
 
-Adopted from the 2026-08-27 review's probe_review.py (findings 3 and 6), kept as the sequences
-they were found by.
-
 The restart prompt is the one action in this widget with no work behind it: `dbus-send` returns as
 soon as KDE has been ASKED to draw its confirmation screen. It takes no lock, touches no package
 database, and finishes in milliseconds. Queued behind a `kempt check` it can still sit unsent for
@@ -11,7 +8,7 @@ up to two minutes with nothing on screen to say why - the user presses Restart..
 not react, and the only honest reading of that is that the button is broken.
 
 `dbus-send` is shadowed on PATH so nothing here can reach a real session: on this box the real one
-would open the founder's logout screen.
+would open the live session's logout screen.
 """
 import json
 import os

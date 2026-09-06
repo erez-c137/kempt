@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""The hold round trip: the seconds between pressing a pin and the row having moved (WP-U2 T1).
+"""The hold round trip: the seconds between pressing a pin and the row having moved.
 
 Everything this file measures happens AFTER the click, which is exactly the half nothing tested.
-The hostile panel measured four separate failures in that window
-(internal/research/2026-09-05-ux-hostile-review/): `enabled: !row.busy` strips keyboard focus 30 ms
-after Space onto an anonymous Loader; the row goes on saying "Hold" and accepts a second press
-until the follow-up check lands, and a duplicate `hold` really did reach the CLI; when the check
-lands the list snaps to the top (contentY 884 to 0 on the fixture, 1685 to 0 on an 80-row list) and
-the row reappears under "Held", below the fold; and nothing at all is announced.
+Four separate failures were measured in that window: `enabled: !row.busy` strips keyboard focus
+30 ms after Space onto an anonymous Loader; the row goes on saying "Hold" and accepts a second
+press until the follow-up check lands, and a duplicate `hold` really did reach the CLI; when the
+check lands the list snaps to the top (contentY 884 to 0 on the fixture, 1685 to 0 on an 80-row
+list) and the row reappears under "Held", below the fold; and nothing at all is announced.
 
 So the stub here is not the usual one. Its `hold` REALLY MOVES THE ROW: the verb rewrites what the
 next `check` serves, which is what makes "where did the keyboard go when the model was replaced" a
@@ -340,7 +339,7 @@ p.check("...with a spinner where its icon was, so the row itself says it is work
 other = row_index(OTHER, False)
 p.check("...while every OTHER pin stands down for the duration", pin(other, "b.enabled"), False)
 
-# The duplicate the panel measured. The window used to be seconds long - the hold call, then the
+# The duplicate that was measured. The window used to be seconds long - the hold call, then the
 # whole re-check - and the row went on saying "Hold" throughout, so a second Space sent a second
 # `hold dnf:<name>` to the CLI.
 press(Qt.Key_Space)

@@ -33,9 +33,9 @@ def pycount():
     This census is the guard that exists because a probe battery once reached ~2,200 Qt
     processes and OOM-killed production. It used to shell out to `ps`, which is procps-ng and
     is absent from a minimal Fedora image and from Fedora's build root: there the subprocess
-    raised FileNotFoundError, the exception escaped, and the battery reported that no probe
-    processes had survived - a safety guard failing OPEN, in the one place that must not.
-    /proc is always there on Linux and needs no package at all.
+    raised OSError for the missing binary, that exception escaped, and the battery reported
+    that no probe processes had survived - a safety guard failing OPEN, in the one place
+    that must not. /proc is always there on Linux and needs no package at all.
 
     Counting OUR probes by name rather than every python3 on the box. The old form matched a
     line beginning "python3", which missed a probe started as /usr/bin/python3 and counted

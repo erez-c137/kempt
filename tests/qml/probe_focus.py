@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Controls that vanish or go inert under the keyboard, and where the focus goes then.
 
-Adopted from the 2026-08-27 review's own reproductions (probe_hidden_button.py,
-probe_hidden_refresh.py, probe_open_focus.py and the first section of probe_review.py), kept as
-the sequences they were found by rather than rewritten - each one is an ordinary sequence a user
+Kept as the sequences these bugs were found by rather than rewritten - each one is a sequence a user
 can walk into, and the bug in every case is a control that stopped being on screen while it still
 held the keyboard.
 
@@ -286,10 +284,10 @@ settle()
 # ==================================================================================================
 # F5. the pane that replaces the whole content area, and where the keyboard goes with it
 # ==================================================================================================
-# Measured before this (hostile panel, a11y H1): a run replaces the content wholesale, the keyboard
-# stayed on the INVISIBLE Update Now, and the utterance over the stuck pane was "Update Now push
-# button" for a control nobody was drawing. Tab from there landed on a nameless RowLayout. On the
-# default configuration that state could last three hours.
+# Measured before this: a run replaces the content wholesale, the keyboard stayed on the INVISIBLE
+# Update Now, and the utterance over the stuck pane was "Update Now push button" for a control
+# nobody was drawing. Tab from there landed on a nameless RowLayout. On the default configuration
+# that state could last three hours.
 state(fixture("state-live.json"))
 ev('root.postRunLine = ""')
 p.pump(120)

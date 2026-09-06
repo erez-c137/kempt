@@ -318,7 +318,7 @@ p.check("...and it introduces itself by naming its own package, at its own versi
         "Hold aajohan-comfortaa-fonts at 3.105-0.9.20210729git2a87ac6.fc44")
 # The description is the CONSEQUENCE and not the name read back. QQC2 already hands `text` to
 # AT-SPI as the accessible name, so a description bound to `text` was the sentence spoken twice
-# and the one slot that could explain what pressing this does, wasted (hostile panel, a11y P4).
+# and the one slot that could explain what pressing this does, wasted.
 p.check("...while the description says what holding it will DO, which nothing else says anywhere",
         lev("popup.Window.activeFocusItem.Accessible.description"),
         "Kempt skips it on every update until you stop holding it.")
@@ -485,7 +485,7 @@ p.check("...and the reason a person has to act on is on the button that acts",
 # ==================================================================================================
 # Everything above asserts what the QML says. This asks the other question, and they are not the
 # same one: with accessibility activated the way a bridge activates it, QQC2 hands a button's
-# `text` over as its accessible name - and the hostile panel measured an EMPTY name on every
+# `text` over as its accessible name - and an EMPTY name was measured on every
 # button, Update Now included, when accessibility was active before construction. So the popup
 # spells `Accessible.name: text` out, and this is the gate that says the spelling worked.
 #

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The settings page's apply path (Task W4, and the five findings its review turned up).
+"""The settings page's apply path, and the five failures measured in it.
 
 Everything on this page is a front-end to `kempt config`; there is no plasmoid-local copy of any
 setting. That design is right, and it removed the shell's usual machinery along with the problem:
@@ -427,7 +427,7 @@ p.check("...with their value", stored("include_flatpak"), "false")
 toggle_fail(FAILGET, "include_flatpak", False)
 
 # ==================================================================================================
-# The restart reminder (founder amendment A1).
+# The restart reminder.
 #
 # `restart_reminder` decides whether the popup may BRING UP a restart the machine is owed - the
 # message and its Restart... button. It never decides whether one is owed: that is the state file's
@@ -753,7 +753,7 @@ p.check("...which then finishes normally, with its own last words",
 # ==================================================================================================
 # Every write this page dispatches outlives the dialog that dispatched it.
 #
-# The measured failure: the founder ticked "Apply updates without asking for confirmation",
+# The measured failure: a person ticked "Apply updates without asking for confirmation",
 # pressed OK, and `kempt config get auto_accept` still read the old value. Plasma's OK is
 # `applyAction.trigger(); configDialog.close()` (AppletConfiguration.qml, acceptAction) - so
 # saveConfig() DISPATCHES and the close in the same turn destroys the page, cfgExecutor and its

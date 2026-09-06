@@ -18,7 +18,7 @@ LOGIC="$REPO_ROOT/plasmoid/contents/ui/logic.js"
 # Compiling each .qml with QQmlComponent resolves every import and every property assignment -
 # a typo'd property or a module that does not exist fails here instead of in somebody's panel.
 # Nothing is instantiated, so this needs no Applet, no display and no plasmashell. It does NOT
-# check layout, bindings at runtime or anything visual: that is the founder's visual gate.
+# check layout, bindings at runtime or anything visual: that is a manual check before release.
 qml_check() {
   if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
     skip "PySide6 is absent, so the .qml files were NOT compile-checked in this run"
@@ -643,7 +643,7 @@ assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-
   "This update touches 6 packages the running desktop depends on (alsa, atk, bash, dbus, ...). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
-# while the only button under it offered the offline one (hostile panel, first-run 3).
+# while the only button under it offered the offline one.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /Restart when it finishes/.test(L.COPY[k]); })')" \
   "[]" "no copy string tells anybody to restart when something unnamed finishes"
 assert_eq "$(js 'L.riskyMessageOf([])')" "" "no risky set, no message"
@@ -1092,7 +1092,7 @@ assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...a
 #
 # tooltipSub is on the list now, and it is a surface rather than a casualty: a pending restart used
 # to be invisible from the panel, so the one fact that needs an action from the person could only
-# be found by opening the popup (hostile panel, 4). It is compared with the two words removed.
+# be found by opening the popup. It is compared with the two words removed.
 STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; delete v.restartShowAction; delete v.tooltipSub; delete v.messageSlots; return JSON.stringify(v); }'
 assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
@@ -1160,7 +1160,7 @@ assert_eq "$(vm '{}' ',reboot_needed:"yes"' 0 'rebootNeeded')" "false" "nor yes"
 assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:0,held_total:0,backends:{},reboot_needed:true},false).rebootNeeded')" \
   "false" "a schema this build does not know contributes no restart claim"
 
-# --- the restart message, and founder amendment A1 ----------------------------------------------
+# --- the restart message, and closing it --------------------------------------------------------
 # On: the message shows, and the footer does NOT repeat it - one fact, one place on the screen.
 # Off, or dismissed for this session: no message, and the footer picks the fact up instead, because
 # a popup that hides a pending restart is lying to the person looking at it.
@@ -1365,7 +1365,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,bac
 
 # Never TWO Restart… buttons in one popup. The restart Warning already carries one whenever it is
 # on screen, and the staged message is a second place the same action would appear - which is the
-# shape the founder hit from the other direction: two buttons for one outcome, pressed twice.
+# same shape from the other direction: two buttons for one outcome, pressed twice.
 assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
   "a staged transaction with no restart message offers the restart itself"
 assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
@@ -1565,7 +1565,7 @@ assert_eq "$(sr "$GENERIC" "$HELDDNF")" "" "...and by the generic one"
 
 # --- "?" is a fault to look at, and "new" is what it means ---------------------------------------
 # The CLI writes "?" for a package that is not installed yet, and the row rendered "? → 9.9.9-1.fc44"
-# on every such line. It reads as "the widget does not know" (hostile panel, first-run and a11y S4).
+# on every such line. It reads as "the widget does not know".
 # The DATA keeps the "?" - it is the CLI's own sentinel and two places in the popup recognise it -
 # and the word is what the row draws.
 assert_eq "$(js 'L.VERSION_UNKNOWN')" "?" "the sentinel the CLI writes is unchanged"
@@ -1613,8 +1613,7 @@ assert_eq "$(js 'V("live",false).stagedArmed')" "false" "...and says nothing is 
 
 # The restart message's OWN Restart button, while the staged banner is a warning. In that state a
 # restart applies the staged transaction the warning is about - the design already removed the
-# button from the warning for exactly that reason and left the identical one a row above it
-# (hostile panel, HIG M1).
+# button from the warning for exactly that reason and left the identical one a row above it.
 CONFLICT_HDR="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {reboot_needed:true, backends:{dnf:{enabled:true,items:[{name:'kf6-kio',from:'1',to:'2',held:true}]}}, offline_staged:{staged_at:'x',count:23,armed:true,holds_conflict:['kf6-kio'],names_source:'transaction'}}))")"
 assert_eq "$(js "L.viewModel($CONFLICT_HDR,false).stagedType")" "warning" \
   "premise: a hold behind the stage turns the banner into a warning"
@@ -1727,7 +1726,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,bac
 
 # --- the panel tooltip owes the restart too -------------------------------------------------------
 # Neither the icon nor the tooltip mentioned a pending restart, so the fact was invisible until the
-# popup was opened. Discover's own notifier has a "Restart is required" state (hostile panel, 4).
+# popup was opened. Discover's own notifier has a "Restart is required" state.
 REBOOT_TIP='{schema:1,status:"ok",actionable:3,held_total:0,reboot_needed:true,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",backends:{}}'
 assert_eq "$(js "L.viewModel($REBOOT_TIP,false).tooltipSub.indexOf('restart pending') >= 0")" "true" \
   "a box that owes a restart says so on hover, without the popup being opened"
@@ -1749,8 +1748,7 @@ assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
 # --- the updating pane -----------------------------------------------------------------------
 # It said "Updating in the terminal surface…" - the CONFIGURED surface, not the running one, in a
 # word nobody outside this repo knows. And it was the whole popup for up to three hours after a
-# terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh
-# (hostile panel, finding 1).
+# terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh.
 assert_eq "$(js 'L.COPY.updatingTerminal')" "Updating in a terminal window…" \
   "copy: the pane names the window the update is actually running in"
 assert_eq "$(js 'L.COPY.updatingBackground')" "Updating in the background…" \
@@ -1817,8 +1815,7 @@ assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates staged for the next rest
   "copy: ...and the spelling for a marker that never carried a count"
 # In the USER's order of events, with both remedies. "Staged before your hold" named the mechanism
 # and left "Staged" with no antecedent once the green banner was gone, and the second way out -
-# stop holding the package and the plan stands - was offered nowhere at all (hostile panel, M4 and
-# first-run 8).
+# stop holding the package and the plan stands - was offered nowhere at all.
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
   "You held %1 after the next-restart install was prepared, so it still installs. Rebuild it to skip %1, or stop holding %1 to keep the current plan." \
   "copy: the staged banner when one held package is in the transaction anyway"
@@ -1846,7 +1843,7 @@ assert_eq "$(js 'L.COPY.stagedChanged')" \
 # "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
   "[]" "no copy string claims a rebuild re-downloads anything, or calls removing it unstaging"
-# --- the pin, restated (hostile panel, proposal 1 / decision D1) ---------------------------------
+# --- the pin, restated --------------------------------------------------------------------------
 # The name carries the STATE, because a `checkable: false` button exposes no checked state to
 # AT-SPI on Qt 6.11 and the alternative - the CheckBox role - would draw Breeze's sunken checked
 # background on a control sitting directly under the tray's own checked Keep Open pin. Two pairs,
@@ -1883,7 +1880,7 @@ assert_eq "$(js 'L.COPY.configureDescription')" \
 # The hold round trip's own three sentences. Two are ANNOUNCED rather than shown - the popup speaks
 # them through Accessible.announce when a hold lands - and the third is reported in the row that
 # failed rather than as a message at the top of the stack, where a failure used to land up to 300 px
-# from the pin that caused it (hostile panel, HIG P6).
+# from the pin that caused it.
 assert_eq "$(js 'L.COPY.holdAnnounce')" "Holding %1" \
   "copy: what the popup says out loud when a hold lands"
 assert_eq "$(js 'L.COPY.unholdAnnounce')" "No longer holding %1" \
@@ -2467,7 +2464,7 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
   "premise: docs/usage.md still has a popup section to read"
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
 # that cost was stated; the banner carries it as its own second sentence now, so the page quotes it
-# wherever it quotes a banner (hostile panel, M4).
+# wherever it quotes a banner.
 assert_eq "$(grep -q 'asks for authorization' "$POPUP_DOC" && echo yes || echo no)" "yes" \
   "the popup section says the rebuild asks for authorization"
 assert_eq "$(grep -c 'removes the current staged update' "$POPUP_DOC")" "1" \

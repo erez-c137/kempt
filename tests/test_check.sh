@@ -406,7 +406,7 @@ assert_eq "$(jq -r '.download_bytes // "absent"' "$st")" "absent" "...and report
 # --- a staged transaction is TWO facts kept in two places, and a check is what reconciles them.
 # Kempt's marker says a stage was made and how many updates it covers; dnf5's own
 # offline-transaction-state.toml says whether that transaction is still there and still armed.
-# Neither is enough alone: the founder's box had a marker whose transaction was sitting at
+# Neither is enough alone: a live box had a marker whose transaction was sitting at
 # download-complete, which installs on no restart at all, and every surface kept describing it as
 # a pending install.
 toml="$TESTTMP/offline-state.toml"
@@ -449,9 +449,9 @@ jq 'del(.staged)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "a marker with no count says null, not a guess"
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...and is still a pending install"
 
-# THE FOUNDER'S BOX. A transaction that was downloaded and never armed installs on no restart, so
-# it is not a pending install and must not be published as one. The marker stays: the stage is
-# really there, and `kempt doctor` is where that discrepancy gets explained.
+# THE STUCK STAGE FROM A REAL BOX. A transaction that was downloaded and never armed installs on
+# no restart, so it is not a pending install and must not be published as one. The marker stays:
+# the stage is really there, and `kempt doctor` is where that discrepancy gets explained.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
 stage_marker boot-t4 61
 "$KEMPT" check >/dev/null

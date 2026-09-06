@@ -46,8 +46,8 @@ grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface war
 # a failed launch is reported in the popup in the CLI's own words. So it has to be a sentence
 # first and a shell incantation second, and it has to name the two places the setting lives - the
 # command, for someone in a terminal, and the control, for the person who has never opened one.
-# The UX panel of 2026-09-05 rated the old wording ("konsole not found - install it or run: ...")
-# a dead end for a first-timer, and a substring pin is what let it stay one.
+# The old wording ("konsole not found - install it or run: ...") was a dead end for a first-timer,
+# and a substring pin is what let it stay one.
 "$KEMPT" config set surface terminal
 assert_exit 4 "missing terminal emulator is a loud failure" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run

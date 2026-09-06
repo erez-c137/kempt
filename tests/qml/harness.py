@@ -9,7 +9,7 @@ to a shell as one argument". Those need the real Qt 6 QML engine, running the re
 a real (stubbed) CLI on a real PATH. That is what this is.
 
 What it is NOT: plasmoidviewer. Nothing is drawn, no Applet exists, and no assertion here says
-anything about layout, spacing or how it looks. That stays the founder's visual gate.
+anything about layout, spacing or how it looks. That stays a manual check before release.
 
 Every probe is driven by safe_probe.py, one at a time, with a watchdog inside it - see the header
 of that file for why that discipline is not optional.

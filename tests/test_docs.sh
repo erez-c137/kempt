@@ -79,4 +79,31 @@ done < <(
 assert_eq "${undocumented% }" "" \
   "every KEMPT_* seam read by the code has a row in the environment-seams table"
 
+# --- the public tree does not talk about its own review process ----------------------------------
+# This repository is public, and it was carrying the vocabulary of a private one: the maintainer
+# named in the third person, the review exercises a finding came out of, work-package codes with
+# no referent, and the codename of a tool used to draft a document. From outside it reads as
+# internal minutes left in the source, and two of them were shipping inside the RPM - the icon
+# SVGs, which name a person and a date for a design decision that stands perfectly well on its own.
+#
+# The rule is the same one the comments follow: the FACT stays, the provenance goes. "61 packages
+# staged at 10:31 and nothing changed" is evidence with or without whose machine it was.
+# internal/ is gitignored and is where that vocabulary belongs.
+#
+# The patterns are assembled from fragments so this file does not match itself, and the scan skips
+# .git, internal/ and every binary (grep -I). No `git ls-files`: the RPM's %check stage runs the
+# suite against a copy of the tree with no .git in it at all.
+private_words=("found""er" "hostile ""panel" "UX ""panel" "Task ""W[0-9]" "WP-""[A-Z][0-9]" "\bFab""le\b" "sub""agent")
+private_re="$(printf '%s|' "${private_words[@]}")"; private_re="${private_re%|}"
+leaked=""
+while IFS= read -r f; do
+  [[ "$f" == "$REPO_ROOT/tests/test_docs.sh" ]] && continue   # holds the patterns themselves
+  grep -qIiE "$private_re" "$f" 2>/dev/null && leaked+="${f#"$REPO_ROOT/"} "
+done < <(find "$REPO_ROOT" \
+           -path "$REPO_ROOT/.git" -prune -o \
+           -path "$REPO_ROOT/internal" -prune -o \
+           -type f -print)
+assert_eq "${leaked% }" "" \
+  "no public file talks about the project's own review process"
+
 finish

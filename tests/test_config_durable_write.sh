@@ -6,7 +6,7 @@
 # follows in the same turn destroys the page, its Executor and the DataSource behind it. The
 # engine then deletes the KProcess nobody is connected to any more, and a KProcess destructor
 # SIGKILLs its child: the `sh` running our `kempt config set`. The write is about 10 ms of work
-# and the teardown is a couple of event-loop hops, so it is a race - and the founder lost it:
+# and the teardown is a couple of event-loop hops, so it is a race - and a real install lost it:
 # a ticked box, OK, and `kempt config get auto_accept` still reading the old value.
 #
 # What this file proves, without a QML engine anywhere near it: a command written as

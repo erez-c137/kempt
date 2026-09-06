@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The popup's actions and the watcher that ends a run (Tasks W3 + the W4 review's B-5 + P3a).
+"""The popup's actions and the watcher that ends a run.
 
 Three things live here that nothing else can reach:
 
@@ -79,7 +79,7 @@ def now_stamped(entry):
                 timestamp=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
 
 # --- the two commands that must NOT be the real ones -------------------------------------------
-# `dbus-send` would open KDE's restart prompt on the founder's box, and `xdg-open` would open a
+# `dbus-send` would open KDE's restart prompt on a live box, and `xdg-open` would open a
 # log in a real editor. Both are stubbed by NAME on PATH rather than by prefixing the widget's
 # command strings: the Executor hands each command to /bin/sh, which inherits this process's
 # environment, so a bin directory in front of PATH is the whole seam - and it costs the shipped
@@ -275,9 +275,9 @@ p.check("...and that is what earns a fresh check", p.call_count("check") > befor
 # What this used to assert, verbatim: root.actionMessage == "Kempt - 2026-08-25T01:00:00
 # (terminal, 42s) ok" - the first line of the human `kempt summary`, pasted into the popup as its
 # post-run line. It is true and it is an ISO timestamp, which is no answer at all to "what just
-# happened?"; the founder's 2026-08-26 review named it as the thing to remove. The run's own
-# history entry answers the question instead, and actionMessage goes back to being only what it
-# was always good for: a button press that failed and has something to say.
+# happened?", so it was removed. The run's own history entry answers the question instead, and
+# actionMessage goes back to being only what it was always good for: a button press that failed
+# and has something to say.
 p.wait_for(ev, 'root.postRunLine !== ""', True, timeout_ms=6000)
 p.check("...and one line saying what the run actually did", ev("root.postRunLine"),
         "Updated 4 packages in 2s")
@@ -331,7 +331,7 @@ settle()
 # --- one press, one terminal ------------------------------------------------------------------
 # `kempt run` launches the surface and RETURNS, and it is allowed fifteen seconds to do it. The
 # guard at the top of startUpdate tested `updating`, which is false for all of them - so a double
-# press opened two terminals, both asking the risky question (hostile panel, 14).
+# press opened two terminals, both asking the risky question.
 open(RUNRC, "w").write("0")
 p.clear_calls()
 ev("root.startUpdate(); root.startUpdate(); root.startUpdate()")
@@ -606,7 +606,7 @@ p.check("...with the argument list that opens a CANCELLABLE prompt", last_record
 
 # The assertion that matters more than the one above: not what the widget DOES send, but what no
 # file in it may ever contain. Either of these names would turn the restart button into a machine
-# that reboots the founder's box without asking, and neither is a typo away from the right one -
+# that reboots the machine without asking, and neither is a typo away from the right one -
 # they are a different D-Bus service that a future edit could reach for in good faith.
 _UI_SRC = ""
 for _name in sorted(os.listdir(harness.UI)):
@@ -631,8 +631,8 @@ settle()
 p.check("...and the next attempt that works clears it", ev("root.restartError"), "")
 
 # --- the reminder setting, and closing the message ------------------------------------------------
-# Founder amendment A1. The message is a REMINDER and a person can turn it off; the fact that a
-# restart is owed is not a reminder and never goes away.
+# The message is a REMINDER and a person can turn it off; the fact that a restart is owed is not
+# a reminder and never goes away.
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.json"))
 ev("root.doCheck()")
 settle()
@@ -766,8 +766,8 @@ if made is None:
 
 # --- one gear, not two -------------------------------------------------------------------------
 # Inside the system tray, Plasma wraps the popup in a heading of its own - the plasmoid's name, a
-# pin, and a configure gear pointing at the very dialog our gear opens. The founder's screenshot is
-# two gears, one above the other. On a panel or the desktop nobody draws that heading and ours is
+# pin, and a configure gear pointing at the very dialog our gear opens. In the tray that draws two
+# gears, one above the other. On a panel or the desktop nobody draws that heading and ours is
 # the only way into the settings, so this cannot simply be deleted; it has to be conditional.
 #
 # The condition is not drivable at its source: `containmentDisplayHints` is read-only on
@@ -807,7 +807,7 @@ if live is not None:
     # The same bug as the gear, one control along, and only a real panel could show it. Plasma 6.7
     # renders a SINGLE contextual action as an ICON in the heading it draws, next to the pin and
     # the gear - so registering checkAction (main.qml) does not merely fill a menu, it puts a
-    # view-refresh icon on screen. Ours sits underneath it, and the founder's screenshot is both.
+    # view-refresh icon on screen. Ours sits underneath it, and a real tray drew both at once.
     #
     # This is where the file's earlier reasoning was wrong rather than merely incomplete: it copied
     # Bluetooth's pairing but kept the button on the argument that the tray only offers the action
@@ -966,7 +966,7 @@ QtObject {
     stack("with that transaction already staged", "stagedMessage")
     # The top of the popup, which is where the person looks first and where staging used to change
     # nothing at all: the header went on counting the same updates as available and Update Now
-    # stayed lit under a green banner saying they were staged (hostile panel, finding 3).
+    # stayed lit under a green banner saying they were staged.
     p.check("...with the header saying staged rather than counting the same updates as available",
             lev("popup.vm.headerText"), "61 updates staged for the next restart")
     p.check("...the panel tooltip saying it too, so hover and popup cannot disagree",
@@ -1093,8 +1093,8 @@ QtObject {
     # --- the cap, with more true things to say than there is room for ---------------------------
     # Five messages left the list 95 px tall at the default popup size, and at the minimum they
     # overflowed the popup entirely - they sit outside the ScrollView, so nothing scrolled and the
-    # list was gone (hostile panel, M2). Three want the screen here: a press that failed, a staged
-    # transaction with a hold behind it, and a restart the box already owes.
+    # list was gone. Three want the screen here: a press that failed, a staged transaction with a
+    # hold behind it, and a restart the box already owes.
     ev('root.actionMessage = "Could not change the hold on bash."')
     p.pump(80)
     p.check("three things are true at once", ev("root.vm.restartMessageVisible"), True)
@@ -1339,7 +1339,7 @@ QtObject {
     p.check("...in different words, so the popup never says the same thing twice in one glance",
             lev("placeholder.text") != lev("popup.vm.headerText"), True)
     p.check("...and Update Now is GONE rather than greyed out - a dead primary button in this "
-            "exact state was the founder's original complaint", lev("updateButton.visible"), False)
+            "exact state is what this popup used to show", lev("updateButton.visible"), False)
     p.check("...while the footer still dates the counts",
             str(lev("footerLabel.text")).startswith("Checked "), True)
 
@@ -1483,8 +1483,7 @@ QtObject {
     p.check("the session-critical message says what to DO about it",
             lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
     # Information, not Warning. Nothing is wrong: there is a safer of two ways to do this, and an
-    # amber box above a button labelled Install on Next Restart read as an order to restart now
-    # (hostile panel, first-run 3).
+    # amber box above a button labelled Install on Next Restart read as an order to restart now.
     p.check("...as Information, because nothing is broken - one path is safer than the other",
             lev("riskyMessage.type"), lev("Kirigami.MessageType.Information"))
     p.check("...in the sentence that recommends the button standing under it",
@@ -1494,7 +1493,7 @@ QtObject {
     p.check("...never telling anybody to restart when something unnamed finishes",
             "Restart when it finishes" in str(lev("riskyMessage.text")), False)
     # Two restart-shaped buttons used to share `system-reboot` and sit adjacent, one opening KDE's
-    # logout prompt and the other staging a transaction (hostile panel, M3).
+    # logout prompt and the other staging a transaction.
     p.check("...under the icon for installing software, not the one for restarting a machine",
             lev("riskyMessage.actions[0].icon.name"), "system-software-update")
     p.check("...and not the count sentence as well, which for a kernel-free set is the same words",
@@ -1687,8 +1686,8 @@ QtObject {
             row(ITEM_ROW, "(%s).elide === Text.ElideRight" % name), True)
 
     # A package that is not installed yet. The CLI writes "?" for its current version and the row
-    # drew "? → 9.9.9-1.fc44", which reads as "the widget does not know" (hostile panel, first-run
-    # and a11y S4). The DATA keeps the sentinel; the row draws the word.
+    # drew "? → 9.9.9-1.fc44", which reads as "the widget does not know". The DATA keeps the
+    # sentinel; the row draws the word.
     NEW_ROW = {"kind": "item", "name": "brandnew", "from": "?", "to": "1.0-1.fc44",
                "held": False, "backend": "dnf"}
     new_version = labelled('String(o.text).indexOf("1.0-1.fc44") >= 0')
@@ -1758,7 +1757,7 @@ p.check("the group header sets the property ListSectionHeader documents, and the
 p.check("...and the Held line is gated on the row's flag rather than on the word Held",
         "visible: modelData.held === true" in _code_src, True)
 
-# Founder amendment A1: the message a person can turn off must also be one they can close.
+# The message a person can turn off must also be one they can close.
 p.check("the restart message carries a close button", "showCloseButton: true" in _src, True)
 
 # Geometry, which nothing in this file can measure: with no window the popup is never laid out. The
