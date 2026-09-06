@@ -274,7 +274,7 @@ apply_flatpak_updates() {
 write_stage_marker() {
   # NOT `local`: the run's `offline staged N` event line reports it, so it is the caller's variable.
   staged=""
-  if [[ "$surface" == "offline" && "$dnf_status" == "ok" ]]; then
+  if [[ "$surface" == "offline" && "$dnf_status" == "ok" && "$staged_nothing" != true ]]; then
     staged="$staged_fresh"
     [[ -n "$staged" ]] \
       || staged="$(jq -r -n '[inputs][0].backends.dnf.actionable? // empty' "$STATE_FILE" 2>/dev/null || true)"
@@ -431,6 +431,9 @@ cmd_update() {
   # staged_check_ok - "nothing is pending" as against "the check could not answer".
   # notify_tail - what the FAILED notification says BEYOND the reason, for a cleanup that also
   #   failed and left work only root can do.
+  # staged_nothing: the stage ran, succeeded, and had nothing to build. Not a failure, and not a
+  # stage either - no marker, no promise, no "installs on the next restart".
+  local staged_nothing=false
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
   local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
@@ -479,7 +482,22 @@ cmd_update() {
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
     if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
-      if ! apply_with_retry "$log" priv_apply dnf-offline-arm; then
+      # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
+      # every pending update held, or nothing pending at all. Arming then fails with "No offline
+      # transaction is stored", and calling THAT "staged but could not arm" blames the arm for a
+      # transaction that was never built - a run reported as failed, rc 1, over the user's own
+      # holds doing exactly what they asked. Nothing was staged, nothing needed to be, and the run
+      # succeeded.
+      # Asked of dnf5 rather than inferred from the count this run measured: the count can be
+      # stale by the time the stage runs, and dnf5's own answer cannot.
+      if [[ "$(offline_system_status)" == absent ]]; then
+        staged_nothing=true
+        if [[ -n "$held_dnf" ]]; then
+          log_event "offline stage found nothing to stage (every pending update is held)"
+        else
+          log_event "offline stage found nothing to stage"
+        fi
+      elif ! apply_with_retry "$log" priv_apply dnf-offline-arm; then
         dnf_status="failed"; status="failed"
         reason_override="staged but could not arm the restart install"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
@@ -618,7 +636,16 @@ cmd_update() {
     phrase="$(run_counts_phrase "$hist")"
     # ORDER: a failed offline run takes the failure branch, not the staged one. "Installs on the
     # next restart" is a claim about the future, and a stage that was discarded has none.
-    if [[ "$surface" == "offline" && "$status" == "ok" ]]; then
+    if [[ "$surface" == "offline" && "$status" == "ok" && "$staged_nothing" == true ]]; then
+      # Nothing was staged, so there is nothing to install on any restart. Saying which of the two
+      # reasons it was is the difference between "Kempt did nothing" and "your holds did what you
+      # asked": the first reads as a fault.
+      if [[ -n "$held_dnf" ]]; then
+        notify "Kempt" "Nothing to stage - every pending update is held"
+      else
+        notify "Kempt" "Nothing to stage - no updates are pending"
+      fi
+    elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       notify "Kempt" "Updates staged - they install on the next restart"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"

@@ -428,6 +428,39 @@ assert_eq "$(jq -r .error "$sthist")" \
   "could not rebuild the staged update - the previous one is unchanged and still installs on the next restart" \
   "...and the reason says the previous stage still installs, not that it was lost"
 
+# --- a stage with nothing in it is not a failed stage --------------------------------------------
+# Hold your only pending update, then stage: `dnf5 upgrade --offline` prints "Nothing to do", exits
+# 0 and stores no transaction, so arming fails with "No offline transaction is stored". Reported as
+# "staged but could not arm the restart install", rc 1, with a FAILED notification - blaming the arm
+# for a transaction that was never built, over the user's own holds doing exactly what they asked.
+# Found by running it on a real machine with one pending update held.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+before_hist_n="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)"
+transaction_gone   # dnf5 stored nothing, which is what an empty transaction leaves behind
+nrc=0
+"$KEMPT" hold dnf:bash >/dev/null 2>&1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || nrc=$?
+assert_eq "$nrc" "0" "staging with nothing to stage is not a failure"
+assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" \
+  "...and nothing is armed, because there is nothing to arm"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and nothing is cleaned up, because nothing was made"
+assert_exit 1 "no marker is written for a stage that does not exist" -- test -f "$marker"
+grep -q 'offline stage found nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: the event names the reason, so the log does not read as a fault" \
+  || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'offline' "$KEMPT_STATE_DIR/events.log" | tail -3; }
+grep -q 'Nothing to stage - every pending update is held' "$WORLD/notifications" \
+  && echo "ok: ...and the user is told their holds did it, not that Kempt failed" \
+  || { echo "FAIL: wrong notification"; _fail=1; cat "$WORLD/notifications"; }
+grep -q 'could not arm' "$WORLD/notifications" \
+  && { echo "FAIL: an empty transaction was blamed on the arm"; _fail=1; } \
+  || echo "ok: ...and the arm is not blamed for a transaction that was never built"
+nhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a run that succeeded"
+"$KEMPT" unhold dnf:bash >/dev/null 2>&1
+transaction_armed
+
 # The other outcome: dnf5 got as far as replacing the previous transaction and then failed, so the
 # toml is a partial stage nothing arms (download-complete) with the old boot symlink standing over
 # it. That is the strand, and it is what the unwind is for.

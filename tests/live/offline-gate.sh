@@ -239,6 +239,31 @@ dnf5.real -y -q offline clean >/dev/null 2>&1
 KEMPT_BOOT_ID=another-boot "$K" check >/dev/null 2>&1
 is "after a real clean the next check clears the demoted marker" "$(marker)" ""
 
+section "S9b staging when every pending update is held"
+# `dnf5 upgrade --offline` prints "Nothing to do", exits 0 and stores NOTHING when the transaction
+# would be empty. Arming then fails with "No offline transaction is stored", which Kempt used to
+# report as "staged but could not arm the restart install" - rc 1 and a FAILED notification over
+# the user's own holds doing exactly what they asked. Found on a real machine with one pending
+# update held; this pins it against real dnf5.
+dnf5 -y -q offline clean >/dev/null 2>&1; rm -f "$LINK" "$STATE/offline_staged.json"
+"$K" check >/dev/null 2>&1
+mapfile -t all_pending < <("$K" check 2>/dev/null | jq -r '.backends.dnf.items[].name')
+for p in "${all_pending[@]}"; do "$K" hold "dnf:$p" >/dev/null 2>&1; done
+echo "  held every pending update: ${#all_pending[@]}"
+: > /tmp/gate-notifications
+before_n=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
+"$K" update --surface=offline --no-flatpak > /tmp/s9b.out 2>&1; nrc=$?
+is "a stage with nothing in it exits 0" "$nrc" "0"
+is "...and dnf5 stored no transaction" "$(toml_status)" "absent"
+[[ -z "$(marker)" ]] && ok "...so no marker promises one" || bad "a marker was written for an empty stage" "$(marker)"
+has "the event names the reason" "$(events)" "nothing to stage"
+has "...and so does the notification" "$(notes)" "Nothing to stage"
+hasnt "...which does not blame the arm" "$(notes)" "could not arm"
+hasnt "...and does not promise a restart" "$(notes)" "install on the next restart"
+d=$("$K" doctor 2>&1); rc=$?
+is "doctor is clean afterwards" "$rc" "0"
+for p in "${all_pending[@]}"; do "$K" unhold "dnf:$p" >/dev/null 2>&1; done
+
 section "S10 a ready transaction whose /system-update symlink is gone"
 # Arming is TWO things and Kempt read only one of them. systemd.offline-updates(7): the symlink is
 # the mechanism, and systemd removes it once system-update.target has been reached - so `ready`

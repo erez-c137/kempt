@@ -266,6 +266,13 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 - **The test suite runs green from a release tarball,** not only a git checkout: the doctor version
   assertion no longer assumes git history, and the log test stubs its terminal emulator instead of
   leaning on the CI workflow's shim.
+- **Holding every pending update and then staging one is no longer reported as a failure.** dnf5
+  prints "Nothing to do", exits 0 and stores no transaction when there is nothing to stage, so
+  arming it failed with "No offline transaction is stored" - and Kempt announced *Update FAILED
+  (staged but could not arm the restart install)*, exit 1, blaming the step that arms a
+  transaction for one that was never built. It now says what happened: *Nothing to stage - every
+  pending update is held*, and the run succeeds, because your holds did exactly what you asked.
+  Nothing is armed, nothing is cleaned up, and no marker promises an install that does not exist.
 - **Something else updating your packages is no longer mistaken for your staged update
   installing.** If `dnf-automatic`, GNOME Software or a terminal `sudo dnf5 upgrade` changed
   anything between staging an offline update and the next boot, Kempt announced "Staged updates
