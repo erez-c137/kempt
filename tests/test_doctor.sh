@@ -406,12 +406,30 @@ chmod 700 "$KEMPT_STATE_DIR"
 CO="$TESTTMP/checkout"
 mkdir -p "$CO"
 cp -r "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" "$REPO_ROOT/polkit" "$CO/"
+# install.sh too: its presence is what makes this a CHECKOUT rather than a packaged tree, and the
+# row below now says which one it is describing. Without it this fixture was a package wearing a
+# checkout's name.
+cp "$REPO_ROOT/install.sh" "$CO/"
 rm -f "$CO/polkit/49-kempt.rules.in"
 assert_exit 1 "an incomplete checkout fails the checkup" "$CO/bin/kempt" doctor
 grep -q 'checkout incomplete' "$TESTTMP/last_output" \
   && echo "ok: the FAIL line says the checkout is incomplete" || { echo "FAIL: no checkout line"; _fail=1; }
 grep -q '49-kempt.rules.in' "$TESTTMP/last_output" \
   && echo "ok: ...and names the missing file" || { echo "FAIL: missing file not named"; _fail=1; }
+
+# ...and the same tree with no install.sh is a PACKAGE, so the row calls it what it is. A packaged
+# box has no checkout, and a report that says "checkout intact" on one line and "install: packaged"
+# on the next is asking the reader to know which of the two it means.
+rm -f "$CO/install.sh"
+assert_exit 1 "the same tree without install.sh still fails" "$CO/bin/kempt" doctor
+grep -q 'program files incomplete' "$TESTTMP/last_output" \
+  && echo "ok: ...and a packaged install is told about its program files, not about a checkout" \
+  || { echo "FAIL: packaged wording missing"; _fail=1; grep -i 'incomplete' "$TESTTMP/last_output"; }
+# The ROW's wording, not the bare word: this fixture's own directory is named "checkout", and a
+# path is not a claim about the install.
+grep -qE 'checkout (intact|incomplete)' "$TESTTMP/last_output" \
+  && { echo "FAIL: a packaged report still calls its files a checkout"; _fail=1; } \
+  || echo "ok: ...and never calls them a checkout"
 
 # --- install skew: the copies that `git pull` cannot move ---------------------------------------
 # The CLI is a symlink into the checkout, so a pull updates it the moment it lands. The two root

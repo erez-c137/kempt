@@ -1345,17 +1345,24 @@ doctor_state_dir_row() {
   fi
 }
 
-doctor_checkout_row() {
-  # The CLI is a symlink INTO the checkout, so a missing file here is a broken install. What is
-  # sourced fails at startup; what is not (the rules template) fails only on the day it is needed.
-  local missing=() rel
+# Which kind of install this is. install.sh is the file a checkout has and a package does not: it
+# is what a fix message would tell you to run, and exactly what a packaged tree does not ship.
+# One definition, because two rows ask the question and a report that called itself packaged on one
+# line and a checkout on the next is worse than either answer alone.
+install_is_packaged() { [[ ! -r "$ROOT/install.sh" ]]; }
+
+doctor_files_row() {
+  # Whatever tree the CLI resolved, whole. What is sourced fails at startup; what is not (the
+  # passwordless rules template) fails only on the day somebody runs the command that needs it.
+  local missing=() rel kind=checkout
+  install_is_packaged && kind="program files"
   for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-kempt.rules.in; do
     [[ -r "$ROOT/$rel" ]] || missing+=("$rel")
   done
   if [[ ${#missing[@]} -eq 0 ]]; then
-    doctor_ok "checkout intact: $ROOT"
+    doctor_ok "$kind intact: $ROOT"
   else
-    doctor_fail "checkout incomplete: missing ${missing[*]} (in $ROOT)"
+    doctor_fail "$kind incomplete: missing ${missing[*]} (in $ROOT)"
   fi
 }
 
@@ -1453,7 +1460,7 @@ doctor_install_rows() {
   # package manager owns those three and keeps them in step. install.sh's absence is what says
   # which kind of install this is - it is the file the fix message would name, and exactly what a
   # packaged tree does not ship.
-  if [[ ! -r "$ROOT/install.sh" ]]; then
+  if install_is_packaged; then
     doctor_info "install: packaged - the package manager keeps these files in step"
     # ...and the one thing a packaged install can be silently wrong about. kpackagetool6 (the KDE
     # Store route) installs into the USER's plasmoid directory, the package into /usr/share, and
@@ -1520,7 +1527,7 @@ cmd_doctor() {
   doctor_tool_rows
   doctor_config_row
   doctor_state_dir_row
-  doctor_checkout_row
+  doctor_files_row
   doctor_offline_rows
   doctor_version_row
   doctor_install_rows

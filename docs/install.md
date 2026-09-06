@@ -109,7 +109,7 @@ ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
-ok    checkout intact: /usr/share/kempt
+ok    program files intact: /usr/share/kempt
 info  version: kempt 0.1.1
 info  install: packaged - the package manager keeps these files in step
 ok    widget engine: /usr/share/kempt/bin/kempt
@@ -120,11 +120,11 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Four of those lines read oddly until you know what they are asking:
+Four of those lines are worth expanding on:
 
-- **`checkout intact`** is named for the developer install but checks whichever tree the CLI
-  resolved. Here it is asking whether `lib/`, `backends/` and the passwordless rules template are
-  all present under `/usr/share/kempt`.
+- **`program files intact`** asks whether `lib/`, `backends/` and the passwordless rules template
+  are all present under `/usr/share/kempt`. On a checkout install the same row is named for the
+  checkout, because that is what it is looking at there.
 - **`version:`** carries no commit on a packaged box. The checkout install appends
   `(checkout a1b2c3d clean)`; there is no `.git` under `/usr/share/kempt` to read one from.
 - **`install: packaged`** is how doctor tells the two apart, and it decides it by the absence of
