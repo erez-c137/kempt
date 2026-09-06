@@ -37,8 +37,8 @@
 
   Why the taper is 45 degrees and not the source's 15. A 15 degree cut at 48 px moves
   the edge less than one device pixel and disappears. 12 px over 12 px is the smallest
-  cut that still opens a visible slate wedge beside the end tooth at 48, and the founder
-  authorised the steeper angle for exactly this rung (2026-08-26). The cost is that the
+  cut that still opens a visible slate wedge beside the end tooth at 48, so the steeper
+  angle is a deliberate exception for this rung alone. The cost is that the
   end tooth tapers to 0.75x a fine tooth here where the source tapers to 1.22x.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">

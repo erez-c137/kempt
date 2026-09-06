@@ -12,10 +12,10 @@
          sits 92.3 px from centre, well inside the 128 px inscribed circle.
 
   Comb   A FAITHFUL REDRAW of docs/research/brand/candidates/source-comb-slate-cream.jpg,
-         the founder's reference: a wide, fine-toothed comb with a thin spine whose
+         the reference photo: a wide, fine-toothed comb with a thin spine whose
          ends taper diagonally down to the outermost teeth, so slate shows in the
          wedge beside each end tooth. That taper is the detail that makes it read as
-         a comb rather than a fence, and it is mandatory here (founder, 2026-08-26).
+         a comb rather than a fence, and it is mandatory here.
          Every proportion below was MEASURED off that JPEG with PIL, not eyeballed;
          the measurements and the deliberate deviations are tabulated in
          docs/research/brand/README.md.

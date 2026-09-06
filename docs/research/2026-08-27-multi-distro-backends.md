@@ -652,12 +652,12 @@ as trustworthy as a captured one.
    --upgradable'` would produce genuine apt output here. Two caveats keep it secondary: a
    container image is not a real desktop (no held packages, no multiarch, no session-critical
    packages, so the interesting rows are exactly the ones it lacks), and an image pull plus an
-   `apt-get update` is a network-bound heavy job under this box's two-concurrent-heavy-jobs
-   policy. Use it to sanity-check a parser, never as the fixture of record.
+   `apt-get update` is a slow, network-bound job. Use it to sanity-check a parser, never as the
+   fixture of record.
 5. **Draw the line where the suite already draws it.** The parser half is testable with no
    package manager present at all, and the CI job proves it: the suite passes under a stripped
    `PATH` with dnf5, flatpak, rpm and pkexec all unreachable. The **apply** half is not, and never
-   will be. It is founder-and-contributor-gated live verification, exactly as the v1 release
-   gate was. A backend pull request should therefore be mergeable
-   on fixtures and tests alone, with the live checklist run by whoever actually has the distro,
-   and the state of that checklist recorded in the pull request rather than assumed.
+   will be. It is live verification done by hand on a real machine, exactly as the v1 release
+   gate was. A backend pull request should therefore be mergeable on fixtures and tests alone,
+   with the live checklist run by whoever actually has the distro, and the state of that
+   checklist recorded in the pull request rather than assumed.

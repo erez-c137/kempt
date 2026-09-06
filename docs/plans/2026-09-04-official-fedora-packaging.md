@@ -144,14 +144,14 @@ manager Kempt cannot drive would be an ornament.
 
 Goal: when the ticket opens, the first comment already contains the review a hostile
 reviewer would have written, done by us, with every finding fixed or explained. Timing
-(revised 2026-09-05, founder: "we're in no rush to release 0.1.2"): the filing rides the
+(revised 2026-09-05, since there is no rush to release 0.1.2): the filing rides the
 0.1.2 cut, whenever 0.1.2 is ready - no fixed date. 0.1.2's scope is the hold-vs-armed-
 stage work (issue #8 + its hardening prerequisites); the spec-level review fixes it also
 needs are already on main. The standing override remains: a packager showing interest in
 the announcement threads means we cut and file the same day with whatever is ready,
 because a ticket is where their interest can land.
 
-**P1 - accounts (founder, ~15 min, immediately):** FAS email set to the maintainer
+**P1 - accounts (maintainer, ~15 min, immediately):** FAS email set to the maintainer
 identity (erez.c137@protonmail.com - it must match the spec changelog, and it will), FPCA
 signed in Fedora Accounts, Bugzilla account on exactly that email. The review request is
 auto-closed if the Bugzilla email does not match FAS.
@@ -163,7 +163,7 @@ there is), rpmlint on the SRPM as well as the binary RPM, and `licensecheck` ove
 whole tree. Every finding gets fixed or gets a written justification; nothing gets
 shrugged at.
 
-**P3 - the self-review document (Fable):** the Review Guidelines MUST and SHOULD lists,
+**P3 - the self-review document (delegable):** the Review Guidelines MUST and SHOULD lists,
 walked item by item against our spec, each line marked pass/fail/not-applicable with
 evidence. Posted into the ticket as the first comment after filing. This is the single
 strongest signal a submitter can send, and it doubles as our own gate: any MUST we cannot
@@ -174,7 +174,7 @@ FAS/Bugzilla (P1's email); investigate running the pure-parser part of the test 
 %check (bash + jq only, no network - if it runs in mock it is a big review signal);
 re-verify the polkit file placements against the current guidelines rather than memory.
 
-**P5 - karma (founder, light, after the wave settles):** thoughtful informal comments on
+**P5 - karma (maintainer, light, after the wave settles):** thoughtful informal comments on
 one or two open review requests. Documented by Fedora itself as how a sponsor evaluates a
 candidate; also simply the neighborly thing.
 
@@ -184,13 +184,13 @@ SRPM URL is a released, COPR-green version - never a moving target.
 
 ## Next actions, in order
 
-1. (Erez, ~15 min, now) P1: FAS email + FPCA + Bugzilla alignment.
-2. (Erez, 1 min) Install the reviewer tooling so P2 can run:
+1. (Maintainer, ~15 min, now) P1: FAS email + FPCA + Bugzilla alignment.
+2. (Maintainer, 1 min) Install the reviewer tooling so P2 can run:
    `sudo dnf5 install -y fedora-review mock licensecheck` and add the user to the mock
    group, then re-login.
 3. (Delegable, after 2) P2 run; findings triaged into P4.
-4. (Fable, parallel) P3 self-review document drafted.
-5. (Erez, ~30 min, ~a week out) File the review bug with FE-NEEDSPONSOR; paste URLs from
+4. (Delegable, parallel) P3 self-review document drafted.
+5. (Maintainer, ~30 min, ~a week out) File the review bug with FE-NEEDSPONSOR; paste URLs from
    COPR; post the P3 document as the first comment.
 6. (Ongoing, both) Sponsorship routes from Stage 2, announcement threads included.
 7. Everything after that is gated on a human reviewer appearing - the plan resumes at

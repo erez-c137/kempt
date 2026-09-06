@@ -50,7 +50,7 @@ taken on faith. Verified on this box (Fedora 44, Plasma 6.7):
 
 ## The 2026-08-26 decision
 
-**The app icon should look like the founder's reference photo at the sizes where it can, and stay
+**The app icon should look like the reference photo at the sizes where it can, and stay
 the six-tooth pictogram where pixels force it.** This supersedes the assumption behind the earlier
 work, which was that one drawing would serve every size. It does not: a comb fine enough to read
 as a comb at 128 px has 1 px teeth at 32, and the six-tooth drawing that is exact at 32 px is a
@@ -61,7 +61,7 @@ that size can hold: **17 elements** (96 px and up), **7** (64 and 48), **6** (32
 16). Nothing below 32 px can be drawn on the 256 unit grid at all, which is why the last two rungs
 are authored on their own.
 
-The founder's reference is `candidates/source-comb-slate-cream.jpg`, and the reason he chose it is
+The reference is `candidates/source-comb-slate-cream.jpg`, and the reason it was chosen is
 **the ends**: the spine cuts diagonally down to the outermost teeth, so a wedge of slate opens
 beside each end tooth. That is what makes the drawing read as a comb rather than as a fence, and
 it is mandatory in `kempt.svg`, reproduced from measurement. It is kept in `kempt-48.svg` too,
@@ -186,8 +186,8 @@ narrower five-tooth comb, so the tile frame there is 1 px at the sides against 3
 bottom. The comb edges are perfectly crisp - the render shows a full-value slate column at x=0 and
 x=15, nothing anti-aliased - but the frame is visibly thinner than on the 22 and 32 rungs. The
 alternative, a four-tooth comb at 11 px, frames better and cannot centre on an integer in a 16 px
-box (margins would be 2 px and 3 px), so it was not taken. If the founder prefers the framing to
-the fifth tooth, that is the swap.
+box (margins would be 2 px and 3 px), so it was not taken. If the framing matters more than the
+fifth tooth, that is the swap.
 
 The symbolic glyphs themselves are untouched and are still not part of the ladder: the tray
 resolves `kempt-symbolic.svg` and `kempt-symbolic-16.svg` by their own names.

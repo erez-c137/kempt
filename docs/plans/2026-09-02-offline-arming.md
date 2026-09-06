@@ -11,8 +11,8 @@ until `dnf5 offline reboot` ARMS it: flips status to `"ready"` and creates the `
 symlink that systemd's system-update-generator looks for. Kempt never arms, so a staged update
 never installs - on any number of reboots.
 
-Founder's box, 2026-09-01: staged 61 packages at 10:31, saw nothing change, staged again at
-10:36, gave up and ran the terminal surface at 10:36:42 (applied all 61 live), rebooted 10:39.
+On a real install, 2026-09-01: 61 packages staged at 10:31, nothing changed, staged again at
+10:36, then the terminal surface was run at 10:36:42 (applied all 61 live), rebooted 10:39.
 The stale unarmed stage is still sitting in `/usr/lib/sysimage/libdnf5/offline/` and Kempt's
 `offline_staged.json` marker is stuck forever: the live run rebased its baseline, so the
 post-reboot harvest sees "nothing changed since" and keeps waiting for an apply that can never
@@ -119,7 +119,7 @@ arm-without-reboot path.
   - `stagedShowRestart`: staged && NOT restartMessageVisible (never two Restart… buttons in
     one popup; the restart Warning's own button already covers the both-true case).
   - While staged: `riskyMessage` returns "" (the stage offer must not render - that is the
-    exact double-press the founder hit).
+    exact double-press that was hit in practice).
 - FullRepresentation.qml: one new `Kirigami.InlineMessage`, `Kirigami.MessageType.Positive`,
   between restartMessage and riskyMessage; text `vm.stagedMessage`; visible on non-empty (same
   pattern as riskyMessage); `actions` carries a `Restart…` `Kirigami.Action` (triggers
@@ -135,8 +135,8 @@ arm-without-reboot path.
   - marker + toml `ready` → `ok`/info line: staged update pending, N packages install on the
     next restart.
   - marker + toml `download-complete` → WARN: this stage was created before Kempt armed
-    restarts and can never install - `sudo dnf5 offline clean` clears it. (This is the
-    founder's box today; the wording must contain that exact command.)
+    restarts and can never install - `sudo dnf5 offline clean` clears it. (This is the state a
+    real install was found in; the wording must contain that exact command.)
   - toml present + NO marker → info: an offline transaction is staged outside Kempt
     (`dnf5 offline status`).
 - Tests: doctor fixtures for the three rows.
@@ -160,8 +160,8 @@ arm-without-reboot path.
 - No AI attribution of any kind in commit messages.
 - Suite must be green after every task; `tests/run_tests.sh` is the runner.
 - No pkexec/root calls in tests; the sandbox pattern (`KEMPT_PKEXEC=""` + stubs) covers
-  everything. The real-system proof is founder-gated and listed in the release gate, but the
-  dnf5 semantics are already container-proven above.
+  everything. The real-system proof is a manual pre-release check listed in the release gate,
+  but the dnf5 semantics are already container-proven above.
 - After merge, `./install.sh` must be re-run (kempt-apply changed) - doctor's install-skew
   check will say so on its own; note it in the changelog entry.
 
@@ -200,8 +200,8 @@ arm-without-reboot path.
   whatever box runs it; pointed at nothing, "no transaction" is the answer, and a marker with no
   transaction is exactly the case the check CLEARS - which would have deleted the marker out from
   under every staging test in `test_update.sh`.
-- The two toml fixtures are a live capture of the founder's own stuck stage (2026-09-02) plus a
-  one-line edit of it. Provenance in `tests/fixtures/MANIFEST.md`.
+- The two toml fixtures are a live capture of a real stuck stage (2026-09-02) plus a one-line
+  edit of it. Provenance in `tests/fixtures/MANIFEST.md`.
 
 ## Fixed on review
 

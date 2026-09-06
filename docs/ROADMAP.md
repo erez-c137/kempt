@@ -91,8 +91,8 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
   Doing the first without the second would ship a half-translated popup, which reads worse than an
   English one. So they go together, and until they do the honest answer to "can I translate Kempt"
   is no.
-- **A defer: "later", "tonight", "only on Wi-Fi".** From the user panel: two of six personas
-  currently "handle" the popup by closing it, which is the worst outcome an updater can produce.
+- **A defer: "later", "tonight", "only on Wi-Fi".** Two of six user personas currently
+  "handle" the popup by closing it, which is the worst outcome an updater can produce.
   One wants it because of what she is doing right now, the other because of what he is connected
   to right now.
 - **A restart-reminder dismissal that survives the session.** Closing the restart message hides it

@@ -1,7 +1,7 @@
 # Kempt popup: KDE HIG / Plasma 6 interaction review
 
 **Date:** 2026-08-26
-**Reviewer role:** KDE Plasma interaction design (read-only; nothing in the repo was modified)
+**Scope:** KDE Plasma interaction design. A review of the popup against the HIG; no code changed.
 **Platform verified against:** Fedora 44, `plasma-workspace-6.7.4-1.fc44`, `plasma-discover-6.7.4`
 
 ---
