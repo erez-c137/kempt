@@ -19,27 +19,24 @@ PLASMOID_ID=io.github.erez_c137.kempt
 # Test seam, same shape as the others: point it at a stub to exercise the widget arm without a
 # desktop, or at a missing path to exercise the "not installed" branch.
 KEMPT_KPACKAGETOOL="${KEMPT_KPACKAGETOOL:-kpackagetool6}"
-# metadata.json asks for the icon by NAME ("kempt"), and a name is resolved through the XDG icon
-# theme - NOT through the package. Measured on Plasma 6.7 with Breeze loaded: an icon sitting in
-# the installed package's contents/icons/ does not resolve from its name at all; it only resolves
-# if something has added that directory to QIcon's fallback search paths, and nothing does. So the
-# same SVG is also installed into the user's hicolor theme, which is the standard route and the
-# one that actually makes the icon appear in Add Widgets. User-level, no authentication.
+# metadata.json asks for the icon by NAME ("kempt"), and a name resolves through the XDG icon theme
+# - NOT through the package. An icon sitting in the installed package's contents/icons/ does not
+# resolve from its name at all unless something has added that directory to QIcon's fallback search
+# paths, and nothing does. So the same SVG also goes into the user's hicolor theme, which is the
+# standard route and the one that makes the icon appear in Add Widgets. User-level, no auth.
 ICON_THEME_BASE="$HOME/.local/share/icons/hicolor"
-# ...and it is installed as a SIZE LADDER, the way Breeze ships one (breeze/apps/16, /22, /32,
-# /48, /64 are five different drawings, not one file scaled five ways). A comb fine enough to
-# read as a comb at 256 px is grey mush at 32, so each band gets the drawing that survives it:
-#   scalable  the 17-element fine comb, a measured redraw of the founder's reference photo
+# ...as a SIZE LADDER, the way Breeze ships one (breeze/apps/16, /22, /32, /48, /64 are five
+# different drawings, not one file scaled five ways). A comb fine enough to read as a comb at
+# 256 px is grey mush at 32, so each band gets the drawing that survives it:
+#   scalable  the 17-element fine comb
 #   64 + 48   the same comb at 7 teeth, the most that hold 2 solid device pixels at 48 px
 #   32        the six-tooth drawing, exact on the 32 px grid
-#   22 + 16   hand-hinted five-tooth drawings authored on the 22 and 16 px grids themselves
-#             (viewBox 22 and 16, not 256), because no arrangement of a 256-unit grid lands on
-#             whole device pixels at those sizes - the same reason the symbolic glyphs are
-#             hand-hinted per size, and they share those glyphs' 2 px tooth / 1 px gap grid.
+#   22 + 16   five-tooth drawings hand-hinted on the 22 and 16 px grids themselves (viewBox 22 and
+#             16, not 256), because no arrangement of a 256-unit grid lands on whole device pixels
+#             at those sizes; they share the symbolic glyphs' 2 px tooth / 1 px gap grid.
 # One name, "kempt", resolves to all of them: an XDG icon theme picks the directory whose size
 # matches the request, and hicolor's index.theme lists every fixed-size dir before scalable/apps,
-# so an exact-size dir wins. Verified on this box with kiconfinder6 - see
-# docs/research/brand/README.md for the queries and their output.
+# so an exact-size dir wins. docs/research/brand/README.md has the kiconfinder6 queries.
 # "<hicolor size dir>:<drawing under plasmoid/contents/icons/>"
 ICON_LADDER=(
   "scalable:kempt.svg"
@@ -49,18 +46,17 @@ ICON_LADDER=(
   "22x22:kempt-22.svg"
   "16x16:kempt-16.svg"
 )
-# ...and the signal that makes a RUNNING desktop notice it. Measured on this box: after the SVG
-# above was installed, `kiconfinder6 kempt` resolved it immediately in a fresh process, while
-# plasmashell - started days earlier, before ~/.local/share/icons/hicolor existed - went on
-# drawing the unknown-icon placeholder in Add Widgets. It computes its icon theme's directory
-# list once at startup. org.kde.KIconLoader.iconChanged is the standard broadcast that tells
-# every KIconLoader in the session to rebuild that list; KDE's own installers emit it for the
-# same reason. Best-effort and never fatal: a box with no session bus still installs fine, it
-# just needs a log-out to see the icon. A seam so the suite never signals the real desktop.
+# ...and the signal that makes a RUNNING desktop notice it. plasmashell computes its icon theme's
+# directory list once at startup, so a session started before ~/.local/share/icons/hicolor existed
+# goes on drawing the unknown-icon placeholder in Add Widgets however well a fresh process resolves
+# the name. org.kde.KIconLoader.iconChanged is the standard broadcast telling every KIconLoader in
+# the session to rebuild that list, and KDE's own installers emit it for the same reason.
+# Best-effort and never fatal: a box with no session bus still installs fine, it just needs a
+# log-out to see the icon. A seam so the suite never signals the real desktop.
 KEMPT_DBUS_SEND="${KEMPT_DBUS_SEND:-dbus-send}"
 # The system autostart entry the opt-out overrides. A seam so the copy source can be a fixture:
-# with the real path hardcoded, every call re-copied the live system file over the test's own,
-# and the "an existing Hidden= is replaced" case could never actually run.
+# with the real path hardcoded, every call re-copies the live system file over the test's own and
+# the "an existing Hidden= is replaced" case can never run.
 KEMPT_AUTOSTART_SRC="${KEMPT_AUTOSTART_SRC:-/etc/xdg/autostart/org.kde.discover.notifier.desktop}"
 
 # Test seam, same shape as libexec/kempt-apply's KEMPT_APPLY_ECHO: with KEMPT_INSTALL_ECHO=1
@@ -75,12 +71,12 @@ run() {
   return 0
 }
 
-# Recommended opt-out: plasma-discover-notifier duplicates Kempt's notifications AND its
-# background PackageKit activity takes the dnf5 lock at random, which makes Kempt runs fail
-# spuriously (spec, survey C2). A user-level autostart entry with Hidden=true overrides the
-# system one. Idempotent by construction: re-running the installer must never accumulate lines,
-# and a system entry that already carries `Hidden=false` must be REPLACED, not joined - two
-# Hidden= keys make an invalid desktop entry that parsers disagree about.
+# Recommended opt-out: plasma-discover-notifier duplicates Kempt's notifications AND its background
+# PackageKit activity takes the dnf5 lock at random, which makes Kempt runs fail spuriously (spec,
+# survey C2). A user-level autostart entry with Hidden=true overrides the system one. Idempotent by
+# construction: re-running the installer must never accumulate lines, and a system entry carrying
+# `Hidden=false` must be REPLACED, not joined - two Hidden= keys make an invalid desktop entry that
+# parsers disagree about.
 notifier_optout() {  # autostart_dir
   local dir="$1" src="$KEMPT_AUTOSTART_SRC" body
   local f="$dir/org.kde.discover.notifier.desktop"
@@ -94,12 +90,11 @@ notifier_optout() {  # autostart_dir
 }
 
 # --- the panel widget -------------------------------------------------------------------------
-# kpackagetool6 is a USER-level tool: it copies the package into ~/.local/share/plasma/plasmoids
-# and never asks for authentication, and installing a widget does NOT put it on anybody's panel -
-# the user still has to add it. It does talk to the running desktop, though, so it goes through
-# the same `run` seam as the privileged commands: a test prints the command instead of running it
-# and no live plasmashell is ever touched by the suite.
-# Neither function is ever fatal. The CLI is the product; a desktop without kpackagetool6 (or
+# kpackagetool6 is a USER-level tool: it copies the package into ~/.local/share/plasma/plasmoids,
+# never asks for authentication, and does NOT put the widget on anybody's panel - the user still
+# has to add it. It does talk to the running desktop, so it goes through the same `run` seam as the
+# privileged commands and the suite never touches a live plasmashell.
+# Neither function is ever fatal: the CLI is the product, and a desktop without kpackagetool6 (or
 # without Plasma at all) must still end up with a working `kempt`.
 widget_install() {
   command -v "$KEMPT_KPACKAGETOOL" >/dev/null 2>&1 || {
@@ -125,8 +120,7 @@ widget_install() {
   # nothing makes it re-read them: the applet keeps running the QML it started with, and a tray
   # entry can end up half-reloaded. Deliberately NOT solved by removing and re-installing the
   # package - kpackagetool6 -r takes every instance of the applet off the user's panels with it,
-  # so a re-install would silently cost them the widget they had placed. Telling them how to
-  # reload the session is the honest version of that trade.
+  # which would silently cost them the widget they had placed.
   [[ $upgraded -eq 1 ]] && echo "note: the widget was upgraded in a running session - run 'plasmashell --replace' (or log out) so the tray entry reloads cleanly."
   return 0
 }
@@ -138,11 +132,11 @@ widget_uninstall() {
   run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -r "$PLASMOID_ID" 2>/dev/null || true
 }
 
-# The application icon in the user's own hicolor theme - see ICON_THEME_BASE above for why the
-# copy inside the package is not enough, and ICON_LADDER for why there are six of them. A plain
-# file install, so it needs no seam and no `run`. The optional argument is a DESTDIR prefix: with
-# one, this is staging a tree for a test or a package and must not touch the running session, so
-# the reload signal and the log-out note are skipped.
+# The application icon in the user's own hicolor theme - see ICON_THEME_BASE for why the copy
+# inside the package is not enough, and ICON_LADDER for why there are six. A plain file install, so
+# it needs no seam and no `run`. The optional argument is a DESTDIR prefix: with one, this is
+# staging a tree for a test or a package and must not touch the running session, so the reload
+# signal and the log-out note are skipped.
 icon_install() {  # [destdir prefix]
   local prefix="${1:-}" entry dir src installed=0
   for entry in "${ICON_LADDER[@]}"; do
@@ -183,9 +177,9 @@ icon_reload() {
 }
 
 main() {
-  # Man page goes to the USER man hierarchy: `man kempt` finds it there, it needs no root, and
-  # a symlink keeps it in step with the checkout the CLI already runs from. The one pkexec below
-  # stays exactly as it was - a man page is not worth widening the privileged step.
+  # Man page goes to the USER man hierarchy: `man kempt` finds it there, it needs no root, and a
+  # symlink keeps it in step with the checkout the CLI already runs from. It stays out of the one
+  # pkexec below - a man page is not worth widening the privileged step.
   local DESTDIR="" UNINSTALL="" MAN1_DIR="$HOME/.local/share/man/man1"
   # Where kpackagetool6 puts a Plasma/Applet package for the current user. --destdir stages a
   # copy of the same tree there so packaging and tests can see the result without a desktop.
