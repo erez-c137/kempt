@@ -79,6 +79,16 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
+    <release version="0.1.2" date="2026-09-06" type="stable">
+      <description>
+        <p>
+          A hold added after an offline update was staged is no longer silent, in the command
+          line or the popup. The panel widget is now its own package, kempt-plasmoid, so the
+          command line no longer pulls in a desktop. Three ways a staged update could quietly
+          stop being real are now caught and announced.
+        </p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-09-04" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.1</url>
       <description><p>A widget installed before the CLI now walks you through installing the engine, with a Copy Commands button; kempt doctor catches a store copy shadowing the packaged widget.</p></description>

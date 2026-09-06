@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        One-click system updates for Fedora, with holds and offline staging
 
@@ -211,6 +211,18 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Sun Sep 06 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
+- The panel widget moves to its own subpackage, kempt-plasmoid, so the command
+  line no longer requires plasma-workspace. On a machine running Plasma the
+  widget is installed alongside it as before.
+- Declares dnf5-command(needs-restarting), without which the restart reminder
+  was permanently silent, and recommends libnotify and konsole.
+- A hold added after an offline update was staged is reported rather than
+  silently ignored, in the command line and in the popup.
+- Three states in which a staged update had quietly stopped being real are now
+  detected and announced.
+- Ships the documentation tree, so the README's links resolve once installed.
+
 * Fri Sep 04 2026 Erez <erez.c137@protonmail.com> - 0.1.1-1
 - The widget guides a store-first install instead of quoting the shell; doctor
   catches a user-scope widget copy shadowing the packaged one.

@@ -7,7 +7,7 @@
         "Category": "System Information",
         "Authors": [{ "Name": "Erez" }],
         "License": "MIT",
-        "Version": "0.1.1",
+        "Version": "0.1.2",
         "Website": "https://github.com/erez-c137/kempt",
         "BugReportUrl": "https://github.com/erez-c137/kempt/issues",
         "EnabledByDefault": true

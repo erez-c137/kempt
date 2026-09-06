@@ -21,7 +21,11 @@ import sys
 import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-UI = os.path.join(REPO, "plasmoid", "contents", "ui")
+# KEMPT_UI_DIR points this battery at a DIFFERENT copy of the widget than the checkout's. The
+# release check uses it to run every probe against the files the RPM actually installed, under
+# /usr/share/plasma/plasmoids/, which is a different directory from the one a developer edits and
+# the one nothing had ever executed. Unset, it is the checkout, which is what a contributor wants.
+UI = os.environ.get("KEMPT_UI_DIR") or os.path.join(REPO, "plasmoid", "contents", "ui")
 FIXTURES = os.path.join(REPO, "tests", "fixtures")
 
 # The probes load the SHIPPED files straight out of the repo. No copies, on purpose: a probe
