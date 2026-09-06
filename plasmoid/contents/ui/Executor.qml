@@ -10,9 +10,7 @@
 // For an ordinary command that does not matter: `sh -c 'kempt check'` execs kempt in place, so
 // the pid the kill reaches IS kempt. But a command written in the durable form the settings page
 // uses - `<cmd> & wait $!` - forks the real work into a background job and leaves `sh` doing
-// nothing but waiting for it. Killing that `sh` ends the WAIT, not the job: the job runs to
-// completion on its own, and `wait $!` had already been chosen so that, in the normal case, the
-// job's real exit status is what this component reports.
+// nothing but waiting for it. Killing that `sh` ends the WAIT, not the job.
 //
 // That trade is right for a `kempt config set` (about 10 ms of work, and losing the write is the
 // bug the form exists to fix - see configGeneral.qml's page.durable) and WRONG for `kempt check`

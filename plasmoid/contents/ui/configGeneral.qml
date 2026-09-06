@@ -1,17 +1,13 @@
 // The settings page. Every value on it is read from and written to `kempt config` - there is no
 // plasmoid-local copy of any of these settings, and contents/config/main.xml declares no keys at
-// all. That is deliberate: a KConfig entry here would be a second copy of a setting the CLI also
-// owns, and the two would drift apart the first time somebody typed `kempt config set` in a
-// terminal. The CLI is the single source of truth; this page is a front-end to it.
+// all. A KConfig entry here would be a second copy of a setting the CLI also owns, and the two
+// would drift apart the first time somebody typed `kempt config set` in a terminal.
 //
 // The shell builds this page in its own dialog, so it cannot reach main.qml (there is no rootItem
 // to call through). It does not need to: main.qml watches the config file, so writing it here is
-// what makes the widget re-read its interval, its surface and its pending list.
-//
-// That back-channel is a 30-second mtime poll (main.qml, watchCmd), so a setting applied here
-// reaches the panel within 30 seconds rather than instantly. By design - KDirWatch is not
-// reachable from pure QML - and it is the whole latency budget of this page: nothing here waits
-// on, or reports, the widget having noticed. (W5: say so in docs/usage.md's settings section.)
+// what makes the widget re-read its interval, its surface and its pending list. That back-channel
+// is a 30-second mtime poll (main.qml, watchCmd), which is the whole latency budget of this page -
+// nothing here waits on, or reports, the widget having noticed.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC2
@@ -23,47 +19,42 @@ KCM.SimpleKCM {
     id: page
 
     // Same prefix main.qml uses: plasmashell does not reliably inherit a login shell's PATH, and
-    // the same KEMPT_VIA=widget stamp, so a setting changed here is distinguishable in `kempt
-    // log` from one typed in a terminal.
+    // the same KEMPT_VIA=widget stamp, so a setting changed here is distinguishable in `kempt log`
+    // from one typed in a terminal.
     readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" KEMPT_VIA=widget kempt"
 
     // Every write this page dispatches goes through here, and this is why.
     //
     // The dialog's OK button is `applyAction.trigger(); configDialog.close()`
-    // (AppletConfiguration.qml, the acceptAction handler). trigger() calls saveConfig() below,
-    // which DISPATCHES the writes and returns; close() then runs in the same turn.
-    // PlasmaQuick::ConfigView deletes itself on hide, and that takes this page, cfgExecutor and
-    // its DataSource with it. The engine then drops the container nobody is connected to any
-    // more, deleting the KProcess behind it - and a KProcess destructor SIGKILLs its child. The
-    // child is the `sh` running our command.
+    // (AppletConfiguration.qml). trigger() calls saveConfig() below, which DISPATCHES the writes
+    // and returns; close() then runs in the same turn. PlasmaQuick::ConfigView deletes itself on
+    // hide, taking this page, cfgExecutor and its DataSource with it; the engine then drops the
+    // container nobody is connected to any more, deleting the KProcess behind it - and a KProcess
+    // destructor SIGKILLs its child, which is the `sh` running our command. So an OK press is a
+    // race between a `kempt config set` (about 10 ms) and a teardown a couple of event-loop hops
+    // away, and the write can lose it. Apply never had the problem, because nothing is destroyed.
     //
-    // So an OK press is a race between a `kempt config set` (about 10 ms) and a teardown that is
-    // a couple of event-loop hops away, and the founder lost it: a ticked box, OK, and `kempt
-    // config get auto_accept` still reading the old value. Apply never had the problem, because
-    // nothing is destroyed when Apply is pressed.
-    //
-    // `<cmd> & wait $!` settles it. The work is forked into a background job, so the SIGKILL that
-    // arrives for the `sh` pid reaches a shell that is doing nothing but waiting - the job itself
-    // is never signalled and finishes on its own. `wait $!` (not a bare `&`) keeps the normal
-    // path intact: it propagates the job's real exit status, so the rc handling in setIfChanged,
-    // the "Apply stays lit on a failed write" behaviour and the error label all still see what
-    // the CLI actually said. Executor appends its ` #kemptN` dedup tag after this; `#kemptN`
-    // begins a word, so sh reads it as a comment exactly as it does today.
+    // `<cmd> & wait $!` settles it: the work is forked into a background job, so the SIGKILL that
+    // arrives for the `sh` pid reaches a shell doing nothing but waiting - the job itself is never
+    // signalled and finishes on its own. `wait $!` (not a bare `&`) keeps the normal path intact by
+    // propagating the job's real exit status, so setIfChanged's rc handling, "Apply stays lit on a
+    // failed write" and the error label all still see what the CLI said. Executor appends its
+    // ` #kemptN` dedup tag after this; `#kemptN` begins a word, so sh reads it as a comment.
     //
     // Deliberately NOT applied to the reads on this page (a lost `config get` costs nothing - the
-    // page is gone), and never to main.qml's action executor, whose timeout has to be able to
-    // kill a wedged `kempt check` outright. See Executor.qml's header.
+    // page is gone), and never to main.qml's action executor, whose timeout has to be able to kill
+    // a wedged `kempt check` outright. See Executor.qml's header.
     function durable(cmd) {
         return cmd + " & wait $!";
     }
 
-    // What `kempt config get` said when this page opened. Apply compares against these and
-    // writes ONLY what actually changed - so a key the user never touched is never rewritten,
-    // and a value set from the CLI that this page cannot represent is left exactly as it was.
+    // What `kempt config get` said when this page opened. Apply compares against these and writes
+    // ONLY what actually changed - so a key the user never touched is never rewritten, and a value
+    // set from the CLI that this page cannot represent is left exactly as it was.
     property var loaded: ({})
     // Keys whose `config get` did not answer. Their stored value is unknown, and a key whose
-    // stored value is unknown must not be written from a control that is still showing this
-    // file's own default - see setIfChanged.
+    // stored value is unknown must not be written from a control that is still showing this file's
+    // own default - see setIfChanged.
     property var readFailed: ({})
     // Keys the USER moved on this page. The one case where a value may be written over a key we
     // could not read: it is theirs, not a default.
@@ -82,11 +73,11 @@ KCM.SimpleKCM {
     // see saveConfig/finishWrite below.
     property int outstandingWrites: 0
     property bool writeFailed: false
-    // The same fact under a name worth reading: an Apply is in flight. Nothing on the page binds
-    // to it today (the controls stay live while a save runs - the values were taken at dispatch
-    // time, so editing them again is safe and the next Apply will write them). It exists because
-    // "is a write outstanding" is the question this page's whole apply path turns on, and the
-    // probes ask it by name rather than by counter arithmetic.
+    // The same fact under a name worth reading: an Apply is in flight. Nothing binds to it today
+    // (the controls stay live while a save runs - the values were taken at dispatch time, so
+    // editing them again is safe and the next Apply will write them). It exists because "is a
+    // write outstanding" is the question this page's apply path turns on, and the probes ask it by
+    // name rather than by counter arithmetic.
     readonly property bool saving: outstandingWrites > 0
 
     // THE hook that makes the dialog's Apply button work, and it has to be spelled exactly this
@@ -95,17 +86,15 @@ KCM.SimpleKCM {
     //   applyButton.enabled = wasConfigurationChangedSignalSent || isConfigurationChanged()
     //                         || (app?.pageStack?.currentItem?.unsavedChanges ?? false)
     //
-    // ...and it recomputes that line on three signals: a `cfg_<key>Changed` from an auto-bound
-    // KConfig property, a `configurationChanged()` the page emits, or `unsavedChangesChanged`
-    // (it connects to all three when the page is pushed). This page has no cfg_ properties BY
-    // DESIGN - `kempt config` owns every setting and main.xml declares no keys - so the first two
-    // hooks do not exist here and Apply sat permanently greyed out: the page worked only if the
-    // user pressed OK. Declaring this property gives the shell its third hook for free, since
-    // QML emits unsavedChangesChanged on every write to it.
+    // ...recomputed on three signals: a `cfg_<key>Changed` from an auto-bound KConfig property, a
+    // `configurationChanged()` the page emits, or `unsavedChangesChanged`. This page has no cfg_
+    // properties BY DESIGN, so the first two hooks do not exist here and Apply sits permanently
+    // greyed out - the page would work only if the user pressed OK. Declaring this property gives
+    // the shell its third hook for free, since QML emits unsavedChangesChanged on every write.
     //
-    // It is also what makes closing the dialog safe. The shell's closing() prompts "apply or
+    // It is also what makes closing the dialog safe: the shell's closing() prompts "apply or
     // discard?" only when the Apply button is enabled, so with no hook a page full of changes
-    // closed silently and threw them away.
+    // closes silently and throws them away.
     property bool unsavedChanges: false
 
     // Every control's change handler calls this - and only from a signal the USER can cause
@@ -116,19 +105,17 @@ KCM.SimpleKCM {
         page.unsavedChanges = true;
     }
 
-    // The dialog's Apply and OK both land here (the shell calls saveConfig() on the current page
-    // when it exists - AppletConfiguration.qml). Nothing is written anywhere else.
+    // The dialog's Apply and OK both land here (the shell calls saveConfig() on the current page).
+    // Nothing is written anywhere else.
     function saveConfig() {
         // Nothing has been read yet, so every control below is still showing this file's own
         // default - and writing those would replace the user's stored settings with them. The
         // controls are disabled while the reads are in flight, but the dialog's Apply and OK
-        // belong to the shell and are offered regardless, so the guard lives here too. Not an
-        // error: the reads land in well under a second, and there is nothing yet to save.
+        // belong to the shell and are offered regardless, so the guard lives here too.
         if (page.pendingReads > 0) return;
         // An Apply while the previous one is still in flight would reset the counter below out
         // from under callbacks that have not fired yet, and each of those would then decrement a
-        // fresh count. The writes already dispatched cover everything on the page anyway - the
-        // values were read at dispatch time - so there is nothing a second pass would add.
+        // fresh count. The writes already dispatched cover everything on the page anyway.
         if (page.outstandingWrites > 0) return;
 
         page.writeFailed = false;
@@ -147,29 +134,27 @@ KCM.SimpleKCM {
     }
 
     // The ONLY place unsavedChanges is cleared, and it is reached only when the last write has
-    // landed. Clearing it at the end of saveConfig() instead - which is what this file used to do -
-    // was the page telling the shell "saved" the instant it had finished DISPATCHING: Apply greyed
-    // out, closing the dialog stopped prompting, and both happened while `kempt config set` calls
-    // were still queued behind a 15-second timeout. The user could close the dialog on a write
-    // that had not happened yet and get no warning at all.
+    // landed. Clearing it at the end of saveConfig() instead is the page telling the shell "saved"
+    // the instant it has finished DISPATCHING: Apply greys out and closing the dialog stops
+    // prompting while `kempt config set` calls are still queued behind a 15-second timeout, so the
+    // user can close the dialog on a write that has not happened yet and get no warning.
     //
-    // With nothing to write (nothing changed) this still runs immediately - the sentinel is the
-    // only outstanding write - so an Apply that legitimately writes nothing is clean at once.
+    // With nothing to write this still runs immediately - the sentinel is the only outstanding
+    // write - so an Apply that legitimately writes nothing is clean at once.
     function finishWrite() {
         page.outstandingWrites--;
         if (page.outstandingWrites > 0) return;
         // A write that came back non-zero leaves Apply live for the retry rather than looking
-        // finished. The retry semantics behind it already exist: a failed write is not recorded
-        // as the stored value, so the next Apply attempts it again instead of comparing equal.
+        // finished. The retry semantics already exist: a failed write is not recorded as the
+        // stored value, so the next Apply attempts it again instead of comparing equal.
         if (page.writeFailed) return;
         page.unsavedChanges = false;
     }
 
     function setIfChanged(key, value) {
-        // A key whose read never answered has no known stored value: `loaded[key]` is undefined,
-        // so the comparison below would call it changed and write this file's default straight
-        // over whatever the user actually has. The exception is a control the user deliberately
-        // moved, where the value on screen is theirs rather than a default.
+        // A key whose read never answered has no known stored value: `loaded[key]` is undefined, so
+        // the comparison below would call it changed and write this file's default straight over
+        // whatever the user actually has. The exception is a control the user deliberately moved.
         if (page.readFailed[key] && !page.touched[key]) return;
         if (page.loaded[key] === value) return;
         // Counted before it is dispatched, and only here, past both guards above: those return
@@ -189,34 +174,34 @@ KCM.SimpleKCM {
                 return;
             }
             // Recorded as the stored value only now that it IS the stored value. Recording it
-            // before the CLI answered meant a FAILED write was remembered as a success: the next
-            // Apply compared equal, wrote nothing, and the setting the user asked for quietly
-            // stayed as it was, with no second attempt possible short of changing it twice.
+            // before the CLI answered means a FAILED write is remembered as a success: the next
+            // Apply compares equal, writes nothing, and the setting the user asked for quietly
+            // stays as it was, with no second attempt possible short of changing it twice.
             page.loaded[key] = value;
             page.readFailed[key] = false;
             page.finishWrite();
         });
     }
 
-    // The chosen surface lives HERE, not in the radio buttons. Reading it back out of the
-    // delegates looked equivalent and was not: a Repeater whose items are not currently realised
-    // answers "nothing is checked", which this function would have reported as `terminal` - and
-    // Apply would then have written terminal over whatever the user actually had. The view
-    // renders this property; it is never the source of it.
+    // The chosen surface lives HERE, not in the radio buttons. Reading it back out of the delegates
+    // looks equivalent and is not: a Repeater whose items are not currently realised answers
+    // "nothing is checked", which this function would report as `terminal` - and Apply would then
+    // write terminal over whatever the user actually had. The view renders this property; it is
+    // never the source of it.
     property string surfaceKey: "terminal"
 
     // Only the terminal surface can ask a question, so with confirmation on the others cannot run
-    // at all. The radios grey out and say so, and this is why. What it does NOT do is change the
-    // selection: see below.
+    // at all. The radios grey out and say so. What it does NOT do is change the selection: see
+    // below.
     readonly property bool surfacesLocked: !autoAccept.checked
 
-    // The stored preference, whatever the confirmation setting happens to be right now.
-    // Collapsing it to terminal here was this page rewriting a preference nobody touched: with
-    // auto_accept already false, opening the settings and pressing Apply replaced a stored
-    // `popup` with `terminal`, and turning confirmation back off later left the user on a surface
-    // they never chose. The lock is a RUN-time fact and the run already applies it - bin/kempt's
-    // cmd_run overrides the surface itself, and main.qml mirrors that in Logic.effectiveSurfaceOf
-    // so the popup shows the truth. None of that needs baking into the stored value.
+    // The stored preference, whatever the confirmation setting happens to be right now. Collapsing
+    // it to terminal here would be this page rewriting a preference nobody touched: with
+    // auto_accept already false, opening the settings and pressing Apply would replace a stored
+    // `popup` with `terminal`, and turning confirmation back off later would leave the user on a
+    // surface they never chose. The lock is a RUN-time fact and the run already applies it -
+    // bin/kempt's cmd_run overrides the surface itself, and main.qml mirrors that in
+    // Logic.effectiveSurfaceOf so the popup shows the truth.
     function selectedSurface() {
         return page.surfaceKey;
     }
@@ -227,7 +212,7 @@ KCM.SimpleKCM {
 
     // The chosen panel icon size, held here for the same reason surfaceKey is: a Repeater whose
     // delegates are not currently realised reports nothing as checked, and Apply would then write
-    // this file's first option over whatever the user actually has stored.
+    // this file's first option over whatever the user has stored.
     property string iconSizeKey: "auto"
 
     function applyIconSize(key) {
@@ -275,17 +260,14 @@ KCM.SimpleKCM {
         });
     }
 
-    // Runs on pwExecutor, NOT cfgExecutor, and that is the whole fix for it. This call sits on a
-    // 120-second timeout because it opens an authentication dialog and then waits for a human to
-    // deal with it. Sharing the settings queue meant an Apply pressed while that dialog was up
-    // went to the BACK of it: the writes were real and would eventually land, but they landed up
-    // to two minutes later, and in the meantime the page had no way to say so. Its own queue means
-    // Apply is never behind it - the two do not touch the same file, so nothing is serialised by
-    // sharing a queue except the waiting.
+    // Runs on pwExecutor, NOT cfgExecutor. This call sits on a 120-second timeout because it opens
+    // an authentication dialog and then waits for a human. Sharing the settings queue would send an
+    // Apply pressed while that dialog is up to the BACK of it: the writes are real and land
+    // eventually, but up to two minutes later, with no way for the page to say so.
     //
-    // Gating Apply on passwordlessBusy instead was the other option and is worse: the shell's OK
-    // button calls saveConfig() and then closes regardless of what it returns, so a gated save
-    // would discard the user's changes silently on OK - trading a slow write for a lost one.
+    // Gating Apply on passwordlessBusy instead is worse: the shell's OK button calls saveConfig()
+    // and then closes regardless of what it returns, so a gated save would discard the user's
+    // changes silently on OK - trading a slow write for a lost one.
     function runPasswordless(verb) {
         passwordlessBusy = true;
         passwordlessResult = "";
@@ -300,14 +282,13 @@ KCM.SimpleKCM {
         });
     }
 
-    // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt
-    // check`, and a settings dialog that takes two minutes to populate is a broken dialog.
+    // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt check`,
+    // and a settings dialog that takes two minutes to populate is a broken dialog.
     Executor { id: cfgExecutor }
 
     // And the same argument one level down: the passwordless buttons wait on a human in an
     // authentication dialog, so they get a queue of their own rather than parking every read,
-    // write and hold on this page behind that wait. Same split, same reason as main.qml's
-    // executor/tailExecutor pair - a long job never blocks a short one.
+    // write and hold on this page behind that wait.
     Executor { id: pwExecutor }
 
     Component.onCompleted: {
@@ -317,11 +298,9 @@ KCM.SimpleKCM {
         readKey("refresh_interval_min", function (v) {
             var n = parseInt(v, 10);
             if (isNaN(n) || n < 1) return;
-            // The dialog's own floor is 15 (below that a desktop is checking for updates more
-            // often than anyone needs). But `kempt config set refresh_interval_min 5` is a thing
-            // the CLI allows, and a settings page must never silently RAISE a value the user
-            // chose elsewhere - so when the stored value is lower, the control lowers to meet it
-            // and shows the truth instead.
+            // The dialog's own floor is 15, but `kempt config set refresh_interval_min 5` is a
+            // thing the CLI allows - and a settings page must never silently RAISE a value the
+            // user chose elsewhere. When the stored value is lower, the control lowers to meet it.
             if (n < interval.from) interval.from = n;
             interval.value = n;
         });
@@ -329,15 +308,13 @@ KCM.SimpleKCM {
         // The one read on this page with a guard of its own, and it is about the `kempt` that is
         // actually first on PATH rather than about this key. `kempt config get` prints an empty
         // line and exits 0 for a key it has never heard of, so a CLI older than this release
-        // answers with "" - and Logic.isTrue("") is false, the opposite of what the CLI itself
-        // defaults this key to. Taken at face value that would show the reminder as off on a box
-        // where it is on, and the next Apply would then write the off back, because the empty
-        // string is not equal to "true" either. Recording it as readFailed says the true thing -
-        // this key's stored value is unknown - and setIfChanged already knows what to do with
-        // that: leave it alone unless the user moves the control, where the value on screen is
-        // theirs. main.qml's readRestartReminder guards its own copy of this read the same way.
-        // The other booleans here are read without it because they are as old as `kempt config`;
-        // this key is not, so a CLI that predates it is a thing a user can really have.
+        // answers "" - and Logic.isTrue("") is false, the opposite of the CLI's own default. Taken
+        // at face value that shows the reminder as off on a box where it is on, and the next Apply
+        // writes the off back, because "" is not equal to "true" either. Recording it as readFailed
+        // says the true thing - this key's stored value is unknown - and setIfChanged already knows
+        // to leave that alone unless the user moves the control. main.qml's readRestartReminder
+        // guards its own copy of this read the same way. The other booleans here are read without
+        // it because they are as old as `kempt config`; this key is not.
         readKey("restart_reminder", function (v) {
             // The empty answer described above: it means unknown, and unknown is not false.
             if (v === "") {
@@ -349,11 +326,11 @@ KCM.SimpleKCM {
         loadHolds();
     }
 
-    // There is deliberately no onSurfacesLockedChanged here. Snapping the selection to terminal
-    // the moment confirmation was switched on threw away a preference the user had expressed and
-    // could not get back by switching confirmation off again - a checkbox silently editing a
-    // different setting. Locking greys the radios out and the label above them explains why; the
-    // choice underneath is kept, and only the RUN collapses it to terminal.
+    // There is deliberately no onSurfacesLockedChanged here. Snapping the selection to terminal the
+    // moment confirmation is switched on throws away a preference the user expressed and cannot get
+    // back by switching confirmation off again - a checkbox silently editing a different setting.
+    // Locking greys the radios out and the label above them explains why; the choice underneath is
+    // kept, and only the RUN collapses it to terminal.
 
     Kirigami.FormLayout {
         anchors.left: parent.left
@@ -426,10 +403,11 @@ KCM.SimpleKCM {
                 // must be turned off. A RadioButton with autoExclusive left on joins the group of
                 // its PARENT - and a Repeater reparents its delegates to the Repeater's parent, so
                 // these four and the four panel-icon-size buttons further down are all children of
-                // the same Kirigami.FormLayout and were treated as ONE group of eight. Whichever
-                // group's `checked` binding evaluated second won: QQC2 unchecked every other
-                // button in the group, and unchecking one is a WRITE that overrides its binding
-                // for good. A fresh install opened with "Panel icon size" showing nothing at all.
+                // the same Kirigami.FormLayout and would be treated as ONE group of eight.
+                // Whichever group's `checked` binding evaluates second wins: QQC2 unchecks every
+                // other button in the group, and unchecking one is a WRITE that overrides its
+                // binding for good - a fresh install then opens with "Panel icon size" showing
+                // nothing at all.
                 autoExclusive: false
                 // A view of page.surfaceKey, and the only writer of it is a click.
                 checked: page.surfaceKey === surfaceKey
@@ -439,8 +417,8 @@ KCM.SimpleKCM {
                     page.markChanged("surface");
                 }
                 // Only the terminal can prompt, so the rest are unreachable with confirmation on.
-                // The reason is stated above rather than left as a mystery grey-out - and a
-                // locked selection stays visibly selected, just not changeable.
+                // The reason is stated above rather than left as a mystery grey-out - and a locked
+                // selection stays visibly selected, just not changeable.
                 enabled: !page.loading && (!page.surfacesLocked || surfaceKey === "terminal")
             }
         }
@@ -453,11 +431,10 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Check every:")
             from: 15
             to: 1440
-            // 5, not 15. `from` lowers itself below to meet a smaller value the CLI is holding,
-            // and SpinBox steps from the CURRENT value rather than snapping to a grid - so a
-            // 15-minute step off a floor of 5 walks 5, 20, 35, 50 and never lands on a round
-            // interval anyone would pick. Stepping by 5 lands on them from any floor, and the box
-            // is editable for anyone who wants a number the arrows would take a while to reach.
+            // 5, not 15. `from` lowers itself below to meet a smaller value the CLI is holding, and
+            // SpinBox steps from the CURRENT value rather than snapping to a grid - so a 15-minute
+            // step off a floor of 5 walks 5, 20, 35, 50 and never lands on a round interval anyone
+            // would pick. Stepping by 5 lands on them from any floor.
             stepSize: 5
             editable: true
             enabled: !page.loading
@@ -511,27 +488,25 @@ KCM.SimpleKCM {
         Item { Kirigami.FormData.isSection: true }
 
         // --- the restart reminder -------------------------------------------------------------------
-        // Sitting here, with the panel icon above it, because both are settings about what the
-        // WIDGET does on the user's screen - the three groups above them are about the update run
-        // itself, and the buttons below are actions rather than settings.
+        // Here, with the panel icon above it, because both are settings about what the WIDGET does
+        // on the user's screen - the three groups above are about the update run itself, and the
+        // buttons below are actions rather than settings.
         //
         // What this key can and cannot reach is worth being exact about, because it looks like a
-        // switch on the restart and is not one. Whether a restart is owed is a fact the CLI
-        // measures (the state file's reboot_needed); this decides only whether the popup brings it
-        // up. Off, logic.js drops the message and its button and pushes the two-word `restart
-        // pending` onto the status line instead, so the popup stops reminding without starting to
-        // lie. And in neither state does anything restart on its own: the button the message
-        // carries opens KDE's own logout prompt and waits for the user, which is the whole of what
-        // Kempt has ever done about a reboot.
+        // switch on the restart and is not one. Whether a restart is owed is a fact the CLI measures
+        // (the state file's reboot_needed); this decides only whether the popup brings it up. Off,
+        // logic.js drops the message and its button and pushes the two-word `restart pending` onto
+        // the status line instead. And in neither state does anything restart on its own: the button
+        // the message carries opens KDE's own logout prompt and waits for the user.
         QQC2.CheckBox {
             id: restartReminder
             Kirigami.FormData.label: i18n("Restart reminders:")
             text: i18n("Remind me when a restart is needed")
-            // Ticked before anything has been read, unlike the two booleans at the top of the
-            // page, and deliberately: this is the CLI's own default for the key, so the window
-            // between the dialog opening and the read landing shows the likely truth rather than
-            // its opposite. Nothing is written off the back of it - saveConfig refuses to run
-            // while pendingReads is non-zero, and an unread key stays unwritten after that.
+            // Ticked before anything has been read, unlike the two booleans at the top of the page,
+            // and deliberately: this is the CLI's own default for the key, so the window between
+            // the dialog opening and the read landing shows the likely truth rather than its
+            // opposite. Nothing is written off the back of it - saveConfig refuses to run while
+            // pendingReads is non-zero, and an unread key stays unwritten after that.
             checked: true
             enabled: !page.loading
             onToggled: page.markChanged("restart_reminder")
@@ -578,10 +553,9 @@ KCM.SimpleKCM {
                 QQC2.ToolButton {
                     icon.name: "edit-delete-remove"
                     enabled: !page.holdsBusy
-                    // "Stop holding %1", not "...back": nothing is being held BACK. A hold is
-                    // the user's own decision to keep a package at its current version, and the
-                    // popup's own pin says it in exactly these words (UpdateItemDelegate.qml).
-                    // Two spellings of one action is one too many.
+                    // "Stop holding %1", not "...back": nothing is being held BACK, and the popup's
+                    // own pin says it in exactly these words (UpdateItemDelegate.qml). Two
+                    // spellings of one action is one too many.
                     text: i18n("Stop holding %1", modelData.name)
                     display: QQC2.AbstractButton.IconOnly
                     // Icon-only, so `text` is never drawn and the tooltip is only for a pointer.

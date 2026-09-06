@@ -1,29 +1,33 @@
 // The popup: what is pending, what is held, what needs saying about it, and the one button that
 // acts on it.
 //
-// Like the panel icon, this file decides nothing: every string and every list comes from the view
-// model main.qml derives in logic.js, and every action is a call back into main.qml.
+// This file DERIVES nothing. Every string and list it draws comes from the view model main.qml
+// builds in logic.js, and every action is a call back into main.qml - but it also reaches directly
+// for about two dozen members of main.qml through the untyped `plasmoidItem` handle (updating,
+// checking, runRequested, pendingHold, holdError, lastRun, reportText, restartError, logTail,
+// nowMs, setHold, promptRestart, rebuildStaged, showLog, ...). Those are live state and verbs, not
+// derived values: anything that is a DERIVED string or list belongs in the view model, and adding
+// a derivation here instead is the drift to watch for.
 //
-// The SHAPE is Plasma's own, and each of the three rows is a decision with evidence behind it in
-// docs/research/2026-08-26-popup-panel/hig-review.md:
+// The SHAPE is Plasma's own, with the evidence in docs/research/2026-08-26-popup-panel/
+// hig-review.md:
 //   header  - the pending count and a refresh icon. Nothing else. A PlasmoidHeading is a
 //             T.ToolBar, and a toolbar is for flat controls, not for messages.
 //   content - a Kirigami.InlineMessage per thing that needs saying, then the list, then what the
-//             last run did. Every message that used to be stacked in the header lives here now.
+//             last run did.
 //   footer  - the status line and Update Now. The heading is the row Plasma's contract lets the
 //             containment REPLACE; the footer is not, and Update Now is the one control in this
 //             widget that must exist on every host, in every containment.
 //
 // EVERY reference to the widget goes through `plasmoidItem`, never through main.qml's `root` id.
-// That distinction is not style. A representation whose required properties are all satisfied is
-// created successfully; if it then reaches for an id from a context it does not have, each such
-// binding throws a ReferenceError and silently evaluates to undefined - so `!undefined.updating`
-// is true, every button enables itself, and the popup renders a confident, permanently-updating
-// lie. The required properties only protect what actually flows through them.
+// A representation whose required properties are satisfied is created successfully, and if it then
+// reaches for an id from a context it does not have, each such binding throws a ReferenceError and
+// evaluates to undefined - so `!undefined.updating` is true, every button enables itself, and the
+// popup renders a confident, permanently-updating lie.
 //
-// `plasmoidItem` is typed `var` and not `PlasmoidItem` on purpose: most of what this file needs
-// (updating, actionMessage, setHold, ...) is declared in main.qml's QML body, not on the C++
-// PlasmoidItem type, so a typed handle would be a promise the type system cannot keep.
+// `plasmoidItem` is typed `var` and not `PlasmoidItem` on purpose: most of what this file needs is
+// declared in main.qml's QML body, not on the C++ type, so a typed handle would be a promise the
+// type system cannot keep.
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.core as PlasmaCore
@@ -40,34 +44,29 @@ PlasmaExtras.Representation {
     required property var vm
 
     // Whether whatever is hosting us has already drawn a heading of its own. The system tray has:
-    // the popup it puts us in comes with a title bar carrying the plasmoid's name, a pin, and a
-    // configure gear - so our own gear underneath it is the SECOND one on screen, opening the same
-    // dialog. On a panel or the desktop nothing draws that heading and ours is the only way in.
+    // its popup comes with a title bar carrying the plasmoid's name, a pin and a configure gear,
+    // so our own gear underneath would be the SECOND one opening the same dialog. On a panel or
+    // the desktop nothing draws that heading and ours is the only way in.
+    // `containmentDisplayHints & ContainmentDrawsPlasmoidHeading` is the shipped convention:
+    // libplasma's BasicPlasmoidHeading uses it to hide itself in the tray, org.kde.plasma.vault to
+    // drop its footer button there.
     //
-    // `Plasmoid.containmentDisplayHints & ContainmentDrawsPlasmoidHeading` is the shipped
-    // convention for this question rather than a guess: it is the test libplasma's own
-    // BasicPlasmoidHeading uses to hide itself in the tray, and the one org.kde.plasma.vault uses
-    // to drop its footer button there.
+    // A named property rather than the expression inline, because this is the only seam a test can
+    // reach: `containmentDisplayHints` is READ-ONLY on Plasma::Applet, and outside plasmashell the
+    // attached `Plasmoid` has no applet and answers undefined - which is also why the default that
+    // falls out is the safe one (no host heading known, keep our own gear).
+    // tests/qml/probe_popup.py overwrites this AND pins the expression verbatim.
     //
-    // Named property rather than the expression written inline on the button, because this is the
-    // only seam a test can reach. `containmentDisplayHints` is READ-ONLY on Plasma::Applet, and
-    // outside plasmashell the attached `Plasmoid` object has no applet behind it at all - it
-    // answers undefined, which is also why the default that falls out below is the safe one (no
-    // host heading known, so keep our own gear). A probe can neither set the hint nor fake the
-    // applet, but it can overwrite this; tests/qml/probe_popup.py drives it AND pins the
-    // expression verbatim, so the drivable seam cannot drift from what the panel evaluates.
-    //
-    // TWO controls read this, and it must stay two: the gear and the refresh icon, because the
-    // tray's own heading genuinely draws both. It must NOT grow past them. Vault gates its whole
-    // footer this way and Kempt must not copy that - a host that draws its own heading would then
-    // take Update Now away with it, and the footer is the one row Plasma's contract does not let
-    // a containment replace.
+    // TWO controls read this and it must stay two - the gear and the refresh icon, because the
+    // tray's heading genuinely draws both. Vault gates its whole footer this way and Kempt must
+    // not copy that: a host that draws its own heading would take Update Now with it, and the
+    // footer is the one row a containment may not replace.
     property bool traysHeading: (Plasmoid.containmentDisplayHints
                                  & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
-    // These are the representation-switch heuristic, not decoration: Plasma compares the space it
-    // has against them to decide between the panel icon and this popup. Removing them is how a
-    // widget ends up showing the popup inside a panel.
+    // The representation-switch heuristic, not decoration: Plasma compares the space it has
+    // against these to decide between the panel icon and this popup. Removing them is how a widget
+    // ends up showing the popup inside a panel.
     Layout.minimumWidth: Kirigami.Units.gridUnit * 22
     Layout.minimumHeight: Kirigami.Units.gridUnit * 18
     Layout.preferredWidth: Kirigami.Units.gridUnit * 26
@@ -79,47 +78,38 @@ PlasmaExtras.Representation {
     // All of this is about the popup as a WHOLE - which key reaches it, and what holds focus the
     // moment it appears - so it sits above the three rows rather than inside any one of them.
 
-    // Escape ASKS to close. It does not close, and the difference is structural rather than
-    // stylistic: `expanded` is AppletQuickItem's C++ property and its setter dereferences the
-    // applet with no null check, so a file that assigned it here would be a file no test could
-    // ever press Escape in - the probe would segfault before reporting anything (main.qml says
-    // the same thing over its onExpandedChanged). So the popup states the intent and main.qml,
-    // which owns that property, is the one file that carries it out.
+    // Escape ASKS to close. It does not close, and the difference is structural: `expanded` is
+    // AppletQuickItem's C++ property and its setter dereferences the applet with no null check, so
+    // a file that assigned it here would be a file no test could ever press Escape in - the probe
+    // would segfault before reporting anything. main.qml owns that property and carries it out.
     signal closeRequested()
 
     // Klipper's precedent. On the popup rather than on any one control because key events travel
     // from whatever holds focus UP the parent chain: one handler here catches Escape from the
-    // buttons, the padlocks and the message actions alike, and no control has to remember to
-    // forward
-    // it. Accepted, so a host that would also act on it does not get a second go.
+    // buttons, the padlocks and the message actions alike. Accepted, so a host that would also act
+    // on it does not get a second go.
     Keys.onEscapePressed: event => {
         popup.closeRequested();
         event.accepted = true;
     }
 
-    // What the keyboard lands on when the popup opens: the thing the user came to press.
-    //
-    // Refresh is the fallback rather than a greyed-out Update Now because Update Now is HIDDEN
-    // when there is nothing to run (see the footer for why), and forcing focus onto an invisible
-    // item leaves the popup with no focus at all - at which point every key goes nowhere and the
-    // Escape handler above stops working with them.
-    //
-    // Qt.TabFocusReason, and that argument is the difference between focus and VISIBLE focus: a
-    // QQC2 control draws its focus ring on `visualFocus`, which is only true for the keyboard
-    // reasons - Tab, Backtab, a shortcut. Given Qt.PopupFocusReason instead, the button really
-    // would hold focus and nothing on screen would say so.
-
-    // Both halves, and the second one is the half this used to get wrong. `visible` was tested and
-    // `enabled` was not, so an open that coincided with a check in flight put the keyboard on a
-    // Refresh button that was refusing to be pressed. A disabled QQC2 control does not accept
-    // focus, so the forceActiveFocus was simply ignored and the popup opened with focus nowhere.
+    // Both halves, and `enabled` is the half that is easy to forget: an open that coincides with a
+    // check in flight would otherwise put the keyboard on a Refresh button that is refusing to be
+    // pressed, and a disabled QQC2 control does not accept focus - so forceActiveFocus is ignored
+    // and the popup opens with focus nowhere.
     function canTakeFocus(item) {
         return item.visible && item.enabled;
     }
 
-    // In the order of what the person came to do: run the update, ask for fresh counts, open the
-    // settings. The last resort is the popup itself, which is where Keys.onEscapePressed lives -
-    // so even a popup whose every control is unusable can still be closed with a key.
+    // What the keyboard lands on when the popup opens, in the order of what the user came to do.
+    // The last resort is the popup itself, where Keys.onEscapePressed lives, so even a popup whose
+    // every control is unusable can be closed.
+    // Refresh is the fallback rather than a greyed-out Update Now, because Update Now is HIDDEN
+    // when there is nothing to run (see the footer) and forcing focus onto an invisible item
+    // leaves the popup with no focus at all - at which point every key goes nowhere, the Escape
+    // handler included.
+    // Qt.TabFocusReason is the difference between focus and VISIBLE focus: a QQC2 control draws
+    // its ring on `visualFocus`, which only the keyboard reasons set.
     function focusPrimary() {
         if (canTakeFocus(updateButton)) updateButton.forceActiveFocus(Qt.TabFocusReason);
         else if (canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
@@ -128,15 +118,14 @@ PlasmaExtras.Representation {
     }
 
     // --- what the popup says out loud ---------------------------------------------------------
-    // ONE function, and every announcement in this file goes through it. Two reasons, and the
-    // second is the one that made it a function rather than five call sites:
+    // ONE function, and every announcement in this file goes through it:
     //   * `Accessible.announce` reaches an accessibility bridge and nothing else, so there is no
     //     way for a test to hear it. `announced` is emitted alongside, and the probes spy on that.
     //   * politeness is a decision, not a parameter to be re-argued at each call. Assertive is for
     //     something that happened TO the person (a banner that flipped, a run that failed); polite
     //     is for the outcome of something they just did.
-    // Qt 6.11 has the method and both politeness values (measured on this box, 2026-09-05); an
-    // older Qt would not, so the call is guarded rather than assumed.
+    // Qt 6.11 has the method and both politeness values (measured); an older Qt would not, so the
+    // call is guarded rather than assumed.
     signal announced(string sentence)
 
     function announce(sentence, assertive) {
@@ -149,11 +138,11 @@ PlasmaExtras.Representation {
     }
 
     // --- how many messages may be on screen -----------------------------------------------------
-    // Two, and WHICH two is logic.js's rule rather than four visibility bindings: a binding can
-    // say "am I true", and only something that sees all four can say "am I one of the two that
-    // fit". Measured before this: five messages left the list 95 px tall at the default popup
-    // size, and at Layout.minimumHeight the messages alone overflowed - they are outside the
-    // ScrollView, so nothing scrolled and the list was gone entirely (hostile panel, M2).
+    // Two, and WHICH two is logic.js's rule rather than four visibility bindings: a binding can say
+    // "am I true", and only something that sees all four can say "am I one of the two that fit".
+    // Measured: five messages left the list 95 px tall at the default popup size, and at
+    // Layout.minimumHeight the messages alone overflowed - they are outside the ScrollView, so
+    // nothing scrolled and the list was gone entirely.
     readonly property var messageSlots: popup.vm.messageSlots
 
     function shows(slot) {
@@ -162,9 +151,9 @@ PlasmaExtras.Representation {
 
     // A message whose words changed under the reader. Kirigami gives every InlineMessage the
     // AlertMessage role and no name, and a name change on an UNFOCUSED object is not spoken - it
-    // is readable in flat review and nothing else. So the banner that flips from "61 updates are
-    // staged" to "you held kf6-kio after this was prepared" changed its colour, its type and its
-    // buttons, silently, for the person who most needed to hear it.
+    // is readable in flat review and nothing else. So a banner that flips from "61 updates are
+    // staged" to "you held kf6-kio after this was prepared" changes its colour, its type and its
+    // buttons silently, for the person who most needs to hear it.
     //
     // `spoken` is what stops one change being announced twice: `text` and `visible` are two
     // bindings onto the same view-model change and both handlers fire. It is cleared when the
@@ -178,21 +167,19 @@ PlasmaExtras.Representation {
 
     // --- the hold round trip, on this side ------------------------------------------------------
     // main.qml runs the hold and the check that follows it; what arrives here is the moment the
-    // model has been replaced and the row has moved. Three things have to happen then, and none of
-    // them used to: the keyboard follows the package, the viewport stays where the person left it,
-    // and somebody says what happened.
+    // model has been replaced and the row has moved. Three things have to happen then: the
+    // keyboard follows the package, the viewport stays where the person left it, and somebody says
+    // what happened.
 
     // The package whose padlock should take the keyboard as soon as its row exists again. Cleared
-    // by
-    // whoever claims it, so a rebuild that happens for some other reason cannot inherit it.
+    // by whoever claims it, so a rebuild for some other reason cannot inherit it.
     property string refocusName: ""
     // How the press arrived. The two owe opposite things: a keyboard press must take the person to
     // the row wherever it has gone, and a pointer press must not move the list under the pointer.
     property bool refocusFromKeyboard: false
     // Where the list was standing when the padlock was pressed. The model is replaced wholesale,
-    // and a
-    // ListView handed a new model starts at 0 - measured at contentY 884 to 0 on the 24-package
-    // fixture and 1685 to 0 on an 80-row list.
+    // and a ListView handed a new model starts at 0 (measured: contentY 884 to 0 on the 24-package
+    // fixture, 1685 to 0 on an 80-row list).
     property real savedContentY: 0
 
     function claimRefocus(name) {
@@ -209,10 +196,10 @@ PlasmaExtras.Representation {
     }
 
     // Run one turn of the event loop after the model changed, so the ListView has had its layout.
-    // Doing the work here rather than only in the delegate's Component.onCompleted is what makes
-    // it work on a real list: a held row lands at the BOTTOM, under "Held", and a ListView only
-    // builds the delegates near its viewport - so on an ordinary 80-package update the delegate
-    // the refocus is waiting for does not exist until something scrolls to it.
+    // Doing the work here rather than only in the delegate's Component.onCompleted is what makes it
+    // work on a real list: a held row lands at the BOTTOM, under "Held", and a ListView only builds
+    // the delegates near its viewport - so on an 80-package update the delegate the refocus is
+    // waiting for does not exist until something scrolls to it.
     function settleAfterHold() {
         if (popup.refocusName !== "") {
             const idx = popup.rowIndexOf(popup.refocusName);
@@ -241,8 +228,7 @@ PlasmaExtras.Representation {
         function onHoldOutcome(name, hold, ok, message) {
             if (!ok) {
                 // Assertive: the row now carries an error the person has to act on, and the
-                // padlock
-                // under their hand is live again.
+                // padlock under their hand is live again.
                 popup.announce(message, true);
                 return;
             }
@@ -255,12 +241,10 @@ PlasmaExtras.Representation {
         }
     }
 
-    // The open itself. main.qml owns `expanded` and therefore owns the announcement; what any
-    // given surface does about it is that surface's business - the same split as closeRequested.
-    //
-    // Component.onCompleted covers the FIRST open and only that one: this item is built lazily,
-    // as a consequence of the popup being expanded, so on that one occasion it is not yet around
-    // to hear the announcement. Every open after it is the Connections.
+    // The open itself. main.qml owns `expanded` and therefore owns the announcement.
+    // Component.onCompleted covers the FIRST open and only that one: this item is built lazily, as
+    // a consequence of the popup being expanded, so on that one occasion it is not yet around to
+    // hear the signal. Every open after it is the Connections.
     Connections {
         target: popup.plasmoidItem
         function onPopupShown() { popup.focusPrimary(); }
@@ -268,10 +252,9 @@ PlasmaExtras.Representation {
     Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()
 
     // --- the header ------------------------------------------------------------------------------
-    // One row, and that is the whole change here: the count, the refresh icon, the gear. The stale
-    // explanation, the risky warning and the last action's report all used to be stacked in this
-    // toolbar; three of them were messages rather than controls, and they are InlineMessages in the
-    // content area now (hig-review.md P2).
+    // One row: the count, the refresh icon, the gear. Nothing else - three of the things that used
+    // to be stacked in this toolbar were messages rather than controls, and they are InlineMessages
+    // in the content area now (hig-review.md P2).
     header: PlasmaExtras.PlasmoidHeading {
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
@@ -289,50 +272,38 @@ PlasmaExtras.Representation {
             }
 
             // Refresh, in Bluetooth's Header.qml shape (hig-review.md 2.2) - and hidden in the
-            // tray for the same reason Bluetooth hides its own, which took a real panel to see.
-            // The note here used to say the opposite: that Kempt could keep the button because the
-            // tray only offers the action buried in a More-actions menu, and a refresh costing two
-            // clicks and a menu is not worth having. That premise is wrong. Plasma 6.7 renders a
-            // SINGLE contextual action as an ICON in the heading it draws, beside the pin and the
-            // gear, so registering checkAction (main.qml) puts a view-refresh icon on screen at
-            // one click - and ours underneath it was the second one.
+            // tray for the same reason Bluetooth hides its own: Plasma 6.7 renders a SINGLE
+            // contextual action as an ICON in the heading it draws, beside the pin and the gear,
+            // so registering checkAction (main.qml) already puts a view-refresh icon on screen at
+            // one click and ours underneath it would be the second.
             PlasmaComponents.ToolButton {
                 id: refreshButton
                 // Both halves, never the hint alone. claimContextualActions() is a try with a
                 // witness precisely because it can fail, and a tray heading with no action
                 // registered draws no refresh icon at all - gating on the hint by itself would
                 // leave the popup with no way to re-check on the one host where the claim did not
-                // take. Off the tray nobody draws anything and this button is the only refresh
-                // there is, which is why the default that falls out of an undefined hint is to
-                // show it.
+                // take. Off the tray this button is the only refresh there is, which is why the
+                // default that falls out of an undefined hint is to show it.
                 visible: !(popup.traysHeading
                            && popup.plasmoidItem.contextualActionsClaimed)
-                // DISABLED while a check or a run is in flight, and still on screen. The spinner
-                // used to take this button's place instead, on the argument that one spinner
-                // belongs on the control the user pressed - which is right about the spinner and
-                // wrong about the button. A control that leaves the screen takes the keyboard with
-                // it: QQC2 delivers Space to whatever holds activeFocus whether it is drawn or
-                // not, so the keyboard sat on a Refresh nobody could see, and Space there queued
-                // another check behind the one already running. Worse, the popup's own open walks
-                // into it - popupOpened() starts the refresh-on-open check before it announces
-                // popupShown(), so focusPrimary ran at the one moment this control was gone.
-                //
-                // Refusing in place says the same thing to the eye AND to the keyboard: the
-                // button is there, it is greyed, the spinner beside it says why. This is the one
-                // control in the popup where "disabled" is the honest state - unlike Update Now,
-                // whose absence means there is genuinely nothing to run.
+                // DISABLED while a check or a run is in flight, and still on screen. A control
+                // that leaves the screen takes the keyboard with it: QQC2 delivers Space to
+                // whatever holds activeFocus whether it is drawn or not, so swapping a spinner in
+                // for this button leaves the keyboard on a Refresh nobody can see, where Space
+                // queues another check. The popup's own open walks into it - popupOpened() starts
+                // the refresh-on-open check before it announces popupShown().
+                // This is the one control in the popup where "disabled" is the honest state -
+                // unlike Update Now, whose absence means there is genuinely nothing to run.
                 enabled: !popup.plasmoidItem.checking && !popup.plasmoidItem.updating
                 icon.name: "view-refresh"
                 display: PlasmaComponents.AbstractButton.IconOnly
                 text: i18n("Check for Updates")
                 Accessible.name: text
-                // The tooltip is for whoever hovers; this is for whoever cannot (hig-review P8) -
-                // and it says what pressing this DOES rather than repeating the label, which is
-                // what QQC2 already hands over as the name.
-                //
-                // ...and it carries the CLI's own reason when the last check failed. That reason
-                // used to be a whole InlineMessage; it belongs on the button that tries again, and
-                // the footer beside it says that a check failed at all.
+                // The tooltip is for whoever hovers; this is for whoever cannot - and it says what
+                // pressing this DOES rather than repeating the label, which QQC2 already hands over
+                // as the name. It also carries the CLI's own reason when the last check failed:
+                // that reason belongs on the button that tries again, and the footer beside it says
+                // that a check failed at all.
                 Accessible.description: popup.vm.stale && popup.vm.staleReason.length > 0
                     ? i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
                       + "\n" + popup.vm.staleReason
@@ -341,8 +312,8 @@ PlasmaExtras.Representation {
                                                ? text + "\n" + popup.vm.staleReason : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                // Enter, which sent nothing at all before: QQC2 activates on Space only. The
-                // shipped Plasma pattern is per button, not one handler on the popup.
+                // QQC2 activates on Space only. The shipped Plasma pattern is per button, not one
+                // handler on the popup.
                 Keys.onReturnPressed: animateClick()
                 Keys.onEnterPressed: animateClick()
                 // The same belt Update Now wears: a control that is refusing must not act, however
@@ -354,10 +325,10 @@ PlasmaExtras.Representation {
             // cell's width whether it is running or not, so the header does not jump sideways the
             // moment a check starts.
             //
-            // A SIBLING and not the button's child, which matters twice over now: in the tray the
-            // button is hidden and this becomes the only thing on screen saying a check is running
-            // (the heading's icon belongs to the host and does not spin), so a spinner parented to
-            // the button would disappear with it and a tray check would run with no sign at all.
+            // A SIBLING and not the button's child: in the tray the button is hidden and this
+            // becomes the only thing on screen saying a check is running (the heading's icon
+            // belongs to the host and does not spin), so a spinner parented to the button would
+            // disappear with it and a tray check would run with no sign at all.
             Item {
                 implicitWidth: refreshBusy.implicitWidth
                 implicitHeight: refreshBusy.implicitHeight
@@ -407,10 +378,9 @@ PlasmaExtras.Representation {
     }
 
     // --- the content -----------------------------------------------------------------------------
-    // A ColumnLayout rather than the anchored siblings this used to be, because the message stack
-    // has to PUSH the list down rather than float over it. PlasmaExtras.Representation is a Page
-    // whose default property is contentData, so this is reparented into the content area and the
-    // footer below can never overlap it.
+    // A ColumnLayout rather than anchored siblings, because the message stack has to PUSH the list
+    // down rather than float over it. PlasmaExtras.Representation is a Page whose default property
+    // is contentData, so this is reparented into the content area and the footer can never overlap.
     ColumnLayout {
         anchors.fill: parent
         spacing: Kirigami.Units.smallSpacing
@@ -422,27 +392,19 @@ PlasmaExtras.Representation {
         // RowLayout, so they wrap correctly at popup width and get consistent iconography. Shipped
         // precedent inside a plasmoid: org.kde.desktopcontainment's FolderView.qml.
 
-        // No engine on the box, which is the ORDINARY first run of a KDE Store install: the store
-        // carries this plasmoid and nothing else, and every piece of the work is the CLI's. FIRST
-        // in the stack because it is the only message that says the widget cannot do anything at
-        // all yet; everything under it presumes an engine that answered.
+        // No engine on the box, which is the ORDINARY first run of a KDE Store install. FIRST in
+        // the stack because it is the only message saying the widget cannot do anything at all yet.
+        // Information and not Error: nothing is broken, a step has not been taken - and the panel
+        // agrees, keeping the icon dim rather than raising a warning emblem (logic.js, iconState).
         //
-        // Information and not Error, and that is the whole decision: nothing is broken, a step has
-        // not been taken. The panel agrees - the icon stays dim rather than raising a warning
-        // emblem (logic.js, iconState) - and the two must not say different things about the same
-        // machine.
-        //
-        // One action, and it RUNS nothing: Copy Commands puts the two dnf lines on the
-        // clipboard. Kempt installs nothing on anyone's behalf, and there is no command to offer
-        // that would not need the engine that is missing - but an InlineMessage's text cannot be
-        // selected, so without this button the commands have to be retyped, and a retyped command
-        // line fails somewhere the reader then has to debug. The clipboard payload is
-        // vm.engineMissingCopyText, the chained one-line form, NOT the message's own sentence:
-        // pasting a sentence into a shell is its own failure. The rest of the popup needs no new
-        // gate to stay out of the way: Update Now is bound to vm.actionable, the list to vm.rows
-        // and the placeholder to vm.emptyStateText, and with no state all three are already
-        // empty. Refresh deliberately stays: it is how somebody who has just installed the
-        // package gets an answer without waiting out the hourly timer.
+        // One action, and it RUNS nothing: Copy Commands puts the two dnf lines on the clipboard,
+        // because an InlineMessage's text cannot be selected and a retyped command line fails
+        // somewhere the reader then has to debug. The payload is vm.engineMissingCopyText, the
+        // chained one-line form, NOT the message's own sentence: pasting a sentence into a shell is
+        // its own failure. The rest of the popup needs no new gate - Update Now, the list and the
+        // placeholder are all bound to view-model values that are empty with no state. Refresh
+        // deliberately stays: it is how somebody who has just installed the package gets an answer
+        // without waiting out the hourly timer.
         Kirigami.InlineMessage {
             id: engineMissingMessage
             Layout.fillWidth: true
@@ -461,9 +423,9 @@ PlasmaExtras.Representation {
                     }
                 }
             ]
-            // The clipboard, reached the only way pure QML can: an invisible TextEdit whose
-            // copy() is QClipboard underneath. Zero-size and non-visible so it can never take
-            // focus or paint; it holds text only for the instant between the click and the copy.
+            // The clipboard, reached the only way pure QML can: an invisible TextEdit whose copy()
+            // is QClipboard underneath. Zero-size and non-visible so it can never take focus or
+            // paint; it holds text only for the instant between the click and the copy.
             TextEdit {
                 id: engineCopyClip
                 visible: false
@@ -482,15 +444,14 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Warning
             showCloseButton: true
             // Kirigami gives every InlineMessage the AlertMessage role and no NAME, so a screen
-            // reader announcing this alert reads out its icon - "Warning" - and nothing about
-            // what happened. The words are already right here; this is what makes them the
-            // alert's own. Every message in this stack carries it, the two that only ever report
-            // a failure included: a message nobody can hear is a message that is not being shown.
+            // reader announcing this alert reads out its icon - "Warning" - and nothing about what
+            // happened. Every message in this stack carries this, the two that only ever report a
+            // failure included: a message nobody can hear is not being shown.
             Accessible.name: text
             // Every reason this can be hidden is behind this one call, and the handler below
-            // re-evaluates the SAME call. See there for why that matters. The third reason is new:
-            // the stack fits two, and the restart is the cheapest of the four to displace because
-            // the footer says "restart pending" whenever this message is not on screen.
+            // re-evaluates the SAME call. The third reason is the cap: the stack fits two, and the
+            // restart is the cheapest of the four to displace because the footer says "restart
+            // pending" whenever this message is not on screen.
             visible: popup.shows("restart")
             // A prompt that could not be opened says so HERE, where the user pressed. Silence is
             // the worst outcome available: a button that appears to do nothing is indistinguishable
@@ -506,7 +467,7 @@ PlasmaExtras.Representation {
                     icon.name: "system-reboot"
                     // ...and it goes away while the staged banner is a warning. In that state a
                     // restart applies the staged transaction the warning is about, so this button
-                    // offers the very install the person tried to stop - forty pixels above the
+                    // would offer the very install the person tried to stop, forty pixels above the
                     // sentence saying so. logic.js decides it; nothing here re-derives it.
                     enabled: popup.vm.restartShowAction
                     visible: enabled
@@ -516,11 +477,10 @@ PlasmaExtras.Representation {
 
             // Kirigami's close button does exactly one thing:
             //     onClicked: root.visible = false
-            // (/usr/lib64/qt6/qml/org/kde/kirigami/templates/InlineMessage.qml, line 448). That is
-            // an ASSIGNMENT, and assigning to a property destroys the binding on it for good - so
-            // without this the message would not merely close, it would never come back when the
-            // machine's answer changed. This turns that assignment into the call it was meant to
-            // be and puts the binding back.
+            // (templates/InlineMessage.qml). That is an ASSIGNMENT, and assigning to a property
+            // destroys the binding on it for good - so without this the message would not merely
+            // close, it would never come back when the machine's answer changed. This turns that
+            // assignment into the call it was meant to be and puts the binding back.
             //
             // The guard re-evaluates the whole visibility expression rather than reading a cached
             // flag, and THAT is the load-bearing part: this handler also fires when an ancestor
@@ -535,23 +495,18 @@ PlasmaExtras.Representation {
             }
         }
 
-        // What the next restart will install. Usually Positive, and that is the whole point of it
-        // being here: nothing is wrong, nothing needs pressing, and the work the person asked for
-        // is done and waiting. Before this, a staged transaction looked exactly like an un-staged
-        // one - the offline offer below was still on screen - and pressing it again was the
-        // obvious thing to do.
+        // What the next restart will install. Usually Positive: nothing is wrong, nothing needs
+        // pressing, and the work the person asked for is done and waiting. Without it a staged
+        // transaction looks exactly like an un-staged one, with the offline offer below still on
+        // screen and pressing it again the obvious thing to do. vm.stagedMessage is empty unless
+        // the CLI has found a transaction genuinely ARMED, so this is never shown over a stage no
+        // restart would install.
         //
-        // vm.stagedMessage is empty unless the CLI has reconciled its marker against dnf5's own
-        // transaction status and found one that is genuinely ARMED, so this message is never shown
-        // over a stage that no restart would install.
-        //
-        // ...and it FLIPS. Once a hold lands on a package the stored transaction contains, the
-        // reassurance above is false - dnf5 built that transaction before the hold existed and
-        // offers no way to edit a stored one, so the restart installs the package anyway. A second
-        // line under a green checkmark would have been the contradiction one level down, with the
-        // button still on the reassuring half; so the whole message changes type, drops the
-        // restart, and offers the one action that changes the outcome. logic.js decides which
-        // banner this is (stagedVariantOf); nothing here re-derives it.
+        // ...and it FLIPS. Once a hold lands on a package the stored transaction contains the
+        // reassurance is false, and a second line under a green checkmark would be the
+        // contradiction one level down with the button still on the reassuring half - so the whole
+        // message changes type, drops the restart, and offers the one action that changes the
+        // outcome. logic.js decides which banner this is (stagedVariantOf).
         Kirigami.InlineMessage {
             id: stagedMessage
             Layout.fillWidth: true
@@ -561,10 +516,9 @@ PlasmaExtras.Representation {
             type: popup.vm.stagedType === "warning"
                   ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
             text: popup.vm.stagedMessage
-            // The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage
-            // role and no name, so without this a screen reader announces the icon - "Positive",
-            // then later "Warning" - and the difference between the two banners would be a colour,
-            // which for that person is no difference at all. The sentence already says everything.
+            // The flip has to arrive as WORDS. Without a name a screen reader announces the icon -
+            // "Positive", then later "Warning" - and the difference between the two banners would
+            // be a colour, which for that person is no difference at all.
             Accessible.name: text
             visible: popup.shows("staged")
             // ...and it has to be HEARD, not merely readable. See popup.speakMessage. Assertive,
@@ -578,12 +532,10 @@ PlasmaExtras.Representation {
                     // The same action the restart Warning offers, and never at the same time as it:
                     // vm.stagedShowRestart is false while that message is on screen. Two buttons
                     // for one outcome in one small window is how a person ends up pressing both.
-                    // enabled/visible together, the pattern the Show Log action above already uses.
                     //
                     // It also goes away on every warning variant, which is the stricter half of
                     // that rule: the sentence beside it says the next restart will install the
-                    // package they tried to keep out, and a Restart… button under that sentence is
-                    // an invitation to do exactly that.
+                    // package they tried to keep out.
                     text: i18n("Restart…")
                     icon.name: "system-reboot"
                     enabled: popup.vm.stagedShowRestart
@@ -596,17 +548,15 @@ PlasmaExtras.Representation {
                     // transaction to produce the same one back.
                     //
                     // system-software-update, the icon already on Update Now below, because this
-                    // runs the same verb: `kempt update --surface=offline`, the very command
-                    // Install on Next Restart runs. view-refresh would have been wrong twice over -
-                    // it is this popup's icon for "check again", and it is already on the Refresh
-                    // button and the contextual action, so it would say "re-check" on a button
-                    // that stages a transaction. system-reboot is taken by the button standing
-                    // down right beside it.
+                    // runs the same verb: `kempt update --surface=offline`. view-refresh would be
+                    // wrong twice over - it is this popup's icon for "check again" and already sits
+                    // on the Refresh button and the contextual action; system-reboot is taken by
+                    // the button standing down right beside it.
                     text: i18n("Rebuild Staged Update")
                     icon.name: "system-software-update"
                     // The tooltip is the disclosure, not a hint: authorization, and the cost of a
                     // rebuild that fails (dnf5 destroys the stored transaction the moment a
-                    // re-stage begins, so there is no "keep the old one" outcome to fall back on).
+                    // re-stage begins, so there is no "keep the old one" outcome).
                     // Accessible.description carries the identical words because a polkit dialog
                     // takes the focus the moment this is pressed - a screen-reader user who has not
                     // heard the cost by then hears it never.
@@ -630,8 +580,8 @@ PlasmaExtras.Representation {
             Layout.fillWidth: true
             // INFORMATION, not Warning. Nothing here is broken: one of two ways of doing the same
             // update is safer than the other, and the message says which. An amber box over a
-            // button labelled Install on Next Restart, before anything had started, read as an
-            // order to restart the machine now (hostile panel, first-run 3).
+            // button labelled Install on Next Restart, before anything has started, reads as an
+            // order to restart the machine now.
             type: Kirigami.MessageType.Information
             text: popup.vm.riskyMessage
             Accessible.name: text
@@ -641,10 +591,9 @@ PlasmaExtras.Representation {
                     // Named for what it does to the user rather than for the dnf5 flag behind it.
                     text: i18n("Install on Next Restart")
                     // ...and drawn as what it does: this INSTALLS software, at a moment of the
-                    // machine's choosing. `system-reboot` sat on this button and on Restart… at
-                    // the same time, two adjacent restart-shaped actions under one icon, one of
-                    // which opens KDE's logout prompt and one of which stages a transaction
-                    // (hostile panel, M3). `system-reboot` is Restart…'s alone now.
+                    // machine's choosing. `system-reboot` is Restart…'s alone - two adjacent
+                    // restart-shaped actions under one icon, one opening KDE's logout prompt and
+                    // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
                     tooltip: i18n("Applies the update during a restart, so nothing changes underneath your running desktop.")
                     onTriggered: source => popup.plasmoidItem.stageOffline()
@@ -653,14 +602,11 @@ PlasmaExtras.Representation {
         }
 
         // ONE slot for the two reports: what the run that just finished did, and what a button
-        // press that failed had to say. They were two messages stacked one above the other in a
-        // popup that fits two in total, they are never the same event, and the later one is always
+        // press that failed had to say. They are never the same event, and the later one is always
         // the one being asked about - so latest wins, and main.qml decides which that is.
         //
-        // The stale explanation is not here at all any more. It was a blue "i" box whose first
-        // word was "failed", carrying the CLI's raw text with no next step, and the fifth thing
-        // competing for the room. It is three words on the footer's dateline now, which is the
-        // line it was always explaining, with the reason in the Refresh button's tooltip.
+        // The stale explanation is not here at all: it is three words on the footer's dateline,
+        // which is the line it was always explaining, with the reason in the Refresh tooltip.
         Kirigami.InlineMessage {
             id: reportMessage
             Layout.fillWidth: true
@@ -707,15 +653,14 @@ PlasmaExtras.Representation {
                     id: rowsView
                     model: popup.vm.rows
                     clip: true
-                    // Recycling delegates is the one thing this list must NOT do, and the reason
-                    // is the keyboard rather than the frame rate. Qt walks the focus chain in the
+                    // Recycling delegates is the one thing this list must NOT do, and the reason is
+                    // the keyboard rather than the frame rate. Qt walks the focus chain in the
                     // order the delegates are children of the view, and a recycled delegate keeps
                     // the place it was created in - so once the pool starts handing rows back, the
                     // row after the one holding focus is no longer the next child. Measured on an
-                    // 80-package list, 2026-08-27: with reuseItems, Tab threw the user out of the
-                    // list and back through the header twice on the way down. Every row was still
-                    // reachable, and it was still wrong. These delegates are two labels and a
-                    // button, so building them the ordinary way costs nothing worth having.
+                    // 80-package list: with reuseItems, Tab threw the user out of the list and back
+                    // through the header twice on the way down. These delegates are two labels and
+                    // a button, so building them the ordinary way costs nothing worth having.
                     reuseItems: false
 
                     delegate: Loader {
@@ -732,16 +677,16 @@ PlasmaExtras.Representation {
                             ColumnLayout {
                                 spacing: 0
 
-                                // Plasma's own section header rather than a bare Heading: it
-                                // brings the theme's SVG separator, it is what makes this read as
-                                // a Plasma list, and its trailing slot is where a per-section
-                                // action would go later.
+                                // Plasma's own section header rather than a bare Heading: it brings
+                                // the theme's SVG separator, it is what makes this read as a Plasma
+                                // list, and its trailing slot is where a per-section action would
+                                // go later.
                                 PlasmaExtras.ListSectionHeader {
                                     Layout.fillWidth: true
                                     label: modelData.title
                                     // Kirigami's ListSectionHeader marks its OWN label
                                     // Accessible.ignored (system ListSectionHeader.qml), so every
-                                    // group title reached AT-SPI as an unnamed list item - and
+                                    // group title reaches AT-SPI as an unnamed list item - and
                                     // "Held" is the heading that rescues the held state from being
                                     // a glyph and a position. Heading, because that is what a
                                     // screen reader navigates a list by.
@@ -749,9 +694,9 @@ PlasmaExtras.Representation {
                                     Accessible.name: modelData.title
                                 }
 
-                                // The one thing a first-timer is owed under that heading. A dnf
+                                // The one thing a first-timer is owed under that heading: a dnf
                                 // user reads versionlock into a padlock, and a hold is Kempt's own
-                                // list: `dnf upgrade` typed in a terminal ignores it entirely.
+                                // list - `dnf upgrade` typed in a terminal ignores it entirely.
                                 // Gated on the row's own flag rather than on its title, which is a
                                 // string a translator will change.
                                 PlasmaComponents.Label {
@@ -797,16 +742,15 @@ PlasmaExtras.Representation {
                                     popup.savedContentY = rowsView.contentY;
                                     popup.plasmoidItem.setHold(backend, name, hold);
                                 }
-                                // Keyboard focus has arrived in this row. Contain scrolls the
-                                // least amount that makes the row whole, so a row already on
-                                // screen does not move under a mouse user who just clicked it.
-                                // See UpdateItemDelegate for what goes wrong without this.
+                                // Keyboard focus has arrived in this row. Contain scrolls the least
+                                // amount that makes the row whole, so a row already on screen does
+                                // not move under a mouse user who just clicked it.
                                 onPinFocused: rowsView.positionViewAtIndex(index, ListView.Contain)
                                 // The row the person acted on, rebuilt somewhere else in the list.
                                 // settleAfterHold covers the ordinary case; this covers a delegate
                                 // the view creates on its own schedule. Deferred, because at
                                 // Component.onCompleted the item is not in the window's scene yet
-                                // and forceActiveFocus there is a call that does nothing at all.
+                                // and forceActiveFocus there does nothing at all.
                                 Component.onCompleted: if (popup.claimRefocus(modelData.name)) Qt.callLater(focusPin)
                             }
                         }
@@ -814,11 +758,11 @@ PlasmaExtras.Representation {
                 }
             }
 
-            // Up to date, no data yet, or a CLI we could not run. The third one is the only one
-            // that owes the user an instruction, and it gets the CLI's own words plus the command
-            // that diagnoses it. Note what it is NOT shown for: a box whose only pending updates
-            // are held has rows, so the Held group carries the truth instead and "everything is up
-            // to date" is never said over the top of it.
+            // Up to date, no data yet, or a CLI we could not run. The third is the only one that
+            // owes the user an instruction, and it gets the CLI's own words plus the command that
+            // diagnoses it. Note what it is NOT shown for: a box whose only pending updates are
+            // held has rows, so the Held group carries the truth instead and "everything is up to
+            // date" is never said over the top of it.
             PlasmaExtras.PlaceholderMessage {
                 id: placeholder
                 anchors.centerIn: parent
@@ -847,8 +791,8 @@ PlasmaExtras.Representation {
             Layout.preferredHeight: contentHeight
             // ...but never more than half the popup. An ordinary weekly Fedora update installs
             // fifty to two hundred packages, and this row expands to ALL of them: without a
-            // ceiling, one click on the expander would hand the whole popup to a history entry and
-            // squeeze the pending list, which is what the popup is for, down to nothing.
+            // ceiling, one click on the expander hands the whole popup to a history entry and
+            // squeezes the pending list, which is what the popup is for, down to nothing.
             Layout.maximumHeight: Math.round(popup.height / 2)
             clip: true
             // Which makes the row's own view scrollable exactly when it overflows and inert when
@@ -926,12 +870,11 @@ PlasmaExtras.Representation {
     // margins and its SVG prefix, so the same component is both header and footer, and a Page
     // assigns that position itself.
     //
-    // NOT gated on the containment hint, and this is the whole argument for the row existing.
-    // org.kde.plasma.vault gates its footer that way, and copying it would put the primary action
-    // back on the one piece of ground Plasma reserves for itself: every shipped applet treats
-    // heading contents as expendable because the contract says the host may replace them
-    // (hig-review.md 3). Update Now must exist on every host, in every containment. A footer also
-    // keeps it in reach while a 1200-row list scrolls.
+    // NOT gated on the containment hint, and this is the whole argument for the row existing:
+    // gating it the way org.kde.plasma.vault gates its footer would put the primary action back on
+    // the one piece of ground Plasma reserves for itself, which every shipped applet treats as
+    // expendable because the contract says the host may replace it (hig-review.md 3). Update Now
+    // must exist on every host, and a footer keeps it in reach while a 1200-row list scrolls.
     footer: PlasmaExtras.PlasmoidHeading {
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
@@ -945,8 +888,8 @@ PlasmaExtras.Representation {
                 opacity: 0.8
 
                 // ...and said out loud when the box GOES stale, politely. Keyed on the reason and
-                // not on the whole line, because this text is rewritten every thirty seconds by
-                // the clock ("Checked 4 min ago") and a screen reader does not want to hear that.
+                // not on the whole line, because this text is rewritten every thirty seconds by the
+                // clock ("Checked 4 min ago") and a screen reader does not want to hear that.
                 // Polite, because nothing has gone wrong that needs interrupting: the counts above
                 // are still the best known truth and this dates them.
                 property string spokenStale: ""
@@ -978,44 +921,35 @@ PlasmaExtras.Representation {
                 // A raised Button and not a ToolButton: this is the primary action and it is not in
                 // a toolbar any more.
                 //
-                // HIDDEN and not disabled when there is nothing to do. A greyed-out primary button
-                // over "Everything is up to date" was the founder's original complaint about this
-                // popup, and it is the correct call: an up-to-date box has no run to start, so
-                // there is no action to offer rather than an action being refused.
+                // HIDDEN and not disabled when there is nothing to do: an up-to-date box has no run
+                // to start, so there is no action to offer rather than an action being refused.
                 //
-                // ...and the third condition is the same rule applied to a state nobody had
-                // thought about: while a transaction is staged and armed, the work the person
-                // asked for is DONE and waiting for a restart, and this button would start it
-                // again, live, over the top of it. It sat lit under a green banner saying so
-                // (hostile panel, finding 3). Hidden and not disabled, by this file's own rule.
+                // ...and the third condition is that same rule applied to the staged state: while a
+                // transaction is staged and armed the work the person asked for is DONE and waiting
+                // for a restart, and this button would start it again, live, over the top of it.
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed
                 // ...and refusing from the press until `kempt run` comes back. That call launches
-                // the surface and returns, and it is allowed fifteen seconds to do it: the guard
-                // in startUpdate tested `updating`, which is still false for all of them, so a
-                // double press opened TWO terminals, both asking the risky question. Disabled
-                // rather than hidden here, because the action still exists - it is happening.
+                // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
+                // guard tests `updating`, which is still false for all of them. Disabled rather
+                // than hidden here, because the action still exists - it is happening.
                 enabled: !popup.plasmoidItem.runRequested
 
                 // ...which means this control can go off screen while the popup is open and the
-                // keyboard is standing on it. `actionable` reaches 0 on its own - the 30s watcher,
-                // the hourly timer, or a `kempt update` finishing in a terminal - and nothing
-                // calls focusPrimary() again, because the popup did not open, it just changed.
-                //
-                // QQC2 delivers Space and Return to whatever holds activeFocus whether it is
-                // drawn or not, so what was left was an invisible button that started `kempt run`
-                // on a box with nothing to update. The keyboard therefore leaves with the button,
-                // by the same rule that put it here: focusPrimary picks the best control that is
-                // actually usable, which with nothing pending is Refresh.
+                // keyboard is standing on it: `actionable` reaches 0 on its own - the 30s watcher,
+                // the hourly timer, or a `kempt update` finishing in a terminal - and nothing calls
+                // focusPrimary() again, because the popup did not open, it just changed. QQC2
+                // delivers Space and Return to whatever holds activeFocus whether it is drawn or
+                // not, so what is left is an invisible button that starts `kempt run` on a box with
+                // nothing to update.
                 onVisibleChanged: if (!visible && activeFocus) popup.focusPrimary()
 
-                // The belt to that braces. A control that is invisible and still operable is a
-                // trap however the keyboard reached it, and the focus move above is not the only
-                // route in - a screen reader, a shortcut, or a future edit can all put focus back.
+                // The belt to that braces. A control that is invisible and still operable is a trap
+                // however the keyboard reached it, and the focus move above is not the only route
+                // in - a screen reader, a shortcut, or a future edit can all put focus back.
                 onClicked: if (visible) popup.plasmoidItem.startUpdate()
 
-                // Enter as well as Space, the shipped per-button Plasma pattern. Return and keypad
-                // Enter on this button used to send nothing at all.
+                // Enter as well as Space, the shipped per-button Plasma pattern.
                 Keys.onReturnPressed: animateClick()
                 Keys.onEnterPressed: animateClick()
 
@@ -1047,11 +981,10 @@ PlasmaExtras.Representation {
         spacing: Kirigami.Units.smallSpacing
 
         // The pane replaces the whole content area, so every control the keyboard was standing on
-        // goes with it. Measured before this: focus stayed on the INVISIBLE Update Now, and the
-        // utterance over a stuck pane was "Update Now push button" for a control nobody was
-        // drawing; Tab from there landed on a nameless RowLayout (hostile panel, a11y H1).
-        // Both directions, because both are a swap: in, to the one control this pane has; out, to
-        // whatever the popup's own rule says is primary now.
+        // goes with it. Measured: focus stayed on the INVISIBLE Update Now, and the utterance over
+        // a stuck pane was "Update Now push button" for a control nobody was drawing; Tab from
+        // there landed on a nameless RowLayout. Both directions, because both are a swap: in, to
+        // the one control this pane has; out, to whatever the popup's rule says is primary now.
         onVisibleChanged: {
             if (visible) {
                 if (popup.canTakeFocus(checkAgainButton)) {
@@ -1065,12 +998,11 @@ PlasmaExtras.Representation {
         PlasmaComponents.Label {
             id: updatingLabel
             Layout.fillWidth: true
-            // The surface the run is REALLY using, in words rather than in this repo's vocabulary.
-            // It used to read "Updating in the %1 surface…" filled in with the CONFIGURED surface,
-            // so a staging run started from Install on Next Restart announced itself as a terminal
-            // one, and "surface" is a word nobody outside this project knows. The literals are
-            // written here, not read out of logic.js, because i18n() extracts literals - see the
-            // copy table's own header - and Logic.updatingLabelOf is what a node test pins.
+            // The surface the run is REALLY using, in words rather than in this repo's vocabulary:
+            // the configured value is wrong for a staging run started from Install on Next Restart,
+            // and "surface" is a word nobody outside this project knows. The literals are written
+            // here, not read out of logic.js, because i18n() extracts literals - see the copy
+            // table's own header - and Logic.updatingLabelOf is what a node test pins.
             text: {
                 switch (popup.plasmoidItem.runningSurface) {
                 case "popup":      return i18n("Updating…");
@@ -1084,25 +1016,22 @@ PlasmaExtras.Representation {
 
         // The way out. A terminal run that is aborted - the DEFAULT answer to the one question
         // Kempt asks, on the default configuration - never writes state.json, and only a state.json
-        // change ends this pane. Without this the popup sat here, with no list, no Update Now and a
-        // disabled Refresh, for three hours (hostile panel, finding 1).
-        //
-        // FLAT, not raised: it is a way out of a wrong state, not the thing this pane is for, and
-        // a raised button here would read as "press this to finish the update".
-        //
-        // Deliberately NOT Kirigami.LinkButton, which is what a link-styled control would normally
-        // be. Measured on this box: that component is a QQC2.Label with a MouseArea over it - no
-        // focus ring, no place in the Tab ring, no animateClick, and nothing that answers Space.
-        // This pane's whole problem was a keyboard left on a control nobody was drawing, so its
-        // one control has to be a real one. A flat ToolButton is Plasma's own low-emphasis action.
+        // change ends this pane, so without this the popup sits here for three hours with no list,
+        // no Update Now and a disabled Refresh.
+        // FLAT, not raised: a raised button here would read as "press this to finish the update".
+        // Deliberately NOT Kirigami.LinkButton: measured on this box, that component is a
+        // QQC2.Label with a MouseArea over it - no focus ring, no place in the Tab ring, no
+        // animateClick, nothing that answers Space. This pane's whole problem is a keyboard left on
+        // a control nobody is drawing, so its one control has to be a real one; a flat ToolButton
+        // is Plasma's own low-emphasis action.
         PlasmaComponents.ToolButton {
             id: checkAgainButton
             Layout.alignment: Qt.AlignLeft
             flat: true
             display: PlasmaComponents.AbstractButton.TextOnly
             text: i18n("Not updating? Check again")
-            // Refuses while the check it started is running, so it cannot be pressed twice into
-            // the same answer. Disabled rather than hidden: this is the pane's only control, and a
+            // Refuses while the check it started is running, so it cannot be pressed twice into the
+            // same answer. Disabled rather than hidden: this is the pane's only control, and a
             // control that leaves the screen takes the keyboard with it.
             enabled: !popup.plasmoidItem.checking
             Accessible.name: text
@@ -1113,11 +1042,11 @@ PlasmaExtras.Representation {
         }
 
         // A tail, so it stays at the tail. The text is replaced wholesale every two seconds, and
-        // any view that keeps its own scroll position across that jumps back to the first line
-        // each time - which is precisely useless for watching an update run. So: a plain
-        // Flickable, re-pinned to the bottom whenever the content grows.
-        // `stickToBottom` is what keeps it from fighting the user: scroll up to read something and
-        // it stops following, scroll back down and it resumes.
+        // any view that keeps its own scroll position across that jumps back to the first line each
+        // time - precisely useless for watching an update run. So: a plain Flickable, re-pinned to
+        // the bottom whenever the content grows. `stickToBottom` is what keeps it from fighting the
+        // user: scroll up to read something and it stops following, scroll back down and it
+        // resumes.
         Flickable {
             id: logFlick
             Layout.fillWidth: true
