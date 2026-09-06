@@ -2216,6 +2216,40 @@ PAGE_KEYS="$(grep -o 'setIfChanged("[a-z_]*"' "$REPO_ROOT/plasmoid/contents/ui/c
 # problem is not. The real risk the line guards is the grep above silently matching nothing, so
 # that is what it asserts; the canonical list of keys lives in tests/qml/probe_settings.py, where
 # adding one is supposed to be a deliberate edit.
+# --- every entry in the copy table is actually used ----------------------------------------------
+# The table is the SPECIFICATION for the widget's wording, and the QML repeats each literal rather
+# than reading it, because translation extraction works on literals. That duplication is deliberate
+# and it is exactly the kind that drifts: change the table, miss the .qml, and the two disagree
+# with nothing to say so - or delete the last user of an entry and leave the wording behind as a
+# spec for nothing.
+# Three ways an entry can be legitimately in use, and an entry in none of them is dead:
+#   the .qml repeats it verbatim      - the ordinary case, a button or a label
+#   the .qml reads Logic.COPY.<key>   - a message assigned at runtime, where a literal cannot go
+#   logic.js uses COPY.<key> itself   - a sentence the view model assembles and the popup binds
+# Asserting "verbatim in a .qml" alone would be wrong: 23 of the entries are rendered by logic.js
+# and correctly appear in no .qml at all.
+copy_orphans="$(node -e '
+  const fs = require("fs"), path = require("path");
+  const L = require(process.argv[1]);
+  const dir = path.dirname(process.argv[1]);
+  const qml = fs.readdirSync(dir).filter(function (f) { return /\.qml$/.test(f); })
+    .map(function (f) { return fs.readFileSync(path.join(dir, f), "utf8"); }).join("\n");
+  const js = fs.readFileSync(path.join(dir, "logic.js"), "utf8").split("\n")
+    .filter(function (l) { return !/^\s*(\/\/|\*)/.test(l); }).join("\n");
+  const dead = [];
+  Object.keys(L.COPY).forEach(function (k) {
+    const v = L.COPY[k];
+    if (typeof v !== "string") { return; }
+    if (qml.indexOf(v) >= 0) { return; }
+    if (qml.indexOf("COPY." + k) >= 0) { return; }
+    if (js.indexOf("COPY." + k) >= 0) { return; }
+    dead.push(k);
+  });
+  console.log(dead.join(" "));
+' "$REPO_ROOT/plasmoid/contents/ui/logic.js")"
+assert_eq "$copy_orphans" "" \
+  "every entry in the copy table is repeated in the QML, read by the QML, or used by logic.js"
+
 [[ -n "$PAGE_KEYS" ]] && echo "ok: the settings page writes settings this test can see" \
   || { echo "FAIL: found no setIfChanged keys in configGeneral.qml - the grep above has rotted"; _fail=1; }
 for key in $PAGE_KEYS; do

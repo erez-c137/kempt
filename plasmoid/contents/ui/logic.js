@@ -30,8 +30,13 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // IMPORTANT, and not what it looks like: the QML does NOT read these at runtime. It writes the
 // literal, `i18n("Update Now")`, because translation extraction works on LITERALS -
 // `i18n(Logic.COPY.updateNow)` extracts nothing and ships an untranslatable widget. This table is
-// the SPECIFICATION; the QML repeats the same literal and a test asserts every value here appears
-// verbatim in the .qml files. Do not "fix" that duplication by routing these through i18n().
+// the SPECIFICATION; the QML repeats the same literal. Do not "fix" that duplication by routing
+// these through i18n().
+// tests/test_widget_logic.sh pins the duplication so it cannot drift, and it does NOT ask for
+// "verbatim in a .qml" - that would be wrong for the 23 entries below that the view model renders
+// and the QML therefore never spells out. An entry has to be used in one of three ways: repeated
+// verbatim in a .qml, read as `Logic.COPY.<key>` by a .qml where a literal cannot go, or used by
+// this file. An entry in none of them is wording kept as a specification for nothing.
 //
 // What the table does NOT hold is the sentences viewModel ASSEMBLES - footerText, lastRunText,
 // postRunLine, relativeTime. QML cannot wrap an assembled string in i18n() at all, and moving
