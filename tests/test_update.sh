@@ -109,6 +109,9 @@ simulate_reboot() {
 }
 # ...and back to a box carrying an armed transaction, for the blocks that stage again afterwards.
 transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"; }
+# A Fedora RELEASE upgrade, stored in the same file and armed the same way. The fixture's keys are
+# dnf5's own output, captured from `dnf5 system-upgrade download --releasever=45` on Fedora 44.
+release_upgrade_staged() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"; }
 transaction_gone()  { export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"; }
 
 # History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
@@ -973,6 +976,91 @@ push_history_back
 assert_exit 0 "a run that changed no rpm leaves the pending stage alone" -- test -f "$marker"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never discards it"
+
+# --- a staged Fedora release upgrade is not ours to destroy --------------------------------------
+# dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, and staging
+# over one cancels it. Measured against real dnf5 on Fedora 44: the 44 -> 45 transaction is
+# replaced by the ordinary one, dnf5 prints "Continuing will cancel the old offline transaction"
+# and then does it anyway under -y - which is how Kempt runs it - and /system-update is LEFT
+# STANDING, so the machine still restarts into an update, just not the one that was asked for.
+# Re-downloading a Fedora release upgrade is gigabytes, so there is no recovering from it either.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+: > "$WORLD/apply-calls"
+release_upgrade_staged
+rc=0
+relout="$("$KEMPT" update --surface=offline --no-flatpak 2>&1)" || rc=$?
+assert_eq "$rc" "1" "staging over a staged release upgrade fails rather than silently cancelling it"
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0"   "...and dnf5 is never asked to stage, so there is nothing to undo"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0"   "...nor to clean: the transaction is somebody else's and it is left exactly where it is"
+assert_exit 0 "...and no marker is written for a stage that never happened" -- test ! -f "$marker"
+# The refusal has to NAME what is there, or it is one more tool saying no without saying why.
+case "$relout" in
+  *"44 -> 45"*) echo "ok: ...and the reason names the upgrade that is waiting" ;;
+  *) echo "FAIL: the refusal does not say what is staged"; echo "  got: $relout"; _fail=1 ;;
+esac
+case "$relout" in
+  *"dnf5 offline clean"*) echo "ok: ...and how to get rid of it if that is what the person wants" ;;
+  *) echo "FAIL: no remedy offered"; _fail=1 ;;
+esac
+grep -q 'offline stage refused' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the refusal is in the event log, not only on a terminal nobody saw" \
+  || { echo "FAIL: no event for the refusal"; _fail=1; }
+
+# The predicate is a COMPARISON, never "does this file mention a releasever". Both keys are in
+# every state_version 2 file and an ordinary offline upgrade carries the SAME value in both - which
+# is what tests/fixtures/offline-ready.toml records - so a presence test would refuse every
+# rebuild, and holds would stop working.
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/apply-calls"
+transaction_armed
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
+  && echo "ok: an ordinary staged transaction is still restaged, because the two releasevers match" \
+  || { echo "FAIL: the refusal fired on an ordinary offline transaction"; _fail=1; }
+
+# ...and the same rule on the way out. Kempt's marker and dnf5's stored transaction come apart when
+# the user stages a release upgrade AFTER Kempt staged one: dnf5 cancels Kempt's as it stores
+# theirs, leaving our marker over their transaction. The supersede path would then run
+# `dnf5 offline clean` and destroy a release upgrade to tidy up a stage dnf5 had already thrown
+# away. The marker is the only thing here that is ours, so the marker is the only thing that goes.
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"
+exit 0
+STUB
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+relpre="$(jq -r .pre_snapshot "$marker")"
+push_history_back
+: > "$WORLD/apply-calls"
+release_upgrade_staged   # ...and now theirs is the one that is stored
+PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "a live run never cleans a transaction Kempt did not stage"
+assert_exit 0 "...but our marker goes, because it describes one dnf5 already threw away" \
+  -- test ! -f "$marker"
+assert_exit 0 "...along with the snapshot copy it owned" -- test ! -f "$relpre"
+grep -q 'offline marker dropped (a release upgrade' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event says which of the two happened" \
+  || { echo "FAIL: no event naming the release upgrade"; _fail=1; }
+transaction_armed
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+
+# --- back to the ordinary lifecycle --------------------------------------------------------------
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+exit 0
+STUB
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+push_history_back
 
 # ...and after the reboot that actually applies it, the harvest reports the STAGED delta
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"

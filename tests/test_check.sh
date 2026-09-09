@@ -426,6 +426,30 @@ stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update woul
 events_since() { grep -c "$1" "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
 export KEMPT_BOOT_ID="boot-t4"
 
+# --- a staged Fedora release upgrade, published so the widget knows before the press ------------
+# dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, so staging over
+# one cancels it and Kempt refuses to. The popup's Install on Next Restart button is the press that
+# would ask for exactly that, and the popup reads state.json - so the fact has to be IN state.json,
+# or the only way to find out is to press the button and read the failure.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
+rm -f "$marker"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.release_upgrade.from' "$st")" "44" "a staged release upgrade is published: where from"
+assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and where to"
+assert_eq "$(jq -r .schema "$st")" "1" "release_upgrade is additive: the schema does not move"
+# It is NOT part of offline_staged, and the distinction is the whole point: that key describes the
+# transaction KEMPT staged, and this is by definition one it did not.
+assert_eq "$(jq -r 'has("offline_staged")' "$st")" "false" \
+  "...and it is not filed as one of Kempt's own stages, because it is not one"
+
+# ...and the key is ABSENT, never null or false, when there is no release upgrade - an ordinary
+# offline transaction carries the same releasever in both keys, which is what makes the predicate a
+# comparison rather than a presence test.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("release_upgrade")' "$st")" "false" \
+  "an ordinary staged transaction publishes no release upgrade at all"
+
 # ARMED and pending: the state carries the key, and it carries the count the stage was made with.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 stage_marker boot-t4 61

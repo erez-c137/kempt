@@ -334,6 +334,27 @@ the table header is `[offline-transaction-state]` (not `[state]`), and the keys 
 column 0, unindented. `status` is one key among eleven and is not the first, so a reader that took
 the first quoted value in the file would answer `rpmdb_cookie`.
 
+## tests/fixtures/offline-release-upgrade.toml
+A Fedora RELEASE upgrade, stored in the same file as an ordinary offline update because dnf5 keeps
+one stored transaction for both. The keys are dnf5's own output, captured in a Fedora 44 container
+on 2026-09-09 from `dnf5 system-upgrade download --releasever=45` against a local repository, with
+`status` set to `ready` (what `dnf5 offline reboot` writes when it arms one) and the rpmdb cookie
+replaced, which nothing reads.
+
+It exists to pin the one thing that tells the two apart:
+
+    ordinary offline upgrade    system_releasever = "44"   target_releasever = "44"
+    release upgrade 44 -> 45    system_releasever = "44"   target_releasever = "45"
+
+Both keys are present in every `state_version = 2` file, which is why the predicate is a COMPARISON
+and never a presence test - `offline-ready.toml` above is the fixture that proves a presence test
+would refuse every ordinary restage, and holds would stop working.
+
+The same capture also settled what happens without the refusal: staging over a stored release
+upgrade replaces it, dnf5 prints "Continuing will cancel the old offline transaction" and proceeds
+anyway under `-y`, and `/system-update` is left standing - so the machine still restarts into an
+update, just not the one that was asked for.
+
 ## tests/fixtures/offline-ready.toml
 The same file with `status` set to `ready` - the one line `dnf5 offline reboot` changes when it
 arms a transaction (verified in a Fedora 44 container, 2026-09-02: arming rewrites the status and

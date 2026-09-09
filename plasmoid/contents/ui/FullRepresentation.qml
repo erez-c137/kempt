@@ -575,6 +575,25 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that
+        // and for an ordinary offline update alike, so staging updates for a restart would cancel it
+        // - and re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is
+        // what makes the popup stop offering it, so nobody presses a button to be told no.
+        //
+        // Information, and no action of its own: nothing here is broken, there is nothing to fix,
+        // and the two things a person might want to do about it - restart, or drop the upgrade -
+        // are theirs to choose rather than a button in an update widget. It displaces the kernel
+        // recommendation deliberately (logic.js, messageStack), because that message recommends the
+        // one thing this state does not allow.
+        Kirigami.InlineMessage {
+            id: releaseUpgradeMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: popup.vm.releaseUpgradeMessage
+            Accessible.name: text
+            visible: popup.shows("releaseUpgrade")
+        }
+
         // The offline recommendation. The CLI has already decided this transaction touches
         // session-critical packages; the widget's job is to make acting on it one click.
         //
@@ -602,6 +621,11 @@ PlasmaExtras.Representation {
                     // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
                     tooltip: i18n("Applies the update during a restart, so nothing changes underneath your running desktop.")
+                    // Gone, not greyed, while a Fedora release upgrade is stored: the message that
+                    // replaces this one says why, and a disabled button with its explanation in a
+                    // different message is a puzzle rather than an answer.
+                    enabled: popup.vm.offlineStageOffered
+                    visible: enabled
                     onTriggered: source => popup.plasmoidItem.stageOffline()
                 }
             ]

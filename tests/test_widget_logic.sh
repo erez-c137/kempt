@@ -428,6 +428,46 @@ assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the 
 assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("if it cannot start either") >= 0')" "true" \
   "the repair line admits doctor may not start, rather than promising it will"
 
+# --- a Fedora release upgrade staged outside Kempt -----------------------------------------------
+# dnf5 keeps ONE stored transaction for a release upgrade and for an ordinary offline update alike,
+# so staging updates for a restart cancels it - measured against real dnf5, the 44 -> 45 transaction
+# is replaced and /system-update is left standing, so the machine still restarts into an update,
+# just not the one that was asked for. The CLI refuses the press. This is the popup declining to
+# OFFER it, so nobody presses a button to be told no, and re-downloading gigabytes is never on the
+# table.
+# S() re-parses the fixture on every call, so each case gets a state of its own to add the key to.
+RU='function (extra) { var s = S("risky-heavy"); for (var k in extra) s[k] = extra[k]; return L.viewModel(s, false, "", {}); }'
+ru="($RU)({release_upgrade:{from:\"44\",to:\"45\"}})"
+noru="($RU)({})"
+assert_eq "$(js "$ru.offlineStageOffered")" "false" \
+  "with a release upgrade stored, staging for a restart is not offered at all"
+assert_eq "$(js "$noru.offlineStageOffered")" "true" \
+  "...and on an ordinary box it is offered exactly as before"
+assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Fedora 45\") >= 0")" "true" \
+  "the message names the release the machine is about to move to"
+assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"cancel\") >= 0")" "true" \
+  "...and says why the button is missing rather than leaving it a mystery"
+assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
+  "...and what still does work, because only the staged path is affected"
+assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing said about one"
+# The kernel recommendation is SUPPRESSED rather than outranked. Its whole content is "install this
+# on the next restart instead", which is the one thing this state does not allow: leaving it up
+# would advise a button that is no longer on the screen.
+assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade"]' \
+  "the release upgrade replaces the kernel recommendation rather than stacking above it"
+assert_eq "$(js "$noru.messageSlots")" '["kernel"]' \
+  "...which is still what an ordinary risky transaction shows"
+assert_eq "$(js "$ru.stagedShowRebuild")" "false" \
+  "and a rebuild is not offered either: it runs the same verb, so it would cancel it too"
+# Read the way every optional key is read. A state file written before this existed carries none of
+# it, and one edited by hand can carry anything at all.
+for _bad in 'null' 'true' '"44 -> 45"' '{}' '{from:"44"}' '{to:"45"}' '{from:44,to:45}'; do
+  assert_eq "$(js "($RU)({release_upgrade:$_bad}).offlineStageOffered")" "true" \
+    "a release_upgrade of $_bad is not an upgrade, and takes nothing away"
+  assert_eq "$(js "($RU)({release_upgrade:$_bad}).releaseUpgradeMessage")" "" \
+    "...and says nothing about one"
+done
+
 # --- shellQuote: the widget's one injection surface --------------------------------------------
 # Package names come out of the CLI's JSON and go into `kempt hold <backend>:<name>`, which the
 # data engine hands to a shell. Everything state-derived is quoted; these pin the quoting itself,
@@ -1962,7 +2002,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","messageSlots","rebootNeeded","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

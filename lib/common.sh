@@ -570,7 +570,7 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional)
   # The two item arrays arrive through FILES, never --argjson. Linux caps a SINGLE argv entry at
   # 128 KiB (MAX_ARG_STRLEN), and the pending list is the one input here with no bound: at 925
   # packages this exec failed, errexit killed the check before it printed or wrote anything, and
@@ -585,7 +585,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
   jq -n --slurpfile dnfa "$_dnf_f" --slurpfile fpa "$_fp_f" --arg status "$3" --arg error "$4" \
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
-        --argjson offst "${11:-null}" \
+        --argjson offst "${11:-null}" --argjson relup "${12:-null}" \
         --arg now "$(now_iso)" '
     # The two item arrays arrive as one-element arrays because --slurpfile wraps what it reads.
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
@@ -606,6 +606,11 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # and a null would make "no staged transaction" and "a staged transaction we know nothing
     # about" the same shape.
     def staged: if $offst == null then {} else {offline_staged: $offst} end;
+    # Absent when there is none, for the same reason as staged above. NOT part of offline_staged:
+    # that key describes the transaction KEMPT staged, and a release upgrade is by definition one
+    # it did not - the two can even be true at once for a moment, which is the state the refusal in
+    # cmd_update and the marker-drop in reconcile_stage_after_live_run exist to end.
+    def relupgrade: if $relup == null then {} else {release_upgrade: $relup} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
@@ -614,7 +619,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total + staged' > "$_out_f" || rc=$?
+    + total + staged + relupgrade' > "$_out_f" || rc=$?
   # Removed on every path, and jq's status still reaches the caller unchanged: a failed assembly
   # must fail the check exactly as it did when the payload came through argv.
   rm -f "$_dnf_f" "$_fp_f"
@@ -733,12 +738,40 @@ current_boot_id() {
 # grep/sed, not a toml parser: the file is dnf5's, read and never written, and one quoted scalar
 # does not justify a dependency. The line anchor keeps it honest - `status` is the ninth of eleven
 # keys, and a reader taking the first quoted value would answer with the rpmdb cookie.
+# One quoted string out of dnf5's transaction-state file. TOML, read with sed rather than a
+# parser, because there is no TOML parser Kempt may depend on and the file is dnf5's own flat
+# output rather than anything a person hand-writes: one table, one `key = "value"` per line.
+offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot be read
+  [[ -r "$KEMPT_OFFLINE_TOML" ]] || return 1
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" \
+    "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1
+}
+
 offline_system_status() {  # → ready | absent | dnf5's own status word
-  [[ -r "$KEMPT_OFFLINE_TOML" ]] || { printf 'absent\n'; return 0; }
   local s
-  s="$(sed -n 's/^[[:space:]]*status[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
-       "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1 || true)"
+  s="$(offline_toml_value status)" || { printf 'absent\n'; return 0; }
   printf '%s\n' "${s:-absent}"
+}
+
+# Is the transaction dnf5 has stored a Fedora RELEASE upgrade rather than an ordinary offline
+# update? They share ONE stored transaction and one set of commands - `dnf5 offline reboot` arms
+# whichever is there - so this is the only thing that tells them apart, and getting it wrong is
+# expensive in both directions: staging over a release upgrade destroys it, and refusing to stage
+# over an ordinary transaction would break the rebuild that holds depend on.
+#
+# A COMPARISON, never a presence test. Both keys are in every state_version 2 file, and for an
+# ordinary offline upgrade they are EQUAL - tests/fixtures/offline-ready.toml, captured from a real
+# one, carries "44" in both. Measured against real dnf5 on Fedora 44:
+#
+#   dnf5 upgrade --offline               system_releasever = "44"  target_releasever = "44"
+#   dnf5 system-upgrade download --releasever=45
+#                                        system_releasever = "44"  target_releasever = "45"
+offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
+  local from to
+  from="$(offline_toml_value system_releasever)" || return 1
+  to="$(offline_toml_value target_releasever)" || return 1
+  [[ -n "$from" && -n "$to" && "$from" != "$to" ]] || return 1
+  printf '%s -> %s\n' "$from" "$to"
 }
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same

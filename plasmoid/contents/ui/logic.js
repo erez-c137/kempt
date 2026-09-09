@@ -250,7 +250,16 @@ var COPY = {
     // remedy is two commands and the repair one is a single command, and a button offering to copy
     // "Commands" that copies one is the kind of small wrongness that makes a person check.
     engineCopyCommands: "Copy Commands",
-    engineCopyCommand: "Copy Command"
+    engineCopyCommand: "Copy Command",
+
+    // A Fedora release upgrade somebody has staged outside Kempt. dnf5 keeps ONE stored
+    // transaction for that and for an ordinary offline update alike, so staging updates for a
+    // restart would cancel it - and re-downloading a release upgrade is gigabytes. The CLI refuses
+    // to; this is the popup saying so before the press rather than after it.
+    // Two entries, joined: what is true, then what it means for this widget. The first alone is
+    // what the tooltip takes, because a panel hover is not the place for the second.
+    releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart.",
+    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it. Updating now still works."
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -725,7 +734,10 @@ var MESSAGE_CAP = 2;
 //            pending" whenever this message is not on screen, so the fact is never lost.
 //   kernel   the offline recommendation. Last: it is advice about a transaction that will still be
 //            there next time the popup is opened.
-var MESSAGE_ORDER = ["report", "staged", "restart", "kernel"];
+// `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
+// the whole operating system, which outranks anything below it, and it is the reason the offline
+// button is missing - a person looking for that button needs this message, not the one it displaced.
+var MESSAGE_ORDER = ["report", "releaseUpgrade", "staged", "restart", "kernel"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1283,6 +1295,17 @@ function viewModel(state, updating, cliError, opts) {
     // isArray, not a duck-typed length check: a STRING has a numeric length and indexes into its
     // own characters, so `risky_pending: "kernel-core"` would walk out of here as "11
     // session-critical pending (c, e, k, l, ...)".
+    // Guarded like every optional key: absent from every state file written before it existed, and
+    // possibly the wrong type in one that has been edited by hand. Both halves or neither - "a
+    // Fedora  upgrade" with a hole where the number goes is worse than saying nothing.
+    var relUp = (usable && state.release_upgrade && typeof state.release_upgrade === "object")
+        ? state.release_upgrade : null;
+    var relTo = (relUp && typeof relUp.to === "string") ? relUp.to : "";
+    var relFrom = (relUp && typeof relUp.from === "string") ? relUp.from : "";
+    var releaseUpgrade = (relTo !== "" && relFrom !== "");
+    var releaseUpgradeMessage = releaseUpgrade
+        ? COPY.releaseUpgradeStaged.replace("%1", relTo) + " " + COPY.releaseUpgradeNoStage : "";
+
     var riskyMessage = staged ? "" : riskyMessageOf(
         usable && isArray(state.risky_pending) ? state.risky_pending : []);
 
@@ -1428,7 +1451,12 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged,
-        kernel: riskyMessage !== ""
+        releaseUpgrade: releaseUpgradeMessage !== "",
+        // Suppressed while a release upgrade is stored, and not merely outranked: the kernel
+        // message exists to RECOMMEND installing on the next restart, and that is the one thing
+        // this state does not allow. Leaving it on screen would advise a button that is no longer
+        // there.
+        kernel: riskyMessage !== "" && !releaseUpgrade
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -1518,7 +1546,13 @@ function viewModel(state, updating, cliError, opts) {
         // ...and what stands in its place. Only on the variants where there is something to
         // change: rebuilding an ordinary armed stage would destroy a good transaction (spec G2) to
         // produce the same one back.
-        stagedShowRebuild: stagedWarning,
+        // ...and never while a release upgrade is stored: a rebuild runs the same privileged verb
+        // as a stage, so it would cancel the upgrade exactly as a first stage would.
+        stagedShowRebuild: stagedWarning && !releaseUpgrade,
+        // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
+        // stops it being offered, so nobody has to press a button to be told no.
+        offlineStageOffered: !releaseUpgrade,
+        releaseUpgradeMessage: releaseUpgradeMessage,
         // Published rather than left as a literal in the QML's Accessible.description, so the
         // words a screen reader hears and the words the tooltip shows are one decision. The QML
         // still writes the literal for i18n extraction; the probe ties the two together.

@@ -720,6 +720,21 @@ grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
   && echo "ok: ...pointing at the command that describes it" \
   || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
 
+# ...and when that transaction is a Fedora RELEASE upgrade, say so. "Something is staged" and "your
+# machine restarts into Fedora 45" are different things to be told, and this is the one case where
+# Kempt's own offline button is refused - a person who presses it and is turned down should be able
+# to find out here why, rather than only from the failure.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
+grep -qE '^info  a Fedora release upgrade \(44 -> 45\) is staged outside Kempt' "$TESTTMP/staged.txt" \
+  && echo "ok: a staged release upgrade is named as one, with both releases" \
+  || { echo "FAIL: no release-upgrade line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qF 'will not stage updates over it' "$TESTTMP/staged.txt" \
+  && echo "ok: ...saying why Kempt refuses to stage while it is there" \
+  || { echo "FAIL: the row does not explain the refusal"; _fail=1; }
+grep -qE '^FAIL' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: a release upgrade waiting to install was reported as a fault"; _fail=1; } \
+  || echo "ok: ...and it is information, not a fault: nothing here is broken"
+
 # --- the marker read the way every other reader reads it ------------------------------------------
 # doctor used to jq the marker file directly, so a torn or garbage one answered `empty` for the
 # count and fell straight through to the armed row: a report whose whole job is to catch a

@@ -95,8 +95,17 @@ cmd_check() {
   # cleared must not be published one line later as still pending.
   local staged_state
   staged_state="$(offline_staged_state)"
+  # dnf5 keeps ONE stored transaction for ordinary offline updates and Fedora release upgrades
+  # alike, so a staged release upgrade is a fact about what the offline surface can do right now:
+  # staging over it cancels it, and Kempt refuses to. Published so the widget can say so and stop
+  # offering the button, rather than the CLI explaining it after the press.
+  local relup_json="" relup_pair
+  if relup_pair="$(offline_release_upgrade)"; then
+    relup_json="$(jq -cn --arg from "${relup_pair%% *}" --arg to "${relup_pair##* }" \
+                    '{from:$from, to:$to}')" || relup_json=""
+  fi
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
@@ -342,7 +351,10 @@ reconcile_stage_after_live_run() {
   # three cases below are three situations, not variations on one rule. snapshots_ok (plus -s as
   # a floor): none may be decided on a truncated or empty snapshot.
   if [[ "$surface" != "offline" && -f "$OFFLINE_MARKER" && "$snapshots_ok" == true && -s "$SNAP_DIR/dnf-after.tsv" ]]; then
-    local mpre
+    # Declared here, and named apart from cmd_update's own: these extracted sections run inside
+    # cmd_update's scope on purpose, and a name shared with one of its variables would either
+    # shadow it or leak out as a global depending on which branch the caller took.
+    local mpre stored_relup
     mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
     if [[ -z "$mpre" || ! -f "$mpre" ]]; then
       # Leave the marker alone: harvest_offline handles a dead pointer on its own (it clears the
@@ -365,7 +377,16 @@ reconcile_stage_after_live_run() {
         # failed offline boot waiting to happen.
         # ORDER: the marker goes with the stage, never before it - a marker without a stage
         # promises the popup and the doctor an install nothing can deliver.
-        if apply_with_retry "$log" priv_apply dnf-offline-clean; then
+        # ...but never clean a transaction that is not ours. Kempt's marker and dnf5's stored
+        # transaction can come apart: the user stages a release upgrade after Kempt staged one, and
+        # dnf5 cancels Kempt's as it stores theirs, leaving our marker over their transaction. A
+        # clean here would then destroy a Fedora release upgrade to tidy up a stage that dnf5 had
+        # already thrown away. The marker is the only thing that is ours, so the marker is what
+        # goes; the transaction is left exactly where it is.
+        if stored_relup="$(offline_release_upgrade)"; then
+          rm -f "$OFFLINE_MARKER" "$mpre"
+          log_event "offline marker dropped (a release upgrade ($stored_relup) replaced our stage)"
+        elif apply_with_retry "$log" priv_apply dnf-offline-clean; then
           rm -f "$OFFLINE_MARKER" "$mpre"
           log_event "offline stage dropped (superseded by live update)"
         else
@@ -473,7 +494,7 @@ cmd_update() {
     # over it - and the next restart detours into the offline updater, installing nothing.
     # Two sources, either enough alone: Kempt's marker and dnf5's status - the second covers a
     # transaction Kempt did not stage, which the re-stage destroys identically.
-    local had_stage=false prev_marker prev_pre="" prev_conflict=""
+    local had_stage=false prev_marker prev_pre="" prev_conflict="" relup=''
     prev_marker="$(offline_marker_read)"
     [[ -n "$prev_marker" || "$(offline_system_status)" != absent ]] && had_stage=true
     if [[ -n "$prev_marker" ]]; then
@@ -489,7 +510,22 @@ cmd_update() {
     # system-update-generator looks for. Arming HERE, not at the restart click, is what makes the
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
-    if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
+    # REFUSED over a Fedora release upgrade, before anything is run. dnf5 keeps ONE stored
+    # transaction for both kinds, so staging updates over a staged release upgrade cancels it.
+    # Measured against real dnf5: the 44 -> 45 transaction is replaced by the ordinary one, dnf5
+    # prints "Continuing will cancel the old offline transaction" and then does it anyway under
+    # -y - which is how Kempt runs it - AND /system-update is left standing, so the machine still
+    # restarts into an update, just not the one that was asked for. Nothing about that is
+    # recoverable afterwards: the transaction is gone and its contents with it, and re-downloading
+    # a release upgrade is gigabytes.
+    # A run rather than a stage is deliberately NOT refused here: it does not replace the stored
+    # transaction, and refusing ordinary updates because a release upgrade is pending would be a
+    # bigger imposition than the one this avoids.
+    if relup="$(offline_release_upgrade)"; then
+      dnf_status="failed"; status="failed"
+      reason_override="a Fedora release upgrade ($relup) is already staged, and staging updates would cancel it - restart to install it, or remove it with: sudo dnf5 offline clean"
+      log_event "offline stage refused: a release upgrade ($relup) is staged"
+    elif apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
       # transaction is stored", and calling THAT "staged but could not arm" blames the arm for a
@@ -1483,7 +1519,14 @@ doctor_offline_rows() {
   elif [[ "$dr_toml" != absent ]]; then
     # Not Kempt's: it staged nothing and will harvest nothing. Still worth a line for somebody
     # reading this because a restart installed things they did not expect.
-    doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
+    # Named when it can be: "a release upgrade is waiting" is a different thing to be told than
+    # "something is staged", and it is the case where Kempt's own offline button is refused.
+    local dr_relup
+    if dr_relup="$(offline_release_upgrade)"; then
+      doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt (status \"$dr_toml\") - it installs on the next restart, and Kempt will not stage updates over it because that would cancel it"
+    else
+      doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
+    fi
   fi
 
   # The boot symlink, the half of arming that decides what the next restart does. A symlink over a

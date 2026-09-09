@@ -934,6 +934,7 @@ QtObject {
     MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
                 ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
+                ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
                 ("riskyMessage", "the session-critical warning"),
                 ("reportMessage", "the report of the last thing that happened")]
 
@@ -1529,6 +1530,47 @@ QtObject {
     settle()
     ev('root.postRunLine = ""')
 
+    # --- ...and the state where that button must not be there at all ---------------------------------
+    # A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that and
+    # for an ordinary offline update alike, so pressing Install on Next Restart would cancel it -
+    # measured against real dnf5, the transaction is replaced and /system-update is left standing, so
+    # the machine still restarts into an update, just not the one that was asked for, and
+    # re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is the popup
+    # never making it available.
+    _ru = json.loads(open(fixture("state-risky-heavy.json")).read())
+    _ru["release_upgrade"] = {"from": "44", "to": "45"}
+    _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
+    open(_rupath, "w").write(json.dumps(_ru))
+    state(_rupath)
+    stack("with a Fedora release upgrade staged", "releaseUpgradeMessage")
+    p.check("...naming the release the machine is about to move to",
+            "Fedora 45" in str(lev("releaseUpgradeMessage.text")), True)
+    p.check("...carrying logic.js's sentence rather than a second copy of it",
+            lev("releaseUpgradeMessage.text"), ev("root.vm.releaseUpgradeMessage"))
+    p.check("...as Information: a release upgrade waiting to install is not a fault",
+            lev("releaseUpgradeMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...announced to a screen reader in the same words",
+            lev("releaseUpgradeMessage.Accessible.name"), lev("releaseUpgradeMessage.text"))
+    # No action of its own: restarting, or dropping the upgrade, are the person's to choose rather
+    # than a button in an update widget.
+    p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"), 0)
+    # The recommendation it replaced is GONE rather than pushed down a slot: its whole content is
+    # "install this on the next restart instead", which is the one thing this state does not allow.
+    p.check("the kernel recommendation is not on screen recommending a button that is not there",
+            lev("riskyMessage.visible"), False)
+    # ...and the press itself is unreachable, which is the point of the whole exercise.
+    _before_ru = p.call_count("update")
+    p.check("Install on Next Restart is not offered at all",
+            lev("riskyMessage.actions[0].visible"), False)
+    p.check("...nor merely greyed out with its explanation somewhere else",
+            lev("riskyMessage.actions[0].enabled"), False)
+    p.check("...and nothing was run", p.call_count("update") - _before_ru, 0)
+
+    state(fixture("state-risky-heavy.json"))
+    p.check("an ordinary box gets the button back, unchanged",
+            lev("riskyMessage.actions[0].visible"), True)
+    ev('root.postRunLine = ""')
+
     # --- the stale explanation --------------------------------------------------------------------------
     state(fixture("state-stale.json"))
     p.check("staleness is not a message at all any more: the popup fits two, and this was the fifth",
@@ -1850,6 +1892,8 @@ _ASSEMBLED_IN_LOGIC = {
     "engineUnrunnableFix",  # -> vm.engineFaultMessage
     "engineCopyCommands",   # -> vm.engineFaultActionLabel: the button's label follows its payload
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
+    "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
+    "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",
