@@ -575,6 +575,24 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr,
+        // dnf is not how the machine updates, and `kempt update` aborts in pre-flight. Those images
+        // ship dnf5 and plasma-workspace, so Kempt installs cleanly and everything here fills in
+        // with dnf's answers - which is exactly why this has to be said outright rather than left
+        // to a button press to discover.
+        //
+        // Information: the machine is not broken and neither is Kempt, it is the wrong tool for
+        // this box. No action of its own - Discover is where this belongs, and an update widget
+        // launching another updater is not a button anybody asked for.
+        Kirigami.InlineMessage {
+            id: imageBasedMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: popup.vm.imageBasedMessage
+            Accessible.name: text
+            visible: popup.shows("imageBased")
+        }
+
         // A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that
         // and for an ordinary offline update alike, so staging updates for a restart would cancel it
         // - and re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is
@@ -957,8 +975,10 @@ PlasmaExtras.Representation {
                 // ...and the third condition is that same rule applied to the staged state: while a
                 // transaction is staged and armed the work the person asked for is DONE and waiting
                 // for a restart, and this button would start it again, live, over the top of it.
+                // ...and the fourth is a machine dnf cannot update at all, where the run would
+                // abort in pre-flight whatever it was asked to do.
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
-                         && !popup.vm.stagedArmed
+                         && !popup.vm.stagedArmed && popup.vm.updateOffered
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather

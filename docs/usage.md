@@ -31,7 +31,7 @@ One contract, every subcommand:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
-| 5 | Aborted during pre-flight. Nothing was changed. |
+| 5 | Aborted during pre-flight. Nothing was changed. Includes `update` on an image-based Fedora, where rpm-ostree rather than dnf is what updates the system. |
 
 Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
 set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
@@ -145,6 +145,17 @@ kempt update                      # everything, per config
 kempt update --no-flatpak         # this run: system packages only
 kempt update --surface=offline    # stage it; applies on the next reboot
 ```
+
+**On an image-based Fedora, this refuses.** Silverblue, Kinoite, Bazzite and bootc images update
+through rpm-ostree, and `/usr` is not dnf's to write. Every surface aborts in pre-flight with exit
+5, having changed nothing, and says to use Discover or `rpm-ostree upgrade`. The test is one file,
+`/run/ostree-booted`, which is absent on ordinary Fedora even when rpm-ostree is installed.
+
+The refusal is deliberate rather than a limitation nobody got round to: those images ship dnf5, so
+`dnf5 check-update` lists updates and `dnf5 upgrade` resolves a transaction instead of saying no.
+Left to fail on its own it would fail after the download, in the middle, with a message about a
+read-only file system and nothing anywhere about rpm-ostree. `kempt doctor` says so on its second
+line, and `kempt check` publishes it so the widget stops offering the button.
 
 What happens, in order:
 

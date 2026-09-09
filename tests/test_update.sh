@@ -1050,6 +1050,43 @@ grep -q 'offline marker dropped (a release upgrade' "$KEMPT_STATE_DIR/events.log
 transaction_armed
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
+# --- an image-based Fedora, where dnf is not how the machine updates -----------------------------
+# Kinoite, Silverblue, Bazzite, a bootc image. Measured in the Kinoite image: it ships dnf5 AND
+# plasma-workspace, so both Kempt packages' dependencies resolve, `kempt doctor` passed every check,
+# the widget appeared, and `dnf5 upgrade` RESOLVED a transaction rather than refusing. That last one
+# is what makes it dangerous - left to fail on its own it fails after the download, in the middle,
+# with a message about a read-only file system and nothing anywhere about rpm-ostree.
+# The gate is one file: /run/ostree-booted, written by ostree-prepare-root on a booted deployment
+# and absent on ordinary Fedora EVEN WHEN rpm-ostree is installed - which is why it is not the
+# presence of a binary.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+: > "$WORLD/apply-calls"
+: > "$WORLD/notifications"
+touch "$TESTTMP/ostree-booted"
+rc=0
+ibout="$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=background --no-flatpak 2>&1)" || rc=$?
+assert_eq "$rc" "5" "on an image-based system the run aborts in pre-flight, having changed nothing"
+assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "...with nothing escalated and nothing run"
+case "$ibout" in
+  *rpm-ostree*) echo "ok: ...and the refusal names the tool that DOES update this machine" ;;
+  *) echo "FAIL: the refusal does not mention rpm-ostree"; echo "  got: $ibout"; _fail=1 ;;
+esac
+grep -q 'rpm-ostree' "$WORLD/notifications" \
+  && echo "ok: ...on the notification too, for the surfaces where nobody reads stderr" \
+  || { echo "FAIL: no notification for the pre-flight abort"; _fail=1; }
+# ...and staging is refused in the same place, because it is the same run.
+rc=0
+KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "5" "staging aborts in the same place, for the same reason"
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" \
+  "...having staged nothing"
+# The seam is a FILE TEST, so an ordinary Fedora - where the file does not exist - is untouched.
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" \
+  && echo "ok: an ordinary Fedora updates exactly as before" \
+  || { echo "FAIL: the ostree gate fired on an ordinary box"; _fail=1; }
+
 # --- the marker write happens AFTER the machine is armed -----------------------------------------
 # `dnf5 offline reboot` has already run by the time write_stage_marker starts, so the transaction
 # WILL install on the next restart whatever happens next. Under errexit a full home was enough to

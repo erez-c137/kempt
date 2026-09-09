@@ -106,6 +106,11 @@ KEMPT_OFFLINE_TXJSON="${KEMPT_OFFLINE_TXJSON:-/usr/lib/sysimage/libdnf5/offline/
 # doctor` alone, with lstat and never a test of the target: the generator does not care whether the
 # target resolves, so neither may we. A seam because a test cannot create /system-update.
 KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
+# What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
+# Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
+# installed, which is why it is this file and not the presence of a binary - the package resolves
+# on a package-based box and says nothing about how that box updates.
+KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -570,7 +575,7 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional), $13 image_based true or null (optional)
   # The two item arrays arrive through FILES, never --argjson. Linux caps a SINGLE argv entry at
   # 128 KiB (MAX_ARG_STRLEN), and the pending list is the one input here with no bound: at 925
   # packages this exec failed, errexit killed the check before it printed or wrote anything, and
@@ -586,6 +591,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
         --argjson offst "${11:-null}" --argjson relup "${12:-null}" \
+        --argjson img "${13:-null}" \
         --arg now "$(now_iso)" '
     # The two item arrays arrive as one-element arrays because --slurpfile wraps what it reads.
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
@@ -611,6 +617,10 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # it did not - the two can even be true at once for a moment, which is the state the refusal in
     # cmd_update and the marker-drop in reconcile_stage_after_live_run exist to end.
     def relupgrade: if $relup == null then {} else {release_upgrade: $relup} end;
+    # true or absent, never false: this says "dnf is not how this machine updates", and a box where
+    # it IS has nothing to declare. A reader that has never heard of the key behaves correctly on
+    # every ordinary Fedora by doing nothing, which is what an additive key has to mean.
+    def imagebased: if $img == null then {} else {image_based: $img} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
@@ -619,7 +629,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total + staged + relupgrade' > "$_out_f" || rc=$?
+    + total + staged + relupgrade + imagebased' > "$_out_f" || rc=$?
   # Removed on every path, and jq's status still reaches the caller unchanged: a failed assembly
   # must fail the check exactly as it did when the payload came through argv.
   rm -f "$_dnf_f" "$_fp_f"
@@ -746,6 +756,13 @@ offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot
   sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" \
     "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1
 }
+
+# Is this an image-based Fedora, where rpm-ostree owns /usr and dnf is not how the system updates?
+# It matters because NOTHING ELSE gives it away: Kinoite ships dnf5 and plasma-workspace, so both
+# Kempt packages install cleanly, the widget appears, `dnf5 check-update` lists updates and
+# `dnf5 upgrade` resolves a transaction rather than refusing. Every surface then describes a
+# package-based machine that is not there.
+on_ostree() { [[ -e "$KEMPT_OSTREE_MARKER" ]]; }
 
 offline_system_status() {  # → ready | absent | dnf5's own status word
   local s

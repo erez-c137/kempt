@@ -66,6 +66,12 @@ sandbox() {  # fresh dirs per test file; call first
   # from under every staging test in test_update.sh before it could be harvested. The fixture says
   # `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
   # none) point the seam somewhere else themselves.
+  # Pinned at a path that does not exist, for the same reason as the seams above: unset, this reads
+  # the REAL /run/ostree-booted, so running the suite on Silverblue or Kinoite would refuse every
+  # update and add a FAIL to every doctor report - the suite would describe the developer's box
+  # rather than the code. "Not an image-based system" is the branch worth exercising by default;
+  # the file that needs the other one points the seam at something that exists.
+  export KEMPT_OSTREE_MARKER="$TESTTMP/not-ostree-booted"
   export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
   # PINNED for the same reason as the toml above, and at the matching half of the same recorded
   # stage: unset, this reads the REAL /usr/lib/sysimage/libdnf5/offline/transaction.json, so whether

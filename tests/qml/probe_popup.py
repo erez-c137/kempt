@@ -935,6 +935,7 @@ QtObject {
                 ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
                 ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
+                ("imageBasedMessage", "the rpm-ostree message"),
                 ("riskyMessage", "the session-critical warning"),
                 ("reportMessage", "the report of the last thing that happened")]
 
@@ -1571,6 +1572,40 @@ QtObject {
             lev("riskyMessage.actions[0].visible"), True)
     ev('root.postRunLine = ""')
 
+    # --- ...and a machine dnf cannot update at all --------------------------------------------------
+    # An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr, and
+    # `kempt update` aborts in pre-flight. Those images ship dnf5 and plasma-workspace, so Kempt
+    # installs cleanly, the widget appears and every list fills in with dnf's answers - which is why
+    # the popup has to say what this box is rather than leaving a button press to reveal it.
+    _ib = json.loads(open(fixture("state-risky-heavy.json")).read())
+    _ib["image_based"] = True
+    _ibpath = os.path.join(p.sandbox, "state-image-based.json")
+    open(_ibpath, "w").write(json.dumps(_ib))
+    state(_ibpath)
+    stack("on an image-based Fedora", "imageBasedMessage")
+    p.check("...naming the tool that does update this machine",
+            "rpm-ostree" in str(lev("imageBasedMessage.text")), True)
+    p.check("...carrying logic.js's sentence rather than a second copy of it",
+            lev("imageBasedMessage.text"), ev("root.vm.imageBasedMessage"))
+    p.check("...as Information: neither the machine nor Kempt is broken",
+            lev("imageBasedMessage.type"), lev("Kirigami.MessageType.Information"))
+    p.check("...and asks for nothing, because Discover is where this belongs",
+            lev("imageBasedMessage.actions.length"), 0)
+    # The two buttons that would abort in pre-flight are gone rather than greyed.
+    p.check("Update Now is not offered on a machine dnf cannot update",
+            lev("updateButton.visible"), False)
+    p.check("...nor Install on Next Restart, which aborts in the same place",
+            lev("riskyMessage.actions[0].visible"), False)
+    # ...and Refresh stays: a check reads, changes nothing, and is how the list stays current.
+    p.check("...while Refresh stays, because reading is not the thing that is refused",
+            lev("refreshButton.visible && refreshButton.enabled"), True)
+    p.check("...and the pending rows are still listed, because they are what dnf can see",
+            lev("rowsView.count") > 0, True)
+
+    state(fixture("state-risky-heavy.json"))
+    p.check("an ordinary Fedora gets Update Now back", lev("updateButton.visible"), True)
+    ev('root.postRunLine = ""')
+
     # --- the stale explanation --------------------------------------------------------------------------
     state(fixture("state-stale.json"))
     p.check("staleness is not a message at all any more: the popup fits two, and this was the fifth",
@@ -1894,6 +1929,9 @@ _ASSEMBLED_IN_LOGIC = {
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
+    "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel
+                            #    hover is not where a person learns what kind of Fedora they run
+    "imageBasedUse",        # -> vm.imageBasedMessage, joined onto it as its second sentence
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

@@ -426,6 +426,18 @@ stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update woul
 events_since() { grep -c "$1" "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
 export KEMPT_BOOT_ID="boot-t4"
 
+# --- an image-based Fedora, published so the widget stops offering a button that cannot work ----
+# Kinoite and the rest ship dnf5 and plasma-workspace, so everything Kempt reads works and every
+# answer describes a package-based machine that is not there. `kempt update` aborts in pre-flight;
+# the widget can only know that if the check says so.
+touch "$TESTTMP/ostree-booted"
+KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.image_based' "$st")" "true" "an image-based system is published in the state"
+assert_eq "$(jq -r .schema "$st")" "1" "...additively: the schema does not move"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("image_based")' "$st")" "false" \
+  "...and an ordinary Fedora carries no such key at all, never image_based: false"
+
 # --- a staged Fedora release upgrade, published so the widget knows before the press ------------
 # dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, so staging over
 # one cancels it and Kempt refuses to. The popup's Install on Next Restart button is the press that

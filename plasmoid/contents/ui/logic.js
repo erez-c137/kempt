@@ -259,7 +259,15 @@ var COPY = {
     // Two entries, joined: what is true, then what it means for this widget. The first alone is
     // what the tooltip takes, because a panel hover is not the place for the second.
     releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart.",
-    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it. Updating now still works."
+    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it. Updating now still works.",
+
+    // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
+    // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
+    // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
+    // box gives it away, which is why this has to be said outright.
+    // Two entries, joined, on the pattern the engine messages use: what is true, then what to do.
+    imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it.",
+    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal. The list below is what dnf can see, which is not what installs here."
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -737,7 +745,7 @@ var MESSAGE_CAP = 2;
 // `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
 // the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-var MESSAGE_ORDER = ["report", "releaseUpgrade", "staged", "restart", "kernel"];
+var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1298,6 +1306,12 @@ function viewModel(state, updating, cliError, opts) {
     // Guarded like every optional key: absent from every state file written before it existed, and
     // possibly the wrong type in one that has been edited by hand. Both halves or neither - "a
     // Fedora  upgrade" with a hole where the number goes is worse than saying nothing.
+    // Strictly `=== true`, like every optional key: absent in every state written before it
+    // existed, and this one takes the primary button off the screen, so nothing unexpected may
+    // switch it on.
+    var imageBased = usable && state.image_based === true;
+    var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
+
     var relUp = (usable && state.release_upgrade && typeof state.release_upgrade === "object")
         ? state.release_upgrade : null;
     var relTo = (relUp && typeof relUp.to === "string") ? relUp.to : "";
@@ -1451,12 +1465,17 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged,
+        // Above everything except a report of something that just happened: it is the one message
+        // that says what this machine is, and every other message here presumes a box Kempt can
+        // update. It also displaces the kernel recommendation for the same reason the release
+        // upgrade does - that message recommends a button this state does not have.
+        imageBased: imageBasedMessage !== "",
         releaseUpgrade: releaseUpgradeMessage !== "",
         // Suppressed while a release upgrade is stored, and not merely outranked: the kernel
         // message exists to RECOMMEND installing on the next restart, and that is the one thing
         // this state does not allow. Leaving it on screen would advise a button that is no longer
         // there.
-        kernel: riskyMessage !== "" && !releaseUpgrade
+        kernel: riskyMessage !== "" && !releaseUpgrade && !imageBased
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -1551,8 +1570,15 @@ function viewModel(state, updating, cliError, opts) {
         stagedShowRebuild: stagedWarning && !releaseUpgrade,
         // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
         // stops it being offered, so nobody has to press a button to be told no.
-        offlineStageOffered: !releaseUpgrade,
+        // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
+        // whatever surface it was asked for, so staging is no more available than updating.
+        offlineStageOffered: !releaseUpgrade && !imageBased,
         releaseUpgradeMessage: releaseUpgradeMessage,
+        // ...and the same for Update Now, which is the primary button. HIDDEN rather than
+        // disabled, exactly as it is for a box with nothing pending: there is no action to offer
+        // here, and a greyed primary button with its explanation elsewhere is a puzzle.
+        updateOffered: !imageBased,
+        imageBasedMessage: imageBasedMessage,
         // Published rather than left as a literal in the QML's Accessible.description, so the
         // words a screen reader hears and the words the tooltip shows are one decision. The QML
         // still writes the literal for i18n extraction; the probe ties the two together.

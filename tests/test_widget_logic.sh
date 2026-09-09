@@ -468,6 +468,35 @@ for _bad in 'null' 'true' '"44 -> 45"' '{}' '{from:"44"}' '{to:"45"}' '{from:44,
     "...and says nothing about one"
 done
 
+# --- an image-based Fedora, where dnf is not how the machine updates -----------------------------
+# Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr - but those images ship dnf5 and
+# plasma-workspace, so both Kempt packages install cleanly, the widget appears, and every list here
+# fills in with dnf's answers. Nothing about the box gives it away, so the only honest thing the
+# widget can do is say it outright and stop offering buttons that abort in pre-flight.
+IB='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.image_based = v; return L.viewModel(s, false, "", {}); }'
+ib="($IB)(true)"
+assert_eq "$(js "$ib.updateOffered")" "false" "on an image-based system Update Now is not offered"
+assert_eq "$(js "($IB)().updateOffered")" "true" "...and on an ordinary Fedora it is, exactly as before"
+assert_eq "$(js "$ib.offlineStageOffered")" "false" \
+  "...and neither is staging, because the run aborts in pre-flight whatever surface it was asked for"
+assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" \
+  "the message names the tool that DOES update this machine"
+assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"Discover\") >= 0")" "true" \
+  "...and where somebody who does not use a terminal should go"
+assert_eq "$(js "($IB)().imageBasedMessage")" "" "an ordinary box says nothing about rpm-ostree"
+assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
+  "it is the only message shown: every other one presumes a box Kempt can update"
+# The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
+# blanking them would replace a true-but-incomplete answer with no answer at all.
+assert_eq "$(js "$ib.actionable")" "$(js "($IB)().actionable")" \
+  "...while the pending count is left exactly as it was, because it is still what dnf sees"
+# Strictly === true. This takes the primary button off the screen, so nothing unexpected may.
+for _bad in 'false' '"true"' '1' 'null' '{}'; do
+  assert_eq "$(js "($IB)($_bad).updateOffered")" "true" \
+    "an image_based of $_bad is not an image-based system, and takes no button away"
+  assert_eq "$(js "($IB)($_bad).imageBasedMessage")" "" "...and says nothing about one"
+done
+
 # --- shellQuote: the widget's one injection surface --------------------------------------------
 # Package names come out of the CLI's JSON and go into `kempt hold <backend>:<name>`, which the
 # data engine hands to a shell. Everything state-derived is quoted; these pin the quoting itself,
@@ -2002,7 +2031,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

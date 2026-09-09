@@ -720,6 +720,33 @@ grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
   && echo "ok: ...pointing at the command that describes it" \
   || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
 
+# --- an image-based Fedora ------------------------------------------------------------------------
+# The report that used to end "all checks passed" on a machine Kempt cannot update at all. Kinoite
+# ships dnf5 and plasma-workspace, so every row below the first one passes honestly and the whole
+# thing is still wrong: it describes dnf, which is not what installs updates on that box.
+touch "$TESTTMP/ostree-booted"
+ib_out="$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" doctor 2>&1)" || true
+ib_plain="$("$KEMPT" doctor 2>&1)" || true
+# A DELTA against the same report on an ordinary box, not a bare "doctor failed": this part of the
+# file runs in a sandbox that already has failing rows, so "exit 1" would have passed without the
+# row existing at all and proved nothing.
+assert_eq "$(( $(printf '%s\n' "$ib_out" | grep -c '^FAIL') - $(printf '%s\n' "$ib_plain" | grep -c '^FAIL') ))" "1" \
+  "on an image-based system doctor reports exactly one more problem than on an ordinary one"
+case "$ib_out" in
+  *"FAIL"*"rpm-ostree"*) echo "ok: ...and says so as a FAIL, naming the tool that does update it" ;;
+  *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | head -5; _fail=1 ;;
+esac
+case "$ib_out" in
+  *"all checks passed"*) echo "FAIL: it still says everything is fine"; _fail=1 ;;
+  *) echo "ok: ...so the report never ends by saying everything is fine" ;;
+esac
+# It is the FIRST row, above every other, because it decides whether the rest means anything.
+# The version line is first - it is the fact every other line is read against - and this is second,
+# above every check. A reader should not have to get past twenty passing rows to learn that none of
+# them is about the tool their machine actually uses.
+assert_eq "$(printf '%s\n' "$ib_out" | sed -n '2p' | grep -c 'rpm-ostree')" "1" \
+  "...directly under the version line, above every check, not as a footnote below them"
+
 # ...and when that transaction is a Fedora RELEASE upgrade, say so. "Something is staged" and "your
 # machine restarts into Fedora 45" are different things to be told, and this is the one case where
 # Kempt's own offline button is refused - a person who presses it and is turned down should be able

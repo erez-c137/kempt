@@ -99,13 +99,18 @@ cmd_check() {
   # alike, so a staged release upgrade is a fact about what the offline surface can do right now:
   # staging over it cancels it, and Kempt refuses to. Published so the widget can say so and stop
   # offering the button, rather than the CLI explaining it after the press.
+  # ...and the same for a machine dnf cannot update at all. Published rather than left to the
+  # update to discover, so the widget can say what this box is and stop offering a button that
+  # only ever ends in a refusal.
+  local image_based=null
+  on_ostree && image_based=true
   local relup_json="" relup_pair
   if relup_pair="$(offline_release_upgrade)"; then
     relup_json="$(jq -cn --arg from "${relup_pair%% *}" --arg to "${relup_pair##* }" \
                     '{from:$from, to:$to}')" || relup_json=""
   fi
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json")"
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
@@ -474,6 +479,20 @@ cmd_update() {
   is_true "$auto" || { surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
   [[ "$surface" == "terminal" ]] && KEMPT_LIVE_OUTPUT=1
   export KEMPT_LIVE_OUTPUT
+
+  # An image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - updates through
+  # rpm-ostree, and /usr is not dnf's to write. Refused HERE, before the lock, before the
+  # risky-transaction prompt and before anything is read, because the danger is precisely that
+  # nothing downstream would refuse: Kinoite ships dnf5 and plasma-workspace, so both Kempt
+  # packages install cleanly, the widget appears, `dnf5 check-update` lists updates and `dnf5
+  # upgrade` RESOLVES a transaction rather than saying no. Left to fail on its own it fails after
+  # the download, somewhere in the middle, with a message about a read-only file system and nothing
+  # anywhere about rpm-ostree.
+  # preflight_abort, so this is the same contract as any other refusal that changed nothing: exit
+  # 5, and a notification for the surfaces where nobody is reading stderr.
+  if on_ostree; then
+    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - use Discover, or: rpm-ostree upgrade"
+  fi
 
   recommend_offline_if_risky
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
@@ -1419,6 +1438,18 @@ doctor_privileged_rows() {
     "$KEMPT_APPLY_HELPER"   "$KEMPT_APPLY_HELPER_PATH"
 }
 
+# Directly under the version line and above every check, because it is the one row that decides
+# whether the rest of the report means anything. On an image-based Fedora - Silverblue, Kinoite,
+# Bazzite, a bootc image - rpm-ostree owns /usr and dnf is not how the machine updates, and nothing
+# else here would ever say so: those images ship dnf5 and plasma-workspace, so both Kempt packages
+# install cleanly, every row below passes honestly, and the report used to end "all checks passed"
+# about a tool that cannot update that box.
+# FAIL and not info: "everything is fine" is precisely the sentence that must not be printed here.
+doctor_image_based_row() {
+  on_ostree || return 0
+  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - every check below describes dnf, which is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade"
+}
+
 doctor_tool_rows() {
   # jq: a missing one exits 3 before this command runs, so this line only ever says ok - it names
   # WHICH jq answered rather than catching an absence.
@@ -1697,6 +1728,7 @@ cmd_doctor() {
   # other line has to be read against - a report pasted into a bug report without it describes an
   # unknown build.
   doctor_info "kempt $(kempt_version) ($KEMPT_ROOT)"
+  doctor_image_based_row
   doctor_privileged_rows
 
   doctor_tool_rows
