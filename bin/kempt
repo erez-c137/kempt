@@ -283,6 +283,23 @@ apply_flatpak_updates() {
 write_stage_marker() {
   # NOT `local`: the run's `offline staged N` event line reports it, so it is the caller's variable.
   staged=""
+  # ...and neither is this. Empty when the stage was recorded; otherwise WHY it was not, for the
+  # notification and the event line.
+  #
+  # Everything in this function happens AFTER `dnf5 offline reboot` has armed the machine, and that
+  # is what decides how its failures are handled: the transaction WILL install on the next restart
+  # whatever happens here. A failure that took the run down - and under errexit a full home is
+  # enough, since the copy and the marker write are both writes - would leave a box that is armed
+  # and a Kempt that knows nothing about it: no banner, no doctor row, no harvest, no notification,
+  # and the update arriving unannounced during a restart the person thought was ordinary.
+  #
+  # So nothing here may escape, and nothing here is swallowed either. It degrades in the order the
+  # readers can tolerate: a marker without its snapshot is a supported shape (every reader takes
+  # `.pre_snapshot // empty`), and only a marker that cannot be written at all is unrecoverable.
+  stage_untracked=""
+  # ...and this, for the lesser of the two: recorded, but without the baseline the restart report
+  # would have been diffed against.
+  stage_unlisted=""
   if [[ "$surface" == "offline" && "$dnf_status" == "ok" && "$staged_nothing" != true ]]; then
     staged="$staged_fresh"
     [[ -n "$staged" ]] \
@@ -291,8 +308,14 @@ write_stage_marker() {
     [[ "$staged" =~ ^[0-9]+$ ]] && staged_json="$staged"
     # marker owns its snapshot copy - a later update run overwrites dnf-before.tsv. Sweep first:
     # only the newest staging can be harvested, so older copies accumulate forever.
+    # The sweep and the copy are ONE step and can only half-happen: the sweep throws away the
+    # previous stage's baseline, so a copy that fails after it leaves neither. The marker is then
+    # written WITHOUT pre_snapshot rather than not at all - the harvest degrades to reporting that
+    # the stage was applied without naming its packages, which is worth more than a restart that
+    # installs sixty packages and says nothing.
+    local snap="$SNAP_DIR/offline-pre-$ts.tsv"
     rm -f "$SNAP_DIR"/offline-pre-*.tsv
-    cp "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/offline-pre-$ts.tsv"
+    cp "$SNAP_DIR/dnf-before.tsv" "$snap" 2>/dev/null || { rm -f "$snap"; snap=""; }
     # WHICH packages, alongside how many: a hold added after this moment cannot change the stored
     # transaction, so all Kempt can do is name what is in it. Read from dnf5's own transaction -
     # the only source that sees packages the resolver added, or one someone else replaced. The
@@ -321,24 +344,50 @@ write_stage_marker() {
     # 128 KiB Linux allows one argv entry, and the marker would not be written at all - leaving a
     # transaction armed that Kempt has no record of making, so nothing harvests it after the
     # restart and doctor reports a staged update it cannot explain.
-    local staged_names_f
-    staged_names_f="$(mktemp)"
-    printf '%s' "$staged_names" > "$staged_names_f"
+    # A temp file that cannot be made means a full or unwritable /tmp, which the marker write is
+    # about to hit too - but the names are the part that can be given up, so it is given up here
+    # rather than taking the marker with it. Absent, never empty: `staged_names: []` would claim
+    # the transaction installs nothing.
+    local staged_names_f=/dev/null
+    if [[ "$staged_names_source" != none ]]; then
+      local f
+      if f="$(mktemp 2>/dev/null)" && printf '%s' "$staged_names" > "$f" 2>/dev/null; then
+        staged_names_f="$f"
+      else
+        rm -f "${f:-}"; staged_names_source=none
+      fi
+    fi
     # boot_id: only a REBOOT applies a stage, so the harvest compares boot sessions rather than
     # guessing from the package set (see harvest_offline).
     # Fields are ADDITIVE and absent when unknown - `staged_names: []` would claim "the
     # transaction installs nothing" where the truth is that nobody could find out. Every reader
     # follows that rule, so a marker written before these fields existed still works.
-    jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
+    # The one failure with nothing left to degrade to. Guarded rather than left to errexit, and
+    # `if !` is what makes that true: inside an if-condition errexit stands down, so a jq that dies
+    # or an unwritable state directory lands HERE instead of ending the run.
+    if ! jq -n --arg ts "$(now_iso)" --arg snap "$snap" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
-       {staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true,
+       {staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
+       + (if $snap == "" then {} else {pre_snapshot:$snap} end)
        + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
-    rm -f "$staged_names_f"
+    then
+      stage_untracked="the state directory could not be written"
+      rm -f "$snap"
+    elif [[ -z "$snap" ]]; then
+      # Recorded, and honest about what it can no longer do. The stage installs, and every surface
+      # BEFORE the restart still reports it - the banner, doctor, the staged count. What is gone is
+      # the baseline the harvest diffs, and harvest_offline clears a marker it cannot diff, so
+      # after the restart there is no history entry and no notification. Said here because this is
+      # the last moment anything can say it.
+      stage_unlisted="the restart result will not be reported"
+      log_event "offline stage recorded without its package baseline - the restart result will not be reported"
+    fi
+    [[ "$staged_names_f" == /dev/null ]] || rm -f "$staged_names_f"   # never the placeholder
   fi
 }
 
@@ -635,6 +684,8 @@ cmd_update() {
   # reader - the harvest, the doctor, the popup - that one is coming.
   # Read into one variable here, not at the event line below, so the two cannot disagree.
   local staged=""   # write_stage_marker fills this in; the event line below reports it
+  local stage_untracked=""   # ...and this, when the stage is real and Kempt could not record it
+  local stage_unlisted=""    # ...and this, when it recorded it without the baseline to report on
   write_stage_marker
   # Why it failed, worked out ONCE and handed to everything that renders it: the history entry
   # (and through it the summary), the notification, and the event log. "See <log>" is no answer
@@ -674,7 +725,9 @@ cmd_update() {
     if [[ "$surface" == "offline" ]]; then
       # Not when nothing was staged: "offline staged ?" over a run that logged "found nothing to
       # stage" is two lines contradicting each other about the same second.
-      [[ "$staged_nothing" == true ]] || log_event "offline staged ${staged:-?}"
+      if [[ "$staged_nothing" != true ]]; then
+        log_event "offline staged ${staged:-?}${stage_untracked:+ (NOT recorded: $stage_untracked)}"
+      fi
     else
       local upd
       upd="$(jq -r '[.backends[].updated | length] | add // 0' "$hist" 2>/dev/null)" || upd="?"
@@ -702,8 +755,13 @@ cmd_update() {
       else
         notify "Kempt" "Nothing to stage - no updates are pending"
       fi
+    elif [[ "$surface" == "offline" && "$status" == "ok" && -n "$stage_untracked" ]]; then
+      # The stage is REAL: it is downloaded, armed, and the next restart installs it. What failed is
+      # Kempt's record of it, so the promise is kept and the limit stated in the same breath - this
+      # is the one notification that has to carry both, because every later surface will be silent.
+      notify "Kempt" "Updates staged - they install on the next restart, but Kempt could not record it ($stage_untracked), so it will not report the result afterwards"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
-      notify "Kempt" "Updates staged - they install on the next restart"
+      notify "Kempt" "Updates staged - they install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else

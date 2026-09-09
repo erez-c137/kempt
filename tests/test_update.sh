@@ -1050,6 +1050,109 @@ grep -q 'offline marker dropped (a release upgrade' "$KEMPT_STATE_DIR/events.log
 transaction_armed
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
+# --- the marker write happens AFTER the machine is armed -----------------------------------------
+# `dnf5 offline reboot` has already run by the time write_stage_marker starts, so the transaction
+# WILL install on the next restart whatever happens next. Under errexit a full home was enough to
+# end the run right there - and then the box is armed and Kempt knows nothing: no banner, no doctor
+# row, no harvest, no notification, and sixty packages arriving during a restart the person thought
+# was ordinary. So these two failures degrade instead, in the order the readers can tolerate.
+
+# Shadows that fail ONE call each and pass everything else through, so what is under test is the
+# handling of that failure and not a box with no coreutils.
+fail_marker_dir() {  # atomic_write mktemps INTO the destination's directory; refuse only that
+  local d="$TESTTMP/nomarker"
+  mkdir -p "$d"
+  cat > "$d/mktemp" <<STUB
+#!/usr/bin/env bash
+case " \$* " in *" -p $KEMPT_STATE_DIR "*) echo "mktemp: no space left on device" >&2; exit 1 ;; esac
+exec /usr/bin/mktemp "\$@"
+STUB
+  chmod +x "$d/mktemp"; printf '%s\n' "$d"
+}
+fail_snapshot_copy() {  # only the marker's own baseline copy, which is the one that can be lost
+  local d="$TESTTMP/nosnap"
+  mkdir -p "$d"
+  cat > "$d/cp" <<'STUB'
+#!/usr/bin/env bash
+for a in "$@"; do case "$a" in *offline-pre-*) echo "cp: no space left on device" >&2; exit 1 ;; esac; done
+exec /usr/bin/cp "$@"
+STUB
+  chmod +x "$d/cp"; printf '%s\n' "$d"
+}
+
+# (a) the baseline copy fails. A marker without pre_snapshot is a shape every reader already
+# handles - they all take `.pre_snapshot // empty` - so the stage is still RECORDED, and what is
+# lost is only the package list in the report after the restart.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed
+: > "$WORLD/notifications"
+rc=0
+PATH="$(fail_snapshot_copy):$PATH" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "a stage whose baseline copy fails is still a successful stage"
+assert_exit 0 "...and the marker is written anyway, so the box is not armed in secret" -- test -f "$marker"
+assert_eq "$(jq -r 'has("pre_snapshot")' "$marker")" "false" \
+  "...without a baseline it does not have, rather than a path to a file that is not there"
+assert_eq "$(jq -r '.armed' "$marker")" "true" "...still describing an armed transaction, because it is"
+grep -q 'without its package baseline' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the log says what the restart report will not be able to say" \
+  || { echo "FAIL: no event for the missing baseline"; _fail=1; }
+grep -q 'install on the next restart' "$WORLD/notifications" \
+  && echo "ok: ...and the person is still told the update installs on the next restart" \
+  || { echo "FAIL: no staged notification"; _fail=1; }
+# What the degrade COSTS, said at the last moment anything can say it. harvest_offline clears a
+# marker it cannot diff (there is no baseline to diff against), so after the restart there is no
+# history entry and no notification - this sentence is the only warning of that, and it goes out
+# while the person is still at the machine that just staged.
+grep -q 'will not be reported' "$WORLD/notifications" \
+  && echo "ok: ...and that the result after the restart will not be" \
+  || { echo "FAIL: the cost of the degrade was not stated"; _fail=1; }
+# The surfaces BEFORE the restart are the ones this degrade buys, and they are the reason it is
+# worth writing a marker with a hole in it rather than none at all.
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(jq -r '.offline_staged.armed' "$KEMPT_STATE_DIR/state.json")" "true" \
+  "...while the widget still shows the staged transaction, which is the point of recording it"
+assert_exit 0 "...and doctor still has it to explain" -- test -f "$marker"
+# ...and after the restart it is cleared rather than diffed, which is the known limit of the shape.
+transaction_gone
+cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
+simulate_reboot
+push_history_back
+"$KEMPT" check >/dev/null 2>&1
+assert_exit 0 "a marker with no baseline is cleared after the restart rather than re-read forever" \
+  -- test ! -f "$marker"
+grep -q 'harvest cleared stale marker' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log is the trace it leaves, as the staging notification warned" \
+  || { echo "FAIL: no event for the cleared marker"; _fail=1; }
+
+# (b) the marker itself cannot be written. Nothing left to degrade to - so the run SUCCEEDS,
+# because the stage really did happen and really will install, and the person is told in the same
+# breath that no later surface will mention it again.
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+transaction_armed
+: > "$WORLD/notifications"
+rc=0
+PATH="$(fail_marker_dir):$PATH" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "a stage Kempt cannot record is still a stage, and the run says so"
+assert_exit 0 "...and no marker is left behind claiming otherwise" -- test ! -f "$marker"
+# The baseline copy is cleaned up with it: a snapshot no marker points at is never read again.
+assert_eq "$(ls "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv 2>/dev/null | wc -l)" "0" \
+  "...nor an orphaned baseline that nothing will ever diff"
+grep -q 'NOT recorded' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event line says the stage happened and was not recorded" \
+  || { echo "FAIL: no event for the unrecorded stage"; _fail=1; }
+# The notification is the LAST surface that will ever mention this transaction, so it has to carry
+# both halves: the promise, and the fact that nothing will report on it.
+grep -q 'install on the next restart' "$WORLD/notifications" \
+  && echo "ok: ...and the person is still told the update installs on the next restart" \
+  || { echo "FAIL: the promise was dropped"; _fail=1; }
+grep -q 'could not record it' "$WORLD/notifications" \
+  && echo "ok: ...and that Kempt will not be able to report the result" \
+  || { echo "FAIL: the limit was not stated"; _fail=1; }
+transaction_armed
+
 # --- back to the ordinary lifecycle --------------------------------------------------------------
 cat > "$TESTTMP/apply-stub" <<STUB
 #!/usr/bin/env bash
