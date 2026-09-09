@@ -94,10 +94,20 @@ grep -q 'check' "$KEMPT_STATE_DIR/events.log" \
 # that takes the widget out of its updating state, so a successful two-thousand-package update
 # would present as a spinner that never stops.
 : > "$WORLD/notifications"
+# History filenames are per-second, and the harvest below appends `-offline` to break a collision -
+# which sorts BEFORE the plain name, not after ("-" is 0x2D, "." is 0x2E). So the newest entry is
+# found by DIFFING the directory, never by `ls | tail -1`: that reads the wrong entry whenever two
+# of these land in the same second, which is a matter of how fast the machine is.
+# `|| true` on the whole pipeline: the first call runs against an EMPTY history directory, where
+# the glob matches nothing and ls exits 2 - which pipefail plus errexit turns into a test file that
+# stops after its first section having printed nothing about why.
+hist_list() { ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | sort || true; }
+hist_list > "$TESTTMP/hist-before.txt"
 rc=0
 "$KEMPT" update >/dev/null 2>"$TESTTMP/update.err" || rc=$?
 assert_eq "$rc" "0" "a run that updates $N packages exits 0"
-h="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+hist_list > "$TESTTMP/hist-after.txt"
+h="$(comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" | head -1)"
 assert_eq "$(jq -r .status "$h")" "ok" "...and writes a history entry that calls it a success"
 assert_eq "$(jq '.backends.dnf.updated | length' "$h")" "$N" "...naming every package it moved"
 assert_exit 0 "...from a report far past the cap" \
@@ -121,16 +131,18 @@ jq -n --arg snap "$pre" '{staged_at:"x", pre_snapshot:$snap, armed:true}' \
   > "$KEMPT_STATE_DIR/offline_staged.json"
 export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"   # applied: dnf5 removed it
 cp "$TESTTMP/after.tsv" "$WORLD/rpm.tsv"
-before_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
+hist_list > "$TESTTMP/hist-before.txt"
 : > "$WORLD/notifications"
 rc=0
 "$KEMPT" check >/dev/null 2>"$TESTTMP/harvest.err" || rc=$?
 assert_eq "$rc" "0" "the check that harvests $N applied packages exits 0"
 assert_exit 0 "...and consumes the marker, so the next check is an ordinary one" \
   -- test ! -f "$KEMPT_STATE_DIR/offline_staged.json"
-assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" \
+hist_list > "$TESTTMP/hist-after.txt"
+comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
+assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" \
   "...writing exactly one history entry for the reboot that applied them"
-hh="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+hh="$(head -1 "$TESTTMP/hist-new.txt")"
 assert_eq "$(jq -r .surface "$hh")" "offline (applied on reboot)" "...which names the surface"
 assert_eq "$(jq '.backends.dnf.updated | length' "$hh")" "$N" "...and every package it found moved"
 
