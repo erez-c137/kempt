@@ -67,7 +67,12 @@ PlasmoidItem {
     // Read off the EXIT CODE and never off the text: `sh -c` answers 127 for a command it could
     // not find and 126 for one it found and could not execute, and those numbers are the same in
     // every locale where the message beside them is not. Both get "install it".
-    property bool engineMissing: false
+    // "" when the engine answers. Otherwise WHICH way it is unavailable, because the two have
+    // different remedies: "missing" is nothing to run (rc 127, the ordinary first run of a KDE
+    // Store install), "unrunnable" is a program that is there and would not start (rc 126). A
+    // single boolean made the second say the first, which sent a person to install a package they
+    // already had.
+    property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
     // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
@@ -172,7 +177,7 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
-                                                engineMissing: engineMissing,
+                                                engineFault: engineFault,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
@@ -258,29 +263,38 @@ PlasmoidItem {
             if (parsed !== null) {
                 root.kemptState = parsed;
                 // Something answered, so whatever is wrong is inside that answer now, and there IS
-                // an engine. Nothing else clears engineMissing: it is what lets the widget come
-                // back on its own after the package is installed.
+                // an engine. Nothing else clears engineFault: it is what lets the widget come
+                // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
-                root.engineMissing = false;
+                root.engineFault = "";
                 // ...and the last run may not be the one we knew about. A `kempt update` typed in
                 // a terminal writes a history entry and then re-checks itself, and that state
                 // write is what brought us here.
                 root.loadLastRun();
-            } else if (rc === 127 || rc === 126) {
-                // No engine: nothing to run (127), or something unrunnable (126). cliError is
-                // cleared so the popup shows one message about one situation instead of both.
-                root.engineMissing = true;
+            } else if (rc === 127) {
+                // Nothing to run. cliError is cleared so the popup shows one message about one
+                // situation instead of both.
+                root.engineFault = "missing";
+                root.cliError = "";
+            } else if (rc === 126) {
+                // Found and NOT run - a different fact, and one the widget used to report as "not
+                // installed". 126 is only ever "the shell could not execute something": the file
+                // is there without the execute bit, or on a noexec mount, or a program Kempt
+                // itself starts could not be exec'd. Every one of those is a broken installation
+                // rather than an absent one, so the message points at `kempt doctor`, which can
+                // tell them apart, instead of guessing at one and printing an install command.
+                root.engineFault = "unrunnable";
                 root.cliError = "";
             } else if (rc !== 0) {
                 // Nothing usable AND a failure: the one case where the widget itself has something
                 // to report - the CLI ran and could not answer.
-                root.engineMissing = false;
+                root.engineFault = "";
                 root.cliError = Logic.firstLineOf(stderr);
             } else {
                 // rc 0 with nothing usable: a lock we lost. An engine that exits 0 EXISTS, so a
-                // standing missing-engine verdict is stale - and it must not stand, because the
-                // retry below skips retrying while it does.
-                root.engineMissing = false;
+                // standing no-engine verdict is stale - and it must not stand, because the retry
+                // below skips retrying while it does.
+                root.engineFault = "";
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
             // next poll would see its own footprint as a change and check again, forever.
@@ -302,7 +316,7 @@ PlasmoidItem {
             // lost, so ask again shortly rather than leaving the panel dim for an hour. A cliError
             // or a missing engine is an answer, and re-asking would only re-fail. Bounded, so a
             // wedged lock cannot turn into a widget forking a check forever.
-            if (root.kemptState === null && root.cliError === "" && !root.engineMissing) {
+            if (root.kemptState === null && root.cliError === "" && root.engineFault === "") {
                 if (root.firstCheckRetries < root.maxFirstCheckRetries) {
                     root.firstCheckRetries++;
                     firstCheckRetry.restart();

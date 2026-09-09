@@ -228,7 +228,7 @@ var COPY = {
     // The store-first first run: the KDE Store carries the plasmoid and not the CLI, so a store
     // install's first check runs against nothing. Two entries because the message renders two lines
     // - what is true, then what to type - and a person who cannot act on the second still gets the
-    // first. INGREDIENTS: engineMissingMessage assembles them; the tooltip takes the first alone.
+    // first. INGREDIENTS: engineFaultMessage assembles them; the tooltip takes the first alone.
     // The commands are WHOLE: half a command line fails somewhere the reader has to debug.
     engineMissing: "Kempt's engine is not installed, so nothing can check for updates yet.",
     engineMissingInstall:
@@ -237,7 +237,20 @@ var COPY = {
     // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
     // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
     // The tests drift-guard the two: every command this copies must appear verbatim in the other.
-    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt"
+    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt",
+    // The OTHER way an engine can be unavailable, and a different fact with a different remedy:
+    // the program is THERE and will not start. Reinstalling it is not the answer, and a message
+    // that says to sends somebody to fix what is not broken. Three things produce it - a file
+    // without the execute bit, a noexec mount, a missing interpreter - and the widget cannot tell
+    // which from an exit code, so it names none of them and hands over the one command that can.
+    engineUnrunnable: "Kempt's engine is installed but will not run, so nothing can check for updates.",
+    engineUnrunnableFix: "Run kempt doctor in a terminal - it reports what is wrong, and if it cannot start either, the error it prints names the reason.",
+    engineUnrunnableCopy: "kempt doctor",
+    // The Copy button's label, which follows its payload rather than being fixed: the install
+    // remedy is two commands and the repair one is a single command, and a button offering to copy
+    // "Commands" that copies one is the kind of small wrongness that makes a person check.
+    engineCopyCommands: "Copy Commands",
+    engineCopyCommand: "Copy Command"
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -715,12 +728,12 @@ var MESSAGE_CAP = 2;
 var MESSAGE_ORDER = ["report", "staged", "restart", "kernel"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
-// `engineMissing` is not in the order at all: it shows ALONE, because everything below it presumes
+// `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
 // an engine that answered. Anything displaced shows NOTHING - it does not shuffle into the next
 // slot mid-glance and it does not stack below the fold.
 function messageStack(wants) {
     var w = (wants && typeof wants === "object") ? wants : {};
-    if (w.engineMissing) return ["engineMissing"];
+    if (w.engineFault) return ["engineFault"];
     var out = [], i;
     for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
         if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
@@ -1142,10 +1155,12 @@ function lastRunText(run, nowMs) {
 //                      not say, and the CLI's default is true. Read with isTrue, because config
 //                      values arrive as text.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
-//   engineMissing    - no CLI on the box (main.qml reads rc 127/126). Strictly `=== true`, because
-//                      it replaces the popup's whole body. A separate input rather than a magic
-//                      cliError value: "we could not get an answer" and "there is nothing here to
-//                      answer" are different facts.
+//   engineFault      - "" when the engine answered, else WHICH way it did not: "missing" (rc 127,
+//                      nothing to run) or "unrunnable" (rc 126, there and would not start). Any
+//                      other value reads as "", because this replaces the popup's whole body and
+//                      an unrecognised one must not be able to blank it. A separate input rather
+//                      than a magic cliError value: "we could not get an answer" and "there is
+//                      nothing here to answer" are different facts.
 //
 // cliError is the widget's own report of a check that produced nothing usable; a failure INSIDE
 // `kempt check` arrives in the state's own `error` field and comes out as staleReason.
@@ -1169,7 +1184,9 @@ function viewModel(state, updating, cliError, opts) {
     updating = !!updating;
     cliError = firstLineOf(typeof cliError === "string" ? cliError : "");
     opts = (opts && typeof opts === "object") ? opts : {};
-    var engineMissing = opts.engineMissing === true;
+    var engineFault = (opts.engineFault === "missing" || opts.engineFault === "unrunnable")
+        ? opts.engineFault : "";
+    var noEngine = engineFault !== "";
     var usable = looksLikeState(state);
     var counted = collectItems(usable ? state : null);
     var stale = usable && state.status === "stale";
@@ -1209,7 +1226,11 @@ function viewModel(state, updating, cliError, opts) {
     // confident zero rule 1 forbids. `unknown` renders dimmed with no emblem, which is exactly
     // what is true. Only where there is nothing else to show - with counts from an earlier working
     // engine the rows are still the best truth there is, and they keep their own state below.
-    else if (engineMissing && noState) iconState = "unknown";
+    // ...and only while the engine is MISSING. An engine that is installed and will not start is
+    // a malfunction, which is what the warning emblem is for; dimming it would file a broken
+    // installation under "nothing has happened yet".
+    else if (engineFault === "missing" && noState) iconState = "unknown";
+    else if (engineFault === "unrunnable" && noState) iconState = "error";
     else if (noState && cliError !== "") iconState = "error";
     else if (noState) iconState = "unknown";
     else if (!usable) iconState = "error";
@@ -1279,11 +1300,13 @@ function viewModel(state, updating, cliError, opts) {
     if (updating) {
         tooltipMain = COPY.updatingHere;
         headerText = COPY.updatingHere;
-    } else if (engineMissing) {
-        // Names the missing piece instead of quoting the shell: `sh: line 1: kempt: command not
-        // found` is true, unreadable, and about a program the reader has never heard of.
+    } else if (noEngine) {
+        // Names the state instead of quoting the shell: `sh: line 1: kempt: command not found` is
+        // true, unreadable, and about a program the reader has never heard of.
         tooltipMain = "Kempt";
-        headerText = "Kempt's engine is not installed";
+        headerText = engineFault === "missing"
+            ? "Kempt's engine is not installed"
+            : "Kempt's engine will not run";
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
         headerText = "No update data yet";
@@ -1316,12 +1339,20 @@ function viewModel(state, updating, cliError, opts) {
         else problemText = "the update state could not be read";     // it answered something else
     }
 
-    // The whole answer for a box with no engine, assembled here so the popup binds one string:
-    // what is true, then what to type. Empty in every other state, which is what the popup gates
-    // on - and the same for the clipboard text, whose button only exists while the message does.
-    var engineMissingMessage = engineMissing
-        ? COPY.engineMissing + "\n" + COPY.engineMissingInstall : "";
-    var engineMissingCopyText = engineMissing ? COPY.engineMissingCopy : "";
+    // The whole answer for a box with no working engine, assembled here so the popup binds one
+    // string: what is true, then what to do about it. Empty in every other state, which is what
+    // the popup gates on - and the same for the clipboard text and its button label, which only
+    // exist while the message does.
+    var engineFaultMessage = "", engineFaultCopyText = "", engineFaultActionLabel = "";
+    if (engineFault === "missing") {
+        engineFaultMessage = COPY.engineMissing + "\n" + COPY.engineMissingInstall;
+        engineFaultCopyText = COPY.engineMissingCopy;
+        engineFaultActionLabel = COPY.engineCopyCommands;
+    } else if (engineFault === "unrunnable") {
+        engineFaultMessage = COPY.engineUnrunnable + "\n" + COPY.engineUnrunnableFix;
+        engineFaultCopyText = COPY.engineUnrunnableCopy;
+        engineFaultActionLabel = COPY.engineCopyCommand;
+    }
 
     // Read only out of a state this build can read, like every optional key: a schema-1 reader
     // tolerates the key being absent (every file written before this existed) and being the wrong
@@ -1331,7 +1362,8 @@ function viewModel(state, updating, cliError, opts) {
     var subParts = [];
     // The fact, and only the fact. The install commands belong in the popup, where they can be
     // read and copied; two command lines under a panel hover is noise.
-    if (engineMissing) subParts.push(COPY.engineMissing);
+    if (engineFault === "missing") subParts.push(COPY.engineMissing);
+    else if (engineFault === "unrunnable") subParts.push(COPY.engineUnrunnable);
     else if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
     else if (iconState === "error") subParts.push(problemText);
     else {
@@ -1360,7 +1392,7 @@ function viewModel(state, updating, cliError, opts) {
     // message already carries the whole answer, and the placeholder's own sentence ("the first
     // check has not finished") would be a promise about a check that will never finish. The
     // placeholder hides itself on empty text.
-    else if (engineMissing) emptyStateText = "";
+    else if (noEngine) emptyStateText = "";
     else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
@@ -1370,10 +1402,11 @@ function viewModel(state, updating, cliError, opts) {
     // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
     // nothing else to show. NOT on calm staleness: keeping quiet about a repo that flapped is the
     // point of that state, and staleReason already names doctor when that is what is wrong. NOT
-    // when the engine is missing either, which is the case that proves the rule: `kempt doctor` is
-    // a kempt subcommand, so on the box where kempt is what is absent this would tell the user to
-    // run the very thing they do not have.
-    var remedyCommand = (!engineMissing && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
+    // when there is no working engine either, which is the case that proves the rule: `kempt
+    // doctor` is a kempt subcommand, so on the box where kempt is what is absent this would tell
+    // the user to run the very thing they do not have. Those states carry their own message, which
+    // says the right thing for each.
+    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
@@ -1389,7 +1422,7 @@ function viewModel(state, updating, cliError, opts) {
     // `reportShown` is the one input this file cannot derive - the post-run line and a failed press
     // are main.qml's own state, not the CLI's.
     var messageSlots = messageStack({
-        engineMissing: engineMissingMessage !== "",
+        engineFault: engineFaultMessage !== "",
         report: opts.reportShown === true,
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
@@ -1453,11 +1486,13 @@ function viewModel(state, updating, cliError, opts) {
         // wrong instead of a generic apology.
         staleReason: staleReason,
         cliError: cliError,
-        // The fact, then the commands that fix it, on two lines. Empty means there is nothing to
-        // say, and that empty string is the popup's only gate - exactly how riskyMessage and
-        // stagedMessage already work.
-        engineMissingMessage: engineMissingMessage,
-        engineMissingCopyText: engineMissingCopyText,
+        // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
+        // and that empty string is the popup's only gate - exactly how riskyMessage and
+        // stagedMessage already work. The other two follow it: the clipboard payload the button
+        // copies, and the button's own label, which names how many commands that is.
+        engineFaultMessage: engineFaultMessage,
+        engineFaultCopyText: engineFaultCopyText,
+        engineFaultActionLabel: engineFaultActionLabel,
         emptyStateText: emptyStateText,
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check - see the riskyMessage derivation above for what

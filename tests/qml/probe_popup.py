@@ -931,7 +931,7 @@ QtObject {
     UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
     UPTODATE_REBOOT = uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json")
 
-    MESSAGES = [("engineMissingMessage", "the missing-engine message"),
+    MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
                 ("restartMessage", "the restart message"),
                 ("stagedMessage", "the staged-transaction message"),
                 ("riskyMessage", "the session-critical warning"),
@@ -1111,13 +1111,13 @@ QtObject {
     p.check("...and the footer stops repeating what the message is now carrying",
             "restart pending" in str(lev("footerLabel.text")), False)
 
-    # ...and the engine-missing case, which shows ALONE however much else is true.
-    ev("root.engineMissing = true")
+    # ...and the no-engine case, which shows ALONE however much else is true.
+    ev('root.engineFault = "missing"')
     ev("root.kemptState = null")
     p.pump(80)
     p.check("a box with no engine says that and nothing else",
-            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["engineMissing"])
-    ev("root.engineMissing = false")
+            json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["engineFault"])
+    ev('root.engineFault = ""')
     state(fixture("state-live.json"))
     ev('root.postRunLine = ""')
     ev("root.restartDismissed = false")
@@ -1273,24 +1273,24 @@ QtObject {
     # ORDINARY first run of a store install rather than an exotic failure. Driven through the
     # property a check answering rc 127 sets; probe_state.py pins that half.
     ev("root.kemptState = null")
-    ev("root.engineMissing = true")
+    ev('root.engineFault = "missing"')
     ev('root.postRunLine = ""')
     p.pump(80)
-    stack("with the engine not installed", "engineMissingMessage")
+    stack("with the engine not installed", "engineFaultMessage")
     p.check("...as Information, because nothing is broken: something is not set up yet",
-            lev("engineMissingMessage.type"), lev("Kirigami.MessageType.Information"))
+            lev("engineFaultMessage.type"), lev("Kirigami.MessageType.Information"))
     p.check("...carrying logic.js's sentence rather than a second copy of it",
-            lev("engineMissingMessage.text"), ev("root.vm.engineMissingMessage"))
+            lev("engineFaultMessage.text"), ev("root.vm.engineFaultMessage"))
     p.check("...with the copr command readable in the body",
-            "sudo dnf copr enable erez-c137/kempt" in str(lev("engineMissingMessage.text")), True)
+            "sudo dnf copr enable erez-c137/kempt" in str(lev("engineFaultMessage.text")), True)
     p.check("...and the install command that follows it",
-            "sudo dnf install kempt" in str(lev("engineMissingMessage.text")), True)
+            "sudo dnf install kempt" in str(lev("engineFaultMessage.text")), True)
     p.check("...and somewhere to go for a box that is not Fedora",
-            "github.com/erez-c137/kempt" in str(lev("engineMissingMessage.text")), True)
+            "github.com/erez-c137/kempt" in str(lev("engineFaultMessage.text")), True)
     p.check("...never the shell's own sentence, which is what the popup used to quote",
-            "command not found" in str(lev("engineMissingMessage.text")), False)
+            "command not found" in str(lev("engineFaultMessage.text")), False)
     p.check("...announced to a screen reader in the same words",
-            lev("engineMissingMessage.Accessible.name"), lev("engineMissingMessage.text"))
+            lev("engineFaultMessage.Accessible.name"), lev("engineFaultMessage.text"))
     # Nothing else that presumes an engine renders beside it. The placeholder is the one that had
     # to be silenced deliberately: it would otherwise promise that a first check is on its way,
     # about a check that is never going to finish.
@@ -1306,19 +1306,37 @@ QtObject {
     # on the clipboard, because an InlineMessage's text cannot be selected and a retyped command
     # fails somewhere the reader then has to debug. Triggered here for real: the payload must be
     # vm's copy text (the "&&" form), never the message's own sentence.
-    p.check("...offering exactly one action", lev("engineMissingMessage.actions.length"), 1)
-    p.check("...named Copy Commands", lev("engineMissingMessage.actions[0].text"), "Copy Commands")
-    lev("engineMissingMessage.actions[0].trigger()")
+    p.check("...offering exactly one action", lev("engineFaultMessage.actions.length"), 1)
+    p.check("...named Copy Commands", lev("engineFaultMessage.actions[0].text"), "Copy Commands")
+    lev("engineFaultMessage.actions[0].trigger()")
     p.pump(80)
     p.check("...whose payload is the chained one-line form",
-            lev("engineCopyClip.text"), ev("root.vm.engineMissingCopyText"))
+            lev("engineCopyClip.text"), ev("root.vm.engineFaultCopyText"))
     p.check("...which is a command line, not the message's sentence",
             " && " in str(lev("engineCopyClip.text")), True)
 
-    ev("root.engineMissing = false")
+    # ...and the OTHER fault, through the same message with a different answer in it. The widget
+    # used to send this person to install a package they already had.
+    ev("root.kemptState = null")
+    ev('root.engineFault = "unrunnable"')
+    p.pump(80)
+    stack("with the engine installed and refusing to start", "engineFaultMessage")
+    p.check("...saying it is installed rather than absent",
+            "installed but will not run" in str(lev("engineFaultMessage.text")), True)
+    p.check("...and never offering to install it again",
+            "dnf install" in str(lev("engineFaultMessage.text")), False)
+    p.check("...still offering exactly one action", lev("engineFaultMessage.actions.length"), 1)
+    p.check("...named for the single command it copies",
+            lev("engineFaultMessage.actions[0].text"), "Copy Command")
+    lev("engineFaultMessage.actions[0].trigger()")
+    p.pump(80)
+    p.check("...whose payload is the command that finds the cause",
+            lev("engineCopyClip.text"), "kempt doctor")
+
+    ev('root.engineFault = ""')
     state(fixture("state-live.json"))
     p.check("an engine that answers takes the message away again",
-            lev("engineMissingMessage.visible"), False)
+            lev("engineFaultMessage.visible"), False)
 
     state(fixture("state-live.json"))
     ev('root.actionMessage = "Could not change the hold on bash."')
@@ -1823,10 +1841,15 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
     "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
-    "engineMissing",        # -> vm.engineMissingMessage, and vm.tooltipSub on its own
-    "engineMissingCopy",    # -> vm.engineMissingCopyText: a clipboard payload of shell commands,
+    "engineMissing",        # -> vm.engineFaultMessage, and vm.tooltipSub on its own
+    "engineMissingCopy",    # -> vm.engineFaultCopyText: a clipboard payload of shell commands,
                             #    bound as data - and never a translatable unit at all
-    "engineMissingInstall",  # -> vm.engineMissingMessage
+    "engineMissingInstall",  # -> vm.engineFaultMessage
+    "engineUnrunnable",     # -> vm.engineFaultMessage, and vm.tooltipSub, for the rc 126 half
+    "engineUnrunnableCopy",  # -> vm.engineFaultCopyText: a command line, bound as data
+    "engineUnrunnableFix",  # -> vm.engineFaultMessage
+    "engineCopyCommands",   # -> vm.engineFaultActionLabel: the button's label follows its payload
+    "engineCopyCommand",    # -> vm.engineFaultActionLabel
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

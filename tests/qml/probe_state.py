@@ -113,12 +113,12 @@ p.check("...and nothing was counted against the retry budget", ev("root.firstChe
 # shell's own sentence into the popup over a "run kempt doctor" line that cannot work. The rc is
 # what this reads, not the text: 127 is the same on every locale and in every shell.
 open(MODE, "w").write("missing")
-ev("root.kemptState = null; root.cliError = ''; root.engineMissing = false; "
+ev("root.kemptState = null; root.cliError = ''; root.engineFault = ''; "
    "root.firstCheckRetries = 0")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
 p.check("a check that found no engine records THAT, not the shell's words",
-        ev("root.engineMissing"), True)
+        ev("root.engineFault"), "missing")
 p.check("...leaving cliError empty, so nothing quotes sh at the user", ev("root.cliError"), "")
 p.check("...the panel stays dim rather than raising a warning emblem", ev("root.vm.iconState"), "unknown")
 p.check("...and the header names what is missing",
@@ -128,15 +128,26 @@ p.check("...and no retry on a timer: installing the engine is the only thing tha
         ev("firstCheckRetry.running"), False)
 p.check("...so nothing is counted against the retry budget either", ev("root.firstCheckRetries"), 0)
 
-# 126 is the same absence wearing a different hat - found, and not executable - and a widget that
-# treated it as an ordinary failure would go back to quoting the shell.
+# 126 is a DIFFERENT fact wearing the same consequence: found, and not executable. Treating it as
+# an ordinary failure would go back to quoting the shell; treating it as absence - which the widget
+# did until this - told a person to install a package that is already on the box, and told them the
+# same thing again once they had. So it is recorded as its own fault, and the popup says so.
 open(MODE, "w").write("notexec")
-ev("root.engineMissing = false")
+ev("root.engineFault = ''")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
-p.check("an engine that is present and not executable counts as missing too",
-        ev("root.engineMissing"), True)
+p.check("an engine that is present and not executable is recorded as unrunnable, not missing",
+        ev("root.engineFault"), "unrunnable")
 p.check("...and still says nothing about permissions in the popup", ev("root.cliError"), "")
+p.check("...with a header that does not claim it is absent",
+        ev("root.vm.headerText"), "Kempt's engine will not run")
+p.check("...offering the one command that can find the cause",
+        ev("root.vm.engineFaultCopyText"), "kempt doctor")
+# An install that is there and will not start is a malfunction, unlike one nobody has done yet.
+p.check("...and the panel raises the emblem, because this box cannot report its updates",
+        ev("root.vm.iconState"), "error")
+p.check("...while a check is still not retried on a timer: nothing here changes on its own",
+        ev("firstCheckRetry.running"), False)
 
 # ...and the moment a check answers, it is over. Nothing else clears this: the user installs the
 # package and presses Refresh, and the widget has to come back on its own.
@@ -144,7 +155,7 @@ open(MODE, "w").write("live")
 ev("root.doCheck()")
 p.wait_for(ev, "root.kemptState !== null", True)
 p.wait_for(ev, "root.checking", False)
-p.check("an engine that answers clears the flag", ev("root.engineMissing"), False)
+p.check("an engine that answers clears the flag", ev("root.engineFault"), "")
 
 # --- 1. what a fresh widget knows -------------------------------------------------------------
 p.check("a fresh widget runs a check on load", ev("root.kemptState !== null"), True)

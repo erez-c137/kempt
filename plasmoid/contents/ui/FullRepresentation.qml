@@ -392,32 +392,38 @@ PlasmaExtras.Representation {
         // RowLayout, so they wrap correctly at popup width and get consistent iconography. Shipped
         // precedent inside a plasmoid: org.kde.desktopcontainment's FolderView.qml.
 
-        // No engine on the box, which is the ORDINARY first run of a KDE Store install. FIRST in
-        // the stack because it is the only message saying the widget cannot do anything at all yet.
-        // Information and not Error: nothing is broken, a step has not been taken - and the panel
-        // agrees, keeping the icon dim rather than raising a warning emblem (logic.js, iconState).
+        // No WORKING engine on the box. Two situations share this message because they share a
+        // consequence - nothing can be checked - and the view model decides which sentence and
+        // which command it carries: the engine is not installed (the ORDINARY first run of a KDE
+        // Store install), or it is installed and will not start. FIRST in the stack because it is
+        // the only message saying the widget cannot do anything at all yet.
         //
-        // One action, and it RUNS nothing: Copy Commands puts the two dnf lines on the clipboard,
-        // because an InlineMessage's text cannot be selected and a retyped command line fails
-        // somewhere the reader then has to debug. The payload is vm.engineMissingCopyText, the
-        // chained one-line form, NOT the message's own sentence: pasting a sentence into a shell is
-        // its own failure. The rest of the popup needs no new gate - Update Now, the list and the
-        // placeholder are all bound to view-model values that are empty with no state. Refresh
-        // deliberately stays: it is how somebody who has just installed the package gets an answer
-        // without waiting out the hourly timer.
+        // Information and not Error even for the second: the emblem on the PANEL icon is where a
+        // malfunction is raised (logic.js, iconState, which dims for one and warns for the other),
+        // and a popup already showing one message about one problem does not need to shout as well.
+        //
+        // One action, and it RUNS nothing: it puts the remedy on the clipboard, because an
+        // InlineMessage's text cannot be selected and a retyped command line fails somewhere the
+        // reader then has to debug. The payload is vm.engineFaultCopyText, the pasteable form, NOT
+        // the message's own sentence: pasting a sentence into a shell is its own failure, and the
+        // label comes from the view model with it so it can say Command or Commands truthfully.
+        // The rest of the popup needs no new gate - Update Now, the list and the placeholder are
+        // all bound to view-model values that are empty with no state. Refresh deliberately stays:
+        // it is how somebody who has just installed or repaired the package gets an answer without
+        // waiting out the hourly timer.
         Kirigami.InlineMessage {
-            id: engineMissingMessage
+            id: engineFaultMessage
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
-            text: popup.vm.engineMissingMessage
+            text: popup.vm.engineFaultMessage
             Accessible.name: text
-            visible: popup.shows("engineMissing")
+            visible: popup.shows("engineFault")
             actions: [
                 Kirigami.Action {
-                    text: i18n("Copy Commands")
+                    text: popup.vm.engineFaultActionLabel
                     icon.name: "edit-copy"
                     onTriggered: source => {
-                        engineCopyClip.text = popup.vm.engineMissingCopyText;
+                        engineCopyClip.text = popup.vm.engineFaultCopyText;
                         engineCopyClip.selectAll();
                         engineCopyClip.copy();
                     }
