@@ -448,8 +448,9 @@ assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Fedora 45\") >= 0")" "true"
 # ARMED is a separate question and the one the sentence turns on. `dnf5 system-upgrade download`
 # stops at downloaded: no restart installs anything until `dnf5 system-upgrade reboot`, and a box
 # can sit there for days. The first version of this message promised a restart in both states.
-ruA="($RU)({release_upgrade:{from:\"44\",to:\"45\",armed:true}})"
-ruD="($RU)({release_upgrade:{from:\"44\",to:\"45\",armed:false}})"
+ruA="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"armed\"}})"
+ruD="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"downloaded\"}})"
+ruS="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"stranded\"}})"
 ruN="($RU)({release_upgrade:{from:\"44\",to:\"45\"}})"
 assert_eq "$(js "$ruA.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "true" \
   "an ARMED upgrade is the one that installs on the next restart"
@@ -458,7 +459,53 @@ assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"installs on the next resta
 assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "true" \
   "...it says what state it is actually in"
 assert_eq "$(js "$ruN.releaseUpgradeMessage")" "$(js "$ruD.releaseUpgradeMessage")" \
-  "...and a state file with no armed key at all reads as the unarmed case, promising nothing"
+  "...and a state file with no state key at all reads as the downloaded case, promising nothing"
+# Single-quoted JS string literals: a bash-escaped \" inside the expression this helper builds
+# reaches node as a backslash, not a quote.
+for _bad in "'ARMED'" 'true' '1' 'null'; do
+  assert_eq "$(js "($RU)({release_upgrade:{from:\"44\",to:\"45\",state:$_bad}}).releaseUpgradeMessage")" \
+    "$(js "$ruD.releaseUpgradeMessage")" "...as does a state of $_bad, which this file does not know"
+done
+# The THIRD state, which reads as neither of the others: `ready` with the boot symlink gone. A
+# restart has already been past it. Saying "installs on the next restart" promises something no
+# restart will do; saying "not started yet" quotes a status word that says the opposite.
+assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart has already been past it\") >= 0")" "true" \
+  "a stranded upgrade says a restart has already been past it"
+assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
+  "...and never promises the next restart will install it"
+assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
+  "...nor calls a transaction that WAS armed one that was never started"
+assert_eq "$(js "$ruS.offlineStageOffered")" "false" \
+  "...and staging stays refused, because staging cancels a stored transaction in any state"
+
+# --- what a run started NOW would do, which decides what the popup may say and offer -------------
+# The refusals the CLI applies are per-surface: with a release upgrade stored, a box configured to
+# stage is refused where a box configured to update live is not. Update Now IS the staging on the
+# first, so offering it there is offering a button that always declines.
+RUSURF='function (surf) { var s = S("risky-heavy"); s.release_upgrade = {from:"44",to:"45",state:"armed"}; return L.viewModel(s, false, "", {surface: surf}); }'
+assert_eq "$(js "($RUSURF)(\"background\").updateOffered")" "true" \
+  "a box that updates live keeps Update Now while an upgrade is stored"
+assert_eq "$(js "($RUSURF)(\"offline\").updateOffered")" "false" \
+  "...and a box that stages by default does not, because that press is the refusal"
+assert_eq "$(js "($RUSURF)(\"background\").releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
+  "...with the message saying so on the first"
+assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "false" \
+  "...and never on the second, where it would be false"
+assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"nothing to press\") >= 0")" "true" \
+  "...which says instead that there is nothing to press until the upgrade is dealt with"
+# An unstated or unrecognised surface reads as terminal, the CLI's own fallback - never as offline,
+# which would take the button away from a box that can still use it.
+for _s in "''" 'undefined' '42' "'nonsense'"; do
+  assert_eq "$(js "($RUSURF)($_s).updateOffered")" "true" \
+    "a surface of $_s is not offline, and does not take Update Now away"
+done
+# resolveSurface trims and lower-cases, which is this file's convention for every surface value it
+# reads and not something this feature introduced. Worth pinning because the CLI's resolve_surface
+# does NEITHER - a hand-edited config of " offline " is offline to the widget and terminal to the
+# CLI. The direction is the safe one (a button withheld rather than one that would be refused), and
+# a config written by `kempt config set` cannot produce it.
+assert_eq "$(js "($RUSURF)(' OFFLINE ').updateOffered")" "false" \
+  "a padded, upper-case offline is still offline to the widget, as every surface value here is"
 assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
   "...while staging stays refused either way, because staging cancels a downloaded one too"
 assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"cancel\") >= 0")" "true" \
@@ -522,10 +569,14 @@ assert_eq "$(js "($IB)().imageBasedMessage")" "" "an ordinary box says nothing a
 assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
   "it leads the stack: every message under it presumes a box Kempt can update"
 # ...and here too the kernel FACT survives, without the recommendation it cannot honour.
-assert_eq "$(js "$ib.riskyMessage.indexOf(\"session-critical pending\") >= 0")" "true" \
-  "...while the session-critical risk is still stated"
-assert_eq "$(js "$ib.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
-  "...without recommending a restart install this box cannot do"
+# ...and the session-critical warning is NOT raised here, unlike the release-upgrade case. There
+# the live Update Now button stays on screen, so the risk has to stay with it. Here every button is
+# already gone, dnf's view is not what installs on this machine, and a count under the message that
+# says so would be a warning with nowhere to go.
+assert_eq "$(js "$ib.riskyMessage")" "" \
+  "no session-critical warning on a box where no button Kempt offers could act on it"
+assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
+  "...so the one message about what this machine is stands alone"
 # The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
 # blanking them would replace a true-but-incomplete answer with no answer at all.
 assert_eq "$(js "$ib.actionable")" "$(js "($IB)().actionable")" \

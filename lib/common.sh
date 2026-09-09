@@ -799,16 +799,26 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # The REFUSAL above deliberately does not ask this - staging over a downloaded transaction destroys
 # it just as thoroughly as over an armed one - but "it installs on the next restart" is false here,
 # and saying it sends somebody to restart a machine that will come back exactly as it was.
-# TWO things, not one, and this file already says so everywhere else: `dnf5 offline reboot` writes
-# the status AND creates /system-update, and systemd removes the symlink once system-update.target
-# is reached - so a `ready` transaction with no symlink is one a boot came and went without running,
-# and no later one will run it either. offline_staged_state refuses to publish Kempt's OWN stage in
-# that state; asking only for the status word here reintroduced the same trap for somebody else's
-# transaction, and doctor then printed "installs on the next restart" directly above its own FAIL
-# saying that transaction can never install.
+# THREE states, not two, and that is the whole reason this is not a boolean. Arming is two things -
+# `dnf5 offline reboot` writes the status AND creates /system-update - and systemd removes the
+# symlink once system-update.target is reached. So:
+#
+#   downloaded  status is not `ready`: the packages are on disk and nothing has armed them. Where
+#               `dnf5 system-upgrade download` leaves one, and where a box can sit for days.
+#   armed       `ready` AND the symlink: the next restart installs it.
+#   stranded    `ready` and NO symlink: a restart has already walked past it, and no later one will
+#               run it either - only re-arming can.
+#
+# Collapsing the third into either of the others is how a sentence ends up disproving itself:
+# "downloaded but not started (status ready)" says the opposite of the word it quotes, and
+# "installs on the next restart" promises something no restart will do. offline_staged_state
+# refuses to publish Kempt's OWN stage in the stranded state for the same reason.
 # lstat, never resolved: system-update-generator does not resolve it either.
-offline_release_upgrade_armed() {
-  [[ "$(offline_system_status)" == ready && -L "$KEMPT_OFFLINE_LINK" ]]
+offline_release_upgrade_state() {  # → downloaded | armed | stranded
+  if [[ "$(offline_system_status)" != ready ]]; then printf 'downloaded\n'
+  elif [[ -L "$KEMPT_OFFLINE_LINK" ]];      then printf 'armed\n'
+  else                                            printf 'stranded\n'
+  fi
 }
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
@@ -1041,6 +1051,12 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
 # The legacy fallback, for a marker written before the field existed: warn only when the package is
 # pending RIGHT NOW, since a package with no update to miss cannot have been missed.
 offline_stage_built_without() {  # name → 0 when an armed stage left it out
+  # The same proof of ownership offline_staged_state uses, for the same reason: dnf5 keeps ONE
+  # stored transaction, Kempt only ever stages at the releasever the box is already on, so a stored
+  # release upgrade means the transaction our marker describes is gone. Without this, `kempt unhold`
+  # asserted a stage the check one command earlier had already stopped publishing, and pointed at a
+  # rebuild that pre-flight refuses.
+  offline_release_upgrade >/dev/null && return 1
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 1

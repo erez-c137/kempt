@@ -263,6 +263,10 @@ var COPY = {
     // started. Nothing installs on any restart until somebody arms it, so saying it does would send
     // a person to restart a machine that comes back exactly as it was.
     releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet.",
+    // The third state, which reads as neither of the others: it WAS armed, and a restart has
+    // already been past it without running it. Nothing further will until somebody arms it again,
+    // so "installs on the next restart" and "not started yet" are both false here.
+    releaseUpgradeStranded: "A Fedora %1 upgrade is stored and was armed, but a restart has already been past it, so no restart installs it now.",
     releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
     // ...and only where it is true. A box configured to run updates on the next reboot has no
     // "update now" to fall back on: staging IS what its button does, and that is the thing being
@@ -1312,19 +1316,21 @@ function viewModel(state, updating, cliError, opts) {
     var relTo = (relUp && typeof relUp.to === "string") ? relUp.to : "";
     var relFrom = (relUp && typeof relUp.from === "string") ? relUp.from : "";
     var releaseUpgrade = (relTo !== "" && relFrom !== "");
-    // ARMED is a separate question, and the one the sentence turns on. `dnf5 system-upgrade
-    // download` leaves the transaction downloaded and NOT armed: no restart installs it until
-    // `dnf5 system-upgrade reboot`, and a box can sit like that for days. Strictly `=== true`, so a
-    // state file from a CLI that published no `armed` reads as the unarmed case - which says less
-    // rather than promising a restart that does nothing.
-    var releaseUpgradeArmed = releaseUpgrade && relUp.armed === true;
+    // WHICH of the three states it is in, and the sentence turns on it. `armed` is the only one a
+    // restart installs; `downloaded` is where `dnf5 system-upgrade download` leaves one, and where
+    // a box can sit for days; `stranded` is `ready` with the boot symlink gone, which a restart has
+    // already walked past. Anything this file does not recognise - including a state file from a
+    // CLI that published no state at all - reads as `downloaded`, the one that promises nothing.
+    var relState = (releaseUpgrade && (relUp.state === "armed" || relUp.state === "stranded"))
+        ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
     // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
     var releaseUpgradeMessage = !releaseUpgrade ? ""
-        : (releaseUpgradeArmed ? COPY.releaseUpgradeStaged.replace("%1", relTo)
-                               : COPY.releaseUpgradeReady.replace("%1", relTo))
+        : (relState === "armed"    ? COPY.releaseUpgradeStaged.replace("%1", relTo)
+         : relState === "stranded" ? COPY.releaseUpgradeStranded.replace("%1", relTo)
+                                   : COPY.releaseUpgradeReady.replace("%1", relTo))
           + " " + COPY.releaseUpgradeNoStage
           + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
 
@@ -1357,11 +1363,16 @@ function viewModel(state, updating, cliError, opts) {
     // the summary sentence stands in - it states the risk and advises nothing, which is the honest
     // half to keep.
     var noOfflineRoute = releaseUpgrade || imageBased;
+    // ...and on a box Kempt cannot update AT ALL, the risk is not the widget's to raise: no button
+    // it offers can act on it, dnf's view is not what installs there, and a second message under
+    // the one saying so would be a count with nowhere to go. The release-upgrade case is the
+    // opposite - the live button stays on screen, so the warning has to stay with it.
+    var riskyIsMoot = imageBased;
     var riskyPending = usable && isArray(state.risky_pending) ? state.risky_pending : [];
     // Where the offline route exists, the recommendation - what to DO about a kernel. Where it does
     // not, the summary, which states the same risk and advises nothing. Silence was the wrong third
     // option: it took the warning off the screen while the live button stayed on it.
-    var riskyMessage = staged ? ""
+    var riskyMessage = (staged || riskyIsMoot) ? ""
         : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`

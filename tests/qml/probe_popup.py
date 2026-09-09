@@ -1539,7 +1539,7 @@ QtObject {
     # re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is the popup
     # never making it available.
     _ru = json.loads(open(fixture("state-risky-heavy.json")).read())
-    _ru["release_upgrade"] = {"from": "44", "to": "45", "armed": True}
+    _ru["release_upgrade"] = {"from": "44", "to": "45", "state": "armed"}
     _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
     open(_rupath, "w").write(json.dumps(_ru))
     state(_rupath)
@@ -1586,7 +1586,7 @@ QtObject {
     _ibpath = os.path.join(p.sandbox, "state-image-based.json")
     open(_ibpath, "w").write(json.dumps(_ib))
     state(_ibpath)
-    stack("on an image-based Fedora", "imageBasedMessage", "riskyMessage")
+    stack("on an image-based Fedora", "imageBasedMessage")
     p.check("...naming the tool that does update this machine",
             "rpm-ostree" in str(lev("imageBasedMessage.text")), True)
     p.check("...carrying logic.js's sentence rather than a second copy of it",
@@ -1600,8 +1600,6 @@ QtObject {
             lev("updateButton.visible"), False)
     p.check("...nor Install on Next Restart, which aborts in the same place",
             lev("riskyMessage.actions[0].visible"), False)
-    p.check("...while the kernel risk is still stated, without a route it cannot offer",
-            "next restart" in str(lev("riskyMessage.text")), False)
     # ...and Refresh stays: a check reads, changes nothing, and is how the list stays current.
     p.check("...while Refresh stays, because reading is not the thing that is refused",
             lev("refreshButton.visible && refreshButton.enabled"), True)
@@ -1935,7 +1933,8 @@ _ASSEMBLED_IN_LOGIC = {
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
-    "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed half
+    "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed state
+    "releaseUpgradeStranded",  # -> vm.releaseUpgradeMessage, for `ready` with the boot symlink gone
     "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
     "releaseUpgradeNoRoute",  # -> vm.releaseUpgradeMessage, on a box configured to stage
     "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel

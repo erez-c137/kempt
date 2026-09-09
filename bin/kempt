@@ -107,14 +107,14 @@ cmd_check() {
   # Never both: a box that cannot be updated by dnf at all has nothing useful to say about what is
   # in dnf5's transaction slot, and the two messages contradict each other in a popup that shows
   # two at a time.
-  local relup_json="" relup_pair relup_armed=false
+  local relup_json="" relup_pair
   if [[ "$image_based" == null ]] && relup_pair="$(offline_release_upgrade)"; then
-    # `armed` and not a second key at the top level, because it qualifies THIS fact and a reader
-    # that has one without the other would word its sentence wrongly. false is meaningful here -
-    # downloaded but not started - so unlike the keys above it is published either way.
-    offline_release_upgrade_armed && relup_armed=true
+    # `state` and not a boolean, and inside this object rather than beside it: three states, and a
+    # reader holding two of the three would word its sentence wrongly for the one it cannot name.
+    # Always present when the object is - it qualifies the fact rather than adding a new one.
     relup_json="$(jq -cn --arg from "${relup_pair%% *}" --arg to "${relup_pair##* }" \
-                    --argjson armed "$relup_armed" '{from:$from, to:$to, armed:$armed}')" || relup_json=""
+                    --arg st "$(offline_release_upgrade_state)" \
+                    '{from:$from, to:$to, state:$st}')" || relup_json=""
   fi
   local state
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based")"
@@ -589,11 +589,13 @@ cmd_update() {
   if [[ "$surface" == "offline" ]]; then
     local relup
     if relup="$(offline_release_upgrade)"; then
-      if offline_release_upgrade_armed; then
-        preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart - staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean"
-      else
-        preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started - staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean"
-      fi
+      # Refused in all three states - staging cancels a stored transaction whatever state it is in -
+      # and the remedy named is the one that applies to the state it is actually in.
+      case "$(offline_release_upgrade_state)" in
+        armed)     preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart - staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
+        stranded)  preflight_abort "a Fedora release upgrade ($relup) is stored but no longer armed, so no restart installs it - staging updates would cancel it. Re-arm it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        *)         preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started - staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+      esac
     fi
   fi
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
@@ -1755,11 +1757,17 @@ doctor_offline_rows() {
       # a status of "download-complete" prints the claim and its own refutation in one line - and
       # the row twelve lines up says the opposite about the identical status when the transaction
       # happens to be Kempt's own.
-      if offline_release_upgrade_armed; then
-        doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart - Kempt will not stage updates over it, because that would cancel it"
-      else
-        doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet - begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it"
-      fi
+      case "$(offline_release_upgrade_state)" in
+        armed)
+          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart - Kempt will not stage updates over it, because that would cancel it" ;;
+        stranded)
+          # `ready` with no boot symlink. Named as its own state, because the other two sentences
+          # each say something this one disproves: it is not waiting for a restart, and calling it
+          # "downloaded but not started" quotes a status word that says the opposite.
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was armed, but $KEMPT_OFFLINE_LINK is gone - a restart has already been past it and no later one installs it. Re-arm it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+        *)
+          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet - begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+      esac
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
     fi
@@ -1782,7 +1790,15 @@ doctor_offline_rows() {
     # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
     # transaction and no future one can install it either - see reconcile_detour_stage. Without
     # this row every surface calls it a pending install, forever.
-    doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` re-arms it - re-stage it with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
+    # Whose transaction it is decides both the noun and the remedy. `kempt update --surface=offline`
+    # is refused while a release upgrade is stored, so offering it there would be one more command
+    # that always ends in a no - and calling a Fedora release upgrade "staged update" attributes
+    # somebody else's transaction to Kempt, which the row two above has just said it is not.
+    if offline_release_upgrade >/dev/null; then
+      doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, so a restart has already been past it - re-arm it with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
+    else
+      doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` re-arms it - re-stage it with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
+    fi
   fi
 }
 

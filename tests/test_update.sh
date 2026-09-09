@@ -1121,6 +1121,24 @@ case "$dlout" in
 esac
 release_upgrade_staged
 
+# ...and the third state: stored, `ready`, and the boot symlink gone. A restart has already been
+# past it, so neither of the other two sentences is true - and staging is refused all the same,
+# because staging cancels a stored transaction whatever state it is in.
+: > "$WORLD/apply-calls"
+rc=0
+stout="$(KEMPT_OFFLINE_LINK="$TESTTMP/no-such-system-update" \
+         "$KEMPT" update --surface=offline 2>&1)" || rc=$?
+assert_eq "$rc" "5" "a stranded release upgrade is protected exactly as the other two are"
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" "...nothing staged over it"
+case "$stout" in
+  *"no longer armed"*) echo "ok: ...and the refusal says a restart will not install it as things stand" ;;
+  *) echo "FAIL: the refusal describes the wrong state"; echo "  got: $stout"; _fail=1 ;;
+esac
+case "$stout" in
+  *"installs on the next restart"*) echo "FAIL: it promises a restart that will not happen"; _fail=1 ;;
+  *) echo "ok: ...and promises nothing a restart will not do" ;;
+esac
+
 # The predicate is a COMPARISON, never "does this file mention a releasever". Both keys are in
 # every state_version 2 file and an ordinary offline upgrade carries the SAME value in both - which
 # is what tests/fixtures/offline-ready.toml records - so a presence test would refuse every

@@ -769,6 +769,26 @@ grep -qF 'system-upgrade reboot' "$TESTTMP/staged.txt" \
 grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
   && { echo "FAIL: it still claims a restart installs it"; _fail=1; } \
   || echo "ok: ...and never claims a restart installs something that is not armed"
+# ...and the third state, which is neither: `ready` with the boot symlink gone. A restart has
+# already been past it. Both other sentences are false here - one promises the next restart, and
+# the other calls a transaction that WAS armed one that was never started, quoting a status word
+# that says the opposite.
+KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
+grep -qF 'a restart has already been past it' "$TESTTMP/staged.txt" \
+  && echo "ok: a stranded release upgrade is described as one a restart has already passed" \
+  || { echo "FAIL: no stranded line - got: $(grep -i 'release upgrade' "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: it still promises the next restart"; _fail=1; } \
+  || echo "ok: ...and promises no restart that will not happen"
+# The FAIL beside it must not call somebody else's release upgrade a "staged update", nor offer the
+# rebuild command that pre-flight refuses while one is stored.
+grep -qF 'the stored Fedora release upgrade can never install' "$TESTTMP/staged.txt" \
+  && echo "ok: ...and the failure names whose transaction it is" \
+  || { echo "FAIL: the FAIL row attributes it to Kempt"; _fail=1; }
+grep -qF 'kempt update --surface=offline' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: it offers the command that is refused while an upgrade is stored"; _fail=1; } \
+  || echo "ok: ...and offers no command that always ends in a refusal"
+
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qF 'will not stage updates over it' "$TESTTMP/staged.txt" \
   && echo "ok: ...saying why Kempt refuses to stage while it is there" \

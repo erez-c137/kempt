@@ -453,8 +453,8 @@ rm -f "$marker"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.release_upgrade.from' "$st")" "44" "a staged release upgrade is published: where from"
 assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and where to"
-assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "true" \
-  "...and whether a restart actually installs it, which is a different question"
+assert_eq "$(jq -r '.release_upgrade.state' "$st")" "armed" \
+  "...and which of its three states it is in, which is what every sentence about it turns on"
 # The state a release upgrade spends most of its life in. `dnf5 system-upgrade download` stops
 # here: downloaded, not armed, and no restart installs anything until somebody runs
 # `dnf5 system-upgrade reboot`. Published as false rather than omitted, because "downloaded but not
@@ -462,8 +462,8 @@ assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "true" \
 # sentence wrongly.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml"
 "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "false" \
-  "a downloaded-but-not-started release upgrade is published as not armed"
+assert_eq "$(jq -r '.release_upgrade.state' "$st")" "downloaded" \
+  "a downloaded-but-not-started release upgrade is published as downloaded"
 assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and still names the release"
 # ...and the other half of arming, which the status word alone cannot see: `ready` with the boot
 # symlink gone is a transaction a restart came and went without running, and no later one runs it
@@ -472,9 +472,16 @@ assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and still names the re
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
 export KEMPT_OFFLINE_LINK="$TESTTMP/relup-no-system-update"
 "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "false" \
-  "a ready release upgrade whose boot symlink is gone is not armed either"
-export KEMPT_OFFLINE_LINK="$RU_LINK"
+# ...and it is its OWN state, not one of the other two. Collapsing it into "downloaded" produced a
+# sentence quoting the status word that disproves it; collapsing it into "armed" promised a restart
+# that will not happen. A restart has already been past this one.
+assert_eq "$(jq -r '.release_upgrade.state' "$st")" "stranded" \
+  "a ready release upgrade whose boot symlink is gone is stranded, not downloaded and not armed"
+# Restored, or every check from here on runs with a boot symlink present - which is not the state of
+# a box that has not just staged something, and lib.sh pins the seam away from the real one for
+# exactly that reason.
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 assert_eq "$(jq -r .schema "$st")" "1" "release_upgrade is additive: the schema does not move"
 # It is NOT part of offline_staged, and the distinction is the whole point: that key describes the
 # transaction KEMPT staged, and this is by definition one it did not.
