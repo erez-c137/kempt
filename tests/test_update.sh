@@ -112,6 +112,12 @@ transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"; 
 # A Fedora RELEASE upgrade, stored in the same file and armed the same way. The fixture's keys are
 # dnf5's own output, captured from `dnf5 system-upgrade download --releasever=45` on Fedora 44.
 release_upgrade_staged() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"; }
+# ARMED is two things. Nothing else in this file creates the boot symlink, so without this every
+# release-upgrade case ran in the STRANDED state and the armed branch was never executed at all -
+# proved by replacing it with a marker string and watching the file stay green.
+relup_link_on()  { ln -sfn "$TESTTMP" "$TESTTMP/relup-system-update"
+                   export KEMPT_OFFLINE_LINK="$TESTTMP/relup-system-update"; }
+relup_link_off() { export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"; }
 transaction_gone()  { export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"; }
 
 # History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
@@ -1069,6 +1075,7 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 release_upgrade_staged
+relup_link_on          # ...and armed, which is the state the sentences below are about
 rc=0
 # Deliberately WITHOUT --no-flatpak: the refusal happens before the run begins, so the flatpak half
 # never runs either. It used to, and the run then reported FAILED with a reason about dnf while
@@ -1085,7 +1092,11 @@ assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0
 assert_exit 0 "...and no marker is written for a stage that never happened" -- test ! -f "$marker"
 # The refusal has to NAME what is there, or it is one more tool saying no without saying why.
 case "$relout" in
-  *"44 -> 45"*) echo "ok: ...and the reason names the upgrade that is waiting" ;;
+  *"installs on the next restart"*) echo "ok: ...and the reason describes an armed upgrade as one that installs" ;;
+  *) echo "FAIL: the armed state was not described as armed"; echo "  got: $relout"; _fail=1 ;;
+esac
+case "$relout" in
+  *"44 -> 45"*) echo "ok: ...naming the upgrade that is waiting" ;;
   *) echo "FAIL: the refusal does not say what is staged"; echo "  got: $relout"; _fail=1 ;;
 esac
 case "$relout" in
@@ -1126,8 +1137,8 @@ release_upgrade_staged
 # because staging cancels a stored transaction whatever state it is in.
 : > "$WORLD/apply-calls"
 rc=0
-stout="$(KEMPT_OFFLINE_LINK="$TESTTMP/no-such-system-update" \
-         "$KEMPT" update --surface=offline 2>&1)" || rc=$?
+relup_link_off         # `ready`, and the boot marker gone: a restart has already been past it
+stout="$("$KEMPT" update --surface=offline 2>&1)" || rc=$?
 assert_eq "$rc" "5" "a stranded release upgrade is protected exactly as the other two are"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" "...nothing staged over it"
 case "$stout" in
@@ -1138,6 +1149,27 @@ case "$stout" in
   *"installs on the next restart"*) echo "FAIL: it promises a restart that will not happen"; _fail=1 ;;
   *) echo "ok: ...and promises nothing a restart will not do" ;;
 esac
+
+# ...and the fourth state: dnf5 recorded that the transaction did not finish. "Downloaded" would
+# say the opposite of the word dnf5 wrote, and `system-upgrade reboot` is advice dnf5 declines.
+: > "$WORLD/apply-calls"
+rc=0
+icout="$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-incomplete.toml" \
+         "$KEMPT" update --surface=offline 2>&1)" || rc=$?
+assert_eq "$rc" "5" "an unfinished release upgrade is protected too"
+case "$icout" in
+  *"did not finish"*) echo "ok: ...and the refusal says it did not finish, which is what dnf5 recorded" ;;
+  *) echo "FAIL: the unfinished state was mis-described"; echo "  got: $icout"; _fail=1 ;;
+esac
+case "$icout" in
+  *"has been downloaded"*) echo "FAIL: it calls download-incomplete downloaded"; _fail=1 ;;
+  *) echo "ok: ...and never calls download-incomplete downloaded" ;;
+esac
+case "$icout" in
+  *"offline log"*) echo "ok: ...and points at the command that says what happened" ;;
+  *) echo "FAIL: no pointer at dnf5 offline log"; _fail=1 ;;
+esac
+relup_link_off
 
 # The predicate is a COMPARISON, never "does this file mention a releasever". Both keys are in
 # every state_version 2 file and an ordinary offline upgrade carries the SAME value in both - which

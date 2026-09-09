@@ -194,6 +194,13 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
   no earlier state to fall back on, the panel icon raises a warning for it instead of dimming, as
   it does for a machine where Kempt has simply not been set up yet.
 
+- **What Kempt says about a stored Fedora release upgrade matches what dnf5 will actually do
+  with it.** dnf5 records four states for a stored transaction, and each one means something
+  different for whether a restart installs it: downloaded and not started, armed and waiting,
+  armed but already passed over by a restart, and one that did not finish. Every surface names the
+  one it is in and gives the remedy that applies to it, rather than promising a restart that will
+  not happen or quoting a status word that says the opposite of the sentence around it.
+
 - **A staged Fedora release upgrade is no longer destroyed by staging updates.** dnf5 keeps one
   stored transaction for release upgrades and ordinary offline updates alike. Pressing **Install
   on Next Restart** with a release upgrade waiting replaced it - dnf5 warns and then does it

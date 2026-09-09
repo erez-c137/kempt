@@ -814,11 +814,19 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # "installs on the next restart" promises something no restart will do. offline_staged_state
 # refuses to publish Kempt's OWN stage in the stranded state for the same reason.
 # lstat, never resolved: system-update-generator does not resolve it either.
-offline_release_upgrade_state() {  # → downloaded | armed | stranded
-  if [[ "$(offline_system_status)" != ready ]]; then printf 'downloaded\n'
-  elif [[ -L "$KEMPT_OFFLINE_LINK" ]];      then printf 'armed\n'
-  else                                            printf 'stranded\n'
-  fi
+offline_release_upgrade_state() {  # → downloaded | armed | stranded | incomplete
+  case "$(offline_system_status)" in
+    ready)             [[ -L "$KEMPT_OFFLINE_LINK" ]] && printf 'armed\n' || printf 'stranded\n' ;;
+    download-complete) printf 'downloaded\n' ;;
+    # download-incomplete, transaction-incomplete, and any word a later dnf5 invents. NOT folded
+    # into `downloaded`: "has been downloaded" quoting a status of `download-incomplete` says the
+    # opposite of the word it quotes, and for a transaction that started and stopped half way
+    # `dnf5 system-upgrade reboot` is the wrong advice as well as a false promise - dnf5 answers
+    # "System is not ready for offline transaction" and points at `dnf5 offline log`.
+    # The four words are dnf5 5.4.3's own (ready, download-complete, download-incomplete,
+    # transaction-incomplete); an unknown fifth lands here, which promises nothing.
+    *)                 printf 'incomplete\n' ;;
+  esac
 }
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same

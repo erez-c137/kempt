@@ -267,6 +267,10 @@ var COPY = {
     // already been past it without running it. Nothing further will until somebody arms it again,
     // so "installs on the next restart" and "not started yet" are both false here.
     releaseUpgradeStranded: "A Fedora %1 upgrade is stored and was armed, but a restart has already been past it, so no restart installs it now.",
+    // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
+    // started during a restart and stopped part way. "Downloaded" would say the opposite of the
+    // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
+    releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened.",
     releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
     // ...and only where it is true. A box configured to run updates on the next reboot has no
     // "update now" to fall back on: staging IS what its button does, and that is the thing being
@@ -1321,16 +1325,18 @@ function viewModel(state, updating, cliError, opts) {
     // a box can sit for days; `stranded` is `ready` with the boot symlink gone, which a restart has
     // already walked past. Anything this file does not recognise - including a state file from a
     // CLI that published no state at all - reads as `downloaded`, the one that promises nothing.
-    var relState = (releaseUpgrade && (relUp.state === "armed" || relUp.state === "stranded"))
+    var REL_STATES = ["armed", "stranded", "incomplete", "downloaded"];
+    var relState = (releaseUpgrade && REL_STATES.indexOf(relUp.state) >= 0)
         ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
     // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
     var releaseUpgradeMessage = !releaseUpgrade ? ""
-        : (relState === "armed"    ? COPY.releaseUpgradeStaged.replace("%1", relTo)
-         : relState === "stranded" ? COPY.releaseUpgradeStranded.replace("%1", relTo)
-                                   : COPY.releaseUpgradeReady.replace("%1", relTo))
+        : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
+         : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
+         : relState === "incomplete" ? COPY.releaseUpgradeIncomplete.replace("%1", relTo)
+                                     : COPY.releaseUpgradeReady.replace("%1", relTo))
           + " " + COPY.releaseUpgradeNoStage
           + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
 
@@ -1519,14 +1525,15 @@ function viewModel(state, updating, cliError, opts) {
         staged: staged,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
-        // update. It also displaces the kernel recommendation for the same reason the release
-        // upgrade does - that message recommends a button this state does not have.
+        // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
+        // no button of any kind on offer, a count of session-critical packages has nowhere to go.
         imageBased: imageBasedMessage !== "",
         releaseUpgrade: releaseUpgradeMessage !== "",
-        // The kernel message RECOMMENDS installing on the next restart, which is the one thing
-        // these two states do not allow - so what is shown there is the summary instead: the same
-        // fact, without the advice. Dropping the message entirely took the warning off the screen
-        // while still offering the live button, which is the wrong half to lose.
+        // The kernel message RECOMMENDS installing on the next restart, which a stored release
+        // upgrade does not allow - so what is shown there is the summary instead: the same fact,
+        // without the advice. Dropping it entirely took the warning off the screen while the live
+        // button stayed on it, which is the wrong half to lose. On an image-based box there is no
+        // live button either, and riskyIsMoot silences it outright.
         kernel: riskyMessage !== ""
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;

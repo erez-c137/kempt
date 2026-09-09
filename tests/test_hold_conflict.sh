@@ -210,6 +210,26 @@ assert_eq "$(events_tail)" "unhold dnf:curl (staged update was built without it)
   "...and the event log says which stage it means"
 assert_eq "$(holds_for dnf | wc -l)" "0" "...and the hold really is gone"
 
+# ...and NOT when the transaction the marker describes is gone. dnf5 keeps ONE stored transaction,
+# and Kempt only ever stages at the releasever the box is already on - so a stored Fedora release
+# upgrade is proof the stage this marker names has been replaced. Without this, `kempt check` had
+# already stopped publishing the stage while `kempt unhold` still asserted one, and pointed at a
+# rebuild that pre-flight refuses while an upgrade is stored.
+: > "$KEMPT_CONFIG_DIR/holds"
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null
+relup_out="$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" hold_stderr unhold dnf:curl)"
+assert_eq "$relup_out" "" \
+  "no claim about a staged update once a release upgrade has replaced it"
+# The same command without the upgrade still warns, so the silence above is the guard and not a
+# broken fixture.
+: > "$KEMPT_CONFIG_DIR/holds"
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null
+assert_eq "$(hold_stderr unhold dnf:curl)" \
+  "The staged update was built without curl - the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
+  "...while an ordinary stored transaction still gets the warning"
+
 # A package that was never excluded from this stage. Warning here would be nagging about a decision
 # nobody made: the package simply had no update when the stage was built.
 assert_eq "$(hold_stderr unhold dnf:never-held)" "" "unholding a package the stage never excluded is silent"

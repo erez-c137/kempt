@@ -1935,6 +1935,7 @@ _ASSEMBLED_IN_LOGIC = {
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
     "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed state
     "releaseUpgradeStranded",  # -> vm.releaseUpgradeMessage, for `ready` with the boot symlink gone
+    "releaseUpgradeIncomplete",  # -> vm.releaseUpgradeMessage, for a transaction that did not finish
     "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
     "releaseUpgradeNoRoute",  # -> vm.releaseUpgradeMessage, on a box configured to stage
     "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel

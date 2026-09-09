@@ -355,6 +355,13 @@ upgrade replaces it, dnf5 prints "Continuing will cancel the old offline transac
 anyway under `-y`, and `/system-update` is left standing - so the machine still restarts into an
 update, just not the one that was asked for.
 
+## tests/fixtures/offline-release-upgrade-incomplete.toml
+The same capture with `status = "download-incomplete"`, one of the four words dnf5 5.4.3 writes
+into this file (`ready`, `download-complete`, `download-incomplete`, `transaction-incomplete` -
+taken from the binary, not guessed). It pins the state that has no business being folded in with
+`downloaded`: "has been downloaded" quoting a status of `download-incomplete` says the opposite of
+the word it quotes, and `dnf5 system-upgrade reboot` is advice dnf5 declines for it.
+
 ## tests/fixtures/offline-release-upgrade-downloaded.toml
 The same capture UNEDITED, as `dnf5 system-upgrade download --releasever=45` actually leaves it:
 `status = "download-complete"`. This is the state a release upgrade spends most of its life in -

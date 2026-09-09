@@ -151,8 +151,9 @@ transaction for release upgrades and ordinary offline updates alike, so staging 
 - dnf5 prints a warning and then does it anyway under `-y`, leaving `/system-update` standing, so
 the machine still restarts into an update just not the one that was asked for. Re-downloading a
 release upgrade is gigabytes. The run aborts in pre-flight with exit 5, having changed nothing, and
-names both ways out: restart (or `sudo dnf5 system-upgrade reboot` if it has only been downloaded)
-to install it, or `sudo dnf5 offline clean` to drop it.
+names the way out that applies to the state that upgrade is actually in - restart, re-arm it with
+`sudo dnf5 system-upgrade reboot`, read `sudo dnf5 offline log`, or drop it with
+`sudo dnf5 offline clean`.
 
 The risky-transaction prompt stops offering `[s]tage offline` in that state too, and the
 notification stops suggesting the offline surface. An option that always ends in a refusal is worse
@@ -595,12 +596,15 @@ The things it can say:
 | Line | What it means |
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. Staged, armed, waiting. |
-| `FAIL  staged update can never install: ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
+| `FAIL  staged update can never install: the transaction was downloaded but never armed ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
+| `FAIL  staged update can never install: dnf5 says "ready" but /system-update is not in place ...` | The opposite case: it **was** armed, and a restart has already been past it without running it. No later restart installs it either. |
+| `FAIL  the stored Fedora release upgrade can never install: ...` | The same state, for a transaction that is not Kempt's. Named separately because the remedy differs: `sudo dnf5 system-upgrade reboot` re-arms it, and `kempt update --surface=offline` is refused while it is stored. |
 | `info  staged update: the transaction is gone, ...` | The marker outlived its transaction (someone ran `dnf5 offline clean`, or a superseding live update could not remove the marker). The next `kempt check` clears it. Nothing to do. |
 | `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
 | `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is stored **and armed** - which is two things, `status = "ready"` **and** the `/system-update` symlink, exactly as for Kempt's own stage. dnf5 keeps one stored transaction for release upgrades and ordinary offline updates alike, so `kempt update --surface=offline` refuses while it is there rather than cancelling it. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | The same transaction before anyone armed it, which is where `dnf5 system-upgrade download` leaves it and where a box can sit for days. **No restart installs it yet.** The line names both ways out: `sudo dnf5 system-upgrade reboot` to start it, `sudo dnf5 offline clean` to drop it. |
-| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was armed, but /system-update is gone ...` | The third state, and neither of the others: it was armed, and a restart has already been past it without running it. No later restart installs it either. Same two ways out. |
+| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was armed, but the restart marker /system-update is not in place ...` | The third state, and neither of the others: it was armed, and a restart has already been past it without running it. No later restart installs it either. The FAIL row below gives the remedy. |
+| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | The fourth: dnf5 recorded `download-incomplete`, or a transaction that started during a restart and stopped part way. `sudo dnf5 offline log` says what happened. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | Kempt staged something and a release upgrade replaced it - dnf5 has one slot, and a transaction whose target release differs from the system's cannot be one Kempt built. The next check or run clears the marker. |
 | `FAIL  boot symlink is live over a transaction that is not armed ...` | `/system-update` is still there while the transaction behind it is not `ready`. The next restart detours into the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing staged behind it ...` | The same detour, with no transaction there at all. |

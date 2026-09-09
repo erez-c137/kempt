@@ -774,9 +774,17 @@ grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
 # the other calls a transaction that WAS armed one that was never started, quoting a status word
 # that says the opposite.
 KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
-grep -qF 'a restart has already been past it' "$TESTTMP/staged.txt" \
-  && echo "ok: a stranded release upgrade is described as one a restart has already passed" \
-  || { echo "FAIL: no stranded line - got: $(grep -i 'release upgrade' "$TESTTMP/staged.txt")"; _fail=1; }
+# Asserted against the INFO row alone. The FAIL row beside it carries the same phrase, so a plain
+# grep over the whole report passed with the info arm deleted entirely - proved by deleting it.
+relup_info="$(grep -E '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" || true)"
+case "$relup_info" in
+  *"a restart has already been past it"*) echo "ok: a stranded release upgrade is described as one a restart has already passed" ;;
+  *) echo "FAIL: the info row does not describe the stranded state"; echo "  got: $relup_info"; _fail=1 ;;
+esac
+case "$relup_info" in
+  *"not started"*) echo "FAIL: the info row calls a transaction that WAS armed one that was never started"; _fail=1 ;;
+  *) echo "ok: ...and not as one that was never started" ;;
+esac
 grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
   && { echo "FAIL: it still promises the next restart"; _fail=1; } \
   || echo "ok: ...and promises no restart that will not happen"
@@ -788,6 +796,31 @@ grep -qF 'the stored Fedora release upgrade can never install' "$TESTTMP/staged.
 grep -qF 'kempt update --surface=offline' "$TESTTMP/staged.txt" \
   && { echo "FAIL: it offers the command that is refused while an upgrade is stored"; _fail=1; } \
   || echo "ok: ...and offers no command that always ends in a refusal"
+
+# ...and the fourth state, which dnf5 records when a transaction did not finish.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-incomplete.toml" doctor_out
+ic_info="$(grep -E '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" || true)"
+case "$ic_info" in
+  *"did not finish"*) echo "ok: an unfinished release upgrade is described as unfinished" ;;
+  *) echo "FAIL: the unfinished state was mis-described"; echo "  got: $ic_info"; _fail=1 ;;
+esac
+case "$ic_info" in
+  *"has been downloaded"*) echo "FAIL: download-incomplete is called downloaded"; _fail=1 ;;
+  *) echo "ok: ...and never called downloaded, which is the opposite of what dnf5 recorded" ;;
+esac
+# A marker beside it must not swallow the row: blanking the marker variable dropped into the
+# branch for a marker that will not parse, so a perfectly readable one was reported as unreadable
+# and the release upgrade was never named.
+cp "$FIXTURES/offline-ready.toml" "$TESTTMP/unused.toml" 2>/dev/null || true
+printf '{"staged_at":"x","staged":3,"armed":true}' > "$D_MARKER"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
+grep -qE '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" \
+  && echo "ok: a readable marker beside a release upgrade does not swallow the row about it" \
+  || { echo "FAIL: the release upgrade was never named - got: $(grep -i staged "$TESTTMP/staged.txt" | head -2)"; _fail=1; }
+grep -qF 'the marker cannot be read' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: a readable marker was reported as unreadable"; _fail=1; } \
+  || echo "ok: ...and does not call a marker that parsed unreadable"
+rm -f "$D_MARKER"
 
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qF 'will not stage updates over it' "$TESTTMP/staged.txt" \

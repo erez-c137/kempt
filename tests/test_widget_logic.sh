@@ -500,10 +500,9 @@ for _s in "''" 'undefined' '42' "'nonsense'"; do
     "a surface of $_s is not offline, and does not take Update Now away"
 done
 # resolveSurface trims and lower-cases, which is this file's convention for every surface value it
-# reads and not something this feature introduced. Worth pinning because the CLI's resolve_surface
-# does NEITHER - a hand-edited config of " offline " is offline to the widget and terminal to the
-# CLI. The direction is the safe one (a button withheld rather than one that would be refused), and
-# a config written by `kempt config set` cannot produce it.
+# reads. The CLI's resolve_surface now does the same - it did not, and the two disagreed about a
+# value `kempt config set surface " OFFLINE "` stores without complaint, which would have hidden
+# Update Now on a box whose runs go to the terminal.
 assert_eq "$(js "($RUSURF)(' OFFLINE ').updateOffered")" "false" \
   "a padded, upper-case offline is still offline to the widget, as every surface value here is"
 assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
