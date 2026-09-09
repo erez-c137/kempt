@@ -869,6 +869,52 @@ assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
 assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")" "1" "gives up loudly after the last attempt"
 
+# ...and WHAT THE PERSON IS TOLD, which is the whole point of retrying at all. This is the most
+# likely failure Kempt has - Discover, PackageKit and dnf-automatic all take the same lock - and
+# until Kempt owned the sentence, the reason in the summary, the notification and the history entry
+# was whichever of dnf's lines run_failure_reason's keyword list matched first: raw text about a
+# lock file, which reads as a broken installation rather than as "something else is using this
+# right now".
+lk_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .status "$lk_hist")" "failed" "the run that lost the lock is recorded as failed"
+case "$(jq -r .error "$lk_hist")" in
+  *"using the package system"*) echo "ok: ...and the reason is Kempt's own sentence, in words about what happened" ;;
+  *) echo "FAIL: the history entry carries dnf's raw text"; echo "  got: $(jq -r .error "$lk_hist")"; _fail=1 ;;
+esac
+case "$(jq -r .error "$lk_hist")" in
+  *"lock file"*) echo "FAIL: the reason is still dnf's lock-file line"; _fail=1 ;;
+  *) echo "ok: ...not the lock-file line, which reads as a broken installation" ;;
+esac
+case "$(jq -r .error "$lk_hist")" in
+  *"try again"*) echo "ok: ...and it says what to do, because there is something to do" ;;
+  *) echo "FAIL: the reason does not say to try again"; _fail=1 ;;
+esac
+grep -q 'using the package system' "$WORLD/notifications" \
+  && echo "ok: ...and the notification says the same thing, in the same words" \
+  || { echo "FAIL: the notification carries something else"; _fail=1; }
+# The one thing that would be WORSE than dnf's raw text: labelling something else as a busy lock.
+# The evidence is the lock-specific grep against this attempt's own output, and nothing wider - so
+# a full disk keeps its own reason.
+cat > "$TESTTMP/apply-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "Error: No space left on device" >&2; exit 1
+STUB
+rm -f "$KEMPT_STATE_DIR"/logs/*.log
+# No push_history_back here: the lock entry has already been read above, so a per-second collision
+# would only overwrite it with this one, which is the entry being asked about anyway. Moving the
+# history instead risks landing on a second an earlier push already used.
+"$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
+lk2="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+case "$(jq -r .error "$lk2")" in
+  *"using the package system"*) echo "FAIL: a full disk was reported as a busy package system"; _fail=1 ;;
+  *) echo "ok: a failure that is not a lock keeps its own reason" ;;
+esac
+case "$(jq -r .error "$lk2")" in
+  *"No space left"*) echo "ok: ...which is dnf's line, because for this one dnf's line is the answer" ;;
+  *) echo "FAIL: the disk failure lost its reason: $(jq -r .error "$lk2")"; _fail=1 ;;
+esac
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+
 # --- offline harvest: the staged transaction applies during a reboot, and the next check has to
 # notice and turn it into a normal history entry + notification.
 # The marker OWNS its pre-snapshot copy and harvest deletes it, so a marker must never point at a

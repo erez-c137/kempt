@@ -168,6 +168,22 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
         sleep "$KEMPT_RETRY_DELAY"
       else
         echo "Package system still busy after $attempt attempts - giving up" | tee -a "$log" >&2
+        # Kempt's own sentence for the most likely failure it has. Without this the reason shown
+        # in the summary, the notification and the history entry is whichever of dnf's lines
+        # matched run_failure_reason's keyword list first - dnf's raw text about a lock file,
+        # which reads as a broken installation rather than as "something else is using this right
+        # now, try again".
+        #
+        # Set HERE and nowhere else, because here is the only place with the evidence: the grep
+        # above ran against THIS attempt's output alone and against a lock-specific pattern. A
+        # wider match somewhere downstream would eventually label a full disk or a failed scriptlet
+        # as a busy package system, which is worse than the raw text it replaced.
+        #
+        # Only when nothing has claimed the reason yet, and NOT `local`: reason_override belongs to
+        # cmd_update, which every caller of this function runs inside. A cleanup that hits the lock
+        # after the failure it is cleaning up must not relabel the run with its own problem.
+        [[ -n "${reason_override:-}" ]] \
+          || reason_override="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was changed; try again in a few minutes"
       fi
     else
       return "$rc"
