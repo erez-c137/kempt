@@ -307,8 +307,14 @@ write_stage_marker() {
        || ! jq -r '.[]' <<<"$staged_excluded_json" | names_all_valid; then
       staged_excluded_json='[]'
     fi
-    local staged_names_json
-    staged_names_json="$(printf '%s' "$staged_names" | jq -Rn '[inputs]')" || staged_names_json='[]'
+    # Through a FILE, not an argument: this list is a whole staged transaction, and a release
+    # upgrade stages every package on the box. Past roughly 6,800 names it is bigger than the
+    # 128 KiB Linux allows one argv entry, and the marker would not be written at all - leaving a
+    # transaction armed that Kempt has no record of making, so nothing harvests it after the
+    # restart and doctor reports a staged update it cannot explain.
+    local staged_names_f
+    staged_names_f="$(mktemp)"
+    printf '%s' "$staged_names" > "$staged_names_f"
     # boot_id: only a REBOOT applies a stage, so the harvest compares boot sessions rather than
     # guessing from the package set (see harvest_offline).
     # Fields are ADDITIVE and absent when unknown - `staged_names: []` would claim "the
@@ -316,12 +322,14 @@ write_stage_marker() {
     # follows that rule, so a marker written before these fields existed still works.
     jq -n --arg ts "$(now_iso)" --arg snap "$SNAP_DIR/offline-pre-$ts.tsv" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
-      --arg nsrc "$staged_names_source" --argjson names "$staged_names_json" \
+      --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" \
-      '{staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true,
+      '($namesraw | split("\n") | map(select(length > 0))) as $names |
+       {staged_at:$ts, pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
        + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
+    rm -f "$staged_names_f"
   fi
 }
 
@@ -602,16 +610,27 @@ cmd_update() {
   local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json"
   held_dnf_json="$(holds_for dnf | jq -Rn '[inputs]')"
   held_fp_json="$(holds_for flatpak | jq -Rn '[inputs]')"
+  # The two reports come through FILES for the reason assemble_state does: they scale with the
+  # transaction, argv caps a single entry at 128 KiB, and THIS site is on the far side of the
+  # update. An E2BIG here kills the run after dnf5 has installed everything - no history entry, no
+  # summary, no notification, no run-done event, and no post-run check, which is the only thing
+  # that takes the popup out of its updating state. A successful 1,200-package update presented as
+  # a spinner for three hours.
+  local dnf_rep_f fp_rep_f
+  dnf_rep_f="$(mktemp)"; fp_rep_f="$(mktemp)"
+  printf '%s' "$dnf_report" > "$dnf_rep_f"; printf '%s' "$fp_report" > "$fp_rep_f"
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
         --arg log "$log" --argjson dur "$(( $(date +%s) - start ))" \
         --argjson reboot "$reboot" --arg error "$reason" \
-        --argjson dnf "$dnf_report" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
-        --argjson fp "$fp_report" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
+        --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
+        --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
+    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
+  rm -f "$dnf_rep_f" "$fp_rep_f"
 
   # A successful OFFLINE run gets its own event line rather than "run done": nothing has been
   # applied yet, and the harvest after the restart is what reports it.
@@ -950,11 +969,18 @@ harvest_offline() {
   # triggered in the same second. Never overwrite an existing entry - it destroys that run's own.
   hist="$HIST_DIR/$ts.json"
   [[ -e "$hist" ]] && hist="$HIST_DIR/$ts-offline.json"
-  jq -n --arg ts "$(now_iso)" --argjson dnf "$report" '
+  # Through a file, like the other two, and this site is the worst of the three: harvest_offline
+  # runs at the top of EVERY check and the marker is deleted ten lines below, so a failure here
+  # leaves the marker in place and repeats on every check for good - the box never checks again.
+  local rep_f; rep_f="$(mktemp)"
+  printf '%s' "$report" > "$rep_f"
+  jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" '
+    ($repa[0]) as $dnf |
     {timestamp:$ts, surface:"offline (applied on reboot)", status:"ok", duration_sec:0,
      reboot_needed:false, log:"",
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
+  rm -f "$rep_f"
   rm -f "$now_snap"
   # The history entry above is honest whatever happened next, but the MARKER may no longer be the
   # one this harvest read: a stage made while the snapshot and diff ran owns the file now, and
@@ -1108,19 +1134,27 @@ doctor_staged_conflict_row() {
 # Only a transaction-derived marker list may be compared: a check-derived one disagrees with the
 # stored transaction routinely and legitimately, so it would FAIL weekly on a healthy box.
 doctor_staged_drift_row() {  # marker json
-  local msrc live live_json rec_json plus minus
+  local msrc live plus minus
   msrc="$(jq -r '.staged_names_source // empty' <<<"$1" 2>/dev/null || true)"
   [[ "$msrc" == transaction ]] || return 0
   live="$(offline_txjson_names)" || return 0
+  # Both lists are whole staged transactions, so both reach jq as FILES rather than as arguments:
+  # a release upgrade stages every package on the box, and one argv entry stops at 128 KiB. In a
+  # doctor row the cost of getting that wrong is the row's own - `kempt doctor` would die partway
+  # through its report on the machine whose staged update most needs explaining.
+  # One directory for both, so the single rm below cannot miss one however this returns.
+  local d; d="$(mktemp -d)"
   # jq for the set arithmetic, not sort/comm: `unique` orders by codepoint and `sort` by locale,
   # and two lists ordered by different rules compare as different.
-  live_json="$(printf '%s' "$live" | jq -Rn '[inputs] | unique')" || return 0
-  rec_json="$(jq -c '[.staged_names[]? | select(type == "string")] | unique' <<<"$1" 2>/dev/null)" || return 0
-  [[ "$(jq -n --argjson a "$live_json" --argjson b "$rec_json" '$a == $b')" == true ]] && return 0
+  { printf '%s' "$live" | jq -Rn '[inputs] | unique' > "$d/live.json" \
+    && jq -c '[.staged_names[]? | select(type == "string")] | unique' <<<"$1" > "$d/rec.json" 2>/dev/null \
+    && [[ "$(jq -n --slurpfile a "$d/live.json" --slurpfile b "$d/rec.json" '$a[0] == $b[0]')" != true ]]
+  } || { rm -rf "$d"; return 0; }
   # `. as $x` before index(): jq evaluates index()'s argument against index()'s OWN input, so the
   # inline form reads the wrong thing (the trap mark_held carries a note about).
-  plus="$(jq -r --argjson b "$rec_json" '.[] | select(. as $x | $b | index($x) | not)' <<<"$live_json")"
-  minus="$(jq -r --argjson a "$live_json" '.[] | select(. as $x | $a | index($x) | not)' <<<"$rec_json")"
+  plus="$(jq -r --slurpfile b "$d/rec.json" '.[] | select(. as $x | $b[0] | index($x) | not)' < "$d/live.json")"
+  minus="$(jq -r --slurpfile a "$d/live.json" '.[] | select(. as $x | $a[0] | index($x) | not)' < "$d/rec.json")"
+  rm -rf "$d"
   local -a clauses=()
   # Capped and counted by the shared renderer: a Qt bump puts dozens of names on each side.
   [[ -n "$plus" ]] && clauses+=("$(printf '%s\n' "$plus" | sed 's/^/+/' | names_phrase) in dnf5's record only")

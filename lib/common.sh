@@ -495,9 +495,14 @@ hold_remove() {  # backend name
 mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   local holds_json
   holds_json="$(holds_for "$1" | jq -Rn '[inputs]')"
+  # The items arrive on STDIN, which has no size limit; only the holds cross argv, and that list is
+  # the user's own - written a package at a time by `kempt hold`, read back here. Nothing about the
+  # size of the pending set can grow it, so it stays an argument.
   # `.name as $n` is load-bearing: jq evaluates the argument of index() against index()'s own
   # input ($holds, an array), so an inline `index(.name)` dies with "Cannot index array".
-  jq --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
+  # -c here and on every stage between the backend and the state file: these are intermediates
+  # nobody reads by hand, and indentation is a third of the bytes at two thousand packages.
+  jq -c --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
 }
 
 # stdin: items JSON (AFTER mark_held) → one session-critical name per line.
@@ -531,7 +536,7 @@ tsv_diff_updates() {  # before_file after_file
     join -t "$(printf '\t')" "$1" "$2" | awk -F'\t' '$2"" != $3"" {print "U\t"$1"\t"$2"\t"$3}'
     join -t "$(printf '\t')" -v2 "$1" "$2" | awk -F'\t' '{print "A\t"$1"\t\t"$2}'
     join -t "$(printf '\t')" -v1 "$1" "$2" | awk -F'\t' '{print "R\t"$1"\t"$2"\t"}'
-  } | jq -Rn '
+  } | jq -cRn '
     [inputs | split("\t")] |
     { updated: [.[] | select(.[0]=="U") | {name:.[1], from:.[2], to:.[3]}],
       added:   [.[] | select(.[0]=="A") | {name:.[1], to:.[3]}],
@@ -545,7 +550,7 @@ tsv_diff_updates() {  # before_file after_file
 # An item with no row keeps NO size_bytes key at all - not a zero. "Absent" has to stay
 # distinguishable from "free", because absent is what suppresses the figure downstream.
 attach_sizes() {  # $1 = sizes TSV; stdin: items JSON (after mark_held) → items + optional size_bytes
-  jq --rawfile tsv "$1" '
+  jq -c --rawfile tsv "$1" '
     ($tsv | split("\n") | map(select(length>0) | split("\t"))
           | map({key: .[0], value: (.[1] | tonumber)}) | from_entries) as $sz
     | map(. + (if $sz[.name] != null then {size_bytes: $sz[.name]} else {} end))'
@@ -566,11 +571,24 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
 assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional)
-  jq -n --argjson dnf "$1" --argjson fp "$2" --arg status "$3" --arg error "$4" \
+  # The two item arrays arrive through FILES, never --argjson. Linux caps a SINGLE argv entry at
+  # 128 KiB (MAX_ARG_STRLEN), and the pending list is the one input here with no bound: at 925
+  # packages this exec failed, errexit killed the check before it printed or wrote anything, and
+  # bash reported 126 - which the widget reads as "no engine", so a working install told the user
+  # to reinstall a package they already had. A box far enough behind to need Kempt most is exactly
+  # the box that reached it. Everything else here is a scalar or a small array and stays in argv.
+  # --slurpfile, not --rawfile: it parses, so a malformed payload still fails as JSON rather than
+  # arriving as a string. It wraps in an array, hence the [0] at the use sites.
+  local _dnf_f _fp_f _out_f rc=0
+  _dnf_f="$(mktemp)"; _fp_f="$(mktemp)"; _out_f="$(mktemp)"
+  printf '%s' "$1" > "$_dnf_f"; printf '%s' "$2" > "$_fp_f"
+  jq -n --slurpfile dnfa "$_dnf_f" --slurpfile fpa "$_fp_f" --arg status "$3" --arg error "$4" \
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
         --argjson offst "${11:-null}" \
         --arg now "$(now_iso)" '
+    # The two item arrays arrive as one-element arrays because --slurpfile wraps what it reads.
+    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
     # b is the backend total as a STRING, "" meaning not known. Empty adds no key at all, which is
     # what a schema-1 reader that predates this feature is guaranteed to keep seeing.
     def wrap(e; b): {enabled: e,
@@ -596,7 +614,12 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total + staged'
+    + total + staged' > "$_out_f" || rc=$?
+  # Removed on every path, and jq's status still reaches the caller unchanged: a failed assembly
+  # must fail the check exactly as it did when the payload came through argv.
+  rm -f "$_dnf_f" "$_fp_f"
+  [[ $rc -eq 0 ]] || { rm -f "$_out_f"; return $rc; }
+  cat "$_out_f"; rm -f "$_out_f"
 }
 
 # Must survive a corrupt state file: a truncated, garbage or wrong-shaped state.json reaching
@@ -900,14 +923,23 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   fi
   local conflict='[]'
   if [[ "$names_source" != none ]]; then
-    # printf '%s' rather than a here-string on both sides: <<< appends a newline, and an empty list
-    # would arrive at jq as one empty-string element.
-    local names_json holds_json
-    names_json="$(printf '%s' "$names" | jq -Rn '[inputs]')"
-    holds_json="$(holds_for dnf | jq -Rn '[inputs]')"
+    # Both lists reach jq as FILES. The names are a whole staged transaction, and a release
+    # upgrade stages every package on the box: past roughly 6,800 names that list is larger than
+    # the 128 KiB Linux allows a single argv entry, and this runs on EVERY check. Failing here
+    # fails the check, so the widget would go blank on exactly the machine with the most staged.
+    # printf '%s' rather than a here-string: <<< appends a newline, and an empty list would arrive
+    # as one empty-string element - which is why both sides drop empty lines below.
+    local names_f holds_f
+    names_f="$(mktemp)"; holds_f="$(mktemp)"
+    printf '%s' "$names" > "$names_f"
+    holds_for dnf > "$holds_f"
     # `. as $x` first, for the index() trap mark_held carries the note about.
-    conflict="$(jq -cn --argjson n "$names_json" --argjson h "$holds_json" \
-                  '[$n[] | . as $x | select($h | index($x))] | unique')"
+    conflict="$(jq -cn --rawfile n "$names_f" --rawfile h "$holds_f" '
+                  def lines: split("\n") | map(select(length > 0));
+                  ($h | lines) as $hl
+                  | [($n | lines)[] | . as $x | select($hl | index($x))] | unique')" \
+      || conflict='[]'
+    rm -f "$names_f" "$holds_f"
   fi
   # count: markers written before the field existed carry no number, and null is the honest answer.
   # Every reader drops the figure from its sentence rather than inventing one.
