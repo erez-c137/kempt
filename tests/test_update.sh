@@ -733,6 +733,41 @@ assert_eq "$(ls "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1" "st
 assert_exit 0 "the surviving copy is the one the marker points at" \
   -- test -f "$(jq -r .pre_snapshot "$KEMPT_STATE_DIR/offline_staged.json")"
 
+# ...and the route the recommendation offers must be one that EXISTS. `[s]tage offline` sets the
+# surface from inside this prompt, so a refusal placed before the recommendation is bypassed by
+# Kempt's own advice: answering `s` with a Fedora release upgrade stored reached dnf5, cancelled
+# gigabytes of downloaded upgrade, recorded it in the event log as an ordinary `offline restage`,
+# and told the user their updates would install on the next restart. The identical run started with
+# --surface=offline was refused. Two things close it: the option is not offered, and the gate now
+# runs after the prompt that can change the surface.
+: > "$WORLD/apply-calls"
+: > "$WORLD/notifications"
+relup_ev_before="$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)"
+release_upgrade_staged
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" \
+  "answering [s] with a release upgrade stored never reaches dnf5"
+assert_eq "$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)" \
+  "$relup_ev_before" "...and Kempt does not record the destruction as its own restage"
+case "$sout" in
+  *"Staging is not available"*) echo "ok: ...because the prompt does not offer a route that is refused" ;;
+  *) echo "FAIL: the prompt still offered staging"; echo "  got: $(head -6 <<<"$sout")"; _fail=1 ;;
+esac
+# `read -p` prints nothing when stdin is not a terminal, so the prompt string itself is not
+# assertable here - but the refusal to act on `s` is, and that is the behaviour that matters.
+case "$sout" in
+  *"would cancel the stored Fedora release upgrade"*) echo "ok: ...and answering it anyway is turned down, in words" ;;
+  *) echo "FAIL: answering s was accepted silently"; echo "  got: $(head -8 <<<"$sout")"; _fail=1 ;;
+esac
+case "$sout" in
+  *aborted*) echo "ok: ...and the run ends without staging anything" ;;
+  *) echo "FAIL: the run did not abort"; _fail=1 ;;
+esac
+grep -q 'install on the next restart' "$WORLD/notifications" \
+  && { echo "FAIL: it promised an install it did not stage"; _fail=1; } \
+  || echo "ok: ...and nothing promises an install that was never staged"
+transaction_armed
+
 # [u]pdate live: the user always decides
 : > "$WORLD/apply-calls"
 KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"u" >/dev/null 2>&1

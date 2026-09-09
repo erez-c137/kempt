@@ -1543,7 +1543,9 @@ QtObject {
     _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
     open(_rupath, "w").write(json.dumps(_ru))
     state(_rupath)
-    stack("with a Fedora release upgrade staged", "releaseUpgradeMessage")
+    # The kernel message stays UP, carrying the summary instead of the recommendation - dropping it
+    # took the warning off the screen while the live button stayed on it.
+    stack("with a Fedora release upgrade staged", "releaseUpgradeMessage", "riskyMessage")
     p.check("...naming the release the machine is about to move to",
             "Fedora 45" in str(lev("releaseUpgradeMessage.text")), True)
     p.check("...carrying logic.js's sentence rather than a second copy of it",
@@ -1555,10 +1557,12 @@ QtObject {
     # No action of its own: restarting, or dropping the upgrade, are the person's to choose rather
     # than a button in an update widget.
     p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"), 0)
-    # The recommendation it replaced is GONE rather than pushed down a slot: its whole content is
-    # "install this on the next restart instead", which is the one thing this state does not allow.
-    p.check("the kernel recommendation is not on screen recommending a button that is not there",
-            lev("riskyMessage.visible"), False)
+    # What it CARRIES changed, not whether it is there: the recommendation is "install this on the
+    # next restart instead", which is the one thing this state does not allow.
+    p.check("...and the kernel message states the risk without recommending the restart install",
+            "next restart" in str(lev("riskyMessage.text")), False)
+    p.check("...while still saying a session-critical package is pending",
+            "session-critical pending" in str(lev("riskyMessage.text")), True)
     # ...and the press itself is unreachable, which is the point of the whole exercise.
     _before_ru = p.call_count("update")
     p.check("Install on Next Restart is not offered at all",
@@ -1582,7 +1586,7 @@ QtObject {
     _ibpath = os.path.join(p.sandbox, "state-image-based.json")
     open(_ibpath, "w").write(json.dumps(_ib))
     state(_ibpath)
-    stack("on an image-based Fedora", "imageBasedMessage")
+    stack("on an image-based Fedora", "imageBasedMessage", "riskyMessage")
     p.check("...naming the tool that does update this machine",
             "rpm-ostree" in str(lev("imageBasedMessage.text")), True)
     p.check("...carrying logic.js's sentence rather than a second copy of it",
@@ -1596,6 +1600,8 @@ QtObject {
             lev("updateButton.visible"), False)
     p.check("...nor Install on Next Restart, which aborts in the same place",
             lev("riskyMessage.actions[0].visible"), False)
+    p.check("...while the kernel risk is still stated, without a route it cannot offer",
+            "next restart" in str(lev("riskyMessage.text")), False)
     # ...and Refresh stays: a check reads, changes nothing, and is how the list stays current.
     p.check("...while Refresh stays, because reading is not the thing that is refused",
             lev("refreshButton.visible && refreshButton.enabled"), True)
@@ -1930,6 +1936,8 @@ _ASSEMBLED_IN_LOGIC = {
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
     "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed half
+    "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
+    "releaseUpgradeNoRoute",  # -> vm.releaseUpgradeMessage, on a box configured to stage
     "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel
                             #    hover is not where a person learns what kind of Fedora they run
     "imageBasedUse",        # -> vm.imageBasedMessage, joined onto it as its second sentence

@@ -190,9 +190,9 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 - **An engine that is installed but will not start now says so.** The panel used to report
   *"Kempt's engine is not installed"* over two commands to install it, for a failure that only
   ever means the opposite - a file without its execute bit, a `noexec` mount, a missing
-  interpreter. The message now names the real state and points at `kempt doctor`, and the panel
-  icon raises a warning for it instead of dimming as it does for a machine where Kempt has simply
-  not been set up yet.
+  interpreter. The message now names the real state and points at `kempt doctor`. Where there is
+  no earlier state to fall back on, the panel icon raises a warning for it instead of dimming, as
+  it does for a machine where Kempt has simply not been set up yet.
 
 - **A staged Fedora release upgrade is no longer destroyed by staging updates.** dnf5 keeps one
   stored transaction for release upgrades and ordinary offline updates alike. Pressing **Install

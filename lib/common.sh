@@ -799,7 +799,17 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # The REFUSAL above deliberately does not ask this - staging over a downloaded transaction destroys
 # it just as thoroughly as over an armed one - but "it installs on the next restart" is false here,
 # and saying it sends somebody to restart a machine that will come back exactly as it was.
-offline_release_upgrade_armed() { [[ "$(offline_system_status)" == ready ]]; }
+# TWO things, not one, and this file already says so everywhere else: `dnf5 offline reboot` writes
+# the status AND creates /system-update, and systemd removes the symlink once system-update.target
+# is reached - so a `ready` transaction with no symlink is one a boot came and went without running,
+# and no later one will run it either. offline_staged_state refuses to publish Kempt's OWN stage in
+# that state; asking only for the status word here reintroduced the same trap for somebody else's
+# transaction, and doctor then printed "installs on the next restart" directly above its own FAIL
+# saying that transaction can never install.
+# lstat, never resolved: system-update-generator does not resolve it either.
+offline_release_upgrade_armed() {
+  [[ "$(offline_system_status)" == ready && -L "$KEMPT_OFFLINE_LINK" ]]
+}
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can

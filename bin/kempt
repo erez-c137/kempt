@@ -104,8 +104,11 @@ cmd_check() {
   # only ever ends in a refusal.
   local image_based=null
   on_ostree && image_based=true
+  # Never both: a box that cannot be updated by dnf at all has nothing useful to say about what is
+  # in dnf5's transaction slot, and the two messages contradict each other in a popup that shows
+  # two at a time.
   local relup_json="" relup_pair relup_armed=false
-  if relup_pair="$(offline_release_upgrade)"; then
+  if [[ "$image_based" == null ]] && relup_pair="$(offline_release_upgrade)"; then
     # `armed` and not a second key at the top level, because it qualifies THIS fact and a reader
     # that has one without the other would word its sentence wrongly. false is meaningful here -
     # downloaded but not started - so unlike the keys above it is published either way.
@@ -241,6 +244,14 @@ preflight_abort() {  # message
 recommend_offline_if_risky() {
   # spec §Run surfaces. Recommends, never blocks; an offline run IS the recommendation, so it is
   # never nagged.
+  #
+  # ...and it must never recommend a route that is refused. `[s]tage offline` sets $surface here,
+  # and the pre-flight gate for a stored Fedora release upgrade runs AFTER this function - so an
+  # offline stage entered through this prompt used to reach dnf5 and cancel the upgrade, logged by
+  # Kempt as its own restage. The gate below closes that; this stops the prompt offering it at all,
+  # because an option that always ends in a refusal is worse than one that is not there.
+  local relup_blocks=false
+  offline_release_upgrade >/dev/null && relup_blocks=true
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
     rerr="$(mktemp)"
@@ -268,16 +279,25 @@ recommend_offline_if_risky() {
         # shellcheck disable=SC2001
         sed 's/^/  /' <<<"$shown"
         (( rcount > nshown )) && echo "  ... and $(( rcount - nshown )) more"
-        local ans tries
+        local ans tries prompt="[u]pdate live / [s]tage offline / [a]bort (default: abort) "
+        if [[ "$relup_blocks" == true ]]; then
+          echo "  Staging is not available: a Fedora release upgrade is stored, and staging would cancel it."
+          prompt="[u]pdate live / [a]bort (default: abort) "
+        fi
         for tries in 1 2; do
           # `|| ans=""` keeps EOF (Ctrl-D) out of errexit. EOF and Enter both mean "I did not
           # answer", and the safe answer to a risk warning is to NOT proceed.
-          read -rp "[u]pdate live / [s]tage offline / [a]bort (default: abort) " ans || ans=""
+          read -rp "$prompt" ans || ans=""
           case "${ans,,}" in
             ""|n|no|a|abort)  echo "aborted"; exit 0 ;;
-            s|stage)          surface="offline"; break ;;
+            s|stage)          if [[ "$relup_blocks" == true ]]; then
+                                echo "Staging would cancel the stored Fedora release upgrade. Answer u or a."
+                                [[ $tries -eq 2 ]] && { echo "aborted"; exit 0; }
+                                continue
+                              fi
+                              surface="offline"; break ;;
             u|update|y|yes)   break ;;
-            *) if [[ $tries -eq 1 ]]; then echo "Please answer u, s or a."
+            *) if [[ $tries -eq 1 ]]; then echo "Please answer u$([[ "$relup_blocks" == true ]] || echo ", s") or a."
                else echo "aborted"; exit 0; fi ;;
           esac
         done
@@ -288,7 +308,11 @@ recommend_offline_if_risky() {
         # shellcheck disable=SC2001
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
-        notify "Kempt" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...')) - consider the Offline surface"
+        # The tail names the offline surface only when it is available: recommending it while a
+        # release upgrade is stored points at a run that aborts in pre-flight.
+        local tail_advice=" - consider the Offline surface"
+        [[ "$relup_blocks" == true ]] && tail_advice=""
+        notify "Kempt" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...'))$tail_advice"
       fi
     fi
   fi
@@ -427,7 +451,9 @@ write_stage_marker() {
        + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
     then
-      stage_untracked="the state directory could not be written"
+      # Hedged, like the sibling message for the run's own entry: the pipeline can fail for reasons
+      # this line cannot see, and the notification carries these words to the person.
+      stage_untracked="the state directory could not be written, or the record could not be built"
       rm -f "$snap"
     elif [[ -z "$snap" ]]; then
       # Recorded, and honest about what it can no longer do. The stage installs, and every surface
@@ -537,7 +563,7 @@ cmd_update() {
   # preflight_abort, so this is the same contract as any other refusal that changed nothing: exit
   # 5, and a notification for the surfaces where nobody is reading stderr.
   if on_ostree; then
-    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - use Discover, or: rpm-ostree upgrade"
+    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
   fi
 
   # ...and the same treatment for a stage that would destroy a Fedora release upgrade. dnf5 keeps
@@ -556,6 +582,10 @@ cmd_update() {
   # Only the OFFLINE surface. A live run does not replace the stored transaction, and refusing
   # ordinary updates because a release upgrade is waiting would be a bigger imposition than the one
   # this avoids - which is also why this sits after the surface is resolved rather than before.
+  recommend_offline_if_risky
+  # AFTER the recommendation, and that ordering is the whole point: `[s]tage offline` at that prompt
+  # SETS $surface, so a gate placed before it is bypassed by Kempt's own advice - and the stage then
+  # reached dnf5 and cancelled the upgrade, recorded in the event log as an ordinary restage.
   if [[ "$surface" == "offline" ]]; then
     local relup
     if relup="$(offline_release_upgrade)"; then
@@ -566,8 +596,6 @@ cmd_update() {
       fi
     fi
   fi
-
-  recommend_offline_if_risky
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
@@ -808,7 +836,9 @@ cmd_update() {
   if [[ -n "$hist_tmp" ]] && cp "$hist_tmp" "$hist" 2>/dev/null; then
     rm -f "$hist_tmp"; hist_tmp=""
   else
-    echo "warning: this run is not in the history - the update itself is done" | tee -a "$log" >&2
+    # "the run itself", not "the update": on the offline surface nothing has been installed - a
+    # transaction was staged, and it installs on the next restart. This line is printed on both.
+    echo "warning: this run is not in the history - the run itself finished" | tee -a "$log" >&2
     log_event "history entry not written (state directory unwritable?)"
     rm -f "$hist"
     hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
@@ -1549,7 +1579,7 @@ doctor_privileged_rows() {
 # FAIL and not info: "everything is fine" is precisely the sentence that must not be printed here.
 doctor_image_based_row() {
   on_ostree || return 0
-  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - every check below describes dnf, which is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade"
+  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - the dnf checks below describe a tool that is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
 }
 
 doctor_tool_rows() {

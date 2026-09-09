@@ -444,6 +444,11 @@ assert_eq "$(jq -r 'has("image_based")' "$st")" "false" \
 # would ask for exactly that, and the popup reads state.json - so the fact has to be IN state.json,
 # or the only way to find out is to press the button and read the failure.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
+# ARMED is two things, not one: `dnf5 offline reboot` writes the status AND creates /system-update,
+# and systemd removes the symlink once system-update.target is reached - so a `ready` transaction
+# with no symlink is one a boot came and went without running. Both halves here.
+RU_LINK="$TESTTMP/relup-system-update"; ln -sfn "$TESTTMP" "$RU_LINK"
+export KEMPT_OFFLINE_LINK="$RU_LINK"
 rm -f "$marker"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.release_upgrade.from' "$st")" "44" "a staged release upgrade is published: where from"
@@ -460,7 +465,16 @@ export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml"
 assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "false" \
   "a downloaded-but-not-started release upgrade is published as not armed"
 assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and still names the release"
+# ...and the other half of arming, which the status word alone cannot see: `ready` with the boot
+# symlink gone is a transaction a restart came and went without running, and no later one runs it
+# either. Kempt's own staged transaction is already refused publication in that state; this is the
+# same rule for somebody else's.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
+export KEMPT_OFFLINE_LINK="$TESTTMP/relup-no-system-update"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "false" \
+  "a ready release upgrade whose boot symlink is gone is not armed either"
+export KEMPT_OFFLINE_LINK="$RU_LINK"
 assert_eq "$(jq -r .schema "$st")" "1" "release_upgrade is additive: the schema does not move"
 # It is NOT part of offline_staged, and the distinction is the whole point: that key describes the
 # transaction KEMPT staged, and this is by definition one it did not.

@@ -263,7 +263,12 @@ var COPY = {
     // started. Nothing installs on any restart until somebody arms it, so saying it does would send
     // a person to restart a machine that comes back exactly as it was.
     releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet.",
-    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it. Updating now still works.",
+    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
+    // ...and only where it is true. A box configured to run updates on the next reboot has no
+    // "update now" to fall back on: staging IS what its button does, and that is the thing being
+    // refused. Saying otherwise would send a person to press it and watch the run decline.
+    releaseUpgradeLiveStillWorks: "Updating now still works.",
+    releaseUpgradeNoRoute: "This box is set to install updates on the next restart, so there is nothing to press until the upgrade is dealt with.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
@@ -271,7 +276,11 @@ var COPY = {
     // box gives it away, which is why this has to be said outright.
     // Two entries, joined, on the pattern the engine messages use: what is true, then what to do.
     imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it.",
-    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal. The list below is what dnf can see, which is not what installs here."
+    // Names bootc as well, because bootc images set the same marker and `rpm-ostree upgrade` is not
+    // their command. And it points at Discover for the Flatpak rows, which are the one thing on
+    // this list somebody CAN act on - saying nothing about them next to a list of them would be
+    // its own small lie.
+    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below."
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -1309,10 +1318,15 @@ function viewModel(state, updating, cliError, opts) {
     // state file from a CLI that published no `armed` reads as the unarmed case - which says less
     // rather than promising a restart that does nothing.
     var releaseUpgradeArmed = releaseUpgrade && relUp.armed === true;
+    // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
+    // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
+    var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
+    var stagesByDefault = (runSurface === "offline");
     var releaseUpgradeMessage = !releaseUpgrade ? ""
         : (releaseUpgradeArmed ? COPY.releaseUpgradeStaged.replace("%1", relTo)
                                : COPY.releaseUpgradeReady.replace("%1", relTo))
-          + " " + COPY.releaseUpgradeNoStage;
+          + " " + COPY.releaseUpgradeNoStage
+          + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
 
     var heldDnf = false;
     for (var h = 0; h < counted.heldItems.length; h++) {
@@ -1339,8 +1353,16 @@ function viewModel(state, updating, cliError, opts) {
     // isArray, not a duck-typed length check: a STRING has a numeric length and indexes into its
     // own characters, so `risky_pending: "kernel-core"` would walk out of here as "11
     // session-critical pending (c, e, k, l, ...)".
-    var riskyMessage = staged ? "" : riskyMessageOf(
-        usable && isArray(state.risky_pending) ? state.risky_pending : []);
+    // The recommendation is only printable where the route it recommends exists. Where it does not,
+    // the summary sentence stands in - it states the risk and advises nothing, which is the honest
+    // half to keep.
+    var noOfflineRoute = releaseUpgrade || imageBased;
+    var riskyPending = usable && isArray(state.risky_pending) ? state.risky_pending : [];
+    // Where the offline route exists, the recommendation - what to DO about a kernel. Where it does
+    // not, the summary, which states the same risk and advises nothing. Silence was the wrong third
+    // option: it took the warning off the screen while the live button stayed on it.
+    var riskyMessage = staged ? ""
+        : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -1490,11 +1512,11 @@ function viewModel(state, updating, cliError, opts) {
         // upgrade does - that message recommends a button this state does not have.
         imageBased: imageBasedMessage !== "",
         releaseUpgrade: releaseUpgradeMessage !== "",
-        // Suppressed while a release upgrade is stored, and not merely outranked: the kernel
-        // message exists to RECOMMEND installing on the next restart, and that is the one thing
-        // this state does not allow. Leaving it on screen would advise a button that is no longer
-        // there.
-        kernel: riskyMessage !== "" && !releaseUpgrade && !imageBased
+        // The kernel message RECOMMENDS installing on the next restart, which is the one thing
+        // these two states do not allow - so what is shown there is the summary instead: the same
+        // fact, without the advice. Dropping the message entirely took the warning off the screen
+        // while still offering the live button, which is the wrong half to lose.
+        kernel: riskyMessage !== ""
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -1584,19 +1606,23 @@ function viewModel(state, updating, cliError, opts) {
         // ...and what stands in its place. Only on the variants where there is something to
         // change: rebuilding an ordinary armed stage would destroy a good transaction (spec G2) to
         // produce the same one back.
-        // ...and never while a release upgrade is stored: a rebuild runs the same privileged verb
-        // as a stage, so it would cancel the upgrade exactly as a first stage would.
-        stagedShowRebuild: stagedWarning && !releaseUpgrade,
+        // ...and never where a stage is refused: a rebuild runs the same privileged verb, so it
+        // would cancel a stored release upgrade exactly as a first stage would, and abort in
+        // pre-flight on an image-based box exactly as a first stage would.
+        stagedShowRebuild: stagedWarning && !noOfflineRoute,
         // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
         // stops it being offered, so nobody has to press a button to be told no.
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
         // whatever surface it was asked for, so staging is no more available than updating.
-        offlineStageOffered: !releaseUpgrade && !imageBased,
+        offlineStageOffered: !noOfflineRoute,
         releaseUpgradeMessage: releaseUpgradeMessage,
         // ...and the same for Update Now, which is the primary button. HIDDEN rather than
         // disabled, exactly as it is for a box with nothing pending: there is no action to offer
         // here, and a greyed primary button with its explanation elsewhere is a puzzle.
-        updateOffered: !imageBased,
+        // ...and not on a box whose Update Now IS the staging that is refused: with the run surface
+        // set to offline, pressing it runs exactly the command the CLI turns down. Hidden rather
+        // than left to fail, on the same rule as everything else here.
+        updateOffered: !imageBased && !(releaseUpgrade && stagesByDefault),
         imageBasedMessage: imageBasedMessage,
         // Published rather than left as a literal in the QML's Accessible.description, so the
         // words a screen reader hears and the words the tooltip shows are one decision. The QML

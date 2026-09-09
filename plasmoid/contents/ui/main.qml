@@ -178,6 +178,14 @@ PlasmoidItem {
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
                                                 engineFault: engineFault,
+                                                // What a run started NOW would actually do. The
+                                                // popup needs it because the refusals the CLI
+                                                // applies are per-surface: with a Fedora release
+                                                // upgrade stored, a box configured to stage is
+                                                // refused where a box configured to update live
+                                                // is not, and the message and the button have to
+                                                // follow that rather than guess.
+                                                surface: effectiveSurface,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the

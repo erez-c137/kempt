@@ -466,13 +466,22 @@ assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"cancel\") >= 0")" "true" \
 assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
   "...and what still does work, because only the staged path is affected"
 assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing said about one"
-# The kernel recommendation is SUPPRESSED rather than outranked. Its whole content is "install this
-# on the next restart instead", which is the one thing this state does not allow: leaving it up
-# would advise a button that is no longer on the screen.
-assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade"]' \
-  "the release upgrade replaces the kernel recommendation rather than stacking above it"
+# The kernel slot stays, and what it CARRIES changes. Its recommendation is "install this on the
+# next restart instead", which is the one thing this state does not allow - but dropping the
+# message took the warning off the screen while the live button stayed on it, which is the wrong
+# half to lose. So the summary sentence stands in: the same fact, advising nothing.
+assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade","kernel"]' \
+  "the risk is still on screen beside the release upgrade"
+assert_eq "$(js "$ru.riskyMessage.indexOf(\"session-critical pending\") >= 0")" "true" \
+  "...as the summary, which states the risk"
+assert_eq "$(js "$ru.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
+  "...and not the recommendation, which would advise a button that is not there"
+assert_eq "$(js "$ru.offlineStageOffered")" "false" \
+  "...with the button on that message gone, which is what makes the swap necessary"
 assert_eq "$(js "$noru.messageSlots")" '["kernel"]' \
-  "...which is still what an ordinary risky transaction shows"
+  "...while an ordinary risky transaction still gets the full recommendation"
+assert_eq "$(js "$noru.riskyMessage.indexOf(\"next restart\") >= 0")" "true" \
+  "...naming the safer route, because on that box the route exists"
 assert_eq "$(js "$ru.stagedShowRebuild")" "false" \
   "and a rebuild is not offered either: it runs the same verb, so it would cancel it too"
 # dnf5 has ONE transaction slot, and a transaction whose target release differs from the system's
@@ -481,7 +490,7 @@ assert_eq "$(js "$ru.stagedShowRebuild")" "false" \
 # staged banner would otherwise sit under the release-upgrade one telling the reader to press a
 # Rebuild button that is no longer on the screen.
 RUS='function () { var s = S("risky-heavy"); s.offline_staged = {staged_at:"2026-09-09T09:00:00+03:00", count:61, armed:true, holds_conflict:["kernel-core"], names_source:"transaction"}; s.release_upgrade = {from:"44",to:"45",armed:true}; return L.viewModel(s,false,"",{}); }'
-assert_eq "$(js "($RUS)().messageSlots")" '["releaseUpgrade"]' \
+assert_eq "$(js "($RUS)().messageSlots.indexOf(\"staged\")")" "-1" \
   "a stale staged banner is not shown beside a release upgrade that replaced it"
 assert_eq "$(js "($RUS)().stagedMessage")" "" \
   "...so nothing tells the reader to rebuild a transaction dnf5 no longer has"
@@ -510,8 +519,13 @@ assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" \
 assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"Discover\") >= 0")" "true" \
   "...and where somebody who does not use a terminal should go"
 assert_eq "$(js "($IB)().imageBasedMessage")" "" "an ordinary box says nothing about rpm-ostree"
-assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
-  "it is the only message shown: every other one presumes a box Kempt can update"
+assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
+  "it leads the stack: every message under it presumes a box Kempt can update"
+# ...and here too the kernel FACT survives, without the recommendation it cannot honour.
+assert_eq "$(js "$ib.riskyMessage.indexOf(\"session-critical pending\") >= 0")" "true" \
+  "...while the session-critical risk is still stated"
+assert_eq "$(js "$ib.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
+  "...without recommending a restart install this box cannot do"
 # The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
 # blanking them would replace a true-but-incomplete answer with no answer at all.
 assert_eq "$(js "$ib.actionable")" "$(js "($IB)().actionable")" \

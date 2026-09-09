@@ -154,12 +154,18 @@ release upgrade is gigabytes. The run aborts in pre-flight with exit 5, having c
 names both ways out: restart (or `sudo dnf5 system-upgrade reboot` if it has only been downloaded)
 to install it, or `sudo dnf5 offline clean` to drop it.
 
+The risky-transaction prompt stops offering `[s]tage offline` in that state too, and the
+notification stops suggesting the offline surface. An option that always ends in a refusal is worse
+than one that is not there - and the check happens **after** that prompt, because answering `s` is
+what sets the surface.
+
 Only the offline surface. A live run does not touch the stored transaction, so `kempt update` on
 any other surface works normally while a release upgrade waits.
 
 **On an image-based Fedora, this refuses.** Silverblue, Kinoite, Bazzite and bootc images update
 through rpm-ostree, and `/usr` is not dnf's to write. Every surface aborts in pre-flight with exit
-5, having changed nothing, and says to use Discover or `rpm-ostree upgrade`. The test is one file,
+5, having changed nothing, and says to use Discover or `rpm-ostree upgrade` (`bootc upgrade` on a
+bootc image). The test is one file,
 `/run/ostree-booted`, which is absent on ordinary Fedora even when rpm-ostree is installed.
 
 The refusal is deliberate rather than a limitation nobody got round to: those images ship dnf5, so
@@ -592,7 +598,7 @@ The things it can say:
 | `FAIL  staged update can never install: ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
 | `info  staged update: the transaction is gone, ...` | The marker outlived its transaction (someone ran `dnf5 offline clean`, or a superseding live update could not remove the marker). The next `kempt check` clears it. Nothing to do. |
 | `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
-| `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is stored **and armed**. dnf5 keeps one stored transaction for release upgrades and ordinary offline updates alike, so `kempt update --surface=offline` refuses while it is there rather than cancelling it. |
+| `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is stored **and armed** - which is two things, `status = "ready"` **and** the `/system-update` symlink, exactly as for Kempt's own stage. dnf5 keeps one stored transaction for release upgrades and ordinary offline updates alike, so `kempt update --surface=offline` refuses while it is there rather than cancelling it. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | The same transaction before anyone armed it, which is where `dnf5 system-upgrade download` leaves it and where a box can sit for days. **No restart installs it yet.** The line names both ways out: `sudo dnf5 system-upgrade reboot` to start it, `sudo dnf5 offline clean` to drop it. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | Kempt staged something and a release upgrade replaced it - dnf5 has one slot, and a transaction whose target release differs from the system's cannot be one Kempt built. The next check or run clears the marker. |
 | `FAIL  boot symlink is live over a transaction that is not armed ...` | `/system-update` is still there while the transaction behind it is not `ready`. The next restart detours into the offline updater and installs nothing. |
