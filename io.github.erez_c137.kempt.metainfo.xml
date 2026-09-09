@@ -79,8 +79,15 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
-    <release version="0.1.2" date="2026-09-06" type="stable">
+    <release version="0.1.2" date="2026-09-10" type="stable">
       <description>
+        <p>
+          A machine a long way behind now updates: past about a thousand pending packages the
+          check used to fail and the panel blamed a missing installation. Kempt refuses to stage
+          updates over a stored Fedora release upgrade, which would otherwise cancel it, and
+          refuses to run at all on an image-based Fedora, where rpm-ostree rather than dnf is
+          what updates the system.
+        </p>
         <p>
           A hold added after an offline update was staged is no longer silent, in the command
           line or the popup. The panel widget is now its own package, kempt-plasmoid, so the

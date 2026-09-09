@@ -1035,9 +1035,17 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 release_upgrade_staged
 rc=0
-relout="$("$KEMPT" update --surface=offline --no-flatpak 2>&1)" || rc=$?
-assert_eq "$rc" "1" "staging over a staged release upgrade fails rather than silently cancelling it"
+# Deliberately WITHOUT --no-flatpak: the refusal happens before the run begins, so the flatpak half
+# never runs either. It used to, and the run then reported FAILED with a reason about dnf while
+# every flatpak on the box had just been updated.
+relout="$("$KEMPT" update --surface=offline 2>&1)" || rc=$?
+# Exit 5, the documented "aborted during pre-flight, nothing was changed" - which is exactly what
+# this is. Reported as a failed RUN it left a status:"failed" history entry and a notification
+# pointing at a zero-byte log, over a run that correctly did nothing.
+assert_eq "$rc" "5" "staging over a staged release upgrade aborts in pre-flight, changing nothing"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0"   "...and dnf5 is never asked to stage, so there is nothing to undo"
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls" || true)" "0" \
+  "...and nothing else is run either, because the run never starts"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0"   "...nor to clean: the transaction is somebody else's and it is left exactly where it is"
 assert_exit 0 "...and no marker is written for a stage that never happened" -- test ! -f "$marker"
 # The refusal has to NAME what is there, or it is one more tool saying no without saying why.
@@ -1049,9 +1057,34 @@ case "$relout" in
   *"dnf5 offline clean"*) echo "ok: ...and how to get rid of it if that is what the person wants" ;;
   *) echo "FAIL: no remedy offered"; _fail=1 ;;
 esac
-grep -q 'offline stage refused' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'run did not start' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the refusal is in the event log, not only on a terminal nobody saw" \
   || { echo "FAIL: no event for the refusal"; _fail=1; }
+# ...and a state write DOES happen. It is the only thing that takes the widget out of its updating
+# state: without it, pressing Update Now on a machine that refuses spins the popup until its
+# three-hour guard fires, every press, for ever.
+assert_exit 0 "...while the state file is refreshed, which is what releases the widget's spinner" \
+  -- test -s "$KEMPT_STATE_DIR/state.json"
+
+# ...and the same refusal, in the state a release upgrade is usually in: DOWNLOADED and not armed.
+# Staging over it cancels it just as thoroughly, so the refusal is deliberately status-agnostic -
+# but the sentence is not, because "restart to install it" would send somebody to restart a machine
+# that comes back exactly as it was.
+: > "$WORLD/apply-calls"
+rc=0
+dlout="$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" \
+         "$KEMPT" update --surface=offline 2>&1)" || rc=$?
+assert_eq "$rc" "5" "a downloaded release upgrade is protected exactly as an armed one is"
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" "...nothing staged over it"
+case "$dlout" in
+  *"downloaded but not started"*) echo "ok: ...and the refusal says which of the two states it is in" ;;
+  *) echo "FAIL: the refusal describes it as armed"; echo "  got: $dlout"; _fail=1 ;;
+esac
+case "$dlout" in
+  *"system-upgrade reboot"*) echo "ok: ...and how to start it, which is what the person still has to do" ;;
+  *) echo "FAIL: no pointer at what arms it"; _fail=1 ;;
+esac
+release_upgrade_staged
 
 # The predicate is a COMPARISON, never "does this file mention a releasever". Both keys are in
 # every state_version 2 file and an ordinary offline upgrade carries the SAME value in both - which
@@ -1095,6 +1128,79 @@ grep -q 'offline marker dropped (a release upgrade' "$KEMPT_STATE_DIR/events.log
   || { echo "FAIL: no event naming the release upgrade"; _fail=1; }
 transaction_armed
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+
+# --- the history entry is worth losing; the run and the check are not ----------------------------
+# Both of these sites carry a comment saying what happens if they fail, and both were left as bare
+# redirects under errexit, so a full home reproduced exactly the outcome the comment described.
+#
+# (a) the LIVE run's entry, written on the far side of the update. dnf5 has already installed
+# everything; a failure here used to end the run before the summary, the notification, the run-done
+# event and the post-run check - and the post-run check is the only thing that takes the widget out
+# of its updating state. A successful update presented as a spinner that never stops.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+transaction_armed
+: > "$WORLD/notifications"
+rm -f "$KEMPT_STATE_DIR"/logs/*.log
+# Emptied first, and this is what makes the test mean anything: history filenames are per-second, so
+# an entry left over from a run in the SAME second is a file that already exists - and writing to an
+# existing file succeeds in a directory with no write permission of its own. The test would then
+# pass without exercising the failure at all, depending only on how fast the machine is. Nothing
+# below counts entries absolutely; the harvest further down takes its own baseline after this.
+rm -f "$KEMPT_STATE_DIR"/history/*.json
+chmod 500 "$KEMPT_STATE_DIR/history"
+rc=0
+"$KEMPT" update --no-flatpak >/dev/null 2>&1 || rc=$?
+chmod 700 "$KEMPT_STATE_DIR/history"
+assert_eq "$rc" "0" "a run whose history entry cannot be written is still a successful run"
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" \
+  && echo "ok: ...because the update itself had already happened" \
+  || { echo "FAIL: the update did not run"; _fail=1; }
+# The entry is BUILT beside the run and installed into the history, so what a failure costs is the
+# durable record and nothing else: the person in front of the machine still gets the real counts.
+grep -qE 'NOTIFY Kempt .*(updated|no package changes)' "$WORLD/notifications" \
+  && echo "ok: ...and the notification still carries what actually changed" \
+  || { echo "FAIL: no counts in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
+grep -q 'history entry not written' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the loss is recorded rather than passed over in silence" \
+  || { echo "FAIL: nothing says the entry was lost"; _fail=1; }
+grep -q 'run done rc=0' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the run reaches its own end, which it used to die before" \
+  || { echo "FAIL: no run-done event"; _fail=1; }
+# The post-run check is what releases the widget. Nothing else does.
+assert_exit 0 "...while the state file is rewritten, which is what stops the popup spinning" \
+  -- test -s "$KEMPT_STATE_DIR/state.json"
+
+# (b) the HARVEST's entry, which is worse: harvest_offline runs at the top of EVERY check and the
+# marker is cleared a few lines below it. A failure that escaped left the marker in place, so the
+# next check failed in the same spot, and the next - the box stopped checking at all, with a bash
+# line-number error where the state file used to be.
+hpre="$KEMPT_STATE_DIR/snapshots/offline-pre-histfail.tsv"
+cp "$FIXTURES/snap-before.tsv" "$hpre"
+jq -n --arg snap "$hpre" '{staged_at:"histfail", pre_snapshot:$snap, armed:true}' > "$marker"
+transaction_gone
+cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
+: > "$WORLD/notifications"
+rm -f "$KEMPT_STATE_DIR"/history/*.json   # same reason as above: no same-second file to overwrite
+chmod 500 "$KEMPT_STATE_DIR/history"
+rc=0
+"$KEMPT" check >/dev/null 2>&1 || rc=$?
+chmod 700 "$KEMPT_STATE_DIR/history"
+assert_eq "$rc" "0" "a harvest whose entry cannot be written does not take the check down with it"
+assert_exit 0 "...and the check still answers, so the widget still has a state to read" \
+  -- test -s "$KEMPT_STATE_DIR/state.json"
+assert_exit 0 "...and the marker is consumed, so this cannot repeat on every check for ever" \
+  -- test ! -f "$marker"
+grep -q 'harvest entry not written' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...with the loss recorded" \
+  || { echo "FAIL: nothing says the harvest entry was lost"; _fail=1; }
+# A restart that installed packages must not pass in silence just because there was nowhere to file
+# the details.
+grep -q 'applied on reboot' "$WORLD/notifications" \
+  && echo "ok: ...and the restart is still announced, without the counts it could not compute" \
+  || { echo "FAIL: the applied restart was never announced"; _fail=1; }
+transaction_armed
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv" 2>/dev/null || cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 
 # --- an image-based Fedora, where dnf is not how the machine updates -----------------------------
 # Kinoite, Silverblue, Bazzite, a bootc image. Measured in the Kinoite image: it ships dnf5 AND

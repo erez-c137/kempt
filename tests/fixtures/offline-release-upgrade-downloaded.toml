@@ -1,0 +1,11 @@
+[offline-transaction-state]
+rpmdb_cookie = "3c7e1a5b9d2f4068a1c3e5079b2d4f6801a3c5e79b1d3f5709a2c4e68013b5d7f"
+module_platform_id = ""
+poweroff_after = false
+verb = "system-upgrade download"
+system_releasever = "44"
+target_releasever = "45"
+cachedir = "/var/cache/libdnf5"
+status = "download-complete"
+cmd_line = "dnf5 -y system-upgrade download --releasever=45"
+state_version = 2

@@ -1539,7 +1539,7 @@ QtObject {
     # re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is the popup
     # never making it available.
     _ru = json.loads(open(fixture("state-risky-heavy.json")).read())
-    _ru["release_upgrade"] = {"from": "44", "to": "45"}
+    _ru["release_upgrade"] = {"from": "44", "to": "45", "armed": True}
     _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
     open(_rupath, "w").write(json.dumps(_ru))
     state(_rupath)
@@ -1929,6 +1929,7 @@ _ASSEMBLED_IN_LOGIC = {
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
+    "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed half
     "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel
                             #    hover is not where a person learns what kind of Fedora they run
     "imageBasedUse",        # -> vm.imageBasedMessage, joined onto it as its second sentence

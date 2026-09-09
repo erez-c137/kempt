@@ -347,13 +347,26 @@ It exists to pin the one thing that tells the two apart:
     release upgrade 44 -> 45    system_releasever = "44"   target_releasever = "45"
 
 Both keys are present in every `state_version = 2` file, which is why the predicate is a COMPARISON
-and never a presence test - `offline-ready.toml` above is the fixture that proves a presence test
+and never a presence test - `offline-ready.toml` further down this file is the fixture that proves a presence test
 would refuse every ordinary restage, and holds would stop working.
 
 The same capture also settled what happens without the refusal: staging over a stored release
 upgrade replaces it, dnf5 prints "Continuing will cancel the old offline transaction" and proceeds
 anyway under `-y`, and `/system-update` is left standing - so the machine still restarts into an
 update, just not the one that was asked for.
+
+## tests/fixtures/offline-release-upgrade-downloaded.toml
+The same capture UNEDITED, as `dnf5 system-upgrade download --releasever=45` actually leaves it:
+`status = "download-complete"`. This is the state a release upgrade spends most of its life in -
+the packages are on disk, `/system-update` does not exist, and NO restart installs anything until
+`dnf5 system-upgrade reboot` writes `ready`. A box can sit here for days.
+
+It exists because every sentence about a release upgrade turns on that difference, and the first
+version of those sentences did not ask: `kempt doctor` printed "it installs on the next restart"
+directly after the status word that disproves it, and the widget said the same. The refusal to
+stage over it is deliberately status-agnostic - staging cancels a downloaded transaction just as
+thoroughly as an armed one - so this fixture and the armed one below must produce the SAME refusal
+and DIFFERENT wording, which is what the tests pin.
 
 ## tests/fixtures/offline-ready.toml
 The same file with `status` set to `ready` - the one line `dnf5 offline reboot` changes when it

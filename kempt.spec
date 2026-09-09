@@ -211,7 +211,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
-* Sun Sep 06 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
+* Thu Sep 10 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
 - The panel widget moves to its own subpackage, kempt-plasmoid, so the command
   line no longer requires plasma-workspace. On a machine running Plasma the
   widget is installed alongside it as before.
@@ -222,6 +222,19 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 - Three states in which a staged update had quietly stopped being real are now
   detected and announced.
 - Ships the documentation tree, so the README's links resolve once installed.
+- A machine a long way behind now updates: the pending list was handed to a
+  program as one command-line argument, so a check died at 925 pending updates
+  and a run at about 1,200 packages, both reported by the panel as a missing
+  installation.
+- Refuses to stage updates over a stored Fedora release upgrade, which dnf5
+  would otherwise cancel, and says so in the popup and in kempt doctor.
+- Refuses to run on an image-based Fedora (Silverblue, Kinoite, Bazzite, bootc),
+  where rpm-ostree rather than dnf is what updates the system.
+- A staged update can no longer arm the machine with no record of itself.
+- A lost package lock reads as a busy package system rather than as dnf's own
+  line about a lock file.
+- The panel says "installed but will not run" for an engine that will not start,
+  instead of telling the user to install a package they already have.
 
 * Fri Sep 04 2026 Erez <erez.c137@protonmail.com> - 0.1.1-1
 - The widget guides a store-first install instead of quoting the shell; doctor

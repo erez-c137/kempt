@@ -259,6 +259,10 @@ var COPY = {
     // Two entries, joined: what is true, then what it means for this widget. The first alone is
     // what the tooltip takes, because a panel hover is not the place for the second.
     releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart.",
+    // ...and the state a release upgrade actually spends most of its life in: downloaded, and not
+    // started. Nothing installs on any restart until somebody arms it, so saying it does would send
+    // a person to restart a machine that comes back exactly as it was.
+    releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet.",
     releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it. Updating now still works.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
@@ -1284,11 +1288,43 @@ function viewModel(state, updating, cliError, opts) {
     // heldDnf is walked out of the items collectItems already built rather than re-read from the
     // state: those rows are what the popup is SHOWING as held, and a banner whose warning
     // disagreed with the Held group under it would contradict itself in one glance.
+    // What kind of machine this is, and what else is in dnf5's one transaction slot. Both are read
+    // HERE, above the staged banner, because that banner depends on the second of them.
+    //
+    // Strictly `=== true`: absent in every state file written before this existed, and it takes the
+    // primary button off the screen, so nothing unexpected may switch it on.
+    var imageBased = usable && state.image_based === true;
+    var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
+
+    // Guarded the same way, and both halves or neither: "a Fedora  upgrade" with a hole where the
+    // number goes is worse than saying nothing at all.
+    var relUp = (usable && state.release_upgrade && typeof state.release_upgrade === "object")
+        ? state.release_upgrade : null;
+    var relTo = (relUp && typeof relUp.to === "string") ? relUp.to : "";
+    var relFrom = (relUp && typeof relUp.from === "string") ? relUp.from : "";
+    var releaseUpgrade = (relTo !== "" && relFrom !== "");
+    // ARMED is a separate question, and the one the sentence turns on. `dnf5 system-upgrade
+    // download` leaves the transaction downloaded and NOT armed: no restart installs it until
+    // `dnf5 system-upgrade reboot`, and a box can sit like that for days. Strictly `=== true`, so a
+    // state file from a CLI that published no `armed` reads as the unarmed case - which says less
+    // rather than promising a restart that does nothing.
+    var releaseUpgradeArmed = releaseUpgrade && relUp.armed === true;
+    var releaseUpgradeMessage = !releaseUpgrade ? ""
+        : (releaseUpgradeArmed ? COPY.releaseUpgradeStaged.replace("%1", relTo)
+                               : COPY.releaseUpgradeReady.replace("%1", relTo))
+          + " " + COPY.releaseUpgradeNoStage;
+
     var heldDnf = false;
     for (var h = 0; h < counted.heldItems.length; h++) {
         if (counted.heldItems[h].backend === "dnf") { heldDnf = true; break; }
     }
-    var stagedVariant = stagedVariantOf(usable ? state.offline_staged : null, heldDnf);
+    // A stored release upgrade means Kempt's own staged transaction is not the one dnf5 has: there
+    // is ONE slot, and a transaction whose target release differs from the system's cannot be one
+    // Kempt built. A current CLI stops publishing offline_staged in that state; this handles a file
+    // an older one wrote, and it is what stops the popup showing both banners - the second of which
+    // tells the reader to press a Rebuild button the first has just taken away.
+    var stagedVariant = stagedVariantOf(
+        (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf);
     var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
     // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
@@ -1303,23 +1339,6 @@ function viewModel(state, updating, cliError, opts) {
     // isArray, not a duck-typed length check: a STRING has a numeric length and indexes into its
     // own characters, so `risky_pending: "kernel-core"` would walk out of here as "11
     // session-critical pending (c, e, k, l, ...)".
-    // Guarded like every optional key: absent from every state file written before it existed, and
-    // possibly the wrong type in one that has been edited by hand. Both halves or neither - "a
-    // Fedora  upgrade" with a hole where the number goes is worse than saying nothing.
-    // Strictly `=== true`, like every optional key: absent in every state written before it
-    // existed, and this one takes the primary button off the screen, so nothing unexpected may
-    // switch it on.
-    var imageBased = usable && state.image_based === true;
-    var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
-
-    var relUp = (usable && state.release_upgrade && typeof state.release_upgrade === "object")
-        ? state.release_upgrade : null;
-    var relTo = (relUp && typeof relUp.to === "string") ? relUp.to : "";
-    var relFrom = (relUp && typeof relUp.from === "string") ? relUp.from : "";
-    var releaseUpgrade = (relTo !== "" && relFrom !== "");
-    var releaseUpgradeMessage = releaseUpgrade
-        ? COPY.releaseUpgradeStaged.replace("%1", relTo) + " " + COPY.releaseUpgradeNoStage : "";
-
     var riskyMessage = staged ? "" : riskyMessageOf(
         usable && isArray(state.risky_pending) ? state.risky_pending : []);
 

@@ -791,6 +791,16 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
   printf '%s -> %s\n' "$from" "$to"
 }
 
+# ...and whether that upgrade is ARMED, which is a different question and the one every SENTENCE
+# about it turns on. `dnf5 system-upgrade download` leaves status "download-complete": the packages
+# are on disk, /system-update does not exist, and no restart installs anything. Only
+# `dnf5 system-upgrade reboot` writes "ready". A user can sit at download-complete for days, and it
+# is where a release upgrade spends most of its life.
+# The REFUSAL above deliberately does not ask this - staging over a downloaded transaction destroys
+# it just as thoroughly as over an armed one - but "it installs on the next restart" is false here,
+# and saying it sends somebody to restart a machine that will come back exactly as it was.
+offline_release_upgrade_armed() { [[ "$(offline_system_status)" == ready ]]; }
+
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
 # come from two places (dnf5's stored transaction, or the check made just before staging) and a name
@@ -960,6 +970,13 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   # promise reconcile_detour_stage exists to withdraw.
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
+  # A stored RELEASE upgrade is proof the transaction is not ours, whatever the marker says. dnf5
+  # keeps one stored transaction; Kempt only ever runs `dnf5 upgrade --offline` at the releasever
+  # the box is already on, so a transaction whose target differs from the system's cannot be one
+  # Kempt built - it replaced ours as it was stored. Publishing the marker anyway tells the widget
+  # that sixty-one packages install on the next restart when what installs is a whole new Fedora.
+  # The marker is dropped by the next live run's reconcile; until then it simply says nothing.
+  offline_release_upgrade >/dev/null && return 0
   local names="" names_source=none
   if names="$(offline_txjson_names)"; then
     names_source=transaction
@@ -981,14 +998,23 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
     # as one empty-string element - which is why both sides drop empty lines below.
     local names_f holds_f
     names_f="$(mktemp)"; holds_f="$(mktemp)"
-    printf '%s' "$names" > "$names_f"
-    holds_for dnf > "$holds_f"
-    # `. as $x` first, for the index() trap mark_held carries the note about.
-    conflict="$(jq -cn --rawfile n "$names_f" --rawfile h "$holds_f" '
-                  def lines: split("\n") | map(select(length > 0));
-                  ($h | lines) as $hl
-                  | [($n | lines)[] | . as $x | select($hl | index($x))] | unique')" \
-      || conflict='[]'
+    # Every step guarded, and every failure lands in the SAME place: names_source `none`. An empty
+    # conflict list under `transaction` or `marker` is a finding - this file's contract three lines
+    # up says so, and every reader relies on it to deny a conflict. Publishing `[]` because the
+    # comparison could not be made would turn "nobody could tell" into "there is no conflict",
+    # which is the one answer the data does not support. `none` is the value that means the first.
+    # The two files are removed on every path, including the ones that give up early.
+    if printf '%s' "$names" > "$names_f" 2>/dev/null \
+       && holds_for dnf > "$holds_f" 2>/dev/null; then
+      # `. as $x` first, for the index() trap mark_held carries the note about.
+      conflict="$(jq -cn --rawfile n "$names_f" --rawfile h "$holds_f" '
+                    def lines: split("\n") | map(select(length > 0));
+                    ($h | lines) as $hl
+                    | [($n | lines)[] | . as $x | select($hl | index($x))] | unique')" \
+        || { conflict='[]'; names_source=none; }
+    else
+      conflict='[]'; names_source=none
+    fi
     rm -f "$names_f" "$holds_f"
   fi
   # count: markers written before the field existed carry no number, and null is the honest answer.

@@ -755,6 +755,21 @@ KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qE '^info  a Fedora release upgrade \(44 -> 45\) is staged outside Kempt' "$TESTTMP/staged.txt" \
   && echo "ok: a staged release upgrade is named as one, with both releases" \
   || { echo "FAIL: no release-upgrade line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+# ...and the state it is usually in: downloaded, not started. The row used to print "it installs on
+# the next restart" immediately after the status word that disproves it - and the row twelve lines
+# up in the same report says the opposite about that identical status when the transaction is
+# Kempt's own, so one report contradicted itself depending only on who owned the marker.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" doctor_out
+grep -qF 'downloaded outside Kempt but not started' "$TESTTMP/staged.txt" \
+  && echo "ok: a downloaded release upgrade is not described as installing on the next restart" \
+  || { echo "FAIL: no downloaded-not-started line - got: $(grep -i 'release upgrade' "$TESTTMP/staged.txt")"; _fail=1; }
+grep -qF 'system-upgrade reboot' "$TESTTMP/staged.txt" \
+  && echo "ok: ...and it says what starts it, which is the thing the person still has to do" \
+  || { echo "FAIL: no pointer at what arms it"; _fail=1; }
+grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
+  && { echo "FAIL: it still claims a restart installs it"; _fail=1; } \
+  || echo "ok: ...and never claims a restart installs something that is not armed"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qF 'will not stage updates over it' "$TESTTMP/staged.txt" \
   && echo "ok: ...saying why Kempt refuses to stage while it is there" \
   || { echo "FAIL: the row does not explain the refusal"; _fail=1; }

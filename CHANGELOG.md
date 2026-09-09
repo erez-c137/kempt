@@ -178,6 +178,49 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
 
 ### Fixed
 
+- **A machine a long way behind now updates.** Linux caps a single command-line argument at
+  128 KiB, and the pending list was handed to a program that way: `kempt check` died at 925
+  pending updates and a run died at about 1,200 updated packages, both leaving the panel saying
+  *"Kempt's engine is not installed"* about an install that was working. A fresh install from a
+  several-month-old ISO, or a laptop switched off for a season, sits in that range routinely - so
+  the tool stopped working exactly where it was most needed. Present in 0.1.0 and 0.1.1. The worst
+  of the three places it happened was on the far side of an update: everything installed, and then
+  no history entry, no summary, no notification and a panel that span for three hours.
+
+- **An engine that is installed but will not start now says so.** The panel used to report
+  *"Kempt's engine is not installed"* over two commands to install it, for a failure that only
+  ever means the opposite - a file without its execute bit, a `noexec` mount, a missing
+  interpreter. The message now names the real state and points at `kempt doctor`, and the panel
+  icon raises a warning for it instead of dimming as it does for a machine where Kempt has simply
+  not been set up yet.
+
+- **A staged Fedora release upgrade is no longer destroyed by staging updates.** dnf5 keeps one
+  stored transaction for release upgrades and ordinary offline updates alike. Pressing **Install
+  on Next Restart** with a release upgrade waiting replaced it - dnf5 warns and then does it
+  anyway when it is not being asked questions - and left `/system-update` standing, so the machine
+  still restarted into an update, just not the one that was asked for, with Kempt reporting its
+  own stage as a success. Re-downloading a release upgrade is gigabytes. Kempt now refuses before
+  anything runs, the popup stops offering the button, and `kempt doctor` says what is waiting and
+  whether a restart will actually install it.
+
+- **A staged update can no longer arm the machine with no record of itself.** The marker Kempt
+  writes after arming a transaction is written after the point of no return, and a full home ended
+  the run right there: the next restart installed a transaction no Kempt surface knew about - no
+  banner, no doctor line, no notification afterwards. It now degrades instead, and if it cannot
+  record the stage at all it says so in the same breath as promising it.
+
+- **Losing the package lock to Discover, PackageKit or dnf-automatic now reads as what it is.**
+  The failure showed dnf's own line about a lock file, which reads as a broken installation. It
+  now says another program is using the package system and to try again in a few minutes. A
+  failure that is not a lock still shows its own reason.
+
+- **Kempt refuses to run on an image-based Fedora instead of being confidently wrong about it.**
+  Silverblue, Kinoite, Bazzite and bootc images update through rpm-ostree, but they ship dnf5, so
+  Kempt installed cleanly, the widget appeared, `kempt doctor` reported all checks passed, and an
+  update would have resolved a transaction and then failed somewhere in the middle with a message
+  about a read-only file system. It now says which tool that machine updates with, on `kempt
+  doctor`'s second line and in the popup, and takes **Update Now** off the screen.
+
 - **Closing the update terminal, or answering its risky-transaction question with `abort`, no
   longer leaves the widget stuck on an empty updating pane for up to three hours.** Both of those
   exits used to end the run without writing anything down, and a new `state.json` is the only thing

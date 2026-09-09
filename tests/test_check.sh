@@ -448,6 +448,19 @@ rm -f "$marker"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.release_upgrade.from' "$st")" "44" "a staged release upgrade is published: where from"
 assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and where to"
+assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "true" \
+  "...and whether a restart actually installs it, which is a different question"
+# The state a release upgrade spends most of its life in. `dnf5 system-upgrade download` stops
+# here: downloaded, not armed, and no restart installs anything until somebody runs
+# `dnf5 system-upgrade reboot`. Published as false rather than omitted, because "downloaded but not
+# started" is a fact worth having and a reader with `from`/`to` and no `armed` would word its
+# sentence wrongly.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.release_upgrade.armed' "$st")" "false" \
+  "a downloaded-but-not-started release upgrade is published as not armed"
+assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and still names the release"
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
 assert_eq "$(jq -r .schema "$st")" "1" "release_upgrade is additive: the schema does not move"
 # It is NOT part of offline_staged, and the distinction is the whole point: that key describes the
 # transaction KEMPT staged, and this is by definition one it did not.

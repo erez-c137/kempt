@@ -104,10 +104,14 @@ cmd_check() {
   # only ever ends in a refusal.
   local image_based=null
   on_ostree && image_based=true
-  local relup_json="" relup_pair
+  local relup_json="" relup_pair relup_armed=false
   if relup_pair="$(offline_release_upgrade)"; then
+    # `armed` and not a second key at the top level, because it qualifies THIS fact and a reader
+    # that has one without the other would word its sentence wrongly. false is meaningful here -
+    # downloaded but not started - so unlike the keys above it is published either way.
+    offline_release_upgrade_armed && relup_armed=true
     relup_json="$(jq -cn --arg from "${relup_pair%% *}" --arg to "${relup_pair##* }" \
-                    '{from:$from, to:$to}')" || relup_json=""
+                    --argjson armed "$relup_armed" '{from:$from, to:$to, armed:$armed}')" || relup_json=""
   fi
   local state
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based")"
@@ -179,11 +183,24 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
         # wider match somewhere downstream would eventually label a full disk or a failed scriptlet
         # as a busy package system, which is worse than the raw text it replaced.
         #
-        # Only when nothing has claimed the reason yet, and NOT `local`: reason_override belongs to
-        # cmd_update, which every caller of this function runs inside. A cleanup that hits the lock
-        # after the failure it is cleaning up must not relabel the run with its own problem.
-        [[ -n "${reason_override:-}" ]] \
-          || reason_override="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was changed; try again in a few minutes"
+        # Two conditions, and both are about not describing the wrong failure.
+        #
+        # The runner must be the PRIVILEGED one. This function also runs flatpak, and flatpak runs
+        # AFTER dnf: a flatpak lock failure claiming the reason would name three dnf tools that
+        # cannot hold a flatpak lock, would say nothing was installed on a run that had just
+        # installed three hundred packages, and - worst - would mask a dnf failure that happened
+        # first, since an ordinary dnf failure sets no reason of its own.
+        #
+        # And nothing may have claimed the reason already: a cleanup that hits the lock after the
+        # failure it is cleaning up must not relabel the run with its own problem.
+        #
+        # NOT `local`: reason_override belongs to cmd_update, which every caller of this runs
+        # inside. "nothing was installed" is safe on both privileged paths that reach here with the
+        # reason unclaimed - a live upgrade that never started, and a stage that never began - and
+        # the arm and rebuild failures overwrite it with their own more specific sentence.
+        if [[ "$runner" == priv_apply && -z "${reason_override:-}" ]]; then
+          reason_override="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
+        fi
       fi
     else
       return "$rc"
@@ -197,6 +214,19 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
 preflight_abort() {  # message
   echo "$1" >&2
   [[ "$surface" != "terminal" ]] && notify "Kempt" "Update did not start: $1"
+  # Recorded, because `kempt log` is where somebody looks when a press did nothing and they want to
+  # know why. Two of the three things that reach here are deliberate refusals rather than faults,
+  # and a refusal that leaves no trace is indistinguishable from a button that does not work.
+  # init first: this runs before cmd_update takes the lock, so the state directory may not exist.
+  kempt_init_dirs 2>/dev/null || true
+  log_event "run did not start: $1" 2>/dev/null || true
+  # Then a check, and it is not a nicety: a state.json write is the ONLY thing that takes the widget
+  # out of its updating state, and this path writes no history entry and runs no post-run check.
+  # Without it a press of Update Now spins until the popup's three-hour guard fires - on an
+  # image-based system, every press, for ever. The check itself only reads, so it is safe on every
+  # box that can reach this; `|| true` because a pre-flight that failed because nothing could be
+  # read must still exit 5 rather than on the check's rc.
+  cmd_check >/dev/null 2>&1 || true
   exit 5
 }
 
@@ -510,6 +540,33 @@ cmd_update() {
     preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - use Discover, or: rpm-ostree upgrade"
   fi
 
+  # ...and the same treatment for a stage that would destroy a Fedora release upgrade. dnf5 keeps
+  # ONE stored transaction for both kinds, so staging updates over a stored release upgrade cancels
+  # it. Measured against real dnf5: the 44 -> 45 transaction is replaced by the ordinary one, dnf5
+  # prints "Continuing will cancel the old offline transaction" and then does it anyway under -y,
+  # which is how Kempt runs it - AND /system-update is left standing, so the machine still restarts
+  # into an update, just not the one that was asked for. Re-downloading a release upgrade is
+  # gigabytes, so there is no recovering from it either.
+  #
+  # PRE-FLIGHT and not a failure inside the run, because that is what this is: nothing is started,
+  # nothing is changed, and the documented contract for that is exit 5. Reporting it as a failed
+  # run put a `status: failed` entry in the history and a "see the log" notification pointing at a
+  # zero-byte file, over a run that correctly did nothing.
+  #
+  # Only the OFFLINE surface. A live run does not replace the stored transaction, and refusing
+  # ordinary updates because a release upgrade is waiting would be a bigger imposition than the one
+  # this avoids - which is also why this sits after the surface is resolved rather than before.
+  if [[ "$surface" == "offline" ]]; then
+    local relup
+    if relup="$(offline_release_upgrade)"; then
+      if offline_release_upgrade_armed; then
+        preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart - staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean"
+      else
+        preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started - staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean"
+      fi
+    fi
+  fi
+
   recommend_offline_if_risky
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
@@ -578,7 +635,7 @@ cmd_update() {
     # over it - and the next restart detours into the offline updater, installing nothing.
     # Two sources, either enough alone: Kempt's marker and dnf5's status - the second covers a
     # transaction Kempt did not stage, which the re-stage destroys identically.
-    local had_stage=false prev_marker prev_pre="" prev_conflict="" relup=''
+    local had_stage=false prev_marker prev_pre="" prev_conflict=""
     prev_marker="$(offline_marker_read)"
     [[ -n "$prev_marker" || "$(offline_system_status)" != absent ]] && had_stage=true
     if [[ -n "$prev_marker" ]]; then
@@ -594,22 +651,7 @@ cmd_update() {
     # system-update-generator looks for. Arming HERE, not at the restart click, is what makes the
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
-    # REFUSED over a Fedora release upgrade, before anything is run. dnf5 keeps ONE stored
-    # transaction for both kinds, so staging updates over a staged release upgrade cancels it.
-    # Measured against real dnf5: the 44 -> 45 transaction is replaced by the ordinary one, dnf5
-    # prints "Continuing will cancel the old offline transaction" and then does it anyway under
-    # -y - which is how Kempt runs it - AND /system-update is left standing, so the machine still
-    # restarts into an update, just not the one that was asked for. Nothing about that is
-    # recoverable afterwards: the transaction is gone and its contents with it, and re-downloading
-    # a release upgrade is gigabytes.
-    # A run rather than a stage is deliberately NOT refused here: it does not replace the stored
-    # transaction, and refusing ordinary updates because a release upgrade is pending would be a
-    # bigger imposition than the one this avoids.
-    if relup="$(offline_release_upgrade)"; then
-      dnf_status="failed"; status="failed"
-      reason_override="a Fedora release upgrade ($relup) is already staged, and staging updates would cancel it - restart to install it, or remove it with: sudo dnf5 offline clean"
-      log_event "offline stage refused: a release upgrade ($relup) is staged"
-    elif apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
+    if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
       # transaction is stored", and calling THAT "staged but could not arm" blames the arm for a
@@ -729,7 +771,8 @@ cmd_update() {
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
 
   # history entry
-  local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json"
+  local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json" hist_tmp
+  hist_tmp="$(mktemp 2>/dev/null || true)"
   held_dnf_json="$(holds_for dnf | jq -Rn '[inputs]')"
   held_fp_json="$(holds_for flatpak | jq -Rn '[inputs]')"
   # The two reports come through FILES for the reason assemble_state does: they scale with the
@@ -751,8 +794,25 @@ cmd_update() {
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
-       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist"
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist_tmp" \
+    || { rm -f "$hist_tmp"; hist_tmp=""; }
+  # Removed whatever happened above: an unguarded write here used to take the whole run down on a
+  # full home, on the far side of an update that had already installed everything - no summary, no
+  # notification, no run-done event and no post-run check, which is the only thing that takes the
+  # widget out of its updating state. A successful update presented as a spinner that never stops.
   rm -f "$dnf_rep_f" "$fp_rep_f"
+  # Built beside the run and INSTALLED into the history, rather than written there directly. What a
+  # failure costs is then only the durable record: everything below reads this file to render the
+  # summary, the notification and the run-done count, and rendering from the copy that was built
+  # keeps the person in front of the machine told. `kempt history` is what will not have it.
+  if [[ -n "$hist_tmp" ]] && cp "$hist_tmp" "$hist" 2>/dev/null; then
+    rm -f "$hist_tmp"; hist_tmp=""
+  else
+    echo "warning: this run is not in the history - the update itself is done" | tee -a "$log" >&2
+    log_event "history entry not written (state directory unwritable?)"
+    rm -f "$hist"
+    hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
+  fi
 
   # A successful OFFLINE run gets its own event line rather than "run done": nothing has been
   # applied yet, and the harvest after the restart is what reports it.
@@ -773,12 +833,15 @@ cmd_update() {
     log_event "run failed rc=1: $reason"
   fi
 
-  # tell the human
-  render_summary "$hist"
+  # tell the human. Both readers take the entry as a FILE, and on the one path where neither the
+  # history nor a temp file could be written there is no file to give them - so they are skipped
+  # rather than handed a path that does not exist, which would end the run here on jq's rc. The
+  # notification below still goes out; it just cannot carry the counts.
+  [[ -n "$hist" ]] && render_summary "$hist"
   if [[ "$surface" != "terminal" ]]; then
     # Same truth as the summary: a run that installed and removed packages is never "0 updated".
-    local phrase
-    phrase="$(run_counts_phrase "$hist")"
+    local phrase=""
+    [[ -n "$hist" ]] && phrase="$(run_counts_phrase "$hist")"
     # ORDER: a failed offline run takes the failure branch, not the staged one. "Installs on the
     # next restart" is a claim about the future, and a stage that was discarded has none.
     if [[ "$surface" == "offline" && "$status" == "ok" && "$staged_nothing" == true ]]; then
@@ -798,12 +861,14 @@ cmd_update() {
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       notify "Kempt" "Updates staged - they install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
     elif [[ "$status" == "ok" ]]; then
-      notify "Kempt" "$phrase$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+      notify "Kempt" "${phrase:-Update finished}$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
       # The same reason the summary and the event line carry: "see the log" is not an answer.
       notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log$notify_tail"
     fi
   fi
+  # The copy the summary was rendered from, when it could not be installed into the history.
+  [[ -n "${hist_tmp:-}" ]] && rm -f "$hist_tmp"
   reconcile_stage_after_live_run
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict.
@@ -1103,12 +1168,20 @@ harvest_offline() {
   # leaves the marker in place and repeats on every check for good - the box never checks again.
   local rep_f; rep_f="$(mktemp)"
   printf '%s' "$report" > "$rep_f"
+  # Guarded for the reason written above: this runs at the top of EVERY check and the marker is
+  # deleted a few lines below, so a failure that escapes leaves the marker in place and lands here
+  # again on the next check, and the next, for good. The box stops checking at all - no state file,
+  # no widget, and a bash line-number error where the answer used to be. The entry is worth losing;
+  # the check is not, and the marker is cleared either way so this cannot repeat.
   jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" '
     ($repa[0]) as $dnf |
     {timestamp:$ts, surface:"offline (applied on reboot)", status:"ok", duration_sec:0,
      reboot_needed:false, log:"",
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
-               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist"
+               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist" \
+    || { rm -f "$hist"; hist=""
+         echo "warning: the staged update was applied, but its history entry could not be written" >&2
+         log_event "harvest entry not written (state directory unwritable?)"; }
   rm -f "$rep_f"
   rm -f "$now_snap"
   # The history entry above is honest whatever happened next, but the MARKER may no longer be the
@@ -1122,10 +1195,18 @@ harvest_offline() {
   rm -f "$pre"   # $pre is this harvest's own marker-owned copy either way
   # Same counts phrase as a live run's notification: a transaction that only installed or removed
   # packages must not be announced as "0 packages".
-  local harvested; harvested="$(run_counts_phrase "$hist")"
-  # The only place the reboot's own result is recorded: the run that staged it ended a boot ago.
-  log_event "harvest applied ($harvested)"
-  notify "Kempt" "Staged updates were applied on reboot - $harvested"
+  local harvested=""
+  [[ -n "$hist" ]] && harvested="$(run_counts_phrase "$hist")"
+  # The only place the reboot's own result is recorded: the run that staged it ended a boot ago. So
+  # it is said even when the entry above could not be written - a restart that installed sixty
+  # packages must not pass in silence just because there was nowhere to file the details.
+  if [[ -n "$harvested" ]]; then
+    log_event "harvest applied ($harvested)"
+    notify "Kempt" "Staged updates were applied on reboot - $harvested"
+  else
+    log_event "harvest applied (the result could not be recorded)"
+    notify "Kempt" "Staged updates were applied on reboot"
+  fi
 }
 
 cmd_config() {
@@ -1281,9 +1362,14 @@ doctor_staged_drift_row() {  # marker json
   } || { rm -rf "$d"; return 0; }
   # `. as $x` before index(): jq evaluates index()'s argument against index()'s OWN input, so the
   # inline form reads the wrong thing (the trap mark_held carries a note about).
-  plus="$(jq -r --slurpfile b "$d/rec.json" '.[] | select(. as $x | $b[0] | index($x) | not)' < "$d/live.json")"
-  minus="$(jq -r --slurpfile a "$d/live.json" '.[] | select(. as $x | $a[0] | index($x) | not)' < "$d/rec.json")"
+  # `|| true` on both, so the directory is removed however they end: a jq that dies here would
+  # otherwise leave a temp directory behind on every check that reaches this row.
+  plus="$(jq -r --slurpfile b "$d/rec.json" '.[] | select(. as $x | $b[0] | index($x) | not)' < "$d/live.json" || true)"
+  minus="$(jq -r --slurpfile a "$d/live.json" '.[] | select(. as $x | $a[0] | index($x) | not)' < "$d/rec.json" || true)"
   rm -rf "$d"
+  # Both empty means the comparison could not be made, not that the two lists agree - the equality
+  # test above already returned for that case.
+  [[ -n "$plus" || -n "$minus" ]] || return 0
   local -a clauses=()
   # Capped and counted by the shared renderer: a Qt bump puts dozens of names on each side.
   [[ -n "$plus" ]] && clauses+=("$(printf '%s\n' "$plus" | sed 's/^/+/' | names_phrase) in dnf5's record only")
@@ -1592,6 +1678,13 @@ doctor_offline_rows() {
   # and would fall through to the armed row below. offline_marker_read refuses an empty,
   # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
   dr_marker="$(offline_marker_read)"
+  # A stored release upgrade answers for the whole section: dnf5 has one slot, ours is not in it,
+  # and every sentence below would be about a transaction that no longer exists. Reported as
+  # somebody else's, which is what it is, by the branch further down.
+  if [[ -n "$dr_marker" ]] && offline_release_upgrade >/dev/null; then
+    dr_marker=""
+    doctor_info "staged update: Kempt has a marker for a transaction that is no longer stored - a Fedora release upgrade replaced it, and the next check or run clears the marker ($OFFLINE_MARKER)"
+  fi
   if [[ -n "$dr_marker" ]]; then
     dr_count="$(jq -r '.staged // empty' <<<"$dr_marker" 2>/dev/null || true)"
     case "$dr_toml" in
@@ -1628,7 +1721,15 @@ doctor_offline_rows() {
     # "something is staged", and it is the case where Kempt's own offline button is refused.
     local dr_relup
     if dr_relup="$(offline_release_upgrade)"; then
-      doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt (status \"$dr_toml\") - it installs on the next restart, and Kempt will not stage updates over it because that would cancel it"
+      # Which of the two it is decides the sentence. Saying "it installs on the next restart" over
+      # a status of "download-complete" prints the claim and its own refutation in one line - and
+      # the row twelve lines up says the opposite about the identical status when the transaction
+      # happens to be Kempt's own.
+      if offline_release_upgrade_armed; then
+        doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart - Kempt will not stage updates over it, because that would cancel it"
+      else
+        doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet - begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it"
+      fi
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
     fi

@@ -445,6 +445,22 @@ assert_eq "$(js "$noru.offlineStageOffered")" "true" \
   "...and on an ordinary box it is offered exactly as before"
 assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Fedora 45\") >= 0")" "true" \
   "the message names the release the machine is about to move to"
+# ARMED is a separate question and the one the sentence turns on. `dnf5 system-upgrade download`
+# stops at downloaded: no restart installs anything until `dnf5 system-upgrade reboot`, and a box
+# can sit there for days. The first version of this message promised a restart in both states.
+ruA="($RU)({release_upgrade:{from:\"44\",to:\"45\",armed:true}})"
+ruD="($RU)({release_upgrade:{from:\"44\",to:\"45\",armed:false}})"
+ruN="($RU)({release_upgrade:{from:\"44\",to:\"45\"}})"
+assert_eq "$(js "$ruA.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "true" \
+  "an ARMED upgrade is the one that installs on the next restart"
+assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
+  "...and a downloaded one never claims a restart will install it"
+assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "true" \
+  "...it says what state it is actually in"
+assert_eq "$(js "$ruN.releaseUpgradeMessage")" "$(js "$ruD.releaseUpgradeMessage")" \
+  "...and a state file with no armed key at all reads as the unarmed case, promising nothing"
+assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
+  "...while staging stays refused either way, because staging cancels a downloaded one too"
 assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"cancel\") >= 0")" "true" \
   "...and says why the button is missing rather than leaving it a mystery"
 assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
@@ -459,6 +475,16 @@ assert_eq "$(js "$noru.messageSlots")" '["kernel"]' \
   "...which is still what an ordinary risky transaction shows"
 assert_eq "$(js "$ru.stagedShowRebuild")" "false" \
   "and a rebuild is not offered either: it runs the same verb, so it would cancel it too"
+# dnf5 has ONE transaction slot, and a transaction whose target release differs from the system's
+# cannot be one Kempt built - so a marker alongside a release upgrade describes a transaction that
+# is gone. A current CLI stops publishing offline_staged there; this is the older file, where the
+# staged banner would otherwise sit under the release-upgrade one telling the reader to press a
+# Rebuild button that is no longer on the screen.
+RUS='function () { var s = S("risky-heavy"); s.offline_staged = {staged_at:"2026-09-09T09:00:00+03:00", count:61, armed:true, holds_conflict:["kernel-core"], names_source:"transaction"}; s.release_upgrade = {from:"44",to:"45",armed:true}; return L.viewModel(s,false,"",{}); }'
+assert_eq "$(js "($RUS)().messageSlots")" '["releaseUpgrade"]' \
+  "a stale staged banner is not shown beside a release upgrade that replaced it"
+assert_eq "$(js "($RUS)().stagedMessage")" "" \
+  "...so nothing tells the reader to rebuild a transaction dnf5 no longer has"
 # Read the way every optional key is read. A state file written before this existed carries none of
 # it, and one edited by hand can carry anything at all.
 for _bad in 'null' 'true' '"44 -> 45"' '{}' '{from:"44"}' '{to:"45"}' '{from:44,to:45}'; do
