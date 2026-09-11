@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-11
+
 ### Upgrading from 0.1.1
 
 **Nothing to do: `sudo dnf upgrade`.** The panel widget and the command line are two packages now,
@@ -17,6 +19,11 @@ place, and `kempt doctor: all checks passed`.
 
 If you have turned dnf's weak dependencies off (`install_weak_deps=False`), that automatic step is
 the thing you have turned off. Run `sudo dnf install kempt-plasmoid` once.
+
+The upgrade brings in a little more than 0.1.1 asked for: `dnf5-plugins`, which is where
+`dnf5 needs-restarting` lives and without which the restart reminder never fires, and `libnotify`
+and `konsole`, recommended now rather than merely suggested, because one is how a background run
+reports what it did and the other is what the default surface launches.
 
 Nothing else changes. Your settings, holds, history and any staged update are where you left them.
 
@@ -195,11 +202,14 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
   it does for a machine where Kempt has simply not been set up yet.
 
 - **What Kempt says about a stored Fedora release upgrade matches what dnf5 will actually do
-  with it.** dnf5 records four states for a stored transaction, and each one means something
-  different for whether a restart installs it: downloaded and not started, armed and waiting,
-  armed but already passed over by a restart, and one that did not finish. Every surface names the
-  one it is in and gives the remedy that applies to it, rather than promising a restart that will
-  not happen or quoting a status word that says the opposite of the sentence around it.
+  with it.** A stored transaction can be in four states, and each one means something different
+  for whether a restart installs it: downloaded and not started, armed and waiting, armed but
+  already passed over by a restart, and one dnf5 recorded as unfinished. Being armed is two things,
+  dnf5's `ready` status and the `/system-update` symlink, so the state is read from both rather
+  than from the status word alone. Every surface names the one it is in and gives the remedy that
+  applies to it, rather than promising a restart that will not happen or quoting a status word that
+  says the opposite of the sentence around it, and a word this build has never seen promises
+  nothing at all.
 
 - **A staged Fedora release upgrade is no longer destroyed by staging updates.** dnf5 keeps one
   stored transaction for release upgrades and ordinary offline updates alike. Pressing **Install
@@ -222,11 +232,13 @@ Nothing else changes. Your settings, holds, history and any staged update are wh
   failure that is not a lock still shows its own reason.
 
 - **Kempt refuses to run on an image-based Fedora instead of being confidently wrong about it.**
-  Silverblue, Kinoite, Bazzite and bootc images update through rpm-ostree, but they ship dnf5, so
+  Silverblue, Kinoite, Bazzite and bootc images update as an image - `rpm-ostree upgrade`, or
+  `bootc upgrade` on a bootc image - but they ship dnf5, so
   Kempt installed cleanly, the widget appeared, `kempt doctor` reported all checks passed, and an
   update would have resolved a transaction and then failed somewhere in the middle with a message
   about a read-only file system. It now says which tool that machine updates with, on `kempt
-  doctor`'s second line and in the popup, and takes **Update Now** off the screen.
+  doctor`'s second line and in the popup, and takes **Update Now** off the screen. Support for
+  those images is planned; what this release does is stop being confidently wrong about them.
 
 - **Closing the update terminal, or answering its risky-transaction question with `abort`, no
   longer leaves the widget stuck on an empty updating pane for up to three hours.** Both of those
