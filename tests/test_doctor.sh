@@ -737,6 +737,10 @@ case "$ib_out" in
   *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | head -5; _fail=1 ;;
 esac
 case "$ib_out" in
+  *"is planned"*) echo "ok: ...as a not-yet rather than a never, as the other surfaces say" ;;
+  *) echo "FAIL: the doctor row does not say support is planned"; echo "$ib_out" | head -5; _fail=1 ;;
+esac
+case "$ib_out" in
   *"all checks passed"*) echo "FAIL: it still says everything is fine"; _fail=1 ;;
   *) echo "ok: ...so the report never ends by saying everything is fine" ;;
 esac

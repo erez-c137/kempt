@@ -564,6 +564,8 @@ assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" \
   "the message names the tool that DOES update this machine"
 assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"Discover\") >= 0")" "true" \
   "...and where somebody who does not use a terminal should go"
+assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"is planned\") >= 0")" "true" \
+  "...and that this is a not-yet rather than a never"
 assert_eq "$(js "($IB)().imageBasedMessage")" "" "an ordinary box says nothing about rpm-ostree"
 assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
   "it leads the stack: every message under it presumes a box Kempt can update"

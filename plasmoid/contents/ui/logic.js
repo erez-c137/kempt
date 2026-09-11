@@ -283,7 +283,7 @@ var COPY = {
     // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
     // box gives it away, which is why this has to be said outright.
     // Two entries, joined, on the pattern the engine messages use: what is true, then what to do.
-    imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it.",
+    imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it. Support for these images is planned.",
     // Names bootc as well, because bootc images set the same marker and `rpm-ostree upgrade` is not
     // their command. And it points at Discover for the Flatpak rows, which are the one thing on
     // this list somebody CAN act on - saying nothing about them next to a list of them would be

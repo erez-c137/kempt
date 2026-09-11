@@ -40,6 +40,18 @@ GitHub, in COPR (Fedora 43 to 45 and rawhide, x86_64 and aarch64) and on the KDE
 Every release gate - the live engine checklist, the widget's morning visual gate on real
 hardware, the merge, and the public flip with CI - passed between 2026-09-02 and 2026-09-04.
 
+**0.1.2** is a correctness release on top of that, and adds no feature:
+
+- **The command line and the widget are two packages**, `kempt` and `kempt-plasmoid`, so the CLI
+  no longer pulls a desktop onto a machine that has none.
+- **A machine a long way behind updates.** The pending list was handed to a program as a single
+  command-line argument, which Linux caps at 128 KiB: a check died at 925 pending updates and a
+  run at about 1,200 packages, and the panel reported both as a missing installation.
+- **Two refusals where Kempt used to be confidently wrong**: an image-based Fedora, and staging
+  over a stored Fedora release upgrade, which dnf5 would have cancelled.
+- **Three ways a staged update could quietly stop being real** are detected and announced, and a
+  stage can no longer arm the machine with no record of itself.
+
 ## Now
 
 - **First contact.** The announcement wave, and treating every early report as the gift it
@@ -119,6 +131,21 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
   The route runs through a review request, a sponsorship, dist-git, and then the steady-state
   duties of a Fedora package.
 
+- **Fedora Atomic (Silverblue, Kinoite, Bazzite, bootc images).** Half of this shipped in 0.1.2:
+  Kempt detects those images and refuses to update them, rather than resolving a dnf transaction
+  that resolves cleanly and then fails in the middle against a read-only `/usr`. The other half is
+  a backend of their own, because rpm-ostree is a different update model and not a different
+  command: a transaction there is an image deployment, and per-package holds do not map onto one.
+  It gets built against `rpm-ostree status --json`, reporting beside the Flatpak half, which is
+  the half of an Atomic desktop that dnf never owned and that already works.
+
+  One thing has no answer yet, and it is not a porting problem: **holds do not map.** A package
+  cannot be held out of an image that was built somewhere else, so the pin on every popup row is
+  either absent there or lying, and deciding which is a design question rather than a backend.
+  The sequence that avoids answering it too early is to make `kempt check` tell the truth on those
+  images first - a pending deployment, the version it moves to, and the Flatpak list that already
+  works - while `update` goes on refusing. That half is read-only and needs no new privilege.
+
 ## v2 - the differentiator release
 
 - **Update Insights (flagship)**: per-update, per-THIS-machine warnings and
@@ -142,11 +169,6 @@ hardware, the merge, and the public flip with CI - passed between 2026-09-02 and
 ## Beyond
 
 - Other desktop environments via a StatusNotifierItem tray app sharing the same CLI.
-- **Fedora Atomic (Silverblue, Kinoite, Bazzite) - honestly, not close.** rpm-ostree is a
-  different update model, not a different command: transactions are image deployments, holds
-  and per-package staging do not map, and pretending a dnf backend covers it would break the
-  one promise Kempt makes. It gets built as its own backend against `rpm-ostree status
-  --json` or not at all. Asked-for tracking welcome in an issue; no timeline.
 - **Firmware via fwupd, maybe.** The one updater the popup does not count. It fits the model
   (fwupdmgr has a clean JSON-ish interface and its own staged-on-reboot semantics), but
   firmware failure modes are not package failure modes, so it earns its way in only after the

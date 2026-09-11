@@ -571,7 +571,7 @@ cmd_update() {
   # preflight_abort, so this is the same contract as any other refusal that changed nothing: exit
   # 5, and a notification for the surfaces where nobody is reading stderr.
   if on_ostree; then
-    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
+    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - support for these images is planned. For now use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
   fi
 
   # ...and the same treatment for a stage that would destroy a Fedora release upgrade. dnf5 keeps
@@ -1590,7 +1590,7 @@ doctor_privileged_rows() {
 # FAIL and not info: "everything is fine" is precisely the sentence that must not be printed here.
 doctor_image_based_row() {
   on_ostree || return 0
-  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - the dnf checks below describe a tool that is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
+  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - support for these images is planned. The dnf checks below describe a tool that is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
 }
 
 doctor_tool_rows() {

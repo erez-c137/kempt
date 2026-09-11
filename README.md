@@ -15,8 +15,13 @@ next restart, pins on every row to hold a package back, and the download size in
 
 ## Install
 
-Needs Fedora with Plasma 6. The widget package brings the command-line half and the root helpers
-with it, so this is the whole install:
+Needs Fedora with Plasma 6. On the image-based editions - Silverblue, Kinoite, Bazzite, bootc
+images - `kempt update` refuses for now, because those update as an image and dnf is not what
+updates them; Kempt says which tool does, and support for them is planned. Checking, holds and
+`kempt doctor` work there today.
+
+The widget package brings the command-line half and the root helpers with it, so this is the whole
+install:
 
 ```bash
 sudo dnf copr enable erez-c137/kempt

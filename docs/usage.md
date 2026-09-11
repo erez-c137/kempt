@@ -31,7 +31,7 @@ One contract, every subcommand:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
-| 5 | Aborted during pre-flight. Nothing was changed. Includes `update` on an image-based Fedora, where rpm-ostree rather than dnf is what updates the system. |
+| 5 | Aborted during pre-flight. Nothing was changed. Two causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; and `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel. |
 
 Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
 set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
@@ -164,9 +164,9 @@ Only the offline surface. A live run does not touch the stored transaction, so `
 any other surface works normally while a release upgrade waits.
 
 **On an image-based Fedora, this refuses.** Silverblue, Kinoite, Bazzite and bootc images update
-through rpm-ostree, and `/usr` is not dnf's to write. Every surface aborts in pre-flight with exit
+as an image rather than package by package, and `/usr` is not dnf's to write. Every surface aborts in pre-flight with exit
 5, having changed nothing, and says to use Discover or `rpm-ostree upgrade` (`bootc upgrade` on a
-bootc image). The test is one file,
+bootc image), and that support for those images is planned. The test is one file,
 `/run/ostree-booted`, which is absent on ordinary Fedora even when rpm-ostree is installed.
 
 The refusal is deliberate rather than a limitation nobody got round to: those images ship dnf5, so
@@ -597,7 +597,7 @@ The things it can say:
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. Staged, armed, waiting. |
 | `FAIL  staged update can never install: the transaction was downloaded but never armed ...` | The transaction is stored but was never armed. Nothing applies it, on any number of restarts. Clear it with `sudo dnf5 offline clean` and stage again. |
-| `FAIL  staged update can never install: dnf5 says "ready" but /system-update is not in place ...` | The opposite case: it **was** armed, and a restart has already been past it without running it. No later restart installs it either. |
+| `FAIL  staged update can never install: dnf5 says "ready" but /system-update is gone ...` | The opposite case: it **was** armed, and a restart has already been past it without running it. No later restart installs it either. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same state, for a transaction that is not Kempt's. Named separately because the remedy differs: `sudo dnf5 system-upgrade reboot` re-arms it, and `kempt update --surface=offline` is refused while it is stored. |
 | `info  staged update: the transaction is gone, ...` | The marker outlived its transaction (someone ran `dnf5 offline clean`, or a superseding live update could not remove the marker). The next `kempt check` clears it. Nothing to do. |
 | `info  an offline transaction is staged outside Kempt ...` | Somebody staged a transaction another way. Kempt did not create it and will not harvest it; `dnf5 offline status` describes it. |
@@ -950,11 +950,14 @@ message is not the thing carrying it.
 
 The order:
 
-1. **Kempt's engine is not installed**, with the commands that install it. Only on a box that has
-   the widget and not the CLI, which is what installing from the KDE Store on its own leaves you
-   with. Information rather than an error, because nothing is broken: see
-   [install.md](install.md#installing-from-the-kde-store-first). This one shows **alone**:
-   everything under it presumes an engine that answered.
+1. **The engine did not answer**, which is one of two messages rather than one. *"Kempt's engine
+   is not installed"*, with the commands that install it, on a box that has the widget and not the
+   CLI - what installing from the KDE Store on its own leaves you with. Information rather than an
+   error, because nothing is broken: see
+   [install.md](install.md#installing-from-the-kde-store-first). Or *"Kempt's engine is installed
+   but will not run"*, pointing at `kempt doctor`, for a CLI that is there and cannot be executed -
+   no execute bit, a `noexec` mount, a missing interpreter. Either one shows **alone**: everything
+   under it presumes an engine that answered.
 2. **What just happened**: `Updated 4 packages in 2s`, `No package changes`, or
    `Update failed: <the reason>` as an error - or, for a button press that failed rather than a
    run, whatever the CLI said about it. One slot, and the later of the two wins: they are never
@@ -964,15 +967,24 @@ The order:
    than one that would open your home directory. It is transient - it clears when you close the
    popup or the next check starts, and the persistent **Last update** row stays out of the way
    while it is up.
-3. **What the next restart will install**, once an offline update is staged and armed. This one
+3. **This system updates with rpm-ostree**, on an image-based Fedora, pointing at Discover or
+   `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). Above everything below it because
+   nothing below it can be acted on here: **Update Now** is off the screen on such a machine, and
+   the pending list is what dnf can see rather than what installs.
+4. **A Fedora release upgrade is stored**, in whichever of its four states it is in - installs on
+   the next restart, downloaded but not started, stored but already passed over by a restart, or
+   did not finish - each with the remedy that applies to it. Above the staged message because the
+   two cannot both be true: dnf5 keeps one stored transaction, so a release upgrade being there is
+   proof the stored transaction is not Kempt's.
+5. **What the next restart will install**, once an offline update is staged and armed. This one
    has three spellings, and which one you get is the whole subject of *The staged banner* below.
    While it is up, **Update Now is hidden**: the work it would start is already done and waiting,
    and pressing it would run the same updates again, live, over the top of them.
-4. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
+6. **Restart to apply installed updates**, with a **Restart…** button. See *About the restart*
    below. It has a close button; the rest do not. Its button goes away while the staged banner is
    a warning, because in that state a restart is exactly what installs the package you were trying
    to keep out.
-5. **"This update includes a kernel. The safest way is to install it on the next restart, so
+7. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** (and a second sentence naming the driver when
    NVIDIA is in the set) when the transaction would rewrite things a running desktop is using.
    Information rather than a warning: nothing is wrong, there is a safer of two ways to do this.

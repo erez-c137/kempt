@@ -105,7 +105,21 @@ run fails and the stage is discarded, because a transaction nothing can apply is
 The staged packages keep showing as pending until the restart runs, which is the truth.
 A later live update supersedes a pending stage: installing anything invalidates the staged
 transaction, so it is discarded rather than left to fail at the next boot. A run that changed no
-system packages leaves it alone.
+system packages leaves it alone, and so does one over a transaction Kempt did not stage: a stored
+Fedora release upgrade is never cleaned to tidy up a stage of ours.
+.IP
+Two pre\-flight refusals end the run before anything is read or locked, with exit 5 and nothing
+changed. On an image\-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image) every surface
+refuses, because those update as an image and
+.B /usr
+is not dnf's to write; the message names
+.BR rpm\-ostree (1)
+or
+.BR bootc (8),
+and support for those images is planned. On the
+.B offline
+surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
+for both kinds, so staging would cancel the upgrade.
 .TP
 .BR run " [" \-\-dry\-run ]
 Launch
@@ -388,7 +402,11 @@ Launcher missing: no terminal emulator for the
 surface.
 .TP
 .B 5
-Aborted during pre\-flight. Nothing was changed.
+Aborted during pre\-flight. Nothing was changed. Two causes:
+.B update
+on an image\-based Fedora, and
+.B "update \-\-surface=offline"
+while dnf5 has a Fedora release upgrade stored.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),

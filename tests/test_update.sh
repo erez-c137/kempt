@@ -1308,6 +1308,12 @@ case "$ibout" in
   *rpm-ostree*) echo "ok: ...and the refusal names the tool that DOES update this machine" ;;
   *) echo "FAIL: the refusal does not mention rpm-ostree"; echo "  got: $ibout"; _fail=1 ;;
 esac
+# The refusal is a not-yet, not a never, and docs/ROADMAP.md says the same. Dropping that from one
+# surface and not the others is how a tool starts disagreeing with its own roadmap.
+case "$ibout" in
+  *"is planned"*) echo "ok: ...and says this is a not-yet rather than a never" ;;
+  *) echo "FAIL: the refusal does not say support is planned"; echo "  got: $ibout"; _fail=1 ;;
+esac
 grep -q 'rpm-ostree' "$WORLD/notifications" \
   && echo "ok: ...on the notification too, for the surfaces where nobody reads stderr" \
   || { echo "FAIL: no notification for the pre-flight abort"; _fail=1; }

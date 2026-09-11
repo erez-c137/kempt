@@ -7,6 +7,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | Needed | Why |
 | --- | --- |
 | Fedora with `dnf5` | The backend runs `dnf5 check-update`, `makecache`, `upgrade` and `needs-restarting`. Fedora 41 was the first release to ship dnf5 as the default `dnf`. |
+| A package-based Fedora, for now | Silverblue, Kinoite, Bazzite and bootc images ship dnf5 too, so Kempt installs and its checks pass, but `/usr` is not dnf's to write there: `kempt update` refuses in pre-flight (exit 5) and names `rpm-ostree upgrade`, or `bootc upgrade` on a bootc image. Everything that only reads - `kempt check`, holds, the event log, `kempt doctor` - works normally. Support for those images is planned; see [the roadmap](ROADMAP.md). |
 | `rpm` | The before/after snapshots that produce the summary come from `rpm -qa`. |
 | `jq` | Every state and history file is JSON. Without it, every command exits 3. `sudo dnf install jq` |
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
@@ -251,7 +252,8 @@ command -v kempt    # expect: /home/<you>/.local/bin/kempt
 The widget is on the [KDE Store](https://store.kde.org/p/2370353/), so Plasma's **Get New
 Widgets** browser can install it on its own. That is one file: the panel widget, and none of the
 engine underneath it. A widget installed that way has nothing to ask, and it says so rather than
-inventing a count:
+inventing a count (a CLI that is installed but cannot be executed gets a different message, and
+`kempt doctor` rather than these commands):
 
 > Kempt's engine is not installed, so nothing can check for updates yet.
 >
