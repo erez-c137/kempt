@@ -799,17 +799,20 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # The REFUSAL above deliberately does not ask this - staging over a downloaded transaction destroys
 # it just as thoroughly as over an armed one - but "it installs on the next restart" is false here,
 # and saying it sends somebody to restart a machine that will come back exactly as it was.
-# THREE states, not two, and that is the whole reason this is not a boolean. Arming is two things -
+# FOUR states, and they are NOT dnf5's four status words rearranged. Arming is two things -
 # `dnf5 offline reboot` writes the status AND creates /system-update - and systemd removes the
-# symlink once system-update.target is reached. So:
+# symlink once system-update.target is reached - so one status word splits into two states, while
+# every word meaning "did not finish" collapses into one. So:
 #
-#   downloaded  status is not `ready`: the packages are on disk and nothing has armed them. Where
-#               `dnf5 system-upgrade download` leaves one, and where a box can sit for days.
+#   downloaded  status `download-complete`: the packages are on disk and nothing has armed them.
+#               Where `dnf5 system-upgrade download` leaves one, and where a box can sit for days.
 #   armed       `ready` AND the symlink: the next restart installs it.
 #   stranded    `ready` and NO symlink: a restart has already walked past it, and no later one will
 #               run it either - only re-arming can.
+#   incomplete  any other word, including one this build has never seen: dnf5 recorded a
+#               transaction that did not finish, and `dnf5 offline log` is what explains it.
 #
-# Collapsing the third into either of the others is how a sentence ends up disproving itself:
+# Collapsing any of them into another is how a sentence ends up disproving itself:
 # "downloaded but not started (status ready)" says the opposite of the word it quotes, and
 # "installs on the next restart" promises something no restart will do. offline_staged_state
 # refuses to publish Kempt's OWN stage in the stranded state for the same reason.
