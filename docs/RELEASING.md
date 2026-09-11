@@ -1,12 +1,18 @@
 # Releasing Kempt
 
-The procedure for cutting a release, in the order a maintainer runs it.
+The procedure for cutting a release, in the order it is run.
 
 **What has been run.** Steps 1 to 9 have all been run, for 0.1.0 and 0.1.1. `kempt.spec` is
-committed at the repo root and has been built, linted, installed and smoke-tested in a Fedora 44
+committed at the repo root and has been built, installed and smoke-tested in a Fedora 44
 container, and the AppStream metainfo is committed next to it. Step 8's zip commands were run
 against this tree. COPR is live: `erez-c137/kempt` builds for fedora-43, fedora-44, fedora-45 and
 rawhide, on x86_64 and aarch64, and both releases reached users through it.
+
+**What that history does not cover.** From 0.1.2 the spec builds TWO binary packages, `kempt` and
+`kempt-plasmoid`, and 0.1.0 and 0.1.1 built one. Everything a split can break is therefore
+unproven by the paragraph above: that an existing install upgrades and keeps its widget, that a
+machine with weak dependencies turned off is told what it has to do by hand, and that the install
+command the README prints resolves at all. Step 7 ends with the check for the last of those.
 
 ## Kempt never updates itself
 
@@ -16,7 +22,7 @@ checks, a transaction that can be rolled back, a rebuild when a dependency moves
 the administrator can audit. So Kempt ships as a package, and a packaged Kempt is updated by the
 package manager it drives. It appears in its own list, in its own popup, next to everything else
 that is pending, and `sudo dnf upgrade` or one press of **Update Now** takes it. The only install
-that needs a human procedure is the developer's checkout install, and step 9 is that procedure.
+that needs a human procedure is a checkout install, and step 9 is that procedure.
 
 ## The release
 
@@ -79,18 +85,27 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    gh release create v0.2.0 --title 'Kempt 0.2.0' --notes-file /tmp/notes.md
    ```
 
-   Attach the widget archive built in step 8 as a release asset, so the store listing and the
-   AppStream metainfo can point at the same file the release page serves.
+   Attach the widget archive as a release asset, so the release page and the store listing serve
+   the same file. It is built by the first block of step 8, which is the one place the numbered
+   order does not run straight through: build it now, before cutting the release, or come back and
+   attach it afterwards with `gh release upload`. (The AppStream metainfo points at no archive -
+   it carries no `<artifact>` element - so nothing there needs the file to exist.)
 
 ## Packaging
 
 7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
    COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
-   passed: the spec builds, lints to zero rpmlint findings, installs and smokes clean on Fedora 44
-   and both the 0.1.0 and
-   the 0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM
-   builds green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
+   passed: the spec builds, installs and smokes clean on Fedora 44, and both the 0.1.0 and the
+   0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM builds
+   green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
    `dnf copr enable` + `dnf install kempt` verified in a clean container).
+
+   `rpmlint` is not silent on this package and does not need to be. Judge it by the KIND of
+   finding, never by the count or the percentage - both move with the build root. What it says
+   here: a spelling complaint about the word `plasmoid`, a locale warning from the build shell,
+   a documentation-share warning on a package that is deliberately mostly documentation, and
+   `no-documentation` on the widget subpackage, which ships none. Anything outside that set is
+   new and worth reading.
    That history is a reason to look at COPR, the chroot and the tag first - it is NOT a reason to
    assume the spec is innocent. It was not, once: the 0.1.2 suite grew a call to `ps`, which is in
    neither `BuildRequires` nor Fedora's minimal buildroot, and `%check` failed every build until
@@ -123,6 +138,13 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    sudo dnf install kempt-plasmoid
    ```
 
+   Run exactly that, in a clean Fedora container, before calling the build done. It is the command
+   the repository's front page tells people to run, and between a docs change landing on `main`
+   and this build finishing, it is a command that does not work - `kempt-plasmoid` did not exist
+   in the repo until this build put it there. `dnf install kempt-plasmoid` must succeed and bring
+   `kempt` of the same version with it. Until it does, the front page is describing a package the
+   repository does not serve.
+
 8. **KDE Store upload of the widget**, for people who are not on an RPM distro. The archive is a
    plain zip of the KPackage layout, `metadata.json` at the root next to `contents/`:
 
@@ -141,10 +163,21 @@ that needs a human procedure is the developer's checkout install, and step 9 is 
    The archive lands in the repo root and is a build artifact, not a source file: `.gitignore`
    carries `*.plasmoid` so a release-day `git add -A` cannot swallow it.
 
-   Upload it at <https://store.kde.org/product/add> under **Plasma 6 Applets** (category 706).
+   Kempt already has a store product, <https://store.kde.org/p/2370353/>, under **Plasma 6
+   Applets** (category 706). Add this release as a new file on THAT product. Do not use
+   <https://store.kde.org/product/add>: that form creates a second product, and a second product
+   starts at zero downloads with none of the first one's comments, while both stay listed and
+   neither is obviously the real one. There is no merge afterwards.
+
    The store is a content CMS, not a packaging pipeline: the version and the changelog are
-   free-text fields you type in by hand. Type the same version as `VERSION`, and paste the same
+   free-text fields typed in by hand. Type the same version as `VERSION`, and paste the same
    CHANGELOG section as the GitHub release. Nothing checks that agreement for you.
+
+   What a store user gets is the widget ALONE, with no `kempt` command behind it. That is a
+   supported state and the widget is built for it - it says the engine is not installed and offers
+   the commands that install it - so check it stayed true before uploading: the first run of an
+   unpacked copy on a box with no CLI must say *"Kempt's engine is not installed"*, not a blank
+   popup and not the "will not run" message, which is for an engine that is present.
 
 9. **Checkout installs upgrade by hand**, and always will: they are developer installs, the CLI is
    a symlink into the git tree and the rest are copies.

@@ -56,7 +56,7 @@ exercised against real dnf5.
 **4. Qt probes must be supervised.** `tests/qml/` runs the real QML engine. Run them through
 `tests/test_widget_qml.sh` and never by hand: the watchdog, the process group and the leak census
 live in `safe_probe.py`, and without them a wedged probe stays resident. One afternoon that reached
-~2,200 Qt processes and OOM-killed unrelated services on the developer's machine.
+~2,200 Qt processes and OOM-killed unrelated services on the box it ran on.
 
 ## Running things
 
