@@ -3,9 +3,11 @@ Version:        0.1.2
 Release:        1%{?dist}
 Summary:        One-click system updates for Fedora, with holds and offline staging
 
-# MIT AND CC0-1.0: every original file is MIT; the one CC0-1.0 file the binary RPM ships is
-# the AppStream metainfo, whose metadata_license is CC0-1.0 by freedesktop convention.
-License:        MIT AND CC0-1.0
+# Every original file is MIT. The one CC0-1.0 file in the tree is the AppStream metainfo, whose
+# metadata_license is CC0-1.0 by freedesktop convention - and since the widget moved to its own
+# subpackage that file ships there, not here, which is why this tag is plain MIT and the combined
+# one is on kempt-plasmoid. A package must not claim a license for content it does not contain.
+License:        MIT
 URL:            https://github.com/erez-c137/kempt
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
@@ -45,11 +47,12 @@ Requires:       util-linux-core
 Requires:       dnf5-command(needs-restarting)
 # Optional backend: the CLI runs fine without it (include_flatpak simply reports disabled).
 Recommends:     flatpak
-# Both of these are weak on purpose and neither used to be declared at all.
+# Both of these are weak on purpose. libnotify was declared nowhere, and konsole was only
+# Suggested, which dnf does not install.
 # notify-send is how every detached surface reports what it did; without it those runs finish
-# silently. konsole is what the DEFAULT surface launches, so with it only Suggested (which dnf
-# does not install) `kempt doctor` reported a FAIL on a fresh, correct install - the first command
-# the docs tell a new user to run.
+# silently. konsole is what the DEFAULT surface launches, so with it merely Suggested
+# `kempt doctor` reported a FAIL on a fresh, correct install - the first command the docs tell a
+# new user to run.
 Recommends:     libnotify
 Recommends:     konsole
 
@@ -57,11 +60,13 @@ Recommends:     konsole
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
 applies them in a terminal, in the background, or staged for the next restart.
-The panel widget is packaged separately as kempt-plasmoid, so this package
-brings in nothing from the desktop.
+The panel widget is packaged separately as kempt-plasmoid, so installing this
+package does not pull in the Plasma desktop.
 
 %package plasmoid
 Summary:        Plasma 6 panel widget for Kempt
+# The AppStream metainfo ships in this subpackage, and its metadata_license is CC0-1.0.
+License:        MIT AND CC0-1.0
 Requires:       %{name} = %{version}-%{release}
 Requires:       plasma-workspace
 Requires:       hicolor-icon-theme
@@ -169,7 +174,7 @@ bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
 # not ship.
 (cd ../%{name}-pristine && tests/run_tests.sh)
 # --no-net, deliberately: every URL in the metainfo is a github.com link that a build host must
-# not be asked to fetch, and on a private repo they 404 anyway. Structure is what this checks.
+# not be asked to fetch. Structure is what this checks.
 appstreamcli validate --no-net --explain \
     %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
@@ -211,10 +216,11 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
-* Thu Sep 10 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
+* Fri Sep 11 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
 - The panel widget moves to its own subpackage, kempt-plasmoid, so the command
   line no longer requires plasma-workspace. On a machine running Plasma the
-  widget is installed alongside it as before.
+  widget is installed alongside it as before, unless dnf's weak dependencies are
+  turned off - then install kempt-plasmoid once.
 - Declares dnf5-command(needs-restarting), without which the restart reminder
   was permanently silent, and recommends libnotify and konsole.
 - A hold added after an offline update was staged is reported rather than
@@ -228,8 +234,10 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
   installation.
 - Refuses to stage updates over a stored Fedora release upgrade, which dnf5
   would otherwise cancel, and says so in the popup and in kempt doctor.
-- Refuses to run on an image-based Fedora (Silverblue, Kinoite, Bazzite, bootc),
-  where rpm-ostree rather than dnf is what updates the system.
+- Refuses to update an image-based Fedora (Silverblue, Kinoite, Bazzite, bootc),
+  where rpm-ostree or bootc rather than dnf is what updates the system, instead
+  of resolving a transaction that cannot install. Checking, holds, the event log
+  and kempt doctor still work there.
 - A staged update can no longer arm the machine with no record of itself.
 - A lost package lock reads as a busy package system rather than as dnf's own
   line about a lock file.

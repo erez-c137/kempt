@@ -33,13 +33,12 @@
     <name>Erez</name>
   </developer>
   <!--
-    EVERY remote URL below 404s while the repo is private, and appstreamcli fetches them: expect
-    url-not-reachable on the four <url/> entries and screenshot-image-not-found on the image, and
-    accept exactly those five. The repo going public is what clears them; nothing here changes.
-    Verified: run appstreamcli's validate with fetching switched off and the same file passes
-    with no findings at all, so the five are the network and not the metadata. (The release's
-    <url type="details"/> is NOT among them; the validator does not fetch that one, tag or no
-    tag.) Careful with flag names in these comments: a double hyphen ends an XML comment.
+    appstreamcli fetches the four <url/> entries and both screenshots below, and all of them
+    resolve: a clean run is no findings at all. So url-not-reachable or screenshot-image-not-found
+    here is a real broken link and not a known state to wave through - which is what it was while
+    the repo was private, and is not any more. (The release's <url type="details"/> is not fetched,
+    tag or no tag, so it can be written before the tag exists.) Careful with flag names in these
+    comments: a double hyphen ends an XML comment.
   -->
   <url type="homepage">https://github.com/erez-c137/kempt</url>
   <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
@@ -79,14 +78,15 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
-    <release version="0.1.2" date="2026-09-10" type="stable">
+    <release version="0.1.2" date="2026-09-11" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.2</url>
       <description>
         <p>
-          A machine a long way behind now updates: past about a thousand pending packages the
+          A machine a long way behind now updates: past about nine hundred pending packages the
           check used to fail and the panel blamed a missing installation. Kempt refuses to stage
-          updates over a stored Fedora release upgrade, which would otherwise cancel it, and
-          refuses to run at all on an image-based Fedora, where rpm-ostree rather than dnf is
-          what updates the system.
+          updates over a stored Fedora release upgrade, because staging would cancel the upgrade,
+          and refuses to update an image-based Fedora, where rpm-ostree or bootc rather than dnf
+          is what updates the system.
         </p>
         <p>
           A hold added after an offline update was staged is no longer silent, in the command
