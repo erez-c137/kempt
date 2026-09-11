@@ -102,9 +102,10 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
 
    `rpmlint` is not silent on this package and does not need to be. Judge it by the KIND of
    finding, never by the count or the percentage - both move with the build root. What it says
-   here: a spelling complaint about the word `plasmoid`, a locale warning from the build shell,
-   a documentation-share warning on a package that is deliberately mostly documentation, and
-   `no-documentation` on the widget subpackage, which ships none. Anything outside that set is
+   here: a spelling complaint about the word `plasmoid`, a documentation-share warning on a
+   package that is deliberately mostly documentation, `no-documentation` on the widget subpackage,
+   which ships none, and, depending on the locale the build shell was started in, a `setlocale`
+   warning. Anything outside that set is
    new and worth reading.
    That history is a reason to look at COPR, the chroot and the tag first - it is NOT a reason to
    assume the spec is innocent. It was not, once: the 0.1.2 suite grew a call to `ps`, which is in

@@ -164,7 +164,11 @@ p.check("...and the icon state that goes with it", ev("root.vm.iconState"), "upd
 p.check("the tooltip comes out of the same view model", ev("root.vm.tooltipMain"), "10 updates available")
 p.check("the check interval is read from `kempt config`", ev("root.refreshIntervalMin"), 15)
 p.check("...and the timer actually uses it", ev("checkTimer.interval"), 15 * 60000)
-p.check("the watcher has a baseline after the first check", ev("root.watchStamp !== ''"), True)
+# pollWatch stats through executor.run, so the baseline is a SUBPROCESS: it lands some time after
+# `checking` goes false, not with it. Wait for it rather than reading it on the way past - the
+# assertion is still an assertion, because wait_for gives up and this fails if it never arrives.
+p.check("the watcher has a baseline after the first check",
+        p.wait_for(ev, "root.watchStamp !== ''", True), True)
 p.check("nothing is left in flight", ev("root.checking"), False)
 # The tray claim RAN. It is one assignment inside a try/catch, and a swallowed exception looks
 # exactly like a line that was never called - so without this witness, deleting claimTrayPresence()
@@ -199,6 +203,7 @@ open(MODE, "w").write("live")
 # --- 5. the watcher must not react to the widget's own footprint ------------------------------
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
+p.wait_idle(ev, "executor")          # ...and the re-baseline it starts has to land before we read it
 stamp_after_check = ev("root.watchStamp")
 before = p.call_count("check")
 ev("root.pollWatch(true)")
@@ -335,9 +340,14 @@ CONFIG_FILE = os.path.join(p.config, "config")
 os.makedirs(p.config, exist_ok=True)
 open(CONFIG_FILE, "w").write("surface=background\n")
 ev("root.watchStamp = ''; root.pollWatch(false)")      # learn the config file's mtime
-p.pump(600)
+# NOT a fixed pump. An empty baseline learns and fires nothing (main.qml: `previous === ""`), so a
+# stat that has not come back yet turns this assertion into its own opposite: the touch below is
+# learned rather than acted on, and a test written to prove settings reach the panel passes only
+# on a machine fast enough. Which is why it failed under a package build and never in a checkout.
+p.wait_for(ev, "root.watchStamp !== ''", True)
 ev("root.doCheck()")                                   # ...and open the window on it
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")                            # the window's own re-baseline, before we move a file
 before = p.call_count("check")
 harness.touch(CONFIG_FILE, "2030-03-01")
 ev("root.pollWatch(true)")
