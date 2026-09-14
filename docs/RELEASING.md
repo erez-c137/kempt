@@ -38,6 +38,9 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    - `KPlugin.Version` in `plasmoid/metadata.json`
    - `<release version=` in `io.github.erez_c137.kempt.metainfo.xml`, whose `date=` is the release
      date, newest release first
+   - the two `<screenshot>` image URLs in the same file, which name the tag being released
+     (`.../kempt/v0.2.0/docs/images/...`), never `main`: a software centre shows them beside this
+     release, and a URL on `main` shows whatever the widget looks like today
    - `Version:` in `kempt.spec`
 
    The test is what keeps the CLI, the widget, the software centre and `rpm -q` from reporting

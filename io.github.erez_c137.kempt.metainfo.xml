@@ -62,11 +62,11 @@
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
-      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.2/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
-      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/main/docs/images/kempt-settings.png</image>
+      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.2/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -78,7 +78,7 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
-    <release version="0.1.2" date="2026-09-11" type="stable">
+    <release version="0.1.2" date="2026-09-14" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.2</url>
       <description>
         <p>
