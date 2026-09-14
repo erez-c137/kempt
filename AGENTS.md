@@ -70,21 +70,31 @@ bash -n bin/kempt lib/common.sh     # what CI lints, plus shellcheck
 A skip is not a pass. If node or PySide6 is missing, the widget's halves skip and the summary says
 so; CI runs them in a Fedora container precisely so that a green badge means the widget was tested.
 
-## Two conventions worth knowing before you write anything
+## Writing for people
 
-**Comments carry constraints, not history.** A comment here should stop a correct-looking change
-from being wrong: an invariant, an ordering that matters, why an odd construct is odd. What it
-should not do is narrate how a bug was found - that is what `CHANGELOG.md` is for, and it is
-thorough. If you find yourself writing "this used to", write the rule in the present tense instead.
+Everything in this repository gets read by a person: comments, commit messages, docs, the
+changelog, and every message Kempt prints. Write it the way you would explain it to someone sitting
+next to you.
 
-**No em dashes in anything a user reads.** Spaced hyphens, or rewrite the sentence. This applies to
-the README, the docs, the changelog, and every string the CLI or the widget prints.
+- **Say the point first.** Start with what happens or what the reader needs to do. The reason
+  comes after.
+- **Use plain words and short sentences.** If a sentence has to be read twice, split it. If a
+  simpler word works, use it.
+- **Be specific.** Name the command, the file or the number. "Fails with more than 900 pending
+  updates" tells the reader more than "fails on large systems".
+- **Stay calm.** Describe what went wrong and what changed. Dramatic words make a small bug sound
+  like a disaster and make the writing harder to trust.
+- **Comments explain why, not how the code got here.** A good comment stops someone from making a
+  change that looks right but isn't: a rule that must hold, an order that matters, the reason an odd
+  line is odd. The story of how a bug was found belongs in the commit message or the changelog. If
+  you catch yourself writing "this used to", write the rule as it stands today.
+- **Messages Kempt prints say what happened and what to do next,** using the words people see on
+  screen (Update Now, Held, Install on Next Restart), not internal names.
+- **Commit messages:** the subject line says what changed, the body says why.
 
-**Public files name nobody and describe no process.** Everything here is read by people who have
-only this repository, so: no names and no third person about whoever wrote it, no trace of how the
-work was produced (no reviews, finding numbers, work-package codes, or the names of tools used to
-write it), no email addresses outside `kempt.spec`'s `%changelog`, `SECURITY.md` and
-`CODE_OF_CONDUCT.md`, and no working papers - design notes, research and plans are not
-documentation, they stay private, and a fact worth having is restated in the docs rather than
-linked to. `tests/test_docs.sh` enforces what a grep can; the voice is yours.
-CONTRIBUTING.md has the long form.
+**Public files name nobody and describe no process.** Anyone reading this repository has only the
+repository. So no names, and nothing about who wrote something or how it was made (reviews, task
+codes, the tools used). Email addresses appear only where a format needs one: `kempt.spec`'s
+`%changelog`, `SECURITY.md` and `CODE_OF_CONDUCT.md`. Design notes, research and plans stay
+private. If a fact from one is worth keeping, write it into the docs. `tests/test_docs.sh` checks
+what a search can catch. CONTRIBUTING.md has the long form.
