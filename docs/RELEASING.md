@@ -81,11 +81,14 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    git push origin v0.2.0
    ```
 
-6. **Cut the GitHub release**, with the CHANGELOG's own section as the body.
+6. **Cut the GitHub release**, with short release notes written for people who use Kempt, not the
+   CHANGELOG section. The CHANGELOG is the complete record; the release page is what someone reads
+   before running `sudo dnf upgrade`. Write it in this order: how to upgrade, how to install for
+   the first time, what's new, what's fixed, anything for packagers, then a link to the CHANGELOG
+   at the tag. Keep each item to what a user notices, in a sentence or two.
 
    ```bash
-   awk '/^## \[0.2.0\]/{f=1;next} f&&/^## \[/{exit} f' CHANGELOG.md > /tmp/notes.md
-   gh release create v0.2.0 --title 'Kempt 0.2.0' --notes-file /tmp/notes.md
+   gh release create v0.2.0 --title 'Kempt 0.2.0' --notes-file notes.md
    ```
 
    Attach the widget archive as a release asset, so the release page and the store listing serve
