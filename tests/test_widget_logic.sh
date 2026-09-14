@@ -2105,7 +2105,7 @@ assert_eq "$(js 'L.COPY.engineUnrunnableCopy')" "kempt doctor" \
 # blank label, which is a button with no words on it rather than an error anyone would see.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return typeof L.COPY[k] !== "string" || L.COPY[k] === ""; })')" \
   "[]" "every entry in the copy table is a non-empty string"
-# No em dashes, anywhere, ever: they read as machine-written English (project rule). Written as the
+# No em dashes in anything the widget shows (project style). Written as the
 # escape rather than the character so that the repo-wide grep for em dashes stays empty - a test
 # file that carries one to forbid it would trip the very check it exists to support.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return L.COPY[k].indexOf("\u2014") >= 0; })')" \

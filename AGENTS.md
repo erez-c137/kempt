@@ -91,6 +91,8 @@ next to you.
 - **Messages Kempt prints say what happened and what to do next,** using the words people see on
   screen (Update Now, Held, Install on Next Restart), not internal names.
 - **Commit messages:** the subject line says what changed, the body says why.
+- **Punctuation:** no em dashes. Use a comma, a new sentence or a spaced hyphen. The tests check
+  the widget's messages for this, and CONTRIBUTING.md has the command that checks the docs.
 
 **Public files name nobody and describe no process.** Anyone reading this repository has only the
 repository. So no names, and nothing about who wrote something or how it was made (reviews, task

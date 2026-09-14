@@ -40,17 +40,19 @@ GitHub, in COPR (Fedora 43 to 45 and rawhide, x86_64 and aarch64) and on the KDE
 Every release gate - the live engine checklist, the widget's morning visual gate on real
 hardware, the merge, and the public flip with CI - passed between 2026-09-02 and 2026-09-04.
 
-**0.1.2** is a correctness release on top of that, and adds no feature:
+**0.1.2** is mostly fixes, plus one addition: a warning when you hold a package after an update is
+already staged for the next restart.
 
-- **The command line and the widget are two packages**, `kempt` and `kempt-plasmoid`, so the CLI
-  no longer pulls a desktop onto a machine that has none.
-- **A machine a long way behind updates.** The pending list was handed to a program as a single
-  command-line argument, which Linux caps at 128 KiB: a check died at 925 pending updates and a
-  run at about 1,200 packages, and the panel reported both as a missing installation.
-- **Two refusals where Kempt used to be confidently wrong**: an image-based Fedora, and staging
-  over a stored Fedora release upgrade, which dnf5 would have cancelled.
-- **Three ways a staged update could quietly stop being real** are detected and announced, and a
-  stage can no longer arm the machine with no record of itself.
+- **The command line and the widget are two packages**, `kempt` and `kempt-plasmoid`, so
+  installing the command line no longer brings a desktop with it.
+- **Computers far behind on updates work again.** A check stopped working at 925 pending updates
+  and an update run at about 1,200 packages, because the package list was passed to a program as
+  a single argument, which Linux limits to 128 KiB.
+- **Kempt stops before doing the wrong thing** on an image-based Fedora (Silverblue, Kinoite,
+  bootc), and when a Fedora release upgrade is already downloaded, which staging updates would
+  cancel.
+- **A staged update that can no longer install is reported,** in each of the three ways that can
+  happen, and Kempt always keeps a record of an update it has staged.
 
 ## Now
 
