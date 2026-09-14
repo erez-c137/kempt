@@ -28,6 +28,14 @@ export KEMPT_DNF_CMD="$TESTTMP/noop" KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv
 ln -sfn "$TESTTMP" "$TESTTMP/live-link"
 NO_LINK="$TESTTMP/no-link"
 
+# The widget column needs node, which is not a dependency of Kempt and is absent from a package
+# build root. Without it the other three surfaces are still checked, and the gap is said out loud.
+HAVE_NODE=true
+if ! command -v node >/dev/null 2>&1; then
+  HAVE_NODE=false
+  skip "node is not installed, so the widget's release-upgrade sentences were NOT checked in this run"
+fi
+
 # A toml per status word, built from the committed capture so only the one line under test moves.
 mk_toml() {  # status → path
   local f="$TESTTMP/relup-$1.toml"
@@ -43,6 +51,8 @@ render() {  # status link → sets $R_STATE $R_REFUSE $R_DOCTOR $R_JSON $R_WIDGE
   R_DOCTOR="$({ "$KEMPT" doctor 2>&1 || true; } | grep -E '^(info|FAIL) .*Fedora release upgrade' | head -1)"
   "$KEMPT" check >/dev/null 2>&1
   R_JSON="$(jq -r '.release_upgrade.state // "MISSING"' "$KEMPT_STATE_DIR/state.json")"
+  R_WIDGET=""
+  [[ "$HAVE_NODE" == true ]] || return 0
   R_WIDGET="$(node -e '
     const L = require(process.argv[1]);
     const st = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8"));
@@ -57,8 +67,9 @@ check_cell() {  # status link expected_state
   local where="$1$([[ "$2" == "$NO_LINK" ]] && echo ', no boot marker')"
   assert_eq "$R_STATE" "$3" "dnf5 says \"$1\"${2:+ }$([[ "$2" == "$NO_LINK" ]] && echo 'with no boot marker') -> $3"
   assert_eq "$R_JSON" "$3" "...and the state file publishes the same word, so the widget agrees"
-  local s
-  for s in "$R_REFUSE" "$R_DOCTOR" "$R_WIDGET"; do
+  local s surfaces=("$R_REFUSE" "$R_DOCTOR")
+  [[ "$HAVE_NODE" == true ]] && surfaces+=("$R_WIDGET")
+  for s in "${surfaces[@]}"; do
     [[ -n "$s" ]] || { echo "FAIL: nothing said about $where by one of the surfaces"; _fail=1; continue; }
     # RULE 1: only an armed transaction may be said to install on a restart.
     if [[ "$3" != armed && "$s" == *"installs on the next restart"* ]]; then
