@@ -1165,6 +1165,24 @@ assert_eq "$(js "L.runFinishedSince(L.lastRunOf('{\"status\":\"ok\",\"timestamp\
 assert_eq "$(js "L.runFinishedSince($R, 0)")" "true" "with no start moment recorded, the question does not apply"
 assert_eq "$(js "L.runFinishedSince($R, undefined)")" "true" "...and no argument is not an error"
 
+# --- runStartMessage: what Update Now says when `kempt run` did not start a run ---------------------
+# Only exit 0 means a run began, and only then may the popup enter its updating pane. Every other
+# status is a run that will never write state.json, so the pane would wait three hours for nothing:
+# it is reported instead, in the CLI's own words where there are any.
+assert_eq "$(js "L.runStartMessage(0, '', '')")" "" "exit 0 is a run that started, with nothing to report"
+assert_eq "$(js "L.runStartMessage(0, '', 'a warning on stderr')")" "" "...whatever stderr carried"
+assert_eq "$(js "L.runStartMessage(3, '', 'An update is already running.\n')")" "An update is already running." \
+  "a refused run reports the CLI's sentence"
+assert_eq "$(js "L.runStartMessage(3, '', '')")" "An update is already running." \
+  "...and a lock refusal with nothing on stderr still says what happened"
+assert_eq "$(js "L.runStartMessage(5, '', 'The terminal did not open.\nmore detail')")" "The terminal did not open." \
+  "a window that never opened reports the first line"
+assert_eq "$(js "L.runStartMessage(1, 'only on stdout', '')")" "only on stdout" "...falling back to stdout"
+assert_eq "$(js "L.runStartMessage(9, '', '')")" "Could not start the update (exit 9)." \
+  "a silent failure still says it failed, with the status"
+assert_eq "$(js "L.runStartMessage(-1, '', '')")" "Could not start the update (exit -1)." \
+  "...including one that never returned a status"
+
 # --- lastRunText: the persistent row's title ---------------------------------------------------
 # The separator is U+00B7 with spaces, the same middle dot the footer uses.
 W='Date.UTC(2026,7,26,19,24,6)'   # 2026-08-26T22:24:06+03:00, the captured run, in UTC ms

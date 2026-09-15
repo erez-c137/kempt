@@ -465,11 +465,10 @@ PlasmoidItem {
                 root.enterUpdating(root.effectiveSurface);
                 return;
             }
-            // The CLI's own words. rc 4 is a missing terminal emulator and its message carries the
-            // remedy; rc 3 is another run already holding the lock.
-            var msg = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
-            if (rc === 3 && msg === "") msg = "An update is already running.";
-            root.actionMessage = msg !== "" ? msg : "Could not start the update (exit " + rc + ").";
+            // No run began, so there is nothing for the updating pane to wait for. The message is
+            // the CLI's own words: rc 4 is a missing terminal emulator, rc 5 a terminal window that
+            // never opened, rc 3 another update already holding the lock.
+            root.actionMessage = Logic.runStartMessage(rc, stdout, stderr);
         });
     }
 
