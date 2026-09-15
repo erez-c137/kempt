@@ -1977,31 +1977,29 @@ cmd_doctor() {
   return 1
 }
 
-RULES_DST="${KEMPT_RULES_DST:-/etc/polkit-1/rules.d/49-kempt.rules}"
+# Where the passwordless rule lives. polkit reads FOUR rules directories (polkit(8)); Kempt uses the
+# ADMINISTRATOR's one, because the other three belong to packages and to the runtime.
+RULES_DST_FIXED=/etc/polkit-1/rules.d/49-kempt.rules
+RULES_DST="$RULES_DST_FIXED"
 
-# The destination is a path this command hands to a ROOT install(1), so its shape is pinned, and
-# neither "absolute and ending in .rules" nor an /etc-only fence is tight enough: either lets this
-# plant a root-owned file in another tool's configuration directory (/etc/cron.d, /etc/sudoers.d,
-# /usr/lib/udev/rules.d).
-# polkit reads FOUR rules directories (polkit(8)); Kempt pins the ADMINISTRATOR's one,
-# /etc/polkit-1/rules.d, because the other three belong to packages and to the runtime - and
-# /usr/share/polkit-1/rules.d/50-default.rules is a file Fedora actually ships.
-# So: that directory is accepted by name, every system prefix is refused outright, and what is
-# left (a /tmp path, which the test seam uses) is accepted so the suite can exercise the
-# production path without touching system policy. Compared on the realpath -m form, which resolves
-# `..` without requiring the path to exist, so a destination cannot walk out of its directory.
+# This path goes to a ROOT install(1) and a ROOT rm, so a real run uses exactly the fixed path.
+# A list of allowed directories is not enough: a check on a path the user can write to can be
+# defeated by swapping a directory on it for a symlink after the check. Every directory on the fixed
+# path is root-owned, so nothing running as the user can change where it leads.
+# KEMPT_RULES_DST lets the suite drive the real install and removal commands. It is honoured only
+# where those commands run as the user, with no pkexec wrapper and not as root, so it can never
+# point a root write anywhere. Set in any other run it is refused rather than ignored, so nobody is
+# told a rule went somewhere it did not.
 check_rules_dst() {
-  local p
-  p="$(realpath -m -- "$RULES_DST" 2>/dev/null)" || p=""
-  if [[ -z "$p" || "$RULES_DST" != /* || "$p" != *.rules ]]; then
-    echo "invalid rules destination: $RULES_DST" >&2; exit 2
-  fi
-  if [[ "$p" =~ ^/etc/polkit-1/rules\.d/[^/]+\.rules$ ]]; then return 0; fi
-  if [[ "$p" =~ ^(/etc|/run|/usr|/var|/boot|/opt)/ ]]; then
-    echo "invalid rules destination: $RULES_DST - system directory; only /etc/polkit-1/rules.d/*.rules" >&2
+  [[ -n "${KEMPT_RULES_DST:-}" ]] || return 0
+  if [[ -n "$KEMPT_PKEXEC" || $EUID -eq 0 ]]; then
+    echo "invalid rules destination: KEMPT_RULES_DST is a test setting, honoured only without pkexec and not as root - the rule always goes to $RULES_DST_FIXED" >&2
     exit 2
   fi
-  return 0
+  if [[ "$KEMPT_RULES_DST" != /* || "$KEMPT_RULES_DST" != *.rules ]]; then
+    echo "invalid rules destination: $KEMPT_RULES_DST" >&2; exit 2
+  fi
+  RULES_DST="$KEMPT_RULES_DST"
 }
 
 cmd_enable_passwordless() {
