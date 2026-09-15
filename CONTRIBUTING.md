@@ -241,6 +241,9 @@ test: capture dnf/flatpak fixtures from live box
 chore: scaffolding + bash test harness
 ```
 
+A scope in brackets is welcome when it narrows the change, as most of the recent log does:
+`fix(doctor):`, `fix(widget):`, `docs(changelog):`. Changes to the tests use `test:`.
+
 `style:` for formatting-only changes. No trailers, no generated sign-offs, no "AI assisted"
 footers.
 
