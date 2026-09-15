@@ -44,7 +44,6 @@
   <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
   <url type="help">https://github.com/erez-c137/kempt/blob/main/docs/usage.md</url>
   <url type="vcs-browser">https://github.com/erez-c137/kempt</url>
-  <icon type="stock">kempt</icon>
   <categories>
     <category>System</category>
   </categories>
