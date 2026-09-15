@@ -1,0 +1,82 @@
+[
+  {
+    "id":8,
+    "command_line":"dnf5 upgrade --offline -y --exclude=nano",
+    "start_time":1789500336,
+    "end_time":1789500337,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":37
+  },
+  {
+    "id":7,
+    "command_line":"dnf5 -y -q --disablerepo=updates* install sqlite",
+    "start_time":1789500328,
+    "end_time":1789500328,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":3
+  },
+  {
+    "id":6,
+    "command_line":"dnf5 -y -q --disablerepo=updates* install tree",
+    "start_time":1789500326,
+    "end_time":1789500326,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":1
+  },
+  {
+    "id":5,
+    "command_line":"dnf5 -y -q --disablerepo=updates* install nano",
+    "start_time":1789500324,
+    "end_time":1789500324,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":1
+  },
+  {
+    "id":4,
+    "command_line":"dnf5 -y -q --disablerepo=updates* install zsh",
+    "start_time":1789500321,
+    "end_time":1789500321,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":1
+  },
+  {
+    "id":3,
+    "command_line":"dnf5 -y -q install jq util-linux",
+    "start_time":1789500318,
+    "end_time":1789500318,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":5
+  },
+  {
+    "id":2,
+    "command_line":"dnf5 --config \/kiwi_dnf5.config -y --disable-plugin=priorities,versionlock --releasever=44 --setopt=clean_requirements_on_remove=true remove systemd-standalone-tmpfiles",
+    "start_time":1788590858,
+    "end_time":1788590858,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":1
+  },
+  {
+    "id":1,
+    "command_line":"dnf5 --config \/builddir\/result\/image\/build\/image-root\/kiwi_dnf5.config -y --disable-plugin=priorities,versionlock --installroot \/builddir\/result\/image\/build\/image-root --releasever=44 --setopt=install_weak_deps=False --exclude=*-firmware --exclude=dosfstools --exclude=e2fsprogs --exclude=fuse-libs --exclude=geolite2-city --exclude=geolite2-country --exclude=glibc-langpack-en --exclude=gnupg2-smime --exclude=grubby --exclude=kernel --exclude=langpacks-en --exclude=langpacks-en_GB --exclude=libss --exclude=pinentry --exclude=pinentry --exclude=shared-mime-info --exclude=sssd-client --exclude=trousers --exclude=xkeyboard-config install bash bzip2 coreutils dnf5 dnf5-plugins fedora-release-container filesystem gawk glibc-minimal-langpack gzip rootfiles rpm shadow-utils sudo systemd-standalone-sysusers systemd-standalone-tmpfiles tar tzdata util-linux-core vim-minimal xz zstd",
+    "start_time":1788590851,
+    "end_time":1788590857,
+    "user_id":0,
+    "status":"Ok",
+    "releasever":"44",
+    "altered_count":147
+  }
+]

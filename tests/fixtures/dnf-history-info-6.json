@@ -1,0 +1,25 @@
+[
+  {
+    "id":6,
+    "start_time":1789500326,
+    "end_time":1789500326,
+    "rpmdb_version_begin":"4923394ed3ea4696c1005bebb287ccb3c17f7f4c3fc62b26f33ce65dc36d5177",
+    "rpmdb_version_end":"7128c6c98ed3aaaf266e082833ef8af498e2e510240fadaf9a073486710fb3e9",
+    "user_id":0,
+    "user_name":"0 Super User <root>",
+    "status":"Ok",
+    "releasever":"44",
+    "description":"dnf5 -y -q --disablerepo=updates* install tree",
+    "comment":"",
+    "packages":[
+      {
+        "nevra":"tree-0:2.2.1-4.fc44.x86_64",
+        "action":"Install",
+        "reason":"User",
+        "repository":"fedora"
+      }
+    ],
+    "groups":[],
+    "environments":[]
+  }
+]

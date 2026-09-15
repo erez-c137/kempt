@@ -431,6 +431,12 @@ write_stage_marker() {
     # about to hit too - but the names are the part that can be given up, so it is given up here
     # rather than taking the marker with it. Absent, never empty: `staged_names: []` would claim
     # the transaction installs nothing.
+    # WHICH transaction, alongside what is in it: the cookie and the command dnf5 recorded for the
+    # transaction just armed. After the restart they are what tells this stage apart from anything
+    # that replaced it (offline_history_attribution). Only the keys that read cleanly are written.
+    local identity
+    identity="$(offline_toml_identity 2>/dev/null)" || identity='{}'
+    jq -e 'type == "object"' <<<"$identity" >/dev/null 2>&1 || identity='{}'
     local staged_names_f=/dev/null
     if [[ "$staged_names_source" != none ]]; then
       local f
@@ -451,10 +457,11 @@ write_stage_marker() {
     if ! jq -n --arg ts "$(now_iso)" --arg snap "$snap" \
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
-      --argjson excl "$staged_excluded_json" \
+      --argjson excl "$staged_excluded_json" --argjson ident "$identity" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
        {staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
+       + $ident
        + (if $snap == "" then {} else {pre_snapshot:$snap} end)
        + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
@@ -705,6 +712,10 @@ cmd_update() {
     # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, or a
     # file it could not read, and changed nothing. Every path that sees it skips the unwind.
     local stage_rc=0 arm_rc=0 clean_rc=0
+    # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
+    # previous stage's. A check comparing the two in that window must not call this rebuild
+    # somebody else's (stage_lock). Released right after the marker is written.
+    stage_lock
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
@@ -838,6 +849,7 @@ cmd_update() {
   local stage_untracked=""   # ...and this, when the stage is real and Kempt could not record it
   local stage_unlisted=""    # ...and this, when it recorded it without the baseline to report on
   write_stage_marker
+  stage_unlock   # taken before the stage; harmless on a run that never took it
   # Why it failed, worked out ONCE and handed to everything that renders it: the history entry
   # (and through it the summary), the notification, and the event log. "See <log>" is no answer
   # when the log is four hundred lines of dnf progress.
@@ -1158,6 +1170,32 @@ reconcile_detour_stage() {  # marker-json toml-status
     || echo "warning: could not record that the staged update was announced - the next check may repeat it" >&2
 }
 
+# Before the restart: the transaction dnf5 holds is no longer the stage this marker records.
+# Something replaced it - `sudo dnf5 offline clean` and a stage of its own, or a second admin staging
+# over it - and the next restart installs THAT. Said once, and recorded on the marker as `replaced`,
+# which is both the announce-once key and what tells the harvest after the restart that whatever ran
+# was not Kempt's stage. Never cleared here: the marker is still what doctor and the popup read.
+# Skipped while a Kempt stage is in flight (stage_lock): a rebuild replaces dnf5's transaction well
+# before it rewrites this marker, and in between the two disagree for the most ordinary reason.
+# Reads and writes harvest_offline's `marker`, so every branch after it carries the flag forward.
+reconcile_replaced_stage() {
+  if jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1; then return 0; fi
+  stage_lock_try || return 0
+  local why updated
+  if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
+    notify "Kempt" "Your staged update was replaced outside Kempt. The next restart installs a different transaction. Rebuild it with Install on Next Restart, or see: kempt doctor"
+    log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - announced"
+    updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
+    if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
+      marker="$updated"
+    else
+      echo "warning: could not record that the staged update was replaced - the next check may repeat it" >&2
+    fi
+  fi
+  stage_unlock
+  return 0
+}
+
 harvest_offline() {
   local pre now_snap ts report hist boot toml_status marker
   # ONE defensive read, and nothing below runs without it. Every branch here either clears the
@@ -1173,6 +1211,8 @@ harvest_offline() {
   # dnf5's own view, because the marker cannot tell "waiting for a restart" from "the transaction
   # is gone" - and a manual `dnf5 offline clean` would otherwise leave one every check waits on.
   toml_status="$(offline_system_status)"
+  # First, whatever the boot: is the transaction dnf5 still holds the one this marker records?
+  if [[ "$toml_status" != absent ]]; then reconcile_replaced_stage; fi
   if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
     # Same boot: nothing can have APPLIED the stage, whatever the package set says - but it can
     # still have been thrown away, the one thing worth acting on here.
@@ -1223,8 +1263,8 @@ harvest_offline() {
       reconcile_detour_stage "$marker" "$toml_status"
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
-      # now stale - a later harvest diffs against a set the other tool already moved - and that
-      # residual is what transaction identity (issue #9) closes properly.
+      # now stale - a later harvest diffs against a set the other tool already moved - which is why
+      # that harvest keeps only what dnf5's history says the stage touched, when the history can say.
       offline_marker_still "$marker" || return 0   # a newer stage owns the file now
       log_event "harvest deferred: packages moved outside Kempt while the stage is still armed"
       jq -c '. + {set_moved: true}' <<<"$marker" | write_offline_marker \
@@ -1235,6 +1275,34 @@ harvest_offline() {
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
     || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
+  # WHICH transaction ran, when dnf5's history can say (offline_history_attribution). Three outcomes,
+  # and the third is the harvest as it was before identity existed:
+  #   applied      the report keeps only what that history entry touched, so a package another tool
+  #                moved across the same restart is not reported as part of the stage
+  #   did-not-run  the report stays the whole snapshot diff, and the entry says it is not the stage
+  #   cannot tell  the whole snapshot diff under the usual surface
+  local attribution="" verdict="" txid="" hsurface="offline (applied on reboot)"
+  if attribution="$(offline_history_attribution "$marker")"; then
+    verdict="${attribution%%$'\n'*}"
+  fi
+  case "$verdict" in
+    "applied "*)
+      txid="${verdict#applied }"
+      local keep_f filtered
+      keep_f="$(mktemp)"
+      if [[ "$attribution" == *$'\n'* ]]; then printf '%s\n' "${attribution#*$'\n'}" > "$keep_f"; fi
+      # `. as $x` before index(), for the trap mark_held carries the note about. A filter that fails
+      # keeps the whole diff: the identification still stands, only the precision is lost.
+      if filtered="$(jq -c --rawfile k "$keep_f" '
+                       ($k | split("\n") | map(select(length > 0))) as $keep
+                       | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
+                       <<<"$report" 2>/dev/null)" && [[ -n "$filtered" ]]; then
+        report="$filtered"
+      fi
+      rm -f "$keep_f" ;;
+    did-not-run)
+      hsurface="restart (staged update did not run)" ;;
+  esac
   # History filenames are per-second and this harvest runs inside a check a live run may have
   # triggered in the same second. Never overwrite an existing entry - it destroys that run's own.
   hist="$HIST_DIR/$ts.json"
@@ -1249,12 +1317,15 @@ harvest_offline() {
   # again on the next check, and the next, for good. The box stops checking at all - no state file,
   # no widget, and a bash line-number error where the answer used to be. The entry is worth losing;
   # the check is not, and the marker is cleared either way so this cannot repeat.
-  jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" '
+  # `transaction_id` is additive and present only when the history named the entry: it is the id
+  # `dnf5 history info` takes, so the person can see dnf5's own record of the same transaction.
+  jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" '
     ($repa[0]) as $dnf |
-    {timestamp:$ts, surface:"offline (applied on reboot)", status:"ok", duration_sec:0,
+    {timestamp:$ts, surface:$surface, status:"ok", duration_sec:0,
      reboot_needed:false, log:"",
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
-               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist" \
+               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}
+    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)' > "$hist" \
     || { rm -f "$hist"; hist=""
          echo "warning: the staged update was applied, but its history entry could not be written" >&2
          log_event "harvest entry not written (state directory unwritable?)"; }
@@ -1276,7 +1347,12 @@ harvest_offline() {
   # The only place the reboot's own result is recorded: the run that staged it ended a boot ago. So
   # it is said even when the entry above could not be written - a restart that installed sixty
   # packages must not pass in silence just because there was nowhere to file the details.
-  if [[ -n "$harvested" ]]; then
+  if [[ "$verdict" == did-not-run ]]; then
+    # Nothing here says what DID happen to the stage, because the history does not say it either:
+    # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
+    log_event "harvest found the staged transaction did not run${harvested:+ ($harvested)}"
+    notify "Kempt" "The update Kempt staged did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
+  elif [[ -n "$harvested" ]]; then
     log_event "harvest applied ($harvested)"
     notify "Kempt" "Staged updates were applied on reboot - $harvested"
   else

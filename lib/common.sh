@@ -84,6 +84,9 @@ LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # directory holds the two files the user owns and may edit by hand, and architecture.md's "Where
 # Kempt writes" promises Kempt puts nothing else there.
 WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
+# The stage lock (see stage_lock): held while a stage is replacing dnf5's transaction and Kempt's
+# marker has not caught up yet.
+STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
@@ -98,6 +101,10 @@ KEMPT_OFFLINE_TOML="${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offl
 # see a transaction somebody else replaced, and a check-derived list cannot see the packages the
 # resolver added. Only this file knows what is actually going to install.
 KEMPT_OFFLINE_TXJSON="${KEMPT_OFFLINE_TXJSON:-/usr/lib/sysimage/libdnf5/offline/transaction.json}"
+# The dnf5 that answers `history list` and `history info`, read as the user after a restart to tell
+# which transaction ran (offline_history_attribution). Its own seam rather than KEMPT_DNF_CMD, which
+# several test files point at a needs-restarting stub.
+KEMPT_DNF_HISTORY_CMD="${KEMPT_DNF_HISTORY_CMD:-dnf5}"
 # The other half of dnf5's arming, and the half that decides what a boot does: systemd's
 # system-update-generator looks for THIS symlink and nothing else (systemd.offline-updates(7)).
 # `dnf5 offline reboot` creates it; the toml above only says what the transaction thinks it is, and
@@ -753,6 +760,26 @@ acquire_lock() {
 }
 release_lock() { flock -u 8 2>/dev/null || true; { exec 8>&-; } 2>/dev/null || true; }  # braces: see writer_unlock
 
+# --- stage lock ------------------------------------------------------------------------------------
+# fd 6 (7, 8 and 9 are taken, see writer_lock). `kempt update` holds it from the moment it asks dnf5
+# to build an offline transaction until the marker describing that transaction is written. For that
+# whole stretch dnf5's record and Kempt's marker disagree, because Kempt is in the middle of
+# replacing one with the other - and a check comparing them then (reconcile_replaced_stage) would
+# announce Kempt's own rebuild as somebody else's.
+# Exclusive and WAITED for on the stage's side, shared and only TRIED on the check's: the check
+# holds it for a few milliseconds, and a stage that refused instead of waiting would fail a click
+# over nothing. Best-effort on both sides, because all it guards is an announcement: a stage that
+# cannot take it stages anyway, and a check that cannot take it compares nothing this time.
+# `>>`, never `>`, for acquire_lock's reason.
+stage_lock()     { { exec 6>>"$STAGE_LOCK_FILE"; } 2>/dev/null || return 0; flock -w 30 6 2>/dev/null || true; }
+stage_lock_try() {
+  { exec 6>>"$STAGE_LOCK_FILE"; } 2>/dev/null || return 1
+  flock -n -s 6 2>/dev/null && return 0
+  { exec 6>&-; } 2>/dev/null || true
+  return 1
+}
+stage_unlock()   { flock -u 6 2>/dev/null || true; { exec 6>&-; } 2>/dev/null || true; }
+
 # The boot session. A staged transaction can only be applied by a REBOOT, so the marker records
 # this and the harvest compares: same session means the stage is still pending, whatever else
 # happened to the rpm database in the meantime. "unknown" (no procfs) degrades to the old
@@ -899,6 +926,16 @@ names_all_valid() {  # stdin: one name per line → 0 when every line passes KEM
 # 1 MB cap would refuse an ordinary 2,500-package update. 8 MB is past any transaction a desktop
 # stages and still refuses a file that is not a record. Past it: no list, and Kempt warns
 # generically instead of denying a conflict - the safe direction.
+# The name out of a nevra, as a jq definition shared by the two readers of dnf5 package records:
+# the stored transaction above and the transaction history below. dnf5 writes the epoch into one
+# and not the other (`curl-0:8.18.0-10.fc44.x86_64` in history, no `0:` in transaction.json), which
+# reading from the right does not care about.
+# Single quotes on purpose: `$n` and `$p` are jq variables, and the shell must not expand them.
+# shellcheck disable=SC2016
+KEMPT_JQ_NEVRA_NAME='
+  def basename($n):
+    ($n | sub("\\.[^.]*$"; "") | split("-")) as $p
+    | if ($p | length) < 3 then "" else ($p[0:-2] | join("-")) end;'
 offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero status
   [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
   local sz
@@ -909,10 +946,7 @@ offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero 
   # instead of a shape check per branch on the shell side. `[inputs][0]` is the corrupt-tolerance
   # state_prev_items and offline_marker_read use: a multi-document or truncated file dies inside jq
   # rather than out here.
-  out="$(jq -r -n '
-      def basename($n):
-        ($n | sub("\\.[^.]*$"; "") | split("-")) as $p
-        | if ($p | length) < 3 then "" else ($p[0:-2] | join("-")) end;
+  out="$(jq -r -n "$KEMPT_JQ_NEVRA_NAME"'
       ([inputs][0] // error("no document")) as $t
       | if ($t | type) != "object" then error("not an object") else . end
       | ($t.version // "1.0") as $v
@@ -939,6 +973,185 @@ offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero 
   [[ "$(grep -c '' <<<"$rest")" == "$n" ]] || return 1
   names_all_valid <<<"$rest" || return 1
   printf '%s\n' "$rest"
+}
+
+# --- transaction identity --------------------------------------------------------------------------
+# WHICH dnf5 transaction a stage is. When dnf5 builds an offline transaction it writes two facts into
+# its state toml: `rpmdb_cookie`, a hash of the rpm database the transaction was built against, and
+# `cmd_line`, the command that built it. The marker records both. Before the restart they are
+# compared with the toml as it is now; after the restart they are looked up in dnf5's transaction
+# history, where the applied transaction carries the same command as `command_line` (in `history
+# list`) and the cookie as `rpmdb_version_begin` (in `history info`). Verified against dnf5 5.4.3 in
+# a Fedora 44 container: `dnf5 offline _execute`, the command the offline boot runs, recorded exactly
+# that pair, and a stage on its own records no history entry at all.
+#
+# The format-stability rule holds for every read here. A value that is not the shape dnf5 writes
+# today is not recorded and not compared, so a dnf5 that changes either format costs Kempt the
+# identity and leaves the harvest doing what it did before the identity existed. It must never cost
+# a wrong attribution.
+
+# Kempt's own stage command is `dnf5 upgrade --offline -y --exclude=<name>...`, every name through
+# KEMPT_NAME_RE. The charset is wider than that and still excludes a quote and a backslash, the two
+# characters offline_toml_value cannot carry through intact.
+KEMPT_CMD_LINE_RE='^[A-Za-z0-9._+=:/,@*-]+( [A-Za-z0-9._+=:/,@*-]+)*$'
+
+# The identity dnf5 recorded for the transaction it holds now, as JSON with only the keys that read
+# cleanly: `{}` when neither did. Absent rather than empty, like every marker field.
+offline_toml_identity() {  # → {rpmdb_cookie?, cmd_line?}
+  local cookie cmd
+  cookie="$(offline_toml_value rpmdb_cookie)" || cookie=""
+  cmd="$(offline_toml_value cmd_line)" || cmd=""
+  [[ "$cookie" =~ ^[0-9a-f]{64}$ ]] || cookie=""
+  if (( ${#cmd} > 4096 )) || [[ ! "$cmd" =~ $KEMPT_CMD_LINE_RE ]]; then cmd=""; fi
+  jq -cn --arg c "$cookie" --arg l "$cmd" \
+    '(if $c == "" then {} else {rpmdb_cookie: $c} end) + (if $l == "" then {} else {cmd_line: $l} end)'
+}
+
+# Before the restart: is the transaction dnf5 holds now a different one from the stage this marker
+# records? Three differences, any one enough - another cookie (built against another rpm database),
+# another command, or another package set - printed one per line, rc 0. rc 1 when there is none or
+# nothing could be compared.
+# Only a marker that recorded a cookie is asked at all, so a marker from an older build keeps exactly
+# the behaviour it had. Each difference needs BOTH sides read: a value that could not be read is not
+# a difference. The live command is compared raw, because a command Kempt did not write is allowed to
+# be any shape and is a difference whatever shape it is. The package sets are compared only when the
+# marker's list came from the transaction, for doctor_staged_drift_row's reason: a check-derived list
+# disagrees with the stored transaction routinely and legitimately.
+offline_stage_replaced() {  # marker-json → differences, one per line
+  local mc ml lc ll names rec live_sorted diffs=""
+  mc="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
+  [[ "$mc" =~ ^[0-9a-f]{64}$ ]] || return 1
+  ml="$(jq -r '.cmd_line // empty | strings' <<<"$1" 2>/dev/null || true)"
+  lc="$(offline_toml_value rpmdb_cookie)" || return 1
+  ll="$(offline_toml_value cmd_line)" || ll=""
+  if [[ "$lc" =~ ^[0-9a-f]{64}$ && "$lc" != "$mc" ]]; then diffs+="rpmdb cookie"$'\n'; fi
+  if [[ -n "$ml" && -n "$ll" && "$ll" != "$ml" ]]; then diffs+="command"$'\n'; fi
+  if jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
+       <<<"$1" >/dev/null 2>&1 && names="$(offline_txjson_names)"; then
+    rec="$(jq -r '.staged_names[] | strings' <<<"$1" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u)"
+    live_sorted="$(printf '%s\n' "$names" | sed '/^$/d' | LC_ALL=C sort -u)"
+    if [[ "$live_sorted" != "$rec" ]]; then diffs+="packages"$'\n'; fi
+  fi
+  [[ -n "$diffs" ]] || return 1
+  printf '%s' "$diffs"
+}
+
+# dnf5's transaction history, as it serves it to an unprivileged reader: the database is 0644, and
+# `history list --json` and `history info <id> --json` both answer as an ordinary user with nothing
+# on stderr (verified in the same container). `-C --disablerepo='*'`: the answer is local, and this
+# runs inside a check that must never reach the network. `timeout`, for the same reason.
+dnf_history_json() {  # list | info <id> → dnf5's JSON; non-zero when it did not answer
+  # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
+  # shellcheck disable=SC2086
+  timeout 30 $KEMPT_DNF_HISTORY_CMD -C --disablerepo='*' history "$@" --json </dev/null 2>/dev/null
+}
+
+# After the restart: did the stage this marker records run, and which history entry is it?
+#
+#   applied <id>  Exactly one entry began at the recorded cookie and ran the recorded command. The
+#                 lines after the verdict are every package name that entry touched.
+#   did-not-run   The history answered in full and none of it can be the stage: nothing began at
+#                 the cookie, or what did ran another command with another package set. Also the
+#                 answer for a marker the check before the restart already found `replaced`.
+#   rc 1          Cannot tell. The caller then does exactly what it did before identity existed.
+#
+# "did-not-run" is a claim, so it needs evidence, and three things are required before it is made.
+# Every entry since the stage was read in a shape this build knows. dnf5 recorded at least one of
+# them: the package set moved across the restart, so a history with nothing in it is not telling
+# the whole story. And no entry is the one shape a dnf5 that recorded its commands differently
+# would leave, an entry that began at the cookie with another command and the SAME packages the
+# marker recorded - that one is cannot-tell, never evidence either way.
+#
+# The window opens a day before `staged_at`. The offline transaction runs early in boot, before the
+# clock has been synced, and a real-time clock kept in local time (as on a machine that also boots
+# Windows) can put it hours before the stage. The cookie is the identity; the window only keeps the
+# lookup small, and past 20 entries it gives up rather than asking dnf5 twenty times.
+offline_history_attribution() {  # marker-json → verdict, then names; rc 1 = cannot tell
+  if jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1; then printf 'did-not-run\n'; return 0; fi
+  local cookie cmd at since list out n
+  cookie="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
+  cmd="$(jq -r '.cmd_line // empty | strings' <<<"$1" 2>/dev/null || true)"
+  at="$(jq -r '.staged_at // empty | strings' <<<"$1" 2>/dev/null || true)"
+  [[ "$cookie" =~ ^[0-9a-f]{64}$ && -n "$cmd" && -n "$at" ]] || return 1
+  since="$(date -d "$at" +%s 2>/dev/null)" || return 1
+  [[ "$since" =~ ^[0-9]+$ ]] || return 1
+  list="$(dnf_history_json list)" || return 1
+  # Every entry is shape-checked, not only the ones inside the window: a list with one entry dnf5
+  # shaped differently is a list this build cannot claim to have read. The command comparison
+  # happens in here so a command line carrying a tab or a newline never meets a line-based reader.
+  out="$(jq -r -n --argjson since "$since" --arg cmd "$cmd" '
+      ([inputs][0] // error("no document")) as $l
+      | if ($l | type) != "array" then error("not an array") else . end
+      | [ $l[]
+          | if type != "object" then error("entry") else . end
+          | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
+               or (.start_time | type) != "number" or (.command_line | type) != "string"
+            then error("fields") else . end
+          | select(.start_time >= $since - 86400) ]
+      | (length | tostring), (.[] | "\(.id) \(.command_line == $cmd)")' <<<"$list" 2>/dev/null)" || return 1
+  n="${out%%$'\n'*}"
+  [[ "$n" =~ ^[0-9]+$ ]] || return 1
+  (( n >= 1 && n <= 20 )) || return 1
+  local recorded="" have_recorded=false
+  if jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
+       <<<"$1" >/dev/null 2>&1; then
+    recorded="$(jq -r '.staged_names[] | strings' <<<"$1" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u)"
+    have_recorded=true
+  fi
+  # The rows after the count, or none: `${out#*$'\n'}` on a count with nothing after it would hand
+  # the loop the count itself as an entry.
+  local rows=""
+  if [[ "$out" == *$'\n'* ]]; then rows="${out#*$'\n'}"; fi
+  local id same info res installed touched applied="" applied_names="" other=0 seen=0
+  while IFS=' ' read -r id same; do
+    [[ -n "$id" ]] || continue
+    [[ "$id" =~ ^[0-9]+$ && ( "$same" == true || "$same" == false ) ]] || return 1
+    seen=$(( seen + 1 ))
+    info="$(dnf_history_json info "$id")" || return 1
+    # One entry asked for, one entry back, and it has to be that entry. The first line is where it
+    # began; the installed names and the touched names follow, each section headed by a marker line
+    # no package name can be (KEMPT_NAME_RE refuses a leading "-").
+    res="$(jq -r -n --argjson id "$id" --arg cookie "$cookie" "$KEMPT_JQ_NEVRA_NAME"'
+        ([inputs][0] // error("no document")) as $i
+        | if ($i | type) != "array" or ($i | length) != 1 then error("shape") else . end
+        | $i[0] as $e
+        | if ($e | type) != "object" or $e.id != $id then error("id") else . end
+        | if ($e.rpmdb_version_begin | type) != "string"
+             or ($e.rpmdb_version_begin | test("^[0-9a-f]{64}$") | not) then error("cookie") else . end
+        | if ($e.packages | type) != "array" then error("packages") else . end
+        | [ $e.packages[]
+            | if type != "object" or (.nevra | type) != "string" or (.action | type) != "string"
+              then error("package") else . end ] as $p
+        | (if $e.rpmdb_version_begin == $cookie then "at-cookie" else "elsewhere" end),
+          "--installed",
+          ([ $p[] | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
+                  | basename(.nevra) ] | unique | .[]),
+          "--touched",
+          ([ $p[] | basename(.nevra) ] | unique | .[])' <<<"$info" 2>/dev/null)" || return 1
+    [[ "${res%%$'\n'*}" == at-cookie ]] || continue
+    [[ "$res" == *$'\n'--installed$'\n'* || "$res" == *$'\n'--installed ]] || return 1
+    installed="$(sed -n '/^--installed$/,/^--touched$/p' <<<"$res" | sed '1d;$d')"
+    touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
+    printf '%s' "$installed" | names_all_valid || return 1
+    printf '%s' "$touched" | names_all_valid || return 1
+    if [[ "$same" == true ]]; then
+      [[ -z "$applied" ]] || return 1      # two candidates: cannot tell which ran
+      applied="$id"; applied_names="$touched"
+    elif [[ "$have_recorded" == true && "$installed" != "$recorded" ]]; then
+      other=$(( other + 1 ))               # another transaction, from the same starting point
+    else
+      return 1                             # another command, and nothing to tell it apart by
+    fi
+  done <<<"$rows"
+  (( seen == n )) || return 1
+  if [[ -n "$applied" ]]; then
+    # Two transactions began at the same cookie, so the first cannot have changed anything. Which of
+    # them was the restart's is not something this can settle.
+    (( other == 0 )) || return 1
+    printf 'applied %s\n%s\n' "$applied" "$applied_names"
+    return 0
+  fi
+  printf 'did-not-run\n'
 }
 
 # The marker's ONE write. It records what a restart is about to install, so it goes down the way

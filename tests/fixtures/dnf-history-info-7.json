@@ -1,0 +1,37 @@
+[
+  {
+    "id":7,
+    "start_time":1789500328,
+    "end_time":1789500328,
+    "rpmdb_version_begin":"7128c6c98ed3aaaf266e082833ef8af498e2e510240fadaf9a073486710fb3e9",
+    "rpmdb_version_end":"6a8850bfe6d068cd10ec27198cd642784ef3167e7c58c10cd0a18696f33a76f4",
+    "user_id":0,
+    "user_name":"0 Super User <root>",
+    "status":"Ok",
+    "releasever":"44",
+    "description":"dnf5 -y -q --disablerepo=updates* install sqlite",
+    "comment":"",
+    "packages":[
+      {
+        "nevra":"sqlite-0:3.51.2-1.fc44.x86_64",
+        "action":"Install",
+        "reason":"User",
+        "repository":"fedora"
+      },
+      {
+        "nevra":"sqlite-libs-0:3.51.2-1.fc44.x86_64",
+        "action":"Downgrade",
+        "reason":"Dependency",
+        "repository":"fedora"
+      },
+      {
+        "nevra":"sqlite-libs-0:3.51.2-2.fc44.x86_64",
+        "action":"Replaced",
+        "reason":"Dependency",
+        "repository":"@System"
+      }
+    ],
+    "groups":[],
+    "environments":[]
+  }
+]

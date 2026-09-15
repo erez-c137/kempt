@@ -164,11 +164,14 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, and which packages went in and were left out, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
-| `~/.local/state/kempt/{lock,check.lock,writer.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, which packages went in and were left out, and which dnf5 transaction it is, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
+| `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
 | `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes. The age bound is the whole design: a live concurrent writer's temp is never eligible, and a crash between the write and the rename leaves nothing that outlives the hour |
 
-Three of those files are locks. `lock` and `check.lock` serialize runs and checks; `writer.lock`
+Four of those files are locks. `lock` and `check.lock` serialize runs and checks; `stage.lock` is
+held by a stage from the moment it asks dnf5 for a transaction until its marker is written, so a
+check never mistakes that stretch for a transaction replaced outside Kempt (see
+[Which transaction ran](#which-transaction-ran)); `writer.lock`
 serializes the three commands that rewrite the two files in the config directory - `kempt config
 set`, `kempt hold` and `kempt unhold`. Each of them reads the whole file, changes one line and
 writes it back, so without a lock two running together lose one of the two writes: measured on
@@ -340,8 +343,8 @@ not stage, which a re-stage destroys identically.
 
 | File | Owner | Says |
 | --- | --- | --- |
-| `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, the package set it was staged against, and which packages went in and were left out |
-| `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5 | Whether the transaction is still there, and whether it is armed (`status = "ready"`) |
+| `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, the package set it was staged against, which packages went in and were left out, and the identity dnf5 gave the transaction |
+| `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5 | Whether the transaction is still there, whether it is armed (`status = "ready"`), and which transaction it is (`rpmdb_cookie`, `cmd_line`) |
 | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5 | What that transaction will actually install, by NEVRA, resolver-added packages included |
 
 None is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
@@ -353,18 +356,22 @@ are the only readers.
 
 **The marker's fields, and the rule for adding one.** The marker is `{staged_at, pre_snapshot,
 boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
-`staged_names_source` and `staged_excluded`. Every field is **additive**: a marker written by an
+`staged_names_source` and `staged_excluded`, and, since the transaction's identity was recorded,
+`rpmdb_cookie` and `cmd_line`. Every field is **additive**: a marker written by an
 older build carries none of the newer ones, and every reader has to go on working against it - the
 harvest, the doctor, the popup and the two hold commands all do. That is why a fact Kempt could not
 establish is expressed by an ABSENT key rather than an empty one: no `staged_names` at all means
 "nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
 `staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
 list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
-Two fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
+Three fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
 a restart proved the transaction cannot install (below), and that flip is also the record that it
 has already been announced. `set_moved` is added when the harvest finds the installed set changed
 under a stage that is still armed - something other than this stage moved it - and it exists for
 the same reason: to say that once, rather than on every check for as long as the stage waits.
+`replaced` is added when a check before the restart finds dnf5 holding a different transaction from
+the one the marker records, and it is both the announce-once key and what tells the harvest that
+whatever ran was not this stage.
 Every name is filtered through `KEMPT_NAME_RE` as it is written, and one name that fails drops the
 whole list - one gate covers jq, the shell, QML and a terminal.
 
@@ -399,13 +406,14 @@ the world (`harvest_offline`):
 
 | Marker | dnf5 status | `/system-update` | Boot | Package set | Outcome |
 | --- | --- | --- | --- | --- | --- |
+| yes, with an identity | present, and not the transaction the marker records | - | any | - | **Replaced.** Announced once and flagged `replaced` on the marker, never cleared here. The rows below still apply, and the harvest never reports what then runs as this stage |
 | yes | ready / any non-absent | - | same as staged | - | Still pending. Nothing happens |
 | yes | absent | - | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
 | yes | absent | - | different | unchanged | The transaction was thrown away. Clear the marker - this used to be a permanent dead end, waiting forever for an apply that had already been discarded |
 | yes | ready | present | different | unchanged | Still pending: the restart has not got round to running it |
 | yes | ready | **gone** | different | unchanged | **Detour boot.** The symlink is half of arming and systemd removes it once `system-update.target` is reached, so a boot that has been and gone leaving `ready` behind is one that walked past this transaction. Announce once, demote to `armed: false`, never clear |
 | yes | present, not `ready` | - | different | unchanged | **Detour boot.** Same three rules |
-| yes | absent | - | different | changed | **Harvested**: one history entry, surface `offline (applied on reboot)`, diffed against the marker's own snapshot copy |
+| yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's own snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)): surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
 | yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker is left where it is |
 
 Two gates, and neither is the package set on its own.
@@ -446,6 +454,49 @@ The reader that keeps this honest is `offline_staged_state`, which publishes not
 dnf5 says `ready`: the popup's staged banner therefore disappears the moment the transaction stops
 being armed, and the notification is what stops that disappearance from being the only thing that
 happens.
+
+### Which transaction ran
+
+The boot changing and dnf5's transaction going away together prove that *a* transaction applied,
+not that it was the one Kempt staged. `sudo dnf5 offline clean` followed by a stage of somebody's
+own, or a second admin staging over the first, passes both gates. So a stage also records which
+transaction it is, from two facts dnf5 writes into its state toml when it builds one:
+`rpmdb_cookie`, a hash of the rpm database the transaction was built against, and `cmd_line`, the
+command that built it. They are checked twice.
+
+- **Before the restart**, every check compares the marker with dnf5's toml as it is now. Another
+  cookie, another command, or another package set (compared only when both lists came from a
+  transaction) means the stored transaction is not the stage Kempt made. That is announced once and
+  recorded on the marker as `replaced`. The cookie alone is not enough, and this was measured: a
+  stage, `dnf5 offline clean` and a new stage with another `--exclude`, against an unchanged rpm
+  database, produced two tomls with the same cookie. The command and the package set are what tell
+  them apart. The comparison is skipped while a Kempt stage is in flight, because a rebuild replaces
+  dnf5's transaction minutes before it rewrites the marker: `kempt update` holds `stage.lock` across
+  that stretch, and the check only tries it.
+- **After the restart**, the harvest asks dnf5's transaction history for the entries since the
+  stage (`dnf5 history list --json`, then `history info <id> --json`, both readable as the user).
+  The entry that began at the recorded cookie (`rpmdb_version_begin`) and ran the recorded command
+  (`command_line`) is the stage. Its history entry gets `transaction_id`, and the report keeps only
+  the packages that entry touched, so a package another tool moved across the same restart is not
+  reported as part of the stage. When the history answered in full and nothing in it can be the
+  stage, the entry's surface is `restart (staged update did not run)`, the report stays the whole
+  snapshot diff, and the notification says the staged update did not run.
+
+Verified against dnf5 5.4.3 in a Fedora 44 container by running `dnf5 offline _execute`, the
+command the offline boot runs: the applied transaction was recorded with the toml's `cmd_line` as
+its `command_line` and the toml's `rpmdb_cookie` as its `rpmdb_version_begin`, and staging on its
+own recorded no history entry. `history info` has no `command_line` key, so the command comes from
+the list.
+
+Everything else is **cannot tell**, and cannot tell is the harvest exactly as it was before any of
+this existed: a marker written by an older build, a history that did not answer or answered in a
+shape this build does not know, no entries at all since the stage, more than 20, two candidates, or
+an entry that began at the cookie with another command and the same packages the marker recorded.
+That last one is what a dnf5 that recorded its commands differently would leave, so it is never
+taken as evidence that the stage did not run. The lookup window opens a day before `staged_at`,
+because the offline transaction runs early in boot and a clock that has not been synced can put it
+hours before the stage. The cookie is the identity; the window only bounds the lookup. A change in
+dnf5's formats can cost this precision. It cannot make the entry claim a transaction it did not see.
 
 **Superseding.** A staged transaction records the rpm database cookie it was built against, and
 dnf5 refuses one whose cookie has moved. So a live `kempt update` that installs anything has
@@ -643,7 +694,8 @@ right after a run are one fact with one source: **`kempt summary --json`**, pars
 `Logic.lastRunOf` in `plasmoid/contents/ui/logic.js` and held by `main.qml` as `lastRun`. The CLI
 serves the newest history entry byte for byte rather than re-rendering it, so what arrives is
 exactly what `cmd_update` wrote: `{timestamp, surface, status, duration_sec, reboot_needed, log,
-error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`.
+error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`. A harvest also writes
+`transaction_id` when dnf5's history named the transaction it reports.
 
 Never the human `kempt summary`. That is a rendering (`render_summary` in `lib/common.sh`) whose
 first line is an ISO timestamp, and re-deriving counts from rendered text would put a second,
@@ -982,6 +1034,7 @@ destructive paths without ever running them.
 | `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged. The root helper `kempt-apply` reads the same file to refuse its offline verbs over a stored release upgrade, and honours this variable **only when it is not running as root**, so the suite can drive that check while a real privileged run always reads the fixed path |
 | `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction - the resolved package set a restart will install. **Read, never written**, and read LIVE rather than snapshotted: it is the only source that sees the packages the resolver added and a transaction something else replaced. `root:root` 0644 in a 0755 directory (verified in a container, 2026-09-05), which is what lets an unprivileged check reconcile a hold against it. `tests/lib.sh` PINS this at a recorded transaction rather than poisoning it, so the suite's default is the parsing path; pointing it at anything unparsable drives the degraded one |
+| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | The dnf5 that answers `history list --json` and `history info <id> --json`, run as the user with `-C --disablerepo='*'` after a restart to find which transaction ran (see [Which transaction ran](#which-transaction-ran)). **Read, never used to change anything**: the history database is 0644 and both verbs answer an ordinary user (verified in a Fedora 44 container, dnf5 5.4.3). Its own seam rather than `KEMPT_DNF_CMD`, which several test files point at a needs-restarting stub. `tests/lib.sh` points it at a path that does not exist, so no harvest in the suite reads the history of the box running it, and every harvest test written before this lookup existed takes the "cannot tell" branch it was written against |
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | The file `ostree-prepare-root` writes into a booted ostree deployment's `/run`. Its EXISTENCE is the whole test, and it is a file rather than a binary because `rpm-ostree` installs cleanly on ordinary Fedora and says nothing about how that box updates. Read by `kempt update` (which aborts in pre-flight), by `kempt check` (which publishes `image_based`) and by `kempt doctor`. `tests/lib.sh` points it at a path that does not exist, so running the suite on Silverblue or Kinoite describes the code rather than the machine it runs on |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |

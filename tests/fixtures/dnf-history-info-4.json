@@ -1,0 +1,25 @@
+[
+  {
+    "id":4,
+    "start_time":1789500321,
+    "end_time":1789500321,
+    "rpmdb_version_begin":"fd43fdd6f91620052f330f547d466579723cb54d8ca75f2027d44d905da29c41",
+    "rpmdb_version_end":"acb3da1d569ad74ccaaa72dbfa8488b4ffcdca681ec449aa0aa3a685df9a3261",
+    "user_id":0,
+    "user_name":"0 Super User <root>",
+    "status":"Ok",
+    "releasever":"44",
+    "description":"dnf5 -y -q --disablerepo=updates* install zsh",
+    "comment":"",
+    "packages":[
+      {
+        "nevra":"zsh-0:5.9-19.fc44.x86_64",
+        "action":"Install",
+        "reason":"User",
+        "repository":"fedora"
+      }
+    ],
+    "groups":[],
+    "environments":[]
+  }
+]

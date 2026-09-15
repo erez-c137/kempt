@@ -296,6 +296,17 @@ is armed, Kempt records `harvest deferred` once and leaves the stage where it is
 naming the other tool's packages, announced an install that had not happened, and threw away the
 record of a transaction that was still going to install on the next restart.
 
+**A staged update replaced outside Kempt is never reported as yours.** If somebody runs
+`sudo dnf5 offline clean` and stages a transaction of their own, or a second admin stages over
+yours, the next check sees that the transaction dnf5 holds is not the one Kempt staged (another
+command or another set of packages) and tells you once. After the restart, Kempt looks the
+transaction up in dnf5's history. If the transaction Kempt staged ran, its history entry decides the
+report, packages another tool changed across the same restart are left out, and
+`kempt summary --json` carries its id as `transaction_id` for `dnf5 history info`. If it did not
+run, the entry is recorded as `restart (staged update did not run)` with everything that changed
+across the restart, and the notification says so. If dnf5's history cannot answer, the restart is
+reported the way it always was.
+
 Flatpak has no offline mechanism, so an offline run still updates Flatpak apps live. That is
 safe for the running session in a way an rpm transaction is not.
 
@@ -486,6 +497,8 @@ The vocabulary is fixed, so the file is worth grepping:
 | `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
 | `offline staged <n>` | A transaction was staged for the next reboot. `<n>` comes from a check made just before staging, or from the last check when that one could not answer. |
 | `harvest applied (<counts>)` | The check after a reboot found the staged transaction applied and wrote it into history. |
+| `harvest found the staged transaction did not run (<counts>)` | The check after a reboot found that the transaction which ran was not the one Kempt staged. The entry is written as `restart (staged update did not run)`. |
+| `offline stage replaced outside Kempt (<what differs>) - announced` | A check found dnf5 holding a different transaction from the one Kempt staged: another rpmdb cookie, command or package set. Said once. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
 | `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
 
