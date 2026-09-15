@@ -2095,6 +2095,13 @@ usage: kempt <command>
 EOF
 }
 
+# --help or -h right after any command asks for help, and gets it before the command runs or
+# parses anything, so `kempt update --help` can never start an update.
+if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
+  usage
+  exit 0
+fi
+
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;
   update)  shift; cmd_update "$@" ;;
