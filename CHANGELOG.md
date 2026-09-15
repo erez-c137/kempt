@@ -7,6 +7,22 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The software center entry no longer names an icon.** The AppStream metadata in the widget
+  package pointed at a stock icon called `kempt`, which `appstream-util validate-relax` does not
+  accept, and Fedora's packaging guidelines require that validator to pass. The entry describes an
+  add-on to Plasma, not an application, so it now has no icon of its own, and the package build
+  checks the file with both `appstream-util` and `appstreamcli`. The widget's icon in the panel and
+  in Add Widgets is unchanged.
+- **`/usr/share/doc/kempt` holds only documentation for people using Kempt.** The README, this
+  changelog, `SECURITY.md` and the user guides in `docs/` still ship, at the same paths, so their
+  links to each other work. Files about working on Kempt itself (`CONTRIBUTING.md`, `AGENTS.md`,
+  `CODE_OF_CONDUCT.md`, the release procedure and the roadmap) are on GitHub only.
+- **For packagers:** the `kempt` package no longer declares `bash >= 4.4`, because rpm already
+  records the dependency on `/usr/bin/bash` and every supported Fedora ships bash 5. Installed files
+  keep the timestamps they have in the release tarball.
+
 ## [0.1.2] - 2026-09-15
 
 ### Upgrading from 0.1.1
