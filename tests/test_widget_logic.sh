@@ -1114,6 +1114,10 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":
   "Updated 1 package" "...or explicitly null"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
   "Updated 1 package in 0s" "a run that really did take under a second still says so"
+# A negative duration is the clock stepping backwards during the run, not a measurement. It is
+# left out, like a missing one, never shown as "in -287s".
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":-287,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"}]}}}"))')" \
+  "Updated 1 package" "a negative duration is left out of the line"
 # A failed run's first stderr line, which is the CLI's own worked-out reason (run_failure_reason),
 # not a generic apology. Multi-line, because that reason can arrive with a log tail behind it.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"authentication cancelled\"}"))')" \

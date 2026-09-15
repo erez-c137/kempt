@@ -858,8 +858,13 @@ cmd_update() {
   local dnf_rep_f fp_rep_f
   dnf_rep_f="$(mktemp)"; fp_rep_f="$(mktemp)"
   printf '%s' "$dnf_report" > "$dnf_rep_f"; printf '%s' "$fp_report" > "$fp_rep_f"
+  # Floored at 0: a clock stepped backwards during the run (NTP correcting a fast clock, a resume
+  # across a time change) puts the end before the start, and a negative duration is not a
+  # measurement. Every reader would otherwise print it as "in -287s".
+  local run_dur=$(( $(date +%s) - start ))
+  (( run_dur >= 0 )) || run_dur=0
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
-        --arg log "$log" --argjson dur "$(( $(date +%s) - start ))" \
+        --arg log "$log" --argjson dur "$run_dur" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '

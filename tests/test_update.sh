@@ -1707,4 +1707,29 @@ hu="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .surface "$hu")" "offline (applied on reboot)" "...and still reports the staged transaction"
 unset KEMPT_BOOT_ID
 
+# --- a clock that steps backwards during a run ---------------------------------------------------
+# NTP correcting a fast clock, or a suspend and resume across a time change, can put the end of a
+# run before its start. The duration is then not a measurement, and "Updated 1 package in -287s"
+# is what a person would read. A `date` stand-in answers the run's first `date +%s` with a time
+# 287 seconds AFTER every later one; every other format goes to the real date.
+REAL_DATE="$(command -v date)"
+mkdir -p "$TESTTMP/backwards-clock"
+cat > "$TESTTMP/backwards-clock/date" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1" == "+%s" ]]; then
+  if [[ -e "$TESTTMP/backwards-clock/started" ]]; then echo 2000000000
+  else touch "$TESTTMP/backwards-clock/started"; echo 2000000287; fi
+  exit 0
+fi
+exec "$REAL_DATE" "\$@"
+STUB
+chmod +x "$TESTTMP/backwards-clock/date"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+PATH="$TESTTMP/backwards-clock:$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+assert_exit 0 "...the fake clock really was consulted" -- test -e "$TESTTMP/backwards-clock/started"
+hb="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+assert_eq "$(jq -r .duration_sec "$hb")" "0" "a run whose clock stepped backwards records a duration of 0, never a negative one"
+
 finish
