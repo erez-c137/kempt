@@ -2005,24 +2005,26 @@ check_rules_dst() {
 }
 
 cmd_enable_passwordless() {
-  local tmp
+  local rule
   check_rules_dst
-  tmp="$(mktemp)"
-  # render_passwordless_rule (lib/common.sh) renders from $(id -un) and self-checks the result; it
-  # writes nothing on failure, so an unverified rule can never reach install(1).
+  # render_passwordless_rule (lib/common.sh) renders from $(id -un), self-checks the result and
+  # prints it only when the check passed, so an unverified rule can never reach install(1).
   # One event per invocation carrying this command's exit status - a grant refused at the
   # authentication dialog is recorded as plainly as one that succeeded. Largest security
   # consequence Kempt can change.
-  if ! render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in" "$tmp"; then
-    rm -f "$tmp"; log_event "passwordless enable rc=2"; exit 2
+  if ! rule="$(render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in")"; then
+    log_event "passwordless enable rc=2"; exit 2
   fi
+  # The checked text goes to root on a pipe, never as a file path. A file here would be the user's
+  # own, and any process running as the user could rewrite it between the check and root's copy,
+  # which waits on a person at the authentication dialog. pkexec asks for the password on its own
+  # agent or the terminal, not on stdin, so the pipe carries the rule and nothing else.
   # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty KEMPT_PKEXEC means "no wrapper" (test
   # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
-  if ! ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} install -m 0644 -o root -g root "$tmp" "$RULES_DST"; then
-    rm -f "$tmp"; log_event "passwordless enable rc=1"
+  if ! printf '%s\n' "$rule" | ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} install -m 0644 -o root -g root /dev/stdin "$RULES_DST"; then
+    log_event "passwordless enable rc=1"
     echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
   fi
-  rm -f "$tmp"
   log_event "passwordless enable rc=0"
   echo "Passwordless updates ENABLED for $(id -un) ($RULES_DST)"
 }

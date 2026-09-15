@@ -29,24 +29,27 @@ SCOPE='subject.active && subject.local'
 # (what the self-check refuses) plus the production-path check below, which proves a hostile USER
 # env var never reaches the render at all.
 
-# (a) scope clause stripped → refused, nothing written
+# The render prints the checked rule on stdout and nothing else; the caller pipes that into root's
+# install(1). So "refused" has to mean "printed nothing": a partial rule on stdout would be a rule
+# on its way to root.
+render_stdout() { render_passwordless_rule "$1" 2>/dev/null || true; }
+
+# (a) scope clause stripped → refused, nothing printed
 sed 's/ && subject.active && subject.local//' "$RULES_IN" > "$TESTTMP/tmpl-noscope"
 assert_exit 2 "render refuses a template that lost the scope clause" \
-  render_passwordless_rule "$TESTTMP/tmpl-noscope" "$TESTTMP/out-noscope"
-[[ -e "$TESTTMP/out-noscope" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
-  || echo "ok: refused render leaves nothing behind"
+  render_passwordless_rule "$TESTTMP/tmpl-noscope"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-noscope")" "" "refused render prints nothing"
 # (a2) the same, but with the clause surviving in a COMMENT: a self-check that reads comments
 # would install a rule whose executable half has no scope test at all.
 { echo "// $SCOPE"; cat "$TESTTMP/tmpl-noscope"; } > "$TESTTMP/tmpl-commentonly"
 assert_exit 2 "render is not fooled by a scope clause that survives only in a comment" \
-  render_passwordless_rule "$TESTTMP/tmpl-commentonly" "$TESTTMP/out-commentonly"
+  render_passwordless_rule "$TESTTMP/tmpl-commentonly"
 
 # (b) action id swapped for a broader one → refused (this template would grant pkexec itself)
 sed 's/io.github.erez_c137.kempt.apply/org.freedesktop.policykit.exec/' "$RULES_IN" > "$TESTTMP/tmpl-badaction"
 assert_exit 2 "render refuses a template with a different action id" \
-  render_passwordless_rule "$TESTTMP/tmpl-badaction" "$TESTTMP/out-badaction"
-[[ -e "$TESTTMP/out-badaction" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
-  || echo "ok: wrong-action render leaves nothing behind"
+  render_passwordless_rule "$TESTTMP/tmpl-badaction"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-badaction")" "" "wrong-action render prints nothing"
 
 # (b1b) a WIDENED rule inside the one permitted block → refused. This is the case every
 # grep-based check missed: the scope clause is there, the action id is there, there is exactly one
@@ -55,24 +58,25 @@ assert_exit 2 "render refuses a template with a different action id" \
 awk '/^polkit.addRule/ { print; print "    if (subject.user == \"@USER@\") return polkit.Result.YES;"; next } { print }' \
     "$RULES_IN" > "$TESTTMP/tmpl-widened"
 assert_exit 2 "render refuses a rule widened inside the block it is allowed to have" -- \
-  render_passwordless_rule "$TESTTMP/tmpl-widened" "$TESTTMP/out-widened"
+  render_passwordless_rule "$TESTTMP/tmpl-widened"
 # ...and the refusal has to be readable by whoever hits it, because the person running
 # enable-passwordless is being told their grant did NOT happen. Checked here, before the next
 # assertion overwrites last_output.
 grep -qF 'refusing' "$TESTTMP/last_output" \
   && echo "ok: ...and says it is refusing rather than naming a 'scope check'" \
   || { echo "FAIL: the refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
-assert_exit 1 "widened render leaves nothing behind" -- test -e "$TESTTMP/out-widened"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-widened")" "" "widened render prints nothing"
 
 # (b2) a second rule block appended → refused (one addRule is the whole contract)
 { cat "$RULES_IN"; echo 'polkit.addRule(function(action, subject) { return polkit.Result.YES; });'; } \
   > "$TESTTMP/tmpl-tworules"
 assert_exit 2 "render refuses a template carrying a second rule block" \
-  render_passwordless_rule "$TESTTMP/tmpl-tworules" "$TESTTMP/out-tworules"
+  render_passwordless_rule "$TESTTMP/tmpl-tworules"
 
-# (c) the shipped template → accepted, and the result is exactly what should be installed
+# (c) the shipped template → accepted, and what it prints is exactly what should be installed
 assert_exit 0 "render accepts the shipped template" \
-  render_passwordless_rule "$RULES_IN" "$TESTTMP/out-good"
+  render_passwordless_rule "$RULES_IN"
+render_passwordless_rule "$RULES_IN" > "$TESTTMP/out-good" 2>/dev/null
 grep -qF "subject.user == \"$ME\"" "$TESTTMP/out-good" && echo "ok: rendered for the real username" \
   || { echo "FAIL: username not rendered"; _fail=1; }
 grep -qF "$SCOPE" "$TESTTMP/out-good" && echo "ok: rendered rule keeps the scope clause" \
@@ -160,6 +164,35 @@ grep -q 'was not enabled' "$TESTTMP/last_output" \
   && { echo "FAIL: disable claimed 'not enabled' without being able to look"; _fail=1; } \
   || echo "ok: no false 'was not enabled' when the directory cannot be searched"
 chmod 755 "$TESTTMP/locked"
+
+# --- root installs the bytes that were checked -----------------------------------------------------
+# The authentication dialog can stay open for as long as a person takes to answer it. If the checked
+# rule sat in a file of the user's, any process running as the user could rewrite it in that time and
+# root would install the new text. So the rule reaches install(1) on stdin, and no file is left for
+# anyone to rewrite.
+# The stand-in for pkexec plays both sides: it first rewrites every file the command left in TMPDIR
+# with a rule that grants everything, then reads its source argument exactly as root's install(1)
+# would. It writes nowhere outside TESTTMP.
+mkdir -p "$TESTTMP/swap-tmp"
+cat > "$TESTTMP/pkexec-swap" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$TESTTMP/swap-argv"
+find "$TESTTMP/swap-tmp" -type f -exec sh -c 'printf "polkit.addRule(function(a, s) { return polkit.Result.YES; });\n" > "\$1"' _ {} \;
+cat -- "\${@: -2:1}" > "$TESTTMP/swap-installed"
+STUB
+chmod +x "$TESTTMP/pkexec-swap"
+assert_exit 0 "enable-passwordless succeeds through a pkexec that reads its source as root would" -- \
+  env TMPDIR="$TESTTMP/swap-tmp" KEMPT_PKEXEC="$TESTTMP/pkexec-swap" "$KEMPT" enable-passwordless
+assert_eq "$(cat "$TESTTMP/swap-argv")" \
+  "install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
+  "root's install(1) reads the rule from stdin, not from a file path"
+if cmp -s "$TESTTMP/out-good" "$TESTTMP/swap-installed"; then
+  echo "ok: ...and what it installs is byte for byte the rule that was checked, after a same-user rewrite"
+else
+  echo "FAIL: root would install something other than the checked rule"; _fail=1
+  sed 's/^/    /' "$TESTTMP/swap-installed"
+fi
+assert_eq "$(find "$TESTTMP/swap-tmp" -type f | wc -l)" "0" "...and no rendered file is left in TMPDIR to rewrite"
 
 # Production path through the documented seams: no pkexec wrapper (sandbox exports it empty),
 # destination and mktemp both inside TESTTMP, hostile USER in the environment. /etc is never a
