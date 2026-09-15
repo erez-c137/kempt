@@ -216,7 +216,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
-* Mon Sep 14 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
+* Tue Sep 15 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
 - The panel widget moves to its own subpackage, kempt-plasmoid, so the command
   line no longer requires plasma-workspace. On a machine running Plasma the
   widget is installed alongside it as before, unless dnf's weak dependencies are
