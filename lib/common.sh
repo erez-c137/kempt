@@ -309,6 +309,9 @@ writer_lock() {
 writer_unlock() { flock -u 7 2>/dev/null || true; { exec 7>&-; } 2>/dev/null || true; }
 
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
+  # config_set's key rule, on the read side too: the key is matched against the file as a pattern,
+  # so `s.*` would match the first line and print another setting's value.
+  [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
     echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
   fi

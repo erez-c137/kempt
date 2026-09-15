@@ -18,6 +18,11 @@ assert_eq "$(config_get refresh_interval_min 60)" "60" "default numeric"
 # a second key=value line into the config file, are both refused.
 assert_exit 2 "config key validated" config_set 'auto.accept' x
 assert_exit 2 "newline value rejected" config_set multi $'a\nb=c'
+# The same key rule on the read side. The key is matched against the file, so a key that is not a
+# key - `s.*` - used to match whatever line came first and print another setting's value.
+assert_exit 2 "config get refuses a key that is not a key" config_get 's.*'
+assert_eq "$(config_get 's.*' 2>/dev/null)" "" "...and prints no other setting's value"
+assert_exit 2 "...and kempt config get says so with a usage error" "$REPO_ROOT/bin/kempt" config get 's.*'
 # A rejected write must not have disturbed what was already stored.
 assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surface intact"
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
