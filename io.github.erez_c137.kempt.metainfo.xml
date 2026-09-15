@@ -61,11 +61,11 @@
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
-      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.2/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.3/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
-      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.2/docs/images/kempt-settings.png</image>
+      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.3/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -77,6 +77,21 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
+    <release version="0.1.3" date="2026-09-15" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.3</url>
+      <description>
+        <p>
+          A downloaded Fedora release upgrade is now protected by Kempt's root helper itself,
+          so no other program running as you can cancel, discard or start it through Kempt
+          without a password. Passwordless mode installs exactly the rule it checked, and only
+          at its one fixed path.
+        </p>
+        <p>
+          The software center entry no longer names an icon of its own, and the installed
+          documentation is limited to what someone using Kempt needs.
+        </p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-09-15" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.2</url>
       <description>

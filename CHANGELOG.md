@@ -7,6 +7,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-15
+
+### Upgrading from 0.1.2
+
+**Nothing to do: `sudo dnf upgrade`.** Your settings, holds, history and any staged update stay as
+they were. If you turned on passwordless mode, it keeps working: the rule it installed is unchanged,
+so there is no need to turn it off and on again.
+
 ### Changed
 
 - **The software center entry no longer names an icon.** The AppStream metadata in the widget

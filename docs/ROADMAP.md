@@ -54,12 +54,21 @@ already staged for the next restart.
 - **A staged update that can no longer install is reported,** in each of the three ways that can
   happen, and Kempt always keeps a record of an update it has staged.
 
+**0.1.3** tightens what runs as root and gets the package ready for Fedora's review.
+
+- **A downloaded Fedora release upgrade is protected by the root helper itself,** not only by the
+  command line, so nothing running as the user can cancel, discard or start it without a prompt.
+- **Passwordless mode installs exactly the rule it checked,** and only at its one fixed path.
+- **The package passes the checks a Fedora reviewer runs:** the metainfo validator Fedora requires,
+  rpmlint with no errors, and documentation limited to what someone using Kempt reads.
+
 ## Now
 
 - **First contact.** The announcement wave, and treating every early report as the gift it
   is - what the first outside users hit outranks everything below.
-- **The road into the official Fedora repos**: self-review done, tool runs clean, review
-  ticket next.
+- **The road into the official Fedora repos**: a strict self-review against the packaging
+  guidelines is done and its findings shipped in 0.1.3. Tool runs on that release, then the review
+  ticket.
 
 ## v1.x - ready for other people
 

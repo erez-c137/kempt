@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.2
+Version:        0.1.3
 Release:        1%{?dist}
 Summary:        One-click system updates for Fedora, with holds and offline staging
 
@@ -239,6 +239,17 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Tue Sep 15 2026 Erez <erez.c137@protonmail.com> - 0.1.3-1
+- The root helper refuses to stage over, arm or discard a stored Fedora
+  release upgrade itself, instead of relying on the command line's check.
+- enable-passwordless pipes the checked rule to root and installs it only at
+  /etc/polkit-1/rules.d/49-kempt.rules.
+- The root helpers run bash in privileged mode.
+- The metainfo passes appstream-util validate-relax, which the build now
+  runs, and names no stock icon.
+- Only user documentation is installed, the versioned bash requirement is
+  gone, and installed files keep their timestamps.
+
 * Tue Sep 15 2026 Erez <erez.c137@protonmail.com> - 0.1.2-1
 - The panel widget moves to its own subpackage, kempt-plasmoid, so the command
   line no longer requires plasma-workspace. On a machine running Plasma the
