@@ -168,15 +168,31 @@ else
   skip "locale probe - en_US.UTF-8 is not installed on this box"
 fi
 
-# Root-helper hardening: absolute interpreter + pinned, EXPORTED PATH. Exported matters: without
-# it, children spawned under a cleared environment fall back to a default that puts /usr/local/bin
-# first - for RPM scriptlets running as root, that is a writable-by-admin dir ahead of /usr/bin.
+# Root-helper hardening: absolute interpreter in privileged mode + pinned, EXPORTED PATH. Exported
+# matters: without it, children spawned under a cleared environment fall back to a default that puts
+# /usr/local/bin first - for RPM scriptlets running as root, that is a writable-by-admin dir ahead of
+# /usr/bin.
 for h in "$RH" "$AH"; do
-  head -1 "$h" | grep -qx '#!/bin/bash' && echo "ok: absolute shebang ($(basename "$h"))" \
+  head -1 "$h" | grep -qx '#!/usr/bin/bash -p' && echo "ok: absolute shebang in privileged mode ($(basename "$h"))" \
     || { echo "FAIL: shebang ($(basename "$h"))"; _fail=1; }
   grep -qx 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin' "$h" && echo "ok: exported pinned PATH ($(basename "$h"))" \
     || { echo "FAIL: PATH ($(basename "$h"))"; _fail=1; }
 done
+# ...and -p is what the shebang is for: bash in privileged mode never reads BASH_ENV, so a caller
+# that skipped pkexec's scrubbed environment still cannot run code before a helper's first line.
+# Each helper is executed DIRECTLY, because only a direct exec reads the shebang; every other test
+# here runs `bash "$h"`, which ignores it. ECHO is set, so an accepted verb prints and runs nothing.
+printf 'touch "%s"\n' "$TESTTMP/bash-env-ran" > "$TESTTMP/bash-env.sh"
+if [[ -x /usr/bin/bash && -x "$AH" && -x "$RH" ]]; then
+  env BASH_ENV="$TESTTMP/bash-env.sh" KEMPT_APPLY_ECHO=1 "$AH" dnf-offline-clean >/dev/null 2>&1 || true
+  env BASH_ENV="$TESTTMP/bash-env.sh" KEMPT_REFRESH_ECHO=1 "$RH" check >/dev/null 2>&1 || true
+  assert_exit 1 "neither helper reads BASH_ENV when executed directly" -- test -e "$TESTTMP/bash-env-ran"
+  # The control: a plain non-interactive bash does read the same file, so the probe above can fail.
+  env BASH_ENV="$TESTTMP/bash-env.sh" bash -c true
+  assert_exit 0 "...while a plain bash does read it, so that assertion can fail" -- test -e "$TESTTMP/bash-env-ran"
+else
+  skip "BASH_ENV probe - /usr/bin/bash or an executable helper is missing"
+fi
 
 # No flatpak command may survive in root-owned code. The verb rejection above proves the case is
 # gone; this proves nothing privileged still shells out to flatpak by another name.

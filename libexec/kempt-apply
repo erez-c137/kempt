@@ -1,11 +1,15 @@
-#!/bin/bash
+#!/usr/bin/bash -p
 # Kempt root helper - the dnf upgrade verbs, and only those. polkit action
 # io.github.erez_c137.kempt.apply (auth_admin_keep). Flatpak is NOT here: `flatpak update` needs
 # no password of its own in an active local session, so it runs as the user from
 # backends/flatpak.sh, which is where the reasoning and the two residual prompts are written down.
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
-# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
-# the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
+# Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing.
+# -p is bash's privileged mode. It never reads BASH_ENV or ENV, and it ignores SHELLOPTS, BASHOPTS,
+# CDPATH, GLOBIGNORE and exported functions, so a caller that skips pkexec (sudo -E, say) still
+# cannot run code before the first line below. /usr/bin/bash because that is the path the package
+# ships. PATH is exported, so the pinned lookup order reaches dnf5's own children (rpm scriptlets
+# run as root) too.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
