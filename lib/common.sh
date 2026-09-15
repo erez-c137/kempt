@@ -691,7 +691,10 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
   [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE" || echo 0)"
-  (( now - last < 10800 )) && return 0
+  # A stamp in the future (a clock corrected backwards, a home restored onto a machine whose clock
+  # is behind) is due, not recent: read as a refresh a moment ago it holds every refresh off until
+  # the clock catches up. The stamp at the bottom rewrites it to now once a fetch lands.
+  (( now - last >= 0 && now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
