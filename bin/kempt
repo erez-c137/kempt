@@ -1110,6 +1110,10 @@ cmd_history() {
       echo "warning: corrupt history entry: $f" >&2
     fi
   done
+  # No entries at all is still an answer, in the words `kempt summary` uses: empty output reads as
+  # the command having failed. Only when there are no entry files: over entries that all failed to
+  # read, "no update runs recorded" would be false, and the warnings above already say what is wrong.
+  (( ${#files[@]} )) || echo "no update runs recorded yet"
 }
 
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is

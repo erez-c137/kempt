@@ -8,7 +8,8 @@ kempt_init_dirs
 # the widget, which shells out to them).
 assert_exit 0 "summary with no runs exits clean" "$KEMPT" summary
 assert_eq "$("$KEMPT" summary)" "no update runs recorded yet" "empty history says so in words"
-assert_eq "$("$KEMPT" history)" "" "empty history lists nothing"
+assert_eq "$("$KEMPT" history)" "no update runs recorded yet" \
+  "empty history says so in the same words, instead of printing nothing"
 # --json's "no data" answer is EMPTY stdout under exit 0, never a fabricated empty run - the same
 # rule the state file lays down for `kempt check`. Only the human mode says it in words.
 assert_exit 0 "summary --json with no runs exits clean" "$KEMPT" summary --json
@@ -268,6 +269,15 @@ arc=0
 aout="$("$KEMPT" summary 2>/dev/null)" || arc=$?
 assert_eq "$arc" "0" "all-corrupt history still exits 0"
 assert_eq "$aout" "no update runs recorded yet" "all-corrupt history degrades to the no-runs message"
+# `kempt history` lists entries, not the newest readable run, so over the same directory "no update
+# runs recorded yet" would be false: runs were recorded, they just cannot be read. The warnings say
+# that; the no-runs line is for a history with no entries at all.
+hcrc=0
+hcout="$("$KEMPT" history 2>"$TESTTMP/hist-corrupt.err")" || hcrc=$?
+assert_eq "$hcrc" "0" "history over only damaged entries still exits 0"
+assert_eq "$hcout" "" "...and does not claim that no runs were recorded"
+assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/hist-corrupt.err")" "$(ls -1 "$HIST_DIR"/*.json | wc -l)" \
+  "...while every damaged entry is still named on stderr"
 ajrc=0
 ajout="$("$KEMPT" summary --json 2>/dev/null)" || ajrc=$?
 assert_eq "$ajrc" "0" "all-corrupt history still exits 0 under --json"
