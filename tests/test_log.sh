@@ -238,6 +238,11 @@ assert_eq "$(friendly_of 'Error executing command as another user: No authentica
 assert_eq "$(friendly_of 'Error checking for authorization io.github.erez_c137.kempt.refresh: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown\n')" \
   "Error checking for authorization io.github.erez_c137.kempt.refresh: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown" \
   "a failure that is not about authorization passes through in its own words"
+# pkexec could not reach polkit at all (no system bus, or polkitd is not running), exit 127. The
+# raw text names GLib's internals and nothing a person can act on.
+assert_eq "$(friendly_of 'Error getting authority: Error initializing authority: Could not connect: No such file or directory\n')" \
+  "cannot reach polkit (no system bus or polkit service), so nothing can be authorized" \
+  "polkit being unreachable is said in plain words"
 
 FRIENDLY="$REFUSED"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"

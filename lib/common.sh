@@ -428,8 +428,13 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
 KEMPT_AUTH_CANCELLED='authentication cancelled'
 KEMPT_AUTH_REFUSED='not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)'
 KEMPT_AUTH_NO_AGENT='no authentication agent is running to ask for the password'
+# - "Error getting authority" (exit 127): pkexec could not reach polkit on the system bus at all,
+#   so nothing was asked and nothing could have been authorized.
+KEMPT_AUTH_UNREACHABLE='cannot reach polkit (no system bus or polkit service), so nothing can be authorized'
 friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sentences
   case "$1" in
+    *"Error getting authority"*)
+      printf '%s\n' "$KEMPT_AUTH_UNREACHABLE" ;;
     *"Request dismissed"*)
       printf '%s\n' "$KEMPT_AUTH_CANCELLED" ;;
     *"No authentication agent found"*|*"textual authentication agent"*|*"local authentication agent"*)

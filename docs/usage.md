@@ -507,13 +507,14 @@ Kempt writes four things, and they answer different questions. Reaching for the 
 
 A run that failed at authorization says why in plain words in all of the first four. The raw
 pkexec wording is kept in the run log and nowhere else, because that file is evidence rather than
-a summary. There are three sentences, one for each thing pkexec can report:
+a summary. There are four sentences, one for each thing pkexec can report:
 
 | Kempt says | What happened |
 | --- | --- |
 | `authentication cancelled` | The authentication dialog was closed without a password. |
 | `not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)` | polkit said no. Either a password was given and not accepted, or no dialog was shown at all: both Kempt actions refuse a remote session and a session that is not the active one, for example after switching to another user. pkexec reports these the same way, so Kempt cannot tell them apart. |
 | `no authentication agent is running to ask for the password` | A password was needed and nothing on the desktop could ask for it. |
+| `cannot reach polkit (no system bus or polkit service), so nothing can be authorized` | pkexec could not talk to polkit at all, so nothing was asked. Usually a session with no system bus, such as a container, or `polkit.service` not running. |
 
 ## doctor
 
