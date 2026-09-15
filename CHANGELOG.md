@@ -23,6 +23,29 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   records the dependency on `/usr/bin/bash` and every supported Fedora ships bash 5. Installed files
   keep the timestamps they have in the release tarball.
 
+### Fixed
+
+- **A downloaded Fedora release upgrade can no longer be cancelled, discarded or started through
+  Kempt's root helper.** `kempt update` already refused to stage updates over a stored release
+  upgrade, but that check lived in the command line, which runs as you. For a few minutes after you
+  authenticate an update, or at any time with passwordless mode on, another program running as you
+  could call the root helper directly and replace, delete or arm the upgrade without a prompt. The
+  helper now reads dnf5's stored transaction itself and refuses all three with exit 3 when it holds
+  a release upgrade, or when the file cannot be read. `kempt update` reports the refusal, points at
+  `kempt doctor`, and never suggests `sudo dnf5 offline clean`, which would delete the download.
+- **`kempt enable-passwordless` installs exactly the rule it checked.** The rule used to be written
+  to a temporary file you own, checked, and then copied by root once the password prompt was
+  answered, so another program running as you could change it while the dialog was open. The
+  checked rule now goes to root through a pipe, with no file in between.
+- **The passwordless rule can only be installed at `/etc/polkit-1/rules.d/49-kempt.rules`.** The
+  destination check accepted some other paths, such as a home directory, and could be raced by
+  swapping a directory for a symbolic link after the check. The path is now fixed in every real run
+  of `enable-passwordless` and `disable-passwordless`. `KEMPT_RULES_DST` is only a test setting, and
+  it is refused whenever pkexec or root is involved.
+- **The root helpers ignore shell start-up settings from whoever starts them.** They run bash in
+  privileged mode, so `BASH_ENV` and similar variables are never read, even if a helper is started
+  some way other than through pkexec.
+
 ## [0.1.2] - 2026-09-15
 
 ### Upgrading from 0.1.1
