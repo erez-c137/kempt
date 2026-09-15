@@ -7,10 +7,18 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 ## What runs as root
 
-Two files, and nothing else:
+Two helpers, reached through Kempt's own polkit actions:
 
 - `kempt-refresh` - package metadata only.
 - `kempt-apply` - the dnf upgrade verbs.
+
+Two more commands run as root, and only when you ask for them. Each one raises its own `pkexec`
+prompt through pkexec's generic authentication rather than Kempt's actions:
+`kempt enable-passwordless` runs `install(1)` to write one polkit rule, and
+`kempt disable-passwordless` runs `rm -f` on that same file. Neither can be pointed anywhere except
+`/etc/polkit-1/rules.d/49-kempt.rules` (see [Passwordless mode](#passwordless-mode)). A checkout
+install also runs one `pkexec bash -c` from `install.sh` (see
+[Accepted limitations](#accepted-limitations)).
 
 They are `/usr/libexec/kempt-{refresh,apply}` from the package and `/usr/local/libexec/...` from a
 checkout install. The polkit action's `exec.path` pins whichever this build uses, and `kempt doctor`
@@ -95,7 +103,37 @@ nothing and installs nothing: it marks an already-downloaded transaction ready a
 `/system-update`, which is what systemd's offline-update generator looks for at the next boot.
 The environment variable is not a nicety - without it, dnf5 reboots the machine the moment the
 transaction is armed. `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged
-transaction; the worst it can do is throw away updates that had not been installed yet.
+transaction; the worst it can do is throw away updates that had not been installed yet. Neither
+will act on a stored Fedora release upgrade, as the next section describes.
+
+### The helper refuses to touch a stored Fedora release upgrade
+
+dnf5 keeps one stored offline transaction, and an ordinary offline update and a
+`dnf5 system-upgrade download` share it. All three offline verbs act on whichever is there: staging
+replaces it, cleaning deletes it, and arming makes the next restart install it. So before
+`dnf-offline-stage`, `dnf-offline-arm` or `dnf-offline-clean`, `kempt-apply` reads dnf5's
+`/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` and compares
+`system_releasever` with `target_releasever`:
+
+| What is stored | Result |
+| --- | --- |
+| Nothing (no file) | The verb runs |
+| An ordinary offline update (the two are equal) | The verb runs |
+| A release upgrade (the two differ) | Exit 3 and one line on stderr, before any privileged command |
+| A file that cannot be read, or has no usable release versions | Exit 3 and one line on stderr, before any privileged command |
+
+The last row refuses on purpose. The file and its directory are root-owned, so no unprivileged
+process can put it in that state, and the two possible mistakes cost very different amounts:
+refusing leaves the transaction for `sudo dnf5 offline clean` to remove, while going ahead could
+arm or delete a download of several gigabytes.
+
+The CLI refuses the offline surface in pre-flight before it gets this far. The helper's check is
+what holds for a caller that never went through the CLI, such as another process running as you
+inside the retention window described below. The helper parses the file itself instead of
+sourcing Kempt's library, and when it runs as root the path is fixed: the `KEMPT_OFFLINE_TOML` test
+setting is honoured only for an unprivileged caller. `dnf-upgrade` is not checked, because a live
+upgrade leaves the stored transaction alone. When `kempt update` sees exit 3 it reports what is
+stored and does not try to clean up with another offline verb.
 
 They share the apply action rather than getting one of their own because they are part of the
 same operation as the stage: `auth_admin_keep` is what lets one dialog cover a stage and the arm
@@ -152,11 +190,14 @@ defense in depth against a threat that mostly cannot happen; it is the **only** 
 between the retention window and a root command line, because polkit will not check the arguments
 for you and pkexec explicitly does not.
 
-What is left after the validation is the verb list itself. Inside the window (or under
-passwordless mode) a process running as you can upgrade the system or stage an offline
-transaction, without asking you. It cannot install a package of its choosing, pass an arbitrary
-flag, run an arbitrary command, or reach anything outside those two verbs. That is the bound. It
-is a real one, and it is smaller than "sudo", but it is not "nothing".
+What is left after the validation is the verb list itself, which is four verbs. Inside the window
+(or under passwordless mode) a process running as you can, without asking you, upgrade the system
+from its configured repositories, stage an ordinary offline update, arm a staged one so that the
+next restart installs it, or discard a staged one. It cannot stage over, arm or discard a stored
+Fedora release upgrade, because all three offline verbs refuse while one is stored. It cannot install
+a package of its choosing, pass an arbitrary flag, run an arbitrary command, or reach anything
+outside those four verbs. That is the bound. It is a real one, and it is smaller than "sudo", but it
+is not "nothing".
 
 Updating Flatpak apps is no longer inside that bound, because it is no longer inside the helper.
 It is bounded by Flatpak's own policy instead, which grants it to an active local session with no
@@ -198,8 +239,8 @@ construction root running code somebody else wrote. What bounds that is not Kemp
   knowing precisely: Fedora sets `repo_gpgcheck=0`, so it is the **packages** that are verified,
   not the repository metadata.
 - **Flatpak verifies commits.** System remotes are ostree repositories whose commits are signed,
-  and the remote configuration is root-owned the same way. Kempt only ever touches `--system`
-  scope, so a per-user remote a user added for themselves is outside what the helper will act on.
+  and the remote configuration is root-owned the same way. Kempt only ever updates `--system`
+  scope, so a per-user remote a user added for themselves is outside what Kempt acts on.
 - **Upgrade verbs still run vendor scriptlets as root.** An RPM `%post` from any package in the
   transaction runs as root, and Kempt has no say in that whatsoever. This is equally true of
   `sudo dnf5 upgrade` typed by hand; Kempt neither adds nor removes that exposure, and no amount
@@ -251,6 +292,12 @@ consequence: the `KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO` test seams inside t
 cannot be triggered from outside a test harness, because the variable never survives the
 transition. They only ever print a command line instead of running it.
 
+The helpers do not rely on pkexec alone. Both start with `#!/usr/bin/bash -p`, and in that
+privileged mode bash never reads `BASH_ENV` or `ENV` and ignores `SHELLOPTS`, `BASHOPTS`, `CDPATH`,
+`GLOBIGNORE` and exported functions. A helper started some other way, such as `sudo -E`, still runs
+none of the caller's code before its first line. The one seam that could change a decision rather
+than just print, `KEMPT_OFFLINE_TOML` in `kempt-apply`, is ignored whenever the helper runs as root.
+
 ## Passwordless mode
 
 `kempt enable-passwordless` installs one polkit rule at
@@ -285,7 +332,7 @@ substitution could quietly break:
   metacharacters. A name that does not match aborts with an instruction to install the file by
   hand.
 - Substitution is `awk -v`, which never reinterprets the value as a pattern.
-- **The rendered file must be, exactly, the rule this command is allowed to install.** Comment
+- **The rendered rule must be, exactly, the rule this command is allowed to install.** Comment
   lines are stripped, the rest is collapsed to one whitespace-normalised line, and that line is
   compared against a single string held in `lib/common.sh`. Anything else - one token different,
   one clause more - writes nothing and exits 2.
@@ -299,7 +346,11 @@ substitution could quietly break:
   test is now equality, not presence. Reflowing or re-indenting the template is still fine;
   changing what it says means changing the string in `lib/common.sh` too, which is the review a
   file like this deserves.
-- The destination is pinned before use, because that path is handed to a root `install(1)`.
+- **Root installs the bytes that were checked.** The rule is rendered and checked in memory, then
+  piped to `pkexec install -m 0644 -o root -g root /dev/stdin`. No rendered file exists on disk, so
+  there is nothing another process running as you could rewrite while the authentication dialog
+  waits for an answer. pkexec asks for the password through its agent or the terminal, not on stdin.
+- **The destination is fixed**, because it is handed to a root `install(1)` and a root `rm`.
   polkit reads **four** rules directories, in this order (polkit(8)):
 
   ```
@@ -309,17 +360,16 @@ substitution could quietly break:
   /usr/share/polkit-1/rules.d
   ```
 
-  Kempt pins the administrator's one, `/etc/polkit-1/rules.d`, because the other three belong to
-  the runtime and to packages. So the destination must be an absolute path ending in `.rules`,
-  and either inside `/etc/polkit-1/rules.d/` or outside every system prefix (`/etc`, `/run`,
-  `/usr`, `/var`, `/boot`, `/opt`) - the last case being what the test seam uses. Anything else
-  is refused: it would only ever plant a root-owned file somewhere that reads it. Fencing `/etc`
-  alone was not enough, and this is the bug that made the list explicit: it left the other three
-  polkit directories open, including `/usr/share/polkit-1/rules.d/50-default.rules`, a file
-  Fedora actually ships, as well as unrelated `.rules` consumers such as
-  `/usr/lib/udev/rules.d/`. The comparison runs on the `realpath -m` form, so `..` cannot walk a
-  destination out of the directory it claims to be in.
-- Installation is a single `pkexec install -m 0644 -o root -g root`.
+  Kempt uses the administrator's one, because the other three belong to the runtime and to
+  packages, and it uses exactly one file in it: `/etc/polkit-1/rules.d/49-kempt.rules`. Every
+  directory on that path is root-owned, so nothing running as you can swap one for a symlink between
+  a check and the write. An allow-list of directories would not be enough for that reason: a check
+  on a path you can write to can be defeated after it passes.
+
+  The `KEMPT_RULES_DST` test setting changes the destination only when there is no pkexec wrapper
+  and Kempt is not running as root. In that case the install and the removal run as you and can
+  write nothing you could not already write. In any other run the setting is refused with exit 2,
+  so nobody is told a rule went somewhere it did not.
 
 `kempt disable-passwordless` removes the file. It reports "not enabled" only when it can
 actually search the directory: the real `/etc/polkit-1/rules.d` is 0750 `root:polkitd`, where an
@@ -346,11 +396,11 @@ Recorded here rather than quietly fixed later:
   refused instead. Not tested here either way. The widget and the terminal surface are local
   desktop sessions, which is the path this is written for.
 - **The `*_ECHO` seams live in root-owned code.** They are unreachable through pkexec (see
-  above) and they only print, but they are there.
-- **The rules destination has a test-seam escape hatch.** Any path outside the six system
-  prefixes is accepted, a home directory included, because that is how the suite drives the
-  real install path; no polkit rules directory is reachable that way, so it grants no policy
-  escalation.
+  above) and they only print, but they are there. So is `KEMPT_OFFLINE_TOML` in `kempt-apply`,
+  which the helper ignores whenever it runs as root.
+- **The rules destination has a test setting.** `KEMPT_RULES_DST` redirects `enable-passwordless`
+  and `disable-passwordless`, and only in a run with no pkexec wrapper that is not running as root.
+  There both commands run as you, so the setting cannot reach a root write.
 - **The checkout is load-bearing.** Anyone who can write to your Kempt checkout controls what
   your user runs, including the passwordless rules template that `enable-passwordless` renders
   before handing the result to root. Keep the checkout in your own home or workspace, never
@@ -362,12 +412,13 @@ Recorded here rather than quietly fixed later:
   argument rather than interpolated into the script text, so a checkout path containing a quote
   cannot break or inject into the root command.
 - **Inside the retention window, an armed offline transaction can be replaced without a prompt.**
-  `dnf-offline-stage` is one of the two verbs the window covers, and staging over an existing
+  `dnf-offline-stage` is one of the four verbs the window covers, and staging over an existing
   transaction is a replace: dnf5 destroys the old one and builds a new one. So for the few minutes
   after you authenticate a stage, another process running as you can swap the transaction your
   next restart will install, with no dialog to notice. This is the retention window described
   above rather than anything specific to the offline path, and the same bound applies: it can
-  stage what a Kempt run would stage, not a package of its choosing. What limits it today is the
+  stage what a Kempt run would stage, not a package of its choosing, and it cannot replace a stored
+  Fedora release upgrade, which the helper refuses. What limits it today is the
   window's own length, which Kempt does not set and cannot shorten. What is no longer invisible is
   the swap itself: `kempt doctor` now compares Kempt's marker against dnf5's stored transaction and
   FAILs with both directions of the difference when they disagree. That makes a replacement

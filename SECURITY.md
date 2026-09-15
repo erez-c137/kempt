@@ -1,8 +1,10 @@
 # Security policy
 
 **Nothing Kempt installs is setuid, and every escalation goes through polkit.** The two root
-helpers are `root:root` 0755 and are launched by `pkexec` against two action ids; nothing else in
-the tree ever runs as root. Neither `install.sh` nor `kempt.spec` sets any mode other than 0755 and
+helpers are `root:root` 0755 and are launched by `pkexec` against two action ids; no other file in
+the tree runs as root. The only other root commands are the `install(1)` and `rm` behind
+`kempt enable-passwordless` and `kempt disable-passwordless`, and the one `pkexec bash -c` in
+`install.sh`, each behind its own authentication prompt. Neither `install.sh` nor `kempt.spec` sets any mode other than 0755 and
 0644, so no Kempt file can gain privilege on its own. Security reports are taken seriously and
 handled privately.
 
@@ -47,7 +49,8 @@ This is a small, single-maintainer project, so the promise is honest rather than
 The interesting attack surface, in the order it is worth your time:
 
 1. `libexec/kempt-apply` and `libexec/kempt-refresh` - the only code that runs as root.
-   Argument validation, the pinned `PATH` and `LC_ALL`, the Flatpak installed-set check.
+   Argument validation, the pinned `PATH` and `LC_ALL`, bash's privileged mode, and the refusal
+   to act on a stored Fedora release upgrade.
 2. `polkit/io.github.erez_c137.kempt.policy` - the two action definitions and their authorization levels.
 3. `polkit/49-kempt.rules.in` and `render_passwordless_rule` in `lib/common.sh` - the rendered
    rule, its self-check, and anything that could get an unverified rule past it.
