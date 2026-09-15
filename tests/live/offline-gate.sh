@@ -49,6 +49,10 @@ bad() { echo "FAIL: $1"; [[ -n "${2:-}" ]] && echo "  got: $2"; fail=$((fail+1))
 is()  { [[ "$2" == "$3" ]] && ok "$1" || bad "$1" "'$2' (expected '$3')"; }
 has() { grep -qF -- "$3" <<<"$2" && ok "$1" || bad "$1" "$(head -c 300 <<<"$2")"; }
 hasnt() { grep -qF -- "$3" <<<"$2" && bad "$1" "$(head -c 300 <<<"$2")" || ok "$1"; }
+# For a list of package names, one per line: the whole line must match. `hasnt` matches any
+# substring, so holding curl reads as still staged while libcurl is, and dnf5 as still staged while
+# dnf5-plugins is.
+lacks_name() { grep -qxF -- "$3" <<<"$2" && bad "$1" "$(head -c 300 <<<"$2")" || ok "$1"; }
 toml_status() { sed -n 's/^status = "\(.*\)"/\1/p' "$TOML" 2>/dev/null; [[ -f "$TOML" ]] || echo absent; }
 marker() { cat "$STATE/offline_staged.json" 2>/dev/null || echo ""; }
 events() { cat "$STATE/events.log" 2>/dev/null || true; }
@@ -112,7 +116,7 @@ section "S3 rebuild with the hold: the excluded package leaves the transaction"
 "$K" update --surface=offline --no-flatpak > /tmp/s3.out 2>&1; rc=$?
 is "rebuild exits 0" "$rc" "0"
 is "dnf5 says ready again" "$(toml_status)" "ready"
-hasnt "the held package is no longer in dnf5's transaction" "$(txnames)" "$NAME"
+lacks_name "the held package is no longer in dnf5's transaction" "$(txnames)" "$NAME"
 m=$(marker)
 is "marker records the exclusion" "$(jq -c '.staged_excluded' <<<"$m")" "[\"$NAME\"]"
 has "event: offline restage names the hold" "$(events)" "offline restage (holds: $NAME)"
@@ -142,7 +146,7 @@ section "S5 rebuild fails on the network: the previous armed stage survives unto
 "$K" hold "dnf:$OTHER" >/dev/null 2>&1
 "$K" update --surface=offline --no-flatpak > /tmp/s5a.out 2>&1
 is "a stage without $OTHER is armed" "$(toml_status)" "ready"
-hasnt "...and really lacks $OTHER" "$(txnames)" "$OTHER"
+lacks_name "...and really lacks $OTHER" "$(txnames)" "$OTHER"
 at5=$(jq -r .staged_at < "$STATE/offline_staged.json")
 "$K" unhold "dnf:$OTHER" >/dev/null 2>&1
 mkdir -p /tmp/repos.bak && cp /etc/yum.repos.d/*.repo /tmp/repos.bak/
@@ -153,7 +157,7 @@ sed -i -e 's|^metalink=.*|baseurl=http://127.0.0.1:9/|' -e 's|^baseurl=.*|baseur
 echo "  on disk after the failed rebuild: toml=$(toml_status) symlink=$([[ -L $LINK ]] && echo present || echo absent) marker=$([[ -n "$(marker)" ]] && echo present || echo absent)"
 is "the previous transaction is still armed" "$(toml_status)" "ready"
 [[ -L "$LINK" ]] && ok "the boot symlink still stands" || bad "the boot symlink is gone"
-hasnt "...and it is the same stage, still without $OTHER" "$(txnames)" "$OTHER"
+lacks_name "...and it is the same stage, still without $OTHER" "$(txnames)" "$OTHER"
 is "the marker is the same marker" "$(jq -r .staged_at < "$STATE/offline_staged.json" 2>/dev/null)" "$at5"
 is "no clean was run against it" "$(events | grep -c 'offline marker cleared')" "$ev5"
 has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
