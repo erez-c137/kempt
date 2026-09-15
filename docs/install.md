@@ -98,7 +98,7 @@ kempt doctor
 On a packaged box that has not run anything yet:
 
 ```
-info  kempt 0.1.1 (/usr/share/kempt)
+info  kempt 0.1.x (/usr/share/kempt)
 ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -111,7 +111,7 @@ ok    dnf: /usr/bin/dnf5
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
 ok    program files intact: /usr/share/kempt
-info  version: kempt 0.1.1
+info  version: kempt 0.1.x
 info  install: packaged - the package manager keeps these files in step
 ok    widget engine: /usr/share/kempt/bin/kempt
 
@@ -394,7 +394,7 @@ force that: removing it would take the widget off your panel and out of your tra
 Then `kempt doctor` confirms every copy matches the checkout:
 
 ```
-info  version: kempt 0.1.1 (checkout a1b2c3d clean)
+info  version: kempt 0.1.x (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout

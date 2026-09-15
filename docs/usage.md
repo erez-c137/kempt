@@ -532,7 +532,7 @@ kempt doctor
 On a checkout install:
 
 ```
-info  kempt 0.1.1 (/home/you/src/kempt)
+info  kempt 0.1.x (/home/you/src/kempt)
 ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -545,7 +545,7 @@ ok    dnf: /usr/bin/dnf5
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
-info  version: kempt 0.1.1 (checkout a1b2c3d clean)
+info  version: kempt 0.1.x (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout
@@ -645,7 +645,7 @@ are depends on which install you have, which is why they are described here by n
 position.
 
 `version:` names the release and, in a git checkout, the commit it was built from and whether the
-tree is clean. It is the line worth quoting in a bug report: `0.1.1` covers many commits, and
+tree is clean. It is the line worth quoting in a bug report: one release number covers many commits, and
 `dirty` says local edits are in play. A tree with no git history, or a box with no `git`, prints
 the release alone.
 
@@ -777,7 +777,7 @@ its type, its default and its effect are in [configuration.md](configuration.md)
 ## --version
 
 ```bash
-kempt --version        # kempt 0.1.1
+kempt --version        # kempt 0.1.x
 kempt version          # the same, for the spelling people guess
 kempt -V               # and the one they have in their fingers
 ```
