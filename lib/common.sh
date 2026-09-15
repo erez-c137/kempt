@@ -366,6 +366,23 @@ KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
 priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
+# kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
+# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. The
+# helper decides that as root, on its own, so the CLI's pre-flight is not the only guard. Nothing ran
+# and nothing changed when it does. A caller that sees this status must not unwind with another
+# offline verb (the helper refuses that too, for the same reason) and must not advise
+# `dnf5 offline clean`, which would delete exactly what the refusal protected.
+# shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
+KEMPT_APPLY_REFUSED=3
+apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
+  local relup
+  if relup="$(offline_release_upgrade)"; then
+    printf 'a Fedora release upgrade (%s) is stored\n' "$relup"
+  else
+    printf 'the stored offline transaction could not be read\n'
+  fi
+}
+
 # The tail of a captured stderr file, flattened to one line for a JSON string or a warning, in one
 # place because all three callers need the same pipeline. The trailing `sed` is not cosmetic:
 # `tr '\n' ' '` turns the file's final newline into a SPACE, and command substitution strips
@@ -430,8 +447,12 @@ now_iso()      { date -Is; }
 # --- passwordless polkit rule rendering ---
 # Split out of bin/kempt so the render and its self-check are unit-testable without touching
 # /etc: the ONLY thing this file's caller then does is hand the result to install(1).
-render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing written
-  local tmpl="$1" out="$2" u
+# The rule is rendered, checked and printed from memory, never from a file. The caller pipes that
+# output straight into root's install(1), so the bytes root installs are the bytes that were
+# checked. A rendered file on disk would be the user's own file, and another process running as the
+# user could rewrite it after the check while the authentication dialog waits.
+render_passwordless_rule() {  # template_file → the verified rule on stdout, or 2 with nothing printed
+  local tmpl="$1" u text
   # $(id -un), never $USER: a crafted USER env var used to be sed-injected into the render and
   # could drop the scope clause. id -un is kernel truth, awk -v never interprets it, and the
   # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
@@ -439,7 +460,7 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
   [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || {
     echo "unexpected username: $u - install the rules file manually; see polkit/49-kempt.rules.in" >&2
     return 2; }
-  awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl" > "$out" || { rm -f "$out"; return 2; }
+  text="$(awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl")" || return 2
   # Self-check by EXACT MATCH against the rule this function is allowed to produce, never by
   # grepping for the clauses that ought to be in it. Greps catch subtraction and miss ADDITION: a
   # template carrying the scope clause, the action id and a single addRule block passes every such
@@ -452,7 +473,7 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
   # reflowing or re-indenting the template is fine and changing a token is not. A deliberate
   # change to the rule means changing this string too - which is the review the file deserves.
   local code expected
-  code="$(grep -v '^[[:space:]]*//' "$out" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
+  code="$(grep -v '^[[:space:]]*//' <<<"$text" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
   code="${code# }"; code="${code% }"
   expected='polkit.addRule(function(action, subject) {'
   expected+=' if (action.id == "io.github.erez_c137.kempt.apply" &&'
@@ -460,8 +481,9 @@ render_passwordless_rule() {  # template_file out_file → 0, or 2 with nothing 
   expected+=' return polkit.Result.YES; } });'
   if [[ "$code" != "$expected" ]]; then
     echo "rendered rule is not the rule this command installs - refusing" >&2
-    rm -f "$out"; return 2
+    return 2
   fi
+  printf '%s\n' "$text"
 }
 
 # --- holds: one "backend:name" per line ---

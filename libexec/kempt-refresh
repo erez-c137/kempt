@@ -1,7 +1,9 @@
-#!/bin/bash
+#!/usr/bin/bash -p
 # Kempt root helper - metadata only. polkit action io.github.erez_c137.kempt.refresh (allow_active=yes).
-# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
-# the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
+# Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing. -p keeps
+# bash from reading BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH, GLOBIGNORE or exported functions
+# from the caller (see kempt-apply). PATH is exported, so the pinned lookup order reaches dnf5's own
+# children too.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8

@@ -1,11 +1,15 @@
-#!/bin/bash
+#!/usr/bin/bash -p
 # Kempt root helper - the dnf upgrade verbs, and only those. polkit action
 # io.github.erez_c137.kempt.apply (auth_admin_keep). Flatpak is NOT here: `flatpak update` needs
 # no password of its own in an active local session, so it runs as the user from
 # backends/flatpak.sh, which is where the reasoning and the two residual prompts are written down.
 # SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
-# Absolute shebang + pinned PATH: defense in depth beyond pkexec's env sanitizing. Exported, so
-# the pinned lookup order reaches dnf5's own children (rpm scriptlets run as root) too.
+# Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing.
+# -p is bash's privileged mode. It never reads BASH_ENV or ENV, and it ignores SHELLOPTS, BASHOPTS,
+# CDPATH, GLOBIGNORE and exported functions, so a caller that skips pkexec (sudo -E, say) still
+# cannot run code before the first line below. /usr/bin/bash because that is the path the package
+# ships. PATH is exported, so the pinned lookup order reaches dnf5's own children (rpm scriptlets
+# run as root) too.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
@@ -13,6 +17,58 @@ NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: KEMPT_APPLY_ECHO=1 prints instead of exec
   if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+}
+
+# dnf5's record of the ONE stored offline transaction. An ordinary offline update and a Fedora
+# release upgrade share it, and all three offline verbs act on whichever is there: staging replaces
+# it, cleaning deletes it, arming makes the next restart install it. So this helper refuses all three
+# over a stored release upgrade itself. The CLI refuses first, but the CLI runs as the user, and
+# anything that calls this helper directly (inside polkit's retention window, or at any time under
+# passwordless mode) never passes through the CLI.
+#
+# The path is fixed whenever this runs as root. KEMPT_OFFLINE_TOML is honoured only for an
+# unprivileged caller, which is the test suite: a seam must never be able to change what root
+# decides, and a non-root caller cannot run any of these dnf5 commands anyway.
+OFFLINE_STATE=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml
+if [[ $EUID -ne 0 && -n "${KEMPT_OFFLINE_TOML:-}" ]]; then OFFLINE_STATE="$KEMPT_OFFLINE_TOML"; fi
+
+# Exit status for "refused because of what is stored", kept apart from 2 (bad arguments) so the CLI
+# can tell the two apart and say which it was. dnf5 itself exits 0, 1, 2 or 100, and pkexec 126 or
+# 127, so 3 cannot be mistaken for either of them.
+REFUSED=3
+
+# One `key = "value"` line from dnf5's file, the same line-anchored read lib/common.sh uses. It is
+# repeated here rather than sourced because root must never source a file outside this helper. The
+# value must look like a release version ("44", "rawhide", "eln"). Anything else is treated as a
+# file that cannot be read, and never as a match.
+stored_value() {  # key → the value; rc 1 when it is missing or not shaped like a release version
+  local v
+  v="$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$OFFLINE_STATE" 2>/dev/null)" \
+    || return 1
+  v="${v%%$'\n'*}"
+  [[ "$v" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  printf '%s\n' "$v"
+}
+
+# No file: nothing is stored, so there is nothing to protect.
+# A file whose two release versions are equal: an ordinary offline update. Allowed.
+# A file whose two release versions differ: a release upgrade. Refused.
+# A file that exists but cannot be read, or has no usable release versions: REFUSED. This is the
+# fail-closed choice, and it is deliberate. The file is root-owned in a root-owned directory, so no
+# unprivileged process can put it in this state. And the two mistakes cost very different amounts:
+# refusing leaves the transaction in place, and `sudo dnf5 offline clean` still removes it, while
+# allowing could arm or delete a release upgrade that took gigabytes to download.
+guard_stored_release_upgrade() {  # verb → returns, or exits REFUSED
+  [[ -e "$OFFLINE_STATE" || -L "$OFFLINE_STATE" ]] || return 0
+  local from to
+  if [[ -f "$OFFLINE_STATE" && -r "$OFFLINE_STATE" ]] \
+     && from="$(stored_value system_releasever)" && to="$(stored_value target_releasever)"; then
+    [[ "$from" != "$to" ]] || return 0
+    echo "kempt-apply: refusing $1: a Fedora release upgrade ($from -> $to) is stored" >&2
+  else
+    echo "kempt-apply: refusing $1: the stored offline transaction cannot be read, so it may be a Fedora release upgrade" >&2
+  fi
+  exit "$REFUSED"
 }
 
 verb="${1:-}"; shift || true
@@ -28,7 +84,12 @@ case "$verb" in
         *) echo "invalid arg: $a" >&2; exit 2 ;;
       esac
     done
-    offline=(); [[ "$verb" == dnf-offline-stage ]] && offline=(--offline)
+    offline=()
+    # A live upgrade leaves the stored transaction alone, so only the stage is guarded.
+    if [[ "$verb" == dnf-offline-stage ]]; then
+      guard_stored_release_upgrade "$verb"
+      offline=(--offline)
+    fi
     run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
     ;;
   # A staged transaction sits at status="download-complete" and no boot applies it. This is what
@@ -40,6 +101,7 @@ case "$verb" in
   # can pin; a bare prefix assignment would be invisible to both.
   dnf-offline-arm)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    guard_stored_release_upgrade "$verb"
     run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
     ;;
   # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
@@ -48,6 +110,7 @@ case "$verb" in
   # rpm set moves the stage can only fail at boot.
   dnf-offline-clean)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    guard_stored_release_upgrade "$verb"
     run dnf5 offline clean -y
     ;;
   *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;

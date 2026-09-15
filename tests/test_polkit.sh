@@ -29,24 +29,27 @@ SCOPE='subject.active && subject.local'
 # (what the self-check refuses) plus the production-path check below, which proves a hostile USER
 # env var never reaches the render at all.
 
-# (a) scope clause stripped → refused, nothing written
+# The render prints the checked rule on stdout and nothing else; the caller pipes that into root's
+# install(1). So "refused" has to mean "printed nothing": a partial rule on stdout would be a rule
+# on its way to root.
+render_stdout() { render_passwordless_rule "$1" 2>/dev/null || true; }
+
+# (a) scope clause stripped → refused, nothing printed
 sed 's/ && subject.active && subject.local//' "$RULES_IN" > "$TESTTMP/tmpl-noscope"
 assert_exit 2 "render refuses a template that lost the scope clause" \
-  render_passwordless_rule "$TESTTMP/tmpl-noscope" "$TESTTMP/out-noscope"
-[[ -e "$TESTTMP/out-noscope" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
-  || echo "ok: refused render leaves nothing behind"
+  render_passwordless_rule "$TESTTMP/tmpl-noscope"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-noscope")" "" "refused render prints nothing"
 # (a2) the same, but with the clause surviving in a COMMENT: a self-check that reads comments
 # would install a rule whose executable half has no scope test at all.
 { echo "// $SCOPE"; cat "$TESTTMP/tmpl-noscope"; } > "$TESTTMP/tmpl-commentonly"
 assert_exit 2 "render is not fooled by a scope clause that survives only in a comment" \
-  render_passwordless_rule "$TESTTMP/tmpl-commentonly" "$TESTTMP/out-commentonly"
+  render_passwordless_rule "$TESTTMP/tmpl-commentonly"
 
 # (b) action id swapped for a broader one → refused (this template would grant pkexec itself)
 sed 's/io.github.erez_c137.kempt.apply/org.freedesktop.policykit.exec/' "$RULES_IN" > "$TESTTMP/tmpl-badaction"
 assert_exit 2 "render refuses a template with a different action id" \
-  render_passwordless_rule "$TESTTMP/tmpl-badaction" "$TESTTMP/out-badaction"
-[[ -e "$TESTTMP/out-badaction" ]] && { echo "FAIL: refused render still wrote a file"; _fail=1; } \
-  || echo "ok: wrong-action render leaves nothing behind"
+  render_passwordless_rule "$TESTTMP/tmpl-badaction"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-badaction")" "" "wrong-action render prints nothing"
 
 # (b1b) a WIDENED rule inside the one permitted block → refused. This is the case every
 # grep-based check missed: the scope clause is there, the action id is there, there is exactly one
@@ -55,24 +58,25 @@ assert_exit 2 "render refuses a template with a different action id" \
 awk '/^polkit.addRule/ { print; print "    if (subject.user == \"@USER@\") return polkit.Result.YES;"; next } { print }' \
     "$RULES_IN" > "$TESTTMP/tmpl-widened"
 assert_exit 2 "render refuses a rule widened inside the block it is allowed to have" -- \
-  render_passwordless_rule "$TESTTMP/tmpl-widened" "$TESTTMP/out-widened"
+  render_passwordless_rule "$TESTTMP/tmpl-widened"
 # ...and the refusal has to be readable by whoever hits it, because the person running
 # enable-passwordless is being told their grant did NOT happen. Checked here, before the next
 # assertion overwrites last_output.
 grep -qF 'refusing' "$TESTTMP/last_output" \
   && echo "ok: ...and says it is refusing rather than naming a 'scope check'" \
   || { echo "FAIL: the refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
-assert_exit 1 "widened render leaves nothing behind" -- test -e "$TESTTMP/out-widened"
+assert_eq "$(render_stdout "$TESTTMP/tmpl-widened")" "" "widened render prints nothing"
 
 # (b2) a second rule block appended → refused (one addRule is the whole contract)
 { cat "$RULES_IN"; echo 'polkit.addRule(function(action, subject) { return polkit.Result.YES; });'; } \
   > "$TESTTMP/tmpl-tworules"
 assert_exit 2 "render refuses a template carrying a second rule block" \
-  render_passwordless_rule "$TESTTMP/tmpl-tworules" "$TESTTMP/out-tworules"
+  render_passwordless_rule "$TESTTMP/tmpl-tworules"
 
-# (c) the shipped template → accepted, and the result is exactly what should be installed
+# (c) the shipped template → accepted, and what it prints is exactly what should be installed
 assert_exit 0 "render accepts the shipped template" \
-  render_passwordless_rule "$RULES_IN" "$TESTTMP/out-good"
+  render_passwordless_rule "$RULES_IN"
+render_passwordless_rule "$RULES_IN" > "$TESTTMP/out-good" 2>/dev/null
 grep -qF "subject.user == \"$ME\"" "$TESTTMP/out-good" && echo "ok: rendered for the real username" \
   || { echo "FAIL: username not rendered"; _fail=1; }
 grep -qF "$SCOPE" "$TESTTMP/out-good" && echo "ok: rendered rule keeps the scope clause" \
@@ -81,8 +85,9 @@ assert_eq "$(grep -c 'polkit.addRule' "$TESTTMP/out-good")" "1" "exactly one pol
 grep -q '@USER@' "$TESTTMP/out-good" && { echo "FAIL: placeholder left unsubstituted"; _fail=1; } \
   || echo "ok: no placeholder survives the render"
 
-# The destination is handed to a ROOT install(1), so its shape is pinned. Both rejections happen
-# before anything is invoked; the sandbox paths mean a regression could only hit TESTTMP anyway.
+# The destination goes to a ROOT install(1) and a ROOT rm. Without a pkexec wrapper (the sandbox)
+# both run as the user, and that is the only case in which the test setting KEMPT_RULES_DST is
+# honoured, and then only for an absolute *.rules path. These rejections happen before anything runs.
 assert_exit 2 "enable rejects a destination that is not a .rules file" \
   env KEMPT_RULES_DST="$TESTTMP/notrules" "$KEMPT" enable-passwordless
 assert_exit 2 "enable rejects a relative destination" \
@@ -90,19 +95,34 @@ assert_exit 2 "enable rejects a relative destination" \
 assert_exit 2 "enable-passwordless takes no arguments" \
   env KEMPT_RULES_DST="$TESTTMP/absent.rules" "$KEMPT" enable-passwordless --force
 
-# "absolute and ends in .rules" was too loose: it accepted ANY path under /etc, so the seam could
-# hand a root install(1) a file in /etc/cron.d, /etc/sudoers.d or any other system config
-# directory that tolerates an unexpected filename. Fencing /etc was not enough either: polkit
-# reads FOUR rules directories (polkit(8)), and the three outside /etc were all still accepted,
-# along with every other system location - including /usr/share/polkit-1/rules.d/50-default.rules,
-# a file Fedora ships, and /usr/lib/udev/rules.d. The destination is now pinned to the polkit
-# ADMIN directory, or to somewhere outside every system prefix (which is what these tests use).
-# Compared after realpath -m, so `..` cannot walk out of the allowed directory.
+# Through pkexec the destination is fixed, and the test setting is refused outright. A recording
+# stand-in shows what root would have been asked to do, and for every destination below the answer
+# must be nothing. The list is where a root-owned .rules file does harm: the other three polkit rules
+# directories, a file the distribution ships, a udev rules directory, a path that walks out with
+# `..`, places outside any system prefix, and a user-writable directory, which a same-user process
+# could swap for a symlink between any check and the write.
+cat > "$TESTTMP/pkexec-record" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/pkexec-calls"
+[[ " \$* " == *" /dev/stdin "* ]] && cat >/dev/null
+exit 0
+STUB
+chmod +x "$TESTTMP/pkexec-record"
+mkdir -p "$TESTTMP/race/d"
 polkit_dst_rejected() {  # path label
-  assert_exit 2 "$2" env KEMPT_RULES_DST="$1" "$KEMPT" enable-passwordless
+  : > "$TESTTMP/pkexec-calls"
+  assert_exit 2 "$2" env KEMPT_PKEXEC="$TESTTMP/pkexec-record" KEMPT_RULES_DST="$1" "$KEMPT" enable-passwordless
   grep -q 'invalid rules destination' "$TESTTMP/last_output" \
     && echo "ok: ...and says why ($1)" || { echo "FAIL: no rejection message for $1"; _fail=1; }
+  assert_eq "$(wc -l < "$TESTTMP/pkexec-calls")" "0" "...and pkexec is never asked ($1)"
 }
+polkit_dst_rejected '/root/49-kempt.rules' "through pkexec, a destination in root's home is refused"
+polkit_dst_rejected '/srv/49-kempt.rules' "through pkexec, a destination under /srv is refused"
+polkit_dst_rejected '/home/other/.49-kempt.rules' "through pkexec, a destination in another user's home is refused"
+polkit_dst_rejected "$TESTTMP/race/d/49-kempt.rules" \
+  "through pkexec, a destination in a user-writable directory is refused"
+polkit_dst_rejected '/etc/polkit-1/rules.d/49-kempt.rules' \
+  "through pkexec, the test setting is refused even when it names the real destination"
 polkit_dst_rejected '/etc/polkit-1/rules.d/../../cron.d/x.rules' \
   "enable rejects a destination that walks out of the polkit rules directory"
 polkit_dst_rejected '/etc/cron.d/49-kempt.rules' \
@@ -123,26 +143,52 @@ polkit_dst_rejected '/usr/share/polkit-1/rules.d/50-default.rules' \
 # A .rules file is not only a polkit thing. udev reads them too, from a root-owned directory.
 polkit_dst_rejected '/usr/lib/udev/rules.d/99-kempt.rules' \
   "enable rejects a udev rules directory, which also takes .rules files"
-# ...and the real destination is still accepted: this must fail at the unprivileged install(1),
-# which is exit 1, not at the shape check, which is exit 2. Nothing is written: the real
-# /etc/polkit-1/rules.d is 0750 root:polkitd, so install cannot even create the file.
-assert_exit 1 "the real polkit rules destination passes the shape check" \
-  env KEMPT_RULES_DST=/etc/polkit-1/rules.d/49-kempt.rules "$KEMPT" enable-passwordless
-grep -q 'invalid rules destination' "$TESTTMP/last_output" \
-  && { echo "FAIL: the shipped destination was rejected by its own guard"; _fail=1; } \
-  || echo "ok: the shipped destination is not what the guard is for"
-[[ -e /etc/polkit-1/rules.d/49-kempt.rules ]] \
-  && { echo "FAIL: the test suite wrote a polkit rule to /etc"; _fail=1; } \
-  || echo "ok: nothing reached /etc"
-# ...and so is the sandbox path every test in this file uses. This is the reason the guard is a
-# system-prefix DENY list rather than "/etc/polkit-1/rules.d only": a suite that cannot name a
-# destination cannot exercise the production path at all. (It assumes TMPDIR is outside those
-# prefixes, which is the default /tmp; a TMPDIR under /var would fail this loudly, by design.)
-assert_exit 1 "a destination outside every system prefix passes the shape check" \
+# ...and with no test setting, pkexec is asked about exactly the fixed path, for both commands.
+: > "$TESTTMP/pkexec-calls"
+assert_exit 0 "through pkexec, enable installs to the fixed destination" -- \
+  env KEMPT_PKEXEC="$TESTTMP/pkexec-record" "$KEMPT" enable-passwordless
+assert_eq "$(cat "$TESTTMP/pkexec-calls")" \
+  "install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
+  "...and that destination is exactly /etc/polkit-1/rules.d/49-kempt.rules"
+: > "$TESTTMP/pkexec-calls"
+assert_exit 2 "through pkexec, disable refuses the test setting too" -- \
+  env KEMPT_PKEXEC="$TESTTMP/pkexec-record" KEMPT_RULES_DST="$TESTTMP/race/d/49-kempt.rules" "$KEMPT" disable-passwordless
+assert_eq "$(wc -l < "$TESTTMP/pkexec-calls")" "0" "...and pkexec is never asked"
+assert_exit 0 "through pkexec, disable still works on the fixed destination" -- \
+  env KEMPT_PKEXEC="$TESTTMP/pkexec-record" "$KEMPT" disable-passwordless
+# The real directory is 0750 root:polkitd, so an unprivileged run cannot look inside it and asks
+# root to remove the file. A box where the directory is searchable and the file is absent answers
+# "was not enabled" without asking; both are correct, and only the path asked about is pinned.
+if [[ -s "$TESTTMP/pkexec-calls" ]]; then
+  assert_eq "$(cat "$TESTTMP/pkexec-calls")" "rm -f /etc/polkit-1/rules.d/49-kempt.rules" \
+    "...removing exactly /etc/polkit-1/rules.d/49-kempt.rules"
+else
+  grep -q 'was not enabled' "$TESTTMP/last_output" \
+    && echo "ok: ...and reports the fixed destination as not enabled" \
+    || { echo "FAIL: disable neither removed the fixed path nor reported it absent"; _fail=1; }
+fi
+
+# As root, pkexec is not needed to write anywhere, so the test setting is refused there too. Run
+# as EUID 0 in an unprivileged user namespace, without sudo: if the refusal failed, the "root"
+# install would land in TESTTMP, where the second assertion finds it.
+if [[ $EUID -ne 0 ]] && command -v unshare >/dev/null && timeout 20 unshare --map-root-user true 2>/dev/null; then
+  assert_exit 2 "as root, the test setting is refused even with no pkexec wrapper" -- \
+    timeout 20 unshare --map-root-user env KEMPT_RULES_DST="$TESTTMP/as-root.rules" "$KEMPT" enable-passwordless
+  assert_exit 1 "...and nothing is written there" -- test -e "$TESTTMP/as-root.rules"
+else
+  skip "as-root destination test - needs an unprivileged user namespace"
+fi
+
+# Without a wrapper, the test setting is how this file drives the real install(1). It runs as the
+# user, so it fails at `-o root` with exit 1, after the shape check (exit 2) has passed.
+assert_exit 1 "without pkexec, a sandbox destination reaches the unprivileged install" \
   env KEMPT_RULES_DST="$TESTTMP/accepted.rules" "$KEMPT" enable-passwordless
 grep -q 'invalid rules destination' "$TESTTMP/last_output" \
-  && { echo "FAIL: the sandbox destination was rejected by the guard"; _fail=1; } \
+  && { echo "FAIL: the sandbox destination was rejected"; _fail=1; } \
   || echo "ok: the sandbox destination is accepted"
+[[ -e /etc/polkit-1/rules.d/49-kempt.rules ]] \
+  && { echo "FAIL: a polkit rule exists in /etc after the suite ran"; _fail=1; } \
+  || echo "ok: nothing reached /etc"
 assert_exit 2 "disable-passwordless takes no arguments" \
   env KEMPT_RULES_DST="$TESTTMP/absent.rules" "$KEMPT" disable-passwordless --force
 # Disabling something that was never enabled is not a failure, and must not raise an auth prompt
@@ -160,6 +206,35 @@ grep -q 'was not enabled' "$TESTTMP/last_output" \
   && { echo "FAIL: disable claimed 'not enabled' without being able to look"; _fail=1; } \
   || echo "ok: no false 'was not enabled' when the directory cannot be searched"
 chmod 755 "$TESTTMP/locked"
+
+# --- root installs the bytes that were checked -----------------------------------------------------
+# The authentication dialog can stay open for as long as a person takes to answer it. If the checked
+# rule sat in a file of the user's, any process running as the user could rewrite it in that time and
+# root would install the new text. So the rule reaches install(1) on stdin, and no file is left for
+# anyone to rewrite.
+# The stand-in for pkexec plays both sides: it first rewrites every file the command left in TMPDIR
+# with a rule that grants everything, then reads its source argument exactly as root's install(1)
+# would. It writes nowhere outside TESTTMP.
+mkdir -p "$TESTTMP/swap-tmp"
+cat > "$TESTTMP/pkexec-swap" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$TESTTMP/swap-argv"
+find "$TESTTMP/swap-tmp" -type f -exec sh -c 'printf "polkit.addRule(function(a, s) { return polkit.Result.YES; });\n" > "\$1"' _ {} \;
+cat -- "\${@: -2:1}" > "$TESTTMP/swap-installed"
+STUB
+chmod +x "$TESTTMP/pkexec-swap"
+assert_exit 0 "enable-passwordless succeeds through a pkexec that reads its source as root would" -- \
+  env TMPDIR="$TESTTMP/swap-tmp" KEMPT_PKEXEC="$TESTTMP/pkexec-swap" "$KEMPT" enable-passwordless
+assert_eq "$(cat "$TESTTMP/swap-argv")" \
+  "install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
+  "root's install(1) reads the rule from stdin, not from a file path"
+if cmp -s "$TESTTMP/out-good" "$TESTTMP/swap-installed"; then
+  echo "ok: ...and what it installs is byte for byte the rule that was checked, after a same-user rewrite"
+else
+  echo "FAIL: root would install something other than the checked rule"; _fail=1
+  sed 's/^/    /' "$TESTTMP/swap-installed"
+fi
+assert_eq "$(find "$TESTTMP/swap-tmp" -type f | wc -l)" "0" "...and no rendered file is left in TMPDIR to rewrite"
 
 # Production path through the documented seams: no pkexec wrapper (sandbox exports it empty),
 # destination and mktemp both inside TESTTMP, hostile USER in the environment. /etc is never a
