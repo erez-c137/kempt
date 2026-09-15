@@ -13,27 +13,29 @@ Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildArch:      noarch
 
-# Everything here is bash, QML and SVG. No compiler, no build step. Build-time tools are the
-# metainfo validator plus what the check-stage test suite needs (bash, jq, coreutils, flock).
+# Everything here is bash, QML and SVG. No compiler, no build step. Build-time tools are the two
+# metainfo validators plus what the check-stage test suite needs (bash, jq, coreutils, flock).
 #
 # No .desktop file, deliberately: a Plasma applet is not a menu-launched application.
 # plasmashell discovers the widget through plasmoid/metadata.json and it is added from Add
 # Widgets; there is nothing for a .desktop file to launch, which is also why the metainfo is
 # type="addon" with no <launchable>. So: no desktop-file-utils, no desktop-file-install.
 #
-# appstream, not libappstream-glib. Fedora's older guidance reaches for appstream-util, but its
-# validator rejects any stock icon whose name is not in a hardcoded list of freedesktop standard
-# names - verified here, it fails this package with "stock icon is not valid [kempt]" for an icon
-# the package itself installs into hicolor at six sizes. appstreamcli is the reference
-# implementation and the one the metainfo was authored against; it accepts the file with no
-# findings at all.
+# The check stage validates the metainfo twice. Fedora's AppData guidelines require
+# `appstream-util validate-relax`, with libappstream-glib as a build dependency. appstreamcli is
+# the reference implementation and the one the metainfo was written against, so it runs too.
+# The metainfo has no <icon>, which is why both accept it: it describes an add-on that extends
+# plasmashell, not an application, and appstream-util accepts a stock icon only from a fixed list
+# of freedesktop names, which "kempt" is not.
 BuildRequires:  appstream
+BuildRequires:  libappstream-glib
 # For the check stage only: the test suite's bash half needs these (the CLI needs them at
 # runtime too, so they are also Requires below - the build root does not inherit those).
 BuildRequires:  jq
 BuildRequires:  util-linux-core
 
-Requires:       bash >= 4.4
+# No Requires on bash: rpm generates /usr/bin/bash from the shebangs, and every supported Fedora
+# ships bash 5.
 Requires:       jq
 Requires:       dnf5
 Requires:       polkit
@@ -56,12 +58,15 @@ Recommends:     flatpak
 Recommends:     libnotify
 Recommends:     konsole
 
+# The widget package is described here, not named. rpmlint's dictionary does not know the second
+# half of its name and reports it as a spelling error on this package and the source package.
 %description
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
 applies them in a terminal, in the background, or staged for the next restart.
-The panel widget is packaged separately as kempt-plasmoid, so installing this
-package does not pull in the Plasma desktop.
+The Plasma panel widget is a separate package, which dnf5 adds by default on a
+system that has Plasma, so installing this package on a server or in a
+container does not pull in the desktop.
 
 %package plasmoid
 Summary:        Plasma 6 panel widget for Kempt
@@ -102,6 +107,9 @@ sed -i 's|/usr/local/libexec|%{_libexecdir}|g' \
 # Nothing to build.
 
 %install
+# Every file goes in with -p, and the trees with cp -a, so installed files keep the timestamps
+# they have in the release tarball.
+#
 # The CLI resolves its own tree with readlink -f, so /usr/bin/kempt is a SYMLINK into the tree.
 # A real file there would make ROOT=/usr and send it looking for /usr/lib/common.sh.
 install -d %{buildroot}%{_datadir}/%{name}
@@ -112,10 +120,10 @@ ln -s %{_datadir}/%{name}/bin/kempt %{buildroot}%{_bindir}/kempt
 # Two files the CLI reads out of its own tree at runtime, and the tree is $ROOT here rather than a
 # checkout. Verified by installing the package without them: `kempt --version` printed
 # "kempt unknown", and `kempt doctor` reported the install as an incomplete checkout.
-install -m 0644 VERSION %{buildroot}%{_datadir}/%{name}/VERSION
+install -p -m 0644 VERSION %{buildroot}%{_datadir}/%{name}/VERSION
 # `kempt enable-passwordless` renders this template into /etc/polkit-1/rules.d. Without it that
 # command has nothing to render and fails on the day someone runs it, not before.
-install -D -m 0644 polkit/49-kempt.rules.in \
+install -p -D -m 0644 polkit/49-kempt.rules.in \
     %{buildroot}%{_datadir}/%{name}/polkit/49-kempt.rules.in
 
 # lib/ and backends/ are SOURCED, never executed. rpmlint rejects a 0644 file carrying a shebang,
@@ -129,12 +137,12 @@ sed -i '1{/^#!/d}' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
                    %{buildroot}%{_datadir}/%{name}/backends/*.sh
 
 # Root helpers. Mode 0755, owned by root: the polkit action execs these and nothing else.
-install -D -m 0755 libexec/kempt-refresh %{buildroot}%{_libexecdir}/kempt-refresh
-install -D -m 0755 libexec/kempt-apply   %{buildroot}%{_libexecdir}/kempt-apply
+install -p -D -m 0755 libexec/kempt-refresh %{buildroot}%{_libexecdir}/kempt-refresh
+install -p -D -m 0755 libexec/kempt-apply   %{buildroot}%{_libexecdir}/kempt-apply
 
 # polkit action only. The passwordless RULE is generated per user by `kempt enable-passwordless`
 # into /etc/polkit-1/rules.d, names a specific username, and is the admin's file. Not packaged.
-install -D -m 0644 polkit/io.github.erez_c137.kempt.policy \
+install -p -D -m 0644 polkit/io.github.erez_c137.kempt.policy \
     %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
 
 # The plasmoid, in the KPackage layout: metadata.json at the root next to contents/.
@@ -146,23 +154,35 @@ cp -a plasmoid/metadata.json plasmoid/contents \
 # scriptlet: hicolor-icon-theme's own file triggers fire for any package touching that tree.
 for pair in scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg \
             32x32:kempt-32.svg 22x22:kempt-22.svg 16x16:kempt-16.svg; do
-    install -D -m 0644 "plasmoid/contents/icons/${pair#*:}" \
+    install -p -D -m 0644 "plasmoid/contents/icons/${pair#*:}" \
         "%{buildroot}%{_datadir}/icons/hicolor/${pair%%:*}/apps/kempt.svg"
 done
 
-install -D -m 0644 docs/man/kempt.1 %{buildroot}%{_mandir}/man1/kempt.1
-install -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
+install -p -D -m 0644 docs/man/kempt.1 %{buildroot}%{_mandir}/man1/kempt.1
+install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
     %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
-# %%doc ships docs/ whole, so README's relative links resolve on an installed system instead of
-# being a table of dead ends: 15 of its 17 now do, against 1 before. The two that do not are
-# LICENSE and docs/man/kempt.1, and both are files this package installs PROPERLY elsewhere -
-# %%license and %%{_mandir} - so shipping a second copy under %%doc to satisfy a link would be the
-# worse trade.
-# The development half is pruned here rather than in %%prep because the man page above is
-# installed OUT of docs/, and %%doc reads the tree as it stands at the end of this section: plans
-# and most research notes are working papers.
-rm -rf docs/man
+# %%doc ships only what someone using the installed package reads, file by file:
+# - README.md: what Kempt is and where everything else is.
+# - CHANGELOG.md: what each release changed.
+# - SECURITY.md: how to report a vulnerability.
+# - docs/usage.md, configuration.md, install.md and security.md: the user guides.
+# - docs/architecture.md: it holds the state JSON schema, the CLI's public interface, and usage.md
+#   and configuration.md send readers to it.
+# - docs/images: the two screenshots README and configuration.md show.
+# Left out, because they are about working on Kempt rather than using it:
+# - CONTRIBUTING.md and AGENTS.md: development setup and conventions for a checkout.
+# - CODE_OF_CONDUCT.md: rules for the project's issues and pull requests, which live on the forge.
+# - docs/RELEASING.md: the maintainer's release procedure.
+# - docs/ROADMAP.md: plans, which an installed copy would keep long after they change.
+# - docs/images/kempt-tray-icon.png: no document shows it.
+# - docs/man: the man page is installed above, where `man kempt` finds it.
+# docs/ stays a directory so README's links keep their paths. 9 of its 16 relative link targets
+# resolve on an installed system. The other 7 are the files left out above plus LICENSE, which
+# %%license installs; all of them resolve on the forge.
+# Pruned here and not in %%prep, because the man page above is installed out of docs/ and %%doc
+# reads the tree as it stands at the end of this section.
+rm -rf docs/man docs/RELEASING.md docs/ROADMAP.md docs/images/kempt-tray-icon.png
 
 %check
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
@@ -173,8 +193,11 @@ bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
 # which a build root cannot display anyway). A build root that cannot pass the suite must
 # not ship.
 (cd ../%{name}-pristine && tests/run_tests.sh)
-# --no-net, deliberately: every URL in the metainfo is a github.com link that a build host must
-# not be asked to fetch. Structure is what this checks.
+# Both validators run without network access: every URL in the metainfo is a github.com link that
+# a build host must not be asked to fetch. Structure is what they check. validate-relax is the run
+# Fedora's AppData guidelines require.
+appstream-util validate-relax --nonet \
+    %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 appstreamcli validate --no-net --explain \
     %{buildroot}%{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
@@ -199,9 +222,9 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 
 %files
 %license LICENSE
-# The whole set README links to, with docs/ kept as a directory so those links resolve here the
-# way they resolve on the forge.
-%doc README.md CHANGELOG.md CONTRIBUTING.md AGENTS.md SECURITY.md CODE_OF_CONDUCT.md docs
+# The user-facing documents chosen at the end of %%install, with docs/ kept as a directory so
+# README's links to it resolve here the way they resolve on the forge.
+%doc README.md CHANGELOG.md SECURITY.md docs
 %{_bindir}/kempt
 %{_datadir}/%{name}/
 %{_libexecdir}/kempt-refresh

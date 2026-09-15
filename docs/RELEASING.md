@@ -107,12 +107,11 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    `dnf copr enable` + `dnf install kempt` verified in a clean container).
 
    `rpmlint` is not silent on this package and does not need to be. Judge it by the KIND of
-   finding, never by the count or the percentage - both move with the build root. What it says
-   here: a spelling complaint about the word `plasmoid`, a documentation-share warning on a
-   package that is deliberately mostly documentation, `no-documentation` on the widget subpackage,
-   which ships none, and, depending on the locale the build shell was started in, a `setlocale`
-   warning. Anything outside that set is
-   new and worth reading.
+   finding, never by the count or the percentage - both move with the build root. It reports no
+   errors, and two warnings: `package-with-huge-docs` on `kempt`, whose user guides and two
+   screenshots outweigh a few hundred kilobytes of bash, and `no-documentation` on
+   `kempt-plasmoid`, which ships none. Depending on the locale the build shell was started in,
+   there can also be a `setlocale` warning. Anything outside that set is new and worth reading.
    That history is a reason to look at COPR, the chroot and the tag first - it is NOT a reason to
    assume the spec is innocent. It was not, once: the 0.1.2 suite grew a call to `ps`, which is in
    neither `BuildRequires` nor Fedora's minimal buildroot, and `%check` failed every build until
