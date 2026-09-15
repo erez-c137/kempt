@@ -72,7 +72,7 @@ There is no checkout for the installed copies to have drifted from.
 | `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The same six-rung icon ladder described below, in the system icon theme. **From `kempt-plasmoid`.** |
 | `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`, with no symlink to make. |
 | `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. **From `kempt-plasmoid`.** |
-| `/usr/share/doc/kempt/` | `root:root` | The README and the whole `docs/` tree, so the links in them resolve on the machine as well as on the forge. |
+| `/usr/share/doc/kempt/` | `root:root` | The README, the changelog, `SECURITY.md` and the user guides in `docs/`, kept at the same paths so their links to each other work on the machine. Files for working on Kempt, such as `CONTRIBUTING.md` and the release procedure, are on the forge only. |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Only after `kempt enable-passwordless`. It names one username, so it is the administrator's file and is **not** part of the package. |
 
 Your settings and state are not installed by the package either. They are created on first use, in
