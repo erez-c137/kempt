@@ -36,7 +36,7 @@ Two packages, and the one above brings the other:
 
 | Package | What it is | Requires |
 | --- | --- | --- |
-| `kempt` | The CLI, the two root helpers, the polkit action, the man page and this documentation. A complete tool on its own - it needs nothing from a desktop, and on a server or in a container that is the point. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
+| `kempt` | The CLI, the two root helpers, the polkit action, the man page and this documentation. It needs nothing from a desktop, but it does need an active local session: polkit refuses both Kempt actions over SSH. Without the widget nothing runs checks on a schedule, so the CLI alone checks only when you run it. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
 | `kempt-plasmoid` | The panel widget and its icons. | `kempt` of the same version, `plasma-workspace` |
 
 They are separate because `kempt` alone is 0.7 MB of bash and had no business requiring

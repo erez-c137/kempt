@@ -596,6 +596,12 @@ grep -qF 'panel widget not installed - it is a separate package: sudo dnf instal
      "$TESTTMP/skew.txt" \
   && echo "ok: a packaged install with no widget names the package that carries it" \
   || { echo "FAIL: no widget-package line"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+# ...and what going without it means, because the CLI alone is not a quieter widget: nothing runs a
+# check on a schedule, and polkit refuses both actions from a session that is not active and local.
+grep -qF 'without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)' \
+     "$TESTTMP/skew.txt" \
+  && echo "ok: ...and says that without it nothing checks on a schedule, and not over SSH" \
+  || { echo "FAIL: the widget row does not say what the CLI alone cannot do"; _fail=1; }
 # ...and says nothing once the package IS installed. The line is a pointer, not a nag.
 SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
 env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \

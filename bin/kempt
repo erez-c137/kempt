@@ -1918,7 +1918,8 @@ doctor_install_rows() {
     elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
       # The panel half is its own package, so a working CLI can sit on a box with no widget and
       # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
-      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid"
+      # ...and what going without it means, because the CLI alone is not a quieter widget.
+      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid - without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
     fi
 
     # The environment can point this process at a different update path than the rows above
