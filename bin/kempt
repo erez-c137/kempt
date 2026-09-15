@@ -2089,7 +2089,8 @@ usage: kempt <command>
   holds                 list holds
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
-  --version             print the version and exit
+  --version | version | -V   print the version and exit
+  help | --help | -h    print this list
 EOF
 }
 

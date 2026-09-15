@@ -56,6 +56,10 @@ assert_exit 2 "a trailing argument is refused" "$KEMPT" --version --json
 # Discoverable, or it does not exist as far as a user is concerned.
 "$KEMPT" help > "$TESTTMP/help.txt" 2>&1 || true
 assert_exit 0 "help lists it" -- grep -q -- '--version' "$TESTTMP/help.txt"
+# Every spelling the dispatcher accepts is named in the list, or the one a user has in their
+# fingers looks unsupported.
+assert_exit 0 "help names the -V alias for the version" -- grep -qw -- '-V' "$TESTTMP/help.txt"
+assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTTMP/help.txt"
 # doctor answers "which build is this?" too - it is the command people are asked to paste.
 KEMPT_POLICY_FILE="$TESTTMP/nopolicy" "$KEMPT" doctor > "$TESTTMP/doctor.txt" 2>&1 || true
 assert_exit 0 "doctor reports the version" -- grep -qE "^info +kempt $VER " "$TESTTMP/doctor.txt"
