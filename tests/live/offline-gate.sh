@@ -366,6 +366,99 @@ d=$("$K" doctor 2>&1)
 hasnt "doctor: no staged-update failure left" "$(grep -E '^FAIL' <<<"$d")" "staged update"
 hasnt "doctor: no boot-symlink failure left" "$(grep -E '^FAIL' <<<"$d")" "boot symlink"
 grep -E '^FAIL' <<<"$d" | sed 's/^/  doctor (container, expected): /' 
+
+# --- transaction identity, against a real applied transaction -------------------------------------
+# `dnf5 offline _execute` is the command dnf5-offline-transaction.service runs at boot. In a
+# container it applies the stored transaction, removes the toml, transaction.json and the boot
+# symlink, and then exits 1 because there is no D-Bus to ask for the reboot: its exit status is not
+# the result, dnf5's record going away is. The restart is simulated the usual way, KEMPT_BOOT_ID.
+# These run last because applying a transaction upgrades dnf5 itself, which the shadowed binary
+# S6 installs could not survive.
+reported() { jq -r '[.backends.dnf[] | arrays | .[].name] | .[]' "$1" 2>/dev/null | sort -u; }
+newest_hist() { ls -1t "$STATE"/history/*.json 2>/dev/null | head -1; }
+toml_key() { sed -n "s/^$1 = \"\(.*\)\"/\1/p" "$TOML" 2>/dev/null; }
+history_top() { dnf5 history list --json 2>/dev/null | jq 'map(.id) | max // 0'; }
+
+section "S13 the history names the transaction a restart applied"
+"$K" check > /tmp/s13.json 2>/dev/null
+P1=$(jq -r '.backends.dnf.items[0].name // empty' /tmp/s13.json)
+"$K" hold "dnf:$P1" >/dev/null 2>&1   # so the stage command carries an --exclude, like a rebuild
+"$K" update --surface=offline --no-flatpak > /tmp/s13a.out 2>&1
+is "armed" "$(toml_status)" "ready"
+m=$(marker)
+is "the marker records dnf5's rpmdb cookie" "$(jq -r '.rpmdb_cookie // "absent"' <<<"$m")" "$(toml_key rpmdb_cookie)"
+is "...and the command that built the transaction" "$(jq -r '.cmd_line // "absent"' <<<"$m")" "$(toml_key cmd_line)"
+has "...which carries the hold" "$(jq -r '.cmd_line // ""' <<<"$m")" "--exclude=$P1"
+staged13=$(jq -r '.staged_names[]' <<<"$m" | sort -u)
+before_id=$(history_top)
+dnf5 offline _execute > /tmp/s13-exec.out 2>&1
+is "the transaction applied, and dnf5's record went with it" "$(toml_status)" "absent"
+applied_id=$(history_top)
+(( applied_id > before_id )) && ok "dnf5 recorded it as history entry $applied_id" || bad "no new history entry" "$before_id -> $applied_id"
+OUT=""; for p in cpio diffutils file which; do rpm -q "$p" >/dev/null 2>&1 || { OUT=$p; break; }; done
+dnf5 -y -q install "$OUT" >/dev/null 2>&1
+rpm -q "$OUT" >/dev/null 2>&1 && ok "something else installed $OUT across the same restart" \
+                             || bad "the outside install did not happen, so this scenario proves less" "$OUT"
+: > /tmp/gate-notifications
+KEMPT_BOOT_ID=s13-boot "$K" check >/dev/null 2>&1
+h=$(newest_hist)
+is "harvested as the staged update" "$(jq -r .surface "$h")" "offline (applied on reboot)"
+is "...naming dnf5's own history entry for it" "$(jq -r '.transaction_id // "absent"' "$h")" "$applied_id"
+[[ -n "$(reported "$h")" ]] && ok "...with a report" || bad "the report is empty"
+lacks_name "the outside install is not reported as part of the stage" "$(reported "$h")" "$OUT"
+is "...and every reported package is one the stage carried" "$(comm -23 <(reported "$h") <(printf '%s\n' "$staged13"))" ""
+has "notification: applied" "$(notes)" "were applied on reboot"
+is "marker consumed" "$(marker)" ""
+"$K" unhold "dnf:$P1" >/dev/null 2>&1
+
+section "S14 a stage replaced outside Kempt with no check before the restart: not reported as Kempt's"
+# The shape transaction identity exists for: `sudo dnf5 offline clean` and a stage of one's own,
+# then a restart, with nothing in between that could have noticed.
+dnf5 -y -q --disablerepo='updates*' downgrade zsh nano >/dev/null 2>&1   # updates to stage again
+"$K" check > /tmp/s14.json 2>/dev/null
+n14=$(jq -r '.backends.dnf.actionable // 0' /tmp/s14.json)
+(( n14 >= 2 )) && ok "$n14 updates to stage" || bad "fewer than 2 pending updates, the scenario needs a set to split" "$n14"
+"$K" update --surface=offline --no-flatpak > /tmp/s14a.out 2>&1
+is "Kempt's stage is armed" "$(toml_status)" "ready"
+m=$(marker); X14=$(jq -r '.staged_names[0]' <<<"$m")
+dnf5 -y -q offline clean >/dev/null 2>&1
+dnf5 -y -q upgrade --offline --exclude="$X14" >/dev/null 2>&1 && DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 -y -q offline reboot >/dev/null 2>&1
+is "the outside stage is armed" "$(toml_status)" "ready"
+is "...against the same rpmdb cookie Kempt recorded, so the cookie alone cannot tell them apart" "$(toml_key rpmdb_cookie)" "$(jq -r .rpmdb_cookie <<<"$m")"
+dnf5 offline _execute > /tmp/s14-exec.out 2>&1
+is "it applied" "$(toml_status)" "absent"
+: > /tmp/gate-notifications; n_hist=$(ls -1 "$STATE/history" | wc -l)
+KEMPT_BOOT_ID=s14-boot "$K" check >/dev/null 2>&1
+h=$(newest_hist)
+is "one entry for the restart" "$(ls -1 "$STATE/history" | wc -l)" "$((n_hist + 1))"
+is "...which says the staged update did not run" "$(jq -r .surface "$h")" "restart (staged update did not run)"
+is "...and names no transaction as Kempt's" "$(jq -r '.transaction_id // "absent"' "$h")" "absent"
+has "notification: did not run" "$(notes)" "did not run on the restart"
+hasnt "...never that it was applied" "$(notes)" "were applied on reboot"
+has "event: did not run" "$(events)" "harvest found the staged transaction did not run"
+is "marker consumed" "$(marker)" ""
+
+section "S15 a stage replaced outside Kempt and seen before the restart: said once"
+dnf5 -y -q --disablerepo='updates*' downgrade zsh nano >/dev/null 2>&1
+"$K" update --surface=offline --no-flatpak > /tmp/s15a.out 2>&1
+is "Kempt's stage is armed" "$(toml_status)" "ready"
+m=$(marker); X15=$(jq -r '.staged_names[0]' <<<"$m"); at15=$(jq -r .staged_at <<<"$m")
+is "a check over Kempt's own stage announces nothing" "$(grep -c 'replaced outside Kempt' /tmp/gate-notifications)" "0"
+dnf5 -y -q offline clean >/dev/null 2>&1
+dnf5 -y -q upgrade --offline --exclude="$X15" >/dev/null 2>&1 && DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 -y -q offline reboot >/dev/null 2>&1
+: > /tmp/gate-notifications
+"$K" check >/dev/null 2>&1
+has "announced" "$(notes)" "replaced outside Kempt"
+has "...naming what differs" "$(events)" "offline stage replaced outside Kempt (command, packages) - announced"
+is "the marker records it" "$(jq -r '.replaced // "absent"' <<<"$(marker)")" "true"
+is "...and is still the stage Kempt made" "$(jq -r .staged_at <<<"$(marker)")" "$at15"
+"$K" check >/dev/null 2>&1
+is "said once, not once per check" "$(grep -c 'replaced outside Kempt' /tmp/gate-notifications)" "1"
+dnf5 offline _execute > /tmp/s15-exec.out 2>&1
+KEMPT_BOOT_ID=s15-boot "$K" check >/dev/null 2>&1
+is "after the restart it is not reported as Kempt's" "$(jq -r .surface "$(newest_hist)")" "restart (staged update did not run)"
+is "marker consumed" "$(marker)" ""
+
 echo
 echo "GATE: $pass ok, $fail FAIL"
 (( fail == 0 ))
