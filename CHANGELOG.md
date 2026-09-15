@@ -714,3 +714,9 @@ installer and its documentation, and the Plasma panel widget that sits on top of
   Linux updaters already use that name.
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
+
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/erez-c137/kempt/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/erez-c137/kempt/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/erez-c137/kempt/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/erez-c137/kempt/releases/tag/v0.1.0
