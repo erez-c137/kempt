@@ -731,9 +731,11 @@ needs to be:
   dependency of Kempt itself.
 
 The suite runs green with no package manager, no polkit and no desktop present, and the two
-widget halves carry more than half of its assertions. For the current count, run
-`tests/run_tests.sh` - it prints the measured total, and a measured number is the only kind
-this project quotes. (Exact totals used to live in this sentence; they drifted within weeks.)
+widget halves carry more than half of its assertions. `tests/run_tests.sh` runs every test file
+and ends with `ALL PASS` or `FAILURES`, any skipped checks, and how many test files ran. It does
+not print an assertion total: for the current count, count the `ok:` lines in its output. A
+measured number is the only kind this project quotes. (Exact totals used to live in this sentence;
+they drifted within weeks.)
 
 The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
 own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the
