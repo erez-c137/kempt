@@ -1116,8 +1116,8 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"duration_sec\":
   "Updated 1 package in 0s" "a run that really did take under a second still says so"
 # A failed run's first stderr line, which is the CLI's own worked-out reason (run_failure_reason),
 # not a generic apology. Multi-line, because that reason can arrive with a log tail behind it.
-assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"authentication declined or cancelled\"}"))')" \
-  "Update failed: authentication declined or cancelled" "a failure names the reason"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"authentication cancelled\"}"))')" \
+  "Update failed: authentication cancelled" "a failure names the reason"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"first line\\nsecond line\"}"))')" \
   "Update failed: first line" "...its FIRST line only, never a paragraph in a panel"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"\"}"))')" \

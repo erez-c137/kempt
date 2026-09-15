@@ -79,8 +79,8 @@ the widget is on a panel.
   renderer for terminal, notification and popup; a JSON entry plus a raw log per run, pruned
   automatically.
 - **An event log that answers "did that land?"** `kempt log`: one line per thing Kempt did,
-  each stamped `widget` or `cli`. A refused password prompt reads `authentication declined or
-  cancelled`, not a quoted pkexec error.
+  each stamped `widget` or `cli`. A closed password prompt reads `authentication cancelled`,
+  not a quoted pkexec error.
 - **Scoped root privileges.** Separate polkit actions for metadata refresh and apply, two
   argument-validating root helpers, and optional passwordless mode as one rule for the one
   apply action, active local session only.

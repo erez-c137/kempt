@@ -396,7 +396,7 @@ stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing sp
 # a MISSING helper as "timeout: failed to run command '<path>': No such file or directory", which
 # reads as "the update check timed out" and sends the reader hunting a network problem they do not
 # have; the real cause is that install.sh has never run. Anything else passes through untouched.
-explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or the declined-auth one
+explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or an authorization one
   local t="$1" h
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
@@ -411,17 +411,31 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
   friendly_error "$t"
 }
 
-# The ONE place a refused authentication becomes words a human is meant to read, used by every
+# The ONE place a failed authorization becomes words a human is meant to read, used by every
 # surface that renders a failure reason: state.json's `error`, the run summary, the notification,
-# `kempt history` and the event log. pkexec's own wording - "Error executing command as another
-# user: Not authorized" - reads as a broken installation, when what happened is that the person at
-# the keyboard closed the dialog. The raw text is never lost; it stays in the run log.
-# Three markers, all pkexec's: polkit's refusal, a dismissed dialog, and the prefix it wraps both in.
-KEMPT_AUTH_DECLINED='authentication declined or cancelled'
-friendly_error() {  # raw text → the same text, or the declined-auth sentence
+# `kempt history` and the event log. The raw text is never lost; it stays in the run log.
+#
+# One sentence per thing pkexec can say, and never a claim pkexec's text cannot support:
+# - "Request dismissed" (exit 126): the authentication agent reported a cancel, which is a closed
+#   dialog.
+# - "Not authorized" (exit 127): polkit said no. That is a password that was not accepted, AND a
+#   refusal with no dialog at all: both actions set allow_any=no and allow_inactive=no, so an SSH
+#   session or a switched-away session is refused without being asked. pkexec prints the same
+#   text for both, so the sentence names both. It must never say the user closed a dialog.
+# - "No authentication agent found", or pkexec failing to start its own terminal agent (exit 127):
+#   a password was needed and nothing could ask for it.
+# Anything else passes through untouched: a truthful raw message beats a friendly wrong one.
+KEMPT_AUTH_CANCELLED='authentication cancelled'
+KEMPT_AUTH_REFUSED='not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)'
+KEMPT_AUTH_NO_AGENT='no authentication agent is running to ask for the password'
+friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sentences
   case "$1" in
-    *"Not authorized"*|*dismissed*|*"Error executing command as another user"*)
-      printf '%s\n' "$KEMPT_AUTH_DECLINED" ;;
+    *"Request dismissed"*)
+      printf '%s\n' "$KEMPT_AUTH_CANCELLED" ;;
+    *"No authentication agent found"*|*"textual authentication agent"*|*"local authentication agent"*)
+      printf '%s\n' "$KEMPT_AUTH_NO_AGENT" ;;
+    *"Not authorized"*)
+      printf '%s\n' "$KEMPT_AUTH_REFUSED" ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -1106,7 +1120,7 @@ offline_stage_built_without() {  # name → 0 when an armed stage left it out
 }
 
 # --- what a hold over an armed stage says ---------------------------------------------------------
-# Copy lives here rather than at the call site for the reason KEMPT_AUTH_DECLINED does: more than
+# Copy lives here rather than at the call site for the reason the KEMPT_AUTH_* sentences do: more than
 # one surface renders it, and two copies of a sentence are two sentences that drift. The wording is
 # deliberate - "The staged update" is doctor's existing noun, "on the next restart" is the promise
 # the popup already makes in those words, and it "removes it", never "unstages".

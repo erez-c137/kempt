@@ -46,7 +46,9 @@ for the whole cache window. So there are two, each bound by `exec.path` to exact
 | `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `dnf-offline-arm`, `dnf-offline-clean` | `auth_admin_keep` - one dialog per run |
 
 Both actions set `allow_any=no` and `allow_inactive=no`: nothing is granted to a remote or
-inactive session.
+inactive session. polkit refuses those without showing a dialog, so a check from an SSH session
+or a switched-away session fails with `not authorized - the password was refused, or this session
+cannot authorize (over SSH or switched away)`.
 
 The no-dialog refresh action is the same pattern PackageKit uses for its own metadata refresh,
 and it is what makes the badge trustworthy: the check reads the **root** metadata cache that the

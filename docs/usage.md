@@ -440,7 +440,7 @@ kempt history
 ```
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
-2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication declined or cancelled)
+2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
 ```
 
 ## log
@@ -477,7 +477,7 @@ The vocabulary is fixed, so the file is worth grepping:
 | `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when the key had no stored value. |
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded. The numbers are the ones the badge is about to show. |
-| `check stale <reason>` | A check failed. The reason names the backend, for example `dnf check failed: authentication declined or cancelled`. |
+| `check stale <reason>` | A check failed. The reason names the backend, for example `dnf check failed: no authentication agent is running to ask for the password`. |
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. It runs at most every three hours, and only on mains power over an unmetered connection. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak remote summary was fetched, on the same schedule and in the same step. Written only while `include_flatpak` is on. The two arms are recorded separately because they fail for unrelated reasons, and one failing never stops the other or the check that follows. |
 | `run start surface=<surface>` | A run is about to change the system. |
@@ -505,9 +505,15 @@ Kempt writes four things, and they answer different questions. Reaching for the 
 | What is pending right now | `~/.local/state/kempt/state.json`, rewritten by `kempt check` |
 | Widget-side errors: QML warnings, a settings page that will not load | `journalctl --user -b | grep -i kempt` (plasmashell prints QML warnings there), plus the error label the settings page shows in place |
 
-A run that failed because somebody closed the authentication dialog says
-`authentication declined or cancelled` in all of the first four. The raw pkexec wording is kept
-in the run log and nowhere else, because that file is evidence rather than a summary.
+A run that failed at authorization says why in plain words in all of the first four. The raw
+pkexec wording is kept in the run log and nowhere else, because that file is evidence rather than
+a summary. There are three sentences, one for each thing pkexec can report:
+
+| Kempt says | What happened |
+| --- | --- |
+| `authentication cancelled` | The authentication dialog was closed without a password. |
+| `not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)` | polkit said no. Either a password was given and not accepted, or no dialog was shown at all: both Kempt actions refuse a remote session and a session that is not the active one, for example after switching to another user. pkexec reports these the same way, so Kempt cannot tell them apart. |
+| `no authentication agent is running to ask for the password` | A password was needed and nothing on the desktop could ask for it. |
 
 ## doctor
 

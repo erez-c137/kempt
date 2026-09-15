@@ -39,7 +39,7 @@ assert_eq "${broken%$'\n'}" "" "no Markdown table is split in two by a blank lin
 #
 # A seam is a KEMPT_* variable read with a default - ${KEMPT_X:-...} or ${KEMPT_X-...} - which is
 # precisely what "overridable from the environment" means. Plain assignments (KEMPT_NAME_RE, the
-# two size caps, KEMPT_STAGED_RECIPE, KEMPT_AUTH_DECLINED, KEMPT_JQ_COUNTS) are internal constants
+# two size caps, KEMPT_STAGED_RECIPE, the KEMPT_AUTH_* sentences, KEMPT_JQ_COUNTS) are internal constants
 # that no caller can influence, and they are excluded by that SHAPE rather than by a list - so a
 # constant that becomes a seam is caught on the day it does, not remembered.
 ARCH="$REPO_ROOT/docs/architecture.md"
