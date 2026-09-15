@@ -66,6 +66,96 @@ assert_exit 2 "apply: clean takes no arguments" \
 # The two flatpak command-shape assertions that used to sit here now live in tests/test_flatpak.sh,
 # against flatpak_apply and its own seam: that is where the command is built now.
 
+# --- the helper protects a stored Fedora release upgrade on its own ------------------------------
+# The CLI refuses to stage over one, but the CLI runs as the user, and a process inside polkit's
+# retention window (or under passwordless mode) can call this helper directly. So the three offline
+# verbs read dnf5's transaction-state file as root and refuse with exit 3 when a release upgrade is
+# stored. ECHO stays set throughout: a guard that stopped working prints a command here instead of
+# running one.
+REFUSED_RC=3
+relup_line() { printf 'kempt-apply: refusing %s: a Fedora release upgrade (44 -> 45) is stored\n' "$1"; }
+unread_line() { printf 'kempt-apply: refusing %s: the stored offline transaction cannot be read, so it may be a Fedora release upgrade\n' "$1"; }
+declare -A offline_cmd=(
+  [dnf-offline-stage]="dnf5 upgrade --offline -y"
+  [dnf-offline-arm]="env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y"
+  [dnf-offline-clean]="dnf5 offline clean -y"
+)
+offline_args() { [[ "$1" == dnf-offline-stage ]] && echo -y; return 0; }
+printf 'this is not a transaction-state file\n' > "$TESTTMP/garbage.toml"
+# Both keys present but one is not a release version: read as "cannot be read", never as a match.
+sed 's/^target_releasever = .*/target_releasever = "45\\n"/' "$FIXTURES/offline-release-upgrade.toml" > "$TESTTMP/odd-value.toml"
+for v in dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
+  # shellcheck disable=SC2046 # offline_args prints zero or one word
+  assert_exit "$REFUSED_RC" "$v is refused over a stored release upgrade" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" "$v" $(offline_args "$v")
+  assert_eq "$(cat "$TESTTMP/last_output")" "$(relup_line "$v")" "...and says what is stored, running nothing"
+  # Downloaded and never armed is where a release upgrade spends most of its life.
+  # shellcheck disable=SC2046
+  assert_exit "$REFUSED_RC" "$v is refused over a release upgrade that is downloaded but not armed" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" bash "$AH" "$v" $(offline_args "$v")
+  # shellcheck disable=SC2046
+  assert_exit 0 "$v is allowed over an ordinary offline update" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(offline_args "$v")
+  assert_eq "$(cat "$TESTTMP/last_output")" "${offline_cmd[$v]}" "...and builds its usual command"
+  # shellcheck disable=SC2046
+  assert_exit 0 "$v is allowed when nothing is stored" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$TESTTMP/no-such-state.toml" bash "$AH" "$v" $(offline_args "$v")
+  assert_eq "$(cat "$TESTTMP/last_output")" "${offline_cmd[$v]}" "...and builds its usual command"
+  # Fail closed: a file that is there but says nothing usable may be a release upgrade.
+  # shellcheck disable=SC2046
+  assert_exit "$REFUSED_RC" "$v is refused when the stored state is not a transaction-state file" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$TESTTMP/garbage.toml" bash "$AH" "$v" $(offline_args "$v")
+  assert_eq "$(cat "$TESTTMP/last_output")" "$(unread_line "$v")" "...and says it could not read it"
+  # shellcheck disable=SC2046
+  assert_exit "$REFUSED_RC" "$v is refused when a release version has an unexpected shape" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$TESTTMP/odd-value.toml" bash "$AH" "$v" $(offline_args "$v")
+done
+# Unreadable, which only a non-root run can arrange with chmod. As root the mode would not stop the
+# read, and the seam is ignored anyway.
+if [[ $EUID -ne 0 ]]; then
+  cp "$FIXTURES/offline-ready.toml" "$TESTTMP/unreadable.toml"; chmod 000 "$TESTTMP/unreadable.toml"
+  assert_exit "$REFUSED_RC" "an unreadable transaction-state file is refused, not taken as absent" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$TESTTMP/unreadable.toml" bash "$AH" dnf-offline-clean
+  assert_eq "$(cat "$TESTTMP/last_output")" "$(unread_line dnf-offline-clean)" "...with the cannot-be-read line"
+  chmod 600 "$TESTTMP/unreadable.toml"
+else
+  skip "unreadable transaction-state case - the suite is running as root"
+fi
+# Argument validation still comes first, so a bad argument is exit 2 whatever is stored.
+assert_exit 2 "a bad argument is exit 2 even over a stored release upgrade" -- \
+  env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-offline-arm --poweroff
+# A live upgrade does not touch the stored transaction, so it is not refused.
+assert_exit 0 "dnf-upgrade is not refused over a stored release upgrade" -- \
+  env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-upgrade -y
+assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 upgrade -y" "...and builds its usual command"
+
+# As root the path is fixed, and KEMPT_OFFLINE_TOML must change nothing. Run for real, without
+# sudo: an unprivileged user namespace makes EUID 0, and a private mount namespace puts a fixture
+# directory over /usr/lib/sysimage/libdnf5 for this one process. Nothing outside the namespace sees
+# the mount, and ECHO keeps dnf5 from running.
+LIBDNF5=/usr/lib/sysimage/libdnf5
+mkdir -p "$TESTTMP/ns-relup/offline" "$TESTTMP/ns-empty"
+cp "$FIXTURES/offline-release-upgrade.toml" "$TESTTMP/ns-relup/offline/offline-transaction-state.toml"
+as_ns_root() {  # bind-dir verb [env...] → runs the helper as EUID 0 over that directory
+  local dir="$1" verb="$2"; shift 2
+  timeout 20 unshare --map-root-user --mount bash -c '
+    d="$1" h="$2" v="$3"; shift 3
+    mount --bind "$d" '"$LIBDNF5"' || exit 99
+    [[ $EUID -eq 0 ]] || exit 98
+    exec env KEMPT_APPLY_ECHO=1 "$@" bash "$h" "$v"' _ "$dir" "$AH" "$verb" "$@"
+}
+if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
+   && timeout 20 unshare --map-root-user --mount bash -c 'mount --bind "$1" '"$LIBDNF5" _ "$TESTTMP/ns-empty" 2>/dev/null; then
+  assert_exit "$REFUSED_RC" "as root, the real path decides: a stored release upgrade is refused even with the seam at an ordinary update" -- \
+    as_ns_root "$TESTTMP/ns-relup" dnf-offline-arm KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+  assert_eq "$(cat "$TESTTMP/last_output")" "$(relup_line dnf-offline-arm)" "...refused by what the real path holds"
+  assert_exit 0 "as root, the seam cannot invent a release upgrade either" -- \
+    as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
+  assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 offline clean -y" "...the real path is empty, so the verb goes ahead"
+else
+  skip "root-path seam test - needs unprivileged user and mount namespaces and $LIBDNF5"
+fi
+
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
 # [A-Za-z] to accented letters, so a caller's locale must not be able to widen what the ROOT
 # helper accepts. ECHO is set as a second guard: if the pin ever regressed, this asserts loudly

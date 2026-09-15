@@ -488,7 +488,7 @@ reconcile_stage_after_live_run() {
     # Declared here, and named apart from cmd_update's own: these extracted sections run inside
     # cmd_update's scope on purpose, and a name shared with one of its variables would either
     # shadow it or leak out as a global depending on which branch the caller took.
-    local mpre stored_relup
+    local mpre stored_relup sup_clean_rc=0
     mpre="$(jq -r '.pre_snapshot // empty' "$OFFLINE_MARKER" 2>/dev/null || true)"
     if [[ -z "$mpre" || ! -f "$mpre" ]]; then
       # Leave the marker alone: harvest_offline handles a dead pointer on its own (it clears the
@@ -517,12 +517,23 @@ reconcile_stage_after_live_run() {
         # clean here would then destroy a Fedora release upgrade to tidy up a stage that dnf5 had
         # already thrown away. The marker is the only thing that is ours, so the marker is what
         # goes; the transaction is left exactly where it is.
-        if stored_relup="$(offline_release_upgrade)"; then
+        if ! stored_relup="$(offline_release_upgrade)"; then
+          apply_with_retry "$log" priv_apply dnf-offline-clean || sup_clean_rc=$?
+          # The helper checks again as root. A release upgrade stored between the check above and
+          # the clean is refused there, and then the marker goes exactly as it does above.
+          if [[ $sup_clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+            stored_relup="$(offline_release_upgrade)" || stored_relup=""
+          fi
+        fi
+        if [[ -n "$stored_relup" ]]; then
           rm -f "$OFFLINE_MARKER" "$mpre"
           log_event "offline marker dropped (a release upgrade ($stored_relup) replaced our stage)"
-        elif apply_with_retry "$log" priv_apply dnf-offline-clean; then
+        elif [[ $sup_clean_rc -eq 0 ]]; then
           rm -f "$OFFLINE_MARKER" "$mpre"
           log_event "offline stage dropped (superseded by live update)"
+        elif [[ $sup_clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+          # Marker kept, like the failure below: doctor reads it against what is stored.
+          echo "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason) - see: kempt doctor" | tee -a "$log" >&2
         else
           # Keep the marker: the stage may still be there, and `kempt doctor` reads the two
           # together and says which of them is wrong.
@@ -690,7 +701,16 @@ cmd_update() {
     # system-update-generator looks for. Arming HERE, not at the restart click, is what makes the
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
-    if apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}"; then
+    # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
+    # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, or a
+    # file it could not read, and changed nothing. Every path that sees it skips the unwind.
+    local stage_rc=0 arm_rc=0 clean_rc=0
+    apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
+    if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+      dnf_status="failed"; status="failed"
+      reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it - see: kempt doctor"
+      log_event "offline stage refused by the root helper"
+    elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
       # transaction is stored", and calling THAT "staged but could not arm" blames the arm for a
@@ -706,18 +726,30 @@ cmd_update() {
         else
           log_event "offline stage found nothing to stage"
         fi
-      elif ! apply_with_retry "$log" priv_apply dnf-offline-arm; then
+      elif { apply_with_retry "$log" priv_apply dnf-offline-arm || arm_rc=$?; [[ $arm_rc -eq $KEMPT_APPLY_REFUSED ]]; }; then
+        # Refused as root: what is stored now is not the transaction this run built (a release
+        # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
+        # same reason, and it would target the wrong transaction if it were not.
+        dnf_status="failed"; status="failed"
+        reason_override="staged but not armed, because $(apply_refusal_reason) - see: kempt doctor"
+      elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="staged but could not arm the restart install"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
-        apply_with_retry "$log" priv_apply dnf-offline-clean \
-          || { echo "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean" | tee -a "$log" >&2
-               # Escalated past stderr because this is state (d): the toml and the boot symlink
-               # now disagree and only root can settle it. The reason stays the ARM - the step
-               # that failed - so the command travels on the notification instead.
-               notify_tail=" - the staged update could not be removed; run: sudo dnf5 offline clean"; }
+        apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+          # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
+          echo "warning: the stage that failed to arm was left in place because $(apply_refusal_reason) - see: kempt doctor" | tee -a "$log" >&2
+          notify_tail=" - the stored transaction was left in place; see: kempt doctor"
+        elif [[ $clean_rc -ne 0 ]]; then
+          echo "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+          # Escalated past stderr because this is state (d): the toml and the boot symlink
+          # now disagree and only root can settle it. The reason stays the ARM - the step
+          # that failed - so the command travels on the notification instead.
+          notify_tail=" - the staged update could not be removed; run: sudo dnf5 offline clean"
+        fi
       elif [[ "$had_stage" == true ]]; then
         # A rebuild that worked. `offline staged N` below reports the new transaction; this line
         # reports that there was an old one, and what it was replaced for.
@@ -736,7 +768,7 @@ cmd_update() {
           # clean would throw away a stage the user still counts on. The marker stays.
           reason_override="could not rebuild the staged update - the previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
-        elif apply_with_retry "$log" priv_apply dnf-offline-clean; then
+        elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
           # The marker described a transaction that no longer exists: the re-stage destroyed it,
           # the clean took the remains. Left in place it promises an install nothing can deliver.
@@ -744,6 +776,9 @@ cmd_update() {
             rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}
             log_event "offline marker cleared (rebuild failed, stage discarded)"
           fi
+        elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+          # Marker kept, as in the branch below, so doctor can compare it with what is stored.
+          reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason) - see: kempt doctor"
         else
           reason_override="the previous staged update was discarded and could not be rebuilt, and could not be cleaned up - run: sudo dnf5 offline clean"
           # Marker KEPT here, deliberately - state (d) again. doctor reads it against the toml

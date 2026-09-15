@@ -366,6 +366,23 @@ KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
 priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
+# kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
+# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. The
+# helper decides that as root, on its own, so the CLI's pre-flight is not the only guard. Nothing ran
+# and nothing changed when it does. A caller that sees this status must not unwind with another
+# offline verb (the helper refuses that too, for the same reason) and must not advise
+# `dnf5 offline clean`, which would delete exactly what the refusal protected.
+# shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
+KEMPT_APPLY_REFUSED=3
+apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
+  local relup
+  if relup="$(offline_release_upgrade)"; then
+    printf 'a Fedora release upgrade (%s) is stored\n' "$relup"
+  else
+    printf 'the stored offline transaction could not be read\n'
+  fi
+}
+
 # The tail of a captured stderr file, flattened to one line for a JSON string or a warning, in one
 # place because all three callers need the same pipeline. The trailing `sed` is not cosmetic:
 # `tr '\n' ' '` turns the file's final newline into a SPACE, and command substitution strips
