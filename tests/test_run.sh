@@ -103,6 +103,10 @@ printf '%s\n' "\$*" > "$TESTTMP/term-argv"
 { read -r st < /proc/self/stat; st=\${st#*") "}; st=\${st#* }; st=\${st#* }
   printf '%s\n' "\${st%% *}"; } > "$TESTTMP/term-pgid"
 shift                                       # drop -e; what is left is: bash -c <script>
+# The update lock, taken INSIDE the window when asked for. \`kempt run\` refuses before it launches
+# anything while the lock is held, so a case that needs the update itself to meet the lock has to
+# take it after the launch. fd 5 is inherited by the script, so the lock lasts the whole window.
+if [[ -e "$TESTTMP/term-lock" ]]; then exec 5>"$KEMPT_STATE_DIR/lock"; flock -n 5; fi
 rc=0
 "\$@" <"\$(cat "$STDIN_PATH")" >"$TESTTMP/term-out" 2>&1 || rc=\$?
 printf '%s\n' "\$rc" > "$TESTTMP/term-rc"
@@ -137,7 +141,9 @@ reset_capture() { rm -f "$TESTTMP/term-argv" "$TESTTMP/term-rc" "$TESTTMP/term-o
 # (a) the string the terminal is handed carries the check, on the exit path rather than only after
 # a clean update.
 reset_capture
-KEMPT_TERMINAL="$TESTTMP/stub-terminal-capture" "$KEMPT" run
+# This stub never runs the script, so `kempt run` rightly reports that the window never started
+# (see "a launch that did not happen" below). Its status is not what (a) is about.
+KEMPT_TERMINAL="$TESTTMP/stub-terminal-capture" KEMPT_RUN_START_WAIT=1 "$KEMPT" run 2>/dev/null || true
 wait_until launched && echo "ok: the terminal was launched" \
   || { echo "FAIL: the terminal stub was never launched"; _fail=1; }
 argv="$(cat "$TESTTMP/term-argv" 2>/dev/null || true)"
@@ -236,10 +242,11 @@ fi
 
 # (d) the status the window leaves with is the UPDATE's. A check that fails must never turn a good
 # run into a bad one, and a check that succeeds must never launder a failed one. The update lock is
-# the cheapest deterministic non-zero: this test process holds it, so `kempt update` exits 3.
+# the cheapest deterministic non-zero: the window takes it before the script starts, so
+# `kempt update` exits 3. Inside the window rather than in this process, because `kempt run` itself
+# refuses to launch anything while the lock is already held.
 echo /dev/null > "$STDIN_PATH"
-exec 7>"$KEMPT_STATE_DIR/lock"
-flock -n 7 || { echo "FAIL: the test could not take the update lock"; _fail=1; }
+touch "$TESTTMP/term-lock"
 before_inode="$(state_inode)"; before_events="$(check_events)"
 reset_capture
 env -u KEMPT_ASSUME_TTY "$KEMPT" run    # no tty, no prompt: this run reaches the lock
@@ -250,7 +257,81 @@ assert_eq "$([[ "$(state_inode)" != "$before_inode" ]] && echo rewritten || echo
   "rewritten" "a failed run rewrites state.json too"
 assert_eq "$([[ "$(check_events)" -gt "$before_events" ]] && echo logged || echo silent)" \
   "logged" "and logs its check"
+rm -f "$TESTTMP/term-lock"
+
+# --- a launch that did not happen is not a run --------------------------------------------------
+#
+# `kempt run` hands the update to a terminal window and returns. When the emulator cannot open that
+# window (an SSH session with no display, a broken or half-upgraded install), the update inside it
+# never begins, and nothing used to record that: `kempt run` said 0, no event was written, and the
+# widget sat on its updating pane until the three-hour guard. The window now claims a start token
+# as its very first action, and `kempt run` waits for that claim.
+history_count() { find "$KEMPT_STATE_DIR/history" -type f 2>/dev/null | wc -l; }
+run_starts() { grep -c ' run start ' "$EVENTS" 2>/dev/null || true; }
+
+# (e) the emulator exits with an error straight away.
+printf '#!/usr/bin/env bash\necho "could not connect to display" >&2\nexit 1\n' > "$TESTTMP/stub-terminal-fail"
+chmod +x "$TESTTMP/stub-terminal-fail"
+reset_capture
+rc=0; t0=$SECONDS
+launcherr="$(KEMPT_TERMINAL="$TESTTMP/stub-terminal-fail" KEMPT_RUN_START_WAIT=10 "$KEMPT" run 2>&1 >/dev/null)" || rc=$?
+assert_eq "$rc" "5" "a terminal that fails to open is a run that did not start (exit 5)"
+assert_eq "$(( SECONDS - t0 < 5 ))" "1" "...reported as soon as the emulator exits, not after the whole wait"
+grep -q "stub-terminal-fail" <<<"$launcherr" && echo "ok: ...and the message names the emulator" \
+  || { echo "FAIL: the launch failure does not name the emulator"; echo "  got: $launcherr"; _fail=1; }
+grep -q "run did not start: .*stub-terminal-fail" "$EVENTS" && echo "ok: ...and the event log records it" \
+  || { echo "FAIL: no event for a window that never opened"; tail -3 "$EVENTS" | sed 's/^/    /'; _fail=1; }
+assert_eq "$(find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'run-start.*' | wc -l)" "0" "...and no start token is left behind"
+
+# (f) the emulator hands the window to another process and exits 0, and the window turns up after
+# `kempt run` has already said it did not start. That late window must not start an update behind
+# the report: the claim on the token is atomic, so exactly one side wins it.
+cat > "$TESTTMP/stub-terminal-late" <<STUB
+#!/usr/bin/env bash
+shift
+( sleep 2; rc=0; "\$@" </dev/null >"$TESTTMP/term-out" 2>&1 || rc=\$?; printf '%s\n' "\$rc" > "$TESTTMP/term-rc" ) >/dev/null 2>&1 &
+exit 0
+STUB
+chmod +x "$TESTTMP/stub-terminal-late"
+reset_capture
+before_events="$(check_events)"; before_hist="$(history_count)"; before_starts="$(run_starts)"
+rc=0; KEMPT_TERMINAL="$TESTTMP/stub-terminal-late" KEMPT_RUN_START_WAIT=1 "$KEMPT" run 2>/dev/null || rc=$?
+assert_eq "$rc" "5" "a window that never arrives within the wait is a run that did not start"
+wait_until finished && echo "ok: the late window did open, after the report" \
+  || { echo "FAIL: the late window never finished"; _fail=1; }
+grep -q "not started" "$TESTTMP/term-out" 2>/dev/null && echo "ok: ...and says the update was not started" \
+  || { echo "FAIL: the late window did not say it stood down"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
+assert_eq "$(run_starts)|$(history_count)|$(check_events)" "$before_starts|$before_hist|$before_events" \
+  "...and ran nothing: no update, no history entry, no check"
+
+# (g) the same hand-off, arriving inside the wait, is an ordinary run.
+sed -i 's/sleep 2;/sleep 0.3;/' "$TESTTMP/stub-terminal-late"
+reset_capture
+rc=0; KEMPT_TERMINAL="$TESTTMP/stub-terminal-late" KEMPT_RUN_START_WAIT=10 "$KEMPT" run || rc=$?
+assert_eq "$rc" "0" "a handed-off window that arrives in time is a run that started"
+wait_until finished && grep -q "aborted" "$TESTTMP/term-out" 2>/dev/null \
+  && echo "ok: ...and the update inside it really ran (to the risky prompt)" \
+  || { echo "FAIL: the handed-off window did not run the update"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
+
+# --- a run while another update holds the lock ---------------------------------------------------
+#
+# The refusal used to happen inside the launched window or the detached shell, where nobody reads
+# the status, so `kempt run` returned 0 and the widget that lost the race entered its updating pane
+# for a run that was never going to happen. Refused before anything is launched, the widget gets
+# the exit 3 it already knows how to show.
+exec 7>"$KEMPT_STATE_DIR/lock"
+flock -n 7 || { echo "FAIL: the test could not take the update lock"; _fail=1; }
+reset_capture
+rc=0; lockerr="$("$KEMPT" run 2>&1 >/dev/null)" || rc=$?
+assert_eq "$rc" "3" "with an update holding the lock, a terminal run is refused (exit 3)"
+assert_eq "$lockerr" "An update is already running." "...in a sentence the widget can show as it is"
+sleep 0.5
+assert_eq "$([[ -e "$TESTTMP/term-argv" ]] && echo launched || echo nothing)" "nothing" "...and no window is opened"
+"$KEMPT" config set surface background
+rc=0; "$KEMPT" run 2>/dev/null || rc=$?
+assert_eq "$rc" "3" "a background run is refused the same way"
 exec 7>&-
+"$KEMPT" config set surface terminal
 
 # Nothing this file started may outlive it: a wrapper still sitting at a prompt would keep the
 # sandbox open and show up in `ps` long after the suite said ALL PASS.

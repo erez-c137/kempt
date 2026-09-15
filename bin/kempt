@@ -952,6 +952,36 @@ cmd_update() {
   [[ "$status" == "ok" ]]
 }
 
+# Waits for a launched update window to START, the one thing `kempt run` cannot otherwise see: the
+# emulator is detached and its streams go to /dev/null. The window's first act is to delete the
+# token, so the token going away IS the window starting. rm is atomic, so exactly one side gets the
+# token, and that is what stops a window arriving after this gave up from starting an update behind
+# a report that said none started.
+# 0: the window started, or its launcher is still running at the deadline (a slow start is not a
+#    failure, and the token is left for the window to claim).
+# 1: it will not start. RUN_LAUNCH_RC holds the launcher's status, 0 for one that handed the window
+#    to another process that never opened it.
+wait_for_window() {  # pid token seconds
+  local pid="$1" token="$2" ticks=$(( $3 * 10 )) i
+  RUN_LAUNCH_RC=""
+  for ((i = 0; i < ticks; i++)); do
+    [[ -e "$token" ]] || return 0
+    if [[ -z "$RUN_LAUNCH_RC" ]] && ! kill -0 "$pid" 2>/dev/null; then
+      RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
+      # An error means nothing is coming. Exit 0 may be an emulator that handed the window to an
+      # instance it already had running, so the token still gets the rest of the wait.
+      [[ "$RUN_LAUNCH_RC" -ne 0 ]] && break
+    fi
+    sleep 0.1
+  done
+  if [[ -z "$RUN_LAUNCH_RC" ]]; then
+    kill -0 "$pid" 2>/dev/null && return 0
+    RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
+  fi
+  rm -- "$token" 2>/dev/null || return 0    # claimed in the last instant: it started
+  return 1
+}
+
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
 # cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
 # can never answer a prompt.
@@ -968,6 +998,19 @@ cmd_run() {
   auto="$(config_get auto_accept)"
   surface="$(resolve_surface "$surface")"
   is_true "$auto" || surface="terminal"   # only a terminal can prompt
+
+  # Refused HERE, before anything is launched, while another update holds the lock. cmd_update
+  # refuses too, but inside a window or a detached shell whose status nobody reads: `run` returned
+  # 0, and a second widget (tray and panel both, which the README describes) entered its updating
+  # pane for a run that was never going to happen, then claimed the other run's result as its own.
+  # This only PROBES the lock. cmd_update still takes it for real, so two presses in the same
+  # instant are still settled there. -E picks a status that means "held" and nothing else, so an
+  # unreadable lock file is not reported as a running update.
+  if [[ -e "$LOCK_FILE" ]]; then
+    local lock_rc=0
+    flock -n -E 75 "$LOCK_FILE" true 2>/dev/null || lock_rc=$?
+    [[ $lock_rc -eq 75 ]] && { echo "An update is already running." >&2; exit 3; }
+  fi
 
   if [[ "$surface" == "terminal" ]]; then
     # Checked before the dry run too: "what would happen" must include "nothing, you have no
@@ -1003,11 +1046,32 @@ cmd_run() {
     #                 later, while a real check takes SECONDS because it talks to dnf. setsid puts
     #                 it in a session of its own, where neither signal reaches it.
     #   `checked` makes them exclusive: whichever runs first, the other returns.
-    wrapper="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
+    # The start token (see wait_for_window), claimed before anything else and BEFORE the traps: a
+    # window that finds it already taken back was reported as never having started, so it starts
+    # nothing, and it runs no check either, because there is no run for the check to end.
+    local token token_q launcher wait_s="${KEMPT_RUN_START_WAIT:-5}"
+    [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=5
+    kempt_init_dirs
+    token="$(mktemp "$KEMPT_STATE_DIR/run-start.XXXXXX")"
+    printf -v token_q '%q' "$token"
+    wrapper="rm -- $token_q 2>/dev/null || { echo 'Kempt stopped waiting for this window, so the update was not started. Start it again from Kempt.'; read -rn1 -s -p 'Press any key to close…'; exit 1; }; "
+    wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
     wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
     wrapper+="trap 'ec=\$?; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
     wrapper+="$self_q update; ec=\$?; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
     setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
+    launcher=$!
+    # A window that never opens used to be a complete no-op that said 0: no event, no history, and
+    # a widget sitting on its updating pane for three hours. Found installed is not the same as able
+    # to draw (an SSH session has no display), so the only honest answer is to wait for the start.
+    if ! wait_for_window "$launcher" "$token" "$wait_s"; then
+      local why
+      if [[ "$RUN_LAUNCH_RC" -ne 0 ]]; then why="$KEMPT_TERMINAL exited $RUN_LAUNCH_RC"
+      else why="$KEMPT_TERMINAL opened no window within ${wait_s}s"; fi
+      echo "The terminal window did not open, so the update did not start ($why). Run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2
+      log_event "run did not start: $why"
+      exit 5
+    fi
   else
     if [[ -n "$dry" ]]; then echo "detached: kempt update (surface=$surface)"; return 0; fi
     local self_q surface_q
