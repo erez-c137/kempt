@@ -121,6 +121,9 @@ kempt_init_dirs() {
   # a missing state dir and a failed find must land on rc 0.
   # shellcheck disable=SC2015
   [[ -d "$KEMPT_STATE_DIR" ]] && find "$KEMPT_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  # The config dir collects them too: `hold`, `unhold` and `config set` write through atomic_write
+  # there. maxdepth 1, because Kempt writes nothing below it. Created by the mkdir above.
+  find "$KEMPT_CONFIG_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names

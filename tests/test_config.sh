@@ -87,4 +87,13 @@ assert_exit 0 "...and one in snapshots/, where the rebase leaves them" -- test !
 assert_exit 0 "a fresh temp (a live concurrent writer's) is left alone" -- test -f "$SNAP_DIR/.atomic.fresh"
 assert_exit 0 "the sweep only ever takes .atomic. files" -- test -f "$SNAP_DIR/keep.tsv"
 rm -f "$SNAP_DIR/.atomic.fresh" "$SNAP_DIR/keep.tsv"
+# The config directory collects them too: `hold`, `unhold` and `config set` all write through
+# atomic_write there, so one killed mid-write leaves its temp next to the holds or config file.
+printf 'x' > "$KEMPT_CONFIG_DIR/.atomic.old"; touch -d '2 hours ago' "$KEMPT_CONFIG_DIR/.atomic.old"
+printf 'x' > "$KEMPT_CONFIG_DIR/.atomic.fresh"
+kempt_init_dirs
+assert_exit 0 "an aged orphan temp in the config dir is swept" -- test ! -e "$KEMPT_CONFIG_DIR/.atomic.old"
+assert_exit 0 "...while a fresh one there is left alone" -- test -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
+assert_exit 0 "...and the config file itself is untouched" -- test -f "$KEMPT_CONFIG_DIR/config"
+rm -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
 finish
