@@ -307,13 +307,26 @@ recommend_offline_if_risky() {
         ntotal="$(grep -c '' <<<"$fam_rows")"
         shown="$(head -8 <<<"$fam_rows")"    # still capped: a box can always surprise us with 30 families
         nshown="$(grep -c '' <<<"$shown")"
+        # Each row is turned into what it will actually SAY before anything is measured, because a
+        # plain-language label changes the column width: "graphics drivers (mesa)", not "mesa".
+        # A family Kempt does not ship a label for prints bare - see family_label.
+        local rows_disp="" fam n first lbl disp
+        while IFS=$'\t' read -r fam n first lbl; do
+          [[ -z "$fam" ]] && continue
+          # a family of one is named outright (mesa-libGL says more than mesa); several are one row
+          if (( n == 1 )); then disp="$first"; else disp="$fam"; fi
+          [[ -n "$lbl" ]] && disp="$lbl ($disp)"
+          rows_disp+="$disp"$'\t'"$n"$'\n'
+        done < <(while IFS=$'\t' read -r fam n first; do
+                   [[ -z "$fam" ]] && continue
+                   printf '%s\t%s\t%s\t%s\n' "$fam" "$n" "$first" "$(family_label "$fam")"
+                 done <<<"$shown")
         # the label column width, so the counts line up under one another
-        width="$(awk -F'\t' '{ l = ($2 == 1 ? length($3) : length($1)); if (l > m) m = l }
-                             END { print m + 0 }' <<<"$shown")"
+        width="$(awk -F'\t' 'NF { if (length($1) > m) m = length($1) } END { print m + 0 }' <<<"$rows_disp")"
         # ...and the counts themselves right-aligned, so 5 sits under the 2 of 12 and the column
         # reads as numbers rather than as ragged text
         local cwidth
-        cwidth="$(awk -F'\t' '{ if ($2 > 1 && length($2) > m) m = length($2) } END { print m + 0 }' <<<"$shown")"
+        cwidth="$(awk -F'\t' 'NF { if ($2 > 1 && length($2) > m) m = length($2) } END { print m + 0 }' <<<"$rows_disp")"
         echo
         if (( rcount == 1 )); then
           echo "  Heads up: 1 session-critical package is pending."
@@ -322,10 +335,8 @@ recommend_offline_if_risky() {
         fi
         echo "  Installing these while the desktop is running can break the session until you restart:"
         echo
-        # A family of one is named outright - "mesa-libGL" says more than "mesa". A family of
-        # several is named once with its count, because those packages are one decision.
-        awk -F'\t' -v w="$width" -v c="$cwidth" '{ if ($2 == 1) printf "      %s\n", $3
-                                                   else printf "      %-*s   %*d packages\n", w, $1, c, $2 }' <<<"$shown"
+        awk -F'\t' -v w="$width" -v c="$cwidth" 'NF { if ($2 == 1) printf "      %s\n", $1
+                                                      else printf "      %-*s   %*d packages\n", w, $1, c, $2 }' <<<"$rows_disp"
         (( ntotal > nshown )) && echo "      ... and $(( ntotal - nshown )) more"
         echo
         local ans tries prompt="  Your choice [s/u/a]: "

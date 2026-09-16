@@ -618,6 +618,33 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
 # never loaded by the running session, so they cannot break it - counting them turns an ordinary Qt
 # bump into a hundred-package "session-critical" scare.
 # `|| true`: grep exits 1 when it selects nothing, and "nothing risky" is the common, happy case.
+# family_label <family> → a plain-language name for it, or "" when Kempt has nothing honest to say.
+#
+# "mesa" is a package name, not a word. The person being asked whether to update a graphics driver
+# while the desktop is running cannot answer that question if the row does not say what the thing
+# IS - and asking someone to make a safety decision in vocabulary they do not have is how a warning
+# gets clicked through.
+#
+# Only the families Kempt itself ships in the DEFAULT risky_regex appear here. risky_regex is
+# user-configurable (and KEMPT_RISKY_RE overrides it), so a label is never derived, guessed or
+# pattern-matched from a name: an unknown family prints bare, which is honest, rather than wearing a
+# description somebody invented for it. Keys are FAMILIES as families_of derives them - the name up
+# to its first - or . - so plasma-workspace keys as "plasma" and kwin-x11 as "kwin".
+family_label() {
+  case "$1" in
+    kernel)   echo "the Linux kernel" ;;
+    systemd)  echo "the service manager" ;;
+    glibc)    echo "the core system library" ;;
+    dbus)     echo "the system message bus" ;;
+    mesa)     echo "graphics drivers" ;;
+    qt6)      echo "the desktop toolkit" ;;
+    kf6)      echo "KDE framework libraries" ;;
+    plasma)   echo "the Plasma desktop" ;;
+    kwin)     echo "the window manager" ;;
+    *)        echo "" ;;
+  esac
+}
+
 risky_names() {
   local re="${KEMPT_RISKY_RE:-$(config_get risky_regex)}"
   jq -r '.[] | select(.held|not) | .name' \

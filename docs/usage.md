@@ -202,11 +202,11 @@ What happens, in order:
      Heads up: 13 session-critical packages are pending.
      Installing these while the desktop is running can break the session until you restart:
 
-         mesa     6 packages
-         qt6      4 packages
-         kernel-core
-         glibc
-         kwin
+         graphics drivers (mesa)          6 packages
+         the desktop toolkit (qt6)        4 packages
+         the Linux kernel (kernel-core)
+         the core system library (glibc)
+         the window manager (kwin)
 
      Staging installs them during your next restart, when nothing is using them.
 
