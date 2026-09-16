@@ -92,11 +92,24 @@ _I18N_SHIM = """(function () {
 })"""
 
 
+class ProbeExpressionError(RuntimeError):
+    """A QML expression a probe evaluated did not run at all."""
+
+
 def have_pyside():
+    """Is PySide6 USABLE, which is not the same question as whether it imports.
+
+    Two changes from the obvious version, both of which decide whether a run reports honestly.
+    The import is `PySide6.QtQuick`, the module the probes actually need, because a bare
+    `import PySide6` succeeds against an installation whose Qt bindings are half upgraded. And
+    the catch is Exception, not ImportError: a broken installation raises ImportError only if it
+    is lucky, and anything else escaping here ends the probe with a traceback rather than with
+    the loud skip that tells the reader the widget's QML went unexecuted.
+    """
     try:
-        import PySide6  # noqa: F401
+        import PySide6.QtQuick  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
@@ -261,7 +274,12 @@ class Probe:
             e = QQmlExpression(ctx, obj, expr)
             v = e.evaluate()
             if e.hasError():
-                print("  EXPR ERROR:", e.error().toString())
+                # RAISED, not printed and carried on from. Returning None meant the next line
+                # compared None against a number and died somewhere unrelated, or - the case that
+                # actually costs something - compared None against None and PASSED, so a broken
+                # expression read as the right answer. The error names the expression that failed.
+                raise ProbeExpressionError("%s\n  in expression: %s"
+                                           % (e.error().toString(), expr))
             if isinstance(v, tuple) and len(v) == 2 and isinstance(v[1], bool):
                 return None if v[1] else v[0]
             return v

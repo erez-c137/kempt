@@ -24,7 +24,7 @@ PROBE_WATCHDOG=120
 
 # PySide6 is not a dependency of Kempt itself, so its absence must not fail the suite - but it must
 # be LOUD, because a silent skip here means the widget's QML went unexecuted.
-if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
+if ! python3 -c 'import PySide6.QtQuick' >/dev/null 2>&1; then
   skip "PySide6 is absent, so the widget's QML was NOT executed in this run"
   echo "    (install python3-pyside6 and re-run: these probes are the only tests that run the"
   echo "     real QML - the rest of the widget's coverage is logic.js under node)"
