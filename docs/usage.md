@@ -574,7 +574,18 @@ The vocabulary is fixed, so the file is worth grepping:
 | `harvest found the staged transaction did not run (<counts>)` | The check after a reboot found that the transaction which ran was not the one Kempt staged. The entry is written as `restart (staged update did not run)`. |
 | `offline stage replaced outside Kempt (<what differs>) - announced` | A check found dnf5 holding a different transaction from the one Kempt staged: another rpmdb cookie, command or package set. Said once. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
-| `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
+| `refresh skipped (<reason>)` | A metadata refresh was skipped, because the box is on battery or the connection is metered. Written at most once a day: a box on battery skips every check it runs, and the fact worth recording is that it has been skipping, not that this one did. |
+| `offline restage` / `offline restage failed (previous stage intact)` | A stage replaced an earlier one, or failed while leaving it untouched. The first names the holds that asked for the rebuild, because once the stage is made that question can no longer be asked. |
+| `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or deliberately kept because a newer stage arrived while a check was running. |
+| `harvest deferred: packages moved outside Kempt while the stage is still armed` | Something other than the staged transaction changed the package set. Said once, not once per check for as long as the stage waits. |
+| `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | A run or a harvest finished but its history entry could not be saved. The run itself is unaffected; what is lost is the durable record. |
+| `unstage discarded the staged update` | `kempt unstage` removed the stored transaction, and Kempt's record went with it. |
+| `unstage refused (<what is stored>)` / `unstage refused by the root helper` | `kempt unstage` changed nothing, because a Fedora release upgrade is stored and discarding it would cancel an upgrade that took gigabytes to download. The first is the CLI's own refusal, the second the same refusal made again as root. Exit 5. |
+| `unstage found nothing staged` | `kempt unstage` had nothing to do: no stored transaction, and no record of one. |
+| `unstage cleared a marker with no transaction under it` | The transaction was already gone, so only Kempt's record of it was removed. Nothing was asked of root. |
+| `unstage failed rc=<n>` | The root helper could not discard the transaction. Kempt's record is kept, so `kempt doctor` can still describe the stage. |
+| `unstage left a transaction behind (status <status>)` | The helper reported success and dnf5 still reports a stored transaction, so the record was kept rather than cleared over an install that may still happen. |
+| `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600. Nothing else ever deletes from it, so
 it prunes itself: past 2500 lines it is rewritten to the last 2000.
