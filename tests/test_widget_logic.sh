@@ -1254,6 +1254,52 @@ assert_eq "$(js "L.runStartMessage(9, '', '')")" "Could not start the update (ex
 assert_eq "$(js "L.runStartMessage(-1, '', '')")" "Could not start the update (exit -1)." \
   "...including one that never returned a status"
 
+# --- discardStagedMessage: what the popup says after `kempt unstage` ----------------------------
+# EVERY outcome gets a sentence, including the successful one: this press makes a banner disappear
+# and nothing else, and a message that only vanished is indistinguishable from a button that did
+# nothing. Same shape as runStartMessage - the CLI's own first line wherever there is one, a
+# fallback per status where there is not.
+assert_eq "$(js "L.discardStagedMessage(0, 'Discarded the staged update. The next restart installs nothing.\n', '')")" \
+  "Discarded the staged update. The next restart installs nothing." \
+  "a discard that worked reports the CLI's own sentence"
+# The CLI says two different TRUE things on exit 0 and the status cannot tell them apart, so the
+# words are read from stdout rather than chosen from the code.
+assert_eq "$(js "L.discardStagedMessage(0, 'Nothing is staged, so there is nothing to discard.\n', '')")" \
+  "Nothing is staged, so there is nothing to discard." \
+  "...and nothing staged is the same exit 0, reported in the CLI's words rather than as a success"
+assert_eq "$(js "L.discardStagedMessage(0, 'The staged update was already gone. Kempt\\'s record of it has been cleared.\n', '')")" \
+  "The staged update was already gone. Kempt's record of it has been cleared." \
+  "...as is a record cleared with no transaction under it"
+assert_eq "$(js "L.discardStagedMessage(0, '', '')")" "$(js 'L.COPY.stagedDiscardDone')" \
+  "...and a run that said nothing at all still reports what happened"
+# Exit 5 is the refusal that protects a Fedora release upgrade: nothing was read and nothing was
+# changed. The CLI names the release, which is the fact that makes the refusal make sense.
+assert_eq "$(js "L.discardStagedMessage(5, '', 'Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor\n')")" \
+  "Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" \
+  "a refused discard reports the CLI's reason, which names the upgrade it protected"
+assert_eq "$(js "L.discardStagedMessage(5, '', '')")" "$(js 'L.COPY.stagedDiscardRefused')" \
+  "...and a silent refusal still says nothing was discarded, with somewhere to look"
+assert_eq "$(js "L.discardStagedMessage(3, '', 'another kempt update is running\n')")" \
+  "another kempt update is running" \
+  "the lock another update holds is reported in the CLI's words"
+assert_eq "$(js "L.discardStagedMessage(3, '', '')")" "$(js 'L.COPY.stagedDiscardBusy')" \
+  "...and silently, as a sentence that says what to do about it"
+assert_eq "$(js "L.discardStagedMessage(1, '', 'The staged update could not be discarded. See: kempt doctor\n')")" \
+  "The staged update could not be discarded. See: kempt doctor" \
+  "a failed discard reports the CLI's own line"
+assert_eq "$(js "L.discardStagedMessage(1, '', '')")" \
+  "The staged update could not be discarded (exit 1). Run kempt doctor in a terminal to see why." \
+  "...and a silent failure says so with the status, which is the only evidence left"
+assert_eq "$(js "L.discardStagedMessage(1, 'only on stdout', '')")" "only on stdout" \
+  "...falling back to stdout, as runStartMessage does, for a CLI that wrote to the wrong stream"
+# The executor's own timeout, which is not a status the CLI can produce: it arrives as rc 124 with
+# a made-up stderr, and is reported rather than swallowed.
+assert_eq "$(js "L.discardStagedMessage(124, '', 'timeout after 120000ms')")" "timeout after 120000ms" \
+  "a press the executor timed out on reports the timeout rather than nothing"
+assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
+  "The staged update could not be discarded (exit 9). Run kempt doctor in a terminal to see why." \
+  "...and an unknown status is a failure with its number in it"
+
 # --- lastRunText: the persistent row's title ---------------------------------------------------
 # The separator is U+00B7 with spaces, the same middle dot the footer uses.
 W='Date.UTC(2026,7,26,19,24,6)'   # 2026-08-26T22:24:06+03:00, the captured run, in UTC ms
@@ -1808,6 +1854,34 @@ assert_eq "$(sv "$GENERIC" "$PENDDNF" 'stagedType')" "positive" \
 assert_eq "$(sv "$GENERIC" "$HELDFP" 'stagedType')" "positive" \
   "a held flatpak is not a conflict: the offline surface stages dnf only"
 
+# --- the way out of a staged update that is not a restart and not a rebuild ---------------------
+# Someone who staged an update from the popup must be able to undo it there. It is offered on BOTH
+# banners, which is the difference between it and the rebuild: the rebuild only makes sense where
+# there is something to change, while "install nothing at all" is an answer to either banner - and
+# on a warning the person has just told Kempt they did not want one of those packages.
+assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowDiscard')" "true" \
+  "the plain armed banner offers a way to discard the staged update"
+assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowDiscard')" "true" \
+  "...and so does the conflict banner, beside the rebuild rather than instead of it"
+assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRebuild')" "true" \
+  "...which is still offered there, because discarding must never take the remedy's place"
+assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowDiscard')" "true" \
+  "...and the vague warning offers it too"
+# The restart rules are untouched by it: a warning still offers no Restart…, because the sentence
+# beside it says what that restart would install.
+assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
+  "...and nothing about it brings the Restart… button back onto a warning"
+assert_eq "$(vm '{}' '' 0 'stagedShowDiscard')" "false" \
+  "nothing staged, nothing to discard"
+assert_eq "$(js 'L.viewModel(null,false).stagedShowDiscard')" "false" \
+  "...and no state at all offers it either"
+# The same guard the rebuild carries, for the same reason: `kempt unstage` refuses with exit 5
+# while a Fedora release upgrade is stored, because dnf5 has one slot and discarding what is in it
+# would cancel the upgrade. A button the CLI turns down is not offered.
+RUD='function () { var s = {schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:{staged_at:"2026-09-09T09:00:00+03:00",count:61,armed:true},release_upgrade:{from:"44",to:"45",state:"armed"}}; return L.viewModel(s,false,"",{}); }'
+assert_eq "$(js "($RUD)().stagedShowDiscard")" "false" \
+  "a stored release upgrade offers no discard: the CLI refuses it rather than cancelling the upgrade"
+
 # --- the state file is another program's JSON, and a schema-1 reader tolerates the wrong type ---
 # Tolerating means IGNORING, exactly as the isArray note in viewModel already argues for
 # risky_pending: a string has a length and indexes into its own CHARACTERS, so a duck-typed check
@@ -2153,6 +2227,36 @@ assert_eq "$(js 'L.COPY.stagedRebuildTooltip')" \
 assert_eq "$(js 'L.COPY.stagedChanged')" \
   "The staged update changed since this was offered. Nothing was rebuilt; check the banner above." \
   "copy: what a rebuild clicked over a stage that had already moved says instead of acting"
+# --- discarding the staged update, from the popup instead of from a terminal --------------------
+# The CLI's own verb, all the way through: `kempt unstage` prints "Discarded the staged update",
+# docs/usage.md says discard, so the button says Discard. "Cancel Staged Update" was the other
+# candidate and it is worse in this one place: a button labelled Cancel inside a message reads as
+# "close this message", which is the one thing it does not do.
+assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Staged Update" \
+  "copy: the banner's way out of a staged update, in the CLI's own verb"
+# The tooltip is the disclosure, and it carries the ONE fact that separates this from a rebuild: a
+# rebuild reuses dnf5's package cache, and this deletes it. Stated as what happens next time
+# rather than as a warning, because the cost is only paid by someone who stages again.
+assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
+  "Removes the update waiting for the next restart, so the restart installs nothing. Asks for authorization, and deletes the packages it downloaded, so staging again downloads them again." \
+  "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
+# One sentence per outcome, for the run that said nothing itself. Each says what happened and what
+# can be done about it; none of them is silence.
+assert_eq "$(js 'L.COPY.stagedDiscardDone')" \
+  "The staged update is gone. The next restart installs nothing." \
+  "copy: what a discard that worked says when the CLI said nothing"
+assert_eq "$(js 'L.COPY.stagedDiscardRefused')" \
+  "Nothing was discarded. Run kempt doctor in a terminal to see why." \
+  "copy: ...and a refusal, which changed nothing at all"
+assert_eq "$(js 'L.COPY.stagedDiscardBusy')" \
+  "An update is running, so nothing was discarded. Try again when it has finished." \
+  "copy: ...and the lock another update holds, with the one thing to do about it"
+assert_eq "$(js 'L.COPY.stagedDiscardFailed')" \
+  "The staged update could not be discarded (exit %1). Run kempt doctor in a terminal to see why." \
+  "copy: ...and a failure, carrying the status because it is the only evidence left"
+assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
+  "The staged update changed since this was offered. Nothing was discarded; check the banner above." \
+  "copy: what a discard clicked over a stage that had already moved says instead of acting"
 # "re-downloads" is measurably false and must never appear: a replace-stage reuses dnf5's package
 # cache (spec G8 - re-staging with an exclude transferred 0.0 B, ">>> Already downloaded"). And
 # "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
@@ -2236,7 +2340,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -2691,15 +2795,15 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # ui_grep is deliberately NOT the tool here: it walks logic.js too, and logic.js is where these
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
-for _lit in stagedRebuildAction stagedRebuildTooltip; do
+for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l)" "1" \
     "the popup writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never (spec, UX finding 9).
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "1" \
-  "...and the rebuild action says the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "2" \
+  "...and both banner actions say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting
@@ -2814,6 +2918,8 @@ done
 # widget twice a test failure.
 assert_eq "$(grep -qF "$(js 'L.COPY.stagedRebuildAction')" "$USAGE" && echo yes || echo no)" "yes" \
   "docs/usage.md calls the action by the name on the button"
+assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$USAGE" && echo yes || echo no)" "yes" \
+  "...and the other action on that banner by the name on ITS button"
 assert_eq "$(grep -c 'You held kernel-core after the next-restart install was prepared' "$USAGE")" "1" \
   "...the singular conflict banner too"
 assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart install' "$USAGE")" "1" \

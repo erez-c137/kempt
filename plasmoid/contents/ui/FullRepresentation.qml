@@ -571,6 +571,30 @@ PlasmaExtras.Representation {
                     enabled: popup.vm.stagedShowRebuild
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.rebuildStaged()
+                },
+                Kirigami.Action {
+                    // The way out that is neither a restart nor a rebuild, and the one somebody who
+                    // simply changed their mind is looking for. LAST in the list on purpose: on a
+                    // warning it stands BESIDE the rebuild rather than where the rebuild stands,
+                    // because the conflict remedy is what that message is for. It is on the green
+                    // banner too - staging an update and then thinking better of it is not a
+                    // problem anybody should have to open a terminal to fix.
+                    //
+                    // edit-delete, which is what it does: system-software-update is the staging
+                    // icon and sits on the action right above this one, view-refresh is Refresh,
+                    // and system-reboot is the button standing down beside it.
+                    text: i18n("Discard Staged Update")
+                    icon.name: "edit-delete"
+                    // The tooltip is the disclosure, not a hint, and its second half is the fact
+                    // that separates this from the rebuild above: a rebuild reuses dnf5's package
+                    // cache, and this deletes it. Accessible.description carries the identical
+                    // words for the identical reason - a polkit dialog takes the focus the moment
+                    // this is pressed.
+                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. Asks for authorization, and deletes the packages it downloaded, so staging again downloads them again.")
+                    Accessible.description: tooltip
+                    enabled: popup.vm.stagedShowDiscard
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.discardStaged()
                 }
             ]
         }

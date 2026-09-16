@@ -220,6 +220,42 @@ var COPY = {
         "The staged update changed since this was offered. Nothing was rebuilt; "
         + "check the banner above.",
 
+    // --- discarding the staged update from the popup instead of from a terminal ------------------
+    // The other way out of a staged update, and the one a person who simply changed their mind
+    // wants: remove it, and let the next restart install nothing. The CLI's own verb all the way
+    // through - `kempt unstage` prints "Discarded the staged update", and the usage page says
+    // discard - so the button says Discard. "Cancel Staged Update" was the other candidate and it
+    // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
+    // this message", which is the one thing it does not do.
+    stagedDiscardAction: "Discard Staged Update",
+    // The whole cost, before the press, and the second half is what separates this from a rebuild:
+    // a rebuild reuses dnf5's package cache, and this deletes it (`dnf5 offline clean` removes the
+    // downloaded packages with the transaction). Said as what happens NEXT time rather than as a
+    // warning, because that cost is only paid by somebody who stages again.
+    stagedDiscardTooltip:
+        "Removes the update waiting for the next restart, so the restart installs nothing. "
+        + "Asks for authorization, and deletes the packages it downloaded, so staging again "
+        + "downloads them again.",
+    // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
+    // prefers the CLI's own first line wherever there is one. None of them is silence: this press
+    // makes a banner disappear and nothing else, and a message that only vanished is
+    // indistinguishable from a button that did nothing at all.
+    stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
+    stagedDiscardRefused: "Nothing was discarded. Run kempt doctor in a terminal to see why.",
+    stagedDiscardBusy:
+        "An update is running, so nothing was discarded. Try again when it has finished.",
+    // The status is in this one because it is the only evidence left: a failure the CLI could not
+    // describe leaves the reader with nothing else to quote.
+    stagedDiscardFailed:
+        "The staged update could not be discarded (exit %1). "
+        + "Run kempt doctor in a terminal to see why.",
+    // ...and the click-time re-verify's refusal, the same sentence stagedChanged is for the
+    // rebuild: a press with no effect must never be indistinguishable from a broken button.
+    // main.qml assigns it.
+    stagedDiscardChanged:
+        "The staged update changed since this was offered. Nothing was discarded; "
+        + "check the banner above.",
+
     // The hold round trip. The first two are never DRAWN: the popup speaks them through one
     // Accessible.announce when the row has actually moved, because otherwise a hold lands in
     // complete silence. Their %1 is substituted in the QML - an announcement is one translatable
@@ -1235,6 +1271,29 @@ function runStartMessage(rc, stdout, stderr) {
     return "Could not start the update (exit " + rc + ").";
 }
 
+// discardStagedMessage(rc, stdout, stderr) -> the one sentence the popup reports after
+// `kempt unstage`. NEVER "", which is where it differs from runStartMessage: that one enters the
+// updating pane on success and the pane is the report, while this press only makes a banner
+// disappear, and a message that merely vanished says nothing to somebody who was not looking at it
+// and nothing at all to a screen reader.
+//
+// The CLI's own first line wherever there is one, exactly as runStartMessage does it: exit 5 names
+// the Fedora release upgrade the refusal protected, exit 3 the update holding the lock, exit 1
+// what could not be discarded. Success reads stdout for the same reason and a stronger one - the
+// CLI says two different true things there ("Discarded the staged update", and nothing was staged
+// to discard) and the exit code cannot tell them apart, so the words come from the run rather than
+// from a guess here.
+function discardStagedMessage(rc, stdout, stderr) {
+    if (rc === 0) return firstLineOf(stdout) || COPY.stagedDiscardDone;
+    var msg = firstLineOf(stderr) || firstLineOf(stdout);
+    if (msg !== "") return msg;
+    // Nothing was read and nothing was changed, which is what makes exit 5 a refusal rather than a
+    // failed run - the CLI's own distinction, and the reason these are two sentences.
+    if (rc === 5) return COPY.stagedDiscardRefused;
+    if (rc === 3) return COPY.stagedDiscardBusy;
+    return fill(COPY.stagedDiscardFailed, "%1", String(rc));
+}
+
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar around a
 // number, not a wording decision. The zero case is the exception: "no package changes" is the
@@ -1709,6 +1768,20 @@ function viewModel(state, updating, cliError, opts) {
         // would cancel a stored release upgrade exactly as a first stage would, and abort in
         // pre-flight on an image-based box exactly as a first stage would.
         stagedShowRebuild: stagedWarning && !noOfflineRoute,
+        // ...and the way out that is neither a restart nor a rebuild: discard the staged update,
+        // and let the next restart install nothing. Offered on BOTH banners, which is where it
+        // differs from the rebuild: a rebuild only makes sense where there is something to change,
+        // while "install nothing at all" is an answer to either one - and on a warning the person
+        // has just said they did not want one of those packages, so it is the least surprising
+        // button on that message. It is drawn LAST, so it stands beside the conflict remedy rather
+        // than where the conflict remedy stands.
+        // The guard is the rebuild's, for the rebuild's reason: `kempt unstage` refuses with exit
+        // 5 while a Fedora release upgrade is stored (dnf5 has one slot, and discarding what is in
+        // it would cancel the upgrade), so the button is not offered on a box the CLI would turn
+        // down. Belt and braces on that path - a release upgrade already takes the whole banner
+        // away - and the half that acts is the image-based one, where dnf is not how the machine
+        // updates at all.
+        stagedShowDiscard: staged && !noOfflineRoute,
         // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
         // stops it being offered, so nobody has to press a button to be told no.
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
@@ -1782,6 +1855,7 @@ if (typeof module !== "undefined" && module.exports) {
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
         runStartMessage: runStartMessage,
+        discardStagedMessage: discardStagedMessage,
         lastRunText: lastRunText,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,

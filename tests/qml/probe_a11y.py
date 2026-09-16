@@ -612,7 +612,11 @@ def _code(name):
 # never heard, so the same words are bound to Accessible.description. The second is the updating
 # pane's escape hatch, which is text-only and says what pressing it does - it is the ONLY control
 # in that pane, so a person who cannot see the label has nothing else to go on.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 2}
+#
+# The third is Discard Staged Update, on the same banner and for the same reason: its tooltip
+# discloses the authorization and that the downloaded packages go with the transaction, and polkit
+# takes the focus the instant it is pressed.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 3}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

@@ -131,13 +131,30 @@ PlasmoidItem {
     // A third property rather than a timestamp on each, because these two are assigned from a
     // dozen places between them and a stamp one assignment forgot would silently pick the wrong
     // winner. A change handler fires on every assignment there is, including the ones that clear.
+    // A press that did exactly what it promised, in the same slot. A THIRD property rather than
+    // actionMessage with a flag beside it, because the popup draws actionMessage as an Error and
+    // an action that worked is not one - and because a boolean set in one place and read in
+    // another is the drift that a change handler per property cannot see.
+    property string actionDone: ""
+
     property string reportLatest: ""
     onActionMessageChanged: reportLatest = actionMessage.length > 0 ? "failure"
-                            : (postRunLine.length > 0 ? "run" : "")
-    onPostRunLineChanged: reportLatest = postRunLine.length > 0 ? "run"
-                          : (actionMessage.length > 0 ? "failure" : "")
+                            : otherReport("failure")
+    onPostRunLineChanged: reportLatest = postRunLine.length > 0 ? "run" : otherReport("run")
+    onActionDoneChanged: reportLatest = actionDone.length > 0 ? "done" : otherReport("done")
+
+    // Which report is left when the one that just changed cleared itself. Only ever reached by a
+    // clear, because a handler whose own property is set answers with itself above - so the order
+    // here decides nothing that a single event can produce.
+    function otherReport(cleared) {
+        if (cleared !== "failure" && actionMessage.length > 0) return "failure";
+        if (cleared !== "done" && actionDone.length > 0) return "done";
+        if (cleared !== "run" && postRunLine.length > 0) return "run";
+        return "";
+    }
     readonly property string reportText: reportLatest === "failure" ? actionMessage
-                                         : (reportLatest === "run" ? postRunLine : "")
+                                         : (reportLatest === "done" ? actionDone
+                                         : (reportLatest === "run" ? postRunLine : ""))
     // A failed press is an error; a run is an error when the run failed, whatever its counts say.
     readonly property bool reportFailed:
         reportLatest === "failure"
@@ -254,6 +271,9 @@ PlasmoidItem {
         // so the clear happens first and the callback that sets the line lands after it. The
         // Executor queue is strictly FIFO, which is what makes that a rule rather than a race.
         postRunLine = "";
+        // ...and a report of something that worked, on the same rule and in the same breath: it
+        // described the event this check was asked for, and the check is the next event.
+        actionDone = "";
         restartError = "";
         holdError = null;
         // Asked again while one is running: coalesce, never drop. The running check read its
@@ -541,6 +561,55 @@ PlasmoidItem {
                 if (rc2 === 0) root.enterUpdating("offline");
                 else root.actionMessage = Logic.firstLineOf(stderr2)
                                           || "Could not rebuild the staged update.";
+            });
+        });
+    }
+
+    // The staged banner's other action: discard the staged update, so the next restart installs
+    // nothing. `kempt unstage`, which somebody staging from this popup would otherwise have to
+    // open a terminal to reach.
+    //
+    // WAITED ON rather than detached, which is where it differs from stageOffline and
+    // rebuildStaged. Those two hand off to a run that writes state.json and reports itself through
+    // the updating pane; this one is a single short verb with an exit code that means five
+    // different things, and the answer IS the report. The timeout is the check's, not the stage's:
+    // the authentication dialog is on the far side of it and a person can take a while to find
+    // their password.
+    //
+    // The re-verify above it is rebuildStaged's, for rebuildStaged's reason: consent is given to a
+    // BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
+    // a restart can consume the stage, a re-stage can replace it, or `dnf5 offline clean` can take
+    // it away - and discarding what arrived in its place is spending consent that was never given.
+    // stateDir is NOT shellQuote'd - see findLog().
+    function discardStaged() {
+        if (updating) return;
+        actionMessage = "";
+        actionDone = "";
+        var offered = vm.stagedStagedAt;
+        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
+            var fresh = Logic.parseState(stdout);
+            if (fresh !== null) root.kemptState = fresh;
+            var vmNow = Logic.viewModel(fresh, false, "");
+            if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
+                    || !vmNow.stagedShowDiscard) {
+                root.actionMessage = Logic.COPY.stagedDiscardChanged;
+                return;
+            }
+            // `executor`, not `root.executor`: an id is resolved lexically and is NOT a property of
+            // the object that declares it, so the latter is undefined inside this callback.
+            executor.run(root.kemptCmd + " unstage", 120000, function(stdout2, stderr2, rc2) {
+                var said = Logic.discardStagedMessage(rc2, stdout2, stderr2);
+                if (rc2 !== 0) { root.actionMessage = said; return; }
+                // The same refresh the pin uses, and what stops the popup advertising a staged
+                // update that is gone: state.json is the widget's only channel, `kempt unstage`
+                // rewrites it before it exits, and a check is how this widget learns that a file
+                // it does not own has changed.
+                //
+                // ...and the line is set AFTER it, not before: doCheck clears the last event's
+                // reports synchronously at its top, and this report is about the event that just
+                // happened rather than the one before it.
+                root.doCheck();
+                root.actionDone = said;
             });
         });
     }
