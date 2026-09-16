@@ -725,12 +725,49 @@ function familiesOf(names, max) {
     };
 }
 
+// The families Kempt ships a plain-language name for. "mesa" is a package name, not a word, and
+// this popup asks somebody whether it is safe to update their graphics driver while the desktop is
+// running - a question nobody can answer in vocabulary they do not have.
+//
+// Mirrors family_label in lib/common.sh on purpose: the terminal listing, this popup and the
+// notification all describe one transaction, and three vocabularies for it would be the product
+// disagreeing with itself. Keys are FAMILIES as familiesOf derives them (the name up to its first
+// - or .), so plasma-workspace keys as "plasma" and kwin-x11 as "kwin". The "#" prefix is there for
+// the reason familiesOf uses one: a family called "constructor" must not find Object.prototype's.
+//
+// ONLY the families in the DEFAULT risky_regex appear here. risky_regex is the user's to extend, so
+// an unknown family keeps its bare name rather than wearing a description nobody wrote for it.
+var FAMILY_LABELS = {
+    "#kernel":  "the Linux kernel",
+    "#systemd": "the service manager",
+    "#glibc":   "the core system library",
+    "#dbus":    "the system message bus",
+    "#mesa":    "graphics drivers",
+    "#qt6":     "the desktop toolkit",
+    "#kf6":     "KDE framework libraries",
+    "#plasma":  "the Plasma desktop",
+    "#kwin":    "the window manager"
+};
+
+function labelFor(family) {
+    var v = FAMILY_LABELS["#" + family];
+    return typeof v === "string" ? v : "";
+}
+
 // The families in a risky set, capped, as both sentences below name them. One function, because a
 // count sentence and a recommendation listing the same set differently would be the popup
 // disagreeing with itself about one transaction.
+//
+// LABELS, not package names: the popup already lists every pending package by name in its rows, so
+// the sentence's job is to say what those packages ARE. The terminal listing keeps the name beside
+// the label, because there the name is the row's identity and there is room for both.
 function riskyFamiliesOf(names) {
-    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN);
-    return fams.shown.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
+    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN), out = [], i, lbl;
+    for (i = 0; i < fams.shown.length; i++) {
+        lbl = labelFor(fams.shown[i]);
+        out.push(lbl !== "" ? lbl : fams.shown[i]);
+    }
+    return out.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
 }
 
 // "20 session-critical pending (dbus, glibc, kernel, kf6, ...)", worded from the same parts as the

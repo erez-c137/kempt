@@ -886,7 +886,7 @@ grep -qE '^      graphics drivers \(mesa\) +2 packages' <<<"$unl" \
   printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
 : > "$WORLD/notifications"
 "$KEMPT" update --surface=background >/dev/null 2>&1
-grep -q '20 session-critical packages pending (kernel, kf6, kwin, mesa, ...)' "$WORLD/notifications" \
+grep -q '20 session-critical packages pending (the Linux kernel, KDE framework libraries, the window manager, graphics drivers, ...)' "$WORLD/notifications" \
   && echo "ok: notification summarises by family, capped at 4" || { echo "FAIL: family summary - got: $(cat "$WORLD/notifications")"; _fail=1; }
 grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked into the notification"; _fail=1; } \
   || echo "ok: no wall of package names in a notification"

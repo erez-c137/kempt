@@ -383,7 +383,16 @@ recommend_offline_if_risky() {
         # release upgrade is stored points at a run that aborts in pre-flight.
         local tail_advice=" - consider the Offline surface"
         [[ "$relup_blocks" == true ]] && tail_advice=""
-        notify "Kempt" "$rcount session-critical packages pending ($(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')$( (( fam_n > 4 )) && echo ', ...'))$tail_advice"
+        # The same vocabulary the terminal listing and the popup use: family_label, or the bare
+        # family when Kempt ships no label for it. A notification calling mesa "mesa" while the
+        # terminal calls it graphics drivers is one transaction described two ways.
+        local fam_disp
+        fam_disp="$(head -4 <<<"$fams" | while read -r f; do
+                      lbl="$(family_label "$f")"
+                      if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
+                    done | paste -sd, - | sed 's/,/, /g')"
+        (( fam_n > 4 )) && fam_disp="$fam_disp, ..."
+        notify "Kempt" "$rcount session-critical packages pending ($fam_disp)$tail_advice"
       fi
     fi
   fi

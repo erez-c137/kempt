@@ -849,7 +849,13 @@ risky_names="$(jq -r '.risky_pending[]' "$FIXTURES/state-risky-heavy.json")"
 n_risky="$(grep -c '' <<<"$risky_names")"
 fams="$(sed 's/[-.].*//' <<<"$risky_names" | sort -u)"
 n_fams="$(grep -c '' <<<"$fams")"
-shown="$(head -4 <<<"$fams" | paste -sd, - | sed 's/,/, /g')"
+# The plain-language names come from the CLI's OWN table, called rather than copied. A second copy
+# of the vocabulary in this file is exactly how the popup and the terminal would drift apart while
+# every assertion here kept passing - which is the failure this test exists to catch.
+shown="$(head -4 <<<"$fams" | while read -r f; do
+           lbl="$(bash -c "source '$REPO_ROOT/lib/common.sh'; family_label '$f'")"
+           if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
+         done | paste -sd, - | sed 's/,/, /g')"
 more=""; if (( n_fams > 4 )); then more=", ..."; fi
 expect_risky="$n_risky session-critical pending ($shown$more)"
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
@@ -905,12 +911,15 @@ assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" \
   "This update touches 1 package the running desktop depends on (akmod). The safest way is to install it on the next restart." \
   "the driver without a kernel gets the same recommendation in the singular, not a kernel sentence"
 assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
-  "This update touches 2 packages the running desktop depends on (dbus, glibc). The safest way is to install them on the next restart." \
-  "a risky set with no kernel in it recommends the same button, and names what is in it"
+  "This update touches 2 packages the running desktop depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
+  "a risky set with no kernel in it recommends the same button, and says what is in it in words"
+# ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
+# extend, so the moment a label is derived rather than looked up, the popup starts describing
+# packages nobody wrote a description for. alsa, atk and bash are exactly that case.
 # The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", ...".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, dbus, ...). The safest way is to install them on the next restart." \
-  "...capped at four families, exactly as the count sentence is"
+  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, ...). The safest way is to install them on the next restart." \
+  "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /Restart when it finishes/.test(L.COPY[k]); })')" \
@@ -1688,7 +1697,8 @@ assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
   "...nor is an object that merely carries a length"
 # The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
-  "2 session-critical pending (glibc, kernel)" "a genuine array still derives the summary it always did"
+  "2 session-critical pending (the core system library, the Linux kernel)" \
+  "a genuine array still derives the summary it always did, now in the shared vocabulary"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
 # The state key exists only when the CLI has reconciled its own marker against dnf5's status and
