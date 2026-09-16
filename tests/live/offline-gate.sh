@@ -31,6 +31,28 @@ REFUSE
   exit 2
 fi
 
+# What this script shadows, and where it puts the originals. Named once, so the restore below
+# cannot drift away from the lines that do the shadowing.
+DNF5_BIN=/usr/bin/dnf5
+DNF5_REAL=/usr/bin/dnf5.real
+REPOS_DIR=/etc/yum.repos.d
+REPOS_BAK=/tmp/repos.bak
+
+# Put both back HOWEVER this script ends: a failed assertion, a Ctrl-C, a killed terminal. The
+# restores written inline further down only run when the script reaches them, which is precisely
+# not the case worth protecting against. The container is thrown away afterwards, so this is not
+# for the container's sake - it is for the run under KEMPT_GATE_I_MEAN_IT, where an exit between
+# the shadow and the restore leaves a machine whose dnf5 is renamed and whose every repository
+# points at a dead address, with nothing on screen saying so.
+gate_restore() {
+  [[ -e "$DNF5_REAL" ]] && mv -f "$DNF5_REAL" "$DNF5_BIN"
+  [[ -d "$REPOS_BAK" ]] && cp -f "$REPOS_BAK"/*.repo "$REPOS_DIR"/ 2>/dev/null
+  # Never the last command's status: in an EXIT trap that is the only thing the reader could
+  # mistake for the gate's own verdict.
+  return 0
+}
+trap gate_restore EXIT
+
 ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh
@@ -149,8 +171,8 @@ is "a stage without $OTHER is armed" "$(toml_status)" "ready"
 lacks_name "...and really lacks $OTHER" "$(txnames)" "$OTHER"
 at5=$(jq -r .staged_at < "$STATE/offline_staged.json")
 "$K" unhold "dnf:$OTHER" >/dev/null 2>&1
-mkdir -p /tmp/repos.bak && cp /etc/yum.repos.d/*.repo /tmp/repos.bak/
-sed -i -e 's|^metalink=.*|baseurl=http://127.0.0.1:9/|' -e 's|^baseurl=.*|baseurl=http://127.0.0.1:9/|' /etc/yum.repos.d/*.repo
+mkdir -p "$REPOS_BAK" && cp "$REPOS_DIR"/*.repo "$REPOS_BAK"/
+sed -i -e 's|^metalink=.*|baseurl=http://127.0.0.1:9/|' -e 's|^baseurl=.*|baseurl=http://127.0.0.1:9/|' "$REPOS_DIR"/*.repo
 : > /tmp/gate-notifications; ev5=$(events | grep -c 'offline marker cleared')
 "$K" update --surface=offline --no-flatpak > /tmp/s5.out 2>&1; rc=$?
 [[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail" "$(tail -3 /tmp/s5.out)"
@@ -162,21 +184,21 @@ is "the marker is the same marker" "$(jq -r .staged_at < "$STATE/offline_staged.
 is "no clean was run against it" "$(events | grep -c 'offline marker cleared')" "$ev5"
 has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
 has "notification says the previous one still installs" "$(notes)" "still installs on the next restart"
-cp /tmp/repos.bak/*.repo /etc/yum.repos.d/
+cp "$REPOS_BAK"/*.repo "$REPOS_DIR"/
 
 section "S6 dnf5 replaces the old stage and then fails (simulated): the unwind, with and without a working clean"
 # Real dnf5 keeps the old transaction on a download failure (S5). The other outcome, a new stage
 # that replaced the old one and then died, is simulated: the wrapper destroys the old transaction
 # the way a replace does and then fails, so the toml is absent when Kempt looks.
-mv /usr/bin/dnf5 /usr/bin/dnf5.real
-cat > /usr/bin/dnf5 <<'W'
+mv "$DNF5_BIN" "$DNF5_REAL"
+cat > "$DNF5_BIN" <<'W'
 #!/bin/bash
 [[ "$*" == *"upgrade --offline"* && -e /tmp/gate-destroy-old ]] && { /usr/bin/dnf5.real -y -q offline clean >/dev/null 2>&1; echo "gate: the stage died after replacing the old transaction" >&2; exit 1; }
 [[ "$*" == *"offline clean"* && -e /tmp/gate-fail-clean ]] && { echo "gate: clean refused" >&2; exit 1; }
 [[ "$*" == *"offline reboot"* && -e /tmp/gate-fail-arm ]] && { echo "gate: arm refused" >&2; exit 1; }
 exec /usr/bin/dnf5.real "$@"
 W
-chmod 755 /usr/bin/dnf5
+chmod 755 "$DNF5_BIN"
 "$K" update --surface=offline --no-flatpak > /tmp/s6a.out 2>&1
 is "a fresh stage is armed" "$(toml_status)" "ready"
 touch /tmp/gate-destroy-old /tmp/gate-fail-clean; : > /tmp/gate-notifications
@@ -361,7 +383,7 @@ rm -f "$LINK"
 KEMPT_BOOT_ID=s12-boot "$K" check >/dev/null 2>&1
 
 section "S9 restore"
-mv -f /usr/bin/dnf5.real /usr/bin/dnf5
+mv -f "$DNF5_REAL" "$DNF5_BIN"
 d=$("$K" doctor 2>&1)
 hasnt "doctor: no staged-update failure left" "$(grep -E '^FAIL' <<<"$d")" "staged update"
 hasnt "doctor: no boot-symlink failure left" "$(grep -E '^FAIL' <<<"$d")" "boot symlink"
