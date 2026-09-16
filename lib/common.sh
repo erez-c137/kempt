@@ -1517,8 +1517,21 @@ render_summary() {  # history-json-file → human text
   jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
-    def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
+    # The held names, read ONCE and shared by the two lines below, so the list and the count can
+    # never disagree about the same run. `?` and `// []` keep an entry written before the field
+    # existed rendering, instead of dying on a missing key and printing nothing at all.
+    def heldnames: [.backends[] | .skipped_held? // [] | .[]];
+    def heldline: heldnames | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
+    # ...and what those holds COST this run. The line above names them; this answers the question
+    # somebody actually asks afterwards, which is why the pending count did not drop as far as they
+    # expected. No schema change: the names have always been in the entry, only the arithmetic is
+    # new. Nothing at zero - a standing "0 pending packages did not move" on every clean run is
+    # noise that teaches people to stop reading the summary.
+    def shortfall: heldnames | length
+                   | if . == 0 then empty
+                     elif . == 1 then "1 pending package did not move because of holds"
+                     else (tostring) + " pending packages did not move because of holds" end;
     # a transaction that installs or removes packages changed the system just as much as one
     # that upgrades them: counting only .updated under-reports what actually happened.
     # counts_phrase (KEMPT_JQ_COUNTS) is the shared definition; `true` keeps the update count on
@@ -1537,6 +1550,7 @@ render_summary() {  # history-json-file → human text
       + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     heldline,
+    shortfall,
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not

@@ -434,6 +434,17 @@ kempt history
 
 `summary` renders one run as human text. `N` counts back from the newest: `1` (the default) is
 the last run, `2` the one before it. `N` must be a positive integer, or the command exits 2.
+
+Held packages get two lines. `Held (skipped): ...` names them, and a count says what they cost:
+
+```
+9 pending packages did not move because of holds
+```
+
+That is the answer to the question people actually ask after a run, which is why the pending count
+did not drop as far as they expected. Both lines are read from the same entry, so they cannot
+disagree, and neither appears when nothing was held. The same two lines end the summary a run
+prints when it finishes.
 Asking for more runs than exist shows the oldest and says so on stderr.
 
 ```bash

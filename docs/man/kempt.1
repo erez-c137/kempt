@@ -101,7 +101,7 @@ overrides the run surface
 .RB ( terminal ", " popup ", " background ", " offline ).
 An unrecognized surface falls back to
 .BR terminal .
-Held items are excluded and listed. When session\-critical packages are pending, an interactive
+Held items are excluded, listed and counted. When session\-critical packages are pending, an interactive
 terminal run first offers to update live, stage the transaction offline, or abort; anything
 other than an explicit yes aborts, having changed nothing.
 .IP
@@ -145,6 +145,8 @@ A successful launch says nothing about the update's outcome: poll the state file
 Render one run as human\-readable text.
 .I N
 counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
+Held packages are named and then counted, so a run that left nine pending packages behind because
+of holds says so rather than leaving the reader to work out why the pending count did not drop.
 .TP
 .B summary \-\-json
 Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated

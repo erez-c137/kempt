@@ -32,6 +32,53 @@ grep -q 'kernel-core 6.15.3 → 6.15.4' <<<"$s" && echo "ok: dnf line" || { echo
 grep -q 'org.gimp.GIMP 2.10 → 2.11' <<<"$s" && echo "ok: flatpak line" || { echo "FAIL: fp line"; _fail=1; }
 grep -q 'Held (skipped): vim-common' <<<"$s" && echo "ok: held surfaced" || { echo "FAIL: held"; _fail=1; }
 grep -q 'Reboot: needed' <<<"$s" && echo "ok: reboot line" || { echo "FAIL: reboot"; _fail=1; }
+
+# --- what the holds COST this run ---------------------------------------------------------------
+# "Held (skipped): vim-common" names them. This answers the question somebody actually asks when
+# the pending count did not drop after a run: how much of what was waiting is still waiting. Both
+# lines come from the same entry, so they can never disagree about the same run, and it needs no
+# schema change - skipped_held has always been there.
+# Rendered off files in TESTTMP rather than the history directory, so these cases cannot disturb
+# the run counts `kempt summary` and `kempt history` are asserted on above and below.
+grep -q '^1 pending package did not move because of holds$' <<<"$s" \
+  && echo "ok: one held package reads as one, verb and all" \
+  || { echo "FAIL: no hold shortfall line"; _fail=1; echo "$s" | sed 's/^/    /'; }
+
+cat > "$TESTTMP/holds-many.json" <<'EOF'
+{"timestamp":"2026-08-24T13:00:00+03:00","surface":"terminal","status":"ok","duration_sec":10,
+ "reboot_needed":false,"log":"/tmp/x.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":["kernel-core","vim-common"],
+    "updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":["org.gimp.GIMP"],
+    "updated":[],"added":[],"removed":[]}}}
+EOF
+s_many="$(render_summary "$TESTTMP/holds-many.json")"
+grep -q '^3 pending packages did not move because of holds$' <<<"$s_many" \
+  && echo "ok: the shortfall counts holds across both backends" \
+  || { echo "FAIL: shortfall is not counted across backends"; _fail=1; echo "$s_many" | sed 's/^/    /'; }
+
+# No holds, no line. A standing "0 pending packages did not move" on every clean run is noise that
+# teaches people to stop reading the summary, which is where the real findings are.
+cat > "$TESTTMP/holds-none.json" <<'EOF'
+{"timestamp":"2026-08-24T14:00:00+03:00","surface":"terminal","status":"ok","duration_sec":10,
+ "reboot_needed":false,"log":"/tmp/x.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+EOF
+grep -q 'did not move because of holds' <<<"$(render_summary "$TESTTMP/holds-none.json")" \
+  && { echo "FAIL: a run with no holds still printed a shortfall line"; _fail=1; } \
+  || echo "ok: a run with no holds says nothing about them"
+
+# An entry written before the field existed must still render, rather than dying on a missing key.
+cat > "$TESTTMP/holds-legacy.json" <<'EOF'
+{"timestamp":"2026-08-24T15:00:00+03:00","surface":"terminal","status":"ok","duration_sec":10,
+ "reboot_needed":false,"log":"/tmp/x.log",
+ "backends":{"dnf":{"status":"ok","updated":[],"added":[],"removed":[]}}}
+EOF
+assert_eq "$(render_summary "$TESTTMP/holds-legacy.json" | grep -c 'because of holds')" "0" \
+  "an entry with no skipped_held at all renders, and claims no shortfall"
 assert_eq "$("$KEMPT" summary | grep -c 'kernel-core')" "1" "kempt summary reads latest"
 assert_eq "$("$KEMPT" history | wc -l)" "1" "history lists one run"
 assert_eq "$("$KEMPT" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
