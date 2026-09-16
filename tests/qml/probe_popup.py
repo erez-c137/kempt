@@ -85,7 +85,10 @@ def now_stamped(entry):
 # environment, so a bin directory in front of PATH is the whole seam - and it costs the shipped
 # command string nothing. A `PATH=` glued onto the production string to make it testable would be
 # a test the widget pays for at runtime, forever.
-os.environ["PATH"] = p.bindir + os.pathsep + os.environ["PATH"]
+#
+# harness.Probe already puts a silent `exit 0` for both names in that directory, for every probe.
+# What follows replaces them with RECORDERS, because this file asserts the argument list each one
+# is given, not merely that the real command was never reached.
 DBUSRC = os.path.join(p.sandbox, "dbusrc")
 XDGRC = os.path.join(p.sandbox, "xdgrc")
 open(DBUSRC, "w").write("0")

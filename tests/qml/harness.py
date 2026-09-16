@@ -75,6 +75,21 @@ class Probe:
         os.makedirs(self.bindir)
         self.calls = os.path.join(self.sandbox, "calls")
 
+        # The two commands that must never be the real ones, shadowed for EVERY probe rather than
+        # in the four that remembered to. `dbus-send` opens KDE's logout prompt on a live session
+        # and `xdg-open` opens a file in the user's editor, and the Executor hands every command
+        # to /bin/sh with this process's environment - so a bin directory in front of PATH is the
+        # whole seam. A probe that presses a Restart button is exactly the one that forgets, which
+        # is how probe_a11y came to tab onto Restart, press Space, and resolve `dbus-send` to
+        # /usr/bin/dbus-send. A probe that wants to RECORD either call writes its own recorder over
+        # these afterwards; this is the floor, not the ceiling.
+        os.environ["PATH"] = self.bindir + os.pathsep + os.environ.get("PATH", "")
+        for _name in ("dbus-send", "xdg-open"):
+            _shadow = os.path.join(self.bindir, _name)
+            with open(_shadow, "w") as fh:
+                fh.write("#!/usr/bin/env bash\nexit 0\n")
+            os.chmod(_shadow, 0o755)
+
         os.environ["HOME"] = self.home
         # The suite's own sandbox() exports these, and main.qml's watched paths honour them
         # (${KEMPT_STATE_DIR:-$HOME/...}). Leaving them set would point the widget's watcher at

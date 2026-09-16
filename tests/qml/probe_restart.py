@@ -35,7 +35,6 @@ open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.js
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
 
-os.environ["PATH"] = p.bindir + os.pathsep + os.environ["PATH"]
 DBUSRC = os.path.join(p.sandbox, "dbusrc")
 open(DBUSRC, "w").write("0")
 

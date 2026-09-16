@@ -36,13 +36,6 @@ RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
 
-os.environ["PATH"] = p.bindir + os.pathsep + os.environ["PATH"]
-for _name in ("dbus-send", "xdg-open"):
-    _path = os.path.join(p.bindir, _name)
-    open(_path, "w").write("#!/usr/bin/env bash\nexit 0\n")
-    os.chmod(_path, 0o755)
-
-
 def _code(name):
     """One .qml file with its comments removed, on one line."""
     lines = [ln.split("//")[0] for ln in open(os.path.join(harness.UI, name))]
