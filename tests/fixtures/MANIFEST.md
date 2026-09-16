@@ -74,6 +74,51 @@ invented (GIMP is not installed here); added so flatpak-remote-ls.txt's GIMP ent
 matching older-version row to join against, exercising the 2-app case. `com.example.NotInstalled`
 was deliberately NOT added here (see guard row above - that's the point of the guard).
 
+## tests/fixtures/flatpak-list-runtime.tsv
+**Captured**, 2026-09-16, byte-faithful, via the command the backend runs:
+
+```bash
+LC_ALL=C flatpak list --system --runtime --columns=application,branch,version
+```
+
+All 7 system runtimes installed on this box, in flatpak's own order (it sorts; the backend sorts
+again anyway). Two oddities in it are real and both are load-bearing:
+
+- `org.freedesktop.Platform.GL.default` appears **twice**, on branches `24.08` and `24.08extra`.
+  That is the two-branch case the whole identity rule exists for, and it was captured rather than
+  constructed: this is simply what a desktop with a GL runtime looks like. Keyed by id alone the
+  pair collapses into one row carrying both versions, which is wrong about both.
+- Three rows have **no version column at all** (`org.freedesktop.Platform.VAAPI.Intel`,
+  `org.kde.KStyle.Adwaita`, `org.kde.Platform`): a runtime is versioned by its branch, so flatpak
+  has no version string to print. `flatpak_runtime_rows` turns that into the `?` sentinel. A
+  fixture without such a row would let a parser that assumes three columns pass.
+
+## tests/fixtures/flatpak-remote-ls-runtime.tsv
+**Constructed, on captured rows.** Nothing was pending for either kind on this box (verified live
+2026-09-16: `flatpak remote-ls --updates --system --runtime --cached` printed nothing under rc 0),
+exactly as for the app fixtures above, so there was no real pending-runtime output to capture. The
+ids, branches and **size strings** are real, captured the same day from:
+
+```bash
+flatpak remote-ls --system --runtime --cached --columns=application,branch,version,download-size
+```
+
+The `to` versions are bumped to plausible newer ones, which is the only invented part. 4 rows:
+
+- The two `org.freedesktop.Platform.GL.default` branches, bumped to **divergent** versions
+  (`24.08` → 26.1.9, `24.08extra` → 26.2.0). Divergent on purpose, and it is the opposite of the
+  dnf fixture's reason: there the divergence proves the collapse step runs, here it proves it does
+  NOT. Identical versions would collapse to a set that looked right by accident.
+- `org.kde.Platform` with an **empty version column** and a real size, the same no-version case the
+  installed fixture carries, on the pending side.
+- `org.example.NotInstalledRuntime` - absent from flatpak-list-runtime.tsv, the same
+  missing-from-installed guard as `brandnew.x86_64` and `com.example.NotInstalled` above.
+
+Contract: this file parses to **4 items**, two of them one id on two branches, and together with
+the 3 app rows it makes `flatpak_check` answer **7**. Size strings use U+00A0 exactly as the app
+size fixture does (4 of them, one per row); `tests/test_flatpak.sh` prices two of them and requires
+the two GL branches to get their own, different figures.
+
 ## tests/fixtures/snap-multiver-raw.tsv
 **Hand-written**, 2026-08-24, but modeled directly on this box's real installonly duplication
 (measured live: `rpm -qa` returns 2516 rows for only 2492 distinct names - `gpg-pubkey` ×13 and
