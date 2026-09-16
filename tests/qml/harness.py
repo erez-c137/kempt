@@ -28,6 +28,45 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 UI = os.environ.get("KEMPT_UI_DIR") or os.path.join(REPO, "plasmoid", "contents", "ui")
 FIXTURES = os.path.join(REPO, "tests", "fixtures")
 
+# What the REAL CLI answers when nothing has been configured, from kempt_default() in
+# lib/common.sh. One copy, because five probes had each written their own and every one of them
+# answered `refresh_interval_min` with 15 while the shipped default is 60: the widget's timer
+# arithmetic was being exercised against a number no user's box will ever produce, in five files
+# at once, and a sixth probe copying its neighbour would have made it six.
+CONFIG_DEFAULTS = {
+    "include_flatpak": "true",
+    "auto_accept": "true",
+    "surface": "terminal",
+    "refresh_interval_min": "60",
+    "widget_icon_size": "auto",
+    "restart_reminder": "true",
+}
+
+
+def config_arm(**overrides):
+    """The `config` arm of a stub CLI, answering `get` with the real defaults.
+
+    Each override is a shell snippet that PRINTS the answer, not a bare value: a probe that has to
+    change a setting mid-run passes `auto_accept="cat /path/to/file"`, and one that only wants a
+    different constant passes `surface="echo popup"`.
+
+    An unknown key exits 2 rather than printing nothing under exit 0, because that is what the CLI
+    does, and a stub that is more forgiving than the real thing is a stub that hides the caller
+    that asks for a key the CLI does not have.
+    """
+    answers = dict((k, "echo %s" % v) for k, v in CONFIG_DEFAULTS.items())
+    answers.update(overrides)
+    cases = "".join("              %s) %s ;;\n" % (k, answers[k]) for k in sorted(answers))
+    return ("  config)\n"
+            "          if [[ \"$2\" == get ]]; then\n"
+            "            case \"$3\" in\n"
+            + cases
+            + "              *) echo \"kempt: unknown setting: $3\" >&2; exit 2 ;;\n"
+              "            esac\n"
+              "            exit 0\n"
+              "          fi\n"
+              "          exit 0 ;;")
+
 # The probes load the SHIPPED files straight out of the repo. No copies, on purpose: a probe
 # directory holding its own copy of the widget is a probe that goes on passing after the widget
 # changes, which is how the earlier version of this kit ended up testing a file that still said
@@ -142,7 +181,14 @@ class Probe:
                      "printf '%s\\n' \"$*\" >> " + self.calls + "\n"
                      "printf '%s\\n' \"$#\" > " + self.sandbox + "/argc.\"$1\"\n"
                      "printf '%s\\n' \"$@\" > " + self.sandbox + "/argv.\"$1\"\n"
-                     + body + "\nexit 0\n")
+                     + body + "\n"
+                     # The tail is the `*)` arm the case statements above do not write: a verb the
+                     # stub does not know exits 2, the way the real CLI does. Ending in `exit 0`
+                     # meant a probe could drive the widget into calling anything at all - a verb
+                     # that had been renamed, a typo, a command removed two releases ago - and the
+                     # widget would see a clean success and the probe would pass.
+                     "printf 'kempt: unknown command: %s\\n' \"$1\" >&2\n"
+                     "exit 2\n")
         os.chmod(path, 0o755)
         return path
 

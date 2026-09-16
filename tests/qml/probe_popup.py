@@ -129,9 +129,7 @@ recorder("xdg-open", XDGRC)
 
 p.stub("""
 case "$1" in
-  config) [[ "$3" == refresh_interval_min ]] && echo 15; [[ "$3" == surface ]] && echo popup
-          [[ "$3" == auto_accept ]] && cat %(AUTO)s
-          [[ "$3" == restart_reminder ]] && cat %(RR)s; exit 0 ;;
+%(CFG)s
   check)  cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    rc="$(cat %(RUNRC)s)"
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
@@ -142,7 +140,9 @@ case "$1" in
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
 esac
-""" % {"AUTO": AUTO, "RR": RR, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+""" % {"CFG": harness.config_arm(surface="echo popup", auto_accept="cat %s" % AUTO,
+                                restart_reminder="cat %s" % RR),
+       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget

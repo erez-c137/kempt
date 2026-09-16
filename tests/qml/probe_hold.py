@@ -147,9 +147,7 @@ open(HOLDRC, "w").write("0")
 
 p.stub("""
 case "$1" in
-  config) [[ "$3" == refresh_interval_min ]] && echo 15; [[ "$3" == surface ]] && echo terminal
-          [[ "$3" == auto_accept ]] && echo true
-          [[ "$3" == restart_reminder ]] && echo true; exit 0 ;;
+%(CFG)s
   hold)   sleep "$(cat %(SLEEP)s)"
           rc="$(cat %(RC)s)"
           if [[ "$rc" != 0 ]]; then echo "kempt: could not write the holds file" >&2; exit "$rc"; fi
@@ -159,7 +157,8 @@ case "$1" in
   check)  cp %(CUR)s %(ST)s; cat %(ST)s; exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
 esac
-""" % {"CUR": CURRENT, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": HOLDSLEEP,
+""" % {"CFG": harness.config_arm(),
+       "CUR": CURRENT, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": HOLDSLEEP,
        "RC": HOLDRC, "HELDSRC": HELD_SRC, "PENDSRC": PENDING_SRC})
 
 root, ev = p.create("main.qml")

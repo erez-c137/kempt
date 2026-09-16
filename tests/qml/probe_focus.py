@@ -45,14 +45,13 @@ open(RUNJSON, "w").write(
 
 p.stub("""
 case "$1" in
-  config) [[ "$3" == refresh_interval_min ]] && echo 15; [[ "$3" == surface ]] && echo terminal
-          [[ "$3" == auto_accept ]] && echo true
-          [[ "$3" == restart_reminder ]] && echo true; exit 0 ;;
+%(CFG)s
   check)  sleep "$(cat %(SLEEP)s)"; cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
 esac
-""" % {"SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
+""" % {"CFG": harness.config_arm(),
+       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
