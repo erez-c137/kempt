@@ -239,6 +239,18 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Wed Sep 16 2026 Erez <erez.c137@protonmail.com> - 0.1.4-1
+- Flatpak runtimes are counted and listed, so the badge matches what an
+  update really changes. They cannot be held: apps share them.
+- kempt unstage discards a staged update, from the command line or from the
+  panel, and refuses while a Fedora release upgrade is stored.
+- A restart reports the transaction Kempt staged, named from dnf5's own
+  history, or says plainly that a different one ran.
+- The popup says how old the package metadata behind its counts is, and
+  kempt check --refresh fetches now.
+- An authorization that was refused without a dialog no longer reads as a
+  cancelled prompt, and a terminal that never opened is reported.
+
 * Tue Sep 15 2026 Erez <erez.c137@protonmail.com> - 0.1.3-1
 - The root helper refuses to stage over, arm or discard a stored Fedora
   release upgrade itself, instead of relying on the command line's check.
