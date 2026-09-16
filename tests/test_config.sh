@@ -147,4 +147,23 @@ assert_exit 0 "an aged orphan temp in the config dir is swept" -- test ! -e "$KE
 assert_exit 0 "...while a fresh one there is left alone" -- test -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
 assert_exit 0 "...and the config file itself is untouched" -- test -f "$KEMPT_CONFIG_DIR/config"
 rm -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
+
+# The run-start token, swept on the same rule as the orphan temps above. `kempt run` drops one in
+# the state directory and the window it launches claims it by deleting it (wait_for_window), so a
+# terminal that never opens - or one that hangs forever without running its script - leaves it
+# behind. Nothing else ever removes those, so they accumulate one per wedged launch, for good.
+# The SAME +60min bound, and that bound is load-bearing in the other direction too: `kempt run`
+# waits seconds for the window to claim its token, so a token belonging to a launch that is still
+# waiting must never be eligible. An hour is far past any honest wait.
+printf 'x' > "$KEMPT_STATE_DIR/run-start.old";   touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-start.old"
+printf 'x' > "$KEMPT_STATE_DIR/run-start.fresh"
+# A name that merely STARTS like a token is not one: the glob is anchored on "run-start." and this
+# file is here to prove the sweep cannot widen into the rest of the state directory.
+printf 'x' > "$KEMPT_STATE_DIR/run-started.keep"; touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-started.keep"
+kempt_init_dirs
+assert_exit 0 "an aged run-start token is swept" -- test ! -e "$KEMPT_STATE_DIR/run-start.old"
+assert_exit 0 "...while a live launch's token is left alone" -- test -f "$KEMPT_STATE_DIR/run-start.fresh"
+assert_exit 0 "...and the sweep only ever takes its own file names" -- test -f "$KEMPT_STATE_DIR/run-started.keep"
+rm -f "$KEMPT_STATE_DIR/run-start.fresh" "$KEMPT_STATE_DIR/run-started.keep"
+
 finish

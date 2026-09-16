@@ -165,7 +165,8 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, which packages went in and were left out, and which dnf5 transaction it is, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
-| `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+| `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh,last_refresh_skip}` | flock targets, the refresh timestamp and the once-a-day skip stamp | Never; they are empty files |
+| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch; the window it starts claims it by deleting it | Swept by `kempt_init_dirs` after 60 minutes, like the `.atomic.*` temps - a window that never opens would otherwise leave one for good |
 | `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes. The age bound is the whole design: a live concurrent writer's temp is never eligible, and a crash between the write and the rename leaves nothing that outlives the hour |
 
 Four of those files are locks. `lock` and `check.lock` serialize runs and checks; `stage.lock` is

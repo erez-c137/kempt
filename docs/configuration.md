@@ -174,6 +174,7 @@ line per skip would be well over a hundred a day saying one thing.
 | `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate, and the source of `metadata_refreshed` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp marker for the once-a-day skipped-refresh line. Separate from the one above, so an announcement can never postpone a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged transaction awaiting a reboot |
+| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serializes updates, `check.lock` serializes checks, and `writer.lock` serializes the three commands that rewrite the two files above - `config set`, `hold` and `unhold` - so two of them running at once cannot lose one of the two writes |
 
 File names use a compact timestamp (`20260824T210511`); the `timestamp` field inside each history
@@ -194,6 +195,10 @@ Retention is automatic and best effort, swept whenever the CLI initializes its d
   than on a timer, so it happens once every 500 events. No date-based cutoff: an event log is
   only useful as far back as it reaches, and a line count is a bound you can reason about
   without knowing how busy the machine has been.
+- **Stray temporary files are swept after 60 minutes.** Interrupted atomic writes (`.atomic.*`, in
+  the config and state directories) and run-start tokens left by a terminal window that never
+  opened. An hour is well past any live writer or any launch still waiting for its window, so a
+  file still in use is never eligible.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 
