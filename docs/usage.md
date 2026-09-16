@@ -757,7 +757,7 @@ worth having in the same output.
 ```
 kempt hold   dnf:<package> | flatpak:<app.id>
 kempt unhold dnf:<package> | flatpak:<app.id>
-kempt holds
+kempt holds [--exclude-args]
 ```
 
 A hold means **skip it, but keep telling me about it**. Held items are excluded from every
@@ -783,6 +783,26 @@ no-op, and removing one that was never there succeeds.
 
 Holds are **Kempt's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
 outside Kempt ignores them.
+
+`--exclude-args` closes that gap by hand. It prints the dnf holds as dnf5 arguments, on one line:
+
+```bash
+kempt holds --exclude-args
+```
+
+```
+--exclude=kernel-core --exclude=vim-common
+```
+
+So a transaction run outside Kempt can honour the same list:
+
+```bash
+sudo dnf5 upgrade $(kempt holds --exclude-args)
+```
+
+dnf holds only, because `--exclude=` is a dnf5 argument and a Flatpak app id is not one. With no
+dnf holds it prints an empty line and exits 0, so the substitution above expands to no arguments
+rather than failing.
 
 ### Holding a package that is already staged
 

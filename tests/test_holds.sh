@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
+KEMPT="$REPO_ROOT/bin/kempt"
 kempt_init_dirs
 
 hold_add dnf vim-common
@@ -43,4 +44,31 @@ assert_eq "$(speaks_after 'hold_add dnf lock-probe >/dev/null')" "still speaking
 assert_eq "$(speaks_after 'acquire_lock; release_lock')" "still speaking" \
   "...and after the update lock, which closes its descriptor the same way"
 hold_remove dnf lock-probe
+
+# --- kempt holds --exclude-args: Kempt's own exclude list, reusable by hand ----------------------
+# One line, ready to paste after `sudo dnf5 upgrade`, so somebody running a transaction outside
+# Kempt can honour the same holds instead of retyping them. dnf only, and not as a convenience:
+# `--exclude=` is a dnf5 argument and a flatpak app id is not one, so a flatpak hold in this list
+# would be handed to dnf5 as the name of a package that does not exist.
+# State here: flatpak holds org.gimp.GIMP, and dnf holds nothing yet.
+hold_add dnf kernel-core
+hold_add dnf vim-common
+assert_eq "$("$KEMPT" holds --exclude-args)" "--exclude=kernel-core --exclude=vim-common" \
+  "the dnf holds come out as dnf5 exclude arguments"
+assert_eq "$("$KEMPT" holds --exclude-args | wc -l)" "1" \
+  "...on exactly one line, which is what makes it pasteable"
+assert_eq "$("$KEMPT" holds --exclude-args | grep -c 'org.gimp.GIMP')" "0" \
+  "...and a flatpak hold never becomes a dnf5 argument"
+# The plain listing is untouched by any of this - it is the one that answers "what have I held".
+assert_eq "$("$KEMPT" holds | wc -l)" "3" "the plain listing still names every hold, both backends"
+
+hold_remove dnf kernel-core
+hold_remove dnf vim-common
+assert_eq "$("$KEMPT" holds --exclude-args)" "" \
+  "no dnf holds prints an empty line rather than an error"
+assert_exit 0 "...and still exits 0, so a command substitution around it is safe" \
+  "$KEMPT" holds --exclude-args
+
+assert_exit 2 "holds still refuses an option it does not know" "$KEMPT" holds --json
+
 finish

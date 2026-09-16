@@ -1512,7 +1512,33 @@ cmd_unhold() {
 }
 # Refuses a stray argument like every other command: `kempt holds --json` silently printing the
 # plain list is how a script gets written against an option that does not exist.
-cmd_holds()  { [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; holds_all; }
+cmd_holds() {
+  local exclude_args=false
+  case "${1:-}" in
+    "") ;;
+    # The holds as dnf5 arguments, so somebody running a transaction OUTSIDE Kempt can honour the
+    # same list without retyping it - which is the gap the line below in usage.md describes: a
+    # manual `sudo dnf5 upgrade` ignores this file entirely.
+    --exclude-args) exclude_args=true; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  if [[ "$exclude_args" == true ]]; then
+    # dnf ONLY, and not as a convenience: `--exclude=` is a dnf5 argument, so a flatpak app id in
+    # this list would reach dnf5 as the name of a package that does not exist.
+    # ONE line, because the whole point is pasting it after a command. Empty when nothing is held,
+    # which keeps `$(kempt holds --exclude-args)` safe to wrap around: it expands to no arguments
+    # rather than to an error.
+    local h out=""
+    while IFS= read -r h; do
+      [[ -n "$h" ]] || continue
+      out+="${out:+ }--exclude=$h"
+    done < <(holds_for dnf)
+    printf '%s\n' "$out"
+    return 0
+  fi
+  holds_all
+}
 
 # `kempt unstage` - discard the staged offline transaction, so the next restart installs nothing.
 # The mirror of `kempt update --surface=offline`, through the same root helper verb the failure
@@ -2342,7 +2368,8 @@ usage: kempt <command>
   doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
   unhold <same>         remove a hold
-  holds                 list holds
+  holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
+                        arguments, on one line, to reuse by hand
   unstage               discard the staged offline update; the next restart installs nothing
   config get|set        read/write settings
   enable-passwordless | disable-passwordless

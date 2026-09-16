@@ -37,6 +37,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .IR backend : name
 .br
 .B kempt holds
+.RB [ \-\-exclude\-args ]
 .br
 .B kempt unstage
 .br
@@ -235,10 +236,18 @@ the colon is required. Holds are Kempt's own list, not a system\-wide version lo
 .BI unhold " backend:name"
 Remove a hold. Removing one that does not exist is not an error.
 .TP
-.B holds
+.BR holds " [" \-\-exclude\-args ]
 List current holds, one
 .I backend:name
 per line.
+.B \-\-exclude\-args
+instead prints the dnf holds as dnf5
+.B \-\-exclude=
+arguments on a single line, so a transaction run outside Kempt can honour the same list without
+retyping it. Flatpak holds are left out of that form, because
+.B \-\-exclude=
+is a dnf5 argument and an app id is not one. With no dnf holds it prints an empty line and exits 0,
+so a command substitution around it expands to no arguments rather than failing.
 .TP
 .B unstage
 Discard the staged offline transaction, so the next restart installs nothing. Asks for
