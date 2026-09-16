@@ -213,7 +213,7 @@ reset_capture
 # read is the last thing that does, so it is what "the window is waiting" looks like from out here.
 # Losing the last microseconds of that race would not weaken the assertion either - SIGHUP to the
 # group kills whatever `kempt update` is doing, and the trap under test fires either way.
-at_prompt() { grep -q '^  curl$' "$TESTTMP/term-out" 2>/dev/null; }
+at_prompt() { grep -q '^      curl$' "$TESTTMP/term-out" 2>/dev/null; }
 wait_until at_prompt && echo "ok: the window is waiting at the risky question" \
   || { echo "FAIL: the window never reached the risky question"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
 kill -HUP -"$(cat "$TESTTMP/term-pgid")" 2>/dev/null || true

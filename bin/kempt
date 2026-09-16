@@ -288,23 +288,61 @@ recommend_offline_if_risky() {
     if [[ -n "$risky_list" ]]; then
       rcount="$(wc -l <<<"$risky_list")"
       if [[ "$surface" == "terminal" && ( -t 0 || -n "${KEMPT_ASSUME_TTY:-}" ) ]]; then
-        echo "Recommendation: this update touches $rcount session-critical packages (a live upgrade can break the running desktop):"
-        # ONE NAME PER FAMILY, same rule as the notification below, or a Qt bump's first eight
-        # names alphabetically push a pending KERNEL out of sight. A family is the prefix up to
-        # the first - or . (kernel-core and kernel-modules are one decision); the tail counts on.
-        local reps shown nshown
-        reps="$(awk '{ f = $0; sub(/[-.].*/, "", f); if (!(f in seen)) { seen[f] = 1; print } }' <<<"$risky_list")"
-        shown="$(head -8 <<<"$reps")"        # still capped: a box can always surprise us with 30 families
+        # ONE ROW PER FAMILY, CARRYING ITS OWN COUNT. Same family rule as the notification below -
+        # a Qt bump's first eight names alphabetically would otherwise push a pending KERNEL out of
+        # sight, and kernel-core and kernel-modules are one decision, not two.
+        #
+        # The count on the row is the part that was wrong. The listing collapsed a family to one
+        # name while the tail counted PACKAGES, so six mesa packages printed "mesa-dri-drivers"
+        # and "... and 5 more" - which reads as five hidden, unrelated risks instead of one
+        # graphics driver shipped in six pieces. A count that makes a transaction sound worse than
+        # it is costs exactly what an undercount does: the next warning is believed a little less.
+        # The count now sits on its family's row, and the tail counts the families not shown.
+        local fam_rows shown nshown ntotal width
+        fam_rows="$(awk '{ n = $0; f = n; sub(/[-.].*/, "", f)
+                           if (!(f in cnt)) { order[++k] = f; first[f] = n }
+                           cnt[f]++ }
+                         END { for (i = 1; i <= k; i++) { f = order[i]
+                                 printf "%s\t%d\t%s\n", f, cnt[f], first[f] } }' <<<"$risky_list")"
+        ntotal="$(grep -c '' <<<"$fam_rows")"
+        shown="$(head -8 <<<"$fam_rows")"    # still capped: a box can always surprise us with 30 families
         nshown="$(grep -c '' <<<"$shown")"
-        # $shown is MULTI-LINE and every line needs the indent; in ${var//} the ^ is not a line
-        # anchor, so only the first line would get one.
-        # shellcheck disable=SC2001
-        sed 's/^/  /' <<<"$shown"
-        (( rcount > nshown )) && echo "  ... and $(( rcount - nshown )) more"
-        local ans tries prompt="[u]pdate live / [s]tage offline / [a]bort (default: abort) "
+        # the label column width, so the counts line up under one another
+        width="$(awk -F'\t' '{ l = ($2 == 1 ? length($3) : length($1)); if (l > m) m = l }
+                             END { print m + 0 }' <<<"$shown")"
+        # ...and the counts themselves right-aligned, so 5 sits under the 2 of 12 and the column
+        # reads as numbers rather than as ragged text
+        local cwidth
+        cwidth="$(awk -F'\t' '{ if ($2 > 1 && length($2) > m) m = length($2) } END { print m + 0 }' <<<"$shown")"
+        echo
+        if (( rcount == 1 )); then
+          echo "  Heads up: 1 session-critical package is pending."
+        else
+          echo "  Heads up: $rcount session-critical packages are pending."
+        fi
+        echo "  Installing these while the desktop is running can break the session until you restart:"
+        echo
+        # A family of one is named outright - "mesa-libGL" says more than "mesa". A family of
+        # several is named once with its count, because those packages are one decision.
+        awk -F'\t' -v w="$width" -v c="$cwidth" '{ if ($2 == 1) printf "      %s\n", $3
+                                                   else printf "      %-*s   %*d packages\n", w, $1, c, $2 }' <<<"$shown"
+        (( ntotal > nshown )) && echo "      ... and $(( ntotal - nshown )) more"
+        echo
+        local ans tries prompt="  Your choice [s/u/a]: "
         if [[ "$relup_blocks" == true ]]; then
           echo "  Staging is not available: a Fedora release upgrade is stored, and staging would cancel it."
-          prompt="[u]pdate live / [a]bort (default: abort) "
+          echo
+          echo "      [u]  update now, live"
+          echo "      [a]  abort  (default)"
+          echo
+          prompt="  Your choice [u/a]: "
+        else
+          echo "  Staging installs them during your next restart, when nothing is using them."
+          echo
+          echo "      [s]  stage for the next restart  (recommended)"
+          echo "      [u]  update now, live"
+          echo "      [a]  abort  (default)"
+          echo
         fi
         for tries in 1 2; do
           # `|| ans=""` keeps EOF (Ctrl-D) out of errexit. EOF and Enter both mean "I did not
@@ -319,7 +357,7 @@ recommend_offline_if_risky() {
                               fi
                               surface="offline"; break ;;
             u|update|y|yes)   break ;;
-            *) if [[ $tries -eq 1 ]]; then echo "Please answer u$([[ "$relup_blocks" == true ]] || echo ", s") or a."
+            *) if [[ $tries -eq 1 ]]; then echo "  Please answer $([[ "$relup_blocks" == true ]] || echo "s, ")u or a."
                else echo "aborted"; exit 0; fi ;;
           esac
         done

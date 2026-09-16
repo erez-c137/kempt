@@ -199,21 +199,30 @@ What happens, in order:
    transaction touches session-critical packages, an interactive terminal run prompts:
 
    ```
-   Recommendation: this update touches 13 session-critical packages (a live upgrade can break the running desktop):
-     dbus-broker
-     glibc
-     kernel-core
-     kf6-kio
-     kwin
-     mesa-dri-drivers
-     plasma-workspace
-     qt6-qtbase
-     ... and 5 more
-   [u]pdate live / [s]tage offline / [a]bort (default: abort)
+     Heads up: 13 session-critical packages are pending.
+     Installing these while the desktop is running can break the session until you restart:
+
+         mesa     6 packages
+         qt6      4 packages
+         kernel-core
+         glibc
+         kwin
+
+     Staging installs them during your next restart, when nothing is using them.
+
+         [s]  stage for the next restart  (recommended)
+         [u]  update now, live
+         [a]  abort  (default)
+
+     Your choice [s/u/a]:
    ```
 
-   One name per family is listed, up to eight, so a 40-package Qt bump cannot push the pending
-   kernel out of sight. `u` proceeds live, `s` switches this run to offline staging, `a` aborts.
+   One row per family is listed, up to eight, so a 40-package Qt bump cannot push the pending
+   kernel out of sight. A family of one is named outright; a family of several is named once and
+   carries its own count, because those packages are one decision - and because a tail that
+   counted packages against a list of families made six mesa packages read as five unrelated
+   hidden risks. Any families past the eighth are counted in a `... and N more` line.
+   `u` proceeds live, `s` switches this run to offline staging, `a` aborts.
    **Enter, Ctrl-D or a second unrecognized answer all abort**, with exit 0 and nothing changed.
    Detached surfaces cannot prompt, so they send a notification naming the families and proceed.
    The same list is published as `risky_pending` by `kempt check`, so the widget can offer

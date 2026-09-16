@@ -830,16 +830,45 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: the re-prompt acce
   printf 'kwin-x11.x86_64   6.5.1-1.fc44   updates\n'
   printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
 big="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)"
-grep -q 'touches 20 session-critical packages' <<<"$big" \
-  && echo "ok: the count is the headline (kernel-devel excluded)" || { echo "FAIL: risky count - got: $(head -1 <<<"$big")"; _fail=1; }
+grep -q '20 session-critical packages are pending' <<<"$big" \
+  && echo "ok: the count is the headline (kernel-devel excluded)" || { echo "FAIL: risky count - got: $(head -3 <<<"$big")"; _fail=1; }
 # One representative per FAMILY, like the notification: eight alphabetical names off the top of
 # a 12-package qt6 bump told the user nothing about the kernel further down the list. Five
 # families here (kernel, kf6, kwin, mesa, qt6), so five names and the rest counted in the tail.
-assert_eq "$(grep -cE '^  [a-z]' <<<"$big")" "5" "terminal listing shows one name per family"
-assert_eq "$(grep -c 'qt6-qtmod' <<<"$big")" "1" "a single family never fills the whole listing"
-grep -q '  mesa-libGL' <<<"$big" && echo "ok: a one-package family is still named" || { echo "FAIL: small family missing"; _fail=1; }
-grep -q '  kernel-core' <<<"$big" && echo "ok: the kernel is named, not buried by alphabetical qt6 rows" || { echo "FAIL: kernel missing from the listing"; _fail=1; }
-grep -q '\.\.\. and 15 more' <<<"$big" && echo "ok: the rest are counted, not printed" || { echo "FAIL: overflow line"; _fail=1; }
+assert_eq "$(grep -cE '^      [a-z]' <<<"$big")" "5" "terminal listing shows one row per family"
+assert_eq "$(grep -c 'qtmod' <<<"$big")" "0" "a 12-package family is one row, not twelve names"
+grep -qE '^      qt6 +12 packages' <<<"$big" \
+  && echo "ok: ...and that row carries the family's own count" || { echo "FAIL: family count row - got: $(grep -E '^      ' <<<"$big")"; _fail=1; }
+grep -q '      mesa-libGL' <<<"$big" && echo "ok: a one-package family is named outright" || { echo "FAIL: small family missing"; _fail=1; }
+grep -q '      kernel-core' <<<"$big" && echo "ok: the kernel is named, not buried by alphabetical qt6 rows" || { echo "FAIL: kernel missing from the listing"; _fail=1; }
+# FIVE families, cap of eight: nothing is hidden, so nothing may claim to be. The old tail compared
+# the PACKAGE count against the rows it had printed and announced "... and 15 more" here, and
+# "... and 5 more" for a six-package mesa bump that was one row and one decision.
+grep -q '\.\.\. and' <<<"$big" && { echo "FAIL: overflow line claims hidden families that fit"; _fail=1; } \
+  || echo "ok: no overflow line when every family is shown"
+# The shape a real box actually produced: SIX mesa packages, one family, nothing hidden. The old
+# listing printed the first name and "... and 5 more", so one graphics driver read as six risks,
+# five of them unnamed. One row, one count, no tail.
+{ printf 'mesa-dri-drivers.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'mesa-filesystem.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'mesa-libEGL.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'mesa-libgbm.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'mesa-vulkan-drivers.x86_64   25.2.1-1.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
+one="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)"
+grep -q '6 session-critical packages are pending' <<<"$one" \
+  && echo "ok: one family, six packages, counted honestly" || { echo "FAIL: single-family count - got: $(head -3 <<<"$one")"; _fail=1; }
+grep -qE '^      mesa +6 packages' <<<"$one" \
+  && echo "ok: ...named once, with its count on its own row" || { echo "FAIL: mesa row - got: $(grep -E '^      ' <<<"$one")"; _fail=1; }
+assert_eq "$(grep -cE '^      [a-z]' <<<"$one")" "1" "...and it really is one row"
+grep -q '\.\.\. and 5 more' <<<"$one" && { echo "FAIL: six packages in one family still read as five hidden risks"; _fail=1; } \
+  || echo "ok: nothing is hidden, so nothing claims to be"
+{ for i in 01 02 03 04 05 06 07 08 09 10 11 12; do printf 'qt6-qtmod%s.x86_64   6.9.1-1.fc44   updates\n' "$i"; done
+  for i in 01 02 03 04 05; do printf 'kf6-kmod%s.x86_64   6.18.0-1.fc44   updates\n' "$i"; done
+  printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\n'
+  printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
+  printf 'kwin-x11.x86_64   6.5.1-1.fc44   updates\n'
+  printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
 : > "$WORLD/notifications"
 "$KEMPT" update --surface=background >/dev/null 2>&1
 grep -q '20 session-critical packages pending (kernel, kf6, kwin, mesa, ...)' "$WORLD/notifications" \
