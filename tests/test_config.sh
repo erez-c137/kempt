@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
+KEMPT="$REPO_ROOT/bin/kempt"
 kempt_init_dirs
 
 assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
@@ -46,6 +47,56 @@ assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
   "...as exactly one line, like every other key"
 config_set restart_reminder true
 assert_eq "$(config_get restart_reminder)" "true" "and back on again"
+
+# --- config set says when it did not recognise what you wrote ------------------------------------
+# A typo used to be stored in silence: `kempt config set surfce terminal` wrote a key nothing
+# reads, and `kempt config set surface bogus` wrote a value nothing accepts, both under exit 0 with
+# no output at all. The person then waited for behaviour that was never going to arrive.
+#
+# WARN, never refuse. An unknown key may be one a newer widget or a later Kempt knows, so the write
+# still goes through and the status stays 0 - what changes is that it is no longer silent. These
+# assertions are at the CLI, because that is the surface the warning belongs to: config_set itself
+# stays quiet for the internal callers that go through it.
+ERR="$TESTTMP/cfg-err"
+
+rc=0; "$KEMPT" config set surfce terminal 2>"$ERR" >/dev/null || rc=$?
+assert_eq "$rc" "0" "an unknown key is still stored, and is still a success"
+assert_eq "$(config_get surfce)" "terminal" "...the value really is written"
+grep -q "unknown setting 'surfce'" "$ERR" \
+  && echo "ok: ...and the warning names the key that was not recognised" \
+  || { echo "FAIL: no unknown-key warning"; _fail=1; sed 's/^/    /' "$ERR"; }
+grep -q 'surface' "$ERR" \
+  && echo "ok: ...and lists the settings Kempt does know, which is where the typo shows up" \
+  || { echo "FAIL: the warning does not list the known settings"; _fail=1; sed 's/^/    /' "$ERR"; }
+
+rc=0; "$KEMPT" config set surface bogus 2>"$ERR" >/dev/null || rc=$?
+assert_eq "$rc" "0" "an invalid value for a known key is still stored, and still a success"
+assert_eq "$(config_get surface)" "bogus" "...the value really is written"
+grep -q "not a value surface accepts" "$ERR" \
+  && echo "ok: ...and the warning names the key" \
+  || { echo "FAIL: no invalid-value warning"; _fail=1; sed 's/^/    /' "$ERR"; }
+for v in terminal popup background offline; do
+  grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
+done
+echo "ok: ...and lists every value it does accept"
+
+# The quiet cases. A warning on a correct write would train people to ignore the channel the two
+# warnings above depend on.
+assert_eq "$("$KEMPT" config set surface offline 2>&1 >/dev/null)" "" \
+  "a value the key accepts says nothing"
+assert_eq "$("$KEMPT" config set risky_regex '^foo' 2>&1 >/dev/null)" "" \
+  "...and so does a known key with no fixed set of values"
+# Booleans are deliberately not an enum: configuration.md says anything that is not true/1/yes is
+# false, in as many words, and `auto_accept on` is the documented example of it.
+assert_eq "$("$KEMPT" config set auto_accept on 2>&1 >/dev/null)" "" \
+  "a boolean takes anything, as documented, so it is not warned about"
+assert_eq "$("$KEMPT" config set widget_icon_size enormous 2>&1 >/dev/null)" "" \
+  "...and widget_icon_size is validated by the widget, which is the half that can see the panel"
+
+# hold and unhold stay silent, which is their own contract: they print nothing on success today and
+# nothing here changes that.
+assert_eq "$("$KEMPT" hold dnf:zsh 2>&1 >/dev/null)" "" "hold stays silent"
+assert_eq "$("$KEMPT" unhold dnf:zsh 2>&1 >/dev/null)" "" "unhold stays silent"
 
 # --- retention. History and logs grow forever otherwise, and the widget triggers a run on a
 # timer: one entry plus one log per run, on a box that never gets tidied by hand.
@@ -96,4 +147,23 @@ assert_exit 0 "an aged orphan temp in the config dir is swept" -- test ! -e "$KE
 assert_exit 0 "...while a fresh one there is left alone" -- test -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
 assert_exit 0 "...and the config file itself is untouched" -- test -f "$KEMPT_CONFIG_DIR/config"
 rm -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
+
+# The run-start token, swept on the same rule as the orphan temps above. `kempt run` drops one in
+# the state directory and the window it launches claims it by deleting it (wait_for_window), so a
+# terminal that never opens - or one that hangs forever without running its script - leaves it
+# behind. Nothing else ever removes those, so they accumulate one per wedged launch, for good.
+# The SAME +60min bound, and that bound is load-bearing in the other direction too: `kempt run`
+# waits seconds for the window to claim its token, so a token belonging to a launch that is still
+# waiting must never be eligible. An hour is far past any honest wait.
+printf 'x' > "$KEMPT_STATE_DIR/run-start.old";   touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-start.old"
+printf 'x' > "$KEMPT_STATE_DIR/run-start.fresh"
+# A name that merely STARTS like a token is not one: the glob is anchored on "run-start." and this
+# file is here to prove the sweep cannot widen into the rest of the state directory.
+printf 'x' > "$KEMPT_STATE_DIR/run-started.keep"; touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-started.keep"
+kempt_init_dirs
+assert_exit 0 "an aged run-start token is swept" -- test ! -e "$KEMPT_STATE_DIR/run-start.old"
+assert_exit 0 "...while a live launch's token is left alone" -- test -f "$KEMPT_STATE_DIR/run-start.fresh"
+assert_exit 0 "...and the sweep only ever takes its own file names" -- test -f "$KEMPT_STATE_DIR/run-started.keep"
+rm -f "$KEMPT_STATE_DIR/run-start.fresh" "$KEMPT_STATE_DIR/run-started.keep"
+
 finish

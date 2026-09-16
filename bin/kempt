@@ -18,7 +18,16 @@ cmd_version() {
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
-  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  # --refresh overrules the three-hour interval and NOTHING else: the battery and metering rules
+  # are about the person's hardware and their bill, not about being polite to a mirror, so a flag
+  # that quietly spent either would be worse than no flag. maybe_refresh_metadata carries the rule.
+  local force_refresh=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --refresh) force_refresh=force; shift ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
   kempt_init_dirs
   # serialize checks: without this the last FINISHER wins and a stale result overwrites a fresh one
   exec 9>"$KEMPT_STATE_DIR/check.lock"
@@ -33,7 +42,7 @@ cmd_check() {
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
   # one staged transaction into two history entries
   harvest_offline
-  maybe_refresh_metadata
+  maybe_refresh_metadata "$force_refresh"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
   # nothing below may change `status`: the check must answer with or without a size.
@@ -120,7 +129,9 @@ cmd_check() {
                     '{from:$from, to:$to, state:$st}')" || relup_json=""
   fi
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based")"
+  # Read AFTER maybe_refresh_metadata, so a check that has just fetched publishes the fetch it
+  # made rather than the one before it.
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
@@ -474,8 +485,9 @@ write_stage_marker() {
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" --argjson ident "$identity" \
+      --argjson mver "$KEMPT_MARKER_VERSION" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
-       {staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
+       {version:$mver, staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
        + $ident
        + (if $snap == "" then {} else {pre_snapshot:$snap} end)
@@ -1023,6 +1035,11 @@ cmd_run() {
   # An unrecognised argument must never fall through to a real launch.
   case "${1:-}" in
     "") ;;
+    --print-command) dry=1 ;;
+    # The old spelling, accepted for one release and advertised nowhere - it is deliberately absent
+    # from the usage text above and from the man page. The flag prints the LAUNCHER and never a
+    # transaction, so "dry run" promised a preview of the update itself, which is the one thing
+    # somebody would reach for it to get.
     --dry-run) dry=1 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -1455,6 +1472,9 @@ cmd_config() {
     get) [[ -n "${2:-}" && $# -le 3 ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
          config_get "$2" "${3-}" ;;
     set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
+         # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
+         # stops a newer widget writing a key it knows and this build does not.
+         config_warn_unknown "$2" "$3"
          config_set "$2" "$3" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
@@ -1527,7 +1547,112 @@ cmd_unhold() {
 }
 # Refuses a stray argument like every other command: `kempt holds --json` silently printing the
 # plain list is how a script gets written against an option that does not exist.
-cmd_holds()  { [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; holds_all; }
+cmd_holds() {
+  local exclude_args=false
+  case "${1:-}" in
+    "") ;;
+    # The holds as dnf5 arguments, so somebody running a transaction OUTSIDE Kempt can honour the
+    # same list without retyping it - which is the gap the line below in usage.md describes: a
+    # manual `sudo dnf5 upgrade` ignores this file entirely.
+    --exclude-args) exclude_args=true; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  if [[ "$exclude_args" == true ]]; then
+    # dnf ONLY, and not as a convenience: `--exclude=` is a dnf5 argument, so a flatpak app id in
+    # this list would reach dnf5 as the name of a package that does not exist.
+    # ONE line, because the whole point is pasting it after a command. Empty when nothing is held,
+    # which keeps `$(kempt holds --exclude-args)` safe to wrap around: it expands to no arguments
+    # rather than to an error.
+    local h out=""
+    while IFS= read -r h; do
+      [[ -n "$h" ]] || continue
+      out+="${out:+ }--exclude=$h"
+    done < <(holds_for dnf)
+    printf '%s\n' "$out"
+    return 0
+  fi
+  holds_all
+}
+
+# `kempt unstage` - discard the staged offline transaction, so the next restart installs nothing.
+# The mirror of `kempt update --surface=offline`, through the same root helper verb the failure
+# unwinds already use. That verb refuses over a stored Fedora release upgrade, and so does this:
+# dnf5 keeps ONE stored transaction, so an ordinary stage and a release upgrade share one slot, and
+# discarding the wrong one throws away gigabytes somebody spent hours downloading. Refused HERE and
+# again as root, because the CLI runs as the user and anything reaching the helper directly never
+# passes through here.
+cmd_unstage() {
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  kempt_init_dirs
+  # exit 5, the status cmd_update's refusals already use: nothing was read, nothing was changed, so
+  # this is a refusal rather than a failed run. And never "run: sudo dnf5 offline clean" on any path
+  # in this function - that is the command the refusal exists to protect against.
+  local relup
+  if relup="$(offline_release_upgrade)"; then
+    echo "Nothing was discarded. A Fedora release upgrade ($relup) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" >&2
+    log_event "unstage refused (a Fedora release upgrade ($relup) is stored)"
+    exit 5
+  fi
+  # The update lock, for the race it exists for: a stage in flight is building the very transaction
+  # this would remove. Same refusal and same status as a second `kempt update`.
+  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
+  trap release_lock EXIT
+
+  local marker pre status
+  marker="$(offline_marker_read)"
+  status="$(offline_system_status)"
+  # Nothing stored. Either a marker is left over and this tidies it, or there is nothing at all;
+  # neither is a failure and neither needs root, so neither raises an authentication dialog.
+  if [[ "$status" == absent ]]; then
+    if [[ -n "$marker" ]]; then
+      pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
+      clear_gone_stage "$pre" "$marker"
+      echo "The staged update was already gone. Kempt's record of it has been cleared."
+      log_event "unstage cleared a marker with no transaction under it"
+    else
+      echo "Nothing is staged, so there is nothing to discard."
+      log_event "unstage found nothing staged"
+    fi
+    cmd_check >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
+  # one short verb rather than a transaction. A package lock held by something else fails plainly.
+  local rc=0
+  priv_apply dnf-offline-clean || rc=$?
+  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
+    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
+    log_event "unstage refused by the root helper"
+    exit 5
+  fi
+  if [[ $rc -ne 0 ]]; then
+    echo "The staged update could not be discarded. See: kempt doctor" >&2
+    log_event "unstage failed rc=$rc"
+    exit 1
+  fi
+  # The marker goes ONLY when dnf5's transaction is really gone, and it is asked again rather than
+  # assumed from rc 0: a helper can exit 0 having changed less than it meant to, and a marker
+  # cleared over a transaction that is still armed leaves an install coming that no surface
+  # mentions - the same failure the harvest's own clearing rule avoids from the other side.
+  status="$(offline_system_status)"
+  if [[ "$status" != absent ]]; then
+    echo "The staged update was not fully discarded: dnf5 still reports a stored transaction (status \"$status\"). Kempt's record of it has been kept. See: kempt doctor" >&2
+    log_event "unstage left a transaction behind (status $status)"
+    cmd_check >/dev/null 2>&1 || true
+    exit 1
+  fi
+  if [[ -n "$marker" ]]; then
+    pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
+    clear_gone_stage "$pre" "$marker"
+  fi
+  echo "Discarded the staged update. The next restart installs nothing."
+  log_event "unstage discarded the staged update"
+  # state.json is the widget's only channel, so a discarded stage stops being advertised in the
+  # panel exactly when this rewrites it.
+  cmd_check >/dev/null 2>&1 || true
+}
 
 # `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
 # already one fact per line in a fixed vocabulary, meant to be read with grep.
@@ -1855,6 +1980,28 @@ doctor_tool_rows() {
   fi
 }
 
+# How old the metadata behind every count is. Nothing else in this report would say: a check
+# answers from a cache it refreshes at most once every three hours and skips on battery and on a
+# metered link, so a box can go a week on one fetch with every surface looking freshly checked.
+# info and never FAIL - old metadata is what the battery and metering rules are FOR, so it is a
+# fact to put in front of the reader, not a fault to count against the install.
+doctor_metadata_row() {
+  local iso days
+  iso="$(metadata_refreshed_iso)"
+  if [[ -z "$iso" ]]; then
+    doctor_info "package metadata: never refreshed on this box - the next check on mains power and an unmetered connection fetches it"
+    return 0
+  fi
+  days="$(metadata_age_days)"
+  if [[ "$days" == 0 ]]; then
+    doctor_ok "package metadata: refreshed $iso"
+  else
+    local word=days
+    if [[ "$days" == 1 ]]; then word=day; fi
+    doctor_info "package metadata is $days $word old ($iso) - checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. Force one with: kempt check --refresh"
+  fi
+}
+
 doctor_config_row() {
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
   # setting the user believes they wrote never applies. Validated exactly as config_set validates.
@@ -2138,6 +2285,7 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
+  doctor_metadata_row
   doctor_config_row
   doctor_state_dir_row
   doctor_files_row
@@ -2242,9 +2390,11 @@ cmd_disable_passwordless() {
 usage() {
   cat <<'EOF'
 usage: kempt <command>
-  check                 refresh pending-updates state (JSON to stdout)
+  check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+                        metadata now, ignoring the 3-hour interval but never the battery or
+                        metered-connection rules
   update                run the update now (options from config; --no-flatpak, --surface=X override)
-  run [--dry-run]       launch update per configured surface (what the widget calls)
+  run [--print-command] launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
@@ -2253,7 +2403,9 @@ usage: kempt <command>
   doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
   unhold <same>         remove a hold
-  holds                 list holds
+  holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
+                        arguments, on one line, to reuse by hand
+  unstage               discard the staged offline update; the next restart installs nothing
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
@@ -2280,6 +2432,7 @@ case "${1:-help}" in
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
+  unstage) shift; cmd_unstage "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;

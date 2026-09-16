@@ -1522,6 +1522,30 @@ assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,b
   "No successful check yet" "a box with no successful check says so rather than inventing an age"
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "No successful check yet" \
   "...and so does a popup with no state at all"
+
+# --- the age of the metadata behind the counts --------------------------------------------------
+# "Checked 4 min ago" dates the CHECK. The check answers from a cache refreshed at most every three
+# hours and skipped entirely on battery and on a metered link, so those counts can be days old with
+# a fresh timestamp sitting over them, and this is the only line that says so.
+# Only past 24 hours: under it there is nothing to report about a plugged-in box, and a line on
+# every popup is noise that teaches people to stop reading the footer.
+mfoot() {  # [metadata_refreshed] → the whole footer line
+  js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{}${1:+,metadata_refreshed:\"$1\"}},false,\"\",{nowMs:$NOW}).footerText"
+}
+assert_eq "$(mfoot 2026-08-23T12:00:00+03:00)" "Checked 4 min ago · metadata 3 days old" \
+  "metadata three days old is said, beside the check that answered from it"
+assert_eq "$(mfoot 2026-08-25T12:00:00+03:00)" "Checked 4 min ago · metadata 1 day old" \
+  "...and one day reads as one day, not \"1 days\""
+assert_eq "$(mfoot 2026-08-25T11:00:00+03:00)" "Checked 4 min ago · metadata 1 day old" \
+  "...from the moment it passes 24 hours"
+assert_eq "$(mfoot 2026-08-26T11:00:00+03:00)" "Checked 4 min ago" \
+  "metadata fetched an hour ago is not worth a word"
+assert_eq "$(mfoot 2026-08-26T12:00:00+03:00)" "Checked 4 min ago" \
+  "...nor is metadata fetched with the check itself"
+assert_eq "$(mfoot)" "Checked 4 min ago" \
+  "a state with no metadata stamp says nothing about one, rather than guessing an age"
+assert_eq "$(mfoot not-a-date)" "Checked 4 min ago" \
+  "...and an unreadable stamp is the same silence, never \"metadata NaN days old\""
 # ...and the same line for a box that HAS checked, repeatedly, and never once succeeded. That is
 # a different fact from never having checked, and the fallback used to claim the wrong one of the
 # two inside the very block that draws the last_success / last_check distinction. It is not a

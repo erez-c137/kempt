@@ -3,9 +3,11 @@
 Every command is `kempt <subcommand>`. `kempt help` prints the same list.
 
 ```
-check                 refresh pending-updates state (JSON to stdout)
+check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+                      metadata now, ignoring the 3-hour interval but never the battery or
+                      metered-connection rules
 update                run the update now (options from config; --no-flatpak, --surface=X override)
-run [--dry-run]       launch update per configured surface (what the widget calls)
+run [--print-command] launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
@@ -14,10 +16,13 @@ log [-n N]            recent events: what Kempt did, when, and from where (defau
 doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
 unhold <same>         remove a hold
-holds                 list holds
+holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
+                      arguments, on one line, to reuse by hand
+unstage               discard the staged offline update; the next restart installs nothing
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
---version             print the version and exit
+--version | version | -V   print the version and exit
+help | --help | -h    print this list
 ```
 
 ## Exit codes
@@ -31,7 +36,7 @@ One contract, every subcommand:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
-| 5 | Aborted during pre-flight. Nothing was changed. Three causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel; and `run` when the terminal window it launched never opened, so the update never began. |
+| 5 | Aborted during pre-flight. Nothing was changed. Four causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel; `unstage` while one is stored, or when the root helper refuses to discard what is, which discarding would cancel; and `run` when the terminal window it launched never opened, so the update never began. |
 
 Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
 set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
@@ -45,11 +50,11 @@ all and never wait for one.
 ## check
 
 ```
-kempt check
+kempt check [--refresh]
 ```
 
 Queries every enabled backend, writes `~/.local/state/kempt/state.json`, and prints the same
-JSON to stdout. Takes no arguments; anything else exits 2.
+JSON to stdout. `--refresh` is the only argument it takes; anything else exits 2.
 
 ```bash
 kempt check | jq '{status, actionable, held_total}'
@@ -110,6 +115,19 @@ the reason, exactly as it would for a repo that flapped. Both backends behave th
 and the fix for both is the same - let a refresh run. A check does that itself before it asks
 anything, so on a fresh install the first check refreshes first; if it did not (battery, metered
 link, no network at the time), the next check on mains power will.
+
+**How old the metadata is, and fetching it now.** Every check publishes `metadata_refreshed`, the
+time of the last successful fetch. It is not `last_check`: a check answers from the cache, so a
+check that ran a minute ago can be reporting on metadata that is a week old, and that is exactly
+what the key exists to show. The popup's footer says `metadata N days old` once it is past 24
+hours, `kempt doctor` has a row for it, and a skipped refresh is written to the event log at most
+once a day, so a box that has quietly stopped fetching says so without filling the log.
+
+`kempt check --refresh` fetches now. It ignores the 3-hour interval, and **it does not ignore the
+battery and metered-connection rules** - those are about your hardware and your bill rather than
+about being polite to a mirror, so the flag leaves them exactly where they are. On battery or on a
+metered link, `--refresh` skips the fetch like any other check and the run is recorded in the
+event log.
 
 ### The exit contract, precisely
 
@@ -333,7 +351,7 @@ update is simply not applied. Re-stage, or update live.
 ## run
 
 ```
-kempt run [--dry-run]
+kempt run [--print-command]
 ```
 
 The launcher: it reads the configured surface and starts `kempt update` in the right place,
@@ -341,7 +359,7 @@ then returns immediately. This is what the widget's Update Now button calls; hum
 `kempt update` directly.
 
 ```bash
-kempt run --dry-run
+kempt run --print-command
 ```
 
 ```
@@ -355,8 +373,13 @@ detached: kempt update (surface=background)
 ```
 
 Exit 4 when the `terminal` surface is configured and the emulator is not installed. The check
-happens before the dry run too, so `--dry-run` tells you about a missing launcher instead of
+happens before `--print-command` too, so it tells you about a missing launcher instead of
 pretending it would work.
+
+`--print-command` was called `--dry-run` until 0.1.4. The old name still works, and will for one
+release, but it is not listed in `kempt help` or the man page: the flag prints the launcher
+command and never a transaction, so "dry run" promised a preview of the update itself that it was
+never going to give.
 
 Exit 3, with nothing launched, when another update already holds the lock. The update would be
 refused anyway, but inside a window or a detached shell, where nothing reads its status.
@@ -380,6 +403,37 @@ showing an empty updating pane - no package list, no **Update Now**, no **Refres
 three-hour guard let it go. The exit status you get back is still the update's; the check's is
 discarded, so a check that fails cannot turn a good run into a bad one.
 
+## unstage
+
+```
+kempt unstage
+```
+
+Discards the staged offline update, so the next restart installs nothing. The mirror of
+`kempt update --surface=offline`.
+
+```bash
+kempt unstage
+```
+
+```
+Discarded the staged update. The next restart installs nothing.
+```
+
+It asks for authorization once, because removing a stored transaction is root's business. With
+nothing staged it says so and exits 0 without asking for anything. A leftover record with no
+transaction under it is cleared the same way, again without a prompt.
+
+**It will not discard a Fedora release upgrade.** dnf5 keeps one stored transaction and a release
+upgrade sits in the same slot, so discarding "the staged update" over one would cancel an upgrade
+that took gigabytes to download. Kempt refuses, exits 5 with nothing changed, and names what it
+protected. The refusal happens twice: once in the CLI, and once inside the root helper, because
+anything that calls that helper directly never passes through the CLI.
+
+Kempt's own record of the stage is cleared **only once dnf5 reports the transaction really gone.**
+If the helper returns success and the transaction is still there, the record is kept and the command
+fails, because a cleared record over an armed transaction is an install nobody is told about.
+
 ## summary and history
 
 ```
@@ -390,6 +444,17 @@ kempt history
 
 `summary` renders one run as human text. `N` counts back from the newest: `1` (the default) is
 the last run, `2` the one before it. `N` must be a positive integer, or the command exits 2.
+
+Held packages get two lines. `Held (skipped): ...` names them, and a count says what they cost:
+
+```
+9 pending packages did not move because of holds
+```
+
+That is the answer to the question people actually ask after a run, which is why the pending count
+did not drop as far as they expected. Both lines are read from the same entry, so they cannot
+disagree, and neither appears when nothing was held. The same two lines end the summary a run
+prints when it finishes.
 Asking for more runs than exist shows the oldest and says so on stderr.
 
 ```bash
@@ -509,7 +574,18 @@ The vocabulary is fixed, so the file is worth grepping:
 | `harvest found the staged transaction did not run (<counts>)` | The check after a reboot found that the transaction which ran was not the one Kempt staged. The entry is written as `restart (staged update did not run)`. |
 | `offline stage replaced outside Kempt (<what differs>) - announced` | A check found dnf5 holding a different transaction from the one Kempt staged: another rpmdb cookie, command or package set. Said once. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two things a harvest can decide. |
-| `passwordless enable\|disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
+| `refresh skipped (<reason>)` | A metadata refresh was skipped, because the box is on battery or the connection is metered. Written at most once a day: a box on battery skips every check it runs, and the fact worth recording is that it has been skipping, not that this one did. |
+| `offline restage` / `offline restage failed (previous stage intact)` | A stage replaced an earlier one, or failed while leaving it untouched. The first names the holds that asked for the rebuild, because once the stage is made that question can no longer be asked. |
+| `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or deliberately kept because a newer stage arrived while a check was running. |
+| `harvest deferred: packages moved outside Kempt while the stage is still armed` | Something other than the staged transaction changed the package set. Said once, not once per check for as long as the stage waits. |
+| `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | A run or a harvest finished but its history entry could not be saved. The run itself is unaffected; what is lost is the durable record. |
+| `unstage discarded the staged update` | `kempt unstage` removed the stored transaction, and Kempt's record went with it. |
+| `unstage refused (<what is stored>)` / `unstage refused by the root helper` | `kempt unstage` changed nothing, because a Fedora release upgrade is stored and discarding it would cancel an upgrade that took gigabytes to download. The first is the CLI's own refusal, the second the same refusal made again as root. Exit 5. |
+| `unstage found nothing staged` | `kempt unstage` had nothing to do: no stored transaction, and no record of one. |
+| `unstage cleared a marker with no transaction under it` | The transaction was already gone, so only Kempt's record of it was removed. Nothing was asked of root. |
+| `unstage failed rc=<n>` | The root helper could not discard the transaction. Kempt's record is kept, so `kempt doctor` can still describe the stage. |
+| `unstage left a transaction behind (status <status>)` | The helper reported success and dnf5 still reports a stored transaction, so the record was kept rather than cleared over an install that may still happen. |
+| `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished, with the status it ended on. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600. Nothing else ever deletes from it, so
 it prunes itself: past 2500 lines it is rewritten to the last 2000.
@@ -702,7 +778,7 @@ worth having in the same output.
 ```
 kempt hold   dnf:<package> | flatpak:<app.id>
 kempt unhold dnf:<package> | flatpak:<app.id>
-kempt holds
+kempt holds [--exclude-args]
 ```
 
 A hold means **skip it, but keep telling me about it**. Held items are excluded from every
@@ -728,6 +804,26 @@ no-op, and removing one that was never there succeeds.
 
 Holds are **Kempt's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
 outside Kempt ignores them.
+
+`--exclude-args` closes that gap by hand. It prints the dnf holds as dnf5 arguments, on one line:
+
+```bash
+kempt holds --exclude-args
+```
+
+```
+--exclude=kernel-core --exclude=vim-common
+```
+
+So a transaction run outside Kempt can honour the same list:
+
+```bash
+sudo dnf5 upgrade $(kempt holds --exclude-args)
+```
+
+dnf holds only, because `--exclude=` is a dnf5 argument and a Flatpak app id is not one. With no
+dnf holds it prints an empty line and exits 0, so the substitution above expands to no arguments
+rather than failing.
 
 **Flatpak runtimes cannot be held.** Kempt counts and lists them, because `flatpak update` updates
 them, but asking to hold one is refused and nothing is written:
@@ -816,6 +912,18 @@ kempt config get refresh_interval_min   # 60
 
 Keys must match `^[a-z][a-z0-9_]+$` and values must be single-line, or `set` exits 2. Every key,
 its type, its default and its effect are in [configuration.md](configuration.md).
+
+`set` **warns and stores** when it does not recognise the key, or the value for a key with a fixed
+set of them:
+
+```
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+```
+
+The warning is on stderr, the value is still written, and the exit status is still 0 - a newer
+widget or a later Kempt may read a key this build has never heard of, so refusing would make the
+CLI the thing that stopped it working. What it prevents is the silent case: a typo that sits in the
+config file doing nothing while you wait for behaviour that is never going to arrive.
 
 ## --version
 

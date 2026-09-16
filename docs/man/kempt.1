@@ -7,6 +7,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .RI [ arguments ]
 .PP
 .B kempt check
+.RB [ \-\-refresh ]
 .br
 .B kempt update
 .RB [ \-\-no\-flatpak ]
@@ -14,7 +15,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .IR surface ]
 .br
 .B kempt run
-.RB [ \-\-dry\-run ]
+.RB [ \-\-print\-command ]
 .br
 .B kempt summary
 .RI [ N ]
@@ -36,6 +37,9 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .IR backend : name
 .br
 .B kempt holds
+.RB [ \-\-exclude\-args ]
+.br
+.B kempt unstage
 .br
 .B kempt config get
 .I key
@@ -71,8 +75,10 @@ grants a system app update to an active local session without a password, so a r
 but Flatpak updates in it never raises an authentication dialog.
 .SH COMMANDS
 .TP
-.B check
-Query every enabled backend, write the state file and print it as JSON. Takes no arguments.
+.BR check " [" \-\-refresh ]
+Query every enabled backend, write the state file and print it as JSON.
+.B \-\-refresh
+is the only argument it takes.
 Backend failures do not fail the command: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
@@ -80,6 +86,11 @@ means "no data, keep the last known state", never "zero updates". This command a
 staged offline transaction \- harvesting it once the machine has rebooted, and clearing its
 marker when the transaction underneath has gone \- and refreshes package metadata at most
 once every three hours, never on battery or on a metered connection.
+.B \-\-refresh
+overrules that interval and neither of the other two rules, so on battery or on a metered link it
+skips the fetch like any other check. When the metadata was last fetched is published as
+.B metadata_refreshed
+in the state file, and a skipped refresh is written to the event log at most once a day.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface ]
@@ -91,7 +102,7 @@ overrides the run surface
 .RB ( terminal ", " popup ", " background ", " offline ).
 An unrecognized surface falls back to
 .BR terminal .
-Held items are excluded and listed. When session\-critical packages are pending, an interactive
+Held items are excluded, listed and counted. When session\-critical packages are pending, an interactive
 terminal run first offers to update live, stage the transaction offline, or abort; anything
 other than an explicit yes aborts, having changed nothing.
 .IP
@@ -121,13 +132,13 @@ and support for those images is planned. On the
 surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
 for both kinds, so staging would cancel the upgrade.
 .TP
-.BR run " [" \-\-dry\-run ]
+.BR run " [" \-\-print\-command ]
 Launch
 .B kempt update
 according to the configured surface and return immediately. This is what the widget's Update Now
 button calls.
-.B \-\-dry\-run
-prints what would be launched.
+.B \-\-print\-command
+prints the command that would be launched, without launching it.
 A successful launch says nothing about the update's outcome: poll the state file or the history.
 .TP
 .BR summary " [" \c
@@ -135,6 +146,8 @@ A successful launch says nothing about the update's outcome: poll the state file
 Render one run as human\-readable text.
 .I N
 counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
+Held packages are named and then counted, so a run that left nine pending packages behind because
+of holds says so rather than leaving the reader to work out why the pending count did not drop.
 .TP
 .B summary \-\-json
 Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated
@@ -223,10 +236,25 @@ the colon is required. Holds are Kempt's own list, not a system\-wide version lo
 .BI unhold " backend:name"
 Remove a hold. Removing one that does not exist is not an error.
 .TP
-.B holds
+.BR holds " [" \-\-exclude\-args ]
 List current holds, one
 .I backend:name
 per line.
+.B \-\-exclude\-args
+instead prints the dnf holds as dnf5
+.B \-\-exclude=
+arguments on a single line, so a transaction run outside Kempt can honour the same list without
+retyping it. Flatpak holds are left out of that form, because
+.B \-\-exclude=
+is a dnf5 argument and an app id is not one. With no dnf holds it prints an empty line and exits 0,
+so a command substitution around it expands to no arguments rather than failing.
+.TP
+.B unstage
+Discard the staged offline transaction, so the next restart installs nothing. Asks for
+authorization once, and exits 0 with a sentence when nothing is staged. A stored Fedora release
+upgrade refuses the command with exit 5 and nothing changed, in the CLI and again in the root
+helper: dnf5 keeps one stored transaction, so discarding would cancel the upgrade. Kempt's own
+record of the stage is cleared only once dnf5 reports the transaction really gone.
 .TP
 .BI "config get" " key " [ default ]
 Print a configuration value, falling back to the built\-in default for the key, or to
@@ -237,6 +265,12 @@ if given.
 Set a configuration value. Keys must match
 .RB ' ^[a-z][a-z0-9_]+$ '
 and values must be single\-line.
+An unrecognized key, or a value outside the set a key accepts, is reported on standard error and
+then stored anyway, with exit status 0: a newer widget or a later version may read a key this build
+does not know, so refusing would make the CLI the thing that stops it working. Booleans are not
+checked this way, because anything that is not
+.BR true ", " 1 " or " yes
+is documented to mean false.
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets the current user apply updates without the authentication
@@ -406,11 +440,13 @@ Launcher missing: no terminal emulator for the
 surface.
 .TP
 .B 5
-Aborted during pre\-flight. Nothing was changed. Three causes:
+Aborted during pre\-flight. Nothing was changed. Four causes:
 .B update
 on an image\-based Fedora;
 .B "update \-\-surface=offline"
-while dnf5 has a Fedora release upgrade stored; and
+while dnf5 has a Fedora release upgrade stored;
+.B unstage
+while one is stored, or when the root helper refuses to discard what is; and
 .B run
 when the terminal window it launched never opened, so the update never began.
 .SH SEE ALSO

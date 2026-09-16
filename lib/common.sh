@@ -78,6 +78,10 @@ HIST_DIR="$KEMPT_STATE_DIR/history"
 LOG_DIR="$KEMPT_STATE_DIR/logs"
 SNAP_DIR="$KEMPT_STATE_DIR/snapshots"
 LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
+# When Kempt last SAID that it skipped a metadata refresh. Its own stamp and never
+# $LAST_REFRESH_FILE: that one rate-limits the fetch, and folding the two together would let an
+# announcement postpone a refresh, or a refresh silence the announcement.
+REFRESH_SKIP_FILE="$KEMPT_STATE_DIR/last_refresh_skip"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
@@ -131,6 +135,14 @@ kempt_init_dirs() {
   # The config dir collects them too: `hold`, `unhold` and `config set` write through atomic_write
   # there. maxdepth 1, because Kempt writes nothing below it. Created by the mkdir above.
   find "$KEMPT_CONFIG_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  # ...and the run-start tokens, on the same rule and the same bound. `kempt run` drops one here and
+  # the window it launches claims it by deleting it (wait_for_window), so a terminal that never
+  # opens - or one that hangs for ever without running its script - leaves it behind, and nothing
+  # else would ever remove it: one file per wedged launch, accumulating for good.
+  # maxdepth 1, because that is where cmd_run's mktemp puts them. +60min for the temps' reason read
+  # the other way round: `kempt run` waits SECONDS for a token to be claimed, so an hour is far past
+  # any launch that is still legitimately waiting for its window.
+  find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'run-start.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names
@@ -229,6 +241,41 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
     $1 != prev { if (prev != "") print prev "\t" vals; prev = $1; vals = $2; next }
     { vals = vals "," $2 }
     END { if (prev != "") print prev "\t" vals }'
+}
+
+# Every setting this build knows, and the list `config set` warns against. It sits beside
+# kempt_default because the two are twins: a key with a default belongs here, and a key here must
+# have a default there, or `config get` answers with an empty string for a setting Kempt claims to
+# know. Adding a backend or a widget setting means adding it in both places.
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex"
+
+# The values a key with a FIXED set accepts. Only `surface` has one. The booleans take anything and
+# read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
+# worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
+# the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
+# observe. A table, so a second enum is one line rather than a new branch.
+config_enum_values() {  # key → accepted values, space separated, or nothing
+  case "$1" in
+    surface) printf '%s\n' "terminal popup background offline" ;;
+  esac
+}
+
+# What `config set` says when it did not recognise what was written. WARN, never refuse: an unknown
+# key may be one a newer widget or a later Kempt reads, and a CLI that refused would be the thing
+# that stopped it working. So the write goes through and the status stays 0; the only change is
+# that a typo stops being silent. `surface bogus` used to sit in the config file doing nothing at
+# all, with the person waiting for behaviour that was never going to arrive.
+# Called from cmd_config and nowhere else, so config_set stays quiet for its internal callers.
+config_warn_unknown() {  # key value
+  local k="$1" v="$2" vals
+  if [[ " $KEMPT_CONFIG_KEYS " != *" $k "* ]]; then
+    echo "warning: unknown setting '$k' - Kempt does not read it. Known settings: ${KEMPT_CONFIG_KEYS// /, }" >&2
+    return 0
+  fi
+  vals="$(config_enum_values "$k")"
+  [[ -n "$vals" ]] || return 0
+  [[ " $vals " == *" $v "* ]] && return 0
+  echo "warning: '$v' is not a value $k accepts. Accepted: ${vals// /, }" >&2
 }
 
 kempt_default() {  # key → default ("" if unknown)
@@ -634,7 +681,7 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional), $13 image_based true or null (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional), $13 image_based true or null (optional), $14 metadata_refreshed ISO or "" (optional)
   # The two item arrays arrive through FILES, never --argjson. Linux caps a SINGLE argv entry at
   # 128 KiB (MAX_ARG_STRLEN), and the pending list is the one input here with no bound: at 925
   # packages this exec failed, errexit killed the check before it printed or wrote anything, and
@@ -650,7 +697,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
         --argjson offst "${11:-null}" --argjson relup "${12:-null}" \
-        --argjson img "${13:-null}" \
+        --argjson img "${13:-null}" --arg mrf "${14:-}" \
         --arg now "$(now_iso)" '
     # The two item arrays arrive as one-element arrays because --slurpfile wraps what it reads.
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
@@ -680,6 +727,11 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # it IS has nothing to declare. A reader that has never heard of the key behaves correctly on
     # every ordinary Fedora by doing nothing, which is what an additive key has to mean.
     def imagebased: if $img == null then {} else {image_based: $img} end;
+    # When the metadata behind these counts was FETCHED, which is not when the check ran: a check
+    # answers from the cache, so a fresh check over week-old metadata is exactly the state this
+    # key exists to make visible. Absent when nothing has ever been fetched on this box - a
+    # different fact from "old", and one a reader has to be able to word differently.
+    def metadata: if $mrf == "" then {} else {metadata_refreshed: $mrf} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
@@ -688,7 +740,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total + staged + relupgrade + imagebased' > "$_out_f" || rc=$?
+    + total + staged + relupgrade + imagebased + metadata' > "$_out_f" || rc=$?
   # Removed on every path, and jq's status still reaches the caller unchanged: a failed assembly
   # must fail the check exactly as it did when the payload came through argv.
   rm -f "$_dnf_f" "$_fp_f"
@@ -708,8 +760,46 @@ state_prev_items() {  # backend → previous items array; [] for missing/corrupt
 
 write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
 
-maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
+# When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
+# nothing has ever been fetched on this box - a different thing from "old", and every surface that
+# renders it says the two differently.
+metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
+  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
+  date -Is -r "$LAST_REFRESH_FILE" 2>/dev/null || true
+}
+
+# ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
+# when there is no stamp, so a caller cannot mistake "never fetched" for "fetched today".
+metadata_age_days() {  # → whole days, or nothing
+  local at now
+  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
+  at="$(stat -c %Y "$LAST_REFRESH_FILE" 2>/dev/null)" || return 0
+  now="$(date +%s)"
+  # A stamp in the future is today, not a negative age - the same reading the interval gate gives
+  # its own stamp, and "refreshed -1 days ago" is worse than a rounding error.
+  (( now > at )) || { printf '0\n'; return 0; }
+  printf '%s\n' "$(( (now - at) / 86400 ))"
+}
+
+# A skipped refresh, said ONCE A DAY. A laptop on battery skips every check it runs - every ten
+# minutes, all day - so a line per skip would be 144 lines saying one thing, in the one file
+# somebody greps to find out what Kempt has been doing. The fact worth recording is not that this
+# check skipped; it is that this box has been skipping. Best-effort throughout, like log_event
+# itself: a refresh that could not be announced must never change what the check does.
+log_refresh_skip() {  # reason
+  local last=0 now; now="$(date +%s)"
+  [[ -f "$REFRESH_SKIP_FILE" ]] && last="$(stat -c %Y "$REFRESH_SKIP_FILE" 2>/dev/null || echo 0)"
+  # A stamp in the future is due, for the reason the interval gate gives below.
+  if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
+  kempt_init_dirs 2>/dev/null || true
+  touch "$REFRESH_SKIP_FILE" 2>/dev/null || true
+  log_event "refresh skipped ($1)"
+  return 0
+}
+
+maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && return 0
+  local force="${1:-}"
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
@@ -717,9 +807,16 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   # A stamp in the future (a clock corrected backwards, a home restored onto a machine whose clock
   # is behind) is due, not recent: read as a refresh a moment ago it holds every refresh off until
   # the clock catches up. The stamp at the bottom rewrites it to now once a fetch lands.
-  (( now - last >= 0 && now - last < 10800 )) && return 0
-  on_battery && return 0
-  metered_connection && return 0
+  #
+  # `kempt check --refresh` passes THIS gate and nothing below it. The interval is a courtesy to
+  # the mirrors, and somebody standing at the machine asking for fresh metadata may overrule it.
+  # The two rules below are a different kind of thing - they are about this person's battery and
+  # this person's bill - so a flag that quietly spent either would be worse than no flag at all.
+  if [[ "$force" != force ]] && (( now - last >= 0 && now - last < 10800 )); then
+    return 0
+  fi
+  if on_battery; then log_refresh_skip "on battery"; return 0; fi
+  if metered_connection; then log_refresh_skip "the connection is metered"; return 0; fi
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
   # keep in step with this one. `ok` records whether ANY fetch landed; see the stamp at the bottom.
@@ -1206,6 +1303,17 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # the one that hands a reader the state file directly - costs a minute per test and goes uncovered.
 KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 
+# The shape of the marker Kempt writes today: ONE integer, in place of a reader working the shape
+# out from which of several optional fields happen to be present.
+# Stamped where a marker is BORN (write_stage_marker) and nowhere else. The additive updates -
+# `armed`, `replaced`, `set_moved` - carry forward whatever was already on the file, so a marker
+# from an older build is never stamped with a version whose fields it does not actually have.
+# EVERY READER MUST GO ON WORKING WITHOUT IT. A marker written before this field existed carries no
+# version at all, and the per-field fallbacks are still what read those; this records the shape, it
+# does not replace the checks.
+# shellcheck disable=SC2034  # read by write_stage_marker in bin/kempt, which sources this file
+KEMPT_MARKER_VERSION=1
+
 KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.
@@ -1468,8 +1576,21 @@ render_summary() {  # history-json-file → human text
   jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
-    def heldline: [.backends[].skipped_held[]] | if length == 0 then empty
+    # The held names, read ONCE and shared by the two lines below, so the list and the count can
+    # never disagree about the same run. `?` and `// []` keep an entry written before the field
+    # existed rendering, instead of dying on a missing key and printing nothing at all.
+    def heldnames: [.backends[] | .skipped_held? // [] | .[]];
+    def heldline: heldnames | if length == 0 then empty
                   else "Held (skipped): " + join(", ") end;
+    # ...and what those holds COST this run. The line above names them; this answers the question
+    # somebody actually asks afterwards, which is why the pending count did not drop as far as they
+    # expected. No schema change: the names have always been in the entry, only the arithmetic is
+    # new. Nothing at zero - a standing "0 pending packages did not move" on every clean run is
+    # noise that teaches people to stop reading the summary.
+    def shortfall: heldnames | length
+                   | if . == 0 then empty
+                     elif . == 1 then "1 pending package did not move because of holds"
+                     else (tostring) + " pending packages did not move because of holds" end;
     # a transaction that installs or removes packages changed the system just as much as one
     # that upgrades them: counting only .updated under-reports what actually happened.
     # counts_phrase (KEMPT_JQ_COUNTS) is the shared definition; `true` keeps the update count on
@@ -1488,6 +1609,7 @@ render_summary() {  # history-json-file → human text
       + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     heldline,
+    shortfall,
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not

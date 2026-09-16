@@ -79,6 +79,37 @@ done < <(
 assert_eq "${undocumented% }" "" \
   "every KEMPT_* seam read by the code has a row in the environment-seams table"
 
+# --- every event line has a row in the `kempt log` vocabulary table ------------------------------
+# docs/usage.md's log section says "The vocabulary is fixed, so the file is worth grepping". That is
+# a promise about the CODE, so this derives the list from the code and asks the table about it -
+# the same shape as the seams check above. It was already false for five families when this was
+# written, and it went false again for seven more the day `kempt unstage` was added, in both cases
+# with nothing to notice.
+#
+# The key is the first two words of each line's LITERAL prefix: the text before the first variable,
+# which is the part a person greps for and the part that must never appear from nowhere. So this
+# binds the VOCABULARY rather than whole sentences - a new variant inside a documented family
+# ("offline marker kept" beside "offline marker cleared") passes, a new family does not. Binding
+# whole sentences is not possible from here: most of them are half shell expansion.
+LOGSEC="$(awk '/^## log$/ { f = 1; next } f && /^## / { exit } f' "$REPO_ROOT/docs/usage.md")"
+assert_eq "$([[ -n "$LOGSEC" ]] && echo found || echo missing)" "found" \
+  "docs/usage.md still has a '## log' section"
+
+undocumented_events=""
+while IFS= read -r ev; do
+  [[ -n "$ev" ]] || continue
+  grep -qF "$ev" <<<"$LOGSEC" || undocumented_events+="$ev; "
+done < <(
+  # `[^"$]+` stops at the first variable, so what is captured is only the fixed text. Both files,
+  # because log_event is called from the library as well as the CLI.
+  grep -ohE 'log_event "[^"$]+' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
+  | sed 's/^log_event "//' \
+  | awk 'NF >= 2 { print $1 " " $2; next } NF == 1 { print $1 }' \
+  | sort -u
+)
+assert_eq "${undocumented_events%; }" "" \
+  "every log_event line has a row in the kempt log vocabulary table"
+
 # --- the public tree does not talk about its own review process ----------------------------------
 # This repository is public, and it was carrying the vocabulary of a private one: the maintainer
 # named in the third person, the review exercises a finding came out of, work-package codes with

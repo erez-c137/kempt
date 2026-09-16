@@ -46,6 +46,32 @@ way.
 Unknown keys can be stored (any key matching `^[a-z][a-z0-9_]+$` is accepted) but nothing reads
 them. `kempt config get` on a key with no value and no built-in default prints an empty line.
 
+`kempt config set` **warns and stores** when it does not recognise what you wrote - an unknown key,
+or a value outside the set a key accepts:
+
+```bash
+kempt config set surfce terminal
+```
+
+```
+warning: unknown setting 'surfce' - Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex
+```
+
+```bash
+kempt config set surface bogus
+```
+
+```
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+```
+
+The warning goes to stderr, the value is still written and the command still exits 0. It warns
+rather than refusing because a newer widget, or a later version of Kempt, may read a key this build
+has never heard of, and a CLI that refused would be the thing that stopped it working. Booleans are
+not checked this way, because "anything that is not `true`, `1` or `yes` is false" is the
+documented rule rather than a mistake, and `widget_icon_size` is validated by the widget. `kempt
+hold` and `kempt unhold` say nothing on success, as they always have.
+
 `risky_regex` is matched against dnf package names only, and build or documentation tails are
 always dropped afterwards, whatever the pattern says: names ending in `-devel`, `-headers`,
 `-static`, `-tools`, `-doc` or containing `-macros` never count as session-critical, because the
@@ -124,6 +150,16 @@ Two different clocks, deliberately:
 
 Kempt never re-downloads metadata faster than dnf itself would.
 
+`kempt check --refresh` fetches now, ignoring the 3-hour interval. It does **not** ignore the
+battery or metered-connection rules: those are about your hardware and your bill, so the flag
+leaves them alone and the fetch is still skipped there.
+
+Because a skip is silent by design, two things make an old cache visible. Every check publishes
+`metadata_refreshed` in `state.json`, which the popup's footer renders as `metadata N days old`
+once it is past 24 hours and `kempt doctor` reports as a row of its own. And a skipped refresh is
+written to the event log at most once a day - a box on battery skips every check it runs, so a
+line per skip would be well over a hundred a day saying one thing.
+
 ## Files and retention
 
 | Path | What |
@@ -135,8 +171,10 @@ Kempt never re-downloads metadata faster than dnf itself would.
 | `~/.local/state/kempt/logs/<timestamp>.log` | Full raw output of that run |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, mode 0600 (`kempt log`) |
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
-| `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate |
+| `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate, and the source of `metadata_refreshed` |
+| `~/.local/state/kempt/last_refresh_skip` | Timestamp marker for the once-a-day skipped-refresh line. Separate from the one above, so an announcement can never postpone a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged transaction awaiting a reboot |
+| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serializes updates, `check.lock` serializes checks, and `writer.lock` serializes the three commands that rewrite the two files above - `config set`, `hold` and `unhold` - so two of them running at once cannot lose one of the two writes |
 
 File names use a compact timestamp (`20260824T210511`); the `timestamp` field inside each history
@@ -157,6 +195,10 @@ Retention is automatic and best effort, swept whenever the CLI initializes its d
   than on a timer, so it happens once every 500 events. No date-based cutoff: an event log is
   only useful as far back as it reaches, and a line count is a bound you can reason about
   without knowing how busy the machine has been.
+- **Stray temporary files are swept after 60 minutes.** Interrupted atomic writes (`.atomic.*`, in
+  the config and state directories) and run-start tokens left by a terminal window that never
+  opened. An hour is well past any live writer or any launch still waiting for its window, so a
+  file still in use is never eligible.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 

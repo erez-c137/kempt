@@ -165,7 +165,8 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, which packages went in and were left out, and which dnf5 transaction it is, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
-| `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh}` | flock targets and the refresh timestamp | Never; they are empty files |
+| `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh,last_refresh_skip}` | flock targets, the refresh timestamp and the once-a-day skip stamp | Never; they are empty files |
+| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch; the window it starts claims it by deleting it | Swept by `kempt_init_dirs` after 60 minutes, like the `.atomic.*` temps - a window that never opens would otherwise leave one for good |
 | `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes. The age bound is the whole design: a live concurrent writer's temp is never eligible, and a crash between the write and the rename leaves nothing that outlives the hour |
 
 Four of those files are locks. `lock` and `check.lock` serialize runs and checks; `stage.lock` is
@@ -253,6 +254,7 @@ bumping `schema`.
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item in it has a `size_bytes`** - partial coverage omits the key rather than publishing a total that is quietly short. Additive key. |
 | `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A backend switched off contributes nothing and does not suppress it. Additive key. |
 | `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
+| `metadata_refreshed` | ISO 8601 with offset, optional | When the package metadata behind these counts was last **fetched**, from `$LAST_REFRESH_FILE`'s timestamp. Deliberately not `last_check`: a check answers from the cache, so a check a minute old can be reporting on week-old metadata, and that gap is the whole reason this key exists. The refresh is rate-limited to three hours and skipped on battery and on a metered connection, so it is a gap a box reaches by behaving exactly as designed. Absent when nothing has ever been fetched on this box, which is a different fact from "old" and is worded differently by every surface that renders it. The widget's footer says `metadata N days old` only past 24 hours; under that there is nothing worth saying about a plugged-in machine. Additive key. |
 | `offline_staged` | object, optional | Present **only** while an offline transaction is staged by Kempt **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when it was staged, `count` is how many updates it covers (`null` for a marker written before the count was recorded, never a guess), `armed` is always `true` - the key's absence is how "not armed" is expressed. A staged transaction whose status is anything else is a discrepancy for `kempt doctor`, not a pending install, and must never be published here. Additive key. |
 | `image_based` | `true`, optional | Present and `true` **only** on an image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - where rpm-ostree owns `/usr` and dnf is not how the system updates. `kempt update` aborts in pre-flight (exit 5) on such a machine, so this is what lets a reader stop offering the button rather than letting the press be how somebody finds out. Detected by the existence of `/run/ostree-booted`, which `ostree-prepare-root` writes on a booted deployment and which is absent on ordinary Fedora **even when rpm-ostree is installed** - the package resolving says nothing about how the box updates. Never `false`: an ordinary Fedora has nothing to declare, and a reader that has never heard of the key behaves correctly there by doing nothing. Additive key. |
 | `release_upgrade` | object, optional | Present **only** while dnf5 has a Fedora release upgrade stored. `from` and `to` are the two releases, both strings; `state` says where it is in its life, and is one of four words rather than a boolean, because collapsing any of them into another produces a sentence that disproves itself. The four are not dnf5's four status words rearranged: one word splits into two states and two words collapse into one, because arming is the status **and** the symlink. `downloaded`: the status is `download-complete`, which is where `dnf5 system-upgrade download` leaves one and where a box can sit for days. `armed`: `status = "ready"` **and** the `/system-update` symlink - the same pair `offline_staged` is gated on - so the next restart installs it. `stranded`: `ready` with the symlink gone, because systemd removes it once `system-update.target` is reached, so a restart has already been past this transaction and no later one runs it. `incomplete`: dnf5 recorded `download-incomplete` or `transaction-incomplete`, or a status word this build has never seen, so the transaction did not finish and no restart installs it - folded in with `downloaded` it produced "has been downloaded" quoting a status word that says the opposite. `state` is always present when the object is, because a reader holding `from`/`to` without it would word its sentence for a state it cannot name. dnf5 keeps ONE stored transaction for release upgrades and ordinary offline updates alike, so this is the fact that says the offline surface is unavailable: staging over a release upgrade cancels it, and Kempt refuses to. Published so a reader can stop OFFERING to stage rather than letting the press be how somebody finds out. Detected by comparing `system_releasever` with `target_releasever` in dnf5's transaction-state file - a COMPARISON and never a presence test, because both keys are in every `state_version = 2` file and an ordinary offline upgrade carries the same value in both. Absent, never `null`, when there is none. Additive key. |
@@ -356,8 +358,8 @@ and knows nothing about why a package is absent from it. `offline_system_status(
 `offline_marker_read()`, `offline_txjson_names()` and `offline_staged_state()` in `lib/common.sh`
 are the only readers.
 
-**The marker's fields, and the rule for adding one.** The marker is `{staged_at, pre_snapshot,
-boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
+**The marker's fields, and the rule for adding one.** The marker is `{version, staged_at,
+pre_snapshot, boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
 `staged_names_source` and `staged_excluded`, and, since the transaction's identity was recorded,
 `rpmdb_cookie` and `cmd_line`. Every field is **additive**: a marker written by an
 older build carries none of the newer ones, and every reader has to go on working against it - the
@@ -366,6 +368,12 @@ establish is expressed by an ABSENT key rather than an empty one: no `staged_nam
 "nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
 `staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
 list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
+`version` is one integer naming the shape of the marker, so a reader has one thing to ask instead of
+inferring the shape from which optional fields happen to be present. It is stamped where a marker is
+**born** and nowhere else: the three later-written fields below carry forward whatever was already
+on the file, so a marker from an older build is never stamped with a version whose fields it does
+not have. It does not replace the per-field checks, and it cannot: every reader still has to work
+against a marker with no `version` at all, which is what every marker written before it looks like.
 Three fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
 a restart proved the transaction cannot install (below), and that flip is also the record that it
 has already been announced. `set_moved` is added when the harvest finds the installed set changed
@@ -399,6 +407,13 @@ over-1 MB file, which every reader treats as "skip this check". Clearing is rese
 that **parses** over a transaction dnf5 says has gone. The distinction is not academic: a torn read
 used to reach the stale-pointer branch below and delete the marker, so one badly timed check made
 Kempt disown a transaction that was still going to install on the next restart.
+
+**Discarding.** `kempt unstage` removes the stored transaction through `dnf-offline-clean`, the same
+verb the failure unwinds use, and then clears the marker. The order is the one every path here
+follows: the marker goes *with* the transaction and never before it, and only once
+`offline_system_status` says `absent`. A helper that exited 0 having changed less than it meant to
+would otherwise leave an armed transaction with no marker, which is an install no surface mentions.
+A stored Fedora release upgrade refuses the command outright, in the CLI and again as root.
 
 **Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
 restarts anything itself.
@@ -545,6 +560,18 @@ only on an unmetered connection, and never in a way that can fail the check that
 interval, one `$LAST_REFRESH_FILE`, one power rule. The marker is stamped when **either** arm
 succeeded, because its job is to rate-limit the network step - re-fetching a flatpak summary that
 just arrived, because dnf's `makecache` failed, is the failure mode that rule prevents.
+
+A skip is otherwise invisible: the check that follows answers from the cache and reports `ok`, so a
+box that has not fetched for a week looks exactly like one that is up to date. Two things close
+that. The fetch stamp is published as `metadata_refreshed`, which the footer and `kempt doctor`
+date; and a skipped refresh is written to the event log **at most once a day**, through
+`$REFRESH_SKIP_FILE`, which is a stamp of its own so that announcing a skip can never postpone a
+fetch. Once a day rather than once a check, because a laptop on battery skips every check it runs.
+
+`kempt check --refresh` passes the interval gate and nothing below it. The interval is a courtesy
+to the mirrors and the person at the machine may overrule it; the battery and metering rules are
+about that person's hardware and their bill, so a flag that quietly spent either would be worse
+than no flag.
 
 The two arms are otherwise independent. The dnf one goes through the root helper (`priv_refresh`)
 because it fills root's cache, the one the update will use. The flatpak one runs **as the user**:
