@@ -399,6 +399,13 @@ that **parses** over a transaction dnf5 says has gone. The distinction is not ac
 used to reach the stale-pointer branch below and delete the marker, so one badly timed check made
 Kempt disown a transaction that was still going to install on the next restart.
 
+**Discarding.** `kempt unstage` removes the stored transaction through `dnf-offline-clean`, the same
+verb the failure unwinds use, and then clears the marker. The order is the one every path here
+follows: the marker goes *with* the transaction and never before it, and only once
+`offline_system_status` says `absent`. A helper that exited 0 having changed less than it meant to
+would otherwise leave an armed transaction with no marker, which is an install no surface mentions.
+A stored Fedora release upgrade refuses the command outright, in the CLI and again as root.
+
 **Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
 restarts anything itself.
 

@@ -38,6 +38,8 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .br
 .B kempt holds
 .br
+.B kempt unstage
+.br
 .B kempt config get
 .I key
 .RI [ default ]
@@ -236,6 +238,13 @@ List current holds, one
 .I backend:name
 per line.
 .TP
+.B unstage
+Discard the staged offline transaction, so the next restart installs nothing. Asks for
+authorization once, and exits 0 with a sentence when nothing is staged. A stored Fedora release
+upgrade refuses the command with exit 5 and nothing changed, in the CLI and again in the root
+helper: dnf5 keeps one stored transaction, so discarding would cancel the upgrade. Kempt's own
+record of the stage is cleared only once dnf5 reports the transaction really gone.
+.TP
 .BI "config get" " key " [ default ]
 Print a configuration value, falling back to the built\-in default for the key, or to
 .I default
@@ -414,11 +423,13 @@ Launcher missing: no terminal emulator for the
 surface.
 .TP
 .B 5
-Aborted during pre\-flight. Nothing was changed. Three causes:
+Aborted during pre\-flight. Nothing was changed. Four causes:
 .B update
 on an image\-based Fedora;
 .B "update \-\-surface=offline"
-while dnf5 has a Fedora release upgrade stored; and
+while dnf5 has a Fedora release upgrade stored;
+.B unstage
+while one is stored, or when the root helper refuses to discard what is; and
 .B run
 when the terminal window it launched never opened, so the update never began.
 .SH SEE ALSO

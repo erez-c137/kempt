@@ -31,7 +31,7 @@ One contract, every subcommand:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
-| 5 | Aborted during pre-flight. Nothing was changed. Three causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel; and `run` when the terminal window it launched never opened, so the update never began. |
+| 5 | Aborted during pre-flight. Nothing was changed. Four causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel; `unstage` while one is stored, or when the root helper refuses to discard what is, which discarding would cancel; and `run` when the terminal window it launched never opened, so the update never began. |
 
 Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
 set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
@@ -392,6 +392,37 @@ takes the widget out of its updating state. Before it, an abort or a closed wind
 showing an empty updating pane - no package list, no **Update Now**, no **Refresh** - until a
 three-hour guard let it go. The exit status you get back is still the update's; the check's is
 discarded, so a check that fails cannot turn a good run into a bad one.
+
+## unstage
+
+```
+kempt unstage
+```
+
+Discards the staged offline update, so the next restart installs nothing. The mirror of
+`kempt update --surface=offline`.
+
+```bash
+kempt unstage
+```
+
+```
+Discarded the staged update. The next restart installs nothing.
+```
+
+It asks for authorization once, because removing a stored transaction is root's business. With
+nothing staged it says so and exits 0 without asking for anything. A leftover record with no
+transaction under it is cleared the same way, again without a prompt.
+
+**It will not discard a Fedora release upgrade.** dnf5 keeps one stored transaction and a release
+upgrade sits in the same slot, so discarding "the staged update" over one would cancel an upgrade
+that took gigabytes to download. Kempt refuses, exits 5 with nothing changed, and names what it
+protected. The refusal happens twice: once in the CLI, and once inside the root helper, because
+anything that calls that helper directly never passes through the CLI.
+
+Kempt's own record of the stage is cleared **only once dnf5 reports the transaction really gone.**
+If the helper returns success and the transaction is still there, the record is kept and the command
+fails, because a cleared record over an armed transaction is an install nobody is told about.
 
 ## summary and history
 

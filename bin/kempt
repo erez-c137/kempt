@@ -1514,6 +1514,85 @@ cmd_unhold() {
 # plain list is how a script gets written against an option that does not exist.
 cmd_holds()  { [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; holds_all; }
 
+# `kempt unstage` - discard the staged offline transaction, so the next restart installs nothing.
+# The mirror of `kempt update --surface=offline`, through the same root helper verb the failure
+# unwinds already use. That verb refuses over a stored Fedora release upgrade, and so does this:
+# dnf5 keeps ONE stored transaction, so an ordinary stage and a release upgrade share one slot, and
+# discarding the wrong one throws away gigabytes somebody spent hours downloading. Refused HERE and
+# again as root, because the CLI runs as the user and anything reaching the helper directly never
+# passes through here.
+cmd_unstage() {
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  kempt_init_dirs
+  # exit 5, the status cmd_update's refusals already use: nothing was read, nothing was changed, so
+  # this is a refusal rather than a failed run. And never "run: sudo dnf5 offline clean" on any path
+  # in this function - that is the command the refusal exists to protect against.
+  local relup
+  if relup="$(offline_release_upgrade)"; then
+    echo "Nothing was discarded. A Fedora release upgrade ($relup) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" >&2
+    log_event "unstage refused (a Fedora release upgrade ($relup) is stored)"
+    exit 5
+  fi
+  # The update lock, for the race it exists for: a stage in flight is building the very transaction
+  # this would remove. Same refusal and same status as a second `kempt update`.
+  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
+  trap release_lock EXIT
+
+  local marker pre status
+  marker="$(offline_marker_read)"
+  status="$(offline_system_status)"
+  # Nothing stored. Either a marker is left over and this tidies it, or there is nothing at all;
+  # neither is a failure and neither needs root, so neither raises an authentication dialog.
+  if [[ "$status" == absent ]]; then
+    if [[ -n "$marker" ]]; then
+      pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
+      clear_gone_stage "$pre" "$marker"
+      echo "The staged update was already gone. Kempt's record of it has been cleared."
+      log_event "unstage cleared a marker with no transaction under it"
+    else
+      echo "Nothing is staged, so there is nothing to discard."
+      log_event "unstage found nothing staged"
+    fi
+    cmd_check >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
+  # one short verb rather than a transaction. A package lock held by something else fails plainly.
+  local rc=0
+  priv_apply dnf-offline-clean || rc=$?
+  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
+    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
+    log_event "unstage refused by the root helper"
+    exit 5
+  fi
+  if [[ $rc -ne 0 ]]; then
+    echo "The staged update could not be discarded. See: kempt doctor" >&2
+    log_event "unstage failed rc=$rc"
+    exit 1
+  fi
+  # The marker goes ONLY when dnf5's transaction is really gone, and it is asked again rather than
+  # assumed from rc 0: a helper can exit 0 having changed less than it meant to, and a marker
+  # cleared over a transaction that is still armed leaves an install coming that no surface
+  # mentions - the same failure the harvest's own clearing rule avoids from the other side.
+  status="$(offline_system_status)"
+  if [[ "$status" != absent ]]; then
+    echo "The staged update was not fully discarded: dnf5 still reports a stored transaction (status \"$status\"). Kempt's record of it has been kept. See: kempt doctor" >&2
+    log_event "unstage left a transaction behind (status $status)"
+    cmd_check >/dev/null 2>&1 || true
+    exit 1
+  fi
+  if [[ -n "$marker" ]]; then
+    pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
+    clear_gone_stage "$pre" "$marker"
+  fi
+  echo "Discarded the staged update. The next restart installs nothing."
+  log_event "unstage discarded the staged update"
+  # state.json is the widget's only channel, so a discarded stage stops being advertised in the
+  # panel exactly when this rewrites it.
+  cmd_check >/dev/null 2>&1 || true
+}
+
 # `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
 # already one fact per line in a fixed vocabulary, meant to be read with grep.
 cmd_log() {
@@ -2264,6 +2343,7 @@ usage: kempt <command>
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
   unhold <same>         remove a hold
   holds                 list holds
+  unstage               discard the staged offline update; the next restart installs nothing
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
@@ -2290,6 +2370,7 @@ case "${1:-help}" in
   hold)    shift; cmd_hold "$@" ;;
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
+  unstage) shift; cmd_unstage "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;
