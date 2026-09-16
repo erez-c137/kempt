@@ -18,9 +18,11 @@ What this does instead:
 Exit codes: the probe's own, or 4 if it had to be killed, or 3/4 for the count guards.
 """
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +78,14 @@ def main():
     env["PROBE_WATCHDOG_SECS"] = str(secs)          # the probe kills itself first
     env["PROBE_EXIT_SECS"] = "10"
     env["QT_QPA_PLATFORM"] = "offscreen"
+    # Everything the probe creates lands under a directory THIS process owns, and this process
+    # removes it once the whole group is gone. harness.Probe already deletes its own sandbox when
+    # the probe finishes, and that is not enough: Plasma's icon cache writes into the probe's
+    # $HOME again during Qt teardown, which happens AFTER that delete, so every battery left a
+    # /tmp/kempt-probe-* directory behind holding a `.cache/ksvg-elements`. A cleanup can only be
+    # reliable in a process that outlives the one making the mess.
+    workdir = tempfile.mkdtemp(prefix="kempt-probe-run.")
+    env["TMPDIR"] = workdir
 
     t0 = time.time()
     p = subprocess.Popen(cmd, cwd=HERE, env=env, start_new_session=True,
@@ -97,6 +107,8 @@ def main():
         os.killpg(p.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+    # Only now: while anything in that group still breathes it can write here again.
+    shutil.rmtree(workdir, ignore_errors=True)
 
     print(out, end="" if out.endswith("\n") else "\n")
     after = pycount()
