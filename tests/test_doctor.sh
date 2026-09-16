@@ -111,6 +111,27 @@ grep -qF "root helper (apply) is $ME_U:$ME_G 644, expected root:root 755" "$TEST
 grep -q 're-run ./install.sh' "$TESTTMP/last_output" \
   && echo "ok: ...and says how to fix it" || { echo "FAIL: no remedy in the ownership message"; _fail=1; }
 
+# The directory that holds a helper matters as much as the file: anyone who can write to it can
+# rename the helper away and put their own file at the path polkit runs as root. A root-owned
+# helper in a directory that is not root-owned, or that the group or everyone can write, is a FAIL.
+mkdir -p "$TESTTMP/loose-libexec"; chmod 777 "$TESTTMP/loose-libexec"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/loose-libexec/kempt-apply"
+chmod 755 "$TESTTMP/loose-libexec/kempt-apply"
+assert_exit 1 "a helper in a directory others can write to fails the checkup" \
+  env KEMPT_APPLY_HELPER="$TESTTMP/loose-libexec/kempt-apply" \
+      KEMPT_APPLY_HELPER_PATH="$TESTTMP/loose-libexec/kempt-apply" "$KEMPT" doctor
+grep -qF "root helper directory (apply) is $ME_U:$ME_G 777, expected root-owned and not group- or world-writable: $TESTTMP/loose-libexec" \
+     "$TESTTMP/last_output" \
+  && echo "ok: ...and the FAIL line names the directory, its owner and its mode" \
+  || { echo "FAIL: loose helper directory not reported - got: $(grep 'root helper' "$TESTTMP/last_output")"; _fail=1; }
+# ...and a sound directory adds no line: /usr/bin is root-owned and 0755.
+env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor \
+  > "$TESTTMP/dir-ok.txt" 2>&1 || true
+grep -q 'root helper directory' "$TESTTMP/dir-ok.txt" \
+  && { echo "FAIL: a root-owned 0755 directory was reported"; _fail=1; } \
+  || echo "ok: ...while a root-owned directory nobody else can write says nothing"
+chmod 755 "$TESTTMP/loose-libexec"
+
 # --- the exec.path the policy pins, against the helper this CLI hands to pkexec ------------------
 # pkexec matches an action by the `org.freedesktop.policykit.exec.path` annotation and by nothing
 # else. The RPM installs the helpers under /usr/libexec and rewrites the annotation to match
@@ -575,6 +596,12 @@ grep -qF 'panel widget not installed - it is a separate package: sudo dnf instal
      "$TESTTMP/skew.txt" \
   && echo "ok: a packaged install with no widget names the package that carries it" \
   || { echo "FAIL: no widget-package line"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+# ...and what going without it means, because the CLI alone is not a quieter widget: nothing runs a
+# check on a schedule, and polkit refuses both actions from a session that is not active and local.
+grep -qF 'without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)' \
+     "$TESTTMP/skew.txt" \
+  && echo "ok: ...and says that without it nothing checks on a schedule, and not over SSH" \
+  || { echo "FAIL: the widget row does not say what the CLI alone cannot do"; _fail=1; }
 # ...and says nothing once the package IS installed. The line is a pointer, not a nag.
 SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
 env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \

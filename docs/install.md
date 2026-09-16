@@ -36,7 +36,7 @@ Two packages, and the one above brings the other:
 
 | Package | What it is | Requires |
 | --- | --- | --- |
-| `kempt` | The CLI, the two root helpers, the polkit action, the man page and this documentation. A complete tool on its own - it needs nothing from a desktop, and on a server or in a container that is the point. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
+| `kempt` | The CLI, the two root helpers, the polkit action, the man page and this documentation. It needs nothing from a desktop, but it does need an active local session: polkit refuses both Kempt actions over SSH. Without the widget nothing runs checks on a schedule, so the CLI alone checks only when you run it. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
 | `kempt-plasmoid` | The panel widget and its icons. | `kempt` of the same version, `plasma-workspace` |
 
 They are separate because `kempt` alone is 0.7 MB of bash and had no business requiring
@@ -98,7 +98,7 @@ kempt doctor
 On a packaged box that has not run anything yet:
 
 ```
-info  kempt 0.1.1 (/usr/share/kempt)
+info  kempt 0.1.x (/usr/share/kempt)
 ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -111,7 +111,7 @@ ok    dnf: /usr/bin/dnf5
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
 ok    program files intact: /usr/share/kempt
-info  version: kempt 0.1.1
+info  version: kempt 0.1.x
 info  install: packaged - the package manager keeps these files in step
 ok    widget engine: /usr/share/kempt/bin/kempt
 
@@ -394,7 +394,7 @@ force that: removing it would take the widget off your panel and out of your tra
 Then `kempt doctor` confirms every copy matches the checkout:
 
 ```
-info  version: kempt 0.1.1 (checkout a1b2c3d clean)
+info  version: kempt 0.1.x (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
 ok    widget: match checkout

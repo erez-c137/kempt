@@ -1130,9 +1130,11 @@ function postRunLine(run) {
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
-    // long it took is described without it rather than described as instantaneous.
+    // long it took is described without it rather than described as instantaneous. A negative
+    // duration is the clock stepping backwards during the run, not a measurement, so it is left
+    // out the same way.
     var secs = run.durationSec;
-    var howLong = (typeof secs === "number" && isFinite(secs)) ? " in " + secs + "s" : "";
+    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
     return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
 }
 

@@ -121,6 +121,9 @@ kempt_init_dirs() {
   # a missing state dir and a failed find must land on rc 0.
   # shellcheck disable=SC2015
   [[ -d "$KEMPT_STATE_DIR" ]] && find "$KEMPT_STATE_DIR" -maxdepth 2 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
+  # The config dir collects them too: `hold`, `unhold` and `config set` write through atomic_write
+  # there. maxdepth 1, because Kempt writes nothing below it. Created by the mkdir above.
+  find "$KEMPT_CONFIG_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names
@@ -309,6 +312,9 @@ writer_lock() {
 writer_unlock() { flock -u 7 2>/dev/null || true; { exec 7>&-; } 2>/dev/null || true; }
 
 config_get() {  # key [default]; explicit default wins, else the kempt_default table
+  # config_set's key rule, on the read side too: the key is matched against the file as a pattern,
+  # so `s.*` would match the first line and print another setting's value.
+  [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
     echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
   fi
@@ -396,7 +402,7 @@ stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing sp
 # a MISSING helper as "timeout: failed to run command '<path>': No such file or directory", which
 # reads as "the update check timed out" and sends the reader hunting a network problem they do not
 # have; the real cause is that install.sh has never run. Anything else passes through untouched.
-explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or the declined-auth one
+explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or an authorization one
   local t="$1" h
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
@@ -411,17 +417,36 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
   friendly_error "$t"
 }
 
-# The ONE place a refused authentication becomes words a human is meant to read, used by every
+# The ONE place a failed authorization becomes words a human is meant to read, used by every
 # surface that renders a failure reason: state.json's `error`, the run summary, the notification,
-# `kempt history` and the event log. pkexec's own wording - "Error executing command as another
-# user: Not authorized" - reads as a broken installation, when what happened is that the person at
-# the keyboard closed the dialog. The raw text is never lost; it stays in the run log.
-# Three markers, all pkexec's: polkit's refusal, a dismissed dialog, and the prefix it wraps both in.
-KEMPT_AUTH_DECLINED='authentication declined or cancelled'
-friendly_error() {  # raw text → the same text, or the declined-auth sentence
+# `kempt history` and the event log. The raw text is never lost; it stays in the run log.
+#
+# One sentence per thing pkexec can say, and never a claim pkexec's text cannot support:
+# - "Request dismissed" (exit 126): the authentication agent reported a cancel, which is a closed
+#   dialog.
+# - "Not authorized" (exit 127): polkit said no. That is a password that was not accepted, AND a
+#   refusal with no dialog at all: both actions set allow_any=no and allow_inactive=no, so an SSH
+#   session or a switched-away session is refused without being asked. pkexec prints the same
+#   text for both, so the sentence names both. It must never say the user closed a dialog.
+# - "No authentication agent found", or pkexec failing to start its own terminal agent (exit 127):
+#   a password was needed and nothing could ask for it.
+# Anything else passes through untouched: a truthful raw message beats a friendly wrong one.
+KEMPT_AUTH_CANCELLED='authentication cancelled'
+KEMPT_AUTH_REFUSED='not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)'
+KEMPT_AUTH_NO_AGENT='no authentication agent is running to ask for the password'
+# - "Error getting authority" (exit 127): pkexec could not reach polkit on the system bus at all,
+#   so nothing was asked and nothing could have been authorized.
+KEMPT_AUTH_UNREACHABLE='cannot reach polkit (no system bus or polkit service), so nothing can be authorized'
+friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sentences
   case "$1" in
-    *"Not authorized"*|*dismissed*|*"Error executing command as another user"*)
-      printf '%s\n' "$KEMPT_AUTH_DECLINED" ;;
+    *"Error getting authority"*)
+      printf '%s\n' "$KEMPT_AUTH_UNREACHABLE" ;;
+    *"Request dismissed"*)
+      printf '%s\n' "$KEMPT_AUTH_CANCELLED" ;;
+    *"No authentication agent found"*|*"textual authentication agent"*|*"local authentication agent"*)
+      printf '%s\n' "$KEMPT_AUTH_NO_AGENT" ;;
+    *"Not authorized"*)
+      printf '%s\n' "$KEMPT_AUTH_REFUSED" ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -677,7 +702,10 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
   [[ -f "$LAST_REFRESH_FILE" ]] && last="$(stat -c %Y "$LAST_REFRESH_FILE" || echo 0)"
-  (( now - last < 10800 )) && return 0
+  # A stamp in the future (a clock corrected backwards, a home restored onto a machine whose clock
+  # is behind) is due, not recent: read as a refresh a moment ago it holds every refresh off until
+  # the clock catches up. The stamp at the bottom rewrites it to now once a fetch lands.
+  (( now - last >= 0 && now - last < 10800 )) && return 0
   on_battery && return 0
   metered_connection && return 0
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
@@ -1106,7 +1134,7 @@ offline_stage_built_without() {  # name → 0 when an armed stage left it out
 }
 
 # --- what a hold over an armed stage says ---------------------------------------------------------
-# Copy lives here rather than at the call site for the reason KEMPT_AUTH_DECLINED does: more than
+# Copy lives here rather than at the call site for the reason the KEMPT_AUTH_* sentences do: more than
 # one surface renders it, and two copies of a sentence are two sentences that drift. The wording is
 # deliberate - "The staged update" is doctor's existing noun, "on the next restart" is the promise
 # the popup already makes in those words, and it "removes it", never "unstages".

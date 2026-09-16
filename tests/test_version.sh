@@ -56,6 +56,21 @@ assert_exit 2 "a trailing argument is refused" "$KEMPT" --version --json
 # Discoverable, or it does not exist as far as a user is concerned.
 "$KEMPT" help > "$TESTTMP/help.txt" 2>&1 || true
 assert_exit 0 "help lists it" -- grep -q -- '--version' "$TESTTMP/help.txt"
+# Every spelling the dispatcher accepts is named in the list, or the one a user has in their
+# fingers looks unsupported.
+assert_exit 0 "help names the -V alias for the version" -- grep -qw -- '-V' "$TESTTMP/help.txt"
+assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTTMP/help.txt"
+# --help or -h after a command is a request for help, not a mistake to exit 2 over. update and run
+# go through the same line of the dispatcher; they are left out here so that no test can ever start
+# a run if that line goes.
+for sub in check summary history log doctor config hold unhold holds enable-passwordless disable-passwordless; do
+  for flag in --help -h; do
+    assert_exit 0 "kempt $sub $flag prints the usage and exits 0" "$KEMPT" "$sub" "$flag"
+    grep -q '^usage: kempt <command>' "$TESTTMP/last_output" \
+      && echo "ok: ...and what it prints is the usage list" \
+      || { echo "FAIL: kempt $sub $flag did not print the usage list"; _fail=1; }
+  done
+done
 # doctor answers "which build is this?" too - it is the command people are asked to paste.
 KEMPT_POLICY_FILE="$TESTTMP/nopolicy" "$KEMPT" doctor > "$TESTTMP/doctor.txt" 2>&1 || true
 assert_exit 0 "doctor reports the version" -- grep -qE "^info +kempt $VER " "$TESTTMP/doctor.txt"

@@ -291,8 +291,10 @@ message and no button, and the popup's status line still ends
 Nothing ever restarts on its own either way.
 .PP
 See
+.I /usr/share/doc/kempt/docs/configuration.md
+for the full reference. A checkout install has it at
 .I docs/configuration.md
-in the source tree for the full reference.
+in the checkout, and it is also at https://github.com/erez-c137/kempt.
 .SH FILES
 Kempt has two kinds of install and they put their own files in different places. Where both are
 listed below, the first path is the package and the second is a checkout install; everything under
@@ -329,7 +331,9 @@ One JSON entry per run. The newest 50 are kept.
 .I ~/.local/state/kempt/logs/
 Full raw output per run. Deleted after 60 days. Evidence, never rewritten: a failure that a
 summary reports as
-.B "authentication declined or cancelled"
+.B "authentication cancelled"
+or
+.B "not authorized"
 appears here in the authentication helper's own words.
 .TP
 .I ~/.local/state/kempt/events.log
@@ -413,7 +417,10 @@ while dnf5 has a Fedora release upgrade stored.
 .BR pkexec (1),
 .BR polkit (8)
 .PP
-Full documentation in the source tree:
+Full documentation is installed with the package in
+.IR /usr/share/doc/kempt/ :
 .IR README.md ", " docs/usage.md ", " docs/configuration.md ", " docs/architecture.md
 and
 .IR docs/security.md .
+A checkout install has the same files in the checkout, and they are also at
+https://github.com/erez-c137/kempt.

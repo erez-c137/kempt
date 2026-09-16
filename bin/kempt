@@ -858,8 +858,13 @@ cmd_update() {
   local dnf_rep_f fp_rep_f
   dnf_rep_f="$(mktemp)"; fp_rep_f="$(mktemp)"
   printf '%s' "$dnf_report" > "$dnf_rep_f"; printf '%s' "$fp_report" > "$fp_rep_f"
+  # Floored at 0: a clock stepped backwards during the run (NTP correcting a fast clock, a resume
+  # across a time change) puts the end before the start, and a negative duration is not a
+  # measurement. Every reader would otherwise print it as "in -287s".
+  local run_dur=$(( $(date +%s) - start ))
+  (( run_dur >= 0 )) || run_dur=0
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
-        --arg log "$log" --argjson dur "$(( $(date +%s) - start ))" \
+        --arg log "$log" --argjson dur "$run_dur" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
@@ -1110,6 +1115,10 @@ cmd_history() {
       echo "warning: corrupt history entry: $f" >&2
     fi
   done
+  # No entries at all is still an answer, in the words `kempt summary` uses: empty output reads as
+  # the command having failed. Only when there are no entry files: over entries that all failed to
+  # read, "no update runs recorded" would be false, and the warnings above already say what is wrong.
+  (( ${#files[@]} )) || echo "no update runs recorded yet"
 }
 
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
@@ -1524,7 +1533,7 @@ doctor_widget_engine() {
 }
 
 doctor_helper() {  # label seam_path annotated_path
-  local label="$1" path="$2" annotated="$3" own
+  local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
     doctor_fail "root helper ($label) not installed: $path - run ./install.sh"
     return 0
@@ -1541,6 +1550,14 @@ doctor_helper() {  # label seam_path annotated_path
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
     doctor_fail "root helper ($label) is $own, expected root:root 755: $path - re-run ./install.sh"
+  fi
+  # The directory, too: whoever can write to it can rename the helper away and put their own file
+  # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
+  # every install does not grow a line; an unreadable directory is not reported as a broken one.
+  dir="$(dirname "$path")"
+  down="$(stat -L -c '%U:%G %a' "$dir" 2>/dev/null)" || return 0
+  if [[ "${down%%:*}" != root ]] || (( 8#${down##* } & 8#022 )); then
+    doctor_fail "root helper directory ($label) is $down, expected root-owned and not group- or world-writable: $dir - fix it with: sudo chown root:root $dir && sudo chmod 755 $dir"
   fi
 }
 
@@ -1901,7 +1918,8 @@ doctor_install_rows() {
     elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
       # The panel half is its own package, so a working CLI can sit on a box with no widget and
       # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
-      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid"
+      # ...and what going without it means, because the CLI alone is not a quieter widget.
+      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid - without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
     fi
 
     # The environment can point this process at a different update path than the rows above
@@ -2072,9 +2090,17 @@ usage: kempt <command>
   holds                 list holds
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
-  --version             print the version and exit
+  --version | version | -V   print the version and exit
+  help | --help | -h    print this list
 EOF
 }
+
+# --help or -h right after any command asks for help, and gets it before the command runs or
+# parses anything, so `kempt update --help` can never start an update.
+if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
+  usage
+  exit 0
+fi
 
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;

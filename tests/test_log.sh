@@ -35,11 +35,12 @@ case "\$1" in
 esac
 exit 0
 STUB
-# The declined authentication, in pkexec's own words. This is the string a person would
-# actually see, and the point of the mapping is that they never see it in a summary.
+# A refused authorization, in pkexec's own words and with its own exit status: polkit said no,
+# so pkexec prints this, a blank line and a closing sentence, and exits 127. The point of the
+# mapping is that nobody sees this text in a summary.
 cat > "$TESTTMP/apply-declined" <<'STUB'
 #!/usr/bin/env bash
-echo "Error executing command as another user: Not authorized" >&2
+printf 'Error executing command as another user: Not authorized\n\nThis incident has been reported.\n' >&2
 exit 127
 STUB
 cat > "$TESTTMP/refresh-stub" <<STUB
@@ -49,7 +50,7 @@ exit 0
 STUB
 cat > "$TESTTMP/refresh-declined" <<'STUB'
 #!/usr/bin/env bash
-echo "Error executing command as another user: Not authorized" >&2
+printf 'Error executing command as another user: Not authorized\n\nThis incident has been reported.\n' >&2
 exit 127
 STUB
 cat > "$TESTTMP/notify-stub" <<STUB
@@ -206,14 +207,44 @@ assert_eq "$(events_like ' harvest cleared stale marker')" "1" \
   "a marker pointing at a snapshot that is gone is cleared, and recorded as cleared"
 
 # ==================================================================================================
-# A refused authentication, all the way through.
+# A refused authorization, all the way through.
 #
 # pkexec's own words - "Error executing command as another user: Not authorized" - read as a
-# broken installation. What happened is that somebody closed the dialog. The mapping is one
-# helper, so every surface that renders a failure says the same friendly sentence, and the raw
-# text stays in the run log for whoever needs it.
+# broken installation. The mapping is one helper, so every surface that renders a failure says
+# the same plain sentence, and the raw text stays in the run log for whoever needs it.
 # ==================================================================================================
-FRIENDLY="authentication declined or cancelled"
+
+# First the mapping itself, one case per thing pkexec prints, fed through stderr_tail exactly as
+# the check path feeds it. Each input is pkexec's real output for that case, newlines included.
+friendly_of() {  # raw stderr (printf format) → what friendly_error makes of its tail
+  local f="$TESTTMP/pkexec-stderr"
+  # shellcheck disable=SC2059
+  printf "$1" > "$f"
+  bash -c 'source "$1"; friendly_error "$(stderr_tail "$2")"' _ "$REPO_ROOT/lib/common.sh" "$f"
+}
+REFUSED="not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)"
+assert_eq "$(friendly_of 'Error executing command as another user: Request dismissed\n')" \
+  "authentication cancelled" "a closed dialog (exit 126) says the authentication was cancelled"
+assert_eq "$(friendly_of 'Error executing command as another user: Not authorized\n\nThis incident has been reported.\n')" \
+  "$REFUSED" "polkit refusing this session with no dialog (exit 127) never says a dialog was declined"
+assert_eq "$([[ "$REFUSED" == *declined* || "$REFUSED" == *cancel* ]] && echo claims-a-dialog || echo ok)" "ok" \
+  "...because over SSH or from a switched-away session nobody was shown one"
+assert_eq "$(friendly_of 'Error creating textual authentication agent: Error opening current controlling terminal for the process (`/dev/tty'"'"'): No such device or address\n')" \
+  "no authentication agent is running to ask for the password" \
+  "no desktop agent and no terminal to fall back on (exit 127) says nothing could ask"
+assert_eq "$(friendly_of 'Error executing command as another user: No authentication agent found.\n')" \
+  "no authentication agent is running to ask for the password" \
+  "...and so does pkexec's own no-agent line, which carries the refusal prefix but is not a refusal"
+assert_eq "$(friendly_of 'Error checking for authorization io.github.erez_c137.kempt.refresh: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown\n')" \
+  "Error checking for authorization io.github.erez_c137.kempt.refresh: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown" \
+  "a failure that is not about authorization passes through in its own words"
+# pkexec could not reach polkit at all (no system bus, or polkitd is not running), exit 127. The
+# raw text names GLib's internals and nothing a person can act on.
+assert_eq "$(friendly_of 'Error getting authority: Error initializing authority: Could not connect: No such file or directory\n')" \
+  "cannot reach polkit (no system bus or polkit service), so nothing can be authorized" \
+  "polkit being unreachable is said in plain words"
+
+FRIENDLY="$REFUSED"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-declined"
 : > "$EV"; : > "$WORLD/notifications"

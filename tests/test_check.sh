@@ -201,6 +201,15 @@ else
   touch -d '4 hours ago' "$LAST_REFRESH_FILE"
   "$KEMPT" check >/dev/null
   assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "2" "refresh resumes once the 3h window lapses"
+  # A stamp from the future: the clock was corrected backwards, or a home directory was restored
+  # onto a machine whose clock is behind. Read as "refreshed a moment ago", it would hold every
+  # refresh off until the clock caught up, with nothing logged. The flatpak arm is switched off for
+  # this one check so the fetch counts below stay about what they are about.
+  touch -d '2 days' "$LAST_REFRESH_FILE"
+  KEMPT_FLATPAK_REFRESH_CMD=true "$KEMPT" check >/dev/null
+  assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "3" "a last_refresh stamp in the future does not hold the refresh off"
+  assert_eq "$(( $(stat -c %Y "$LAST_REFRESH_FILE") <= $(date +%s) ))" "1" \
+    "...and the stamp is rewritten to now, so the next window starts from a real time"
 
   # Both backends are refresh-then-read-cache, and they ride ONE gate. A second gate would be a
   # second interval, a second battery rule and a second timestamp to keep in step with this one -
