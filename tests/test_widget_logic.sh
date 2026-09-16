@@ -775,6 +775,73 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,bac
 assert_eq "$(js 'V("held-only",false).heldItems[0].backend')" "dnf" \
   "held rows carry their backend too (the unhold argument)"
 
+# --- Flatpak runtimes: their own section, under the apps ----------------------------------------
+# `flatpak update` updates runtimes as well as apps, so the CLI counts them - and the popup has to
+# show them, or the badge says one thing and the list says another. They go under their own heading
+# rather than among the apps, where a heading reading "Apps" would be describing a runtime.
+RT='{schema:1,status:"ok",actionable:4,held_total:0,backends:{flatpak:{enabled:true,items:[
+  {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
+  {name:"org.freedesktop.Platform.GL.default",branch:"24.08",kind:"runtime",from:"26.1.8",to:"26.1.9",held:false},
+  {name:"org.freedesktop.Platform.GL.default",branch:"24.08extra",kind:"runtime",from:"26.1.8",to:"26.2.0",held:false},
+  {name:"org.kde.Platform",branch:"5.15-24.08",kind:"runtime",from:"?",to:"?",held:false}]}}}'
+assert_eq "$(js "L.viewModel($RT,false).sections.map(function (s) { return s.title; })")" \
+  '["Apps (flatpak)","Flatpak runtimes"]' "runtimes get their own heading, under the apps"
+assert_eq "$(js "L.viewModel($RT,false).sections[0].items.length")" "1" "the app section holds only the app"
+assert_eq "$(js "L.viewModel($RT,false).sections[1].items.length")" "3" "...and the runtime section the runtimes"
+assert_eq "$(js "L.viewModel($RT,false).sections[1].kind")" "runtime" \
+  "the runtime section says which kind it is, rather than leaving its title to be parsed"
+# The badge counts them: that is the promise the whole change exists to keep.
+assert_eq "$(js "L.viewModel($RT,false).badgeText")" "4" "the badge counts runtimes alongside apps"
+assert_eq "$(js "L.viewModel($RT,false).headerText")" "4 updates available" "...and so does the header"
+# THE two-branch case. Two rows sharing a name, told apart by the branch beside it: without this the
+# popup draws what looks like the same runtime twice at two different versions.
+GL="L.viewModel($RT,false).sections[1].items.filter(function (i) { return i.name.indexOf('GL.default') >= 0; })"
+assert_eq "$(js "$GL.length")" "2" "one runtime on two branches is two rows"
+assert_eq "$(js "$GL.map(function (i) { return i.branch; })")" '["24.08","24.08extra"]' \
+  "...each carrying the branch that tells it from the other"
+assert_eq "$(js "$GL.map(function (i) { return i.to; })")" '["26.1.9","26.2.0"]' \
+  "...and its own pending version"
+# No padlock on a runtime row. `kempt hold` refuses one, so a padlock would report a refusal every
+# time it was pressed - worse than not being there.
+assert_eq "$(js "L.viewModel($RT,false).sections[1].items.map(function (i) { return i.holdable; })")" \
+  '[false,false,false]' "no runtime row offers a hold"
+assert_eq "$(js "L.viewModel($RT,false).sections[0].items[0].holdable")" "true" \
+  "...while the app beside them still does"
+assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind === 'header'; }).map(function (r) { return r.title; })")" \
+  '["Apps (flatpak)","Flatpak runtimes"]' "the flat model carries both headings, in that order"
+assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind === 'item' && !r.holdable; }).length")" "3" \
+  "...and the rows under the second one are the unholdable three"
+# A runtime flatpak publishes no version for: both halves unknown, which the row renders as no
+# version line at all rather than an arrow pointing at nothing.
+assert_eq "$(js "L.viewModel($RT,false).sections[1].items[2].from")" "?" \
+  "a runtime with no version keeps the not-known sentinel on the from side"
+assert_eq "$(js "L.viewModel($RT,false).sections[1].items[2].to")" "?" "...and on the to side"
+# A held runtime cannot arrive from today's CLI, but a reader must not invent a rule: a held item
+# goes to the Held group whatever its kind, exactly as it always did.
+RT_HELD="$(js "JSON.stringify({schema:1,status:'ok',actionable:0,held_total:1,backends:{flatpak:{enabled:true,items:[{name:'org.kde.Platform',branch:'5.15-24.08',kind:'runtime',from:'1',to:'2',held:true}]}}})")"
+assert_eq "$(js "L.viewModel($RT_HELD,false).heldItems.length")" "1" "a held runtime still lands in the Held group"
+assert_eq "$(js "L.viewModel($RT_HELD,false).sections.length")" "0" "...and raises no runtime section of its own"
+# Forward compatibility, the same rule an unknown backend key gets: a kind this build has never
+# heard of is shown under a heading built from its own words, never dropped - the badge has already
+# counted it.
+RT_NEW='{schema:1,status:"ok",actionable:1,held_total:0,backends:{flatpak:{enabled:true,items:[{name:"x",kind:"extension",from:"1",to:"2",held:false}]}}}'
+assert_eq "$(js "L.viewModel($RT_NEW,false).sections.map(function (s) { return s.title; })")" \
+  '["flatpak extension"]' "an unknown kind gets a section rather than being dropped"
+
+# --- and the state files that predate all of it -------------------------------------------------
+# Every captured fixture was written before runtimes were counted, so none of them carries `kind` or
+# `branch` anywhere. That is what proves both keys additive from the absence side: the popup these
+# files render must be the popup they always rendered.
+assert_eq "$(jq '[.backends[].items[] | select(has("kind") or has("branch"))] | length' "$FIXTURES/state-live.json")" \
+  "0" "fixture guard: the captured state really does predate both keys"
+assert_eq "$(js 'V("live",false).sections.map(function (s) { return s.title; })')" \
+  '["System (dnf)","Apps (flatpak)"]' "a state with no kind anywhere renders the two headings it always did"
+assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "item" && !r.holdable; }).length')" "0" \
+  "...and every one of its rows still offers a hold"
+assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "item" && r.branch !== ""; }).length')" "0" \
+  "...carrying no branch, because there was none to carry"
+assert_eq "$(js 'V("live",false).rows.length')" "12" "...and the row count is untouched by the new keys"
+
 # --- risky transaction: the widget's summary must match what the CLI itself says ---
 # Expected string built with the CLI's own pipeline (bin/kempt: families are the prefix up to the
 # first - or ., sort -u, first four, then ", ...").

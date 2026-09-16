@@ -37,6 +37,22 @@ RowLayout {
     // What went wrong with the last hold on THIS package, or "".
     required property string errorText
 
+    // The two facts a Flatpak runtime row needs, and the reason neither is `required`: a row built
+    // by anything that predates them - an older caller, a test building one delegate by hand - must
+    // still build, and a required property left unset is a delegate that does not.
+    // The branch a runtime is installed on, "" for everything else. It is half of a runtime's
+    // identity: the same runtime sits on two branches at once, and without this the popup draws two
+    // rows with identical names and different versions.
+    property string branch: ""
+    // Whether this row gets a padlock at all. Runtimes do not - `kempt hold` refuses them, because
+    // apps share a runtime and holding one breaks the next app that needs it.
+    property bool holdable: true
+
+    // What the name line draws. One property, read by the label and by the pin's spellings, so the
+    // row cannot name the same thing two ways.
+    readonly property string displayName: row.branch.length > 0
+                                          ? i18n("%1 %2", row.name, row.branch) : row.name
+
     // `keyboard` is how the press arrived: the padlock's visualFocus, which QQC2 sets only for
     // keyboard focus reasons. The popup needs it because the two presses owe opposite things after
     // the row moves - the keyboard has to be taken to the row, and a pointer must not have the
@@ -72,7 +88,7 @@ RowLayout {
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: row.name
+            text: row.displayName
             // The name is the line that gives way: without this a long package name pushes the
             // padlock off the end of the row, and a truncated name is still recognisable in a way
             // a truncated version string is not.
@@ -96,6 +112,11 @@ RowLayout {
 
             PlasmaComponents.Label {
                 Layout.fillWidth: true
+                // Nothing at all when NEITHER version is known, which is a real state rather than a
+                // defect: flatpak gives many runtimes no version string, because a runtime is
+                // versioned by its branch. The branch is already on the name line above, so drawing
+                // "new → ?" here would invent a fact and bury the one that is true.
+                visible: !(row.newPackage && row.to === Logic.VERSION_UNKNOWN)
                 // logic.js has already reduced any comma-joined multilib or installonly set to the
                 // newest member, the same way `kempt summary` renders it.
                 text: row.fromText + " → " + row.to
@@ -131,6 +152,10 @@ RowLayout {
         // and the tooltip, where a verb can be a sentence.
         // Nothing at all while this row's own hold is in flight: the spinner below stands in its
         // place, at the same size, so the row says "working" where the person pressed.
+        // Gone entirely on a row that cannot be held, rather than disabled: a greyed padlock is a
+        // promise that something would happen if the state were different, and for a runtime it
+        // never will be.
+        visible: row.holdable
         icon.name: row.pending ? "" : (row.held ? "object-locked" : "object-unlocked")
         // Not checkable, per the HIG ("avoid making buttons checkable": their checkability is not
         // obvious when unchecked). It also decides the AT-SPI residual: on Qt 6.11 a checked state

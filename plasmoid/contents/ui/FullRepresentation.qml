@@ -769,6 +769,11 @@ PlasmaExtras.Representation {
                                 to: modelData.to
                                 held: modelData.held
                                 backend: modelData.backend
+                                // Both default in the delegate, so a row from a state file written
+                                // before runtimes were counted carries neither and renders as it
+                                // always did.
+                                branch: modelData.branch || ""
+                                holdable: modelData.holdable !== false
                                 // Which row is pending, never "a hold is running". The pressed row
                                 // keeps its button live and focused; the others stand down.
                                 pending: popup.plasmoidItem.pendingHold !== null
