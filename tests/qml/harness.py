@@ -28,6 +28,45 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 UI = os.environ.get("KEMPT_UI_DIR") or os.path.join(REPO, "plasmoid", "contents", "ui")
 FIXTURES = os.path.join(REPO, "tests", "fixtures")
 
+# What the REAL CLI answers when nothing has been configured, from kempt_default() in
+# lib/common.sh. One copy, because five probes had each written their own and every one of them
+# answered `refresh_interval_min` with 15 while the shipped default is 60: the widget's timer
+# arithmetic was being exercised against a number no user's box will ever produce, in five files
+# at once, and a sixth probe copying its neighbour would have made it six.
+CONFIG_DEFAULTS = {
+    "include_flatpak": "true",
+    "auto_accept": "true",
+    "surface": "terminal",
+    "refresh_interval_min": "60",
+    "widget_icon_size": "auto",
+    "restart_reminder": "true",
+}
+
+
+def config_arm(**overrides):
+    """The `config` arm of a stub CLI, answering `get` with the real defaults.
+
+    Each override is a shell snippet that PRINTS the answer, not a bare value: a probe that has to
+    change a setting mid-run passes `auto_accept="cat /path/to/file"`, and one that only wants a
+    different constant passes `surface="echo popup"`.
+
+    An unknown key exits 2 rather than printing nothing under exit 0, because that is what the CLI
+    does, and a stub that is more forgiving than the real thing is a stub that hides the caller
+    that asks for a key the CLI does not have.
+    """
+    answers = dict((k, "echo %s" % v) for k, v in CONFIG_DEFAULTS.items())
+    answers.update(overrides)
+    cases = "".join("              %s) %s ;;\n" % (k, answers[k]) for k in sorted(answers))
+    return ("  config)\n"
+            "          if [[ \"$2\" == get ]]; then\n"
+            "            case \"$3\" in\n"
+            + cases
+            + "              *) echo \"kempt: unknown setting: $3\" >&2; exit 2 ;;\n"
+              "            esac\n"
+              "            exit 0\n"
+              "          fi\n"
+              "          exit 0 ;;")
+
 # The probes load the SHIPPED files straight out of the repo. No copies, on purpose: a probe
 # directory holding its own copy of the widget is a probe that goes on passing after the widget
 # changes, which is how the earlier version of this kit ended up testing a file that still said
@@ -53,11 +92,24 @@ _I18N_SHIM = """(function () {
 })"""
 
 
+class ProbeExpressionError(RuntimeError):
+    """A QML expression a probe evaluated did not run at all."""
+
+
 def have_pyside():
+    """Is PySide6 USABLE, which is not the same question as whether it imports.
+
+    Two changes from the obvious version, both of which decide whether a run reports honestly.
+    The import is `PySide6.QtQuick`, the module the probes actually need, because a bare
+    `import PySide6` succeeds against an installation whose Qt bindings are half upgraded. And
+    the catch is Exception, not ImportError: a broken installation raises ImportError only if it
+    is lucky, and anything else escaping here ends the probe with a traceback rather than with
+    the loud skip that tells the reader the widget's QML went unexecuted.
+    """
     try:
-        import PySide6  # noqa: F401
+        import PySide6.QtQuick  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
@@ -65,6 +117,25 @@ class Probe:
     """One QML engine, one sandboxed HOME, and the assertions run against them."""
 
     def __init__(self, name):
+        # REFUSED unless safe_probe.py started this. `python3 tests/qml/probe_popup.py` is the
+        # obvious command and it is the one that bypasses every protection here: no in-process
+        # watchdog, so a wedged Qt process stays resident forever; no separate process group, so
+        # nothing can kill the shells the QML spawned; and QT_QPA_PLATFORM unset, so a probe that
+        # builds a window opens a REAL one on the desktop running it. That combination is what
+        # reached ~2,200 resident Qt processes in one afternoon and OOM-killed this box, and the
+        # only thing that had ever stood between the two was a paragraph in a docstring.
+        # PROBE_WATCHDOG_SECS is set by safe_probe.py and by nothing else, so its absence is
+        # exactly "nobody is supervising this".
+        if not os.environ.get("PROBE_WATCHDOG_SECS"):
+            here = os.path.dirname(os.path.abspath(__file__))
+            print("REFUSING TO RUN: %s was started directly, so the watchdog, the process-group\n"
+                  "kill and the offscreen platform are all absent.\n\n"
+                  "Run it through the supervisor:\n"
+                  "    python3 %s 120 python3 %s\n"
+                  "or run the whole battery: tests/test_widget_qml.sh"
+                  % (name, os.path.join(here, "safe_probe.py"),
+                     os.path.abspath(sys.argv[0])))
+            sys.exit(3)
         self.name = name
         self.fails = []
         self.sandbox = tempfile.mkdtemp(prefix="kempt-%s." % name)
@@ -74,6 +145,21 @@ class Probe:
         self.config = os.path.join(self.home, ".config", "kempt")
         os.makedirs(self.bindir)
         self.calls = os.path.join(self.sandbox, "calls")
+
+        # The two commands that must never be the real ones, shadowed for EVERY probe rather than
+        # in the four that remembered to. `dbus-send` opens KDE's logout prompt on a live session
+        # and `xdg-open` opens a file in the user's editor, and the Executor hands every command
+        # to /bin/sh with this process's environment - so a bin directory in front of PATH is the
+        # whole seam. A probe that presses a Restart button is exactly the one that forgets, which
+        # is how probe_a11y came to tab onto Restart, press Space, and resolve `dbus-send` to
+        # /usr/bin/dbus-send. A probe that wants to RECORD either call writes its own recorder over
+        # these afterwards; this is the floor, not the ceiling.
+        os.environ["PATH"] = self.bindir + os.pathsep + os.environ.get("PATH", "")
+        for _name in ("dbus-send", "xdg-open"):
+            _shadow = os.path.join(self.bindir, _name)
+            with open(_shadow, "w") as fh:
+                fh.write("#!/usr/bin/env bash\nexit 0\n")
+            os.chmod(_shadow, 0o755)
 
         os.environ["HOME"] = self.home
         # The suite's own sandbox() exports these, and main.qml's watched paths honour them
@@ -108,7 +194,14 @@ class Probe:
                      "printf '%s\\n' \"$*\" >> " + self.calls + "\n"
                      "printf '%s\\n' \"$#\" > " + self.sandbox + "/argc.\"$1\"\n"
                      "printf '%s\\n' \"$@\" > " + self.sandbox + "/argv.\"$1\"\n"
-                     + body + "\nexit 0\n")
+                     + body + "\n"
+                     # The tail is the `*)` arm the case statements above do not write: a verb the
+                     # stub does not know exits 2, the way the real CLI does. Ending in `exit 0`
+                     # meant a probe could drive the widget into calling anything at all - a verb
+                     # that had been renamed, a typo, a command removed two releases ago - and the
+                     # widget would see a clean success and the probe would pass.
+                     "printf 'kempt: unknown command: %s\\n' \"$1\" >&2\n"
+                     "exit 2\n")
         os.chmod(path, 0o755)
         return path
 
@@ -181,7 +274,12 @@ class Probe:
             e = QQmlExpression(ctx, obj, expr)
             v = e.evaluate()
             if e.hasError():
-                print("  EXPR ERROR:", e.error().toString())
+                # RAISED, not printed and carried on from. Returning None meant the next line
+                # compared None against a number and died somewhere unrelated, or - the case that
+                # actually costs something - compared None against None and PASSED, so a broken
+                # expression read as the right answer. The error names the expression that failed.
+                raise ProbeExpressionError("%s\n  in expression: %s"
+                                           % (e.error().toString(), expr))
             if isinstance(v, tuple) and len(v) == 2 and isinstance(v[1], bool):
                 return None if v[1] else v[0]
             return v

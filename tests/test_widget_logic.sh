@@ -2640,12 +2640,37 @@ fi
 # ui_grep <extended-regex> -> every line under plasmoid/ matching it, COMMENTS STRIPPED, prefixed
 # `path:lineno:`. Comments come out first (`sed 's://.*::'`) because they are not user-facing and
 # this project's comments talk about the very wordings these scans forbid.
+#
+# THE LIMIT, and it is a real one: `//` is stripped wherever it appears, INSIDE a string literal
+# as well as at the start of a comment. So a line holding a URL is truncated at the scheme -
+# `i18n("Report it at https://example.invalid")` reaches the scan as `i18n("Report it at https:`
+# and everything after it is invisible. A scan that has to see such a string uses ui_grep_raw
+# below and excludes comment lines by some other means.
 ui_grep() {
   find "$REPO_ROOT/plasmoid" \( -name '*.qml' -o -name '*.js' \) -print0 \
   | while IFS= read -r -d "" f; do
       sed 's://.*::' "$f" | grep -nE "$1" | sed "s|^|${f#"$REPO_ROOT/"}:|"
     done
 }
+
+# The same walk with nothing stripped: whole lines, comments included.
+ui_grep_raw() {
+  find "$REPO_ROOT/plasmoid" \( -name '*.qml' -o -name '*.js' \) -print0 \
+  | while IFS= read -r -d "" f; do
+      grep -nE "$1" "$f" | sed "s|^|${f#"$REPO_ROOT/"}:|"
+    done
+}
+
+# The limit, demonstrated rather than asserted in prose: the same line, seen both ways.
+assert_eq "$(printf 'text: i18n("at https://example.invalid/x")\n' | sed 's://.*::')" \
+  'text: i18n("at https:' \
+  "ui_grep's comment strip truncates a string containing a URL, which is why ui_grep_raw exists"
+
+# ...and the day a user-facing literal really does carry one, this points at the right tool rather
+# than letting a scan quietly stop looking halfway along the line. Raw on purpose: asking ui_grep
+# whether a string contains `//` is asking a question it has already thrown the answer away for.
+assert_eq "$(ui_grep_raw 'i18n\("[^"]*//' | wc -l)" "0" \
+  "no user-facing literal contains // yet - the scans above may keep using the stripped form"
 
 # --- one action, one sentence: unholding --------------------------------------------------------
 # The popup's pin and the settings page's remove button do the same thing - `kempt unhold` on one

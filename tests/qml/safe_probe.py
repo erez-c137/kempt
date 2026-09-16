@@ -18,13 +18,19 @@ What this does instead:
 Exit codes: the probe's own, or 4 if it had to be killed, or 3/4 for the count guards.
 """
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CEILING = 10  # more python3 than this already on the box and we are not adding to it
+# How many probe processes may already be resident before this refuses to add another. It counts
+# THIS supervisor too, so the floor is 1. Deliberately not a census of python3 on the box: that
+# number says nothing about this battery on a machine that runs other things, and an absolute
+# ceiling of 10 python3 meant a busy box refused to run the tests for no reason.
+CEILING = 3
 
 
 def pycount():
@@ -54,10 +60,16 @@ def pycount():
             continue
         try:
             with open("/proc/%s/cmdline" % pid, "rb") as fh:
-                argv0 = fh.read().split(b"\0", 1)[0]
+                cmdline = fh.read()
         except OSError:
             continue                       # it exited while we looked; not ours to count
-        if b"probe_" in argv0 or b"safe_probe" in argv0:
+        # The WHOLE command line, never argv[0] alone. A probe is started as
+        # `python3 /path/probe_x.py`, so argv[0] is the string "python3" and the probe's name is
+        # in argv[1]: reading only argv[0] made this census answer 0 on every box, every time,
+        # while printing that number as though it had counted something. The census is the guard
+        # that exists because a battery once reached ~2,200 Qt processes, and it was failing open.
+        # tests/test_widget_qml.sh's own pycount reads the whole line, which is the shape to match.
+        if b"probe_" in cmdline or b"safe_probe" in cmdline:
             n += 1
     return n
 
@@ -68,7 +80,8 @@ def main():
 
     before = pycount()
     if before > CEILING:
-        print("REFUSING TO RUN: %d python3 already resident (ceiling %d)" % (before, CEILING))
+        print("REFUSING TO RUN: %d probe process(es) already resident (ceiling %d) - something "
+              "from an earlier run did not die" % (before, CEILING))
         return 3
 
     env = dict(os.environ)
@@ -76,6 +89,14 @@ def main():
     env["PROBE_WATCHDOG_SECS"] = str(secs)          # the probe kills itself first
     env["PROBE_EXIT_SECS"] = "10"
     env["QT_QPA_PLATFORM"] = "offscreen"
+    # Everything the probe creates lands under a directory THIS process owns, and this process
+    # removes it once the whole group is gone. harness.Probe already deletes its own sandbox when
+    # the probe finishes, and that is not enough: Plasma's icon cache writes into the probe's
+    # $HOME again during Qt teardown, which happens AFTER that delete, so every battery left a
+    # /tmp/kempt-probe-* directory behind holding a `.cache/ksvg-elements`. A cleanup can only be
+    # reliable in a process that outlives the one making the mess.
+    workdir = tempfile.mkdtemp(prefix="kempt-probe-run.")
+    env["TMPDIR"] = workdir
 
     t0 = time.time()
     p = subprocess.Popen(cmd, cwd=HERE, env=env, start_new_session=True,
@@ -97,13 +118,18 @@ def main():
         os.killpg(p.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+    # Only now: while anything in that group still breathes it can write here again.
+    shutil.rmtree(workdir, ignore_errors=True)
 
     print(out, end="" if out.endswith("\n") else "\n")
     after = pycount()
-    print("--- safe_probe: rc=%s killed=%s %.1fs  python3 before=%d after=%d ---"
+    print("--- safe_probe: rc=%s killed=%s %.1fs  probe procs before=%d after=%d ---"
           % (p.returncode, killed, dt, before, after))
-    if after > CEILING:
-        print("!!! LEAK: python3 count above the ceiling after the run - STOP AND FIX")
+    # A DELTA against what this run started with, not against an absolute number: the question is
+    # whether THIS probe left anything behind, and an absolute ceiling answers a different one.
+    if after > before:
+        print("!!! LEAK: %d probe process(es) survived this run (%d -> %d) - STOP AND FIX"
+              % (after - before, before, after))
         return 4
     return 4 if killed else (p.returncode or 0)
 

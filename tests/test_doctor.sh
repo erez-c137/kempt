@@ -60,11 +60,10 @@ done
 [[ -d "$S_WIDGET" ]] || { echo "FAIL: --destdir staged no widget package"; _fail=1; }
 
 assert_exit 0 "healthy install: doctor exits 0" "$KEMPT" doctor
-grep -q 'all checks passed' "$TESTTMP/last_output" \
-  && echo "ok: healthy install says so" || { echo "FAIL: no all-clear line"; _fail=1; }
-grep -q '^FAIL' "$TESTTMP/last_output" \
-  && { echo "FAIL: a healthy install reported a problem"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; } \
-  || echo "ok: no FAIL lines on a healthy install"
+assert_contains "$(cat "$TESTTMP/last_output")" 'all checks passed' \
+  "healthy install says so"
+assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
+  "no FAIL lines on a healthy install"
 # every check reports, pass or fail: a silent doctor is a useless doctor. Matched against the
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
@@ -123,12 +122,10 @@ ME_U="$(id -un)"; ME_G="$(id -gn)"
 # drift apart unnoticed.
 assert_exit 1 "a helper that IS root:root 0755 at the annotated path passes its ownership check" \
   env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor
-grep -qF 'ok    root helper (refresh): /usr/bin/ls (root:root 0755)' "$TESTTMP/last_output" \
-  && echo "ok: ...and the ok line reports the ownership it actually verified" \
-  || { echo "FAIL: no verified-ownership ok line - got: $(grep 'root helper (refresh)' "$TESTTMP/last_output")"; _fail=1; }
-grep -qF 'FAIL  helpers: DIFFER from checkout' "$TESTTMP/last_output" \
-  && echo "ok: ...while the skew check says that file is not the checkout's helper" \
-  || { echo "FAIL: skew check accepted /usr/bin/ls as the installed helper"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'ok    root helper (refresh): /usr/bin/ls (root:root 0755)' \
+  "...and the ok line reports the ownership it actually verified"
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  helpers: DIFFER from checkout' \
+  "...while the skew check says that file is not the checkout's helper"
 
 # The other half: a helper sitting at the annotated path that root does not own is the shape a
 # broken or tampered install has, and it must be a FAIL that names what it found.
@@ -140,8 +137,8 @@ assert_exit 1 "a helper at the annotated path that is not root:root 0755 fails t
 grep -qF "root helper (apply) is $ME_U:$ME_G 644, expected root:root 755" "$TESTTMP/last_output" \
   && echo "ok: ...and the FAIL line names the owner and the mode it found" \
   || { echo "FAIL: ownership mismatch not named - got: $(grep 'root helper (apply)' "$TESTTMP/last_output")"; _fail=1; }
-grep -q 're-run ./install.sh' "$TESTTMP/last_output" \
-  && echo "ok: ...and says how to fix it" || { echo "FAIL: no remedy in the ownership message"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 're-run ./install.sh' \
+  "...and says how to fix it"
 
 # The directory that holds a helper matters as much as the file: anyone who can write to it can
 # rename the helper away and put their own file at the path polkit runs as root. A root-owned
@@ -159,9 +156,8 @@ grep -qF "root helper directory (apply) is $ME_U:$ME_G 777, expected root-owned 
 # ...and a sound directory adds no line: /usr/bin is root-owned and 0755.
 env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor \
   > "$TESTTMP/dir-ok.txt" 2>&1 || true
-grep -q 'root helper directory' "$TESTTMP/dir-ok.txt" \
-  && { echo "FAIL: a root-owned 0755 directory was reported"; _fail=1; } \
-  || echo "ok: ...while a root-owned directory nobody else can write says nothing"
+assert_not_contains "$(cat "$TESTTMP/dir-ok.txt")" 'root helper directory' \
+  "...while a root-owned directory nobody else can write says nothing"
 chmod 755 "$TESTTMP/loose-libexec"
 
 # --- the exec.path the policy pins, against the helper this CLI hands to pkexec ------------------
@@ -191,9 +187,8 @@ as_annotated() {  # policy-file -> a checkup with both helpers at /usr/bin/ls
 mk_policy "$TESTTMP/policy-agree.xml" /usr/bin/ls /usr/bin/ls
 assert_exit 1 "a policy that pins the helper this CLI runs is not a problem of its own" \
   -- as_annotated "$TESTTMP/policy-agree.xml"
-grep -q '^FAIL  polkit exec.path' "$TESTTMP/last_output" \
-  && { echo "FAIL: agreement was reported as a problem"; _fail=1; } \
-  || echo "ok: ...and adds no FAIL of its own (the one there is the install skew)"
+assert_eq "$(grep -c '^FAIL  polkit exec.path' "$TESTTMP/last_output" || true)" "0" \
+  "...and adds no FAIL of its own (the one there is the install skew)"
 for a in refresh apply; do
   grep -qF "ok    polkit exec.path ($a): /usr/bin/ls" "$TESTTMP/last_output" \
     && echo "ok: ...and the $a line names the path both sides agree on" \
@@ -214,20 +209,17 @@ ep_line="$(grep '^FAIL  polkit exec.path (apply)' "$TESTTMP/last_output" || true
 [[ "$ep_line" == */usr/libexec/kempt-apply* && "$ep_line" == */usr/bin/ls* ]] \
   && echo "ok: ...naming the path the policy pins and the path this CLI runs" \
   || { echo "FAIL: the FAIL line does not name both paths - got: $ep_line"; _fail=1; }
-grep -qF 'authentication dialog' "$TESTTMP/last_output" \
-  && echo "ok: ...and what it costs, which is a dialog on every privileged run" \
-  || { echo "FAIL: the consequence is not named"; _fail=1; }
-grep -qF 'background checks time out' "$TESTTMP/last_output" \
-  && echo "ok: ...including the background check nobody is there to answer" \
-  || { echo "FAIL: the background-check consequence is not named"; _fail=1; }
-grep -qF './install.sh' "$TESTTMP/last_output" \
-  && echo "ok: ...and the remedy for a checkout" || { echo "FAIL: no checkout remedy"; _fail=1; }
-grep -qF 'sudo dnf reinstall kempt' "$TESTTMP/last_output" \
-  && echo "ok: ...and the remedy for a package" || { echo "FAIL: no package remedy"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'authentication dialog' \
+  "...and what it costs, which is a dialog on every privileged run"
+assert_contains "$(cat "$TESTTMP/last_output")" 'background checks time out' \
+  "...including the background check nobody is there to answer"
+assert_contains "$(cat "$TESTTMP/last_output")" './install.sh' \
+  "...and the remedy for a checkout"
+assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf reinstall kempt' \
+  "...and the remedy for a package"
 # The action that still agrees still passes: two actions, two verdicts, never one summary.
-grep -qF 'ok    polkit exec.path (refresh): /usr/bin/ls' "$TESTTMP/last_output" \
-  && echo "ok: ...while the action that agrees is still reported as ok" \
-  || { echo "FAIL: a mismatch on one action condemned the other"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'ok    polkit exec.path (refresh): /usr/bin/ls' \
+  "...while the action that agrees is still reported as ok"
 
 # A policy with no annotation at all is not a verdict either way: an action without an exec.path is
 # not an action pkexec would run these helpers through, and saying "mismatch" would send the reader
@@ -236,9 +228,8 @@ grep -v 'policykit.exec.path' "$REPO_ROOT/polkit/io.github.erez_c137.kempt.polic
   > "$TESTTMP/policy-noann.xml"
 assert_exit 1 "a policy with no exec.path annotation is reported, not failed" \
   -- as_annotated "$TESTTMP/policy-noann.xml"
-grep -q '^FAIL  polkit exec.path' "$TESTTMP/last_output" \
-  && { echo "FAIL: an absent annotation was reported as a mismatch"; _fail=1; } \
-  || echo "ok: ...and an absent annotation is not a problem"
+assert_eq "$(grep -c '^FAIL  polkit exec.path' "$TESTTMP/last_output" || true)" "0" \
+  "...and an absent annotation is not a problem"
 grep -qE '^info  polkit exec.path \(refresh\):' "$TESTTMP/last_output" \
   && echo "ok: ...and says so on an info line" \
   || { echo "FAIL: no info line for the missing annotation - got: $(grep 'exec.path' "$TESTTMP/last_output")"; _fail=1; }
@@ -286,9 +277,8 @@ we_line="$(grep '^FAIL  widget engine' "$TESTTMP/last_output" || true)"
 [[ "$we_line" == *"$WP_OTHER/kempt"* && "$we_line" == *"$SELF_REAL"* ]] \
   && echo "ok: the FAIL line names the widget's kempt and this report's" \
   || { echo "FAIL: the widget engine line does not name both - got: $we_line"; _fail=1; }
-grep -qF 'the widget would run' "$TESTTMP/last_output" \
-  && echo "ok: ...in the order that says which is which" \
-  || { echo "FAIL: no 'the widget would run' wording"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'the widget would run' \
+  "...in the order that says which is which"
 
 # Nothing on the widget's PATH is not doctor's problem to solve: the widget already reports the
 # engine as missing (main.qml sets engineMissing on rc 127), so a second FAIL here would only
@@ -348,50 +338,48 @@ assert_eq "$(jq -r .error <<<"$tstate")" "dnf check failed: first line second li
 
 assert_exit 1 "...while doctor fails and names the missing helper" \
   env KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" "$KEMPT" doctor
-grep -q 'root helper (refresh) not installed' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the refresh helper" || { echo "FAIL: no refresh-helper line"; _fail=1; }
-grep -q 'install.sh' "$TESTTMP/last_output" \
-  && echo "ok: ...and says how to fix it" || { echo "FAIL: no remedy in the message"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'root helper (refresh) not installed' \
+  "the FAIL line names the refresh helper"
+assert_contains "$(cat "$TESTTMP/last_output")" 'install.sh' \
+  "...and says how to fix it"
 unset KEMPT_DNF_INSTALLED_CMD KEMPT_FLATPAK_REMOTE_CMD KEMPT_SKIP_REFRESH
 
 # --- one failure class at a time, each proving its own FAIL line ---
 
 assert_exit 1 "a missing apply helper fails the checkup" \
   env KEMPT_APPLY_HELPER="$TESTTMP/nope-apply" "$KEMPT" doctor
-grep -q 'root helper (apply) not installed' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the apply helper" || { echo "FAIL: no apply-helper line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'root helper (apply) not installed' \
+  "the FAIL line names the apply helper"
 
 assert_exit 1 "a missing polkit action fails the checkup" \
   env KEMPT_POLICY_FILE="$TESTTMP/nope.policy" "$KEMPT" doctor
-grep -q 'polkit action not installed' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the polkit action" || { echo "FAIL: no polkit line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'polkit action not installed' \
+  "the FAIL line names the polkit action"
 
 # The terminal emulator matters only where it is actually used. surface=terminal (the default)
 # means `kempt run` exits 4 every time without it, so that is a failure; a detached surface does
 # not launch one at all, so saying "FAIL" there would be a lie the user cannot act on.
 assert_exit 1 "a missing terminal emulator fails while surface=terminal" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
-grep -q "terminal emulator 'kempt-no-such-terminal' not found" "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the missing emulator" || { echo "FAIL: no terminal line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" "terminal emulator 'kempt-no-such-terminal' not found" \
+  "the FAIL line names the missing emulator"
 "$KEMPT" config set surface background
 assert_exit 0 "...but not on a detached surface" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
-grep -q "^info .*terminal emulator" "$TESTTMP/last_output" \
-  && echo "ok: it is an info line for a surface that never launches one" \
-  || { echo "FAIL: expected an info line for the unused emulator"; _fail=1; }
+assert_eq "$(grep -qE "^info .*terminal emulator" "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
+  "it is an info line for a surface that never launches one"
 "$KEMPT" config set surface terminal
 
 # Same rule for flatpak: a backend that is switched off must not be reported as broken.
 assert_exit 1 "a missing flatpak fails while include_flatpak=true" \
   env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" "$KEMPT" doctor
-grep -q '^FAIL .*flatpak' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names flatpak" || { echo "FAIL: no flatpak line"; _fail=1; }
+assert_eq "$(grep -qE '^FAIL .*flatpak' "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
+  "the FAIL line names flatpak"
 "$KEMPT" config set include_flatpak false
 assert_exit 0 "...but is only an info line when include_flatpak=false" \
   env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" "$KEMPT" doctor
-grep -q '^info .*flatpak' "$TESTTMP/last_output" \
-  && echo "ok: a disabled backend is information, not a failure" \
-  || { echo "FAIL: expected an info line for the disabled backend"; _fail=1; }
+assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
+  "a disabled backend is information, not a failure"
 "$KEMPT" config set include_flatpak true
 
 # --- the command behind the reboot verdict -----------------------------------------------------
@@ -406,9 +394,8 @@ grep -q '^info .*flatpak' "$TESTTMP/last_output" \
 # answer degrades, and it degrades safely.
 assert_exit 0 "a missing dnf command does not fail doctor" \
   env KEMPT_DNF_CMD=kempt-no-such-dnf "$KEMPT" doctor
-grep -q "^info .*dnf command 'kempt-no-such-dnf' not found" "$TESTTMP/last_output" \
-  && echo "ok: the info line names the missing dnf command" \
-  || { echo "FAIL: no dnf info line"; _fail=1; }
+assert_eq "$(grep -qE "^info .*dnf command 'kempt-no-such-dnf' not found" "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
+  "the info line names the missing dnf command"
 grep '^info .*dnf command' "$TESTTMP/last_output" | grep -q 'restart' \
   && echo "ok: ...and says which answer degrades, not merely that a file is missing" \
   || { echo "FAIL: the dnf info line does not say what stops working"; _fail=1; }
@@ -437,21 +424,21 @@ grep -qF "config file: $CONFIG_FILE (2 settings)" "$TESTTMP/doctor-2keys" \
 # silently ignored forever - the setting the user thinks they wrote never applies.
 printf 'surface terminal\n' >> "$CONFIG_FILE"
 assert_exit 1 "an unparseable config line fails the checkup" "$KEMPT" doctor
-grep -q 'config file line .* is not key=value' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line quotes the bad line" || { echo "FAIL: no config-parse line"; _fail=1; }
+assert_eq "$(grep -qE 'config file line .* is not key=value' "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
+  "the FAIL line quotes the bad line"
 # a key the config_set validation would refuse is just as dead
 printf 'Surface=terminal\n' > "$CONFIG_FILE"
 assert_exit 1 "a config key that config set would refuse fails the checkup" "$KEMPT" doctor
-grep -q 'config file line' "$TESTTMP/last_output" \
-  && echo "ok: an invalid key is reported too" || { echo "FAIL: invalid key accepted"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'config file line' \
+  "an invalid key is reported too"
 : > "$CONFIG_FILE"
 "$KEMPT" config set surface terminal
 
 # State that cannot be written means no badge, no history, no logs.
 mkdir -p "$KEMPT_STATE_DIR"; chmod 500 "$KEMPT_STATE_DIR"
 assert_exit 1 "an unwritable state dir fails the checkup" "$KEMPT" doctor
-grep -q 'state dir not writable' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the state dir" || { echo "FAIL: no state-dir line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'state dir not writable' \
+  "the FAIL line names the state dir"
 chmod 700 "$KEMPT_STATE_DIR"
 
 # The checkout is load-bearing (the CLI is a symlink into it), and the pieces that are NOT sourced
@@ -465,19 +452,18 @@ cp -r "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" "$REPO_ROOT/polkit
 cp "$REPO_ROOT/install.sh" "$CO/"
 rm -f "$CO/polkit/49-kempt.rules.in"
 assert_exit 1 "an incomplete checkout fails the checkup" "$CO/bin/kempt" doctor
-grep -q 'checkout incomplete' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line says the checkout is incomplete" || { echo "FAIL: no checkout line"; _fail=1; }
-grep -q '49-kempt.rules.in' "$TESTTMP/last_output" \
-  && echo "ok: ...and names the missing file" || { echo "FAIL: missing file not named"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'checkout incomplete' \
+  "the FAIL line says the checkout is incomplete"
+assert_contains "$(cat "$TESTTMP/last_output")" '49-kempt.rules.in' \
+  "...and names the missing file"
 
 # ...and the same tree with no install.sh is a PACKAGE, so the row calls it what it is. A packaged
 # box has no checkout, and a report that says "checkout intact" on one line and "install: packaged"
 # on the next is asking the reader to know which of the two it means.
 rm -f "$CO/install.sh"
 assert_exit 1 "the same tree without install.sh still fails" "$CO/bin/kempt" doctor
-grep -q 'program files incomplete' "$TESTTMP/last_output" \
-  && echo "ok: ...and a packaged install is told about its program files, not about a checkout" \
-  || { echo "FAIL: packaged wording missing"; _fail=1; grep -i 'incomplete' "$TESTTMP/last_output"; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'program files incomplete' \
+  "...and a packaged install is told about its program files, not about a checkout"
 # The ROW's wording, not the bare word: this fixture's own directory is named "checkout", and a
 # path is not a claim about the install.
 grep -qE 'checkout (intact|incomplete)' "$TESTTMP/last_output" \
@@ -506,44 +492,43 @@ done
 # changed that file looks like from doctor's side, and each one must be caught on its own.
 printf '# drifted\n' >> "$S_APPLY"
 assert_exit 1 "a root helper that drifted from the checkout fails the checkup" -- doctor_staged
-grep -qF 'FAIL  helpers: DIFFER from checkout - run ./install.sh' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the fix" || { echo "FAIL: no helpers skew line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  helpers: DIFFER from checkout - run ./install.sh' \
+  "the FAIL line names the fix"
 bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 assert_exit 0 "...and re-running the installer clears it" -- doctor_staged
 
 printf '<!-- drifted -->\n' >> "$S_POLICY"
 assert_exit 1 "a polkit action that drifted from the checkout fails the checkup" -- doctor_staged
-grep -qF 'FAIL  policy: DIFFER from checkout - run ./install.sh' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line names the fix" || { echo "FAIL: no policy skew line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  policy: DIFFER from checkout - run ./install.sh' \
+  "the FAIL line names the fix"
 bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 
 # The widget is a whole directory, so the comparison is recursive: a change anywhere under it
 # counts, and a file that a pull DELETED counts too.
 printf '// drifted\n' >> "$S_WIDGET/contents/ui/logic.js"
 assert_exit 1 "a widget package that drifted from the checkout fails the checkup" -- doctor_staged
-grep -qF 'FAIL  widget: DIFFER from checkout - run ./install.sh, then plasmashell --replace' "$TESTTMP/last_output" \
-  && echo "ok: the FAIL line says the shell has to reload too" || { echo "FAIL: no widget skew line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  widget: DIFFER from checkout - run ./install.sh, then plasmashell --replace' \
+  "the FAIL line says the shell has to reload too"
 rm -rf "$S_WIDGET"; bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 rm -f "$S_WIDGET/contents/ui/UpdateItemDelegate.qml"
 assert_exit 1 "a file the checkout no longer has is skew as well" -- doctor_staged
-grep -qF 'FAIL  widget: DIFFER' "$TESTTMP/last_output" \
-  && echo "ok: a missing file inside the package is reported" || { echo "FAIL: deletion not caught"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  widget: DIFFER' \
+  "a missing file inside the package is reported"
 rm -rf "$S_WIDGET"; bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 
 # Absence is not skew, and the two must not be confused. The widget is optional (install.sh says
 # so, and a box with no kpackagetool6 gets a working CLI without it), so a missing one is an info.
 rm -rf "$S_WIDGET"
 assert_exit 0 "a widget that was never installed is not a problem" -- doctor_staged
-grep -qF 'info  widget: not installed (the CLI works without it)' "$TESTTMP/last_output" \
-  && echo "ok: ...and says so in one line" || { echo "FAIL: no widget-absent line"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'info  widget: not installed (the CLI works without it)' \
+  "...and says so in one line"
 
 # A missing root helper IS a problem, but it is already a FAIL on its own line: counting it twice
 # would make one broken install read as two.
 rm -f "$S_APPLY"
 doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
-grep -qF 'info  helpers: not installed - run ./install.sh' "$TESTTMP/skew.txt" \
-  && echo "ok: a helper that is absent rather than drifted is an info, not a second FAIL" \
-  || { echo "FAIL: absent helper misreported"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+assert_contains "$(cat "$TESTTMP/skew.txt")" 'info  helpers: not installed - run ./install.sh' \
+  "a helper that is absent rather than drifted is an info, not a second FAIL"
 bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 
 # --- which build is this, and which kind of install -------------------------------------------
@@ -576,8 +561,8 @@ grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION")$" "$TESTTMP/skew.txt
 # is the file a checkout has and a package does not, so its absence is what decides.
 rm -f "$NOGIT/install.sh"
 env KEMPT_POLICY_FILE="$S_POLICY" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
-grep -qF 'info  install: packaged - the package manager keeps these files in step' "$TESTTMP/skew.txt" \
-  && echo "ok: a packaged install says so" || { echo "FAIL: not reported as packaged"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/skew.txt")" 'info  install: packaged - the package manager keeps these files in step' \
+  "a packaged install says so"
 grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
@@ -595,9 +580,8 @@ doctor_packaged() {  # user-scope plasmoid dir -> a packaged install's checkup, 
 STORE_COPY="$TESTTMP/store-widget"
 assert_exit 0 "a packaged install with no user copy of the widget is healthy" \
   -- doctor_packaged "$STORE_COPY"
-grep -q 'shadows' "$TESTTMP/last_output" \
-  && { echo "FAIL: warned about a user copy that is not there"; _fail=1; } \
-  || echo "ok: ...and says nothing about one"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'shadows' \
+  "...and says nothing about one"
 
 # The trap itself: both copies on the box at once.
 mkdir -p "$STORE_COPY/contents/ui"
@@ -609,38 +593,30 @@ grep -qF "user widget copy shadows the package: $STORE_COPY" "$TESTTMP/last_outp
   || { echo "FAIL: no shadow line"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
 # The consequence, in words, because "shadows" is jargon on its own: what the user loses is every
 # future update of the widget, silently.
-grep -qF 'package updates never reach your panel' "$TESTTMP/last_output" \
-  && echo "ok: ...and what it costs, which is every future update of the widget" \
-  || { echo "FAIL: the consequence is not named"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'package updates never reach your panel' \
+  "...and what it costs, which is every future update of the widget"
 # ...and the exact fix, which needs no root and which the user cannot be expected to guess.
-grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$TESTTMP/last_output" \
-  && echo "ok: ...and the exact command that removes it" \
-  || { echo "FAIL: the removal command is not spelled out"; _fail=1; }
-grep -qF 'plasmashell --replace' "$TESTTMP/last_output" \
-  && echo "ok: ...and that the shell has to reload before it takes effect" \
-  || { echo "FAIL: the plasmashell reload is not named"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' \
+  "...and the exact command that removes it"
+assert_contains "$(cat "$TESTTMP/last_output")" 'plasmashell --replace' \
+  "...and that the shell has to reload before it takes effect"
 
 # --- the widget is its own package, and a packaged install has to say so ------------------------
 # The CLI and the panel widget ship separately (kempt / kempt-plasmoid), so a perfectly healthy CLI
 # can sit on a box with no widget in the panel and nothing anywhere would explain why.
 doctor_packaged "$TESTTMP/absent-user-widget" > "$TESTTMP/skew.txt" 2>&1 || true
-grep -qF 'panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid' \
-     "$TESTTMP/skew.txt" \
-  && echo "ok: a packaged install with no widget names the package that carries it" \
-  || { echo "FAIL: no widget-package line"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
+assert_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid' \
+  "a packaged install with no widget names the package that carries it"
 # ...and what going without it means, because the CLI alone is not a quieter widget: nothing runs a
 # check on a schedule, and polkit refuses both actions from a session that is not active and local.
-grep -qF 'without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)' \
-     "$TESTTMP/skew.txt" \
-  && echo "ok: ...and says that without it nothing checks on a schedule, and not over SSH" \
-  || { echo "FAIL: the widget row does not say what the CLI alone cannot do"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/skew.txt")" 'without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)' \
+  "...and says that without it nothing checks on a schedule, and not over SSH"
 # ...and says nothing once the package IS installed. The line is a pointer, not a nag.
 SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
 env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \
     KEMPT_SYSTEM_PLASMOID_DIR="$SYS_WIDGET" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
-grep -q 'panel widget not installed' "$TESTTMP/skew.txt" \
-  && { echo "FAIL: told a box with the widget package that it has no widget"; _fail=1; } \
-  || echo "ok: ...and stays quiet once the widget package is there"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed' \
+  "...and stays quiet once the widget package is there"
 
 # --- a packaged install refuses to certify a hijacked update path -------------------------------
 # The seams below are how the suite runs, and on a real box they are how `kempt update` becomes a
@@ -661,34 +637,29 @@ for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
     && echo "ok: a packaged install names $seam as an override rather than certifying itself" \
     || { echo "FAIL: $seam override not reported"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
 done
-grep -q 'all checks passed' "$TESTTMP/skew.txt" \
-  && { echo "FAIL: a hijacked packaged install still certified itself"; _fail=1; } \
-  || echo "ok: ...and does not end with 'all checks passed'"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'all checks passed' \
+  "...and does not end with 'all checks passed'"
 chmod u+w "$NOGIT"
 # The fix has to be findable: the person reading this did not set these on purpose.
-grep -qF 'look in ~/.config/environment.d and your shell profile' "$TESTTMP/skew.txt" \
-  && echo "ok: ...and says where such a setting comes from" \
-  || { echo "FAIL: no pointer to where the override lives"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/skew.txt")" 'look in ~/.config/environment.d and your shell profile' \
+  "...and says where such a setting comes from"
 # A CHECKOUT is where the suite lives, and there the file comparisons already tell the truth about
 # what is installed, so the same seams must NOT fail - or no test in this suite could run doctor.
 doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
-grep -q 'privileged path overridden' "$TESTTMP/skew.txt" \
-  && { echo "FAIL: a checkout was told its test seams are an override"; _fail=1; } \
-  || echo "ok: a checkout says nothing about them - its file comparisons answer the question"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'privileged path overridden' \
+  "a checkout says nothing about them - its file comparisons answer the question"
 
 # On a CHECKOUT install that same directory IS the install - install.sh puts it there with the
 # same kpackagetool6 - so there is nothing shadowing anything and nothing to remove. A warning
 # here would be telling a developer to delete their own widget.
 doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
-grep -q 'shadows' "$TESTTMP/skew.txt" \
-  && { echo "FAIL: a checkout install was told its own widget shadows something"; _fail=1; } \
-  || echo "ok: in a checkout the user copy IS the install, so nothing warns about it"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'shadows' \
+  "in a checkout the user copy IS the install, so nothing warns about it"
 
 # The removal command needs no root and cannot be guessed, so it is documented as well as
 # reported. A reader who hits this at install time should not have to run doctor to find it.
-grep -qF 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' "$REPO_ROOT/docs/install.md" \
-  && echo "ok: docs/install.md spells out the same removal command doctor names" \
-  || { echo "FAIL: install.md does not carry the removal command"; _fail=1; }
+assert_contains "$(cat "$REPO_ROOT/docs/install.md")" 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' \
+  "docs/install.md spells out the same removal command doctor names"
 
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
 # TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
@@ -720,27 +691,23 @@ grep -qiE '^(ok|info|FAIL)  .*staged' "$TESTTMP/staged.txt" \
 printf '{"staged_at":"2026-09-02T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61,"armed":true}\n' > "$D_MARKER"
 assert_exit 0 "an armed staged transaction is not a problem" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'info  staged update: 61 packages install on the next restart' "$TESTTMP/last_output" \
-  && echo "ok: ...and doctor says how many, and when" \
-  || { echo "FAIL: no staged line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'info  staged update: 61 packages install on the next restart' \
+  "...and doctor says how many, and when"
 # One package is its own sentence here too. Doctor's rows are read by people pasting them into bug
 # reports, and "1 packages" is the line that gets quoted back.
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":1,"armed":true}\n' > "$D_MARKER"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'info  staged update: 1 package installs on the next restart' "$TESTTMP/staged.txt" \
-  && echo "ok: a single staged package reads as one" \
-  || { echo "FAIL: singular staged row - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: 1 package installs on the next restart' \
+  "a single staged package reads as one"
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":2,"armed":true}\n' > "$D_MARKER"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'info  staged update: 2 packages install on the next restart' "$TESTTMP/staged.txt" \
-  && echo "ok: ...and two is back to the plural" \
-  || { echo "FAIL: plural staged row - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: 2 packages install on the next restart' \
+  "...and two is back to the plural"
 # A marker from before the count existed still describes a real pending install.
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b"}\n' > "$D_MARKER"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'info  staged update: it installs on the next restart' "$TESTTMP/staged.txt" \
-  && echo "ok: an unknown count loses the number, not the line" \
-  || { echo "FAIL: no countless staged line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it installs on the next restart' \
+  "an unknown count loses the number, not the line"
 
 # THE STUCK STAGE FROM A REAL BOX, and the reason this section exists. `dnf5 upgrade --offline`
 # leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
@@ -753,9 +720,8 @@ grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
   || { echo "FAIL: no never-install line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
 # The exact command, because a diagnosis a person cannot act on is half a diagnosis - and this one
 # needs root, so it cannot be a kempt subcommand.
-grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
-  && echo "ok: ...and names the exact command that clears it" \
-  || { echo "FAIL: the fix command is missing"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf5 offline clean' \
+  "...and names the exact command that clears it"
 
 # A marker whose transaction is gone. Nothing for the user to do: the next check clears it, and
 # saying so is more useful than either silence or an alarm.
@@ -775,9 +741,8 @@ KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 grep -qE '^info  an offline transaction is staged outside Kempt' "$TESTTMP/staged.txt" \
   && echo "ok: a transaction Kempt did not stage is named as somebody else's" \
   || { echo "FAIL: no outside-Kempt line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
-grep -qF 'dnf5 offline status' "$TESTTMP/staged.txt" \
-  && echo "ok: ...pointing at the command that describes it" \
-  || { echo "FAIL: no dnf5 offline status pointer"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'dnf5 offline status' \
+  "...pointing at the command that describes it"
 
 # --- an image-based Fedora ------------------------------------------------------------------------
 # The report that used to end "all checks passed" on a machine Kempt cannot update at all. Kinoite
@@ -789,8 +754,14 @@ ib_plain="$("$KEMPT" doctor 2>&1)" || true
 # A DELTA against the same report on an ordinary box, not a bare "doctor failed": this part of the
 # file runs in a sandbox that already has failing rows, so "exit 1" would have passed without the
 # row existing at all and proved nothing.
-assert_eq "$(( $(printf '%s\n' "$ib_out" | grep -c '^FAIL') - $(printf '%s\n' "$ib_plain" | grep -c '^FAIL') ))" "1" \
-  "on an image-based system doctor reports exactly one more problem than on an ordinary one"
+# Scoped to the ROW it is about rather than to the whole report. A delta over every FAIL line says
+# "one more problem", which is true of the wrong row just as easily as of this one: the day any
+# other doctor row starts failing in this sandbox, a count like that passes for a reason nobody
+# asked for, and the day one stops it fails for another.
+assert_eq "$(printf '%s\n' "$ib_out" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "1" \
+  "on an image-based system doctor reports the rpm-ostree problem"
+assert_eq "$(printf '%s\n' "$ib_plain" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "0" \
+  "...and on an ordinary one it says nothing of the kind"
 case "$ib_out" in
   *"FAIL"*"rpm-ostree"*) echo "ok: ...and says so as a FAIL, naming the tool that does update it" ;;
   *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | head -5; _fail=1 ;;
@@ -823,15 +794,12 @@ grep -qE '^info  a Fedora release upgrade \(44 -> 45\) is staged outside Kempt' 
 # up in the same report says the opposite about that identical status when the transaction is
 # Kempt's own, so one report contradicted itself depending only on who owned the marker.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" doctor_out
-grep -qF 'downloaded outside Kempt but not started' "$TESTTMP/staged.txt" \
-  && echo "ok: a downloaded release upgrade is not described as installing on the next restart" \
-  || { echo "FAIL: no downloaded-not-started line - got: $(grep -i 'release upgrade' "$TESTTMP/staged.txt")"; _fail=1; }
-grep -qF 'system-upgrade reboot' "$TESTTMP/staged.txt" \
-  && echo "ok: ...and it says what starts it, which is the thing the person still has to do" \
-  || { echo "FAIL: no pointer at what arms it"; _fail=1; }
-grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
-  && { echo "FAIL: it still claims a restart installs it"; _fail=1; } \
-  || echo "ok: ...and never claims a restart installs something that is not armed"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'downloaded outside Kempt but not started' \
+  "a downloaded release upgrade is not described as installing on the next restart"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'system-upgrade reboot' \
+  "...and it says what starts it, which is the thing the person still has to do"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'installs on the next restart' \
+  "...and never claims a restart installs something that is not armed"
 # ...and the third state, which is neither: `ready` with the boot symlink gone. A restart has
 # already been past it. Both other sentences are false here - one promises the next restart, and
 # the other calls a transaction that WAS armed one that was never started, quoting a status word
@@ -848,17 +816,14 @@ case "$relup_info" in
   *"not started"*) echo "FAIL: the info row calls a transaction that WAS armed one that was never started"; _fail=1 ;;
   *) echo "ok: ...and not as one that was never started" ;;
 esac
-grep -qF 'installs on the next restart' "$TESTTMP/staged.txt" \
-  && { echo "FAIL: it still promises the next restart"; _fail=1; } \
-  || echo "ok: ...and promises no restart that will not happen"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'installs on the next restart' \
+  "...and promises no restart that will not happen"
 # The FAIL beside it must not call somebody else's release upgrade a "staged update", nor offer the
 # rebuild command that pre-flight refuses while one is stored.
-grep -qF 'the stored Fedora release upgrade can never install' "$TESTTMP/staged.txt" \
-  && echo "ok: ...and the failure names whose transaction it is" \
-  || { echo "FAIL: the FAIL row attributes it to Kempt"; _fail=1; }
-grep -qF 'kempt update --surface=offline' "$TESTTMP/staged.txt" \
-  && { echo "FAIL: it offers the command that is refused while an upgrade is stored"; _fail=1; } \
-  || echo "ok: ...and offers no command that always ends in a refusal"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'the stored Fedora release upgrade can never install' \
+  "...and the failure names whose transaction it is"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'kempt update --surface=offline' \
+  "...and offers no command that always ends in a refusal"
 
 # ...and the fourth state, which dnf5 records when a transaction did not finish.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-incomplete.toml" doctor_out
@@ -880,15 +845,13 @@ KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qE '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" \
   && echo "ok: a readable marker beside a release upgrade does not swallow the row about it" \
   || { echo "FAIL: the release upgrade was never named - got: $(grep -i staged "$TESTTMP/staged.txt" | head -2)"; _fail=1; }
-grep -qF 'the marker cannot be read' "$TESTTMP/staged.txt" \
-  && { echo "FAIL: a readable marker was reported as unreadable"; _fail=1; } \
-  || echo "ok: ...and does not call a marker that parsed unreadable"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'the marker cannot be read' \
+  "...and does not call a marker that parsed unreadable"
 rm -f "$D_MARKER"
 
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
-grep -qF 'will not stage updates over it' "$TESTTMP/staged.txt" \
-  && echo "ok: ...saying why Kempt refuses to stage while it is there" \
-  || { echo "FAIL: the row does not explain the refusal"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'will not stage updates over it' \
+  "...saying why Kempt refuses to stage while it is there"
 grep -qE '^FAIL' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a release upgrade waiting to install was reported as a fault"; _fail=1; } \
   || echo "ok: ...and it is information, not a fault: nothing here is broken"
@@ -903,9 +866,8 @@ assert_exit 0 "a marker that will not parse does not crash the checkup" \
 grep -qE '^info  staged update: the marker cannot be read' "$TESTTMP/last_output" \
   && echo "ok: ...and says so instead of describing a pending install it cannot see" \
   || { echo "FAIL: no unreadable-marker line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
-grep -qF 'installs on the next restart' "$TESTTMP/last_output" \
-  && { echo "FAIL: an unparsable marker was still reported as a pending install"; _fail=1; } \
-  || echo "ok: ...and claims nothing about what a restart would do"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'installs on the next restart' \
+  "...and claims nothing about what a restart would do"
 
 # The marker a detour boot demoted: `armed: false`, over a transaction that is not ready. The row
 # that matters is unchanged - this transaction can never install - and it is still a FAIL, which is
@@ -934,9 +896,8 @@ d_marker transaction '["ca-certificates","librepo","openldap"]'
 "$KEMPT" hold dnf:librepo >/dev/null 2>&1
 assert_exit 0 "a hold behind an armed stage is reported, and is not a failure" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'info  staged update: it installs librepo on the next restart despite the hold -' "$TESTTMP/last_output" \
-  && echo "ok: ...leading with what happens and naming the package" \
-  || { echo "FAIL: no conflict line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'info  staged update: it installs librepo on the next restart despite the hold -' \
+  "...leading with what happens and naming the package"
 grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
   && grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
   && echo "ok: ...and ending with both remedies, rebuild it or remove it" \
@@ -946,30 +907,26 @@ grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
 "$KEMPT" hold dnf:ca-certificates >/dev/null 2>&1
 "$KEMPT" hold dnf:openldap >/dev/null 2>&1
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'staged update: it installs ca-certificates, librepo and openldap on the next restart despite the holds -' "$TESTTMP/staged.txt" \
-  && echo "ok: three held packages read as a sentence, plural verb included" \
-  || { echo "FAIL: no plural conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'staged update: it installs ca-certificates, librepo and openldap on the next restart despite the holds -' \
+  "three held packages read as a sentence, plural verb included"
 
 # Six, which is where the cap earns its place: a Qt or KDE bump legitimately puts dozens of names in
 # the set, and a doctor row that lists them all is a row nobody reads to the end.
 d_marker transaction '["bash","curl","glibc","kernel-core","mesa","systemd"]'
 for n in bash curl glibc kernel-core mesa systemd; do "$KEMPT" hold "dnf:$n" >/dev/null 2>&1; done
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'staged update: it installs bash, curl, glibc, kernel-core, and 2 more on the next restart despite the holds -' "$TESTTMP/staged.txt" \
-  && echo "ok: past four names the rest are counted, not listed" \
-  || { echo "FAIL: no capped conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'staged update: it installs bash, curl, glibc, kernel-core, and 2 more on the next restart despite the holds -' \
+  "past four names the rest are counted, not listed"
 
 # No list may be trusted - the names came from a check, which cannot see the packages the resolver
 # added - and there is a dnf hold on the box. The generic form fires: it can be wrong by warning
 # about a package that is not in there, and must never be wrong by staying quiet about one that is.
 d_marker check '["kernel-core"]'
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qF 'info  staged update: it may still install held packages on the next restart -' "$TESTTMP/staged.txt" \
-  && echo "ok: a list that cannot deny anything gets the generic line, not silence" \
-  || { echo "FAIL: no generic conflict line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
-grep -qF 'sudo dnf5 offline clean' "$TESTTMP/staged.txt" \
-  && echo "ok: ...carrying both remedies as well" \
-  || { echo "FAIL: the generic line does not carry both remedies"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it may still install held packages on the next restart -' \
+  "a list that cannot deny anything gets the generic line, not silence"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'sudo dnf5 offline clean' \
+  "...carrying both remedies as well"
 
 # Nothing held: no line at all. The row exists to answer a question nobody has asked otherwise.
 for n in librepo ca-certificates openldap bash curl glibc kernel-core mesa systemd; do
@@ -989,9 +946,8 @@ grep -qE 'despite the hold|may still install held packages' "$TESTTMP/staged.txt
 d_marker transaction '["ca-certificates","kernel-core"]'
 assert_exit 1 "a staged transaction that is not the one Kempt built fails the checkup" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'FAIL  staged update is not the one Kempt built' "$TESTTMP/last_output" \
-  && echo "ok: ...saying whose record it is reading, not just that something is wrong" \
-  || { echo "FAIL: no drift line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  staged update is not the one Kempt built' \
+  "...saying whose record it is reading, not just that something is wrong"
 grep -qF -- "+librepo and +openldap in dnf5's record only" "$TESTTMP/last_output" \
   && grep -qF -- "-kernel-core in Kempt's only" "$TESTTMP/last_output" \
   && echo "ok: ...and names both directions of the difference" \
@@ -1005,9 +961,8 @@ grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
 d_marker transaction '["ca-certificates","librepo","openldap"]'
 assert_exit 0 "a transaction that matches what Kempt staged is not drift" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
-  && { echo "FAIL: equal sets reported as drift"; _fail=1; } \
-  || echo "ok: equal sets say nothing"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
+  "equal sets say nothing"
 
 # A CHECK-derived list is not evidence of drift: a check cannot see the packages the resolver added,
 # so it disagrees with the stored transaction routinely and legitimately. There is nothing to
@@ -1015,18 +970,16 @@ grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
 d_marker check '["kernel-core"]'
 assert_exit 0 "a check-derived list is never compared against dnf5's record" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
-  && { echo "FAIL: a check-derived list was reported as drift"; _fail=1; } \
-  || echo "ok: nothing to compare, nothing claimed"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
+  "nothing to compare, nothing claimed"
 
 # ...and neither is a record that will not parse: the marker's list may be perfect and there is
 # simply nothing to hold it against.
 d_marker transaction '["ca-certificates","kernel-core"]'
 assert_exit 0 "a transaction record that will not parse is not drift either" \
   env KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'is not the one Kempt built' "$TESTTMP/last_output" \
-  && { echo "FAIL: an unreadable record was reported as drift"; _fail=1; } \
-  || echo "ok: an unreadable record makes no claim about the marker"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
+  "an unreadable record makes no claim about the marker"
 rm -f "$D_MARKER"
 
 # --- the boot symlink, and the state nothing in Kempt could see -----------------------------------
@@ -1053,34 +1006,35 @@ grep -qE '^FAIL' "$TESTTMP/staged.txt" \
 # replaced mid-rebuild. The remedy needs root, so it is spelled out.
 assert_exit 1 "a live boot symlink over an unarmed transaction fails the checkup" \
   env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
-grep -qF 'FAIL  boot symlink is live over a transaction that is not armed (status "download-complete")' "$TESTTMP/last_output" \
-  && echo "ok: ...naming the status the boot will detour on" \
-  || { echo "FAIL: no unarmed-symlink line - got: $(grep -i symlink "$TESTTMP/last_output")"; _fail=1; }
-grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
-  && echo "ok: ...and the exact command that clears it" \
-  || { echo "FAIL: the fix command is missing from the symlink row"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live over a transaction that is not armed (status "download-complete")' \
+  "...naming the status the boot will detour on"
+assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf5 offline clean' \
+  "...and the exact command that clears it"
 
 # Symlink with no transaction behind it at all. Worse, not better: the boot still detours, and
 # there is not even a transaction for it to consider.
 assert_exit 1 "a boot symlink with nothing staged behind it fails the checkup" \
   env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" "$KEMPT" doctor
-grep -qF 'FAIL  boot symlink is live with nothing staged behind it' "$TESTTMP/last_output" \
-  && echo "ok: ...and says the transaction is not there rather than quoting a status" \
-  || { echo "FAIL: no orphan-symlink line - got: $(grep -i symlink "$TESTTMP/last_output")"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live with nothing staged behind it' \
+  "...and says the transaction is not there rather than quoting a status"
 
 # Marker or no marker, and both rows when both apply: they are two different facts about the same
 # box - one says the stage can never install, the other says the next boot detours on the way to
 # finding that out - and each has a reader who needs it.
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
 KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "2" \
-  "a marker does not suppress the symlink row, and the symlink does not suppress the marker's"
+assert_eq "$(grep -c '^FAIL  boot symlink is live over a transaction that is not armed' "$TESTTMP/staged.txt" || true)" "1" \
+  "a marker does not suppress the symlink row"
+assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the symlink does not suppress the marker's"
 
 # No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
 # this the two conditions could be read as one and the check would fire on the toml alone.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "1" \
-  "no boot symlink, no symlink row - the unarmed transaction is reported once"
+assert_eq "$(grep -c '^FAIL  boot symlink' "$TESTTMP/staged.txt" || true)" "0" \
+  "no boot symlink, no symlink row"
+assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the unarmed transaction is reported exactly once"
 # The INVERSE of the row above, and it had no row at all: dnf5 says `ready` and the symlink is
 # GONE. Arming is both, systemd removes the symlink once system-update.target has been reached,
 # and only `dnf5 offline reboot` makes it again - so this transaction installs on no restart,
@@ -1088,12 +1042,10 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "1" \
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":7,"armed":true}\n' > "$D_MARKER"
 assert_exit 1 "a ready transaction with no boot symlink fails the checkup" \
   env KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qF 'staged update can never install: dnf5 says "ready" but' "$TESTTMP/last_output" \
-  && echo "ok: ...and the row says the transaction can never install" \
-  || { echo "FAIL: no ready-without-symlink row"; _fail=1; grep -i staged "$TESTTMP/last_output" | sed 's/^/    /'; }
-grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
-  && echo "ok: ...and offers the re-stage that fixes it" \
-  || { echo "FAIL: the row does not say how to re-arm it"; _fail=1; }
+assert_contains "$(cat "$TESTTMP/last_output")" 'staged update can never install: dnf5 says "ready" but' \
+  "...and the row says the transaction can never install"
+assert_contains "$(cat "$TESTTMP/last_output")" 'kempt update --surface=offline' \
+  "...and offers the re-stage that fixes it"
 # ...and with the symlink there, the same transaction is fine. The two conditions are one row, and
 # reading them as one would make every armed stage a failure.
 assert_exit 0 "the same transaction with its symlink standing is not a problem" \
@@ -1108,7 +1060,10 @@ export KEMPT_OFFLINE_LINK="$NO_LINK"
 # at the first failure sends the user round the loop once per problem.
 assert_exit 1 "several problems at once still exit 1" \
   env KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" KEMPT_POLICY_FILE="$TESTTMP/nope.policy" "$KEMPT" doctor
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output")" "2" "every problem is reported, not just the first"
-grep -q '2 problems found' "$TESTTMP/last_output" \
-  && echo "ok: the summary counts them" || { echo "FAIL: no problem count"; _fail=1; }
+assert_eq "$(grep -c '^FAIL  root helper (refresh) not installed' "$TESTTMP/last_output" || true)" "1" \
+  "every problem is reported, not just the first: the missing helper"
+assert_eq "$(grep -c '^FAIL  polkit action not installed' "$TESTTMP/last_output" || true)" "1" \
+  "...and the missing polkit action beside it"
+assert_contains "$(cat "$TESTTMP/last_output")" '2 problems found' \
+  "the summary counts them"
 finish

@@ -43,22 +43,15 @@ open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
 
-os.environ["PATH"] = p.bindir + os.pathsep + os.environ["PATH"]
-for _name in ("dbus-send", "xdg-open"):
-    _path = os.path.join(p.bindir, _name)
-    open(_path, "w").write("#!/usr/bin/env bash\nexit 0\n")
-    os.chmod(_path, 0o755)
-
 p.stub("""
 case "$1" in
-  config) [[ "$3" == refresh_interval_min ]] && echo 15; [[ "$3" == surface ]] && echo terminal
-          [[ "$3" == auto_accept ]] && echo true
-          [[ "$3" == restart_reminder ]] && echo true; exit 0 ;;
+%(CFG)s
   check)  sleep "$(cat %(SLEEP)s)"; cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
 esac
-""" % {"SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
+""" % {"CFG": harness.config_arm(),
+       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
