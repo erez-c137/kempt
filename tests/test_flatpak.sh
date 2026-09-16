@@ -16,18 +16,23 @@ source "$(dirname "$0")/lib.sh"; sandbox
 # subshell that ran it would delete this file's sandbox out from under the assertions.
 _fp_defaults="$(
   trap - EXIT
-  unset KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_UPDATE_CMD
+  # The two runtime seams are PINNED at `true` by sandbox() rather than left unset, so they have to
+  # be unset here too or this subshell would read the pin instead of the shipped default.
+  unset KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_UPDATE_CMD \
+        KEMPT_FLATPAK_REMOTE_RUNTIME_CMD KEMPT_FLATPAK_LIST_RUNTIME_CMD
   source "$REPO_ROOT/lib/common.sh"
   source "$REPO_ROOT/backends/flatpak.sh"
-  printf '%s\n%s\n%s\n%s\n' "$KEMPT_FLATPAK_REMOTE_CMD" "$KEMPT_FLATPAK_REFRESH_CMD" \
-                              "$KEMPT_FLATPAK_LIST_CMD"   "$KEMPT_FLATPAK_UPDATE_CMD"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$KEMPT_FLATPAK_REMOTE_CMD" "$KEMPT_FLATPAK_REFRESH_CMD" \
+                              "$KEMPT_FLATPAK_LIST_CMD"   "$KEMPT_FLATPAK_UPDATE_CMD" \
+                              "$KEMPT_FLATPAK_REMOTE_RUNTIME_CMD" "$KEMPT_FLATPAK_LIST_RUNTIME_CMD"
 )"
 readarray -t FP_DEFAULT <<<"$_fp_defaults"
-# Guards the vacuous pass: four empty strings would satisfy several assertions below while proving
+# Guards the vacuous pass: six empty strings would satisfy several assertions below while proving
 # the subshell never ran at all.
-assert_eq "${#FP_DEFAULT[@]}" "4" "the four shipped flatpak defaults were read"
+assert_eq "${#FP_DEFAULT[@]}" "6" "the six shipped flatpak defaults were read"
 FP_REMOTE_DEFAULT="${FP_DEFAULT[0]}"; FP_REFRESH_DEFAULT="${FP_DEFAULT[1]}"
 FP_LIST_DEFAULT="${FP_DEFAULT[2]}";   FP_UPDATE_DEFAULT="${FP_DEFAULT[3]}"
+FP_REMOTE_RT_DEFAULT="${FP_DEFAULT[4]}"; FP_LIST_RT_DEFAULT="${FP_DEFAULT[5]}"
 # The functions are what the live shell needs, and they are identical whatever the seams hold.
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/backends/flatpak.sh"
@@ -57,7 +62,8 @@ assert_eq "${FP_REMOTE_DEFAULT/ --cached/}" "$FP_REFRESH_DEFAULT" \
 # run does not touch, or the reverse.
 # The pattern is anchored on BOTH sides: a bare `*" --system"*` substring test is satisfied by
 # `--systemwide`, which is a different installation entirely.
-for _v in FP_REMOTE_DEFAULT FP_REFRESH_DEFAULT FP_LIST_DEFAULT FP_UPDATE_DEFAULT; do
+for _v in FP_REMOTE_DEFAULT FP_REFRESH_DEFAULT FP_LIST_DEFAULT FP_UPDATE_DEFAULT \
+          FP_REMOTE_RT_DEFAULT FP_LIST_RT_DEFAULT; do
   assert_eq "$([[ " ${!_v} " == *" --system "* ]] && echo system || echo "unscoped: ${!_v}")" "system" \
     "$_v is --system scoped"
 done
@@ -236,4 +242,140 @@ assert_exit 0 "flatpak_check accepts a sizes path" flatpak_check "$sz_out"
 assert_eq "$(grep -c . "$sz_out")" "3" "...and fills it from the rows it already had"
 # The path is optional, and omitting it must not change the function's verdict.
 assert_exit 0 "flatpak_check without a sizes path still succeeds" flatpak_check
+
+# --- runtimes ---------------------------------------------------------------------------------
+# `flatpak update` with no ref updates applications AND runtimes (flatpak-update(1): "If no REF is
+# given, everything is updated"; --app and --runtime are filters ON that default). A check that
+# asked only about apps therefore counted less than the run would change.
+assert_eq "$([[ "$FP_REMOTE_RT_DEFAULT" == *--cached* ]] && echo cache-only || echo network)" \
+  "cache-only" "the runtime check never leaves the box either"
+# The kind flag is what makes these twins rather than duplicates, and it is a FLAG because flatpak
+# has no kind column: "apps and runtimes, labelled" is not something one invocation can answer.
+assert_eq "$([[ " $FP_REMOTE_RT_DEFAULT " == *" --runtime "* ]] && echo runtime || echo "unfiltered")" \
+  "runtime" "the runtime check asks for runtimes"
+assert_eq "$([[ " $FP_LIST_RT_DEFAULT " == *" --runtime "* ]] && echo runtime || echo "unfiltered")" \
+  "runtime" "...and so does the runtime installed lookup"
+# branch is in BOTH runtime queries or the two sides of the join disagree about what a row is.
+for _v in FP_REMOTE_RT_DEFAULT FP_LIST_RT_DEFAULT; do
+  assert_eq "$([[ "${!_v}" == *branch* ]] && echo branch || echo "no branch: ${!_v}")" "branch" \
+    "$_v carries the branch column, because a runtime's identity is id AND branch"
+done
+
+# The key fold: one field is what sort, join and collapse_versions all key on, so id and branch
+# become `id/branch` and split apart again in the state file.
+rt_rows="$(flatpak_runtime_rows < "$FIXTURES/flatpak-remote-ls-runtime.tsv")"
+assert_eq "$(awk -F'\t' 'NR==1{print $1}' <<<"$rt_rows")" "org.freedesktop.Platform.GL.default/24.08" \
+  "a runtime row is keyed by id and branch together"
+# An empty version column is the COMMON case for runtimes, not an edge: flatpak versions a runtime
+# by its branch and gives org.kde.Platform no version string at all. `?` is the sentinel the rest
+# of Kempt already means "not known" by; an empty string would draw an arrow pointing at nothing.
+assert_eq "$(awk -F'\t' '$1=="org.kde.Platform/5.15-24.08"{print $2}' <<<"$rt_rows")" "?" \
+  "a runtime with no version string reads as not known, not as empty"
+
+# Fixture contract (MANIFEST.md): 4 pending runtimes, two of them the same id on two branches.
+rt_lookup="$TESTTMP/rt-lookup.tsv"
+flatpak_runtime_rows < "$FIXTURES/flatpak-list-runtime.tsv" | sort_name_version | collapse_versions > "$rt_lookup"
+rt_out="$(flatpak_parse_remote_ls_runtime "$rt_lookup" <<<"$rt_rows")"
+assert_eq "$(jq 'length' <<<"$rt_out")" "4" "four pending runtimes"
+assert_eq "$(jq -r '.[0] | .kind' <<<"$rt_out")" "runtime" "every runtime item says it is one"
+assert_eq "$(jq -r '[.[] | select(.branch == null)] | length' <<<"$rt_out")" "0" \
+  "...and every one of them carries its branch"
+# THE two-branch case, which is the whole reason identity is a pair. This runtime is installed on
+# two branches on the box these fixtures were captured from; keyed by id alone the pair collapses
+# into one row carrying both versions, which is wrong about both of them.
+gl="$(jq -c '[.[] | select(.name == "org.freedesktop.Platform.GL.default")] | sort_by(.branch)' <<<"$rt_out")"
+assert_eq "$(jq 'length' <<<"$gl")" "2" "one runtime on two branches is TWO rows, not one"
+assert_eq "$(jq -r '[.[].branch] | join(",")' <<<"$gl")" "24.08,24.08extra" "...one per branch"
+assert_eq "$(jq -r '[.[].to] | join(",")' <<<"$gl")" "26.1.9,26.2.0" \
+  "...each moving to its own version, never comma-joined into one"
+assert_eq "$(jq -r '[.[].to] | map(select(test(","))) | length' <<<"$gl")" "0" \
+  "...so no row carries a collapsed set that would claim both versions at once"
+assert_eq "$(jq -r '.[] | select(.name == "org.example.NotInstalledRuntime") | .from' <<<"$rt_out")" "?" \
+  "a runtime that is not installed falls back to ?"
+
+# Both arms in one answer, which is what the badge counts and the run acts on.
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="cat $FIXTURES/flatpak-remote-ls-runtime.tsv"
+export KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $FIXTURES/flatpak-list-runtime.tsv"
+both="$(flatpak_check)"
+assert_eq "$(jq 'length' <<<"$both")" "7" "flatpak_check counts apps AND runtimes (3 + 4)"
+assert_eq "$(jq '[.[] | select(.kind == "runtime")] | length' <<<"$both")" "4" "...four of them runtimes"
+assert_eq "$(jq '[.[] | select(.kind == null)] | length' <<<"$both")" "3" \
+  "...and an app carries no kind at all, which is what makes the key additive"
+# The app half must be untouched, byte for byte: this change may not move an app row.
+apps_only="$(KEMPT_FLATPAK_REMOTE_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true flatpak_check)"
+assert_json_eq "$apps_only" "$(jq -c '[.[] | select(.kind == null)]' <<<"$both")" \
+  "the app items are identical with and without the runtime arm"
+
+# A failing runtime arm fails the whole backend, exactly as the app arm does. A check that answered
+# for half the transaction would be the original bug wearing a different hat.
+# One-line wrappers rather than an `env` prefix: assert_exit runs its argument with "$@", and env(1)
+# execs a PROGRAM - handed a shell function it exits 127, which would have passed for a failure here
+# while proving nothing at all about the backend.
+rt_check_no_remote() { KEMPT_FLATPAK_REMOTE_RUNTIME_CMD=false flatpak_check; }
+rt_check_no_list()   { KEMPT_FLATPAK_LIST_RUNTIME_CMD=false flatpak_check; }
+assert_exit 1 "a failing runtime check fails the backend" rt_check_no_remote
+assert_exit 1 "a failing runtime lookup fails the backend" rt_check_no_list
+
+# Sizes: one file, two key shapes, and the branch is what keeps the two GL rows apart. Joined by
+# name alone they would both take whichever of the two size rows landed in the table.
+# The app remote fixture used above carries no size column at all, so the priced app half has to
+# come from the fixture that does - otherwise "an app still joins by name" would be asserted over an
+# app that has no size to join.
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+rt_sz="$TESTTMP/fp-rt-sizes.tsv"
+assert_exit 0 "flatpak_check prices both arms" flatpak_check "$rt_sz"
+assert_eq "$(awk -F'\t' '$1=="org.freedesktop.Platform.GL.default/24.08"{print $2}' < "$rt_sz")" "149400000" \
+  "a runtime's size row is keyed by id and branch"
+assert_eq "$(awk -F'\t' '$1=="org.freedesktop.Platform.GL.default/24.08extra"{print $2}' < "$rt_sz")" "149500000" \
+  "...so the other branch keeps its own, different size"
+priced="$(attach_sizes "$rt_sz" <<<"$(mark_held flatpak <<<"$(flatpak_check)")")"
+assert_eq "$(jq -r '.[] | select(.name=="org.freedesktop.Platform.GL.default" and .branch=="24.08") | .size_bytes' <<<"$priced")" \
+  "149400000" "attach_sizes joins a runtime on name AND branch"
+assert_eq "$(jq -r '.[] | select(.name=="org.freedesktop.Platform.GL.default" and .branch=="24.08extra") | .size_bytes' <<<"$priced")" \
+  "149500000" "...giving the two branches their own figures rather than one twice"
+assert_eq "$(jq -r '.[] | select(.name=="net.mkiol.SpeechNote") | .size_bytes' <<<"$priced")" "1200000000" \
+  "...while an app with no branch still joins by name exactly as before"
+
+# The snapshot, which is what the run's report diffs. One row per id/branch: collapsed onto the id,
+# the two branches would merge into a single row and tsv_diff_updates would report a change to a
+# runtime that never moved.
+snap_rt="$(flatpak_snapshot)"
+assert_eq "$(grep -c . <<<"$snap_rt")" "9" "the snapshot carries both apps and runtimes"
+assert_eq "$(awk -F'\t' '$1 ~ /GL.default/' <<<"$snap_rt" | wc -l)" "2" \
+  "a runtime on two branches is two snapshot rows"
+# The contract tsv_diff_updates enforces with exit 65, checked here so a fold that stopped being
+# unique fails in this file rather than as a mysterious diff failure mid-run.
+assert_eq "$(cut -f1 <<<"$snap_rt" | sort | uniq -d | wc -l)" "0" \
+  "...and no name repeats, which is what tsv_diff_updates refuses input for"
+rt_snap_no_list() { KEMPT_FLATPAK_LIST_RUNTIME_CMD=false flatpak_snapshot; }
+rt_snap_no_app()  { KEMPT_FLATPAK_LIST_CMD=false flatpak_snapshot; }
+assert_exit 1 "a failing runtime lookup fails the snapshot too" rt_snap_no_list
+# A group pipeline would have masked this one: a group's status is its LAST command's, so a broken
+# app arm with a working runtime arm would have reported an empty installed set as success.
+assert_exit 1 "...and so does a failing app lookup, which a group pipeline would have hidden" rt_snap_no_app
+
+# Runtimes are never held, whatever the holds file says. mark_held keys on the bare name, and a
+# holds file written before runtimes were counted can already name one.
+held_rt="$(mark_held flatpak <<<'[{"name":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime"},{"name":"org.kde.Platform"}]' | flatpak_runtimes_never_held)"
+assert_eq "$(jq -r '.[0].held' <<<"$held_rt")" "false" "a runtime is never held"
+assert_eq "$(jq -r '.[1].held' <<<"$held_rt")" "false" "...and an app of the same id is untouched by that rule"
+
+# The apply arm's runtime form: every runtime in one command, which is how a run with app holds
+# still updates them. Per-ref is not an option - holds are per app and runtimes cannot be held.
+: > "$TESTTMP/fp-update-calls"
+assert_exit 0 "flatpak_apply --runtime updates every runtime" flatpak_apply -y --runtime
+assert_eq "$(fp_line 1)" "flatpak update --system --noninteractive -y --runtime" "the runtime command"
+assert_eq "$(fp_calls | wc -l)" "1" "...as ONE command, not one per runtime"
+# It is still not a free pass for an option-shaped id: --runtime is matched by name, ahead of the
+# validation, and everything else option-shaped still lands on the reject arm.
+: > "$TESTTMP/fp-update-calls"
+assert_exit 2 "an option-shaped id is still rejected beside it" flatpak_apply -y --runtime --installation=other
+assert_eq "$(fp_calls | wc -c)" "0" "...updating nothing at all"
+
+# flatpak_id_is_runtime is what `kempt hold` refuses on.
+assert_exit 0 "an installed runtime id is recognised" flatpak_id_is_runtime org.kde.Platform
+assert_exit 1 "an app id is not a runtime" flatpak_id_is_runtime net.mkiol.SpeechNote
+assert_exit 1 "...and neither is a name nothing answers to" flatpak_id_is_runtime org.example.Nothing
 finish

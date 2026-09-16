@@ -612,7 +612,12 @@ attach_sizes() {  # $1 = sizes TSV; stdin: items JSON (after mark_held) → item
   jq -c --rawfile tsv "$1" '
     ($tsv | split("\n") | map(select(length>0) | split("\t"))
           | map({key: .[0], value: (.[1] | tonumber)}) | from_entries) as $sz
-    | map(. + (if $sz[.name] != null then {size_bytes: $sz[.name]} else {} end))'
+    # An item carrying a `branch` is keyed by name AND branch, because its name alone is not its
+    # identity: a Flatpak runtime installed on two branches is two rows that update independently,
+    # and joined by name they would both take whichever of the two size rows landed in the table.
+    # An item without one keys by name exactly as before, so nothing that predates the key moves.
+    | def szkey: if (.branch // "") == "" then .name else .name + "/" + .branch end;
+      map(. + (if $sz[szkey] != null then {size_bytes: $sz[szkey]} else {} end))'
 }
 
 # ALL or nothing, per backend: a total computed over the items that happen to have sizes looks

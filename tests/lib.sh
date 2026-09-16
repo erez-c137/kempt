@@ -99,6 +99,15 @@ sandbox() {  # fresh dirs per test file; call first
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.
   export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/UNSTUBBED-flatpak-update"
+  # PINNED at `true`, not poisoned, and this is the seam where the usual "a path that does not
+  # exist" would be exactly wrong. Unset, the runtime arms fall back to the REAL flatpak and every
+  # test file that stubs only the app seams would read the runtimes of the box running the suite.
+  # Poisoned, they would FAIL - and a failing runtime arm fails the whole flatpak backend by
+  # design, so every check in the suite would go stale and every fixture count with it.
+  # `true` prints nothing under rc 0, which is the honest shape of a box with no runtimes: the app
+  # fixtures keep their counts, and the files that exercise runtimes point these at fixtures.
+  export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="true"
+  export KEMPT_FLATPAK_LIST_RUNTIME_CMD="true"
   # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
   # is only ever READ from, never run, and a test that cares drives both branches of its guard by
   # setting it itself. Unset here so a value exported in a developer's shell cannot decide which

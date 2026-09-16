@@ -37,6 +37,33 @@ assert_eq "$("$KEMPT" history | wc -l)" "1" "history lists one run"
 assert_eq "$("$KEMPT" history)" "2026-08-24T12:00:00+03:00  terminal  ok  2 updated" \
   "history row shape: timestamp, surface, status, what the run changed"
 
+# --- a run that moved runtimes says so, one line per branch -------------------------------------
+# `flatpak update` updates runtimes as well as apps, so the snapshot diff sees them and the summary
+# has to itemize them: a run that changed more than it listed is the defect this guards. The names
+# are the snapshot's own `id/branch` keys, which is also how flatpak itself spells a ref - and the
+# two branches of one runtime are two lines, because they moved to different versions.
+cat > "$HIST_DIR/20260824T130000.json" <<'EOF'
+{"timestamp":"2026-08-24T13:00:00+03:00","surface":"terminal","status":"ok","duration_sec":64,
+ "reboot_needed":false,"log":"/tmp/r.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":[],
+    "updated":[{"name":"net.mkiol.SpeechNote","from":"4.8.4","to":"4.8.5"},
+               {"name":"org.freedesktop.Platform.GL.default/24.08","from":"26.1.8","to":"26.1.9"},
+               {"name":"org.freedesktop.Platform.GL.default/24.08extra","from":"26.1.8","to":"26.2.0"}],
+    "added":[],"removed":[]}}}
+EOF
+r="$(render_summary "$HIST_DIR/20260824T130000.json")"
+grep -q 'org.freedesktop.Platform.GL.default/24.08 26.1.8 → 26.1.9' <<<"$r" \
+  && echo "ok: a runtime is itemized under its branch" || { echo "FAIL: runtime line"; _fail=1; }
+grep -q 'org.freedesktop.Platform.GL.default/24.08extra 26.1.8 → 26.2.0' <<<"$r" \
+  && echo "ok: ...and the other branch is its own line" || { echo "FAIL: second branch line"; _fail=1; }
+# The count is the transaction's, not the app list's. Three updated, and the summary says three.
+grep -q 'Apps (flatpak): 3 updated' <<<"$r" \
+  && echo "ok: the flatpak count covers runtimes too" || { echo "FAIL: runtime count - got: $r"; _fail=1; }
+assert_eq "$("$KEMPT" history | head -1)" "2026-08-24T13:00:00+03:00  terminal  ok  3 updated" \
+  "...and so does the one-line history row"
+
 # --- what happens NEXT, on the surface that reports what happened. A staged transaction is not a
 # property of any past run, so it cannot come out of a history entry: the line is read from the
 # state the last check wrote, and it appears only while an ARMED stage is actually waiting.

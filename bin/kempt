@@ -65,7 +65,10 @@ cmd_check() {
   fi
   rm -f "$errf"
   dnf_items="$(mark_held dnf <<<"$dnf_items")"
-  fp_items="$(mark_held flatpak <<<"$fp_items")"
+  # flatpak_runtimes_never_held is the second half of the refusal cmd_hold makes: a holds file can
+  # already name a runtime (it was writable long before runtimes were counted), and mark_held keys
+  # on the bare name, so without this a stale line would start holding a runtime today.
+  fp_items="$(mark_held flatpak <<<"$fp_items" | flatpak_runtimes_never_held)"
   # After mark_held, because the coverage rule below counts NON-HELD items only.
   [[ "$dnf_priced" == true ]] && dnf_items="$(attach_sizes "$dnf_sz" <<<"$dnf_items")"
   [[ "$fp_priced"  == true ]] && fp_items="$(attach_sizes "$fp_sz"  <<<"$fp_items")"
@@ -341,17 +344,30 @@ apply_flatpak_updates() {
       # holds exist → per-app updates of every pending, non-held, INSTALLED app. That pre-filter
       # is the ONLY installed check there is (flatpak errors out on an id it does not have), so an
       # empty installed set means no ids pass and the run reports flatpak failed.
-      local installed_fp id
+      local installed_fp id pending_fp
       installed_fp="$(flatpak_snapshot | cut -f1)" \
         || { installed_fp=""; fp_status="failed"; status="failed"; echo "warning: flatpak installed lookup failed - no flatpak apps updated" | tee -a "$log" >&2; }
+      # ONE capture, read twice below: the apps to name individually, and whether any runtime is
+      # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
+      # answer that cannot have changed in between.
+      pending_fp="$(flatpak_check 2>/dev/null || true)"
       while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         grep -qxF "$id" <<<"$held_fp" && continue
         grep -qxF "$id" <<<"$installed_fp" || continue
         ids+=("$id")
-      done < <(flatpak_check 2>/dev/null | jq -r '.[].name')
+      done < <(jq -r '.[] | select(.kind != "runtime") | .name' <<<"$pending_fp" 2>/dev/null)
       if [[ ${#ids[@]} -gt 0 ]]; then
         apply_with_retry "$log" flatpak_apply "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
+      fi
+      # ...and the runtimes, which the per-app loop above cannot cover. A hold is per app, so a run
+      # with holds names the surviving apps one ref at a time - and a ref updates the runtimes that
+      # app DEPENDS on, never the ones it does not. Runtimes cannot be held, so the whole set goes
+      # in one command, which is what the no-holds branch below already does for everything.
+      # Only when one is actually pending, and that condition is the whole point: "every pending app
+      # is held" must still mean flatpak is not run at all, rather than run on a set that is empty.
+      if jq -e 'any(.[]; .kind == "runtime")' <<<"$pending_fp" >/dev/null 2>&1; then
+        apply_with_retry "$log" flatpak_apply "${yflag[@]}" --runtime || { fp_status="failed"; status="failed"; }
       fi
     else
       apply_with_retry "$log" flatpak_apply "${yflag[@]}" || { fp_status="failed"; status="failed"; }
@@ -803,8 +819,8 @@ cmd_update() {
   fi
 
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
-  # Known v1 limitation: check/snapshot use --app, but `flatpak update` also updates RUNTIMES,
-  # so the summary can under-report what the transaction actually changed. Documented, accepted.
+  # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
+  # updates both, so the check asks about both and the summary reports both.
   local fp_status=skipped   # apply_flatpak_updates writes this; see its header
   apply_flatpak_updates
   # snapshots (after) + reports
@@ -1449,6 +1465,16 @@ cmd_hold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
   local b="${1%%:*}" n="${1#*:}"
   [[ "$b" == dnf || "$b" == flatpak ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
+  # Runtimes cannot be held, and the refusal is here rather than in the backend because it is a
+  # decision about the COMMAND, not about a pending list: the answer is the same whether or not an
+  # update happens to be waiting. A runtime is shared infrastructure - hold org.kde.Platform and the
+  # next KDE app that needs it is the thing that breaks, somewhere else entirely, with nothing on
+  # screen connecting the two. Apps are what a person means by "skip this one", and they still work.
+  # Exit 2 and nothing written, the same contract an invalid name gets.
+  if [[ "$b" == flatpak ]] && flatpak_id_is_runtime "$n"; then
+    echo "$n is a Flatpak runtime, and runtimes cannot be held: apps share them, so holding one breaks the next app that needs it. Hold the app instead." >&2
+    exit 2
+  fi
   # Separate statements, not `hold_add ... && log_event ...`: an AND list swallows hold_add's exit
   # status and reports a rejected name as exit 1 instead of the 2 the contract promises. This way
   # errexit ends the command with the helper's own rc and no event is written.
