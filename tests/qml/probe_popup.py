@@ -63,6 +63,16 @@ open(RR, "w").write("true\n")
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 LAST_RUN = json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+# `kempt unstage`, which the staged banner's Discard action runs: its status and the two streams it
+# writes. Files for the same reason RUNRC is one - every exit code this command has is a different
+# sentence in the popup, and rewriting a file is how this probe chooses which one it is about to
+# get. Nothing here ever reaches the real command: it is the stub below that answers.
+UNSTAGERC = os.path.join(p.sandbox, "unstagerc")
+UNSTAGEOUT = os.path.join(p.sandbox, "unstageout")
+UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
+open(UNSTAGERC, "w").write("0")
+open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
+open(UNSTAGEERR, "w").write("")
 
 
 def now_stamped(entry):
@@ -138,9 +148,10 @@ case "$1" in
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
+  unstage) cat %(UOUT)s; cat %(UERR)s >&2; exit "$(cat %(URC)s)" ;;
 esac
 """ % {"AUTO": AUTO, "RR": RR, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
-       "RUNJSON": RUNJSON})
+       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget
 # that regressed to the old command would produce that line again, and the run-end assertion far
@@ -988,6 +999,22 @@ QtObject {
             lev("stagedMessage.actions[0].visible"), True)
     p.check("...under the same label the restart message uses",
             lev("stagedMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
+    # ...and the way out of it, on the green banner as much as on the warnings: staging an update
+    # and then thinking better of it is not a problem anybody should have to open a terminal to
+    # fix. Third and last in the list, so it never stands where the conflict remedy stands.
+    p.check("...with a third action, which is the way to discard the staged update",
+            lev("stagedMessage.actions[2].text"), ev("Logic.COPY.stagedDiscardAction"))
+    p.check("...on screen beside the restart", lev("stagedMessage.actions[2].visible"), True)
+    p.check("...and the rebuild is NOT: there is nothing to rebuild on a banner with no conflict",
+            lev("stagedMessage.actions[1].visible"), False)
+    # The tooltip is the disclosure, and the same words go to a screen reader for the reason the
+    # rebuild's do: polkit takes the focus the instant this is pressed.
+    p.check("...disclosing the authorization and the downloads in its tooltip",
+            lev("stagedMessage.actions[2].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
+    p.check("...in the same words a screen reader gets, before polkit takes the focus",
+            lev("stagedMessage.actions[2].Accessible.description"),
+            ev("Logic.COPY.stagedDiscardTooltip"))
+
     dbus_staged = len(records("dbus-send"))
     lev("stagedMessage.actions[0].trigger()")
     settle()
@@ -1060,8 +1087,8 @@ QtObject {
     # difference between the two banners would be a colour, which is not a difference at all.
     p.check("...announced to a screen reader as the sentence, not as a change of colour",
             lev("stagedMessage.Accessible.name"), lev("stagedMessage.text"))
-    p.check("...offering two actions in the list, one of which is standing down",
-            lev("stagedMessage.actions.length"), 2)
+    p.check("...offering three actions in the list, one of which is standing down",
+            lev("stagedMessage.actions.length"), 3)
     p.check("...and the Restart… button is NOT one of them: offering a restart here offers the "
             "very install they tried to stop", lev("stagedMessage.actions[0].visible"), False)
     p.check("...inert as well as invisible", lev("stagedMessage.actions[0].enabled"), False)
@@ -1077,6 +1104,12 @@ QtObject {
             lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
     p.check("...which is the copy table's tooltip, not a second copy of it",
             lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
+    # ...and the discard stands BESIDE it rather than in its place. The person who just held a
+    # package is the likeliest of all to want no install at all, and the remedy this banner exists
+    # for is still the first button on it.
+    p.check("...with the discard offered as well, after the remedy rather than instead of it",
+            [lev("stagedMessage.actions[2].text"), lev("stagedMessage.actions[2].visible")],
+            [ev("Logic.COPY.stagedDiscardAction"), True])
 
     # HIG M1: the only Restart button on screen sat forty pixels above the sentence saying what a
     # restart would install. The design had already removed it from the warning for that reason.
@@ -1233,6 +1266,103 @@ QtObject {
     ev("root.leaveUpdating()")
     settle()
     ev('root.actionMessage = ""')
+
+    # --- Discard Staged Update, the same banner's other way out ---------------------------------
+    # `kempt unstage` from the popup, so somebody who staged an update here can undo it here. The
+    # consent rule is the rebuild's, and so is the re-verify that enforces it: a banner describes
+    # ONE staged update, and a press must not spend consent on a different one.
+    state(CONFLICT1)
+    mutate_state(CONFLICT1, staged_at="2026-09-06T08:00:00+03:00")
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    ev('root.actionDone = ""')
+    lev("stagedMessage.actions[2].trigger()")
+    settle()
+    p.check("a discard clicked over a stage that has since been replaced runs NOTHING",
+            p.call_count("unstage"), 0)
+    p.check("...and says the stage moved, where the press happened",
+            ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardChanged"))
+    p.check("...in its own words, not the rebuild's, because nothing was rebuilt here",
+            str(ev("root.actionMessage")).find("discarded") > 0, True)
+
+    # The path that acts. The stub answers as the real command does, and the check that follows it
+    # is what takes the banner off the screen: `kempt unstage` rewrites state.json before it exits,
+    # so the fixture the stubbed check serves is repointed at a box with nothing staged - which is
+    # what the CLI's own re-check would publish.
+    state(CONFLICT1)
+    open(CHECKSRC, "w").write(fixture("state-risky-heavy.json"))
+    checks_before = p.call_count("check")
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    ev('root.actionDone = ""')
+    lev("stagedMessage.actions[2].trigger()")
+    p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
+    settle()
+    p.check("an unchanged stage is discarded through the CLI's own verb, exactly once",
+            p.calls_matching("unstage"), ["unstage"])
+    p.check("...which takes no arguments at all", p.argv("unstage"), ["unstage"])
+    p.check("...reported in the CLI's own sentence", ev("root.actionDone"),
+            "Discarded the staged update. The next restart installs nothing.")
+    p.check("...in the report slot, as the thing that just happened",
+            ev("root.reportText"), ev("root.actionDone"))
+    # The half that a shared `actionMessage` could not have given: an action that did exactly what
+    # it promised is not an error, and the popup draws a failed press in red.
+    p.check("...and NOT as a failure, because nothing failed",
+            [ev("root.reportFailed"), lev("reportMessage.type")],
+            [False, lev("Kirigami.MessageType.Positive")])
+    p.check("...and it is on screen", lev("reportMessage.visible"), True)
+    p.check("a discard that worked re-checks, which is how the widget learns the file changed",
+            p.call_count("check") >= 1, True)
+    p.check("...and the popup stops advertising a staged update that is gone",
+            [ev("root.vm.stagedMessage"), ev("root.vm.stagedArmed")], ["", False])
+
+    # Every status the command has is a sentence. The refusal first: a stored Fedora release
+    # upgrade, which is the one case where nothing was read and nothing was changed.
+    open(CHECKSRC, "w").write(CONFLICT1)
+    state(CONFLICT1)
+    open(UNSTAGERC, "w").write("5")
+    open(UNSTAGEOUT, "w").write("")
+    open(UNSTAGEERR, "w").write(
+        "Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored"
+        " transaction, so discarding it would cancel the upgrade. See: kempt doctor\n")
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    ev('root.actionDone = ""')
+    lev("stagedMessage.actions[2].trigger()")
+    p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+    settle()
+    p.check("a refused discard reports the CLI's reason, which names the upgrade it protected",
+            str(ev("root.actionMessage")).startswith("Nothing was discarded. A Fedora release"
+                                                     " upgrade (45) is stored"), True)
+    p.check("...as a failure, in red, because the thing that was asked for did not happen",
+            ev("root.reportFailed"), True)
+    p.check("...and the staged banner is still there, because nothing was discarded",
+            ev("root.vm.stagedArmed"), True)
+
+    # ...and a status with nothing on either stream, which is the case the copy table is FOR.
+    open(UNSTAGERC, "w").write("3")
+    open(UNSTAGEERR, "w").write("")
+    p.clear_calls()
+    ev('root.actionMessage = ""')
+    lev("stagedMessage.actions[2].trigger()")
+    p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+    settle()
+    p.check("another update holding the lock is still a sentence, not a status code",
+            ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardBusy"))
+
+    # The same guard the staging actions have, for a plainer reason: a discard during a run would
+    # be pulling the transaction out from under it.
+    ev("root.enterUpdating()")
+    p.clear_calls()
+    ev("root.discardStaged()")
+    settle()
+    p.check("a discard asked for during a run does not run", p.call_count("unstage"), 0)
+    ev("root.leaveUpdating()")
+    settle()
+    open(UNSTAGERC, "w").write("0")
+    open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
+    ev('root.actionMessage = ""')
+    ev('root.actionDone = ""')
 
     # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
     # own reason in the tooltip of the button that tries again.
@@ -1956,6 +2086,11 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
     "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
+    "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
+    "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3
+    "stagedDiscardFailed",  # -> discardStagedMessage, with the status in the %1
+    "stagedDiscardChanged",  # -> root.actionMessage, as stagedChanged is for the rebuild
     "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineFaultMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineFaultCopyText: a clipboard payload of shell commands,
