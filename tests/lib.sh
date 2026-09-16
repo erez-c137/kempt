@@ -151,17 +151,34 @@ nocmp_dir() {
   printf '%s\n' "$d"
 }
 
+# Where an assertion was written, as file:line. Without it a FAIL line sends the reader grepping
+# for a label, and the labels here are sentences - several of them appear in more than one file,
+# and some are built at runtime and appear in none. Inside a helper, BASH_SOURCE[2]/BASH_LINENO[1]
+# name the line that CALLED that helper.
+# The :- fallbacks are for the one caller with no frame above it, `bash -c 'source lib.sh; ...'`,
+# where the array is shorter and `set -u` would otherwise turn a location into a hard error - a
+# helper that kills the run it was meant to annotate.
+_at() {
+  local f="${BASH_SOURCE[2]:-${BASH_SOURCE[1]:-?}}" l="${BASH_LINENO[1]:-${BASH_LINENO[0]:-0}}"
+  printf '%s:%s' "${f##*/}" "$l"
+}
+
 assert_eq() {  # got expected label
-  if [[ "$1" != "$2" ]]; then echo "FAIL: $3"; echo "  expected: $2"; echo "  got:      $1"; _fail=1
+  # The helpers below hand down their OWN caller in _assert_at; without that every failure routed
+  # through them would point at this file rather than at the test that wrote it.
+  if [[ "$1" != "$2" ]]; then
+    echo "FAIL: $3  [${_assert_at:-$(_at)}]"; echo "  expected: $2"; echo "  got:      $1"; _fail=1
   else echo "ok: $3"; fi
 }
 
 assert_json_eq() {  # got expected label (order-insensitive keys)
+  local _assert_at; _assert_at="$(_at)"
   assert_eq "$(jq -Sc . <<<"$1")" "$(jq -Sc . <<<"$2")" "$3"
 }
 
 assert_exit() {  # expected_rc label [--] cmd...
   local want="$1" label="$2"; shift 2
+  local _assert_at; _assert_at="$(_at)"
   [[ "${1:-}" == "--" ]] && shift
   local rc=0
   "$@" >"$TESTTMP/last_output" 2>&1 || rc=$?
