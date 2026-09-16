@@ -89,10 +89,12 @@ packages are pending, but it has moving parts worth knowing:
   before the reboot can never be mistaken for the staged transaction.
 - The harvested entry appears in `kempt history` with the surface
   `offline (applied on reboot)`, and a notification announces it.
-- Accepted caveat: once the machine has rebooted, the harvest diffs the package set against the
-  snapshot taken at staging time, so if other tools changed packages in that window their changes
-  are included. What it reports is truthful, it is just not guaranteed to be only the staged
-  transaction.
+- Once the machine has rebooted, the harvest diffs the package set against the snapshot taken at
+  staging time, then asks dnf5's transaction history which transaction ran. When the history names
+  the transaction Kempt staged, the report keeps only the packages it touched. When the history
+  shows it did not run, the entry is recorded as `restart (staged update did not run)`. When the
+  history cannot answer, the report is the whole diff, so changes other tools made in that window
+  are included: truthful, just not guaranteed to be only the staged transaction.
 
 ## Holds
 

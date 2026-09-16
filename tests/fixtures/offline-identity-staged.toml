@@ -1,0 +1,12 @@
+[offline-transaction-state]
+rpmdb_cookie = "6a8850bfe6d068cd10ec27198cd642784ef3167e7c58c10cd0a18696f33a76f4"
+module_platform_id = ""
+poweroff_after = false
+verb = "upgrade"
+system_releasever = "44"
+target_releasever = "44"
+cachedir = "/var/cache/libdnf5"
+status = "ready"
+cmd_line = "dnf5 upgrade --offline -y --exclude=tree"
+state_version = 2
+

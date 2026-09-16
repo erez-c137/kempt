@@ -413,6 +413,44 @@ This is also the suite's DEFAULT: `sandbox()` points `KEMPT_OFFLINE_TXJSON` here
 test runs in is "the staged transaction contains ca-certificates, librepo and openldap". A test that
 writes a marker and holds one of those three sees a conflict warning by design.
 
+## tests/fixtures/offline-identity-*, dnf-history-list.json, dnf-history-info-<id>.json
+**Captured live**, 2026-09-15, in one throwaway Fedora 44 container
+(`registry.fedoraproject.org/fedora:44`), byte for byte. In order:
+
+1. The GA builds of zsh, nano, tree and sqlite installed with the updates repository disabled, so
+   the image has updates to stage.
+2. `dnf5 upgrade --offline -y --exclude=tree`, then `DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline
+   reboot -y`: a stage in the shape `kempt-apply dnf-offline-stage` builds. Its state toml and
+   transaction.json are `offline-identity-staged.toml` and `offline-identity-staged-transaction.json`.
+3. `dnf5 offline clean -y`, then `dnf5 upgrade --offline -y --exclude=nano` and the same arm: a
+   stage made over it outside Kempt. `offline-identity-replaced.toml` and
+   `offline-identity-replaced-transaction.json`.
+4. `dnf5 offline _execute`, the command `dnf5-offline-transaction.service` runs at boot. In a
+   container it applies the transaction, removes the toml, transaction.json and `/system-update`,
+   and then exits 1, because there is no D-Bus to ask for the reboot.
+5. As an ordinary user: `dnf5 -C --disablerepo='*' history list --json` (`dnf-history-list.json`)
+   and `history info <id> --json` for every id, with nothing on stderr. Ids 3 to 8 are shipped as
+   `dnf-history-info-<id>.json`. Ids 1 and 2 are the image build's own transactions, ten days older
+   than the stage and outside any lookup window, so they are not.
+
+What they pin:
+
+- **The two tomls carry the same `rpmdb_cookie`.** A stage made over another against an unchanged
+  rpm database keeps the cookie, so the cookie alone cannot tell them apart. The command and the
+  package set can: `nano` is in the first transaction and not in the second.
+- **History entry 8 is the applied transaction.** Its `command_line` in the list is the replaced
+  toml's `cmd_line` verbatim, its `rpmdb_version_begin` in `history info` is that toml's
+  `rpmdb_cookie`, and the names it installed equal the replaced transaction.json's. `history info`
+  has no `command_line` key; the same text is in `description`.
+- **Staging records no history entry.** Nothing sits between the last install (7) and the applied
+  transaction (8), although two stages and a clean happened there.
+- **`history info` writes the epoch into every nevra** (`curl-0:8.18.0-10.fc44.x86_64`), where
+  transaction.json does not. The shared name reader reads from the right and does not care.
+- **Which dnf5 wrote what.** The stages, the arms and `_execute` ran dnf5 5.4.3.0. The transaction
+  upgraded dnf5 itself, so the history was read back by dnf5 5.4.4.0. The same session in an earlier
+  container answered `history info` for an id it does not have with `[]` under exit 0, which is what
+  the stub in `tests/test_offline_identity.sh` answers too.
+
 ## tests/fixtures/offline-transaction-excluded.json
 **Captured live**, same container and session, 2026-09-05: the same three packages re-staged as
 `dnf5 -y -q upgrade --offline --exclude=librepo ca-certificates openldap` and armed the same way.

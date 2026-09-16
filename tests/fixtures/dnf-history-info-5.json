@@ -1,0 +1,25 @@
+[
+  {
+    "id":5,
+    "start_time":1789500324,
+    "end_time":1789500324,
+    "rpmdb_version_begin":"acb3da1d569ad74ccaaa72dbfa8488b4ffcdca681ec449aa0aa3a685df9a3261",
+    "rpmdb_version_end":"4923394ed3ea4696c1005bebb287ccb3c17f7f4c3fc62b26f33ce65dc36d5177",
+    "user_id":0,
+    "user_name":"0 Super User <root>",
+    "status":"Ok",
+    "releasever":"44",
+    "description":"dnf5 -y -q --disablerepo=updates* install nano",
+    "comment":"",
+    "packages":[
+      {
+        "nevra":"nano-0:8.7.1-1.fc44.x86_64",
+        "action":"Install",
+        "reason":"User",
+        "repository":"fedora"
+      }
+    ],
+    "groups":[],
+    "environments":[]
+  }
+]

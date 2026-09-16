@@ -57,6 +57,11 @@ sandbox() {  # fresh dirs per test file; call first
   # pending. A path that does not exist makes every size query fail, which is also the contract
   # worth exercising by default: a failed size query yields no number and never a failed check.
   export KEMPT_DNF_SIZES_CMD="$TESTTMP/UNSTUBBED-dnf-sizes"
+  # Poisoned too: unset, every harvest the suite drives would ask the REAL dnf5 history of the box
+  # running it which transaction ran, and the answer would depend on that box's past. A path that
+  # does not exist is "the history did not answer", which is also the branch every harvest test
+  # written before transaction identity expects: the harvest behaves exactly as it did then.
+  export KEMPT_DNF_HISTORY_CMD="$TESTTMP/UNSTUBBED-dnf-history"
   # PINNED rather than poisoned, and it is the one seam where "a path that does not exist" would be
   # the wrong default. Unset, this reads the REAL
   # /usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml, so whether the box running
