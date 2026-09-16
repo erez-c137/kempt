@@ -424,6 +424,10 @@ It asks for authorization once, because removing a stored transaction is root's 
 nothing staged it says so and exits 0 without asking for anything. A leftover record with no
 transaction under it is cleared the same way, again without a prompt.
 
+The widget offers the same thing, so nobody has to come here for it: **Discard Staged Update** on
+the staged banner runs this command, reports whichever of these lines it printed, and re-checks.
+See [The popup](#the-popup).
+
 **It will not discard a Fedora release upgrade.** dnf5 keeps one stored transaction and a release
 upgrade sits in the same slot, so discarding "the staged update" over one would cancel an upgrade
 that took gigabytes to download. Kempt refuses, exits 5 with nothing changed, and names what it
@@ -1212,6 +1216,29 @@ If the staged update moved between the banner being drawn and the button being p
 applied it, something re-staged, someone ran `dnf5 offline clean` - nothing runs, and the popup
 says `The staged update changed since this was offered. Nothing was rebuilt; check the banner
 above.` with the banner re-drawn from what is actually on disk. Consent given to one staged update is not spent on a different one.
+
+Beside it, on **every** staged banner - the green one as well as the two warnings - is **Discard
+Staged Update**. It is `kempt unstage` from the popup: it removes the staged update, so the next
+restart installs nothing, and the banner goes away. Staging an update and then thinking better of
+it is not a problem anybody should have to open a terminal to fix. It is drawn last, so on a
+warning it stands beside **Rebuild Staged Update** rather than in its place, and its tooltip says
+the cost before you press it:
+
+> Removes the update waiting for the next restart, so the restart installs nothing. Asks for
+> authorization, and deletes the packages it downloaded, so staging again downloads them again.
+
+The second half is the whole difference between discarding and rebuilding. A rebuild keeps dnf5's
+package cache and reuses it; a discard runs `dnf5 offline clean`, which takes the downloaded
+packages away with the transaction, so staging again fetches them over the network. It asks for
+authorization for the same reason staging does: a stored transaction is root's business.
+
+Every outcome is reported in the popup, in the words `kempt unstage` used: the discard, a box where
+nothing was staged after all, a refusal, another update holding the lock, or a failure. And if the
+staged update moved between the banner being drawn and the button being pressed, nothing runs and
+the popup says `The staged update changed since this was offered. Nothing was discarded; check the
+banner above.` - the same re-verify the rebuild does, for the same reason. With a Fedora release
+upgrade stored the button is not on the banner at all, because `kempt unstage` refuses it: dnf5
+keeps one stored transaction, and discarding what is in that slot would cancel the upgrade.
 
 There is a third spelling, for when Kempt cannot read the staged package list at all (a stage made
 by an older build, or a dnf5 record it does not recognise) and you are holding dnf packages:
