@@ -1450,6 +1450,9 @@ cmd_config() {
     get) [[ -n "${2:-}" && $# -le 3 ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
          config_get "$2" "${3-}" ;;
     set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
+         # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
+         # stops a newer widget writing a key it knows and this build does not.
+         config_warn_unknown "$2" "$3"
          config_set "$2" "$3" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac

@@ -871,6 +871,18 @@ kempt config get refresh_interval_min   # 60
 Keys must match `^[a-z][a-z0-9_]+$` and values must be single-line, or `set` exits 2. Every key,
 its type, its default and its effect are in [configuration.md](configuration.md).
 
+`set` **warns and stores** when it does not recognise the key, or the value for a key with a fixed
+set of them:
+
+```
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+```
+
+The warning is on stderr, the value is still written, and the exit status is still 0 - a newer
+widget or a later Kempt may read a key this build has never heard of, so refusing would make the
+CLI the thing that stopped it working. What it prevents is the silent case: a typo that sits in the
+config file doing nothing while you wait for behaviour that is never going to arrive.
+
 ## --version
 
 ```bash

@@ -46,6 +46,32 @@ way.
 Unknown keys can be stored (any key matching `^[a-z][a-z0-9_]+$` is accepted) but nothing reads
 them. `kempt config get` on a key with no value and no built-in default prints an empty line.
 
+`kempt config set` **warns and stores** when it does not recognise what you wrote - an unknown key,
+or a value outside the set a key accepts:
+
+```bash
+kempt config set surfce terminal
+```
+
+```
+warning: unknown setting 'surfce' - Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex
+```
+
+```bash
+kempt config set surface bogus
+```
+
+```
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+```
+
+The warning goes to stderr, the value is still written and the command still exits 0. It warns
+rather than refusing because a newer widget, or a later version of Kempt, may read a key this build
+has never heard of, and a CLI that refused would be the thing that stopped it working. Booleans are
+not checked this way, because "anything that is not `true`, `1` or `yes` is false" is the
+documented rule rather than a mistake, and `widget_icon_size` is validated by the widget. `kempt
+hold` and `kempt unhold` say nothing on success, as they always have.
+
 `risky_regex` is matched against dnf package names only, and build or documentation tails are
 always dropped afterwards, whatever the pattern says: names ending in `-devel`, `-headers`,
 `-static`, `-tools`, `-doc` or containing `-macros` never count as session-critical, because the

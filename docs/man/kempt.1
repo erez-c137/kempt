@@ -265,6 +265,12 @@ if given.
 Set a configuration value. Keys must match
 .RB ' ^[a-z][a-z0-9_]+$ '
 and values must be single\-line.
+An unrecognized key, or a value outside the set a key accepts, is reported on standard error and
+then stored anyway, with exit status 0: a newer widget or a later version may read a key this build
+does not know, so refusing would make the CLI the thing that stops it working. Booleans are not
+checked this way, because anything that is not
+.BR true ", " 1 " or " yes
+is documented to mean false.
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets the current user apply updates without the authentication

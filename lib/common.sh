@@ -235,6 +235,41 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
     END { if (prev != "") print prev "\t" vals }'
 }
 
+# Every setting this build knows, and the list `config set` warns against. It sits beside
+# kempt_default because the two are twins: a key with a default belongs here, and a key here must
+# have a default there, or `config get` answers with an empty string for a setting Kempt claims to
+# know. Adding a backend or a widget setting means adding it in both places.
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex"
+
+# The values a key with a FIXED set accepts. Only `surface` has one. The booleans take anything and
+# read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
+# worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
+# the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
+# observe. A table, so a second enum is one line rather than a new branch.
+config_enum_values() {  # key → accepted values, space separated, or nothing
+  case "$1" in
+    surface) printf '%s\n' "terminal popup background offline" ;;
+  esac
+}
+
+# What `config set` says when it did not recognise what was written. WARN, never refuse: an unknown
+# key may be one a newer widget or a later Kempt reads, and a CLI that refused would be the thing
+# that stopped it working. So the write goes through and the status stays 0; the only change is
+# that a typo stops being silent. `surface bogus` used to sit in the config file doing nothing at
+# all, with the person waiting for behaviour that was never going to arrive.
+# Called from cmd_config and nowhere else, so config_set stays quiet for its internal callers.
+config_warn_unknown() {  # key value
+  local k="$1" v="$2" vals
+  if [[ " $KEMPT_CONFIG_KEYS " != *" $k "* ]]; then
+    echo "warning: unknown setting '$k' - Kempt does not read it. Known settings: ${KEMPT_CONFIG_KEYS// /, }" >&2
+    return 0
+  fi
+  vals="$(config_enum_values "$k")"
+  [[ -n "$vals" ]] || return 0
+  [[ " $vals " == *" $v "* ]] && return 0
+  echo "warning: '$v' is not a value $k accepts. Accepted: ${vals// /, }" >&2
+}
+
 kempt_default() {  # key → default ("" if unknown)
   case "$1" in
     include_flatpak|auto_accept) echo true ;;
