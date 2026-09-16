@@ -176,6 +176,34 @@ assert_json_eq() {  # got expected label (order-insensitive keys)
   assert_eq "$(jq -Sc . <<<"$1")" "$(jq -Sc . <<<"$2")" "$3"
 }
 
+# Substring assertions. The suite carries hundreds of hand-rolled
+# `grep -qF x file && echo ok || { echo FAIL; _fail=1; }` sites, and what they print on failure is
+# the label and nothing else: not what was wanted, not what arrived, so the only way to learn
+# anything is to run the command again by hand. Fixed strings rather than patterns, because that
+# is what the sites being replaced were (`grep -qF`) and because a needle that quietly turns out
+# to be a regex is its own bug.
+assert_contains() {  # haystack needle label
+  local _assert_at; _assert_at="$(_at)"
+  if [[ "$1" == *"$2"* ]]; then echo "ok: $3"
+  else
+    echo "FAIL: $3  [$_assert_at]"
+    echo "  expected to contain: $2"
+    echo "  got:"; sed 's/^/    /' <<<"$1" | head -20
+    _fail=1
+  fi
+}
+
+assert_not_contains() {  # haystack needle label
+  local _assert_at; _assert_at="$(_at)"
+  if [[ "$1" != *"$2"* ]]; then echo "ok: $3"
+  else
+    echo "FAIL: $3  [$_assert_at]"
+    echo "  expected NOT to contain: $2"
+    echo "  got:"; sed 's/^/    /' <<<"$1" | head -20
+    _fail=1
+  fi
+}
+
 assert_exit() {  # expected_rc label [--] cmd...
   local want="$1" label="$2"; shift 2
   local _assert_at; _assert_at="$(_at)"
