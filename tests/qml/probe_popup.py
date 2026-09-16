@@ -1800,6 +1800,41 @@ QtObject {
     p.check("...while the padlock offers a refusal to install rather than a hold at no version",
             row(NEW_ROW, "(%s).text" % new_pin), "Skip installing brandnew")
 
+    # A Flatpak runtime. Two things make it not an app row: the branch, which is half of what the
+    # runtime IS (the same runtime sits on two branches at once, and without it the popup draws
+    # what looks like one runtime twice), and the missing padlock - `kempt hold` refuses a runtime,
+    # so a padlock here would report a refusal every time it was pressed.
+    RT_ROW = {"kind": "item", "name": "org.freedesktop.Platform.GL.default",
+              "from": "26.1.8", "to": "26.1.9", "held": False, "backend": "flatpak",
+              "branch": "24.08", "holdable": False}
+    rt_name = labelled('String(o.text).indexOf("GL.default") >= 0')
+    any_pin = labelled('o.animateClick !== undefined')
+    p.check("a runtime row names the branch beside the id, which is the other half of its identity",
+            row(RT_ROW, "(%s).text" % rt_name), "org.freedesktop.Platform.GL.default 24.08")
+    p.check("...and offers no padlock at all, because a runtime cannot be held",
+            row(RT_ROW, "(%s).visible" % any_pin), False)
+    # The app beside it is untouched: the padlock is gone for runtimes only, never for the rows a
+    # hold really does apply to.
+    p.check("...while an ordinary row still has one", row(ITEM_ROW, "(%s).visible" % any_pin), True)
+    p.check("...and an ordinary row still draws its name with no branch appended",
+            row(ITEM_ROW, "(%s).text" % name), "nodejs")
+
+    # flatpak publishes no version for many runtimes, because a runtime is versioned by its branch.
+    # Both halves unknown is therefore a real state, and "new → ?" would invent a fact and bury the
+    # one that is true - the branch, which is already on the name line.
+    RT_NOVER = {"kind": "item", "name": "org.kde.Platform", "from": "?", "to": "?",
+                "held": False, "backend": "flatpak", "branch": "5.15-24.08", "holdable": False}
+    arrow = labelled('String(o.text).indexOf("→") >= 0')
+    p.check("a runtime with no version at all draws no version line rather than an empty arrow",
+            row(RT_NOVER, "(%s).visible" % arrow), False)
+    p.check("...while its name line still carries the branch, which is what identifies it",
+            row(RT_NOVER, "(%s).text" % labelled('String(o.text).indexOf("kde.Platform") >= 0')),
+            "org.kde.Platform 5.15-24.08")
+    # A row that knows only its pending version is NOT that case: the arrow stays, because "new"
+    # is a fact about it.
+    p.check("...and a row that is merely not installed yet keeps its version line",
+            row(NEW_ROW, "(%s).visible" % arrow), True)
+
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
 # every assertion above passing.

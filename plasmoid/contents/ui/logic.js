@@ -21,6 +21,14 @@
 var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
+// A backend may group its pending items further, by the `kind` its items carry. Flatpak is the one
+// that does: `flatpak update` updates runtimes as well as apps, so Kempt counts and itemizes them -
+// and they get a heading of their own UNDER the apps rather than sitting among them beneath a title
+// that says "Apps". An item with no `kind` at all is the ordinary case and keeps the backend's own
+// heading, which is what makes the key additive: every state file written before runtimes were
+// counted has no `kind` anywhere in it and renders exactly as it always did.
+var KIND_SECTION_TITLES = { flatpak: { runtime: "Flatpak runtimes" } };
+
 // --- the copy table ----------------------------------------------------------------------------
 // Every user-facing string the QML writes as a literal, in ONE place, so the wording is decided
 // once and a node test can pin it. House rules: Title Case for buttons, sentence case for
@@ -995,21 +1003,48 @@ function collectItems(state) {
         if (!backend || typeof backend !== "object") continue;
         if (backend.enabled === false) continue;
         var items = (backend.items && typeof backend.items.length === "number") ? backend.items : [];
-        var pending = [];
+        // The backend's own group, then one group per `kind` its items carry, in the order the
+        // kinds are first seen - so the CLI decides the order here too, exactly as it does for rows.
+        var pending = [], byKind = {}, kindOrder = [], k;
         for (j = 0; j < items.length; j++) {
             var item = items[j] || {};
+            var itemKind = (item.kind === undefined || item.kind === null) ? "" : String(item.kind);
             var row = {
                 name: item.name === undefined || item.name === null ? "" : String(item.name),
                 from: newestOf(item.from),
                 to: newestOf(item.to),
                 held: !!item.held,
-                backend: key   // half of the `kempt hold <backend>:<name>` argument
+                backend: key,  // half of the `kempt hold <backend>:<name>` argument
+                // A runtime's identity is its id AND its branch: the same runtime is routinely
+                // installed on two branches, and two rows reading the same name with no branch
+                // between them are two rows a person cannot tell apart. "" for everything else.
+                branch: (item.branch === undefined || item.branch === null) ? "" : String(item.branch),
+                // Whether this row gets a padlock. Runtimes do not: `kempt hold` refuses them,
+                // because apps share a runtime and holding one breaks the next app that needs it.
+                // A padlock that reports a refusal every time is worse than no padlock.
+                holdable: itemKind !== "runtime"
             };
             if (row.held) { heldItems.push(row); heldTotal++; }
-            else { pending.push(row); actionable++; }
+            else {
+                if (itemKind === "") pending.push(row);
+                else {
+                    if (!byKind[itemKind]) { byKind[itemKind] = []; kindOrder.push(itemKind); }
+                    byKind[itemKind].push(row);
+                }
+                actionable++;
+            }
         }
         if (pending.length > 0) {
             sections.push({ title: SECTION_TITLES[key] || key, backend: key, items: pending });
+        }
+        // A kind this build has never heard of still gets a section, under a title built from its
+        // own two words - the same rule backendKeys follows for an unknown backend. Dropping it
+        // would hide pending updates the badge has already counted.
+        for (k = 0; k < kindOrder.length; k++) {
+            var kd = kindOrder[k];
+            var kindTitles = KIND_SECTION_TITLES[key] || {};
+            sections.push({ title: kindTitles[kd] || (key + " " + kd),
+                            backend: key, kind: kd, items: byKind[kd] });
         }
     }
     return { sections: sections, heldItems: heldItems, actionable: actionable, heldTotal: heldTotal };
@@ -1035,9 +1070,15 @@ function rowsOf(sections, heldItems) {
     return rows;
 }
 
+// `kind` here is the ROW kind - "item" or "header" - and has nothing to do with an item's flatpak
+// kind, which never reaches a row: the section above it already carries that, and the two facts a
+// row itself needs are its branch and whether it can be held.
 function rowOf(item, kind) {
     return { kind: kind, title: "", name: item.name, from: item.from, to: item.to,
-             held: item.held, backend: item.backend };
+             held: item.held, backend: item.backend,
+             branch: item.branch || "",
+             // Absent means holdable, so a row built by an older caller keeps its padlock.
+             holdable: item.holdable !== false };
 }
 
 // --- the last run --------------------------------------------------------------------------------

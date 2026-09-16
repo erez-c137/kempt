@@ -230,6 +230,23 @@ assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "0" \
   "every pending app held → flatpak is not run at all, rather than run on all of them"
 # Guards the vacuous pass: a run that never reached the flatpak half also writes no FLATPAK line.
 assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "...on a run that did reach it"
+
+# ...but a pending RUNTIME is still updated, even with every app held. Runtimes cannot be held, so
+# "every app is held" says nothing about them - and `flatpak update` would have updated them anyway,
+# which is the disagreement between the count and the transaction this whole area exists to end.
+# The runtime seams are pinned at `true` for the rest of this file (sandbox), so this is the one
+# block where a runtime is pending at all.
+: > "$WORLD/apply-calls"
+KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="cat $FIXTURES/flatpak-remote-ls-runtime.tsv" \
+KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $FIXTURES/flatpak-list-runtime.tsv" \
+  "$KEMPT" update >/dev/null
+assert_eq "$(grep '^FLATPAK' "$WORLD/apply-calls")" "FLATPAK --noninteractive -y --runtime" \
+  "every app held but a runtime pending → the runtimes are still updated, as one command"
+# Guards the pair: the apps really are all held, so that single line is the runtime arm and not an
+# app slipping through it.
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
+  "...and no app is named, because every one of them is held"
+
 "$KEMPT" unhold flatpak:net.mkiol.SpeechNote
 "$KEMPT" unhold flatpak:org.gimp.GIMP
 

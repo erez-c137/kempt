@@ -894,4 +894,40 @@ if [[ -s "$TESTTMP/helper-fds" ]]; then
 else
   skip "the refresh helper was not reached in this run, so its descriptors say nothing"
 fi
+
+# --- runtimes reach the state file, and the counts include them ---------------------------------
+# The badge is `actionable`, and `flatpak update` updates runtimes, so a state file that left them
+# out was a badge that undercounted its own transaction. Scoped to this section: the fixtures above
+# are pinned at 3 flatpak items and the runtime seams are `true` for all of them.
+"$KEMPT" config set include_flatpak true >/dev/null
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="cat $FIXTURES/flatpak-remote-ls-runtime.tsv"
+export KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $FIXTURES/flatpak-list-runtime.tsv"
+for h in $(holds_all 2>/dev/null || true); do "$KEMPT" unhold "$h" >/dev/null 2>&1 || true; done
+rt_state="$("$KEMPT" check)"
+assert_eq "$(jq '.backends.flatpak.items | length' <<<"$rt_state")" "7" \
+  "the flatpak backend counts apps and runtimes together (3 + 4)"
+assert_eq "$(jq '[.backends.flatpak.items[] | select(.kind == "runtime")] | length' <<<"$rt_state")" "4" \
+  "...four of them runtimes, each saying so"
+assert_eq "$(jq '.backends.flatpak.actionable' <<<"$rt_state")" "7" "the per-backend count includes runtimes"
+assert_eq "$(jq .actionable <<<"$rt_state")" "$((n_dnf + 7))" "...and so does the badge number"
+# Identity is the pair, and the state file has to carry both halves or a reader cannot tell the two
+# rows apart. This is the case the whole change exists for.
+assert_eq "$(jq -r '[.backends.flatpak.items[] | select(.name == "org.freedesktop.Platform.GL.default")] | length' <<<"$rt_state")" "2" \
+  "one runtime on two branches is two items in the state"
+assert_eq "$(jq -r '[.backends.flatpak.items[] | select(.name == "org.freedesktop.Platform.GL.default") | .branch] | sort | join(",")' <<<"$rt_state")" \
+  "24.08,24.08extra" "...distinguished by branch, which is the other half of the identity"
+assert_eq "$(jq -r '[.backends.flatpak.items[] | select(.kind == null) | .branch] | map(select(. != null)) | length' <<<"$rt_state")" "0" \
+  "an app carries neither key, which is what makes both additive"
+assert_eq "$(jq -r .schema <<<"$rt_state")" "1" "adding both keys leaves the schema at 1"
+
+# A runtime is never held, even when the holds file names one. Such a line is writable only by a
+# build that predates the refusal, and it matched nothing until runtimes were counted.
+printf 'flatpak:org.kde.Platform\n' >> "$KEMPT_STATE_DIR/holds"
+stale_hold_state="$("$KEMPT" check)"
+assert_eq "$(jq -r '.backends.flatpak.items[] | select(.name == "org.kde.Platform") | .held' <<<"$stale_hold_state")" "false" \
+  "a stale hold on a runtime id does not hold the runtime"
+assert_eq "$(jq .held_total <<<"$stale_hold_state")" "0" "...and is counted as held by nothing"
+"$KEMPT" unhold flatpak:org.kde.Platform >/dev/null 2>&1 || true
 finish

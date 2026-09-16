@@ -729,6 +729,27 @@ no-op, and removing one that was never there succeeds.
 Holds are **Kempt's own list**, not a system-wide version lock. A manual `sudo dnf5 upgrade`
 outside Kempt ignores them.
 
+**Flatpak runtimes cannot be held.** Kempt counts and lists them, because `flatpak update` updates
+them, but asking to hold one is refused and nothing is written:
+
+```bash
+kempt hold flatpak:org.kde.Platform
+```
+
+```
+org.kde.Platform is a Flatpak runtime, and runtimes cannot be held: apps share them, so holding one breaks the next app that needs it. Hold the app instead.
+```
+
+The reason is that a runtime is not yours alone. Holding an app skips that app and nothing else,
+which is what a hold is for. Holding a runtime leaves every app that depends on it waiting for a
+version that never arrives, and what you see is an app failing to start, somewhere else entirely,
+with nothing connecting it to the padlock you pressed. So the runtime rows in the popup have no
+padlock on them at all, rather than one that reports a refusal every time you press it.
+
+If a hold on a runtime id is already in your holds file - written before runtimes were counted,
+when the name matched nothing - it is ignored rather than honoured, and the runtime is shown as
+pending like any other. Remove it with `kempt unhold flatpak:<id>` to tidy the list.
+
 ### Holding a package that is already staged
 
 A hold applies from the **next** transaction Kempt builds. If an offline update is already staged
@@ -1104,8 +1125,15 @@ The same conflict is reported by `kempt hold` in a terminal and by `kempt doctor
 [Holding a package that is already staged](#holding-a-package-that-is-already-staged) for the
 command-line side and the second remedy, `sudo dnf5 offline clean`.
 
-**The list** is grouped **System (dnf)**, **Apps (flatpak)** and **Held**, each row showing the
-package and the versions it is moving between. The version line is never truncated: it wraps onto
+**The list** is grouped **System (dnf)**, **Apps (flatpak)**, **Flatpak runtimes** and **Held**,
+each row showing the package and the versions it is moving between. Runtimes are the shared
+libraries Flatpak apps are built on, and they get a heading of their own because `flatpak update`
+updates them too: counting them but hiding them would mean the badge said one thing and the list
+another. A runtime row names its branch beside its id - the same runtime is often installed on two
+branches at once, and they update independently - and it carries no padlock, because runtimes
+cannot be held (see [hold, unhold, holds](#hold-unhold-holds)). Where flatpak publishes no version
+for a runtime, which is common because a runtime is versioned by its branch, the row shows the
+branch and no version line rather than an arrow pointing at nothing. The version line is never truncated: it wraps onto
 a second line instead, because `2:24.19.0-1nodesource` is the line you compare between two
 machines and the tail is the half that differs. A name too long for the row elides instead. A
 package that is not installed yet - the update would add it - shows `new → 1.0-1.fc44` rather than

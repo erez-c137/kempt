@@ -43,4 +43,32 @@ assert_eq "$(speaks_after 'hold_add dnf lock-probe >/dev/null')" "still speaking
 assert_eq "$(speaks_after 'acquire_lock; release_lock')" "still speaking" \
   "...and after the update lock, which closes its descriptor the same way"
 hold_remove dnf lock-probe
+
+# --- a runtime cannot be held -------------------------------------------------------------------
+# Apps SHARE a runtime, so holding one does not skip an update you did not want - it breaks the next
+# app that needs it, somewhere else entirely, with nothing on screen connecting the two. The refusal
+# is the command's, not the backend's: the answer is the same whether or not an update is waiting.
+KEMPT="$REPO_ROOT/bin/kempt"
+export KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $FIXTURES/flatpak-list-runtime.tsv"
+before="$(holds_all | wc -l)"
+assert_exit 2 "holding a Flatpak runtime is refused" "$KEMPT" hold flatpak:org.kde.Platform
+rt_msg="$("$KEMPT" hold flatpak:org.kde.Platform 2>&1 >/dev/null || true)"
+# The message has to say WHY, or the refusal reads as a bug in Kempt rather than a fact about
+# runtimes - and it has to say what to do instead, because the person wanted something reasonable.
+grep -q 'runtimes cannot be held' <<<"$rt_msg" \
+  && echo "ok: the refusal says what it refused" || { echo "FAIL: refusal wording - got: $rt_msg"; _fail=1; }
+grep -q 'breaks the next app that needs it' <<<"$rt_msg" \
+  && echo "ok: ...and why, in terms of what the person would feel" || { echo "FAIL: refusal reason - got: $rt_msg"; _fail=1; }
+grep -q 'Hold the app instead' <<<"$rt_msg" \
+  && echo "ok: ...and what to do instead" || { echo "FAIL: refusal remedy - got: $rt_msg"; _fail=1; }
+assert_eq "$(holds_all | wc -l)" "$before" "a refused hold writes nothing"
+# An APP keeps working, which is the half of the promise that must not regress. Same fixture, same
+# command, an id the runtime list does not carry.
+assert_exit 0 "holding a Flatpak app still works" "$KEMPT" hold flatpak:net.mkiol.SpeechNote
+assert_eq "$(holds_for flatpak | grep -cxF net.mkiol.SpeechNote)" "1" "...and is written to the holds file"
+"$KEMPT" unhold flatpak:net.mkiol.SpeechNote >/dev/null
+# A dnf package that happens to share a runtime's name is not a flatpak runtime, so the gate is
+# scoped to the backend rather than to the name.
+assert_exit 0 "a dnf hold is never refused by the runtime gate" "$KEMPT" hold dnf:org.kde.Platform
+"$KEMPT" unhold dnf:org.kde.Platform >/dev/null
 finish
