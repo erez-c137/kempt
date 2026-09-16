@@ -128,3 +128,72 @@ jobs:
           bash tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
           grep -qE '^skip: PySide6 is absent' /tmp/qml.log \
             && { echo "::error::PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
+
+  # The package, built the way Fedora builds it. The spec's check stage runs the whole suite in a
+  # MINIMAL build root, which has less in it than either job above: no node, no Python, no locale
+  # beyond C.UTF-8, only what the spec declares. A test that quietly needs something the spec does
+  # not declare passes on a runner and on a workstation and fails here, and until this job existed
+  # the first place that could happen was a release build.
+  package:
+    name: RPM build (check stage included)
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v7
+
+      # rpmspec reads the build requirements out of the spec itself, so this list cannot drift from
+      # what the spec declares.
+      - name: Build tools and the spec's own build requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          dnf5 -y -q install rpm-build rpmdevtools rpmlint createrepo_c
+          mapfile -t buildrequires < <(rpmspec -q --buildrequires kempt.spec)
+          dnf5 -y -q install "${buildrequires[@]}"
+
+      # Laid out exactly like the release archive GitHub serves for a tag: one top directory named
+      # kempt-VERSION. There is no .gitattributes, so nothing in the tree is left out of that
+      # archive and nothing is left out of this one.
+      - name: The source tarball, laid out like the release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="$(head -1 VERSION)"
+          useradd -m builder
+          su - builder -c rpmdev-setuptree
+          tar --exclude=./.git --transform "s,^\.,kempt-$v," \
+            -czf "/home/builder/rpmbuild/SOURCES/kempt-$v.tar.gz" .
+          cp kempt.spec /home/builder/rpmbuild/SPECS/
+          chown -R builder: /home/builder/rpmbuild
+
+      # As an ordinary user, never as root: several tests exercise what an unprivileged caller
+      # cannot do (an unreadable file, a write that must fail), and as root they skip.
+      - name: Build, which runs the suite in the check stage
+        run: su - builder -c 'rpmbuild -ba ~/rpmbuild/SPECS/kempt.spec'
+
+      # Warnings are expected and described in docs/RELEASING.md; an error is not.
+      - name: rpmlint reports no errors
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$(rpmlint /home/builder/rpmbuild/SRPMS/*.src.rpm /home/builder/rpmbuild/RPMS/noarch/*.rpm 2>&1)"
+          echo "$out"
+          grep -qE ' 0 errors, ' <<<"$out" || { echo "::error::rpmlint reported errors"; exit 1; }
+
+      # The command the README gives, against the packages just built.
+      - name: Install the widget package the way a user would
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="$(head -1 VERSION)"
+          mkdir -p /localrepo
+          cp /home/builder/rpmbuild/RPMS/noarch/*.rpm /localrepo/
+          createrepo_c -q /localrepo
+          printf '[local]\nname=local\nbaseurl=file:///localrepo\nenabled=1\ngpgcheck=0\n' > /etc/yum.repos.d/local.repo
+          dnf5 -y install kempt-plasmoid
+          test "$(rpm -q --qf '%{VERSION}' kempt)" = "$v"
+          test "$(rpm -q --qf '%{VERSION}' kempt-plasmoid)" = "$v"
+          test "$(kempt --version)" = "kempt $v"
+          # The build must leave the root helpers' privileged-mode shebang exactly as written.
+          test "$(head -1 /usr/libexec/kempt-apply)" = '#!/usr/bin/bash -p'
+          test "$(head -1 /usr/libexec/kempt-refresh)" = '#!/usr/bin/bash -p'

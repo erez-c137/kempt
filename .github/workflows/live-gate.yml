@@ -1,0 +1,48 @@
+# The offline lifecycle against REAL dnf5, once a week and on demand.
+#
+# The test suite stubs dnf5 and flatpak on purpose, so it cannot notice when dnf5 itself changes:
+# a renamed key in the offline transaction state file, a different status word, a new shape for
+# the stored transaction. tests/live/offline-gate.sh stages, arms, holds, rebuilds and breaks a
+# real offline transaction as root, so running it on a schedule is what turns a dnf5 update into a
+# red badge here instead of a wrong popup on someone's machine.
+#
+# Not on every push: it downloads real updates and takes several minutes, and what it guards
+# against changes when Fedora ships dnf5, not when this repository changes. Run it by hand
+# (workflow_dispatch) before a release that touches the offline path.
+name: live offline gate
+
+on:
+  schedule:
+    # Mondays 05:17 UTC. Off the hour, so it does not queue behind everyone else's midnight job.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: offline lifecycle on real dnf5
+    runs-on: ubuntu-latest
+    # The gate renames /usr/bin/dnf5, empties dnf5's package cache and points repositories at a
+    # dead address to inject failures. It refuses to run outside a throwaway container, and a job
+    # container is exactly that: it is discarded when the job ends.
+    container: registry.fedoraproject.org/fedora:44
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same layout tests/live/run-offline-gate.sh builds with podman on a workstation: the
+      # tree at /opt/kempt, and the two tools the CLI needs that a minimal image lacks.
+      - name: Put the tree where the gate expects it
+        run: |
+          dnf5 -y -q install jq util-linux
+          mkdir -p /opt/kempt
+          cp -a . /opt/kempt/
+          rm -rf /opt/kempt/.git
+          dnf5 --version | head -1
+
+      - name: Run the gate
+        env:
+          KEMPT_GATE_CONTAINER: "1"
+        run: bash /opt/kempt/tests/live/offline-gate.sh
