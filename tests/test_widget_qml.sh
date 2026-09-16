@@ -75,22 +75,35 @@ run_probe() {  # probe_name
   grep -E '^--- safe_probe' "$out" | sed 's/^/  /' || true
 }
 
-echo "-- Executor.qml: the one place commands run"
-run_probe probe_executor
-echo "-- main.qml: state machine, watcher, panel icon geometry"
-run_probe probe_state
-echo "-- FullRepresentation.qml: popup actions, log tail, run-end watcher"
-run_probe probe_popup
-echo "-- the hold round trip: the pending row, the keyboard, the announcement"
-run_probe probe_hold
-echo "-- configGeneral.qml: the settings page's apply path"
-run_probe probe_settings
-echo "-- the keyboard and the screen reader: focus on open, the tab ring, Escape"
-run_probe probe_a11y
-echo "-- controls that vanish or go inert under the keyboard, and where focus goes then"
-run_probe probe_focus
-echo "-- the restart message: asking for KDE's prompt, and what the popup remembers"
-run_probe probe_restart
+# WHICH probes run is a glob, not a list kept by hand. The list used to be eight `run_probe` lines,
+# so a ninth probe file was a file nothing executed: it would sit in the tree looking like coverage
+# and never fail, which is the quietest way a test suite can lie. The headings are a lookup, and a
+# probe with no heading still RUNS, named by its own file - the sentence is a courtesy, never the
+# thing that decides.
+declare -A PROBE_HEADING=(
+  [probe_executor]="Executor.qml: the one place commands run"
+  [probe_state]="main.qml: state machine, watcher, panel icon geometry"
+  [probe_popup]="FullRepresentation.qml: popup actions, log tail, run-end watcher"
+  [probe_hold]="the hold round trip: the pending row, the keyboard, the announcement"
+  [probe_settings]="configGeneral.qml: the settings page's apply path"
+  [probe_a11y]="the keyboard and the screen reader: focus on open, the tab ring, Escape"
+  [probe_focus]="controls that vanish or go inert under the keyboard, and where focus goes then"
+  [probe_restart]="the restart message: asking for KDE's prompt, and what the popup remembers"
+)
+probes=()
+for f in "$QMLDIR"/probe_*.py; do
+  [[ -e "$f" ]] || continue          # no nullglob here: an unmatched glob arrives as itself
+  probes+=("$(basename "$f" .py)")
+done
+if [[ ${#probes[@]} -eq 0 ]]; then
+  echo "FAIL: no probe files matched $QMLDIR/probe_*.py - the widget's QML was not executed"
+  _fail=1; finish
+fi
+echo "-- ${#probes[@]} probe file(s) found"
+for probe in "${probes[@]}"; do
+  echo "-- ${PROBE_HEADING[$probe]:-$probe.py}"
+  run_probe "$probe"
+done
 
 # Nothing may survive the battery. +2 is slack for an unrelated python3 that started while this
 # ran (the box runs other things); anything more than that is a probe that did not die.
