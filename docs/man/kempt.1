@@ -406,11 +406,13 @@ Launcher missing: no terminal emulator for the
 surface.
 .TP
 .B 5
-Aborted during pre\-flight. Nothing was changed. Two causes:
+Aborted during pre\-flight. Nothing was changed. Three causes:
 .B update
-on an image\-based Fedora, and
+on an image\-based Fedora;
 .B "update \-\-surface=offline"
-while dnf5 has a Fedora release upgrade stored.
+while dnf5 has a Fedora release upgrade stored; and
+.B run
+when the terminal window it launched never opened, so the update never began.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),

@@ -1161,6 +1161,19 @@ function runFinishedSince(run, sinceMs) {
     return Math.floor(at / 1000) >= Math.floor(sinceMs / 1000);
 }
 
+// runStartMessage(rc, stdout, stderr) -> "" when `kempt run` started a run, otherwise what to tell
+// the person. Only exit 0 means a run began, so only exit 0 may enter the updating pane: any other
+// status is a run that will never write state.json, and the pane would wait three hours for it.
+// The CLI's own first line wherever there is one: exit 4 names the missing emulator, exit 5 a
+// window that never opened, exit 3 the update already holding the lock.
+function runStartMessage(rc, stdout, stderr) {
+    if (rc === 0) return "";
+    var msg = firstLineOf(stderr) || firstLineOf(stdout);
+    if (msg !== "") return msg;
+    if (rc === 3) return "An update is already running.";
+    return "Could not start the update (exit " + rc + ").";
+}
+
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar around a
 // number, not a wording decision. The zero case is the exception: "no package changes" is the
@@ -1702,6 +1715,7 @@ if (typeof module !== "undefined" && module.exports) {
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
+        runStartMessage: runStartMessage,
         lastRunText: lastRunText,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,

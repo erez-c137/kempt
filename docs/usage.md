@@ -31,7 +31,7 @@ One contract, every subcommand:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` already holds the lock. |
 | 4 | Launcher missing: no terminal emulator for the `terminal` surface. |
-| 5 | Aborted during pre-flight. Nothing was changed. Two causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; and `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel. |
+| 5 | Aborted during pre-flight. Nothing was changed. Three causes: `update` on an image-based Fedora, where the system updates as an image rather than through dnf; `update --surface=offline` while dnf5 has a Fedora release upgrade stored, which staging would cancel; and `run` when the terminal window it launched never opened, so the update never began. |
 
 Exit 1's third case is the one that surprises people, because no run has failed. `kempt config
 set`, `kempt hold` and `kempt unhold` each read a file in your config directory, change one line
@@ -347,6 +347,15 @@ Exit 4 when the `terminal` surface is configured and the emulator is not install
 happens before the dry run too, so `--dry-run` tells you about a missing launcher instead of
 pretending it would work.
 
+Exit 3, with nothing launched, when another update already holds the lock. The update would be
+refused anyway, but inside a window or a detached shell, where nothing reads its status.
+
+Exit 5 when the terminal window never opened, for example over SSH with no display. Installed is
+not the same as able to draw a window, so `run` waits up to five seconds for the window to start
+the update. An emulator that exits with an error is reported at once, and one still running at the
+deadline counts as a slow start. The event log says `run did not start: <reason>`. A window that
+turns up after that report stands down and starts nothing.
+
 **A successful launch says nothing about the update's outcome.** `run` returns as soon as the
 child is detached. Poll `state.json` or `kempt history` for the result; never read `run`'s exit
 code as "updated".
@@ -481,7 +490,7 @@ The vocabulary is fixed, so the file is worth grepping:
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. It runs at most every three hours, and only on mains power over an unmetered connection. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak remote summary was fetched, on the same schedule and in the same step. Written only while `include_flatpak` is on. The two arms are recorded separately because they fail for unrelated reasons, and one failing never stops the other or the check that follows. |
 | `run start surface=<surface>` | A run is about to change the system. |
-| `run did not start: <reason>` | A run was refused in pre-flight and changed nothing: an image-based system, a staged Fedora release upgrade, or a package set that could not be read. Exit 5. |
+| `run did not start: <reason>` | A run was refused in pre-flight and changed nothing: an image-based system, a staged Fedora release upgrade, a package set that could not be read, or a terminal window that never opened. Exit 5. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished cleanly. |
 | `run failed rc=<n>: <reason>` | A run failed, with the first line of the log that names a failure. |
 | `offline staged <n>` | A transaction was staged for the next reboot. `<n>` comes from a check made just before staging, or from the last check when that one could not answer. |
