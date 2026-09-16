@@ -244,6 +244,8 @@ bumping `schema`.
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package that keeps several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order, so the last element is the newest. Readers that show one version take the last. |
+| `backends.<name>.items[].kind` | string, optional | What sort of thing this item is, when the backend distinguishes more than one. Today only `flatpak` writes it, and only ever as `"runtime"`. **Absent means the backend's ordinary item** - a Flatpak app, a dnf package - which is what makes the key additive: every state file written before runtimes were counted has no `kind` anywhere in it and means exactly what it always did. A reader that has never heard of the key lists runtimes among the apps, which is wrong but not broken; one that has shows them under their own heading. Additive key. |
+| `backends.<name>.items[].branch` | string, optional | The Flatpak branch this item is installed on, written for every item carrying `kind: "runtime"`. **A runtime's identity is its `name` and its `branch` together, not its name**: the same runtime is routinely installed on two branches at once (the GL runtime on `24.08` and `24.08extra`), the two update independently, and two items in this array can therefore share a `name`. Anything that keys items by name alone - a lookup table, a size join, a diff - must key on the pair instead wherever this is present. Absent for apps and for every dnf package. Additive key. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
 | `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
@@ -524,11 +526,18 @@ fetch happens in one place, under one policy.**
 | `dnf5 --cacheonly check-update --quiet` (`kempt-refresh check`) | No |
 | `dnf5 -C --disablerepo='*' needs-restarting` (`dnf_reboot_needed`) | No |
 | `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
+| `flatpak remote-ls --updates --system --runtime --cached ...` (`flatpak_check`) | No |
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
+| `flatpak list --system --runtime ...` (`flatpak_snapshot`, `flatpak_id_is_runtime`) | No |
 | `dnf5 --setopt=cachedir=/var/cache/libdnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
 | `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes** - that is what a run is |
+
+There is one flatpak refresh and not two, although there are two cached queries. A refresh fetches a
+**remote's** summary index, and that index is per remote and per arch rather than per kind: the
+cache is one `flathub.idx` plus one `.sub` file, and the `--cached` runtime query answers out of the
+same tree the app refresh fills. A second fetch would re-download a summary that had just arrived.
 
 Both backends are therefore **refresh-then-read-cache**, and both refreshes are triggered from
 `maybe_refresh_metadata` in `lib/common.sh`: at most once every three hours, only on mains power,
@@ -925,6 +934,7 @@ prevent.
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `kempt update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
 | `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the popup lists them in | A title and a place in the order. Miss it and the popup still lists your packages, under the raw backend key - the section heading reads `apt`. |
+| `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` - the heading for each `kind` a backend's items carry | Nothing, unless your backend writes `kind` on its items. If it does, a title per kind; miss it and the section still appears, headed `<backend> <kind>`. |
 | The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm` and `/var/lib/flatpak`, stat'ed every 30s so an update applied from anywhere shows up within seconds | The path your backend's database lives at. Miss it and the panel never notices your backend changing anything: the badge only moves on Kempt's own state file, so an update applied in a terminal sits there until the next timed check. |
 | `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. A man page that documents two of three backends is the kind of wrong that outlives the person who wrote it. |
 
@@ -1019,6 +1029,7 @@ destructive paths without ever running them.
 | `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 --setopt=cachedir=... -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Its own seam rather than a reuse of `KEMPT_DNF_CMD`, which four test files already point at a `needs-restarting` stub. `tests/lib.sh` points it at a path that does not exist, so no test file runs a real repoquery |
 | `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The dnf5 metadata cache `dnf_sizes` is pointed at, so a size comes from the same metadata the check did. Read, never run: when it is not readable the query drops the `--setopt` and falls back. Point it at a directory that does not exist to drive that branch |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
+| `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime twins. `flatpak update` updates runtimes as well as apps, so the check asks about both; flatpak filters by kind with a flag and has no kind column, which is why this is a second command rather than a wider parse. `branch` is in the columns because a runtime's identity is its id **and** its branch. `tests/lib.sh` PINS both at `true` rather than poisoning them: a path that does not exist would fail the runtime arm, and a failing arm fails the whole flatpak backend by design, so every check in the suite would go stale. `true` is the honest shape of a box with no runtimes |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network to *read*. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), which also runs as the user and never through `pkexec`. `tests/lib.sh` poisons it the same way, and for a louder reason: unstubbed, it would update the machine running the suite |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
@@ -1057,8 +1068,9 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
   would remove the whole text-parsing bug class (obsoletes sections, indentation, column drift,
   locale) by construction. v1 keeps the hardened, fixture-pinned text parser rather than churn
   the fixture and test layer mid-build. Migrating that one verb is the designated v2 upgrade.
-- **Flatpak is system scope only.** All four flatpak commands in `backends/flatpak.sh` (check,
-  installed lookup, refresh, update) name `--system`, so check, refresh and apply always agree.
+- **Flatpak is system scope only.** All six flatpak commands in `backends/flatpak.sh` (the app and
+  runtime checks, the app and runtime installed lookups, the refresh and the update) name
+  `--system`, so check, refresh and apply always agree.
   The scope used to be checked a second time inside the root helper; the apply no longer crosses
   that boundary, so agreement is now this one file's job. Per-user apps need no privileges and
   are a possible future unprivileged path.
@@ -1069,8 +1081,16 @@ sanitizes the environment, so a variable set by the caller never arrives inside 
   with dnf on purpose: dnf escalates twice, flatpak not at all. Two cases can still authenticate
   and are written down in [security.md](security.md#accepted-limitations): a new runtime is an
   *install*, and `allow_active` means an active **local** session, not one over SSH.
-- **`flatpak update` also updates runtimes**, but the pending list and the summary track apps, so
-  a run can change more than it itemizes.
+- **Flatpak runtimes are counted and itemized, and they cannot be held.** `flatpak update` with no
+  ref updates applications *and* runtimes - `--app` and `--runtime` are filters on that default -
+  so a check that asked only about apps counted less than the run would change. Both kinds are now
+  asked about, and a runtime's identity is its id **and** its branch, because the same runtime is
+  commonly installed on two branches that update independently. Holding one is refused (exit 2):
+  apps share a runtime, so a held runtime does not skip an update, it breaks the next app that
+  needs it, somewhere else entirely and with nothing connecting the two on screen. The popup gives
+  runtimes a heading of their own under the apps; **one compact row in place of that section, once
+  the list is long, is deliberately not built** - it is the alternative left to choose between,
+  and the full section is the simpler of the two and the one that keeps every row scannable.
 - **Two installs, and the build rewrites two files to serve the second one.** A checkout install
   is a symlink into the checkout; the RPM is the answer for shipping this to other people, and it
   shipped in 0.1.0. The two disagree about exactly one thing, the helper directory, and it is not

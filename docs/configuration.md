@@ -35,7 +35,7 @@ way.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `include_flatpak` | boolean | `true` | Include Flatpak apps in checks and updates. `kempt update --no-flatpak` overrides it for one run. With it off, the `flatpak` backend reports `enabled: false` and contributes nothing to the counts. |
+| `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates - `flatpak update` updates both, so Kempt counts both. `kempt update --no-flatpak` overrides it for one run. With it off, the `flatpak` backend reports `enabled: false` and contributes nothing to the counts. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). With it off, the run is forced onto the `terminal` surface with live output, because no other surface can answer a prompt. |
 | `surface` | `terminal`, `popup`, `background`, `offline` | `terminal` | Where `kempt run` sends the update. An unrecognized value logs a warning and falls back to `terminal`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the Plasma widget re-runs `kempt check`. Stored here so the CLI and widget share one setting; the CLI itself schedules nothing. The widget clamps what it reads to 1..1440 minutes; its settings page offers 15 upwards, and lowers its own floor to meet a smaller value you set from the CLI rather than silently raising it. |
