@@ -133,6 +133,30 @@ either.
 - **A setting the widget shows is a setting `kempt config` owns.** `contents/config/main.xml`
   declares no keys on purpose. Adding a KConfig entry would create a second copy of a value the
   CLI already owns, and the two would drift the first time somebody used a terminal.
+- **A running Plasma keeps the old copy loaded.** `./install.sh` puts the new files in place, but
+  the panel goes on showing what it loaded at login until you run `plasmashell --replace` or log
+  out and back in. A change that "did nothing" is usually this.
+- **A new user-facing string goes in three places, or a test fails.** The wording itself in the
+  `COPY` table in `logic.js`; the same characters as an `i18n("...")` literal in the QML, because
+  `i18n(someVariable)` extracts nothing for translators; and the key's classification in
+  `tests/qml/probe_popup.py`, which decides how the probe expects to find it (assembled in
+  `logic.js`, substituted in QML with an argument, or a plain label).
+
+Running the probes needs `python3-pyside6` and the Plasma and Kirigami QML modules the widget
+imports, which any Plasma 6 desktop already has. One probe on its own:
+
+```bash
+python3 tests/qml/safe_probe.py 120 python3 tests/qml/probe_popup.py
+```
+
+Never invoke a probe directly: the harness refuses, because without that supervisor there is no
+watchdog, no process group to kill and no offscreen platform. Inside a probe, call
+`p.clear_calls()` before an action whose call count you are about to assert, or the count includes
+every earlier scenario. Label an assertion that only establishes the condition for the next one
+with `premise:`, so a failure there reads as "the scenario never happened" rather than as the
+behaviour being wrong.
+
+More on the layers, and on writing a test file, is in [tests/README.md](tests/README.md).
 
 ## Shell conventions
 
