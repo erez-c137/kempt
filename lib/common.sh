@@ -1290,6 +1290,17 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # the one that hands a reader the state file directly - costs a minute per test and goes uncovered.
 KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 
+# The shape of the marker Kempt writes today: ONE integer, in place of a reader working the shape
+# out from which of several optional fields happen to be present.
+# Stamped where a marker is BORN (write_stage_marker) and nowhere else. The additive updates -
+# `armed`, `replaced`, `set_moved` - carry forward whatever was already on the file, so a marker
+# from an older build is never stamped with a version whose fields it does not actually have.
+# EVERY READER MUST GO ON WORKING WITHOUT IT. A marker written before this field existed carries no
+# version at all, and the per-field fallbacks are still what read those; this records the shape, it
+# does not replace the checks.
+# shellcheck disable=SC2034  # read by write_stage_marker in bin/kempt, which sources this file
+KEMPT_MARKER_VERSION=1
+
 KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.

@@ -469,8 +469,9 @@ write_stage_marker() {
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" --argjson ident "$identity" \
+      --argjson mver "$KEMPT_MARKER_VERSION" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
-       {staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
+       {version:$mver, staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
        + $ident
        + (if $snap == "" then {} else {pre_snapshot:$snap} end)

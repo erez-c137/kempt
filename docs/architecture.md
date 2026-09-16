@@ -355,8 +355,8 @@ and knows nothing about why a package is absent from it. `offline_system_status(
 `offline_marker_read()`, `offline_txjson_names()` and `offline_staged_state()` in `lib/common.sh`
 are the only readers.
 
-**The marker's fields, and the rule for adding one.** The marker is `{staged_at, pre_snapshot,
-boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
+**The marker's fields, and the rule for adding one.** The marker is `{version, staged_at,
+pre_snapshot, boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
 `staged_names_source` and `staged_excluded`, and, since the transaction's identity was recorded,
 `rpmdb_cookie` and `cmd_line`. Every field is **additive**: a marker written by an
 older build carries none of the newer ones, and every reader has to go on working against it - the
@@ -365,6 +365,12 @@ establish is expressed by an ABSENT key rather than an empty one: no `staged_nam
 "nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
 `staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
 list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
+`version` is one integer naming the shape of the marker, so a reader has one thing to ask instead of
+inferring the shape from which optional fields happen to be present. It is stamped where a marker is
+**born** and nowhere else: the three later-written fields below carry forward whatever was already
+on the file, so a marker from an older build is never stamped with a version whose fields it does
+not have. It does not replace the per-field checks, and it cannot: every reader still has to work
+against a marker with no `version` at all, which is what every marker written before it looks like.
 Three fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
 a restart proved the transaction cannot install (below), and that flip is also the record that it
 has already been announced. `set_moved` is added when the harvest finds the installed set changed

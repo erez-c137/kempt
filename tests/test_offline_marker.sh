@@ -175,4 +175,30 @@ KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" "$KEMPT" check >/dev/null
 assert_exit 0 "...and a readable marker whose transaction is gone is still cleared" -- test ! -f "$marker"
 assert_eq "$(events_cleared)" "$(( cleared_before + 1 ))" "...and the clearing is still recorded"
 
+# --- the marker's version -------------------------------------------------------------------------
+# One integer saying which shape this marker is, in place of working it out from which of several
+# fields happen to be present. It is written where a marker is BORN and nowhere else: the additive
+# updates (armed, replaced, set_moved) carry forward whatever was already there, so a marker from an
+# older build is never stamped with a version whose fields it does not actually have.
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+rm -f "$marker"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_exit 0 "the version fixture starts from a real stage" -- test -f "$marker"
+assert_eq "$(jq -r '.version' "$marker")" "1" "a stage stamps the marker with its version"
+assert_eq "$(jq -r '.version | type' "$marker")" "number" "...as an integer, not a string"
+# The fields it vouches for are still all there: a version is an addition, not a replacement.
+assert_eq "$(jq -r 'has("staged_at") and has("boot_id") and has("armed")' "$marker")" "true" \
+  "...beside everything the marker already recorded"
+
+# A marker written before the field existed must behave EXACTLY as it did. Read, published, and
+# never quietly stamped with a version whose shape it cannot vouch for - the per-field fallbacks
+# are what read it, and a version would tell them not to.
+jq -n --arg boot boot-marker '{staged_at:"2026-09-05T00:00:00+03:00", pre_snapshot:"/x.tsv",
+                               boot_id:$boot, staged:61, armed:true}' > "$marker"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
+  "a marker with no version is published exactly as before"
+assert_eq "$(jq -r 'has("version")' "$marker")" "false" \
+  "...and is not stamped with a version it cannot vouch for"
+
 finish
