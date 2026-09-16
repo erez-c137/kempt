@@ -757,8 +757,14 @@ ib_plain="$("$KEMPT" doctor 2>&1)" || true
 # A DELTA against the same report on an ordinary box, not a bare "doctor failed": this part of the
 # file runs in a sandbox that already has failing rows, so "exit 1" would have passed without the
 # row existing at all and proved nothing.
-assert_eq "$(( $(printf '%s\n' "$ib_out" | grep -c '^FAIL') - $(printf '%s\n' "$ib_plain" | grep -c '^FAIL') ))" "1" \
-  "on an image-based system doctor reports exactly one more problem than on an ordinary one"
+# Scoped to the ROW it is about rather than to the whole report. A delta over every FAIL line says
+# "one more problem", which is true of the wrong row just as easily as of this one: the day any
+# other doctor row starts failing in this sandbox, a count like that passes for a reason nobody
+# asked for, and the day one stops it fails for another.
+assert_eq "$(printf '%s\n' "$ib_out" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "1" \
+  "on an image-based system doctor reports the rpm-ostree problem"
+assert_eq "$(printf '%s\n' "$ib_plain" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "0" \
+  "...and on an ordinary one it says nothing of the kind"
 case "$ib_out" in
   *"FAIL"*"rpm-ostree"*) echo "ok: ...and says so as a FAIL, naming the tool that does update it" ;;
   *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | head -5; _fail=1 ;;
@@ -1041,14 +1047,18 @@ grep -qF 'FAIL  boot symlink is live with nothing staged behind it' "$TESTTMP/la
 # finding that out - and each has a reader who needs it.
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
 KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "2" \
-  "a marker does not suppress the symlink row, and the symlink does not suppress the marker's"
+assert_eq "$(grep -c '^FAIL  boot symlink is live over a transaction that is not armed' "$TESTTMP/staged.txt" || true)" "1" \
+  "a marker does not suppress the symlink row"
+assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the symlink does not suppress the marker's"
 
 # No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
 # this the two conditions could be read as one and the check would fire on the toml alone.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/staged.txt")" "1" \
-  "no boot symlink, no symlink row - the unarmed transaction is reported once"
+assert_eq "$(grep -c '^FAIL  boot symlink' "$TESTTMP/staged.txt" || true)" "0" \
+  "no boot symlink, no symlink row"
+assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the unarmed transaction is reported exactly once"
 # The INVERSE of the row above, and it had no row at all: dnf5 says `ready` and the symlink is
 # GONE. Arming is both, systemd removes the symlink once system-update.target has been reached,
 # and only `dnf5 offline reboot` makes it again - so this transaction installs on no restart,
@@ -1076,7 +1086,10 @@ export KEMPT_OFFLINE_LINK="$NO_LINK"
 # at the first failure sends the user round the loop once per problem.
 assert_exit 1 "several problems at once still exit 1" \
   env KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" KEMPT_POLICY_FILE="$TESTTMP/nope.policy" "$KEMPT" doctor
-assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output")" "2" "every problem is reported, not just the first"
+assert_eq "$(grep -c '^FAIL  root helper (refresh) not installed' "$TESTTMP/last_output" || true)" "1" \
+  "every problem is reported, not just the first: the missing helper"
+assert_eq "$(grep -c '^FAIL  polkit action not installed' "$TESTTMP/last_output" || true)" "1" \
+  "...and the missing polkit action beside it"
 grep -q '2 problems found' "$TESTTMP/last_output" \
   && echo "ok: the summary counts them" || { echo "FAIL: no problem count"; _fail=1; }
 finish
