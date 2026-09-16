@@ -2,7 +2,7 @@
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 
-# EVERY assertion in this file is --dry-run: `kempt run` for real spawns a Konsole window (or a
+# EVERY assertion in this file is --print-command: `kempt run` for real spawns a Konsole window (or a
 # detached update), and a test suite must never launch either.
 
 # The terminal emulator is a seam like every other one, so it is stubbed like every other one:
@@ -12,35 +12,55 @@ KEMPT="$REPO_ROOT/bin/kempt"
 export KEMPT_TERMINAL="$TESTTMP/stub-terminal"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$KEMPT_TERMINAL"; chmod +x "$KEMPT_TERMINAL"
 
-# --dry-run prints the launch plan instead of spawning anything
+# --print-command prints the launch plan instead of spawning anything
 "$KEMPT" config set surface terminal
-assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update" "terminal plan"
+assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt update" "terminal plan"
 "$KEMPT" config set surface background
-assert_eq "$("$KEMPT" run --dry-run)" "detached: kempt update (surface=background)" "background plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=background)" "background plan"
 "$KEMPT" config set surface popup
-assert_eq "$("$KEMPT" run --dry-run)" "detached: kempt update (surface=popup)" "popup plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=popup)" "popup plan"
 "$KEMPT" config set surface offline
-assert_eq "$("$KEMPT" run --dry-run)" "detached: kempt update (surface=offline)" "offline plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "offline plan"
 # auto_accept=false forces terminal regardless of surface
 "$KEMPT" config set auto_accept false
-assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update" "no-auto-accept forces terminal"
+assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt update" "no-auto-accept forces terminal"
 
 # A mistyped flag must never be read as "go ahead and launch": this command's normal outcome is a
 # real update, so an unrecognised argument has to stop before anything spawns.
 assert_exit 2 "run: mistyped dry-run flag rejected" "$KEMPT" run --dryrun
-assert_exit 2 "run: extra arguments rejected" "$KEMPT" run --dry-run extra
+assert_exit 2 "run: extra arguments rejected" "$KEMPT" run --print-command extra
+
+# --- --dry-run: the old spelling, accepted for one release and advertised nowhere ----------------
+# The flag printed the LAUNCHER, never a transaction, so "dry run" promised a preview of an update
+# that was never coming - the one thing a person would reach for it to get. It is --print-command
+# now, which says what it actually does.
+# The old spelling still works, because scripts and muscle memory have it, and it is deliberately
+# absent from the usage text and the man page: accepted, not offered. Both halves are asserted,
+# because an alias nobody removes and nobody documents is just a second name to keep working.
+"$KEMPT" config set auto_accept true
+"$KEMPT" config set surface terminal
+assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update" \
+  "--dry-run still does what it always did"
+assert_eq "$("$KEMPT" run --dry-run)" "$("$KEMPT" run --print-command)" \
+  "...and exactly what the new spelling does"
+assert_eq "$("$KEMPT" help | grep -c -- '--print-command')" "1" \
+  "the usage text offers the new spelling"
+assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
+  "...and does not offer the old one"
+assert_eq "$(grep -ci dry "$REPO_ROOT/docs/man/kempt.1")" "0" \
+  "...and neither does the man page"
 
 # An unknown surface (config typo, stale value from an older widget) falls back to the one surface
 # that can always show a human what happened. auto_accept goes back to TRUE first, or the
 # auto-accept guard would force terminal on its own and this would prove nothing.
 "$KEMPT" config set auto_accept true
 "$KEMPT" config set surface bogus
-surferr="$("$KEMPT" run --dry-run 2>&1 >/dev/null)"
-assert_eq "$("$KEMPT" run --dry-run 2>/dev/null)" "terminal: $KEMPT_TERMINAL -e kempt update" "unknown surface falls back to terminal"
+surferr="$("$KEMPT" run --print-command 2>&1 >/dev/null)"
+assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "terminal: $KEMPT_TERMINAL -e kempt update" "unknown surface falls back to terminal"
 grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
 
 # No terminal emulator = the button does nothing, forever, silently. Fail loudly instead, and say
-# how to fix it. Checked in --dry-run too: "what would happen" has to include "nothing".
+# how to fix it. Checked in --print-command too: "what would happen" has to include "nothing".
 #
 # Pinned whole, not by substring, because this message is read almost entirely INSIDE THE WIDGET:
 # a failed launch is reported in the popup in the CLI's own words. So it has to be a sentence
@@ -50,8 +70,8 @@ grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface war
 # and a substring pin is what let it stay one.
 "$KEMPT" config set surface terminal
 assert_exit 4 "missing terminal emulator is a loud failure" \
-  env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run
-termerr="$(KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --dry-run 2>&1 >/dev/null || true)"
+  env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --print-command
+termerr="$(KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --print-command 2>&1 >/dev/null || true)"
 assert_eq "$termerr" \
   "Kempt could not find kempt-no-such-terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" \
   "the error names the emulator, the command and the control that change it"
@@ -67,7 +87,7 @@ assert_eq "$termerr" \
 # post-run check) and closing the window mid-run. Hence the wrapper re-checks on every exit path,
 # and the four assertions below are that promise, one exit path each.
 #
-# Everything above this line is --dry-run, which can only ever assert what a launch would look
+# Everything above this line is --print-command, which can only ever assert what a launch would look
 # like. These run the wrapper for real, so they need the same offline stubs a check needs.
 cat > "$TESTTMP/refresh-stub" <<STUB
 #!/usr/bin/env bash

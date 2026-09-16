@@ -3,9 +3,11 @@
 Every command is `kempt <subcommand>`. `kempt help` prints the same list.
 
 ```
-check                 refresh pending-updates state (JSON to stdout)
+check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+                      metadata now, ignoring the 3-hour interval but never the battery or
+                      metered-connection rules
 update                run the update now (options from config; --no-flatpak, --surface=X override)
-run [--dry-run]       launch update per configured surface (what the widget calls)
+run [--print-command] launch update per configured surface (what the widget calls)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
@@ -14,10 +16,13 @@ log [-n N]            recent events: what Kempt did, when, and from where (defau
 doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
 unhold <same>         remove a hold
-holds                 list holds
+holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
+                      arguments, on one line, to reuse by hand
+unstage               discard the staged offline update; the next restart installs nothing
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
---version             print the version and exit
+--version | version | -V   print the version and exit
+help | --help | -h    print this list
 ```
 
 ## Exit codes
@@ -346,7 +351,7 @@ update is simply not applied. Re-stage, or update live.
 ## run
 
 ```
-kempt run [--dry-run]
+kempt run [--print-command]
 ```
 
 The launcher: it reads the configured surface and starts `kempt update` in the right place,
@@ -354,7 +359,7 @@ then returns immediately. This is what the widget's Update Now button calls; hum
 `kempt update` directly.
 
 ```bash
-kempt run --dry-run
+kempt run --print-command
 ```
 
 ```
@@ -368,8 +373,13 @@ detached: kempt update (surface=background)
 ```
 
 Exit 4 when the `terminal` surface is configured and the emulator is not installed. The check
-happens before the dry run too, so `--dry-run` tells you about a missing launcher instead of
+happens before `--print-command` too, so it tells you about a missing launcher instead of
 pretending it would work.
+
+`--print-command` was called `--dry-run` until 0.1.4. The old name still works, and will for one
+release, but it is not listed in `kempt help` or the man page: the flag prints the launcher
+command and never a transaction, so "dry run" promised a preview of the update itself that it was
+never going to give.
 
 Exit 3, with nothing launched, when another update already holds the lock. The update would be
 refused anyway, but inside a window or a detached shell, where nothing reads its status.

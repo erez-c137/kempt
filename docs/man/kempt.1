@@ -15,7 +15,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .IR surface ]
 .br
 .B kempt run
-.RB [ \-\-dry\-run ]
+.RB [ \-\-print\-command ]
 .br
 .B kempt summary
 .RI [ N ]
@@ -132,13 +132,13 @@ and support for those images is planned. On the
 surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
 for both kinds, so staging would cancel the upgrade.
 .TP
-.BR run " [" \-\-dry\-run ]
+.BR run " [" \-\-print\-command ]
 Launch
 .B kempt update
 according to the configured surface and return immediately. This is what the widget's Update Now
 button calls.
-.B \-\-dry\-run
-prints what would be launched.
+.B \-\-print\-command
+prints the command that would be launched, without launching it.
 A successful launch says nothing about the update's outcome: poll the state file or the history.
 .TP
 .BR summary " [" \c
