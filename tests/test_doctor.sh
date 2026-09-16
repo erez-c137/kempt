@@ -70,11 +70,43 @@ grep -q '^FAIL' "$TESTTMP/last_output" \
 # output passes vacuously.
 for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
+            'package metadata' \
             'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine'; do
   grep -E '^(ok|info|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done
 assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
+
+# --- how old the package metadata is -------------------------------------------------------------
+# A check answers from a cache refreshed at most every three hours and never on battery or a
+# metered link, so a box can go a week on one fetch with every count on screen looking freshly
+# checked. No other row here would say so. info and never FAIL: old metadata is what those two
+# rules are FOR, so it is a fact to put in front of the reader, not a fault to count.
+kempt_init_dirs
+rm -f "$LAST_REFRESH_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^info +package metadata: never refreshed' "$TESTTMP/doc-meta" \
+  && echo "ok: a box that has never fetched metadata says so, rather than dating it" \
+  || { echo "FAIL: no never-refreshed metadata row"; _fail=1; }
+touch -d '3 days ago' "$LAST_REFRESH_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and an old cache is dated in whole days" \
+  || { echo "FAIL: no metadata age row"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
+grep -q 'kempt check --refresh' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and names the command that fetches now" \
+  || { echo "FAIL: the metadata row offers no remedy"; _fail=1; }
+touch -d '1 day ago' "$LAST_REFRESH_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^info +package metadata is 1 day old' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and one day reads as one day, verb and all" \
+  || { echo "FAIL: the metadata row says '1 days'"; _fail=1; }
+touch "$LAST_REFRESH_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and a cache fetched today is an ok row, not a finding" \
+  || { echo "FAIL: fresh metadata is not reported ok"; _fail=1; }
+rm -f "$LAST_REFRESH_FILE"
 
 # --- the ownership branches, which nothing could reach before ---
 # doctor checks root:root 0755 only when the helper it was handed IS the path polkit's exec.path

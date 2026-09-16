@@ -944,6 +944,26 @@ function relativeTime(iso, nowMs) {
     return formatStamp(iso);
 }
 
+// How old the package metadata behind the counts is, in words, or "" when it is not worth saying.
+// A check answers from a cache that is refreshed at most once every three hours and not at all on
+// battery or a metered link, so "Checked 4 min ago" can sit above counts derived from week-old
+// metadata - and nothing else on the popup would give that away.
+// 24 hours is the floor because under it there is nothing to report: that is the ordinary state of
+// a plugged-in machine, and a line on every popup would be noise that teaches people to skip the
+// footer. The clock is an ARGUMENT, like relativeTime's, so a test can assert each boundary.
+var METADATA_STALE_MS = 86400000;
+function metadataAgeText(iso, nowMs) {
+    if (typeof nowMs !== "number" || !isFinite(nowMs)) return "";
+    var at = stampMs(iso);
+    // Unreadable or absent says nothing at all, the same silence relativeTime falls back to: an
+    // age nobody could work out is not an age to put a number on.
+    if (!isFinite(at)) return "";
+    var age = nowMs - at;
+    if (age < METADATA_STALE_MS) return "";
+    var days = Math.floor(age / METADATA_STALE_MS);
+    return "metadata " + days + (days === 1 ? " day old" : " days old");
+}
+
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK
 // at the counts. Somebody who set two minutes gets two, because the smaller always wins.
@@ -1573,6 +1593,11 @@ function viewModel(state, updating, cliError, opts) {
         // ...and the staleness, beside the date it explains. Not an alarm - the counts above are
         // still the best known truth - with the CLI's reason one hover away on the retry button.
         if (stale) footerParts.push(COPY.lastCheckFailed);
+        // ...and how old the metadata behind those counts is, which the dateline above cannot say.
+        // The two are different clocks: the check ran four minutes ago, the metadata it answered
+        // from may be a week old, and only this line can tell the person that.
+        var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs);
+        if (metaAge !== "") footerParts.push(metaAge);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.

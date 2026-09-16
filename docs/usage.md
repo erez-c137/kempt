@@ -45,11 +45,11 @@ all and never wait for one.
 ## check
 
 ```
-kempt check
+kempt check [--refresh]
 ```
 
 Queries every enabled backend, writes `~/.local/state/kempt/state.json`, and prints the same
-JSON to stdout. Takes no arguments; anything else exits 2.
+JSON to stdout. `--refresh` is the only argument it takes; anything else exits 2.
 
 ```bash
 kempt check | jq '{status, actionable, held_total}'
@@ -110,6 +110,19 @@ the reason, exactly as it would for a repo that flapped. Both backends behave th
 and the fix for both is the same - let a refresh run. A check does that itself before it asks
 anything, so on a fresh install the first check refreshes first; if it did not (battery, metered
 link, no network at the time), the next check on mains power will.
+
+**How old the metadata is, and fetching it now.** Every check publishes `metadata_refreshed`, the
+time of the last successful fetch. It is not `last_check`: a check answers from the cache, so a
+check that ran a minute ago can be reporting on metadata that is a week old, and that is exactly
+what the key exists to show. The popup's footer says `metadata N days old` once it is past 24
+hours, `kempt doctor` has a row for it, and a skipped refresh is written to the event log at most
+once a day, so a box that has quietly stopped fetching says so without filling the log.
+
+`kempt check --refresh` fetches now. It ignores the 3-hour interval, and **it does not ignore the
+battery and metered-connection rules** - those are about your hardware and your bill rather than
+about being polite to a mirror, so the flag leaves them exactly where they are. On battery or on a
+metered link, `--refresh` skips the fetch like any other check and the run is recorded in the
+event log.
 
 ### The exit contract, precisely
 

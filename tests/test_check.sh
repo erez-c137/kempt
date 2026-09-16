@@ -255,7 +255,79 @@ else
   rm -f "$LAST_REFRESH_FILE"
   assert_exit 0 "a failed flatpak refresh does not fail the check" -- \
     env KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check
+
+  # --- kempt check --refresh: the interval, and only the interval ---------------------------------
+  # The 3-hour gate is a courtesy to the mirrors, and somebody standing at the machine asking for
+  # fresh metadata is allowed to overrule it. The battery and metering rules are not the same kind
+  # of thing - they are about this person's hardware and this person's bill - so the flag leaves
+  # them exactly where they are. That distinction is the whole feature, and it is asserted from
+  # both sides: here for the interval, and below for the two rules it must not touch.
+  rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+  "$KEMPT" check >/dev/null                      # stamps last_refresh, one fetch
+  assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "1" "the fixture starts from one fetch inside the window"
+  "$KEMPT" check >/dev/null
+  assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "1" "...and an ordinary check inside it still does not fetch"
+  "$KEMPT" check --refresh >/dev/null
+  assert_eq "$(wc -l < "$TESTTMP/refresh-calls")" "2" "check --refresh fetches inside the 3h window"
+
+  # How old the metadata behind the counts is, published so every surface dates them from one
+  # place. It is the fetch stamp, not the check stamp: a check answers from the cache, so a fresh
+  # check over week-old metadata is exactly the state this key exists to make visible.
+  st_meta="$("$KEMPT" check)"
+  assert_eq "$(jq -r 'has("metadata_refreshed")' <<<"$st_meta")" "true" \
+    "a box that has fetched metadata publishes when"
+  assert_eq "$(jq -r '.metadata_refreshed' <<<"$st_meta" | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T')" "1" \
+    "...as an ISO 8601 stamp"
+  assert_eq "$(jq -r .schema <<<"$st_meta")" "1" "...and the additive key does not bump the frozen schema"
 fi
+
+# --- the two rules --refresh may NOT overrule, and the once-a-day skip line ----------------------
+# on_battery and metered_connection read real hardware and have no seam, so these drive them the
+# one way a test can: by replacing the function in a subshell. That keeps the assertions about
+# maybe_refresh_metadata's own rules rather than about the box running the suite, and it is why
+# these sit outside the mains-power block above.
+rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+(
+  on_battery() { return 0; }
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "0" \
+  "--refresh does not fetch on battery"
+rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 0; }
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "0" \
+  "...and not on a metered connection either"
+
+# A skipped refresh is said ONCE A DAY, not once a check. A laptop on battery skips every check it
+# runs - every ten minutes, all day - and a line per skip would be 144 lines saying one thing,
+# which buries the log the one command that reads it exists to serve. The fact worth recording is
+# not that this check skipped; it is that this box has been skipping.
+skips() { grep -c 'refresh skipped' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
+# A DELTA, not the running total: the two subshells above already took the skip path once each,
+# which is the behaviour under test doing its job. Counting from zero here would assert about the
+# whole file rather than about these three calls.
+rm -f "$LAST_REFRESH_FILE" "$KEMPT_STATE_DIR/last_refresh_skip"
+skips_before="$(skips)"
+(
+  on_battery() { return 0; }
+  maybe_refresh_metadata
+  maybe_refresh_metadata
+  maybe_refresh_metadata
+) >/dev/null 2>&1
+assert_eq "$(( $(skips) - skips_before ))" "1" "three skipped refreshes in a row are logged once"
+grep -q 'refresh skipped (on battery)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the line says which rule skipped it" \
+  || { echo "FAIL: the skip line does not name the reason"; _fail=1; }
+touch -d '25 hours ago' "$KEMPT_STATE_DIR/last_refresh_skip"
+( on_battery() { return 0; }; maybe_refresh_metadata ) >/dev/null 2>&1
+assert_eq "$(( $(skips) - skips_before ))" "2" \
+  "...and again a day later, so a box that has stopped fetching still says so"
+
+assert_exit 2 "check still refuses an option it does not know" "$KEMPT" check --refesh
 
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
 export KEMPT_SKIP_REFRESH=1   # back to deterministic after the gating section above

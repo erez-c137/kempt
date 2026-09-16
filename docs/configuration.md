@@ -124,6 +124,16 @@ Two different clocks, deliberately:
 
 Kempt never re-downloads metadata faster than dnf itself would.
 
+`kempt check --refresh` fetches now, ignoring the 3-hour interval. It does **not** ignore the
+battery or metered-connection rules: those are about your hardware and your bill, so the flag
+leaves them alone and the fetch is still skipped there.
+
+Because a skip is silent by design, two things make an old cache visible. Every check publishes
+`metadata_refreshed` in `state.json`, which the popup's footer renders as `metadata N days old`
+once it is past 24 hours and `kempt doctor` reports as a row of its own. And a skipped refresh is
+written to the event log at most once a day - a box on battery skips every check it runs, so a
+line per skip would be well over a hundred a day saying one thing.
+
 ## Files and retention
 
 | Path | What |
@@ -135,7 +145,8 @@ Kempt never re-downloads metadata faster than dnf itself would.
 | `~/.local/state/kempt/logs/<timestamp>.log` | Full raw output of that run |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, mode 0600 (`kempt log`) |
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
-| `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate |
+| `~/.local/state/kempt/last_refresh` | Timestamp marker for the 3-hour metadata gate, and the source of `metadata_refreshed` |
+| `~/.local/state/kempt/last_refresh_skip` | Timestamp marker for the once-a-day skipped-refresh line. Separate from the one above, so an announcement can never postpone a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged transaction awaiting a reboot |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serializes updates, `check.lock` serializes checks, and `writer.lock` serializes the three commands that rewrite the two files above - `config set`, `hold` and `unhold` - so two of them running at once cannot lose one of the two writes |
 

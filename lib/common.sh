@@ -78,6 +78,10 @@ HIST_DIR="$KEMPT_STATE_DIR/history"
 LOG_DIR="$KEMPT_STATE_DIR/logs"
 SNAP_DIR="$KEMPT_STATE_DIR/snapshots"
 LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
+# When Kempt last SAID that it skipped a metadata refresh. Its own stamp and never
+# $LAST_REFRESH_FILE: that one rate-limits the fetch, and folding the two together would let an
+# announcement postpone a refresh, or a refresh silence the announcement.
+REFRESH_SKIP_FILE="$KEMPT_STATE_DIR/last_refresh_skip"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
@@ -629,7 +633,7 @@ backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage i
 # --- state assembly ---
 # State schema v1 - FROZEN. This JSON is a public interface (the widget and any scripted reader
 # consume it), so additive changes only; anything else bumps `schema`.
-assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional), $13 image_based true or null (optional)
+assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enabled(true|false), $6 prev last_success ISO or "", $7 risky_pending JSON array (optional), $8 reboot_needed true|false (optional), $9 dnf download bytes or "" (optional), $10 flatpak download bytes or "" (optional), $11 offline_staged JSON object or "" (optional), $12 release_upgrade JSON object or "" (optional), $13 image_based true or null (optional), $14 metadata_refreshed ISO or "" (optional)
   # The two item arrays arrive through FILES, never --argjson. Linux caps a SINGLE argv entry at
   # 128 KiB (MAX_ARG_STRLEN), and the pending list is the one input here with no bound: at 925
   # packages this exec failed, errexit killed the check before it printed or wrote anything, and
@@ -645,7 +649,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
         --argjson fpe "$5" --arg pls "$6" --argjson risky "${7:-[]}" \
         --argjson reboot "${8:-false}" --arg dnfb "${9:-}" --arg fpb "${10:-}" \
         --argjson offst "${11:-null}" --argjson relup "${12:-null}" \
-        --argjson img "${13:-null}" \
+        --argjson img "${13:-null}" --arg mrf "${14:-}" \
         --arg now "$(now_iso)" '
     # The two item arrays arrive as one-element arrays because --slurpfile wraps what it reads.
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
@@ -675,6 +679,11 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # it IS has nothing to declare. A reader that has never heard of the key behaves correctly on
     # every ordinary Fedora by doing nothing, which is what an additive key has to mean.
     def imagebased: if $img == null then {} else {image_based: $img} end;
+    # When the metadata behind these counts was FETCHED, which is not when the check ran: a check
+    # answers from the cache, so a fresh check over week-old metadata is exactly the state this
+    # key exists to make visible. Absent when nothing has ever been fetched on this box - a
+    # different fact from "old", and one a reader has to be able to word differently.
+    def metadata: if $mrf == "" then {} else {metadata_refreshed: $mrf} end;
     {schema: 1, last_check: $now,
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
@@ -683,7 +692,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
-    + total + staged + relupgrade + imagebased' > "$_out_f" || rc=$?
+    + total + staged + relupgrade + imagebased + metadata' > "$_out_f" || rc=$?
   # Removed on every path, and jq's status still reaches the caller unchanged: a failed assembly
   # must fail the check exactly as it did when the payload came through argv.
   rm -f "$_dnf_f" "$_fp_f"
@@ -703,8 +712,46 @@ state_prev_items() {  # backend → previous items array; [] for missing/corrupt
 
 write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
 
-maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks check on failure
+# When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
+# nothing has ever been fetched on this box - a different thing from "old", and every surface that
+# renders it says the two differently.
+metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
+  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
+  date -Is -r "$LAST_REFRESH_FILE" 2>/dev/null || true
+}
+
+# ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
+# when there is no stamp, so a caller cannot mistake "never fetched" for "fetched today".
+metadata_age_days() {  # → whole days, or nothing
+  local at now
+  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
+  at="$(stat -c %Y "$LAST_REFRESH_FILE" 2>/dev/null)" || return 0
+  now="$(date +%s)"
+  # A stamp in the future is today, not a negative age - the same reading the interval gate gives
+  # its own stamp, and "refreshed -1 days ago" is worse than a rounding error.
+  (( now > at )) || { printf '0\n'; return 0; }
+  printf '%s\n' "$(( (now - at) / 86400 ))"
+}
+
+# A skipped refresh, said ONCE A DAY. A laptop on battery skips every check it runs - every ten
+# minutes, all day - so a line per skip would be 144 lines saying one thing, in the one file
+# somebody greps to find out what Kempt has been doing. The fact worth recording is not that this
+# check skipped; it is that this box has been skipping. Best-effort throughout, like log_event
+# itself: a refresh that could not be announced must never change what the check does.
+log_refresh_skip() {  # reason
+  local last=0 now; now="$(date +%s)"
+  [[ -f "$REFRESH_SKIP_FILE" ]] && last="$(stat -c %Y "$REFRESH_SKIP_FILE" 2>/dev/null || echo 0)"
+  # A stamp in the future is due, for the reason the interval gate gives below.
+  if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
+  kempt_init_dirs 2>/dev/null || true
+  touch "$REFRESH_SKIP_FILE" 2>/dev/null || true
+  log_event "refresh skipped ($1)"
+  return 0
+}
+
+maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && return 0
+  local force="${1:-}"
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
@@ -712,9 +759,16 @@ maybe_refresh_metadata() {  # ≤ every 3h, AC power, unmetered; never blocks ch
   # A stamp in the future (a clock corrected backwards, a home restored onto a machine whose clock
   # is behind) is due, not recent: read as a refresh a moment ago it holds every refresh off until
   # the clock catches up. The stamp at the bottom rewrites it to now once a fetch lands.
-  (( now - last >= 0 && now - last < 10800 )) && return 0
-  on_battery && return 0
-  metered_connection && return 0
+  #
+  # `kempt check --refresh` passes THIS gate and nothing below it. The interval is a courtesy to
+  # the mirrors, and somebody standing at the machine asking for fresh metadata may overrule it.
+  # The two rules below are a different kind of thing - they are about this person's battery and
+  # this person's bill - so a flag that quietly spent either would be worse than no flag at all.
+  if [[ "$force" != force ]] && (( now - last >= 0 && now - last < 10800 )); then
+    return 0
+  fi
+  if on_battery; then log_refresh_skip "on battery"; return 0; fi
+  if metered_connection; then log_refresh_skip "the connection is metered"; return 0; fi
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
   # keep in step with this one. `ok` records whether ANY fetch landed; see the stamp at the bottom.

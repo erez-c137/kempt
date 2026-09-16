@@ -18,7 +18,16 @@ cmd_version() {
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
-  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  # --refresh overrules the three-hour interval and NOTHING else: the battery and metering rules
+  # are about the person's hardware and their bill, not about being polite to a mirror, so a flag
+  # that quietly spent either would be worse than no flag. maybe_refresh_metadata carries the rule.
+  local force_refresh=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --refresh) force_refresh=force; shift ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
   kempt_init_dirs
   # serialize checks: without this the last FINISHER wins and a stale result overwrites a fresh one
   exec 9>"$KEMPT_STATE_DIR/check.lock"
@@ -33,7 +42,7 @@ cmd_check() {
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
   # one staged transaction into two history entries
   harvest_offline
-  maybe_refresh_metadata
+  maybe_refresh_metadata "$force_refresh"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
   # nothing below may change `status`: the check must answer with or without a size.
@@ -117,7 +126,9 @@ cmd_check() {
                     '{from:$from, to:$to, state:$st}')" || relup_json=""
   fi
   local state
-  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based")"
+  # Read AFTER maybe_refresh_metadata, so a check that has just fetched publishes the fetch it
+  # made rather than the one before it.
+  state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   printf '%s\n' "$state" | write_state
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
@@ -1829,6 +1840,28 @@ doctor_tool_rows() {
   fi
 }
 
+# How old the metadata behind every count is. Nothing else in this report would say: a check
+# answers from a cache it refreshes at most once every three hours and skips on battery and on a
+# metered link, so a box can go a week on one fetch with every surface looking freshly checked.
+# info and never FAIL - old metadata is what the battery and metering rules are FOR, so it is a
+# fact to put in front of the reader, not a fault to count against the install.
+doctor_metadata_row() {
+  local iso days
+  iso="$(metadata_refreshed_iso)"
+  if [[ -z "$iso" ]]; then
+    doctor_info "package metadata: never refreshed on this box - the next check on mains power and an unmetered connection fetches it"
+    return 0
+  fi
+  days="$(metadata_age_days)"
+  if [[ "$days" == 0 ]]; then
+    doctor_ok "package metadata: refreshed $iso"
+  else
+    local word=days
+    if [[ "$days" == 1 ]]; then word=day; fi
+    doctor_info "package metadata is $days $word old ($iso) - checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. Force one with: kempt check --refresh"
+  fi
+}
+
 doctor_config_row() {
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
   # setting the user believes they wrote never applies. Validated exactly as config_set validates.
@@ -2112,6 +2145,7 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
+  doctor_metadata_row
   doctor_config_row
   doctor_state_dir_row
   doctor_files_row
@@ -2216,7 +2250,9 @@ cmd_disable_passwordless() {
 usage() {
   cat <<'EOF'
 usage: kempt <command>
-  check                 refresh pending-updates state (JSON to stdout)
+  check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+                        metadata now, ignoring the 3-hour interval but never the battery or
+                        metered-connection rules
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--dry-run]       launch update per configured surface (what the widget calls)
   summary [N]           human summary of the last (or Nth-last) run
