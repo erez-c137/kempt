@@ -65,6 +65,25 @@ class Probe:
     """One QML engine, one sandboxed HOME, and the assertions run against them."""
 
     def __init__(self, name):
+        # REFUSED unless safe_probe.py started this. `python3 tests/qml/probe_popup.py` is the
+        # obvious command and it is the one that bypasses every protection here: no in-process
+        # watchdog, so a wedged Qt process stays resident forever; no separate process group, so
+        # nothing can kill the shells the QML spawned; and QT_QPA_PLATFORM unset, so a probe that
+        # builds a window opens a REAL one on the desktop running it. That combination is what
+        # reached ~2,200 resident Qt processes in one afternoon and OOM-killed this box, and the
+        # only thing that had ever stood between the two was a paragraph in a docstring.
+        # PROBE_WATCHDOG_SECS is set by safe_probe.py and by nothing else, so its absence is
+        # exactly "nobody is supervising this".
+        if not os.environ.get("PROBE_WATCHDOG_SECS"):
+            here = os.path.dirname(os.path.abspath(__file__))
+            print("REFUSING TO RUN: %s was started directly, so the watchdog, the process-group\n"
+                  "kill and the offscreen platform are all absent.\n\n"
+                  "Run it through the supervisor:\n"
+                  "    python3 %s 120 python3 %s\n"
+                  "or run the whole battery: tests/test_widget_qml.sh"
+                  % (name, os.path.join(here, "safe_probe.py"),
+                     os.path.abspath(sys.argv[0])))
+            sys.exit(3)
         self.name = name
         self.fails = []
         self.sandbox = tempfile.mkdtemp(prefix="kempt-%s." % name)
