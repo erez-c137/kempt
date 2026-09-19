@@ -112,14 +112,22 @@ RowLayout {
 
             PlasmaComponents.Label {
                 Layout.fillWidth: true
+                // Named so a test can find this line without reading what it says. The probes used
+                // to locate it by searching for the arrow in its own text, which stopped working the
+                // moment a row legitimately had no arrow to draw.
+                objectName: "versionLine"
                 // Nothing at all when NEITHER version is known, which is a real state rather than a
                 // defect: flatpak gives many runtimes no version string, because a runtime is
                 // versioned by its branch. The branch is already on the name line above, so drawing
                 // "new → ?" here would invent a fact and bury the one that is true.
-                visible: !(row.newPackage && row.to === Logic.VERSION_UNKNOWN)
+                // ...and nothing either when the two versions are the SAME, which is the other
+                // way a runtime update arrives: the version metadata does not move and the commit
+                // is what changed, so an arrow between two identical dates reads as a fiction.
+                // Logic.versionTextOf owns both cases and the CLI's summary follows the same rule.
+                visible: text !== ""
                 // logic.js has already reduced any comma-joined multilib or installonly set to the
                 // newest member, the same way `kempt summary` renders it.
-                text: row.fromText + " → " + row.to
+                text: Logic.versionTextOf(row.from, row.to)
                 // FULL, always. This is the line a person compares between two machines, and the
                 // epoch, the release and the vendor tag all carry meaning - eliding throws away
                 // the tail, which is precisely the half that differs. So it wraps instead.
@@ -129,7 +137,10 @@ RowLayout {
                 font: Kirigami.Theme.smallFont
                 // ...and the same fact in words, because that arrow reaches a screen reader
                 // through its character table and "3.105 right arrow 3.106" is not a version.
-                Accessible.name: i18n("from %1 to %2", row.fromText, row.to)
+                // The arrow case says it in words; the same-version case has no arrow in it and
+                // already reads as a sentence, so it is handed over as it stands.
+                Accessible.name: row.from === row.to ? text
+                                                     : i18n("from %1 to %2", row.fromText, row.to)
             }
         }
 

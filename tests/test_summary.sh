@@ -474,4 +474,36 @@ assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" summary 1 | head -1 | grep -c PLAIN)" "
 assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" history | head -1 | grep -c PLAIN)" "1" \
   "...and so does the top of kempt history"
 rm -f "$KEMPT_STATE_DIR"/history/*.json
+
+# --- a version that did not move, and one that was never known ----------------------------------
+# Both shapes are real, measured on a live box: 3 of 7 installed Flatpak runtimes carry NO version
+# string (a runtime is versioned by its branch), and a theme runtime updated its commit while leaving
+# its version at the same date. This renderer printed "org.kde.Platform ? → ?" and
+# "...Orchis-Dark 2024-05-30 → 2024-05-30" for them - an arrow between two blanks and an arrow
+# between two identical dates, each reading as an update that did not happen. The widget already
+# refused to draw the first; `kempt summary` has to agree with the popup about the same run.
+cat > "$HIST_DIR/20260919T140000.json" <<'ENTRY'
+{"timestamp":"2026-09-19T14:00:00+03:00","surface":"popup","status":"ok","duration_sec":3,
+ "reboot_needed":false,"log":"",
+ "backends":{
+  "dnf":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":[],
+    "updated":[{"name":"org.kde.Platform","from":"?","to":"?"},
+               {"name":"org.gtk.Gtk3theme.Orchis-Dark","from":"2024-05-30","to":"2024-05-30"},
+               {"name":"net.mkiol.SpeechNote","from":"4.8.3","to":"4.8.4"}],
+    "added":[{"name":"org.kde.KStyle.Adwaita","to":"?"}],"removed":[]}}}
+ENTRY
+vsum="$("$KEMPT" summary)"
+assert_eq "$(grep -c '? → ?' <<<"$vsum")" "0" "no arrow between two versions nobody knows"
+assert_eq "$(grep -cE '^  org\.kde\.Platform$' <<<"$vsum")" "1" \
+  "...the row is its name alone, which is the part that is true"
+assert_eq "$(grep -c '2024-05-30 → 2024-05-30' <<<"$vsum")" "0" \
+  "no arrow between two identical versions either"
+assert_eq "$(grep -cF 'org.gtk.Gtk3theme.Orchis-Dark 2024-05-30 (new build)' <<<"$vsum")" "1" \
+  "...it is named a new build, because the commit moved and the version did not"
+assert_eq "$(grep -cF 'net.mkiol.SpeechNote 4.8.3 → 4.8.4' <<<"$vsum")" "1" \
+  "an ordinary upgrade is untouched"
+assert_eq "$(grep -cE '^  \+ org\.kde\.KStyle\.Adwaita$' <<<"$vsum")" "1" \
+  "a package that arrived with no readable version is named without a dangling version"
+
 finish

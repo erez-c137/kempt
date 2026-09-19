@@ -1958,16 +1958,34 @@ p.check("...and an ordinary row still draws its name with no branch appended",
 # one that is true - the branch, which is already on the name line.
 RT_NOVER = {"kind": "item", "name": "org.kde.Platform", "from": "?", "to": "?",
             "held": False, "backend": "flatpak", "branch": "5.15-24.08", "holdable": False}
-arrow = labelled('String(o.text).indexOf("→") >= 0')
+# Found by objectName, NOT by the arrow in its own text: this line legitimately has no arrow in
+# two cases now, and a locator that reads the text it is about to assert on cannot see either of
+# them - it raised "the delegate loaded nothing" instead of failing an assertion.
+version_line = labelled('o.objectName === "versionLine"')
 p.check("a runtime with no version at all draws no version line rather than an empty arrow",
-        row(RT_NOVER, "(%s).visible" % arrow), False)
+        row(RT_NOVER, "(%s).visible" % version_line), False)
+p.check("...and the line it does not draw is empty rather than punctuation around two blanks",
+        row(RT_NOVER, "(%s).text" % version_line), "")
 p.check("...while its name line still carries the branch, which is what identifies it",
         row(RT_NOVER, "(%s).text" % labelled('String(o.text).indexOf("kde.Platform") >= 0')),
         "org.kde.Platform 5.15-24.08")
 # A row that knows only its pending version is NOT that case: the arrow stays, because "new"
 # is a fact about it.
 p.check("...and a row that is merely not installed yet keeps its version line",
-        row(NEW_ROW, "(%s).visible" % arrow), True)
+        row(NEW_ROW, "(%s).visible" % version_line), True)
+
+# The OTHER way a runtime update arrives: the version metadata does not move and the commit is what
+# changed. Measured on a real box - a theme runtime updated from 2024-05-30 to 2024-05-30. An arrow
+# between two identical dates reads as an update that did not happen.
+RT_SAMEVER = {"kind": "item", "name": "org.gtk.Gtk3theme.Orchis-Dark",
+              "from": "2024-05-30", "to": "2024-05-30", "held": False, "backend": "flatpak",
+              "branch": "3.22", "holdable": False}
+p.check("a version that did not move is drawn as a new build, not as an arrow to itself",
+        row(RT_SAMEVER, "(%s).text" % version_line), "2024-05-30 (new build)")
+p.check("...and that line IS shown, because the update is real",
+        row(RT_SAMEVER, "(%s).visible" % version_line), True)
+p.check("...and it reaches a screen reader as the sentence it already is",
+        row(RT_SAMEVER, "(%s).Accessible.name" % version_line), "2024-05-30 (new build)")
 
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
@@ -2073,6 +2091,7 @@ _ASSEMBLED_IN_LOGIC = {
     "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.riskyMessage
     "riskySessionOne",      # -> riskyMessageOf -> vm.riskyMessage (the family list goes in)
     "riskySessionMore",     # -> riskyMessageOf -> vm.riskyMessage (a count and the family list)
+    "newBuild",             # -> versionTextOf, for an update whose version string did not move
     "held",                 # -> vm.footerText and vm.tooltipSub
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText

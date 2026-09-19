@@ -1602,13 +1602,22 @@ staged_summary_line() {  # → one line, or nothing
 render_summary() {  # history-json-file → human text
   jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
-    def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
+    # NOT always an arrow. A Flatpak runtime can update without its version string moving - most
+    # runtimes carry a date, or nothing, as their version, and the commit is what differs - so
+    # "? → ?" and "2024-05-30 → 2024-05-30" were both real rows this renderer produced. Both say the
+    # update is fictional. The widget already refused to draw the first of them; this is the same
+    # rule on this side, so one update reads the same in the popup and in `kempt summary`.
+    def vtext(f; t): (newest(f)) as $f | (newest(t)) as $t
+                     | if ($f == "?" and $t == "?") then ""
+                       elif ($f == $t) then " " + $t + " (new build)"
+                       else " " + $f + " → " + $t end;
+    def lines(b): b.updated | map("  " + .name + vtext(.from; .to)) | join("\n");
     # ...and the packages that ARRIVED or LEFT, by name. The counts line has always said "+2
     # installed" without ever saying what they were, which is least forgivable on the one summary
     # somebody opens afterwards to find out what a restart did to their machine. Same indent as the
     # upgrade lines, with a sign so the three kinds cannot be misread for one another.
-    def addlines(b): b.added | map("  + " + .name + " " + newest(.to)) | join("\n");
-    def rmlines(b): b.removed | map("  - " + .name + " " + newest(.from)) | join("\n");
+    def addlines(b): b.added | map("  + " + .name + (if (newest(.to)) == "?" then "" else " " + newest(.to) end)) | join("\n");
+    def rmlines(b): b.removed | map("  - " + .name + (if (newest(.from)) == "?" then "" else " " + newest(.from) end)) | join("\n");
     # The held names, read ONCE and shared by the two lines below, so the list and the count can
     # never disagree about the same run. `?` and `// []` keep an entry written before the field
     # existed rendering, instead of dying on a missing key and printing nothing at all.

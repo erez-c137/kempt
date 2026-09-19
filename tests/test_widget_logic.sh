@@ -876,6 +876,23 @@ assert_eq "$(js 'L.familiesOf(["e","d","c","b","a"],0).shown.length')" "5" "max 
 assert_eq "$(js 'L.familiesOf([],4).total')" "0" "no names, no families"
 assert_eq "$(js 'L.familiesOf(undefined,4).total')" "0" "a missing list is not an error"
 
+# --- versionTextOf: what goes BETWEEN two versions, which is not always an arrow ----------------
+# Measured on a real box: 3 of 7 installed Flatpak runtimes carry NO version string (a runtime is
+# versioned by its branch), and a theme runtime's genuine update moved its commit while leaving its
+# version at the same date. So this renderer really does receive "?" twice, and really does receive
+# the same string twice, and an arrow between either pair tells the reader the update is fictional.
+assert_eq "$(js 'L.versionTextOf("?","?")')" "" \
+  "neither version known: nothing to draw, and the caller hides the line"
+assert_eq "$(js 'L.versionTextOf("2024-05-30","2024-05-30")')" "2024-05-30 (new build)" \
+  "a version that did not move is a new build, not an arrow between two identical dates"
+assert_eq "$(js 'L.versionTextOf("?","1.0-1.fc44")')" "new → 1.0-1.fc44" \
+  "a package that was not installed still reads new, exactly as it did before"
+assert_eq "$(js 'L.versionTextOf("3.105","3.106")')" "3.105 → 3.106" \
+  "and an ordinary upgrade is untouched"
+# The word comes from the copy table, like every other string the popup draws.
+assert_eq "$(js 'L.versionTextOf("9","9").indexOf(L.COPY.newBuild) > 0')" "true" \
+  "...in the copy table's words"
+
 # --- riskyMessageOf: what a session-critical transaction is actually told to DO -----------------
 # riskySummaryOf answers "how much of this is risky" and is unchanged (its assertions are above).
 # This answers the next question, which is the one a person has: what do I do about it? A kernel

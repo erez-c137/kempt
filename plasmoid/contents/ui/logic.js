@@ -99,6 +99,10 @@ var COPY = {
     // What a row draws where the CLI wrote "?": "? → 9.9.9-1.fc44" reads as "the widget does not
     // know". The DATA keeps the "?" - it is the CLI's sentinel and the padlock recognises it too.
     versionNew: "new",
+    // When an update's version string does not move. Most Flatpak runtimes carry a date or nothing
+    // at all as their version, and the commit is what changes, so "2024-05-30 -> 2024-05-30" is a
+    // real update rendered as a contradiction. Said once here and used by every surface.
+    newBuild: "new build",
     // ...and the line the Held heading owes a first-timer: a hold is Kempt's own list and does not
     // touch `dnf upgrade`.
     heldKemptOnly: "Held packages are skipped by Kempt only.",
@@ -688,6 +692,22 @@ var VERSION_UNKNOWN = "?";
 // places rather than "?" in one of them.
 function fromTextOf(from) {
     return from === VERSION_UNKNOWN ? COPY.versionNew : from;
+}
+
+// What a row draws BETWEEN two versions, which is not always an arrow. A Flatpak runtime can get a
+// genuine update whose version string does not move: most runtimes carry a date, or nothing at all,
+// in their version metadata, and the commit is what actually differs. Measured on a real box: 3 of 7
+// installed runtimes had NO version string, so an update to them arrived as "? -> ?", and a theme
+// runtime's update arrived as "2024-05-30 -> 2024-05-30". An arrow between two identical values, or
+// between two unknowns, tells the reader the update is fictional.
+//
+// Returns "" when there is nothing honest to draw at all, and the caller hides the line rather than
+// printing punctuation around two blanks. Both QML sites and the CLI's own summary follow this rule,
+// so one update reads the same everywhere.
+function versionTextOf(from, to) {
+    if (from === VERSION_UNKNOWN && to === VERSION_UNKNOWN) return "";
+    if (from === to) return String(to) + " (" + COPY.newBuild + ")";
+    return fromTextOf(from) + " \u2192 " + to;
 }
 
 // newestOf("a,b,c") -> "c". The CLI collapses multilib and installonly duplicates into ONE row
@@ -1875,6 +1895,7 @@ if (typeof module !== "undefined" && module.exports) {
         COPY: COPY,
         VERSION_UNKNOWN: VERSION_UNKNOWN,
         fromTextOf: fromTextOf,
+        versionTextOf: versionTextOf,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,

@@ -929,9 +929,12 @@ PlasmaExtras.Representation {
                                 font: Kirigami.Theme.smallFont
                             }
                             PlasmaComponents.Label {
-                                // Same rule as the pending list: a package that was not installed
-                                // before the run reads "new", not "?".
-                                text: Logic.fromTextOf(historyRow.modelData.from) + " → " + historyRow.modelData.to
+                                // Same rule as the pending list, through the same function: a
+                                // package that was not installed before the run reads "new" and not
+                                // "?", and a version that did not move draws no arrow.
+                                visible: text !== ""
+                                text: Logic.versionTextOf(historyRow.modelData.from,
+                                                          historyRow.modelData.to)
                                 opacity: 0.7
                                 font: Kirigami.Theme.smallFont
                             }
