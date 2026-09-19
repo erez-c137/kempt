@@ -4,7 +4,7 @@ Version:        0.1.4
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
 # identical to the fixed one. Undefined - every release, COPR and Koji build - this expands to
-# exactly `1%{?dist}`, so the released NEVR is untouched.
+# exactly `1%%{?dist}`, so the released NEVR is untouched.
 #
 # The stamp goes in front as `0.`, Fedora's own pre-release convention, so a local build sorts BELOW
 # the real thing: when the official package arrives it upgrades over the hand build by itself. A

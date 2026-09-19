@@ -1795,6 +1795,12 @@ push_history_back
 # AFTER push_history_back, never before: it RENAMES entries, so a list taken ahead of it makes every
 # surviving entry look new and the set difference means nothing.
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-before.txt"
+# A redirect into an EXISTING file succeeds even when its DIRECTORY is not writable, and the staging
+# run above just wrote logs/<ts>.log. Land the harvest in that same second - which the build root
+# does and this box mostly does not - and the harvest truncates that file instead of failing, so this
+# block passed or failed on timing. Clearing the directory first makes the permission the only thing
+# being tested. Found by the RPM build's own %check, which is slower and hit the collision.
+rm -f "$KEMPT_STATE_DIR"/logs/*.log
 chmod 500 "$KEMPT_STATE_DIR/logs"
 rc_ro=0; "$KEMPT" check >/dev/null 2>&1 || rc_ro=$?
 chmod 700 "$KEMPT_STATE_DIR/logs"
