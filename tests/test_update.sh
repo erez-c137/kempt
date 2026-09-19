@@ -82,6 +82,10 @@ export KEMPT_NOTIFY="$TESTTMP/notify-stub"
 export KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls.txt"
 export KEMPT_FLATPAK_LIST_CMD="cat $WORLD/fp.tsv"
+# The SNAPSHOT seam reads the same world file. It is a separate command because the real one asks
+# flatpak for the deployed commit as well, and apply_flatpak_updates uses the snapshot as its
+# installed-set filter, so a run whose snapshot is empty hands flatpak no ids at all.
+export KEMPT_FLATPAK_SNAP_CMD="cat $WORLD/fp.tsv"
 export KEMPT_SKIP_REFRESH=1
 # The reboot check is the backend's (dnf_reboot_needed), so it is stubbed through the backend's
 # own seam: KEMPT_DNF_CMD. "Reboot needed" is rc 1 PLUS the package list on stdout - rc 1 with an
@@ -715,7 +719,7 @@ grep -q 'did not start' "$WORLD/notifications" \
   && echo "ok: a detached user is told the run never started" || { echo "FAIL: preflight notify"; _fail=1; }
 # same for the optional backend: it must not die silently through errexit either
 frc=0
-ferr="$(KEMPT_FLATPAK_LIST_CMD=false "$KEMPT" update 2>&1 >/dev/null)" || frc=$?
+ferr="$(KEMPT_FLATPAK_SNAP_CMD=false "$KEMPT" update 2>&1 >/dev/null)" || frc=$?
 assert_eq "$frc" "5" "unreadable flatpak set aborts pre-flight too"
 grep -q 'cannot read the installed flatpak set' <<<"$ferr" \
   && echo "ok: flatpak pre-flight failure is named" || { echo "FAIL: flatpak preflight message"; _fail=1; }

@@ -44,6 +44,17 @@ KEMPT_FLATPAK_LIST_CMD="${KEMPT_FLATPAK_LIST_CMD:-flatpak list --system --app --
 # fetch would re-download a summary that just arrived.
 KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="${KEMPT_FLATPAK_REMOTE_RUNTIME_CMD:-flatpak remote-ls --updates --system --runtime --cached --columns=application,branch,version,download-size}"
 KEMPT_FLATPAK_LIST_RUNTIME_CMD="${KEMPT_FLATPAK_LIST_RUNTIME_CMD:-flatpak list --system --runtime --columns=application,branch,version}"
+
+# The SNAPSHOT pair, separate from the lookups above on purpose. They ask for one more column,
+# `active` - the commit actually deployed - because that is the only thing that reliably moves when
+# a ref updates. Most runtimes carry a date or nothing at all as their version, so a real update can
+# leave the version untouched; before this, the before-and-after snapshots were byte-identical and
+# the run reported "no package changes" over an update that had just happened.
+#
+# NOT folded into the lookup commands: those feed joins that build the PENDING list and expect two
+# fields. Two extra `flatpak list` calls per run is the price of leaving that path alone.
+KEMPT_FLATPAK_SNAP_CMD="${KEMPT_FLATPAK_SNAP_CMD:-flatpak list --system --app --columns=application,version,active}"
+KEMPT_FLATPAK_SNAP_RUNTIME_CMD="${KEMPT_FLATPAK_SNAP_RUNTIME_CMD:-flatpak list --system --runtime --columns=application,branch,version,active}"
 # The apply arm, and like the refresh above it runs AS THE USER: no pkexec, no Kempt polkit action,
 # no root helper. flatpak asks for no password of its own here - the policy it ships sets
 # allow_active=yes on org.freedesktop.Flatpak.app-update, runtime-update and metadata-update, so an
@@ -190,10 +201,20 @@ flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR par
 # Captured explicitly rather than run as one `{ a; b; } | ...` group: a group's status is its LAST
 # command's, so a failing app arm would be masked by a working runtime arm and the run would take an
 # empty installed set for an honest answer.
+# An app row for the snapshot: id, version, commit. The empty-version rule is flatpak_runtime_rows'
+# ("?" means not known, everywhere in Kempt), applied here because an app row has no branch to fold
+# and so does not go through that function.
+flatpak_snapshot_app_rows() {  # stdin: id<TAB>version<TAB>commit → id<TAB>version-or-?<TAB>commit
+  awk -F'\t' 'NF && $1 !~ /^#/ {
+    v = (NF >= 2 && $2 != "") ? $2 : "?"
+    print $1 "\t" v (NF >= 3 ? "\t" $3 : "")
+  }'
+}
+
 flatpak_snapshot() {
   local apps rts
-  apps="$($KEMPT_FLATPAK_LIST_CMD)" || return 1
-  rts="$($KEMPT_FLATPAK_LIST_RUNTIME_CMD | flatpak_runtime_rows)" || return 1
+  apps="$($KEMPT_FLATPAK_SNAP_CMD | flatpak_snapshot_app_rows)" || return 1
+  rts="$($KEMPT_FLATPAK_SNAP_RUNTIME_CMD | flatpak_runtime_rows)" || return 1
   # awk 'NF' drops the blank line an empty capture leaves behind, which would otherwise reach
   # collapse_versions as a row with no name at all.
   printf '%s\n%s\n' "$apps" "$rts" | awk 'NF' | sort_name_version | collapse_versions

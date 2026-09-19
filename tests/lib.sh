@@ -108,6 +108,11 @@ sandbox() {  # fresh dirs per test file; call first
   # fixtures keep their counts, and the files that exercise runtimes point these at fixtures.
   export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_LIST_RUNTIME_CMD="true"
+  # The SNAPSHOT pair, pinned at `true` for exactly the reason above and proven necessary the day
+  # they were added: unset, flatpak_snapshot fell through to the REAL `flatpak list` and the
+  # assertions came back describing the runtimes installed on the machine running the suite.
+  export KEMPT_FLATPAK_SNAP_CMD="true"
+  export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"
   # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
   # is only ever READ from, never run, and a test that cares drives both branches of its guard by
   # setting it itself. Unset here so a value exported in a developer's shell cannot decide which

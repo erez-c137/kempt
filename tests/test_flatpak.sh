@@ -91,7 +91,7 @@ assert_eq "$(jq 'length' <<<"$got")" "3" "flatpak_check wires cmds→parser"
 # Same ascending-set contract as the dnf side: consumers read the LAST element of a comma set as
 # the newest version, and a plain sort puts 1.10 before 1.9.
 printf 'org.x.App\t1.10\norg.x.App\t1.9\ncom.a.B\t2.0\n' > "$TESTTMP/fp-unsorted.tsv"
-snap="$(KEMPT_FLATPAK_LIST_CMD="cat $TESTTMP/fp-unsorted.tsv" flatpak_snapshot)"
+snap="$(KEMPT_FLATPAK_SNAP_CMD="cat $TESTTMP/fp-unsorted.tsv" flatpak_snapshot)"
 assert_eq "$(awk -F'\t' '$1=="org.x.App"{print $2}' <<<"$snap")" "1.9,1.10" \
   "a flatpak version set collapses in version order too"
 assert_eq "$(cut -f1 <<<"$snap" | paste -sd, -)" "com.a.B,org.x.App" \
@@ -341,7 +341,8 @@ assert_eq "$(jq -r '.[] | select(.name=="net.mkiol.SpeechNote") | .size_bytes' <
 # The snapshot, which is what the run's report diffs. One row per id/branch: collapsed onto the id,
 # the two branches would merge into a single row and tsv_diff_updates would report a change to a
 # runtime that never moved.
-snap_rt="$(flatpak_snapshot)"
+snap_rt="$(KEMPT_FLATPAK_SNAP_CMD="cat $FIXTURES/flatpak-list.tsv" \
+           KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $FIXTURES/flatpak-list-runtime.tsv" flatpak_snapshot)"
 assert_eq "$(grep -c . <<<"$snap_rt")" "9" "the snapshot carries both apps and runtimes"
 assert_eq "$(awk -F'\t' '$1 ~ /GL.default/' <<<"$snap_rt" | wc -l)" "2" \
   "a runtime on two branches is two snapshot rows"
@@ -349,12 +350,45 @@ assert_eq "$(awk -F'\t' '$1 ~ /GL.default/' <<<"$snap_rt" | wc -l)" "2" \
 # unique fails in this file rather than as a mysterious diff failure mid-run.
 assert_eq "$(cut -f1 <<<"$snap_rt" | sort | uniq -d | wc -l)" "0" \
   "...and no name repeats, which is what tsv_diff_updates refuses input for"
-rt_snap_no_list() { KEMPT_FLATPAK_LIST_RUNTIME_CMD=false flatpak_snapshot; }
-rt_snap_no_app()  { KEMPT_FLATPAK_LIST_CMD=false flatpak_snapshot; }
+rt_snap_no_list() { KEMPT_FLATPAK_SNAP_RUNTIME_CMD=false flatpak_snapshot; }
+rt_snap_no_app()  { KEMPT_FLATPAK_SNAP_CMD=false flatpak_snapshot; }
 assert_exit 1 "a failing runtime lookup fails the snapshot too" rt_snap_no_list
 # A group pipeline would have masked this one: a group's status is its LAST command's, so a broken
 # app arm with a working runtime arm would have reported an empty installed set as success.
 assert_exit 1 "...and so does a failing app lookup, which a group pipeline would have hidden" rt_snap_no_app
+
+# --- the commit is the identity, because the version is not ------------------------------------
+# The bug this closes, measured on a real box on 2026-09-19: a Flatpak runtime was genuinely updated
+# (the log line was "Updating runtime/org.gtk.Gtk3theme.Orchis-Dark/x86_64/3.22", and pending went
+# 1 to 0), and Kempt reported "no package changes". Most runtimes carry a date - or nothing at all -
+# as their version, so the before and after snapshots were byte-identical while the deployed COMMIT
+# had moved. A report that says nothing happened after something happened is the one thing this
+# project promises never to do.
+printf 'org.gtk.Gtk3theme.Orchis-Dark\t3.22\t2024-05-30\td16ac549c4f0\norg.kde.Platform\t5.15-24.08\t\taaaa11112222\n' \
+  > "$TESTTMP/snap-rt-before.tsv"
+printf 'org.gtk.Gtk3theme.Orchis-Dark\t3.22\t2024-05-30\t9c1cf21c41d9\norg.kde.Platform\t5.15-24.08\t\taaaa11112222\n' \
+  > "$TESTTMP/snap-rt-after.tsv"
+snap_before="$(KEMPT_FLATPAK_SNAP_CMD=true \
+               KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $TESTTMP/snap-rt-before.tsv" flatpak_snapshot)"
+snap_after="$(KEMPT_FLATPAK_SNAP_CMD=true \
+              KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $TESTTMP/snap-rt-after.tsv" flatpak_snapshot)"
+assert_eq "$(awk -F'\t' '$1 ~ /Orchis/ {print NF}' <<<"$snap_before")" "3" \
+  "a snapshot row carries the commit as a third field"
+assert_eq "$(awk -F'\t' '$1 ~ /Orchis/ {print $3}' <<<"$snap_before")" "d16ac549c4f0" \
+  "...which is the commit flatpak reports as active"
+assert_eq "$(awk -F'\t' '$1 ~ /kde.Platform/ {print $2}' <<<"$snap_before")" "?" \
+  "...while a runtime with no version at all still reads ?, as it always did"
+printf '%s\n' "$snap_before" > "$TESTTMP/fp-b.tsv"
+printf '%s\n' "$snap_after"  > "$TESTTMP/fp-a.tsv"
+rep="$(tsv_diff_updates "$TESTTMP/fp-b.tsv" "$TESTTMP/fp-a.tsv")"
+assert_eq "$(jq -r '.updated | length' <<<"$rep")" "1" \
+  "a ref whose COMMIT moved is reported as updated, though its version did not"
+assert_eq "$(jq -r '.updated[0].name' <<<"$rep")" "org.gtk.Gtk3theme.Orchis-Dark/3.22" \
+  "...naming the ref that actually changed"
+assert_eq "$(jq -r '.updated[0] | .from + " -> " + .to' <<<"$rep")" "2024-05-30 -> 2024-05-30" \
+  "...and reporting VERSIONS, which is what a person reads: the widget and kempt summary draw this as a new build"
+assert_eq "$(jq -r '.updated + .added + .removed | length' <<<"$(tsv_diff_updates "$TESTTMP/fp-b.tsv" "$TESTTMP/fp-b.tsv")")" "0" \
+  "...while a box where nothing moved still reports nothing"
 
 # Runtimes are never held, whatever the holds file says. mark_held keys on the bare name, and a
 # holds file written before runtimes were counted can already name one.

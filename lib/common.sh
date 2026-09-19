@@ -237,10 +237,15 @@ atomic_write() {  # dest; stdin → dest atomically (same-dir tmp so mv stays at
 sort_name_version() { sort -t "$(printf '\t')" -k1,1 -k2,2V "$@"; }
 
 collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) → one row per name, versions comma-joined in ASCENDING version order (last = newest, and consumers rely on it)
+  # An OPTIONAL third field rides through untouched in shape: it is the row's IDENTITY, for a
+  # backend whose version string is not one. A Flatpak ref updates whenever its commit changes, and
+  # most runtimes carry a date or nothing at all as their version, so version alone cannot answer
+  # "did this move?" - see tsv_diff_updates. dnf sends two fields and is unaffected.
   awk -F'\t' '
-    $1 != prev { if (prev != "") print prev "\t" vals; prev = $1; vals = $2; next }
-    { vals = vals "," $2 }
-    END { if (prev != "") print prev "\t" vals }'
+    function flush() { if (prev != "") print prev "\t" vals (ids == "" ? "" : "\t" ids) }
+    $1 != prev { flush(); prev = $1; vals = $2; ids = (NF >= 3 ? $3 : ""); next }
+    { vals = vals "," $2; if (NF >= 3) ids = (ids == "" ? $3 : ids "," $3) }
+    END { flush() }'
 }
 
 # Every setting this build knows, and the list `config set` warns against. It sits beside
@@ -663,17 +668,35 @@ tsv_diff_updates() {  # before_file after_file
     awk -F'\t' 'prev == $1 { exit 65 } { prev = $1 }' "$f" \
       || { echo "tsv_diff_updates: duplicate names in $f (run through collapse_versions)" >&2; return 65; }
   done
-  {
-    # `$2"" != $3""` forces STRING comparison: awk compares two numeric-looking fields
+  # WHAT CHANGED and WHAT TO SHOW are two different questions, and answering both with the version
+  # string made Kempt report "no package changes" after a run that really updated a Flatpak runtime:
+  # the commit moved, the version did not, and the two snapshot rows were byte-identical. Measured on
+  # a real box, 2026-09-19, log line "Updating runtime/org.gtk.Gtk3theme.Orchis-Dark/x86_64/3.22".
+  #
+  # So each row may carry a third field, its IDENTITY, and that is what decides whether it moved.
+  # The report still carries the VERSIONS, because that is what a person reads. A file with two
+  # fields is normalised to identity = version, which is exactly what dnf wants and what every
+  # snapshot written by an older Kempt already is - no migration, and an old offline marker's stored
+  # baseline still diffs correctly.
+  local n1 n2 out rc=0
+  n1="$(mktemp)"; n2="$(mktemp)"
+  awk -F'\t' '{ id = (NF >= 3 && $3 != "") ? $3 : $2; print $1 "\t" $2 "\t" id }' "$1" > "$n1"
+  awk -F'\t' '{ id = (NF >= 3 && $3 != "") ? $3 : $2; print $1 "\t" $2 "\t" id }' "$2" > "$n2"
+  out="$({
+    # `$3"" != $5""` forces STRING comparison: awk compares two numeric-looking fields
     # numerically, which makes a real 1.1 → 1.10 bump compare equal and vanish from the report.
-    join -t "$(printf '\t')" "$1" "$2" | awk -F'\t' '$2"" != $3"" {print "U\t"$1"\t"$2"\t"$3}'
-    join -t "$(printf '\t')" -v2 "$1" "$2" | awk -F'\t' '{print "A\t"$1"\t\t"$2}'
-    join -t "$(printf '\t')" -v1 "$1" "$2" | awk -F'\t' '{print "R\t"$1"\t"$2"\t"}'
+    join -t "$(printf '\t')" -o '0,1.2,1.3,2.2,2.3' "$n1" "$n2" \
+      | awk -F'\t' '$3"" != $5"" {print "U\t"$1"\t"$2"\t"$4}'
+    join -t "$(printf '\t')" -v2 "$n1" "$n2" | awk -F'\t' '{print "A\t"$1"\t\t"$2}'
+    join -t "$(printf '\t')" -v1 "$n1" "$n2" | awk -F'\t' '{print "R\t"$1"\t"$2"\t"}'
   } | jq -cRn '
     [inputs | split("\t")] |
     { updated: [.[] | select(.[0]=="U") | {name:.[1], from:.[2], to:.[3]}],
       added:   [.[] | select(.[0]=="A") | {name:.[1], to:.[3]}],
-      removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }'
+      removed: [.[] | select(.[0]=="R") | {name:.[1], from:.[2]}] }')" || rc=$?
+  rm -f "$n1" "$n2"
+  [[ $rc -eq 0 ]] || return $rc
+  printf '%s\n' "$out"
 }
 
 # --- download sizes ---

@@ -75,6 +75,13 @@ works and is no longer listed in the help.
 - **`kempt config get` refuses a key that is not a key** rather than printing a different setting,
   `kempt history` on a box with no runs says so instead of printing nothing, and
   `kempt <command> --help` prints that command's usage and exits 0.
+- **A Flatpak update whose version number does not change is now reported as an update.** Kempt
+  compared the before and after of a run by version string, and most runtimes carry a date, or
+  nothing at all, where a version would be: what moves when they update is the build. So a run that
+  really did update a runtime could finish and report "no package changes", which is the one thing
+  Kempt is supposed never to do. The before-and-after comparison now records which build is
+  installed, not only which version, so an update that changes the build is reported as the update
+  it is. What you read is still the version, because that is the useful part.
 - **An update whose version number did not change is no longer drawn as an arrow to itself.** Most
   Flatpak runtimes carry a date, or nothing at all, where a version would be, because what changes
   is the build rather than the version. Those updates used to read as "? to ?" or
