@@ -161,7 +161,7 @@ command, and nothing is written outside these two trees by a privileged one eith
 | `~/.config/kempt/holds` | One `backend:name` per line | Nothing; it is yours |
 | `~/.local/state/kempt/state.json` | What is pending right now, schema v1, a public interface | Rewritten by every check |
 | `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, reboot verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
-| `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised | Dropped after 60 days |
+| `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised. An update applied on a reboot is the one exception and labels itself as such: dnf5 installed it during boot with Kempt not running, so the file is Kempt's own record of what changed, from the snapshot diff, naming dnf5's transaction when it could identify one | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, which packages went in and were left out, and which dnf5 transaction it is, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |

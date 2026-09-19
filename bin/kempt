@@ -1483,16 +1483,54 @@ harvest_offline() {
   # the check is not, and the marker is cleared either way so this cannot repeat.
   # `transaction_id` is additive and present only when the history named the entry: it is the id
   # `dnf5 history info` takes, so the person can see dnf5's own record of the same transaction.
-  jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" '
+  # A LOG FOR THE ONE RUN NOBODY WATCHED. Every other surface's log is captured command output,
+  # tee'd as dnf speaks. This transaction was installed by dnf5 during the restart with Kempt not
+  # running, so there is no output to capture, and the entry used to carry log:"" - which left the
+  # popup hiding its Show Log action on the very run a person is most curious about, having just
+  # watched their machine install a hundred packages while it booted.
+  #
+  # So Kempt writes its OWN record, and the file says that is what it is: the package list is the
+  # snapshot diff, not dnf's words, and dnf5's record of the same transaction is named by the
+  # command that prints it. A file that LOOKED like captured output and was not would be worse
+  # than the missing button.
+  local hlog="$LOG_DIR/$ts.log"
+  # Same guard, same reason as $hist above: this harvest runs inside a check a live run may have
+  # triggered in the same second, and that run's log must not be overwritten.
+  [[ -e "$hlog" ]] && hlog="$LOG_DIR/$ts-offline.log"
+  jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" \
+        --arg log "$hlog" '
     ($repa[0]) as $dnf |
     {timestamp:$ts, surface:$surface, status:"ok", duration_sec:0,
-     reboot_needed:false, log:"",
+     reboot_needed:false, log:$log,
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)' > "$hist" \
     || { rm -f "$hist"; hist=""
          echo "warning: the staged update was applied, but its history entry could not be written" >&2
          log_event "harvest entry not written (state directory unwritable?)"; }
+  # Written AFTER the entry because render_summary reads it, and reconciled immediately: an entry
+  # naming a file that is not there is a Show Log button that opens nothing, which is worse than no
+  # button. If the log cannot be written the entry goes back to log:"" and the popup hides the
+  # action again. Never fatal, for the reason written above this block - the marker is cleared
+  # either way, and a check that dies here never runs again.
+  if [[ -n "$hist" ]]; then
+    if { printf '%s\n' \
+           "Kempt staged this update and dnf5 installed it during the restart." \
+           "Kempt was not running at the time, so this file is Kempt's own record rather than" \
+           "captured output: the packages below are the difference between the snapshot taken when" \
+           "the transaction was staged and the packages present after the restart." \
+           "" \
+         && { [[ -z "$txid" ]] \
+              || printf "dnf5's own record of the same transaction:  dnf5 history info %s\n\n" "$txid"; } \
+         && render_summary "$hist"; } > "$hlog" 2>/dev/null; then
+      :
+    else
+      rm -f "$hlog"
+      if jq '.log = ""' "$hist" > "$hist.nolog" 2>/dev/null; then mv -f "$hist.nolog" "$hist"
+      else rm -f "$hist.nolog"; fi
+      log_event "harvest log not written (state directory unwritable?)"
+    fi
+  fi
   rm -f "$rep_f"
   rm -f "$now_snap"
   # The history entry above is honest whatever happened next, but the MARKER may no longer be the

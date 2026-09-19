@@ -1748,6 +1748,66 @@ grep -qE '0 (packages )?updated|no package changes' "$WORLD/notifications" \
   || echo "ok: the harvest notification counts installs, not just upgrades"
 grep -q '+1 installed' "$WORLD/notifications" && echo "ok: it names the install" || { echo "FAIL: harvest notify installs - got: $(cat "$WORLD/notifications")"; _fail=1; }
 
+# ...and the one run nobody watched has a log a person can OPEN. Every other surface tees dnf's own
+# output; this transaction was installed by dnf5 during the restart with Kempt not running, so there
+# is nothing to capture and the entry used to carry log:"" - which made the popup hide its Show Log
+# action on precisely the run somebody wants to read afterwards. The file is Kempt's own record and
+# has to say so, or it is a file pretending to be captured output.
+hlog2="$(jq -r .log "$hb2")"
+[[ -n "$hlog2" ]] && echo "ok: the harvested run names a log file" \
+  || { echo "FAIL: harvest entry carries no log path"; _fail=1; }
+assert_exit 0 "...and the file it names is really there" -- test -s "$hlog2"
+grep -q 'installed it during the restart' "$hlog2" \
+  && echo "ok: ...which says it is Kempt's own record, not captured output" \
+  || { echo "FAIL: harvest log provenance header - got: $(head -3 "$hlog2" 2>/dev/null)"; _fail=1; }
+grep -q 'cowsay' "$hlog2" \
+  && echo "ok: ...and lists what the restart actually installed" \
+  || { echo "FAIL: harvest log package list - got: $(cat "$hlog2" 2>/dev/null)"; _fail=1; }
+# The dnf5 pointer is only honest when the transaction was actually identified. A log naming an id
+# the entry does not have would send somebody to `dnf5 history info` for a transaction Kempt never
+# matched.
+txid2="$(jq -r '.transaction_id // ""' "$hb2")"
+if [[ -n "$txid2" ]]; then
+  grep -q "dnf5 history info $txid2" "$hlog2" \
+    && echo "ok: ...and points at dnf5's own record of the same transaction" \
+    || { echo "FAIL: harvest log omits the dnf5 pointer for id $txid2"; _fail=1; }
+else
+  grep -q 'dnf5 history info' "$hlog2" \
+    && { echo "FAIL: harvest log names a transaction id the entry never matched"; _fail=1; } \
+    || echo "ok: ...and names no dnf5 transaction when it could not identify one"
+fi
+
+# A log that CANNOT be written must take its own claim back out of the entry: an entry naming a
+# missing file is a Show Log button that opens nothing, which is worse than the hidden button this
+# whole block exists to fix. The harvest must still record the transaction, and must never die -
+# it runs at the top of every check, and a death here stops the box checking for good.
+: > "$WORLD/notifications"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+transaction_armed
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+# The restart has to have DONE something, or the harvest is right to conclude the stage is gone and
+# clear the marker without writing anything: a new boot session plus a package set that moved is the
+# same evidence the passing case above uses. cowsay arrives across the restart.
+printf 'bash\t5.2.37-1.fc44\ncowsay\t3.04-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$WORLD/rpm.tsv"
+simulate_reboot
+push_history_back
+# AFTER push_history_back, never before: it RENAMES entries, so a list taken ahead of it makes every
+# surviving entry look new and the set difference means nothing.
+ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-before.txt"
+chmod 500 "$KEMPT_STATE_DIR/logs"
+rc_ro=0; "$KEMPT" check >/dev/null 2>&1 || rc_ro=$?
+chmod 700 "$KEMPT_STATE_DIR/logs"
+assert_eq "$rc_ro" "0" "a harvest whose log cannot be written is not a failed check"
+ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-after.txt"
+hb3="$(comm -13 "$TESTTMP/hist-ro-before.txt" "$TESTTMP/hist-ro-after.txt" | head -1)"
+[[ -n "$hb3" ]] && echo "ok: the harvest recorded the transaction even with no writable log dir" \
+  || { echo "FAIL: no new history entry from the read-only-log harvest"; _fail=1; }
+assert_eq "$(jq -r .surface "$hb3")" "offline (applied on reboot)" \
+  "...the transaction is still recorded"
+assert_eq "$(jq -r .log "$hb3")" "" \
+  "...and the entry claims no log file it could not write"
+
 # ...but a box with no readable /proc/sys/kernel/random/boot_id records "unknown", and an unknown
 # session must NOT gate the harvest forever - it falls back to the old snapshot comparison.
 # Both sides read "unknown" here, which is exactly the case a bare equality test would swallow.

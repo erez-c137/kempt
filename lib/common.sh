@@ -1603,6 +1603,12 @@ render_summary() {  # history-json-file → human text
   jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     def lines(b): b.updated | map("  " + .name + " " + newest(.from) + " → " + newest(.to)) | join("\n");
+    # ...and the packages that ARRIVED or LEFT, by name. The counts line has always said "+2
+    # installed" without ever saying what they were, which is least forgivable on the one summary
+    # somebody opens afterwards to find out what a restart did to their machine. Same indent as the
+    # upgrade lines, with a sign so the three kinds cannot be misread for one another.
+    def addlines(b): b.added | map("  + " + .name + " " + newest(.to)) | join("\n");
+    def rmlines(b): b.removed | map("  - " + .name + " " + newest(.from)) | join("\n");
     # The held names, read ONCE and shared by the two lines below, so the list and the count can
     # never disagree about the same run. `?` and `// []` keep an entry written before the field
     # existed rendering, instead of dying on a missing key and printing nothing at all.
@@ -1632,9 +1638,13 @@ render_summary() {  # history-json-file → human text
     "System (dnf): " + counts(.backends.dnf)
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
+    (if (.backends.dnf.added|length) > 0 then addlines(.backends.dnf) else empty end),
+    (if (.backends.dnf.removed|length) > 0 then rmlines(.backends.dnf) else empty end),
     "Apps (flatpak): " + counts(.backends.flatpak)
       + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
+    (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
+    (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
     heldline,
     shortfall,
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means

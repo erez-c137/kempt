@@ -171,7 +171,11 @@ harvest() {  # marker-json → the post-restart check; HH is the entry it wrote,
   HH="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -1)"
 }
 reported() { jq -r '[.backends.dnf[] | arrays | .[].name] | sort | join(" ")' "$HH"; }
-shape() { jq -Sc 'del(.timestamp)' "$HH"; }
+# .log goes out with .timestamp, and for the same reason: the harvest's log path is DERIVED from
+# that timestamp ($LOG_DIR/$ts.log), so it moves every run and is no more part of an entry's shape
+# than the timestamp itself. What this helper compares is which FIELDS a harvest produced and what
+# it reported, not which second it happened in.
+shape() { jq -Sc 'del(.timestamp, .log)' "$HH"; }
 MARKER_STAGED="$(marker_from "$STAGED_TOML" "$STAGED_TX")"
 MARKER_REPLACED="$(marker_from "$REPLACED_TOML" "$REPLACED_TX")"
 

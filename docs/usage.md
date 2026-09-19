@@ -592,6 +592,7 @@ The vocabulary is fixed, so the file is worth grepping:
 | `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or deliberately kept because a newer stage arrived while a check was running. |
 | `harvest deferred: packages moved outside Kempt while the stage is still armed` | Something other than the staged transaction changed the package set. Said once, not once per check for as long as the stage waits. |
 | `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | A run or a harvest finished but its history entry could not be saved. The run itself is unaffected; what is lost is the durable record. |
+| `harvest log not written (state directory unwritable?)` | A staged update was applied on a restart and recorded, but Kempt's own record of what it installed could not be written. The history entry drops its log path rather than naming a file that is not there, so the popup hides Show Log for that run. |
 | `unstage discarded the staged update` | `kempt unstage` removed the stored transaction, and Kempt's record went with it. |
 | `unstage refused (<what is stored>)` / `unstage refused by the root helper` | `kempt unstage` changed nothing, because a Fedora release upgrade is stored and discarding it would cancel an upgrade that took gigabytes to download. The first is the CLI's own refusal, the second the same refusal made again as root. Exit 5. |
 | `unstage found nothing staged` | `kempt unstage` had nothing to do: no stored transaction, and no record of one. |
@@ -611,7 +612,7 @@ Kempt writes four things, and they answer different questions. Reaching for the 
 | What you want to know | Where to look |
 | --- | --- |
 | What happened, when, and whether it came from the widget | `kempt log` |
-| What exactly the package manager printed during a run | the run log, `~/.local/state/kempt/logs/<stamp>.log`. `kempt summary` prints its path for a failed run, and every history entry carries it in `log`. |
+| What exactly the package manager printed during a run | the run log, `~/.local/state/kempt/logs/<stamp>.log`. `kempt summary` prints its path for a failed run, and every history entry carries it in `log`. One exception: an update applied on a reboot was installed by dnf5 with Kempt not running, so its log is Kempt's own record of what changed rather than captured output, and says so in its opening lines. |
 | A machine-readable summary of one run: versions, counts, held items, duration | `~/.local/state/kempt/history/<stamp>.json`, listed by `kempt history` |
 | What is pending right now | `~/.local/state/kempt/state.json`, rewritten by `kempt check` |
 | Widget-side errors: QML warnings, a settings page that will not load | `journalctl --user -b | grep -i kempt` (plasmashell prints QML warnings there), plus the error label the settings page shows in place |
@@ -1133,9 +1134,13 @@ The order:
    `Update failed: <the reason>` as an error - or, for a button press that failed rather than a
    run, whatever the CLI said about it. One slot, and the later of the two wins: they are never
    the same event and the newer one is always the one being asked about. **Show Log** is on it
-   when a *run* recorded a log file, which is every run Kempt performed; the entries harvested
-   after an offline (on-reboot) update carry no log path, so they carry no button either rather
-   than one that would open your home directory. It is transient - it clears when you close the
+   when a *run* recorded a log file, which is every run Kempt performed - including the ones
+   applied on a reboot, though those logs are a different thing. A staged transaction is installed
+   by dnf5 during the restart, with Kempt not running, so there is no command output to capture:
+   Kempt writes its own record of what the restart changed instead, which says so in its opening
+   lines and names dnf5's own transaction when it could identify one. A harvest that could not
+   write its log carries no path, and so no button, rather than one that opens nothing. It is
+   transient - it clears when you close the
    popup or the next check starts, and the persistent **Last update** row stays out of the way
    while it is up.
 3. **This system updates with rpm-ostree**, on an image-based Fedora, pointing at Discover or
