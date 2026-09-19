@@ -109,6 +109,12 @@ already staged for the next restart.
   removing it - there is no dry-run as of 1.18. Kempt will not print a number it cannot stand behind,
   so the first step is asking upstream for one rather than writing an estimate of our own.
 
+- **Re-capture the screenshots.** The two in the README, the metainfo and the store listing were
+  taken on 4 September, before three releases. They show a popup with no Flatpak runtimes section
+  and no way to discard a staged update, which is no longer what Kempt looks like. The metainfo
+  already promises this re-capture, and asks for 16:9 while it happens, because software centres
+  crop tall images badly. Needs a real desktop, so it waits for a session with one in front of it.
+
 ## 0.2 - a second distribution
 
 - **One file per package manager, for real.** Adding a backend today touches every row of the wiring
