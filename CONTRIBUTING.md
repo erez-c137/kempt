@@ -262,6 +262,23 @@ is to hash the files. The stamp lands in the `Release` as `0.local<stamp>.1`, wh
 *below* the released package, so the official build upgrades over a hand build on its own. Release,
 COPR and Koji builds pass nothing and are unaffected. `tests/test_version.sh` checks both forms.
 
+### After installing a hand build, clear Plasma's QML cache
+
+```bash
+rm -rf ~/.cache/plasmashell/qmlcache && systemctl --user restart plasma-plasmashell
+```
+
+Otherwise the panel keeps drawing the previous build's widget, and a restart of plasmashell does not
+help. rpm clamps every installed file's timestamp to `SOURCE_DATE_EPOCH`, which comes from the
+spec's newest `%changelog` date, so two builds of the *same version* install `logic.js` with an
+identical mtime. Plasma compiles QML into `~/.cache/plasmashell/qmlcache` and validates those entries
+against that timestamp, which never moved, so it serves the stale compiled copy. The CLI is
+unaffected, because bash reads its source on every run - which makes this easy to misread as "the fix
+did not work" when only half of it is visible.
+
+This never affects released upgrades: each release carries its own `%changelog` date, so the mtime
+moves and the cache invalidates by itself.
+
 A bump is the first step of a release rather than the whole of one:
 [docs/RELEASING.md](docs/RELEASING.md) is the numbered checklist for the rest, and it also says
 why Kempt has no self-update code and never will.
