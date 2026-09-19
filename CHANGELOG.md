@@ -89,6 +89,9 @@ works and is no longer listed in the help.
   not move is shown once with "new build" beside it, a version nothing knows is left off the row
   entirely, and the arrow appears only when there are two different versions to point between. The
   popup, the last-update list and `kempt summary` all follow the same rule.
+- **A runtime is named the same way everywhere.** The last-update list and `kempt summary` printed
+  the internal key Kempt sorts runtimes by, `org.kde.Platform/5.15-24.08`, while the pending list
+  showed `org.kde.Platform 5.15-24.08`. One update, two spellings. They now agree.
 - **Stale run markers and temporary files are swept**, including in the configuration directory.
 
 ## [0.1.3] - 2026-09-15

@@ -1630,17 +1630,26 @@ render_summary() {  # history-json-file → human text
     # "? → ?" and "2024-05-30 → 2024-05-30" were both real rows this renderer produced. Both say the
     # update is fictional. The widget already refused to draw the first of them; this is the same
     # rule on this side, so one update reads the same in the popup and in `kempt summary`.
+    # The id and branch of a runtime are folded into one `id/branch` JOIN KEY, so that sort, join and
+    # the snapshot diff have a single field to work on. It is not a name, and the popup never drew it
+    # as one: it splits the fold and shows "org.kde.Platform 5.15-24.08". This renderer printed the
+    # raw key, so one transaction was spelled two ways by one product. The LAST slash is always the
+    # one Kempt added, because a flatpak app id cannot contain one, and a dnf package name has no
+    # slash at all - so this is a no-op for every other row.
+    # NO APOSTROPHES IN HERE: this jq program is a single-quoted bash string, and one closes it.
+    def dispname: (. | split("/")) as $p
+                  | if ($p | length) > 1 then (($p[0:-1] | join("/")) + " " + $p[-1]) else . end;
     def vtext(f; t): (newest(f)) as $f | (newest(t)) as $t
                      | if ($f == "?" and $t == "?") then ""
                        elif ($f == $t) then " " + $t + " (new build)"
                        else " " + $f + " → " + $t end;
-    def lines(b): b.updated | map("  " + .name + vtext(.from; .to)) | join("\n");
+    def lines(b): b.updated | map("  " + (.name | dispname) + vtext(.from; .to)) | join("\n");
     # ...and the packages that ARRIVED or LEFT, by name. The counts line has always said "+2
     # installed" without ever saying what they were, which is least forgivable on the one summary
     # somebody opens afterwards to find out what a restart did to their machine. Same indent as the
     # upgrade lines, with a sign so the three kinds cannot be misread for one another.
-    def addlines(b): b.added | map("  + " + .name + (if (newest(.to)) == "?" then "" else " " + newest(.to) end)) | join("\n");
-    def rmlines(b): b.removed | map("  - " + .name + (if (newest(.from)) == "?" then "" else " " + newest(.from) end)) | join("\n");
+    def addlines(b): b.added | map("  + " + (.name | dispname) + (if (newest(.to)) == "?" then "" else " " + newest(.to) end)) | join("\n");
+    def rmlines(b): b.removed | map("  - " + (.name | dispname) + (if (newest(.from)) == "?" then "" else " " + newest(.from) end)) | join("\n");
     # The held names, read ONCE and shared by the two lines below, so the list and the count can
     # never disagree about the same run. `?` and `// []` keep an entry written before the field
     # existed rendering, instead of dying on a missing key and printing nothing at all.

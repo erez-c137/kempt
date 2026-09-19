@@ -101,9 +101,12 @@ cat > "$HIST_DIR/20260824T130000.json" <<'EOF'
     "added":[],"removed":[]}}}
 EOF
 r="$(render_summary "$HIST_DIR/20260824T130000.json")"
-grep -q 'org.freedesktop.Platform.GL.default/24.08 26.1.8 → 26.1.9' <<<"$r" \
+# The id and the branch are two words here, as they always were in the popup: `id/branch` is the
+# JOIN KEY the snapshot diff works on, not a name, and printing it raw spelled one transaction two
+# ways across the two surfaces.
+grep -q 'org.freedesktop.Platform.GL.default 24.08 26.1.8 → 26.1.9' <<<"$r" \
   && echo "ok: a runtime is itemized under its branch" || { echo "FAIL: runtime line"; _fail=1; }
-grep -q 'org.freedesktop.Platform.GL.default/24.08extra 26.1.8 → 26.2.0' <<<"$r" \
+grep -q 'org.freedesktop.Platform.GL.default 24.08extra 26.1.8 → 26.2.0' <<<"$r" \
   && echo "ok: ...and the other branch is its own line" || { echo "FAIL: second branch line"; _fail=1; }
 # The count is the transaction's, not the app list's. Three updated, and the summary says three.
 grep -q 'Apps (flatpak): 3 updated' <<<"$r" \
@@ -505,5 +508,32 @@ assert_eq "$(grep -cF 'net.mkiol.SpeechNote 4.8.3 → 4.8.4' <<<"$vsum")" "1" \
   "an ordinary upgrade is untouched"
 assert_eq "$(grep -cE '^  \+ org\.kde\.KStyle\.Adwaita$' <<<"$vsum")" "1" \
   "a package that arrived with no readable version is named without a dangling version"
+
+# --- a join key is not a name -------------------------------------------------------------------
+# A runtime is keyed by id AND branch, folded to "id/branch" so that sort, join and the snapshot
+# diff have one field to work on. The popup always split it back apart for display; this renderer
+# printed the raw key, so one transaction read as "org.kde.Platform 5.15-24.08" in the popup and
+# "org.kde.Platform/5.15-24.08" here.
+cat > "$HIST_DIR/20260919T160000.json" <<'ENTRY'
+{"timestamp":"2026-09-19T16:00:00+03:00","surface":"popup","status":"ok","duration_sec":4,
+ "reboot_needed":false,"log":"",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],
+    "updated":[{"name":"kernel-core","from":"6.15.3","to":"6.15.4"}],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":[],
+    "updated":[{"name":"org.kde.Platform/5.15-24.08","from":"?","to":"?"}],
+    "added":[{"name":"org.gtk.Gtk3theme.Orchis-Dark/3.22","to":"2024-05-30"}],
+    "removed":[{"name":"org.freedesktop.Platform.VAAPI.Intel/24.08","from":"?"}]}}}
+ENTRY
+nsum="$("$KEMPT" summary)"
+assert_eq "$(grep -c 'Platform/5.15-24.08' <<<"$nsum")" "0" "the raw join key never reaches a reader"
+assert_eq "$(grep -cE '^  org\.kde\.Platform 5\.15-24\.08$' <<<"$nsum")" "1" \
+  "...the id and the branch are two words, exactly as the popup draws them"
+assert_eq "$(grep -cF '+ org.gtk.Gtk3theme.Orchis-Dark 3.22 2024-05-30' <<<"$nsum")" "1" \
+  "...and a runtime that ARRIVED is split the same way"
+assert_eq "$(grep -cF -- '- org.freedesktop.Platform.VAAPI.Intel 24.08' <<<"$nsum")" "1" \
+  "...as is one that LEFT"
+assert_eq "$(grep -cE '^  kernel-core 6\.15\.3 → 6\.15\.4$' <<<"$nsum")" "1" \
+  "a dnf package has no fold and is untouched"
 
 finish

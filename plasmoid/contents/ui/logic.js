@@ -710,6 +710,20 @@ function versionTextOf(from, to) {
     return fromTextOf(from) + " \u2192 " + to;
 }
 
+// A runtime's identity is its id AND its branch, and the two are folded into one `id/branch` key so
+// that sort, join and the snapshot diff have a single field to work on. That key is a JOIN KEY, not
+// a name: the pending rows already split it back apart and draw "org.kde.Platform 5.15-24.08", while
+// the history rows drew the raw fold, so one transaction was spelled two ways by one product.
+//
+// The LAST slash is always the one Kempt added - a flatpak app id cannot contain one, which is
+// exactly why that character was chosen as the separator - and a dnf package name has no slash at
+// all, so this is a no-op for everything else.
+function displayNameOf(name) {
+    var s = String(name === null || name === undefined ? "" : name);
+    var i = s.lastIndexOf("/");
+    return i > 0 ? s.slice(0, i) + " " + s.slice(i + 1) : s;
+}
+
 // newestOf("a,b,c") -> "c". The CLI collapses multilib and installonly duplicates into ONE row
 // with the versions comma-joined, and its own renderer shows the last of the set (lib/common.sh:
 // `def newest(v): v | split(",") | last`). The widget copies that rule exactly: a popup that
@@ -1896,6 +1910,7 @@ if (typeof module !== "undefined" && module.exports) {
         VERSION_UNKNOWN: VERSION_UNKNOWN,
         fromTextOf: fromTextOf,
         versionTextOf: versionTextOf,
+        displayNameOf: displayNameOf,
         parseState: parseState,
         viewModel: viewModel,
         newestOf: newestOf,

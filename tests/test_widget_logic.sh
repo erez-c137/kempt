@@ -876,6 +876,21 @@ assert_eq "$(js 'L.familiesOf(["e","d","c","b","a"],0).shown.length')" "5" "max 
 assert_eq "$(js 'L.familiesOf([],4).total')" "0" "no names, no families"
 assert_eq "$(js 'L.familiesOf(undefined,4).total')" "0" "a missing list is not an error"
 
+# --- displayNameOf: a join key is not a name ----------------------------------------------------
+# A runtime is keyed by id AND branch, folded into "id/branch" so sort, join and the snapshot diff
+# have one field. The pending rows always split it back apart; the HISTORY rows drew the raw fold,
+# so one transaction was spelled "org.kde.Platform 5.15-24.08" in one half of the popup and
+# "org.kde.Platform/5.15-24.08" in the other.
+assert_eq "$(js 'L.displayNameOf("org.kde.Platform/5.15-24.08")')" "org.kde.Platform 5.15-24.08" \
+  "the fold is split back into an id and a branch"
+assert_eq "$(js 'L.displayNameOf("kernel-core")')" "kernel-core" \
+  "a name with no fold is untouched, which is every dnf package"
+assert_eq "$(js 'L.displayNameOf("")')" "" "an empty name is not an error"
+assert_eq "$(js 'L.displayNameOf(null)')" "" "...nor a missing one"
+# The LAST slash is the one Kempt added: a flatpak app id cannot contain one, which is precisely why
+# that character was chosen as the separator.
+assert_eq "$(js 'L.displayNameOf("a/b/3.22")')" "a/b 3.22" "only the last slash is the separator"
+
 # --- versionTextOf: what goes BETWEEN two versions, which is not always an arrow ----------------
 # Measured on a real box: 3 of 7 installed Flatpak runtimes carry NO version string (a runtime is
 # versioned by its branch), and a theme runtime's genuine update moved its commit while leaving its

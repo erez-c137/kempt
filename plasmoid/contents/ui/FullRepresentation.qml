@@ -924,7 +924,9 @@ PlasmaExtras.Representation {
 
                             PlasmaComponents.Label {
                                 Layout.fillWidth: true
-                                text: historyRow.modelData.name
+                                // The join key split back into a name, so a runtime reads here the
+                                // way it reads in the pending list above.
+                                text: Logic.displayNameOf(historyRow.modelData.name)
                                 elide: Text.ElideRight
                                 font: Kirigami.Theme.smallFont
                             }
