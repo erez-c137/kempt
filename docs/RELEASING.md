@@ -2,17 +2,20 @@
 
 The procedure for cutting a release, in the order it is run.
 
-**What has been run.** Steps 1 to 9 have all been run, for 0.1.0 and 0.1.1. `kempt.spec` is
-committed at the repo root and has been built, installed and smoke-tested in a Fedora 44
-container, and the AppStream metainfo is committed next to it. Step 8's zip commands were run
-against this tree. COPR is live: `erez-c137/kempt` builds for fedora-43, fedora-44, fedora-45 and
+**What has been run.** Every step except 4 has been run for 0.1.0 and 0.1.1, and the whole
+procedure again for 0.1.2, 0.1.3 and 0.1.4. `kempt.spec` is committed at the repo root and has been
+built, installed and smoke-tested in a Fedora 44 container, and the AppStream metainfo is committed
+next to it. Step 9's zip commands were run against this tree. Step 4 is newer than that history: an
+earlier version of it lived outside the repository, hardcoded one release, went stale within a week
+and was never run again, which is why it now reads `VERSION` and is named here. COPR is live: `erez-c137/kempt` builds for fedora-43, fedora-44, fedora-45 and
 rawhide, on x86_64 and aarch64, and both releases reached users through it.
 
 **What that history does not cover.** From 0.1.2 the spec builds TWO binary packages, `kempt` and
 `kempt-plasmoid`, and 0.1.0 and 0.1.1 built one. Everything a split can break is therefore
 unproven by the paragraph above: that an existing install upgrades and keeps its widget, that a
 machine with weak dependencies turned off is told what it has to do by hand, and that the install
-command the README prints resolves at all. Step 7 ends with the check for the last of those.
+command the README prints resolves at all. Step 8 ends with the check for the last of those,
+and step 4 now covers the first two on every release.
 
 ## Kempt never updates itself
 
@@ -22,7 +25,7 @@ checks, a transaction that can be rolled back, a rebuild when a dependency moves
 the administrator can audit. So Kempt ships as a package, and a packaged Kempt is updated by the
 package manager it drives. It appears in its own list, in its own popup, next to everything else
 that is pending, and `sudo dnf upgrade` or one press of **Update Now** takes it. The only install
-that needs a human procedure is a checkout install, and step 9 is that procedure.
+that needs a human procedure is a checkout install, and step 10 is that procedure.
 
 ## The release
 
@@ -45,7 +48,7 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
 
    The test is what keeps the CLI, the widget, the software centre and `rpm -q` from reporting
    four different releases of one install. It does not check the spec's `%changelog`, which needs
-   a new dated entry of its own, or the git tag in step 5 - those are on you.
+   a new dated entry of its own, or the git tag in step 6 - those are on you.
 
    Nothing checks **SECURITY.md's supported-versions table** either, and it is the page a Fedora
    reviewer opens second. If this release changes which versions are covered, say so there in the
@@ -67,13 +70,31 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
 
    `ALL PASS` and nothing else. A release is not cut over a known failure.
 
-4. **Commit the bump on its own**, so the diff that says what the release is stays readable.
+4. **Run the release check**, which proves the PACKAGES rather than the code:
+
+   ```bash
+   tests/release/run-release-check.sh
+   ```
+
+   Several minutes, needs podman and the network. It builds the packages from the tree you are
+   standing in, installs them in a throwaway Fedora container that has never seen Kempt, and asks
+   the questions the suite cannot: does the spec put the widget where Plasma looks, does the QML
+   *the package installed* actually run (every probe elsewhere executes the checkout, which is a
+   different directory), does a first-time user get sensible answers from `doctor`, `holds`,
+   `config` and an unknown command, does the package carry the man page and the user guides but not
+   the maintainer documents, and does `dnf remove` leave nothing behind except the user's own
+   settings.
+
+   It reads `VERSION`, so there is nothing to edit per release. It refuses to run outside its
+   container, because it installs and removes packages and creates users.
+
+5. **Commit the bump on its own**, so the diff that says what the release is stays readable.
 
    ```bash
    git commit -am 'chore: release 0.2.0'
    ```
 
-5. **Tag it**, annotated, with a plain message. No trailers, no generated sign-offs.
+6. **Tag it**, annotated, with a plain message. No trailers, no generated sign-offs.
 
    ```bash
    git tag -a v0.2.0 -m 'Kempt 0.2.0'
@@ -81,7 +102,7 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    git push origin v0.2.0
    ```
 
-6. **Cut the GitHub release**, with short release notes written for people who use Kempt, not the
+7. **Cut the GitHub release**, with short release notes written for people who use Kempt, not the
    CHANGELOG section. The CHANGELOG is the complete record; the release page is what someone reads
    before running `sudo dnf upgrade`. Write it in this order: how to upgrade, how to install for
    the first time, what's new, what's fixed, anything for packagers, then a link to the CHANGELOG
@@ -92,14 +113,14 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    ```
 
    Attach the widget archive as a release asset, so the release page and the store listing serve
-   the same file. It is built by the first block of step 8, which is the one place the numbered
+   the same file. It is built by the first block of step 9, which is the one place the numbered
    order does not run straight through: build it now, before cutting the release, or come back and
    attach it afterwards with `gh release upload`. (The AppStream metainfo points at no archive -
    it carries no `<artifact>` element - so nothing there needs the file to exist.)
 
 ## Packaging
 
-7. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
+8. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
    COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
    passed: the spec builds, installs and smokes clean on Fedora 44, and both the 0.1.0 and the
    0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM builds
@@ -151,7 +172,7 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    `kempt` of the same version with it. Until it does, the front page is describing a package the
    repository does not serve.
 
-8. **KDE Store upload of the widget**, for people who are not on an RPM distro. The archive is a
+9. **KDE Store upload of the widget**, for people who are not on an RPM distro. The archive is a
    plain zip of the KPackage layout, `metadata.json` at the root next to `contents/`:
 
    ```bash
@@ -185,7 +206,7 @@ that needs a human procedure is a checkout install, and step 9 is that procedure
    unpacked copy on a box with no CLI must say *"Kempt's engine is not installed"*, not a blank
    popup and not the "will not run" message, which is for an engine that is present.
 
-9. **Checkout installs upgrade by hand**, and always will: they are developer installs, the CLI is
+10. **Checkout installs upgrade by hand**, and always will: they are developer installs, the CLI is
    a symlink into the git tree and the rest are copies.
 
    ```bash

@@ -68,18 +68,25 @@ the widget is on a panel.
 
 - **A live pending count.** `kempt check` writes a documented JSON state file: every pending
   item, per backend, with the version you have and the version you would get.
+- **Flatpak apps and the runtimes underneath them.** A Flatpak update also updates the runtimes
+  apps share, which most update tools never show you, so a run can change more than the list said.
+  Kempt counts them and gives them their own section, with no padlock: apps share a runtime, so
+  holding one would hold back everything built on it.
 - **Holds that skip but still notify.** `kempt hold dnf:kernel-core` keeps a package off every
   run while it stays visible, so skipping something is never the same as forgetting it.
 - **Four ways to run an update.** Terminal with live output, in-popup, silent background, and
   offline staging - which downloads *and arms* the transaction, so any restart installs it,
   and the widget then reports what that restart changed. When session-critical packages are
-  pending (kernel, systemd, Qt and friends), Kempt recommends the offline path on its own.
+  pending (kernel, systemd, Qt and friends), Kempt recommends the offline path on its own, and
+  says what they are in plain words: a row reads `graphics drivers (mesa)   6 packages`, not a
+  list of package ids. A staged update can be taken back from the popup, or with `kempt unstage`.
 - **The download size before you press the button.** `Checked 4 min ago · ~140 MB` in the
   popup footer, from metadata already on disk - no network, and nothing shown when the number
   is not known.
 - **Honest summaries and history.** Old to new versions from before-and-after snapshots, one
   renderer for terminal, notification and popup; a JSON entry plus a raw log per run, pruned
-  automatically.
+  automatically. The update a restart installs gets a record of its own, written afterwards,
+  because dnf5 applies that one while Kempt is not running.
 - **An event log that answers "did that land?"** `kempt log`: one line per thing Kempt did,
   each stamped `widget` or `cli`. A closed password prompt reads `authentication cancelled`,
   not a quoted pkexec error.

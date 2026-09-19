@@ -23,6 +23,18 @@ cd kempt
 tests/run_tests.sh
 ```
 
+Three entry points, and they answer different questions:
+
+| Command | What it proves | Needs |
+| --- | --- | --- |
+| `tests/run_tests.sh` | the code: every backend, parser, renderer and the widget's logic | nothing but bash and jq |
+| `tests/live/run-offline-gate.sh` | the offline transaction against a REAL dnf5, including what a broken package manager does | podman, network |
+| `tests/release/run-release-check.sh` | the packages: installed on a machine that has never seen Kempt, the QML the package installed, a first-time user, an upgrade from the released version, and that removal leaves nothing behind | podman, network |
+
+The last two refuse to run outside a throwaway container, because one breaks the package manager
+on purpose and the other installs and removes packages. Run the release check before tagging: it is
+step 4 of [docs/RELEASING.md](docs/RELEASING.md).
+
 You need bash 4+, `jq`, `flock` (util-linux) and GNU coreutils. You do **not** need dnf, flatpak, polkit or root to
 work on Kempt: every impure command goes through an environment seam, and the suite stubs all of
 them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the full list.

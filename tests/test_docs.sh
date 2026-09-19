@@ -110,6 +110,29 @@ done < <(
 assert_eq "${undocumented_events%; }" "" \
   "every log_event line has a row in the kempt log vocabulary table"
 
+# --- the release check is named where somebody will look for it ---------------------------------
+# An earlier version of this check lived outside the repository, in a gitignored directory, named by
+# nothing. It hardcoded one release, went stale inside a week, and was never run again - nobody
+# could see it, so nobody could notice it had rotted. These assertions are what stop that happening
+# twice: the script exists, it is executable, and the three documents a person actually reads name
+# the way to run it.
+assert_exit 0 "the release check exists" -- test -f "$REPO_ROOT/tests/release/release-check.sh"
+assert_exit 0 "...and its runner is executable" -- test -x "$REPO_ROOT/tests/release/run-release-check.sh"
+for doc in docs/RELEASING.md CONTRIBUTING.md AGENTS.md; do
+  grep -q 'tests/release' "$REPO_ROOT/$doc" \
+    && echo "ok: $doc names the release check" \
+    || { echo "FAIL: $doc never mentions tests/release, so a reader cannot find it"; _fail=1; }
+done
+# It must READ the version rather than carry one, which is exactly how the previous copy died.
+grep -q 'VERSION' "$REPO_ROOT/tests/release/release-check.sh" \
+  && echo "ok: the release check reads VERSION" \
+  || { echo "FAIL: the release check does not read VERSION"; _fail=1; }
+if grep -qE '[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/tests/release/release-check.sh"; then
+  echo "FAIL: the release check hardcodes a version, which is how the last one went stale"; _fail=1
+else
+  echo "ok: ...and hardcodes no version of its own"
+fi
+
 # --- the public tree does not talk about its own review process ----------------------------------
 # This repository is public, and it was carrying the vocabulary of a private one: the maintainer
 # named in the third person, the review exercises a finding came out of, work-package codes with

@@ -50,6 +50,10 @@ def pycount():
     """
     n = 0
     try:
+        own_ns = os.readlink("/proc/self/ns/pid")
+    except OSError:
+        own_ns = None      # cannot tell namespaces apart: count by name alone, as this always did
+    try:
         entries = os.listdir("/proc")
     except OSError as exc:
         raise SystemExit("REFUSING TO RUN: cannot read /proc, so the process census "
@@ -70,6 +74,22 @@ def pycount():
         # that exists because a battery once reached ~2,200 Qt processes, and it was failing open.
         # tests/test_widget_qml.sh's own pycount reads the whole line, which is the shape to match.
         if b"probe_" in cmdline or b"safe_probe" in cmdline:
+            # ...and only if it is in OUR pid namespace. A container shares the host kernel, so a
+            # probe running inside one is visible in /proc here and was counted as a leaked probe
+            # of ours: running tests/release/run-release-check.sh (which runs this battery inside a
+            # container) alongside the host suite turned a clean run into
+            # "LEAK: 2 probe process(es) survived" and a red suite. Measured 2026-09-19.
+            #
+            # FAILS CLOSED, like the rest of this census: if our own namespace cannot be read we
+            # count the process anyway, because an uncounted leaked probe is the failure this guard
+            # exists to prevent. A process whose namespace we cannot read is not ours - a probe we
+            # leaked would be readable by the user that started it.
+            if own_ns is not None:
+                try:
+                    if os.readlink("/proc/%s/ns/pid" % pid) != own_ns:
+                        continue
+                except OSError:
+                    continue
             n += 1
     return n
 

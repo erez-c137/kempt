@@ -26,7 +26,7 @@ Nothing is setuid and the CLI never runs as root.
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Read these first if you are reviewing security. |
 | `plasmoid/contents/ui/logic.js` | Pure derivation: state file in, view model out. No Qt, no I/O. Node runs it in the tests, which is why it must stay pure. |
 | `plasmoid/contents/ui/*.qml` | The panel widget. Mostly bindings onto the view model above. |
-| `tests/` | ~3,000 assertions of plain bash, plus QML probes under `tests/qml/` and a live container gate under `tests/live/`. |
+| `tests/` | ~3,000 assertions of plain bash, plus QML probes under `tests/qml/`, a live container gate under `tests/live/`, and the release check under `tests/release/` - the one that proves the PACKAGES rather than the code. |
 | `docs/` | User and design documentation. `architecture.md` is the one to read. |
 | `internal/` | Not shipped, gitignored: working notes, specs, review reports. |
 
