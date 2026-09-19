@@ -248,6 +248,20 @@ dated entry of its own. Which file to edit and in what order is step 1 of
 [docs/RELEASING.md](docs/RELEASING.md#the-release); add the release's section to `CHANGELOG.md`,
 and bump in its own commit, so the diff that says what the release is stays readable.
 
+### Building an RPM by hand
+
+Pass a stamp, always:
+
+```bash
+rpmbuild --define "kempt_local $(date +%Y%m%dT%H%M%S)" -ba kempt.spec
+```
+
+Without it the package calls itself `<version>-1`, exactly like the release, and two builds of
+different content become indistinguishable to `rpm -q`: the only way to tell which one is installed
+is to hash the files. The stamp lands in the `Release` as `0.local<stamp>.1`, which also sorts
+*below* the released package, so the official build upgrades over a hand build on its own. Release,
+COPR and Koji builds pass nothing and are unaffected. `tests/test_version.sh` checks both forms.
+
 A bump is the first step of a release rather than the whole of one:
 [docs/RELEASING.md](docs/RELEASING.md) is the numbered checklist for the rest, and it also says
 why Kempt has no self-update code and never will.

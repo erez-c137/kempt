@@ -96,4 +96,31 @@ assert_eq "$(KEMPT_ROOT="$TESTTMP/noversion" "$KEMPT" --version)" "kempt 0.9.9" 
 printf '1.2.3\nnot a version\n' > "$TESTTMP/noversion/VERSION"
 assert_eq "$(KEMPT_ROOT="$TESTTMP/noversion" "$KEMPT" --version)" "kempt 1.2.3" \
   "only the first line of VERSION is the version"
+
+# --- hand builds say so, and still lose to the real thing ---------------------------------------
+# Two builds of DIFFERENT CONTENT both calling themselves <version>-1 is not a theory: a pre-fix
+# build sat installed on a machine looking identical to the fixed one, and only hashing the files
+# could tell them apart. `--define kempt_local <stamp>` stamps the Release. UNDEFINED it must expand
+# to exactly what it always did, because that is what every release, COPR and Koji build uses - a
+# stamp leaking into a released NEVR would be worse than the problem it solves.
+if command -v rpmspec >/dev/null 2>&1; then
+  vr_plain="$(rpmspec -q --qf '%{release}\n' "$REPO_ROOT/kempt.spec" 2>/dev/null | head -1)"
+  vr_stamped="$(rpmspec -q --define 'kempt_local local19700101T0000' --qf '%{release}\n' \
+                  "$REPO_ROOT/kempt.spec" 2>/dev/null | head -1)"
+  assert_eq "${vr_plain%%.*}" "1" "with no stamp the Release starts at 1, as every release build expects"
+  assert_eq "$([[ "$vr_stamped" == 0.local19700101T0000.* ]] && echo stamped || echo "$vr_stamped")" \
+    "stamped" "a hand build carries its stamp in the Release"
+  # ...and sorts BELOW the release, which is the whole point of putting the stamp in FRONT as 0.:
+  # the official package upgrades over a scratch build by itself. A suffix sorts ABOVE it and leaves
+  # the scratch build pinned on the machine with dnf reporting nothing to do.
+  if command -v rpmdev-vercmp >/dev/null 2>&1; then
+    # `|| rc=` and not a bare call: rpmdev-vercmp ANSWERS in its exit status (12 = the first is
+    # older), which under errexit takes the whole file down before the assertion can read it - this
+    # file exited 12 with no FAIL line at all until the status was captured.
+    rc_cmp=0
+    rpmdev-vercmp "$VER-$vr_stamped" "$VER-$vr_plain" >/dev/null 2>&1 || rc_cmp=$?
+    assert_eq "$rc_cmp" "12" "a hand build sorts below the release it was built from"
+  fi
+fi
+
 finish

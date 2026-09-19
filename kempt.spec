@@ -1,6 +1,16 @@
 Name:           kempt
 Version:        0.1.4
-Release:        1%{?dist}
+# A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
+# call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
+# one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
+# identical to the fixed one. Undefined - every release, COPR and Koji build - this expands to
+# exactly `1%{?dist}`, so the released NEVR is untouched.
+#
+# The stamp goes in front as `0.`, Fedora's own pre-release convention, so a local build sorts BELOW
+# the real thing: when the official package arrives it upgrades over the hand build by itself. A
+# suffix would have sorted ABOVE it, leaving a scratch build pinned on the machine with dnf
+# reporting nothing to do.
+Release:        %{?kempt_local:0.%{kempt_local}.}1%{?dist}
 Summary:        One-click system updates for Fedora, with holds and offline staging
 
 # Every original file is MIT. The one CC0-1.0 file in the tree is the AppStream metainfo, whose
