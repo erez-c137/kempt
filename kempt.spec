@@ -249,7 +249,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
-* Wed Sep 16 2026 Erez <erez.c137@protonmail.com> - 0.1.4-1
+* Sat Sep 19 2026 Erez <erez.c137@protonmail.com> - 0.1.4-1
 - Flatpak runtimes are counted and listed, so the badge matches what an
   update really changes. They cannot be held: apps share them.
 - kempt unstage discards a staged update, from the command line or from the
