@@ -66,9 +66,81 @@ already staged for the next restart.
 
 - **First contact.** The announcement wave, and treating every early report as the gift it
   is - what the first outside users hit outranks everything below.
+- **0.1.4, ready to release.** The release with no known way for its numbers to be wrong. A restart
+  is credited to the transaction Kempt actually staged, or says plainly that a different one ran.
+  Flatpak runtimes are counted and listed, so an update cannot change more than the popup said. A
+  staged update can be discarded from the popup as well as the command line. Summaries say how old
+  their information is, what holds kept back, and which packages arrived and left rather than only
+  how many. The warning before a live update of packages the running desktop depends on says what
+  those packages are in plain words, and counts them honestly. The update applied on a restart has a
+  log you can open.
 - **The road into the official Fedora repos**: a strict self-review against the packaging
-  guidelines is done and its findings shipped in 0.1.3. Tool runs on that release, then the review
-  ticket.
+  guidelines is done and its findings shipped in 0.1.3. The review tooling passes on the release;
+  the review request is next, and it needs a sponsor.
+
+## Next - 0.1.5
+
+- **Reclaiming the disk space updates leave behind.** Updating a Flatpak runtime does not replace the
+  old one. It deploys the new version beside it, and the old copy stays until something removes it,
+  so crossing a runtime series can leave two copies of a gigabyte-sized runtime on a machine with a
+  single app installed. The command that clears it, `flatpak uninstall --unused`, is in no update
+  tool's flow, and somebody who has never heard of a runtime will never type it. That is exactly the
+  kind of maintenance step Kempt exists to take off people's hands.
+
+  **One setting, three answers**, so the same feature suits somebody who never wants to think about
+  it and somebody who wants to decide every time: `ask` when there is something worth reclaiming,
+  showing the number and what makes it up (the default); `automatic`, for people who would rather it
+  simply happened; and `off`. Nothing is ever removed until that choice has been made, once in the
+  setting or there and then in the prompt. People who want finer control can name what is included;
+  people who do not, never see that.
+
+  **Updating does not leave old versions behind, with one exception, and that exception is the point.**
+  Neither rpm nor flatpak hoards previous versions on disk: what accumulates is a download cache,
+  which nobody needs, and Flatpak runtimes that no installed app requires any more. Both are safe to
+  clear and both are what this feature is for. **Old kernels are the exception and Kempt leaves them
+  alone.** dnf keeps the last few on purpose: a kernel that will not boot is exactly when you need the
+  previous one, and reclaiming a few hundred megabytes is not worth a machine that cannot start. dnf
+  already retires them on its own schedule and that is the right place for it.
+
+  Two rules hold whatever the setting says: never anything an installed app depends on, and never
+  Kempt's own opinion about what is unused - only what the package manager itself calls unused.
+
+  One obstacle worth stating: flatpak has no way to *list* what `--unused` would remove without
+  removing it - there is no dry-run as of 1.18. Kempt will not print a number it cannot stand behind,
+  so the first step is asking upstream for one rather than writing an estimate of our own.
+
+## 0.2 - a second distribution
+
+- **One file per package manager, for real.** Adding a backend today touches every row of the wiring
+  table in `docs/architecture.md`, and following that table exactly still leaves gaps. A backend
+  registry makes each package manager declare how it is detected, how it is labelled, how it applies
+  and how it knows a restart is owed, so a new one is a file and its tests. The state file stays
+  schema v1: backends are already keyed by name.
+- **openSUSE first (#3).** zypper shares the rpm database Kempt already reads, has documented
+  machine-readable output and exit codes, and keeps locked packages visible, which is how Kempt's
+  holds already behave. Tumbleweed and Leap are told apart from `/etc/os-release`, because
+  Tumbleweed updates with `zypper dup`. There is no offline staging there, so that surface is simply
+  not offered, the way Flatpak already opts out of it.
+- **Settings that name backends** (`disable`, `only`), adopted before the configuration grows around
+  two backends rather than after.
+- **Debian, Ubuntu (#1) and Arch (#2) come after the registry has proven itself.** apt needs
+  decisions first: multiarch package names do not fit today's hold syntax.
+
+## Before 1.0
+
+1.0 is a promise that the public formats will not break and that the numbers are true. It ships when
+all of these hold:
+
+- No known way for the badge, a run, or the history to disagree with what the package manager
+  actually did.
+- The state file, the configuration keys, the exit codes and the history format are frozen and
+  documented, shaped by at least two system package managers rather than one.
+- What runs as root has been reviewed again at that release.
+- People other than the author have used a release candidate, with no open report of lost data or a
+  wrong count.
+
+Being accepted into the official Fedora repos is not a condition, because that timeline belongs to
+the review process. The package is kept review-clean at every release either way.
 
 ## v1.x - ready for other people
 
@@ -166,11 +238,19 @@ already staged for the next restart.
   Fedora Bodhi karma. Never generated prose.
 - **`dnf5 check-update --json`** migration - retires the text-parser bug class by
   construction.
-- **Backend registry** - today adding a backend touches every row of the wiring table in
-  `docs/architecture.md`, one of them optional, and one of the required ones changes
-  `assemble_state`'s signature; a registry makes "one file per package manager" literally true.
-  Prerequisite for:
-- **apt and pacman backends** - the universal-updater vision becomes real.
+- **apt and pacman backends** - the universal-updater vision becomes real, on the backend registry
+  that 0.2 introduces.
+- **Self-installed tools, narrowly and honestly.** A `tools` backend for programs a person
+  downloaded for themselves as a single binary: the group nothing on a machine tracks, so nobody is
+  ever told when they go stale. For those Kempt can tell the truth the way it means the word - the
+  installed version read locally, the newest read from one upstream feed, a hold that works because
+  holds are Kempt's own file, and an old-to-new report from the same before-and-after diff every
+  other backend uses.
+
+  **The refusal is the feature.** Anything a project, a lockfile, a language runtime or a version
+  manager owns is reported as owned by something else and never touched. Kempt will not become "the
+  one place you update everything", because every entry is a small contract with somebody else's
+  release process, and a wrong entry produces a badge that lies.
 - **Per-version holds** ("skip this one bad release, auto-clear on the next"),
   optional `dnf versionlock` integration, notification actions
   ("Install on Next Restart" from the toast itself). Flatpak user scope moved up to v1.x.
