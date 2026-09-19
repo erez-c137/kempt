@@ -75,6 +75,13 @@ works and is no longer listed in the help.
 - **`kempt config get` refuses a key that is not a key** rather than printing a different setting,
   `kempt history` on a box with no runs says so instead of printing nothing, and
   `kempt <command> --help` prints that command's usage and exits 0.
+- **An update whose version number did not change is no longer drawn as an arrow to itself.** Most
+  Flatpak runtimes carry a date, or nothing at all, where a version would be, because what changes
+  is the build rather than the version. Those updates used to read as "? to ?" or
+  "2024-05-30 to 2024-05-30", which looks like an update that did not happen. Now a version that did
+  not move is shown once with "new build" beside it, a version nothing knows is left off the row
+  entirely, and the arrow appears only when there are two different versions to point between. The
+  popup, the last-update list and `kempt summary` all follow the same rule.
 - **Stale run markers and temporary files are swept**, including in the configuration directory.
 
 ## [0.1.3] - 2026-09-15
