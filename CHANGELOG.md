@@ -7,6 +7,76 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-19
+
+### Upgrading from 0.1.3
+
+**Nothing to do: `sudo dnf upgrade`.** Your settings, holds, history and any staged update stay as
+they were. One command was renamed: `kempt run --dry-run` is now `kempt run --print-command`, because
+it prints the command that opens a terminal and never described a transaction. The old spelling still
+works and is no longer listed in the help.
+
+### Added
+
+- **Flatpak runtimes are counted and listed.** `flatpak update` also updates the runtimes that apps
+  share, which Kempt neither counted nor showed, so a run could change more than the popup said was
+  pending. Runtimes now have their own section in the popup and no padlock: apps share them, so
+  holding one would hold back everything built on it.
+- **A staged update can be discarded from the popup.** Staging happens in the popup, so being sent
+  to a terminal to undo it was not simple. There is a **Discard Staged Update** action beside the
+  staged notice, and `kempt unstage` does the same thing from the command line. Neither can touch a
+  stored Fedora release upgrade, which is still refused.
+- **Summaries say how old the information behind them is.** A badge drawn from a three day old
+  metadata cache looked exactly like one drawn a minute ago. The popup footer says so once the cache
+  is over a day old, `kempt doctor` reports it, and `kempt check --refresh` refreshes it on demand.
+- **Summaries say what holds kept back.** A held package used to make an update simply look smaller.
+  There is now a line naming the shortfall, such as "9 pending packages did not move because of
+  holds".
+- **The update applied on a reboot has a log you can open.** A staged transaction is installed by
+  dnf5 during the restart, with Kempt not running, so there is no command output to record and those
+  runs had no log at all. Kempt now writes its own record of what the restart changed, which says so
+  in its opening lines and names dnf5's own transaction when it can identify it.
+- **Summaries name the packages that arrived and left**, not only the ones that were upgraded. A
+  report saying "+2 installed" never said which two.
+- **`kempt holds --exclude-args`** prints your holds as `--exclude=` arguments, so the same list can
+  be handed to `dnf5` directly.
+
+### Changed
+
+- **The session-critical warning says what the packages are, and counts them honestly.** Before a
+  live update of packages the running desktop depends on, Kempt lists them one family per row. That
+  listing collapses a family to a single row, but the tail counted packages, so six mesa packages
+  read as one name and "... and 5 more" - five risks that did not exist. Each row now carries its own
+  count, the tail counts the families it did not show, and every row leads with a plain-language name
+  instead of a package name: `graphics drivers (mesa)`, `the Linux kernel (kernel-core)`. The popup
+  and the notification use the same words. Names Kempt ships no description for are left exactly as
+  they are rather than given an invented one.
+- **The choices in that prompt are written out** as labelled rows, with the recommended one and the
+  default both said in words. Pressing Enter, Ctrl-D, or answering twice with something
+  unrecognisable still abort and change nothing.
+- **A restart is credited to Kempt's own staged transaction only when dnf5's history says so.**
+  Before, any transaction that ran across the restart was reported as the staged one. When dnf5's
+  history names a different transaction, Kempt says the staged update did not run; when it cannot
+  tell, it reports the whole difference and does not claim an identity.
+- **`kempt config set` warns when it does not recognise a key or a value**, instead of storing a typo
+  that nothing reads.
+
+### Fixed
+
+- **`kempt run` says when the terminal window never opened** instead of reporting a run that never
+  started, and refuses to start while another update holds the lock.
+- **A refused authorization is no longer described as a dialog you dismissed.** Being turned down by
+  polkit and closing the prompt yourself are different events and now read differently, as does
+  pkexec failing to reach polkit at all.
+- **`kempt doctor` fails when the directory holding a root helper is not owned by root**, or can be
+  written by anybody else.
+- **A clock that steps backwards during a run no longer reports a negative duration**, and a
+  metadata stamp dated in the future no longer holds every refresh off.
+- **`kempt config get` refuses a key that is not a key** rather than printing a different setting,
+  `kempt history` on a box with no runs says so instead of printing nothing, and
+  `kempt <command> --help` prints that command's usage and exits 0.
+- **Stale run markers and temporary files are swept**, including in the configuration directory.
+
 ## [0.1.3] - 2026-09-15
 
 ### Upgrading from 0.1.2
@@ -715,7 +785,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/erez-c137/kempt/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/erez-c137/kempt/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/erez-c137/kempt/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/erez-c137/kempt/compare/v0.1.0...v0.1.1
