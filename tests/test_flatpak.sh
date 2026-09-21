@@ -412,4 +412,45 @@ assert_eq "$(fp_calls | wc -c)" "0" "...updating nothing at all"
 assert_exit 0 "an installed runtime id is recognised" flatpak_id_is_runtime org.kde.Platform
 assert_exit 1 "an app id is not a runtime" flatpak_id_is_runtime net.mkiol.SpeechNote
 assert_exit 1 "...and neither is a name nothing answers to" flatpak_id_is_runtime org.example.Nothing
+# --- end-of-life notices ---------------------------------------------------------------------------
+# flatpak 1.18 names the id only; other versions add `//branch`. A `.Locale` extension folds into
+# its runtime, a repeat from the per-app update loop is one entry, and a rebase notice (no reason)
+# still counts.
+eol_ids="$(printf '%s\n' \
+  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
+  "Info: org.kde.Platform.Locale is end-of-life, with reason: Move to 6.9" \
+  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
+  "Info: (pinned) org.gnome.Platform//44 is end-of-life, with reason: Old" \
+  "Info: org.old.App is end-of-life, in favor of org.new.App" \
+  "Updating org.kde.Platform is end-of-life soon" | flatpak_eol_ids)"
+assert_eq "$eol_ids" "$(printf 'org.kde.Platform\t-\tMove to 6.9\norg.gnome.Platform\t44\tOld\norg.old.App\t-\t')" \
+  "end-of-life notices: id, branch or -, reason; Locale folded, repeats dropped"
+assert_eq "$(printf 'Nothing to update.\n' | flatpak_eol_notices)" "[]" "no notice, no lookups, no notes"
+
+printf 'net.mkiol.SpeechNote\tSpeech Note\torg.kde.Platform/x86_64/5.15-24.08\norg.kde.kate\tKate\torg.kde.Platform/x86_64/6.9\norg.old.App\t\torg.gnome.Platform/x86_64/48\n' \
+  > "$TESTTMP/eol-apps.tsv"
+printf 'org.kde.Platform\t5.15-24.08\t\norg.kde.Platform\t6.9\t\norg.gnome.Platform\t44\t\n' > "$TESTTMP/eol-rts.tsv"
+# flatpak info stand-in: only the 5.15 branch is end-of-life.
+cat > "$TESTTMP/eol-info" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == "org.kde.Platform//5.15-24.08" ]] && echo "   End-of-life: Move to 6.9"
+exit 0
+STUB
+chmod +x "$TESTTMP/eol-info"
+eol_json="$(printf '%s\n' \
+  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
+  "Info: org.gnome.Platform//44 is end-of-life, with reason: Old" \
+  "Info: org.old.App is end-of-life, in favor of org.new.App" \
+  | KEMPT_FLATPAK_APP_RUNTIME_CMD="cat $TESTTMP/eol-apps.tsv" KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $TESTTMP/eol-rts.tsv" \
+    KEMPT_FLATPAK_INFO_CMD="$TESTTMP/eol-info" flatpak_eol_notices)"
+assert_eq "$(jq -c '.[0]' <<<"$eol_json")" \
+  '{"id":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime","apps":["Speech Note"],"reason":"Move to 6.9"}' \
+  "two branches installed: flatpak info picks the end-of-life one, and Kate on 6.9 is not blamed"
+assert_eq "$(jq -c '.[1] | [.branch, .apps]' <<<"$eol_json")" '["44",[]]' \
+  "a runtime no app uses is reported with no apps"
+assert_eq "$(jq -c '.[2] | [.kind, .apps]' <<<"$eol_json")" '["app",["org.old.App"]]' \
+  "an end-of-life app is its own note, named by id when it has no name"
+assert_exit 1 "a failed app lookup fails the notes, not silently empties them" \
+  bash -c 'source "$1/lib/common.sh"; source "$1/backends/flatpak.sh"
+           echo "Info: org.x.Y is end-of-life, with reason: z" | KEMPT_FLATPAK_APP_RUNTIME_CMD=false flatpak_eol_notices' _ "$REPO_ROOT"
 finish

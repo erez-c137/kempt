@@ -514,13 +514,14 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # when the log is four hundred lines of dnf progress. The first line that NAMES a failure, not the
 # first line: a package manager's log opens with repository chatter, and reporting "Updating
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
-# where a terse failure lands. Indentation stripped and capped at 120 characters, because this ends
+# where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
+# heading is never the reason). Indentation stripped and capped at 120 characters, because this ends
 # up in a notification body.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
-  [[ -n "$line" ]] || line="$(grep -v '^[[:space:]]*$' "$1" | tail -1 || true)"
+  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line")"
   printf '%s\n' "${line:0:120}"
@@ -1688,6 +1689,25 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
     heldline,
     shortfall,
+    # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
+    # anything needs doing. `// []` keeps entries written before the field existed rendering.
+    # NO APOSTROPHES IN HERE either (see above).
+    def names(a): if (a|length) == 1 then a[0]
+                  else (a[0:-1] | join(", ")) + " and " + a[-1] end;
+    def eolline: if .kind == "app" then
+                   "Note: " + .apps[0] + " has reached end-of-life and gets no more updates"
+                   + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
+                 elif (.apps|length) == 0 then
+                   "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
+                   + " has reached end-of-life and no installed app uses it. To remove it once nothing needs it: flatpak uninstall --unused"
+                 else
+                   "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
+                   + .id + (if .branch != "" then " " + .branch else "" end)
+                   + ", which has reached end-of-life and gets no more updates. Nothing to do now:"
+                   + (if (.apps|length) == 1 then " when its developer moves it to a supported runtime, a normal update installs that."
+                      else " when their developers move them to a supported runtime, a normal update installs that." end)
+                 end;
+    ((.backends.flatpak.eol? // [])[] | eolline),
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not

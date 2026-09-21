@@ -165,6 +165,18 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   esac
 }
 
+# A heading in front of each package manager's output. Without one, flatpak's first line lands
+# straight under dnf's "Complete!" and reads as part of the dnf upgrade. Written to the log on every
+# surface, and to the terminal only when the output is live. The labels are the ones the summary
+# uses, so the reader matches a section to its summary line by name.
+run_heading() {  # log_file title
+  if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
+    printf '\n== %s ==\n' "$2" | tee -a "$1"
+  else
+    printf '\n== %s ==\n' "$2" >> "$1"
+  fi
+}
+
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
 # boundary: dnf through the root helper (priv_apply), flatpak as the user (flatpak_apply). The run
 # log, the live tee and the retry are the same for both.
@@ -400,13 +412,20 @@ recommend_offline_if_risky() {
 
 # The flatpak half of a run. dnf has already run by now, so a flatpak failure is REPORTED and
 # never fatal: crashing loses the history entry and notification for a system that already changed.
-# Reads: include_fp, yflag, log. Writes: fp_status, and status (which only ever moves to "failed").
+# Reads: include_fp, yflag, log. Writes: fp_status, fp_eol, and status (which only ever moves to
+# "failed").
 apply_flatpak_updates() {
   # NOT `local`: this is the caller's variable (see the header). A `local` would shadow it, leave
   # cmd_update's copy unset, and take the run down on the history entry under `set -u`.
   fp_status="skipped"
+  fp_eol='[]'
   if is_true "$include_fp"; then
     fp_status="ok"
+    run_heading "$log" "Apps (flatpak)"
+    # Where flatpak's output starts in the log, so the end-of-life scan below reads flatpak's lines
+    # and nothing dnf printed.
+    local fp_from=0
+    [[ -f "$log" ]] && fp_from="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     local held_fp ids=()
     held_fp="$(holds_for flatpak)"
     if [[ -n "$held_fp" ]]; then
@@ -440,6 +459,13 @@ apply_flatpak_updates() {
       fi
     else
       apply_with_retry "$log" flatpak_apply "${yflag[@]}" || { fp_status="failed"; status="failed"; }
+    fi
+    # The update is over by now, so nothing here may fail the run: a lookup that fails, or prints
+    # something that is not a JSON array, means no notes and nothing else.
+    local eol
+    if eol="$(tail -c +$(( fp_from + 1 )) "$log" 2>/dev/null | flatpak_eol_notices 2>/dev/null)" \
+       && jq -e 'type == "array"' <<<"$eol" >/dev/null 2>&1; then
+      fp_eol="$eol"
     fi
   fi
 }
@@ -733,6 +759,7 @@ cmd_update() {
   log_event "run start surface=$surface"
 
   # dnf
+  run_heading "$log" "System (dnf)"
   local yflag=() excl=() dnf_status="ok"
   is_true "$auto" && yflag=(-y)
   local held_dnf; held_dnf="$(holds_for dnf)"
@@ -891,7 +918,7 @@ cmd_update() {
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
   # updates both, so the check asks about both and the summary reports both.
-  local fp_status=skipped   # apply_flatpak_updates writes this; see its header
+  local fp_status=skipped fp_eol='[]'   # apply_flatpak_updates writes these; see its header
   apply_flatpak_updates
   # snapshots (after) + reports
   # Reports must never crash cmd_update after the system already changed - degrade to empty +
@@ -965,13 +992,14 @@ cmd_update() {
         --arg log "$log" --argjson dur "$run_dur" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
-        --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" '
+        --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
+        --argjson fp_eol "$fp_eol" '
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
-       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}) }}' > "$hist_tmp" \
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}' > "$hist_tmp" \
     || { rm -f "$hist_tmp"; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no

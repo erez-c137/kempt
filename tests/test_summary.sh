@@ -536,4 +536,30 @@ assert_eq "$(grep -cF -- '- org.freedesktop.Platform.VAAPI.Intel 24.08' <<<"$nsu
 assert_eq "$(grep -cE '^  kernel-core 6\.15\.3 → 6\.15\.4$' <<<"$nsum")" "1" \
   "a dnf package has no fold and is untouched"
 
+# --- flatpak end-of-life notes: which app is behind the notice, and whether anything needs doing.
+cat > "$TESTTMP/eol-base.json" <<'JSON'
+{"timestamp":"2026-09-21T20:47:48+03:00","surface":"terminal","status":"ok","duration_sec":14,
+ "reboot_needed":false,"log":"/tmp/x.log",
+ "backends":{
+  "dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},
+  "flatpak":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
+JSON
+jq '.backends.flatpak.eol = [
+      {"id":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime","apps":["Speech Note"],"reason":"x"},
+      {"id":"org.a.Platform","branch":"1","kind":"runtime","apps":["A","B","C"],"reason":""},
+      {"id":"org.gl.Ext","branch":"24.08","kind":"runtime","apps":[],"reason":""},
+      {"id":"org.old.App","branch":"","kind":"app","apps":["Old"],"reason":"Replaced by New"}]' \
+  "$TESTTMP/eol-base.json" > "$TESTTMP/eol-entry.json"
+esum="$(render_summary "$TESTTMP/eol-entry.json")"
+assert_contains "$esum" "Note: Speech Note uses org.kde.Platform 5.15-24.08, which has reached end-of-life and gets no more updates. Nothing to do now: when its developer moves it to a supported runtime, a normal update installs that." \
+  "one app on an end-of-life runtime: named, and told nothing needs doing"
+assert_contains "$esum" "Note: A, B and C use org.a.Platform 1," "several apps are listed in one sentence"
+assert_contains "$esum" "no installed app uses it. To remove it once nothing needs it: flatpak uninstall --unused" \
+  "an unused end-of-life runtime says how to remove it"
+assert_contains "$esum" "Note: Old has reached end-of-life and gets no more updates (Replaced by New)." \
+  "an end-of-life app carries the reason flatpak gave"
+assert_not_contains "$(render_summary "$TESTTMP/eol-base.json")" "Note:" \
+  "an entry written before the field existed renders no notes"
+assert_not_contains "$esum" "—" "no em dashes in the notes"
+
 finish

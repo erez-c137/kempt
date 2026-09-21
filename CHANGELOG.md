@@ -7,6 +7,18 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Each part of an update run has a heading.** A terminal run now prints `== System (dnf) ==` and
+  `== Apps (flatpak) ==` above each package manager's output, and the log has the same headings.
+  Before, flatpak's first line came right after dnf's `Complete!` and looked like part of the dnf
+  upgrade.
+- **Flatpak end-of-life notices are explained.** flatpak prints a notice such as `Info:
+  org.kde.Platform is end-of-life` on every update, naming a runtime but not the app that uses it.
+  The run summary now names the app and says whether you need to do anything, for example: "Speech
+  Note uses org.kde.Platform 5.15-24.08, which has reached end-of-life and gets no more updates.
+  Nothing to do now". The note is also saved in the run's history entry.
+
 ## [0.1.4] - 2026-09-19
 
 ### Upgrading from 0.1.3

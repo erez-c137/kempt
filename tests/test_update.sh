@@ -1863,4 +1863,50 @@ assert_exit 0 "...the fake clock really was consulted" -- test -e "$TESTTMP/back
 hb="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
 assert_eq "$(jq -r .duration_sec "$hb")" "0" "a run whose clock stepped backwards records a duration of 0, never a negative one"
 
+# --- each backend's output under its own heading, and flatpak's end-of-life notices explained.
+# flatpak prints its notice on every update while an installed ref is end-of-life, straight after
+# dnf's last line, naming a runtime and not the app behind it. The run records which app that is,
+# and the summary says whether anything needs doing.
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK \$@" >> "$WORLD/apply-calls"
+echo "Info: org.kde.Platform is end-of-life, with reason: We strongly recommend moving to the latest stable version of the Platform and SDK"
+echo "Info: org.kde.Platform.Locale is end-of-life, with reason: We strongly recommend moving to the latest stable version of the Platform and SDK"
+echo "Nothing to update."
+exit 0
+STUB
+chmod +x "$TESTTMP/fp-update-stub"
+printf 'net.mkiol.SpeechNote\tSpeech Note\torg.kde.Platform/x86_64/5.15-24.08\norg.gimp.GIMP\tGIMP\torg.gnome.Platform/x86_64/48\n' \
+  > "$WORLD/fp-app-runtimes.tsv"
+export KEMPT_FLATPAK_APP_RUNTIME_CMD="cat $WORLD/fp-app-runtimes.tsv"
+printf 'org.kde.Platform\t5.15-24.08\t\norg.gnome.Platform\t48\t\n' > "$WORLD/fp-runtimes.tsv"
+export KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $WORLD/fp-runtimes.tsv"
+push_history_back
+rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the heading count must be this run's alone
+eout="$("$KEMPT" update --surface=terminal </dev/null 2>/dev/null)" || true
+he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+assert_json_eq "$(jq -c .backends.flatpak.eol "$he")" \
+  '[{"id":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime","apps":["Speech Note"],"reason":"We strongly recommend moving to the latest stable version of the Platform and SDK"}]' \
+  "an end-of-life runtime is recorded once, its Locale folded in, with the app that uses it"
+assert_contains "$eout" "== System (dnf) ==" "a terminal run heads the dnf output"
+assert_contains "$eout" "== Apps (flatpak) ==" "...and the flatpak output"
+assert_eq "$(grep -n '^== ' "$(jq -r .log "$he")" | cut -d: -f2- | paste -sd'|')" \
+  "== System (dnf) ==|== Apps (flatpak) ==" "the log carries both headings, dnf first"
+assert_contains "$eout" "Note: Speech Note uses org.kde.Platform 5.15-24.08, which has reached end-of-life" \
+  "the summary names the app behind the notice"
+assert_contains "$eout" "Nothing to do now" "...and says whether anything needs doing"
+assert_eq "$(jq -r .status "$he")" "ok" "an end-of-life notice does not fail the run"
+
+# A lookup that fails costs the note and nothing else: the update is already over.
+export KEMPT_FLATPAK_APP_RUNTIME_CMD=false
+push_history_back
+"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+assert_eq "$(jq -c .backends.flatpak.eol "$he")|$(jq -r .status "$he")" "[]|ok" \
+  "a failed app lookup records no notes and the run still succeeds"
+export KEMPT_FLATPAK_APP_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+
 finish

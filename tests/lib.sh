@@ -113,6 +113,10 @@ sandbox() {  # fresh dirs per test file; call first
   # assertions came back describing the runtimes installed on the machine running the suite.
   export KEMPT_FLATPAK_SNAP_CMD="true"
   export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"
+  # The end-of-life lookups, pinned at `true` for the same reason: unset, a run whose stub prints
+  # an end-of-life notice would read the apps and runtimes of the machine running the suite.
+  export KEMPT_FLATPAK_APP_RUNTIME_CMD="true"
+  export KEMPT_FLATPAK_INFO_CMD="true"
   # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
   # is only ever READ from, never run, and a test that cares drives both branches of its guard by
   # setting it itself. Unset here so a value exported in a developer's shell cannot decide which
