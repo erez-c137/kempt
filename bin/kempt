@@ -2109,6 +2109,48 @@ doctor_tool_rows() {
 # metered link, so a box can go a week on one fetch with every surface looking freshly checked.
 # info and never FAIL - old metadata is what the battery and metering rules are FOR, so it is a
 # fact to put in front of the reader, not a fault to count against the install.
+# The other updater in the same session. plasma-discover-notifier checks on ITS own schedule from
+# PackageKit's separate cache, so its count and Kempt's can differ and both be right, and
+# PackageKit's background work takes the dnf5 lock, which makes a Kempt run fail until it lets go.
+# The checkout installer offers to turn it off (install.sh, notifier_optout). Nobody who installed
+# the PACKAGE was ever asked, and nothing ever told them it was there - this row is the telling.
+#
+# info, never FAIL: running both is a legitimate choice, and Kempt does not touch anybody's
+# autostart. Silent when there is no entry at all, because a line about software that is not
+# installed is noise in a report people paste into bug threads.
+#
+# Resolution follows the XDG autostart spec, which is also what the installer's opt-out relies on:
+# a user entry SHADOWS the system one of the same name (it is not merged with it), `Hidden=true`
+# means the entry is to be ignored entirely, and OnlyShowIn/NotShowIn decide whether it starts in
+# THIS desktop. Anything that does not start in a Plasma session is not a second updater, so it is
+# not reported at all.
+KEMPT_DISCOVER_NOTIFIER=org.kde.discover.notifier.desktop
+doctor_other_updater_row() {
+  local sys_dir user_dir sys user entry
+  sys_dir="${KEMPT_XDG_AUTOSTART_DIR:-/etc/xdg/autostart}"
+  user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+  sys="$sys_dir/$KEMPT_DISCOVER_NOTIFIER"; user="$user_dir/$KEMPT_DISCOVER_NOTIFIER"
+  if [[ -f "$user" ]]; then entry="$user"; elif [[ -f "$sys" ]]; then entry="$sys"; else return 0; fi
+
+  # Hidden first: it is the opt-out, and it wins over everything else in the file.
+  if grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$entry"; then
+    doctor_ok "Discover's update notifier: turned off for this user ($entry)"
+    return 0
+  fi
+  # A desktop list that excludes Plasma means it never starts here. Both keys are semicolon
+  # separated lists; KDE is the entry Plasma matches on.
+  # `|| true` on both: grep exits 1 when the key is absent, which is the COMMON case, and an
+  # assignment carries that status straight into errexit - the report used to stop dead here,
+  # mid-row, on every entry that named no desktop list.
+  local only not
+  only="$(grep -iE '^[[:space:]]*OnlyShowIn[[:space:]]*=' "$entry" | head -1 || true)"
+  not="$(grep -iE '^[[:space:]]*NotShowIn[[:space:]]*=' "$entry" | head -1 || true)"
+  if [[ -n "$only" && "${only,,}" != *kde* ]]; then return 0; fi
+  if [[ -n "$not" && "${not,,}" == *kde* ]]; then return 0; fi
+
+  doctor_info "Discover's update notifier also starts with your session ($entry) - it checks on its own schedule from PackageKit's cache, so its count can differ from Kempt's, and PackageKit's background work holds the dnf5 lock, which makes a Kempt run wait or fail until it lets go. Keeping both is a choice, not a fault. To stop it starting: System Settings > Autostart, or run: mkdir -p $user_dir && sed '/^Hidden=/d' $sys > $user && echo Hidden=true >> $user"
+}
+
 doctor_metadata_row() {
   local iso days
   iso="$(metadata_refreshed_iso)"
@@ -2409,6 +2451,7 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
+  doctor_other_updater_row
   doctor_metadata_row
   doctor_config_row
   doctor_state_dir_row

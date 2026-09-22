@@ -1056,6 +1056,61 @@ rm -f "$D_MARKER" "$D_LINK"
 # case below assumes and what a box that has not just staged something actually looks like.
 export KEMPT_OFFLINE_LINK="$NO_LINK"
 
+# --- another updater in the same session -------------------------------------------------------
+# Discover's notifier checks on its own schedule and PackageKit's background work takes the dnf5
+# lock, which makes a Kempt run fail until it lets go. The checkout installer offers to turn it off;
+# nobody who installed the PACKAGE was ever asked, or ever told it was there. This row is the
+# telling. info and never FAIL: running both is a valid choice, and Kempt does not touch it.
+NOTIFIER=org.kde.discover.notifier.desktop
+SYS_AUTOSTART="$TESTTMP/xdg-autostart"; mkdir -p "$SYS_AUTOSTART"
+USER_AUTOSTART="$XDG_CONFIG_HOME/autostart"; mkdir -p "$USER_AUTOSTART"
+notifier_entry() {  # dest, extra lines...
+  local dest="$1"; shift
+  { printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\n'
+    if [[ $# -gt 0 ]]; then printf '%s\n' "$@"; fi; } > "$dest"
+}
+doctor_with_autostart() {  # → the report, with the seam pointed at the test's own directory
+  env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor > "$TESTTMP/notifier.txt" 2>&1 || true
+  cat "$TESTTMP/notifier.txt"
+}
+
+# Nothing installed: no row at all. A report is read line by line, and a line about something that
+# is not on the machine is noise in every one of them.
+assert_eq "$(doctor_with_autostart | grep -c -i discover || true)" "0" \
+  "with no notifier entry anywhere, doctor says nothing about it"
+
+# The packaged case: the system entry is there, the user never ran install.sh, so it starts.
+notifier_entry "$SYS_AUTOSTART/$NOTIFIER"
+assert_eq "$(doctor_with_autostart | grep -c "^info  Discover" || true)" "1" \
+  "an enabled notifier is reported as info, not as a problem"
+assert_contains "$(doctor_with_autostart)" "$NOTIFIER" \
+  "...and the row names the file, so it can be found"
+assert_exit 0 "...and it never makes the checkup fail" \
+  env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor
+
+# The opt-out the installer writes: a user entry with Hidden=true overrides the system one.
+notifier_entry "$USER_AUTOSTART/$NOTIFIER" "Hidden=true"
+assert_eq "$(doctor_with_autostart | grep -c "^ok    Discover" || true)" "1" \
+  "the installer's opt-out is confirmed as ok"
+assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
+  "...and the enabled row is gone"
+
+# A user entry that does not hide it is not an opt-out. Hidden=false is what the system entry
+# ships on some systems, and copying it without editing is the mistake this catches.
+notifier_entry "$USER_AUTOSTART/$NOTIFIER" "Hidden=false"
+assert_eq "$(doctor_with_autostart | grep -c "^info  Discover" || true)" "1" \
+  "a user entry with Hidden=false still starts, and is reported"
+
+# Shown in another desktop only: it never starts in this session, so it is not a second updater.
+notifier_entry "$USER_AUTOSTART/$NOTIFIER" "OnlyShowIn=GNOME;"
+assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
+  "an entry limited to another desktop is not reported as running here"
+notifier_entry "$USER_AUTOSTART/$NOTIFIER" "NotShowIn=KDE;"
+assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
+  "...and neither is one that excludes this desktop"
+
+rm -f "$USER_AUTOSTART/$NOTIFIER" "$SYS_AUTOSTART/$NOTIFIER"
+
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops
 # at the first failure sends the user round the loop once per problem.
 assert_exit 1 "several problems at once still exit 1" \

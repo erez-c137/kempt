@@ -654,6 +654,7 @@ ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
+ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
@@ -670,6 +671,13 @@ Recent events (kempt log):
 
 kempt doctor: all checks passed
 ```
+
+The **Discover's update notifier** row appears only when that entry is on the box. It is `ok`
+when the entry is turned off for this user, and `info` when the notifier starts with the session:
+Discover counts from PackageKit's own cache on its own schedule, so the two counts can differ, and
+PackageKit's background work holds the dnf5 lock, which makes a Kempt run wait or fail until it
+lets go. Running both is a choice, not a fault, and that line says how to stop it starting.
+`./install.sh` offers the same opt-out; nobody who installed the package was ever asked.
 
 A packaged install prints a shorter report: no `helpers:`, `policy:` or `widget:` comparison, an
 `install: packaged` line in their place, and no commit on the `version:` line. That sample, line by

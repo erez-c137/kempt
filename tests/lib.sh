@@ -95,6 +95,11 @@ sandbox() {  # fresh dirs per test file; call first
   # box with a stage armed would grow a doctor FAIL that no test asked for. "No symlink" is also the
   # state of every box that has not just staged something. Files that need one make their own.
   export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+  # The system autostart directory `kempt doctor` reads to see whether another updater also starts
+  # with the session. Pointed at a path that does not exist, for the reason the markers above are:
+  # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
+  # Discover installed would decide if an unrelated doctor test grows a line about it.
+  export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.

@@ -7,6 +7,15 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`kempt doctor` says when Discover's update notifier also starts with your session.** It checks
+  on its own schedule from PackageKit's cache, so its count and Kempt's can differ and both be
+  right, and PackageKit's background work holds the dnf5 lock, which makes a Kempt run wait or fail
+  until it lets go. The row names the entry and how to stop it starting, and it is never a failure:
+  running both is a choice. `./install.sh` has always offered this opt-out, so nobody who installed
+  the package was ever asked, or ever told the notifier was there.
+
 ### Changed
 
 - **Each part of an update run has a heading.** A terminal run now prints `== System (dnf) ==` and
