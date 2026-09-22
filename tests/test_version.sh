@@ -123,4 +123,39 @@ if command -v rpmspec >/dev/null 2>&1; then
   fi
 fi
 
+# --- tools/build-local.sh names a hand build after the release it previews ---------------------
+# A scratch repo with its own tags, so the numbers are fixed and the real history never enters.
+if command -v git >/dev/null 2>&1; then
+  BR="$TESTTMP/buildrepo"; mkdir -p "$BR/tools"
+  cp "$REPO_ROOT/tools/build-local.sh" "$BR/tools/"
+  bl() { "$BR/tools/build-local.sh" --print-name; }
+  g() { git -C "$BR" -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+  printf '0.1.4\n' > "$BR/VERSION"
+  g init -q; g add -A; g commit -qm one; g tag v0.1.4
+  sha() { g rev-parse --short=7 HEAD; }
+  assert_eq "$(bl)" "0.1.5~dev.0+git$(sha)" "the tagged commit itself previews the next patch, dev.0"
+  g commit -q --allow-empty -m two; g commit -q --allow-empty -m three
+  assert_eq "$(bl)" "0.1.5~dev.2+git$(sha)" "dev.N counts the commits since the release tag"
+  echo edit >> "$BR/VERSION.note"
+  assert_eq "$(bl)" "0.1.5~dev.2+git$(sha).dirty" "a tree with changes the commit does not have says so"
+  rm "$BR/VERSION.note"
+  # A release bump names the next version itself - including a minor or major one.
+  printf '0.2.0\n' > "$BR/VERSION"; g commit -qam bump
+  assert_eq "$(bl)" "0.2.0~dev.3+git$(sha)" "a release bump past the tag is the version previewed"
+  if command -v rpmdev-vercmp >/dev/null 2>&1; then
+    # The point of the tilde: every hand build loses to the release it previews, and a later hand
+    # build beats an earlier one. dev.10 against dev.9 is the case a plain string sort gets wrong.
+    rc_cmp=0; rpmdev-vercmp "0.1.5~dev.9" "0.1.5" >/dev/null 2>&1 || rc_cmp=$?
+    assert_eq "$rc_cmp" "12" "a dev build sorts below the release it previews"
+    rc_cmp=0; rpmdev-vercmp "0.1.5~dev.10" "0.1.5~dev.9" >/dev/null 2>&1 || rc_cmp=$?
+    assert_eq "$rc_cmp" "11" "a later dev build sorts above an earlier one"
+    rc_cmp=0; rpmdev-vercmp "0.1.5~dev.1" "0.1.4" >/dev/null 2>&1 || rc_cmp=$?
+    assert_eq "$rc_cmp" "11" "...and above the release before it"
+  fi
+  # And the display string survives kempt_version, which strips whitespace but nothing else.
+  mkdir -p "$TESTTMP/devtree"; printf '0.1.5~dev.2+git1a2b3c4\n' > "$TESTTMP/devtree/VERSION"
+  assert_eq "$(KEMPT_ROOT="$TESTTMP/devtree" "$KEMPT" --version)" "kempt 0.1.5~dev.2+git1a2b3c4" \
+    "an installed dev build prints its whole name"
+fi
+
 finish

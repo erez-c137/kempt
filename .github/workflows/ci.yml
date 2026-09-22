@@ -44,7 +44,7 @@ jobs:
             --source-path="$GITHUB_WORKSPACE" \
             --source-path="$GITHUB_WORKSPACE/lib" \
             --source-path="$GITHUB_WORKSPACE/backends" \
-            bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+            bin/kempt lib/common.sh backends/*.sh libexec/* install.sh tools/*.sh
 
   tests:
     name: test suite

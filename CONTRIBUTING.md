@@ -262,19 +262,44 @@ and bump in its own commit, so the diff that says what the release is stays read
 
 ### Building an RPM by hand
 
-Pass a stamp, always:
+```bash
+tools/build-local.sh          # runs the suite, builds, installs, reloads the widget
+```
+
+A hand build is named as a preview of the next release, so `rpm -q` and `kempt --version` say
+which commit is installed:
+
+```
+kempt-0.1.5~dev.4-0.git1a2b3c4.20260922T193500.1.fc44     rpm -q kempt
+kempt 0.1.5~dev.4+git1a2b3c4                               kempt --version, the widget
+```
+
+- **0.1.5** is the release being previewed: the patch after the newest tag, or `VERSION` itself
+  once a release bump has moved past the tag.
+- **dev.N** counts the commits since that tag. It only goes up, and it maps back to one commit.
+  `.dirty` means the tree had changes the commit does not.
+- **The tilde** is RPM's pre-release marker: `0.1.5~dev.4` sorts below `0.1.5`, so the release
+  upgrades over every hand build by itself. A fourth number (`0.1.5.1`) or a suffix would sort
+  above it and leave the hand build pinned with dnf reporting nothing to do.
+
+The script renames a copy of the tree and never edits the checkout, so `VERSION`, the widget's
+metadata, the metainfo and the spec keep naming the release. `--print-name` prints the name and
+stops; `--no-install` builds into `~/rpmbuild/RPMS/noarch` and stops.
+
+Building with `rpmbuild` directly still works. Pass a stamp, always:
 
 ```bash
 rpmbuild --define "kempt_local $(date +%Y%m%dT%H%M%S)" -ba kempt.spec
 ```
 
 Without it the package calls itself `<version>-1`, exactly like the release, and two builds of
-different content become indistinguishable to `rpm -q`: the only way to tell which one is installed
-is to hash the files. The stamp lands in the `Release` as `0.local<stamp>.1`, which also sorts
-*below* the released package, so the official build upgrades over a hand build on its own. Release,
-COPR and Koji builds pass nothing and are unaffected. `tests/test_version.sh` checks both forms.
+different content become indistinguishable to `rpm -q`. The stamp lands in the `Release` as
+`0.local<stamp>.1`, which sorts *below* the release of the same version. Release, COPR and Koji
+builds pass nothing and are unaffected. `tests/test_version.sh` checks both forms.
 
 ### After installing a hand build, clear Plasma's QML cache
+
+`tools/build-local.sh` does this for you. After any other hand install:
 
 ```bash
 rm -rf ~/.cache/plasmashell/qmlcache && systemctl --user restart plasma-plasmashell
