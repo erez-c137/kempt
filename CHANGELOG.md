@@ -9,6 +9,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A restart is no longer promised after a staging run that staged nothing.** Hold every pending
+  update, or have none pending, and press Install on Next Restart: the run correctly does nothing,
+  and the panel used to answer "Updates are staged - they install on the next restart" over a
+  restart that installs nothing. It now says nothing was staged, and says which of the two reasons
+  it was, in the same words the notification has always used - "every pending update is held" reads
+  as your holds doing what you asked, where "Kempt did nothing" reads as a fault. A run that staged
+  nothing records it as `staged_nothing` in `kempt summary --json`; a run that staged something
+  carries no such key, so nothing written by an older version is read as a stage that never
+  happened.
+
 - **A staged update that Kempt could not re-read is no longer reported as no update at all.** The
   question "is something staged?" has two ways of producing no answer - there is genuinely nothing
   staged, or it could not be worked out - and a run treated the second as the first. For the few

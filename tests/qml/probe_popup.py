@@ -2098,6 +2098,9 @@ _ASSEMBLED_IN_LOGIC = {
     "lastCheckFailed",      # -> vm.footerText, beside the date it explains
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
+    "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
+    "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
+    "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
     "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage

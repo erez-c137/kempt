@@ -755,7 +755,15 @@ right after a run are one fact with one source: **`kempt summary --json`**, pars
 serves the newest history entry byte for byte rather than re-rendering it, so what arrives is
 exactly what `cmd_update` wrote: `{timestamp, surface, status, duration_sec, reboot_needed, log,
 error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`. A live run and a
-harvest both also write `transaction_id` when dnf5's history named the transaction they report. A live run's flatpak backend
+harvest both also write `transaction_id` when dnf5's history named the transaction they report. A
+staging run that staged **nothing** also writes `staged_nothing`, whose value is `"held"` (every
+pending dnf update was held) or `"nothing_pending"` (there was nothing to stage). It is written only
+when it happened: such a run is `surface: "offline"`, `status: "ok"`, indistinguishable from one
+that staged sixty packages, and with only those two fields to go on the popup announced a restart
+that would install nothing. Absence therefore has to keep meaning "this run staged something",
+which is also the only reading available for an entry written before the key existed. Additive key,
+and the widget accepts those two words and nothing else - an unknown value is a build it does not
+understand, so it degrades to the ordinary staged wording rather than guessing. A live run's flatpak backend
 also carries `eol`: one `{id, branch, kind, apps, reason}` per end-of-life ref that flatpak reported
 during the run (see `flatpak_eol_notices`), with `apps` naming the installed apps that depend on it.
 The widget does not draw it yet; `kempt summary` does.

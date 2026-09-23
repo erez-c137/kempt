@@ -292,6 +292,12 @@ assert_exit 0 "marker owns its own pre-snapshot copy" -- test -f "$pre"
 [[ "$pre" != "$KEMPT_STATE_DIR/snapshots/dnf-before.tsv" ]] && echo "ok: copy is not the shared before-snapshot" \
   || { echo "FAIL: marker points at the reusable dnf-before.tsv"; _fail=1; }
 grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says staged" || { echo "FAIL: offline notify"; _fail=1; }
+# A run that DID stage carries no staged_nothing key. The key exists so the popup can tell this run
+# apart from one that staged nothing, and absence is how a real stage says so - which also keeps
+# every entry written before the key existed reading as what it is.
+stgd_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r 'has("staged_nothing")' "$stgd_hist")" "false" \
+  "...and its history entry does not claim nothing was staged"
 
 # ARMING, which is the whole difference between a staged transaction and one that installs. dnf5
 # leaves a staged transaction at status="download-complete" and NO boot applies that; `dnf5 offline
@@ -540,6 +546,14 @@ grep -q 'could not arm' "$WORLD/notifications" \
   || echo "ok: ...and the arm is not blamed for a transaction that was never built"
 nhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a run that succeeded"
+# ...and records WHY nothing was staged, which is the only place a later reader can learn it. The
+# event line and the notification above say it too, but they are spoken once; the popup's post-run
+# line and its last-update row are rendered from this entry, and with only `surface` and `status`
+# to go on both announced "Updates are staged - they install on the next restart" over a restart
+# that installs nothing. `held` and not just "nothing", because "Kempt did nothing" reads as a
+# fault where "every pending update is held" is the user's own holds working.
+assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \
+  "...and says nothing was staged because every pending update is held"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 transaction_armed
 

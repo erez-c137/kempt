@@ -175,6 +175,17 @@ var COPY = {
     stagedOne: "1 update is staged - it installs on the next restart",
     stagedUnknownCount: "Updates are staged - they install on the next restart",
 
+    // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
+    // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
+    // about the restart that follows. Word for word what the CLI's own notification says, so the
+    // panel and the notification that arrives beside it cannot describe the same second
+    // differently. Saying WHICH of the two reasons it was is the point: "Kempt did nothing" reads
+    // as a fault, and "your holds did what you asked" is the same fact told properly.
+    stagedNothingHeld: "Nothing to stage - every pending update is held",
+    stagedNothingNonePending: "Nothing to stage - no updates are pending",
+    // ...and the past-tense form, for the row that describes a run that has already finished.
+    lastRunNothingStaged: "nothing needed staging",
+
     // ...and the HEADER over that banner, same three spellings, same reasons. While a stage is
     // armed the pending count is a true number saying a false thing: "23 updates available" over a
     // green banner about the same 23 reads as "so it did not work?". The BADGE is deliberately
@@ -1275,7 +1286,14 @@ function lastRunOf(text) {
         logPath: typeof entry.log === "string" ? entry.log : "",
         // Strictly the boolean. This entry's reboot_needed is a fact about THAT RUN, not about now
         // - the state file carries the live answer - so nothing renders an affirmative from it.
-        rebootNeeded: entry.reboot_needed === true
+        rebootNeeded: entry.reboot_needed === true,
+        // Why a staging run staged nothing, or null when it staged something - AND null for an
+        // entry written before the CLI recorded this, which is the same answer for a different
+        // reason and deliberately so: those two cannot be told apart, and guessing would report a
+        // real stage as nothing. Only the two words the CLI writes are accepted; anything else is
+        // a build this one does not understand, and "I do not know" is the honest reading of it.
+        stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
+            ? entry.staged_nothing : null
     };
 }
 
@@ -1294,6 +1312,11 @@ function postRunLine(run) {
     // restart - so the count sentences below would call it "No package changes": true about the
     // rpm set and no answer to what the person just did. Exact match, never a prefix: the harvest
     // writes "offline (applied on reboot)" and its counts are real changes.
+    // ...unless the run staged nothing, which is a successful `offline` run too and was described
+    // in the same words as one that staged sixty packages.
+    if (run.surface === "offline" && run.stagedNothing !== null) {
+        return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
+    }
     if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
@@ -1384,6 +1407,13 @@ function lastRunText(run, nowMs) {
     // failure, and a staging run that FAILED staged nothing. Exact match on "offline" - the
     // harvest's surface is "offline (applied on reboot)" and its counts render.
     if (!run.failed && run.surface === "offline") {
+        // The same exception postRunLine makes, for the same reason: a run that staged nothing is
+        // `offline` and `ok`, and "staged for restart" over it promises an install that no restart
+        // performs. WHICH reason is left to the post-run line - this row is one line among several
+        // and the distinction needs a clause it has no room for.
+        if (run.stagedNothing !== null) {
+            return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.lastRunNothingStaged;
+        }
         return "Last update " + relativeTime(run.when, nowMs) + DOT + "staged for restart";
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;

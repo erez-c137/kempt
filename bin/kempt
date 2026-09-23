@@ -1028,9 +1028,26 @@ cmd_update() {
   # measurement. Every reader would otherwise print it as "in -287s".
   local run_dur=$(( $(date +%s) - start ))
   (( run_dur >= 0 )) || run_dur=0
+  # WHY nothing was staged, for the surfaces that report this run afterwards. The event line and
+  # the notification already say it (both branch on `staged_nothing` above), but they are spoken
+  # once and gone; the entry is what the popup's post-run line and its last-update row are rendered
+  # from, and those two had only `surface` and `status` to go on. A run that staged nothing is
+  # `offline` and `ok`, exactly like one that staged sixty packages, so both said "Updates are
+  # staged - they install on the next restart" over a restart that will install nothing.
+  #
+  # Written ONLY when it happened, never as `false` or `null`: an entry from a build before this
+  # field cannot be told apart from one that staged properly, so absence has to keep meaning what
+  # it means today. Which of the two reasons it was is the difference between "Kempt did nothing"
+  # and "your holds did what you asked" - the first reads as a fault - and it is the same
+  # distinction, in the same words, that the notification below makes.
+  local staged_nothing_why=""
+  if [[ "$surface" == "offline" && "$status" == "ok" && "$staged_nothing" == true ]]; then
+    if [[ -n "$held_dnf" ]]; then staged_nothing_why=held; else staged_nothing_why=nothing_pending; fi
+  fi
   # `transaction_id` is additive and top-level, exactly as the harvest writes it: the id
   # `dnf5 history info` takes, present only when dnf5's history named the transaction.
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
+        --arg staged_nothing_why "$staged_nothing_why" \
         --arg log "$log" --argjson dur "$run_dur" --arg txid "$live_txid" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
@@ -1042,7 +1059,8 @@ cmd_update() {
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}
-    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)' > "$hist_tmp" \
+    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
+    + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
     || { rm -f "$hist_tmp"; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no

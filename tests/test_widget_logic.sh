@@ -1250,6 +1250,23 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\
   "Update failed: staged but could not arm the restart install" "a FAILED staging run is a failure, never a promise"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Updated 2 packages in 0s" "the harvest entry is not a staging run - its counts render"
+# ...and the staging run that staged NOTHING, which is `offline` and `ok` exactly like the first
+# case above and was described in its words. Every pending update held, or nothing pending: the
+# restart installs nothing, and the line above promised it would install something. Which of the
+# two reasons is said out loud, in the CLI notification's own words, because "Kempt did nothing"
+# reads as a fault where "your holds did what you asked" is the machine working.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":3,\"staged_nothing\":\"held\"}"))')" \
+  "Nothing to stage - every pending update is held" "a run that staged nothing says so, and says the holds did it"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":3,\"staged_nothing\":\"nothing_pending\"}"))')" \
+  "Nothing to stage - no updates are pending" "...and the other reason is the other sentence, never the same one"
+# The degrade, and the reason the CLI writes this key only when it applies: an entry from a build
+# before the key cannot be told apart from a real stage, so absence has to keep meaning "staged".
+# A value this build does not know is the same position - it learned nothing - and takes the same
+# answer rather than guessing which of the two sentences fits.
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28,\"staged_nothing\":\"something-else\"}"))')" \
+  "Updates are staged - they install on the next restart" "a reason this build does not know reads as an ordinary stage, not a guess"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"authentication cancelled\",\"staged_nothing\":\"held\"}"))')" \
+  "Update failed: authentication cancelled" "...and a FAILED run is still reported as failed, whatever else the entry carries"
 
 # --- runFinishedSince: is this entry the run we just watched? -----------------------------------
 # The belt-and-braces half of the same fix `kempt summary --json` carries on the CLI side. The
@@ -1361,6 +1378,15 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"off
   "Last update 1 min ago · staged for restart" "a staging run's row says the changes are deferred, not absent"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
   "Last update 1 min ago · no package changes" "a failed staging run falls back to the counts, which are honestly zero"
+# ...and the row for a staging run that staged nothing. Past tense, and WITHOUT the reason: this
+# row is one line among several and the distinction needs a clause it has no room for, so the
+# post-run line above carries it. What matters here is that it no longer promises a restart.
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":\"held\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · nothing needed staging" "a row for a run that staged nothing promises no restart"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":\"nothing_pending\"}'), $W + $MIN)")" \
+  "Last update 1 min ago · nothing needed staging" "...the same row for the other reason, which this line has no room to tell apart"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":false}'), $W + $MIN)")" \
+  "Last update 1 min ago · staged for restart" "...and a value that is not one of the two words leaves the row as it was"
 # An entry this file cannot DATE gets no row at all. "Last update never · 1 package" was the
 # shape of that bug: relativeTime answers "never" for a missing or empty stamp, and the sentence
 # went on to describe a run in the same breath as denying there was one. The counts are still in
