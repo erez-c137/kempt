@@ -963,11 +963,15 @@ cmd_update() {
   # fails keeps the whole diff - the identification still stands, only the precision is lost.
   # The mktemp is part of the condition, like every other file this far past the apply: a temp file
   # that cannot be created costs the precision, never the run.
+  # An empty list of names is NOT a filter that keeps nothing. dnf5 naming no packages for a
+  # transaction is a filter that could not be built, and filtering a diff down to it would report a
+  # run that installed six hundred megabytes as having changed nothing at all - so it is the same
+  # degradation as a jq that fails: keep the whole diff, keep the id.
   local keep_f live_filtered
-  if [[ -n "$live_txid" ]] && keep_f="$(mktemp 2>/dev/null)" \
-     && printf '%s\n' "$live_keep" > "$keep_f" 2>/dev/null; then
+  if [[ -n "$live_txid" && -n "$live_keep" ]] && keep_f="$(mktemp 2>/dev/null)"; then
     # `. as $x` before index(), for the trap mark_held carries the note about.
-    if live_filtered="$(jq -c --rawfile k "$keep_f" '
+    if printf '%s\n' "$live_keep" > "$keep_f" 2>/dev/null \
+       && live_filtered="$(jq -c --rawfile k "$keep_f" '
                           ($k | split("\n") | map(select(length > 0))) as $keep
                           | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
                           <<<"$dnf_report" 2>/dev/null)" && [[ -n "$live_filtered" ]]; then
@@ -1524,18 +1528,23 @@ harvest_offline() {
   case "$verdict" in
     "applied "*)
       txid="${verdict#applied }"
-      local keep_f filtered
-      keep_f="$(mktemp)"
-      if [[ "$attribution" == *$'\n'* ]]; then printf '%s\n' "${attribution#*$'\n'}" > "$keep_f"; fi
+      local keep_f filtered keep=""
+      if [[ "$attribution" == *$'\n'* ]]; then keep="${attribution#*$'\n'}"; fi
       # `. as $x` before index(), for the trap mark_held carries the note about. A filter that fails
-      # keeps the whole diff: the identification still stands, only the precision is lost.
-      if filtered="$(jq -c --rawfile k "$keep_f" '
-                       ($k | split("\n") | map(select(length > 0))) as $keep
-                       | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
-                       <<<"$report" 2>/dev/null)" && [[ -n "$filtered" ]]; then
-        report="$filtered"
-      fi
-      rm -f "$keep_f" ;;
+      # keeps the whole diff: the identification still stands, only the precision is lost. So does
+      # a filter with nothing in it - an entry naming no packages is dnf5 not saying what it
+      # touched, never a restart that touched nothing. Same trade as the live twin in cmd_update.
+      if [[ -n "$keep" ]]; then
+        keep_f="$(mktemp)"
+        if printf '%s\n' "$keep" > "$keep_f" \
+           && filtered="$(jq -c --rawfile k "$keep_f" '
+                         ($k | split("\n") | map(select(length > 0))) as $keep
+                         | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
+                         <<<"$report" 2>/dev/null)" && [[ -n "$filtered" ]]; then
+          report="$filtered"
+        fi
+        rm -f "$keep_f"
+      fi ;;
     did-not-run)
       hsurface="restart (staged update did not run)" ;;
   esac

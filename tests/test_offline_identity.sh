@@ -200,6 +200,18 @@ assert_eq "$(notified 'were applied on reboot')" "1" "...and announced as applie
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...and so is its snapshot copy" -- test ! -f "$PRE"
 
+# ...and the entry that ran can still name nothing. A transaction dnf5 recorded with an empty
+# package list is a filter that cannot be BUILT, not a restart that installed nothing: the identity
+# it settles still stands, and the report has to stay the diff rather than be emptied to match it.
+mkdir -p "$TESTTMP/info-empty"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/info-empty/"
+jq '.[0].packages = []' "$FIXTURES/dnf-history-info-8.json" > "$TESTTMP/info-empty/dnf-history-info-8.json"
+HIST_INFO="$TESTTMP/info-empty" harvest "$MARKER_REPLACED"
+assert_eq "$(jq -r .surface "$HH")" "offline (applied on reboot)" \
+  "an entry that names no packages is still the transaction that ran"
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "8" "...and is still named"
+assert_eq "$(reported)" "curl patch zsh" \
+  "...while the report stays the whole snapshot diff: a run of 3 packages is never reported as 0"
+
 # DID NOT RUN. The marker records the FIRST stage; what ran began at the same cookie with another
 # command and another package set (nano is in the first and not in what ran).
 harvest "$MARKER_STAGED"
@@ -306,6 +318,12 @@ assert_eq "$(strict "$MARKER_REPLACED")" "$(printf 'verdict:applied 8\nstill run
 # would quietly lose every live attribution, and this is the assertion that would not let it.
 LIVE_CMD="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
 assert_eq "$LIVE_CMD" "dnf5 upgrade -y" "premise: the root helper runs the command dnf5 records"
+# ...and the excludes, where the CLI puts them. cmd_update builds `dnf5 upgrade "${yflag[@]}"
+# "${excl[@]}"` and hands the helper the same two arrays; dnf5 records argv verbatim, so a helper
+# that moved --exclude ahead of -y would match nothing and lose the attribution of every run on a
+# box that holds a package - silently, and only on those boxes. Nothing else compares the two.
+assert_eq "$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y --exclude=nano --exclude=zsh)" \
+  "dnf5 upgrade -y --exclude=nano --exclude=zsh" "premise: ...with the held packages excluded in that order"
 
 LIVE_LIST="$TESTTMP/live-list.json"
 mkdir -p "$TESTTMP/live-info"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/live-info/"
@@ -391,6 +409,17 @@ jq '.[0].id = 11' "$FIXTURES/dnf-history-info-8.json" > "$TESTTMP/live-info/dnf-
 LIVE_AFTER="$TESTTMP/live-list-twice.json"; live_run
 live_cannot_tell "two entries ran the command Kempt ran"
 LIVE_AFTER="$TESTTMP/live-list-after.json"
+
+# The entry IS the run's, and it names no packages - the live twin of the harvest case above, and
+# the same answer: identified, reported in full.
+jq '.[0].packages = []' "$TESTTMP/live-info/dnf-history-info-10.json" > "$TESTTMP/live-info-10-empty.json"
+mv "$TESTTMP/live-info/dnf-history-info-10.json" "$TESTTMP/live-info-10.json"
+cp "$TESTTMP/live-info-10-empty.json" "$TESTTMP/live-info/dnf-history-info-10.json"
+live_run
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "10" \
+  "a live entry that names no packages is still the run's transaction"
+assert_eq "$(reported)" "curl patch zsh" "...and the report stays the whole snapshot diff"
+mv "$TESTTMP/live-info-10.json" "$TESTTMP/live-info/dnf-history-info-10.json"
 
 # The list named an entry the history then has nothing for. `[]` is what real dnf5 answers for an id
 # it does not have, and an id its own list just named is not a history this build can read.
