@@ -365,6 +365,29 @@ PlasmoidItem {
         done();
     }
 
+    // state.json moved, so the answer is already on disk: read it rather than wait to be told.
+    //
+    // The check started below is the authoritative one and still runs - but it can sit on
+    // check.lock for as long as the writer holds it, and the writer is usually the run that just
+    // ended, inside its own closing check. Meanwhile the popup has left the updating pane (that
+    // write is what ends it) with the state from BEFORE the run on screen. A run that staged is
+    // the case where that is not merely stale: the CLI publishes the armed transaction the moment
+    // it exists (lib/common.sh, publish_staged_state), and until this file is believed the popup
+    // still shows Update Now - which starts a live upgrade over the staged transaction and makes
+    // the CLI discard it as superseded.
+    //
+    // One `cat`, taking no lock, the same trade rebuildStaged and discardStaged make before they
+    // act on a banner. stateDir is NOT shellQuote'd - see findLog().
+    function adoptState() {
+        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
+            var fresh = Logic.parseState(stdout);
+            // null means we learned nothing - rule 1 of the schema says keep what we had. And
+            // nothing else is touched: this is not a check, it made none of a check's writes, so
+            // lastCheckFinished stays where it is and the quiet window is not opened by it.
+            if (fresh !== null) root.kemptState = fresh;
+        });
+    }
+
     // One stat of the watched paths. `triggerCheck` separates the 30s watcher (which must react to
     // a change) from the post-check re-baseline (which must not).
     function pollWatch(triggerCheck) {
@@ -384,7 +407,7 @@ PlasmoidItem {
             // Read BEFORE leaveUpdating clears it: whether this tick ended a run is what exempts
             // the post-run check from the quiet window below.
             var endedRun = delta.state && root.updating;
-            if (delta.state) root.leaveUpdating();
+            if (delta.state) { root.leaveUpdating(); root.adoptState(); }
 
             // ...and a package database moving while a run of OURS is in flight is not news, it IS
             // the run: checking on it would queue `kempt check` behind the dnf lock the

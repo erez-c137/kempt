@@ -694,6 +694,17 @@ person never agreed to lose. So `rebuildStaged()` in `main.qml`:
 Consent given to one staged update is never spent on a different one. The same guard `stageOffline`
 has applies first: while a run of ours is in flight, a rebuild does nothing at all.
 
+The 30-second watcher makes the same read, for the other half of the same problem. `state.json`
+moving is how the widget learns a run of ours ended, so it leaves the updating pane on that write -
+and the `kempt check` it starts next queues behind `check.lock`, which the run's own closing check
+is still holding. Until that clears, the popup is showing the state from *before* the run. For a
+run that staged, the gap is not merely stale: the CLI publishes the armed transaction as soon as it
+exists (`publish_staged_state`), and a widget that has not read it still offers **Update Now**,
+which would start a live upgrade over the staged transaction and make the CLI discard it as
+superseded. So `adoptState()` reads the bytes that triggered the watcher and assigns them - one
+`cat`, no lock, the authoritative check still running behind it. It is not a check and makes none
+of a check's writes, so it does not open the quiet window that suppresses the next one.
+
 ### What the message stack says to a screen reader
 
 Kirigami gives every `InlineMessage` the AlertMessage role and **no accessible name**, so a screen

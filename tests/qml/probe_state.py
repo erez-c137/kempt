@@ -10,6 +10,7 @@ output. Only the node tests can pin the derivation; only this can pin that main.
 Also carries the compact representation's geometry: the badge must never overflow the panel cell,
 and the icon must be requested at a size the icon theme actually hints.
 """
+import json
 import os
 import sys
 
@@ -44,6 +45,9 @@ if [[ "$1" == check ]]; then
   case "$mode" in
     live)        cp %(FIX)s/state-live.json %(ST)s; cat %(ST)s ;;
     slow)        sleep 1; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
+    # A check queued behind check.lock, which the run's own closing check is still holding.
+    # Three seconds so that what the widget knows MEANWHILE can be read without a race.
+    slowlock)    sleep 3; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
@@ -355,6 +359,44 @@ p.wait_for(ev, "root.checking", True, timeout_ms=4000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.check("a settings apply inside the window is still acted on at once",
         p.call_count("check") - before, 1)
+
+# --- 8c. a run that staged is BELIEVED at once, not when its closing check lands ---------------
+# What the CLI does now (lib/common.sh, publish_staged_state): a run that stages writes the
+# transaction into state.json the moment it is armed, rather than leaving it for the run's own
+# closing check thirty seconds later - so `kempt summary` stops contradicting itself.
+#
+# That write is also this watcher's "the run ended" signal, and the check it starts queues behind
+# check.lock, which that closing check is still holding. For as long as it takes, the popup is out
+# of the updating pane with the PRE-RUN state on screen: nothing staged, everything still pending.
+# Update Now is visible on exactly that (FullRepresentation.qml tests !vm.stagedArmed), and
+# pressing it starts a live upgrade over the transaction already staged - which the CLI then has
+# to throw away as superseded. The one press the staged state exists to prevent.
+#
+# So the file that moved is read directly, here, instead of waiting to be told about it. One
+# `cat`, no lock: the same trade rebuildStaged and discardStaged make before they act on a banner.
+STAGED = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
+STAGED["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 7, "armed": True}
+open(MODE, "w").write("slowlock")
+ev("root.lastCheckFinished = Date.now() - 61000")      # outside the quiet window: the check runs
+ev("root.enterUpdating('offline')")
+open(STATE_JSON, "w").write(json.dumps(STAGED))        # the CLI's mid-run publish
+harness.touch(STATE_JSON, "2030-04-01")
+before = p.call_count("check")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "root.updating", False, timeout_ms=4000)
+p.check("premise: the run's own state write ends the updating pane", ev("root.updating"), False)
+p.wait_for(ev, "root.vm.stagedArmed", True, timeout_ms=4000)
+p.check("a staged transaction is known from the file that moved",
+        ev("root.vm.stagedArmed"), True)
+p.check("...while the check that would otherwise have said so is still behind the lock",
+        ev("root.checking"), True)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+# Read only now: `checking` is set at the call, but the check itself is THIRD in a serialized
+# queue, so counting it while it is still queued counts nothing and proves nothing.
+p.check("premise: that check did run, so the belief above was not waiting on it",
+        p.call_count("check") - before, 1)
+p.wait_idle(ev, "executor")
+open(MODE, "w").write("live")
 
 # ==================================================================================================
 # The compact representation's geometry.

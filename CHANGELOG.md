@@ -44,7 +44,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   about half a minute on a real machine with the packages already downloaded and armed. Pressing
   either button in that window threw away the staged transaction and built it again. A run now
   records what it staged itself, the moment it finishes, and the check behind it refreshes the
-  rest. A run that ends with no staged transaction clears the promise of one the same way.
+  rest. A run that ends with no staged transaction clears the promise of one the same way. The
+  panel reads that record as soon as it lands, rather than waiting on a check of its own that
+  cannot start until the run has let go of the lock.
 
 ## [0.1.4] - 2026-09-19
 
