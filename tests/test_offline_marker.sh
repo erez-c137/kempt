@@ -261,4 +261,53 @@ printf '%s\n' '["not","an","object"]' > "$st"
 publish
 assert_eq "$(cat "$st")" '["not","an","object"]' "...and so is one whose document is not an object"
 
+# --- publish_staged_state: a read that FAILED is not an answer -----------------------------------
+# offline_staged_state produces nothing in two quite different ways: it returns 0 with no output for
+# every "there is genuinely no stage" path, and non-zero when it could not work the answer out.
+# Flattening the second into the first published "nobody could tell" as "nothing is staged", which
+# DELETES a promise the machine is already armed to keep - and every surface then offers to stage
+# what is downloaded, or to upgrade live over it, which makes the CLI discard it as superseded.
+# The function is stubbed rather than broken from the outside: what it returns is the input this
+# one branches on, and there is no other way to reach the failing side of it on purpose.
+publish_with() {  # body of offline_staged_state
+  bash -c 'source "$1/lib/common.sh"; eval "offline_staged_state() { $2; }"; publish_staged_state' \
+    _ "$REPO_ROOT" "$1"
+}
+jq -n '{schema:1, actionable:19,
+        offline_staged:{staged_at:"2026-09-05T00:00:00+03:00", count:61, armed:true,
+                        holds_conflict:[], names_source:"transaction"}}' > "$st"
+publish_with "return 1"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
+  "a read that failed leaves the staged transaction exactly where it was"
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "transaction" \
+  "...every field of it, not a rewritten shell of one"
+assert_eq "$(jq -r '.actionable' "$st")" "19" "...and the rest of the state with it"
+
+# The other half of the pair, in the same shape, so the two cannot drift apart: rc 0 and no output
+# is the answer "there is no stage", and that one still clears. Without this the fix above could be
+# a function that never clears anything, and reconcile_stage_after_live_run depends on it clearing.
+publish_with "return 0"
+assert_eq "$(jq -r 'has("offline_staged")' "$st")" "false" \
+  "...while an answer of NO stage, which is rc 0 and silence, still takes the promise back out"
+assert_eq "$(jq -r '.actionable' "$st")" "19" "...leaving the rest of the state alone as before"
+
+# ...and it does all of that WITHOUT check.lock, which is the point of it rather than an oversight:
+# the holder of that lock is always a check, and this function exists to publish the staged fact
+# without waiting for one. test_update.sh holds the lock for ten seconds and asserts a run publishes
+# anyway. Asserted here too, so a future attempt to "fix" the missing lock fails in the file that
+# owns this function and not only in the one that owns the run.
+jq -n --arg boot b '{staged_at:"2026-09-05T00:00:00+03:00", boot_id:$boot, staged:7, armed:true}' > "$marker"
+jq -n '{schema:1, actionable:19}' > "$st"
+lockheld="$KEMPT_STATE_DIR/lockheld"
+# The holder opens and locks the fd ITSELF, rather than `flock <file> <cmd>`: given a path, flock
+# forks a child to run the command and waits on it, so $! is flock and the lock outlives killing it.
+# Here $! is the subshell, `exec sleep` keeps it one process, and the lock dies with it.
+( exec 5>>"$KEMPT_STATE_DIR/check.lock"; flock 5; touch "$lockheld"; exec sleep 12 ) &
+lockpid=$!
+for _ in $(seq 1 100); do [[ -f "$lockheld" ]] && break; sleep 0.05; done
+publish
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "7" \
+  "a check holding the lock does not delay the staged fact, which is the whole point of publishing it"
+kill "$lockpid" 2>/dev/null; wait "$lockpid" 2>/dev/null || true
+
 finish

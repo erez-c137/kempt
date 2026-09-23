@@ -7,6 +7,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A staged update that Kempt could not re-read is no longer reported as no update at all.** The
+  question "is something staged?" has two ways of producing no answer - there is genuinely nothing
+  staged, or it could not be worked out - and a run treated the second as the first. For the few
+  seconds until the closing check, the panel dropped the staged banner and offered to upgrade
+  live over a transaction that was already downloaded and armed, which makes Kempt discard it as
+  superseded and throw the download away. A question that could not be answered now leaves what
+  was already known in place.
+
 ## [0.1.5] - 2026-09-23
 
 ### Added

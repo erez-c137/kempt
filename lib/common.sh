@@ -1586,10 +1586,29 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
 publish_staged_state() {
   [[ -f "$STATE_FILE" ]] || return 0
   local staged out
-  # `|| staged=""` and not a bare call: this runs under errexit on the far side of an update that
-  # has already downloaded and armed a transaction, and a marker this cannot read is not a reason
-  # to end the run there.
-  staged="$(offline_staged_state)" || staged=""
+  # Not a bare call: this runs under errexit on the far side of an update that has already
+  # downloaded and armed a transaction, and a marker this cannot read is not a reason to end the
+  # run there.
+  #
+  # ...and NOT `|| staged=""` either, which is what it used to be. offline_staged_state produces
+  # nothing in two quite different ways: rc 0 with no output for every path where there is
+  # genuinely no stage (no marker, not `ready`, demoted, a stored release upgrade that proves the
+  # transaction is not ours), and non-zero when it could not work the answer out. Flattening the
+  # second into the first published "nobody could tell" as "nothing is staged", and the else branch
+  # below then DELETED a promise the machine is already armed to keep - after which every surface
+  # offers to stage what is downloaded, or to upgrade live over it, which makes the CLI discard it
+  # as superseded and throw the download away. Rule 1 of the schema, on the writing side: a reader
+  # that learned nothing leaves what was there.
+  staged="$(offline_staged_state)" || return 0
+  # NO check.lock here, and that is a decision rather than an omission. This function exists to put
+  # the staged fact in front of the user WITHOUT waiting for a check, and the holder of that lock is
+  # always a check - so taking it, on any timeout, reintroduces exactly the wait being removed.
+  # tests/test_update.sh holds the lock for ten seconds and asserts a run publishes anyway; that is
+  # the contract. What the lock would buy is narrow: write_state renames into place, so no reader
+  # ever sees a torn file, and the only exposure is a lost update between this read and its write,
+  # milliseconds later, on a key no check has computed yet in the window this runs in. The closing
+  # check rewrites the whole file immediately afterwards regardless.
+  #
   # `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or
   # holds more than one document (see cmd_check). select yields NOTHING on either, so `out` is
   # empty and the file is left exactly as it was for the check behind us to rewrite properly.
