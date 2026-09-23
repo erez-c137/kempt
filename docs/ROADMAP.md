@@ -105,9 +105,25 @@ already staged for the next restart.
   Two rules hold whatever the setting says: never anything an installed app depends on, and never
   Kempt's own opinion about what is unused - only what the package manager itself calls unused.
 
-  One obstacle worth stating: flatpak has no way to *list* what `--unused` would remove without
-  removing it - there is no dry-run as of 1.18. Kempt will not print a number it cannot stand behind,
-  so the first step is asking upstream for one rather than writing an estimate of our own.
+  One obstacle, smaller than it looked. There is still no `--dry-run`, and `flatpak list` has no
+  `--unused` (checked against 1.18.2). Upstream has already been asked - flatpak/flatpak#5185, open
+  since November 2022, labelled `help wanted` - and `libflatpak` already exposes the call such a
+  listing would wrap (`flatpak_installation_list_unused_refs()`), so what is missing is plumbing,
+  not a decision. A second request would only duplicate it; implementing that one is an option of
+  its own, and a better use of the ask.
+
+  What flatpak does have is an answer to the same question, and it is upstream's own. Run
+  `flatpak uninstall --unused` with stdin or stdout not a terminal and it prints the whole table of
+  what it would remove - with the pinned runtimes it would keep, and which installed apps use each
+  runtime - and then answers `n` itself. That is not a behaviour to be discovered by experiment: it
+  is unconditional in `flatpak_yes_no_prompt()` (`app/flatpak-tty-utils.c`), which returns no before
+  any default is consulted, and it is in the 1.18.2 that ships today. So the list comes from flatpak
+  itself, which is what the rule above requires, and nothing has to be estimated.
+
+  One rule keeps that safe, and it is short enough to hold: **the probe never passes `-y` or
+  `--noninteractive`**. `--noninteractive` implies `--assumeyes`
+  (`app/flatpak-builtins-uninstall.c`), and those two flags are the only things that turn the
+  listing into a removal.
 
 - **Re-capture the screenshots.** The two in the README, the metainfo and the store listing were
   taken on 4 September, before three releases. They show a popup with no Flatpak runtimes section
