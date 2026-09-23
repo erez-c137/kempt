@@ -28,6 +28,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Note uses org.kde.Platform 5.15-24.08, which has reached end-of-life and gets no more updates.
   Nothing to do now". The note is also saved in the run's history entry.
 
+### Fixed
+
+- **A finished run no longer offers to stage what it has just staged.** After "Install on Next
+  Restart" finished, the widget kept the pre-run banner and its button on screen, over a header
+  still counting those updates as available, until the check that follows the run caught up -
+  about half a minute on a real machine with the packages already downloaded and armed. Pressing
+  either button in that window threw away the staged transaction and built it again. A run now
+  records what it staged itself, the moment it finishes, and the check behind it refreshes the
+  rest. A run that ends with no staged transaction clears the promise of one the same way.
+
 ## [0.1.4] - 2026-09-19
 
 ### Upgrading from 0.1.3

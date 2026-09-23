@@ -1077,6 +1077,11 @@ cmd_update() {
   # The copy the summary was rendered from, when it could not be installed into the history.
   [[ -n "${hist_tmp:-}" ]] && rm -f "$hist_tmp"
   reconcile_stage_after_live_run
+  # AFTER the reconciliation above, which is what decides whether a stage still stands, and BEFORE
+  # the check below, which is the slow half. The check publishes this too; this is the same fact,
+  # tens of seconds earlier, so no surface spends that window offering to stage what is already
+  # staged. See publish_staged_state.
+  publish_staged_state
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict.
   cmd_check >/dev/null 2>&1 || true

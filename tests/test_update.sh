@@ -315,6 +315,55 @@ staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | s
 assert_eq "$(jq -r '.staged' "$marker")" "$staged_ev" \
   "the marker carries the same staged count the event line reports"
 
+# --- the RUN publishes the stage, rather than leaving it to the check behind it ------------------
+# THE PROBLEM: cmd_update ends with a best-effort check, and that check is where offline_staged is
+# normally computed. Its dnf half takes tens of seconds on a real box, and for that whole window
+# the popup carried the finished run's report - "Updates are staged" - beside the pre-run banner
+# still offering Install on Next Restart, under a header still counting those updates as available,
+# with Update Now live underneath. Both buttons rebuild a transaction that is already downloaded
+# and armed; measured on a real 19-package stage, that is 618 MB thrown away by the obvious press.
+#
+# PROVED BY TAKING THE CHECK LOCK AWAY. A check that cannot have the lock serves the previous state
+# and writes nothing (cmd_check's flock branch), so whatever is in state.json when the run returns
+# was put there by the RUN. `kempt update` works under the update lock and never touches this one,
+# so holding it cannot stall the stage - test_check.sh pins that independence from the other side.
+# Everything this borrows goes back afterwards: the sections below run against the world THIS
+# section found, and a stage of its own would leave them a different marker and a different
+# baseline. (The clearing half of the same rule is a unit test in test_offline_marker.sh, where
+# it costs no run at all - a live update here would install the fixture's pending packages and
+# every later assertion would be reasoning about an empty world.)
+cp "$marker" "$TESTTMP/marker.before-publish"
+cp "$pre" "$TESTTMP/pre.before-publish"
+cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state.before-publish" 2>/dev/null || true
+transaction_armed
+: > "$WORLD/apply-calls"
+# A state file with no staged key, which is what one written before the stage looks like.
+jq -n '{schema: 1, last_check: "2026-01-01T00:00:00+00:00", actionable: 19}' \
+  > "$KEMPT_STATE_DIR/state.json"
+( flock 9; sleep 10 ) 9>"$KEMPT_STATE_DIR/check.lock" &
+lockpid=$!
+# Wait for the holder to actually have it: starting the run first would race the background shell.
+for _i in $(seq 1 100); do
+  flock -w 0 -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null || break
+  sleep 0.02
+done
+KEMPT_CHECK_LOCK_WAIT=0 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+kill "$lockpid" 2>/dev/null || true
+wait "$lockpid" 2>/dev/null || true
+assert_eq "$(jq -r '.offline_staged.armed // "absent"' "$KEMPT_STATE_DIR/state.json")" "true" \
+  "the run records the staged transaction itself, without waiting for a check"
+assert_eq "$(jq -r '.offline_staged.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
+  "$(jq -r '.staged' "$marker")" "...carrying the marker's count, so no surface has to guess"
+# The rest of the state is LEFT ALONE. This is not a check and must not date itself as one: a fresh
+# last_check over counts nobody re-read is a worse lie than the one being fixed.
+assert_eq "$(jq -r '.last_check' "$KEMPT_STATE_DIR/state.json")" "2026-01-01T00:00:00+00:00" \
+  "...and does not stamp the state with a check that never ran"
+assert_eq "$(jq -r '.actionable' "$KEMPT_STATE_DIR/state.json")" "19" \
+  "...nor rewrite counts it did not re-read"
+cp "$TESTTMP/marker.before-publish" "$marker"
+cp "$TESTTMP/pre.before-publish" "$pre"
+cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
+
 
 # An arm that fails leaves a transaction that would sit in the offline directory forever, telling
 # every later check and the doctor that an install is pending when nothing will ever apply it. So

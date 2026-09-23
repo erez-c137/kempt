@@ -1482,6 +1482,53 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
       holds_conflict: $conflict, names_source: $nsrc}' <<<"$marker"
 }
 
+# Put what the next restart will install into the state file NOW, without a check.
+#
+# THE PROBLEM IT EXISTS FOR: `offline_staged` is normally computed by a check, and cmd_update ends
+# with one - but that check re-reads dnf, which takes tens of seconds on a real box (measured: 30s
+# for 19 pending updates). Until it lands, the popup holds the finished run's report - "Updates are
+# staged" - beside the pre-run banner still offering Install on Next Restart, under a header still
+# counting those updates as merely available, with Update Now live underneath. Both buttons rebuild
+# a transaction that is already downloaded and armed, and dnf5 destroys the stored one to do it.
+# Staging is the one thing a run knows for certain the moment it finishes, so it says so itself and
+# lets the slow check refresh everything else.
+#
+# ONLY `.offline_staged` is touched. last_check and last_success date a CHECK, and this is not one:
+# moving them would put a fresh timestamp on counts nobody re-read.
+#
+# ...and it CLEARS as well as sets, which is the half a live run needs: reconcile_stage_after_live_run
+# can discard a stage the run superseded, and a state file still promising it would have the popup
+# offering a restart that installs nothing.
+#
+# Best-effort throughout, like log_event: a run's verdict must never turn on the state file. No
+# state file at all means a box that has never checked, and there is nothing to keep consistent.
+publish_staged_state() {
+  [[ -f "$STATE_FILE" ]] || return 0
+  local staged out
+  # `|| staged=""` and not a bare call: this runs under errexit on the far side of an update that
+  # has already downloaded and armed a transaction, and a marker this cannot read is not a reason
+  # to end the run there.
+  staged="$(offline_staged_state)" || staged=""
+  # `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or
+  # holds more than one document (see cmd_check). select yields NOTHING on either, so `out` is
+  # empty and the file is left exactly as it was for the check behind us to rewrite properly.
+  if [[ -n "$staged" ]]; then
+    out="$(jq -c -n --argjson st "$staged" \
+             '[inputs][0] | select(type == "object") | .offline_staged = $st' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  else
+    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged)' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  fi
+  [[ -n "$out" ]] || return 0
+  # ...and the write is best-effort like everything above it. This runs on the far side of a
+  # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
+  # state directory that cannot be written is the same degrade the history entry beside it takes,
+  # not a staged update reported as a failed run. Without this, the one case where the marker
+  # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
+  printf '%s\n' "$out" | write_state 2>/dev/null || return 0
+}
+
 # The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just
 # released? It needs its own recorded answer, because the transaction can never supply one - a
 # package absent from it was either excluded at stage time or simply had no update, and those look

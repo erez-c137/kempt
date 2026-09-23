@@ -201,4 +201,64 @@ assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
 assert_eq "$(jq -r 'has("version")' "$marker")" "false" \
   "...and is not stamped with a version it cannot vouch for"
 
+# --- publish_staged_state: the staged fact, without a check -------------------------------------
+# A check is where offline_staged is normally computed, and on a real box its dnf half takes tens
+# of seconds. A run that has just staged a transaction knows the answer already, and until it says
+# so every surface is still offering to stage what is downloaded and armed. These call the function
+# DIRECTLY: what it does to a state file is the whole of its contract, and test_update.sh proves
+# separately that a run reaches it before the check behind it.
+publish() { bash -c 'source "$1/lib/common.sh"; publish_staged_state' _ "$REPO_ROOT"; }
+
+# Sets. The marker is the armed one written just above, and the count comes from it rather than
+# from anything this function decides for itself.
+jq -n --arg boot boot-marker '{staged_at:"2026-09-05T00:00:00+03:00", pre_snapshot:"/x.tsv",
+                               boot_id:$boot, staged:61, armed:true}' > "$marker"
+jq -n '{schema:1, last_check:"2026-01-01T00:00:00+00:00", actionable:19}' > "$st"
+publish
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
+  "the staged transaction reaches the state file without a check"
+assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...described as armed, which it is"
+# The other keys are somebody else's answers. Re-dating them here would put a fresh timestamp on
+# counts nobody re-read, which is a worse lie than the silence being fixed.
+assert_eq "$(jq -r '.last_check' "$st")" "2026-01-01T00:00:00+00:00" \
+  "...and nothing else in the state is touched"
+assert_eq "$(jq -r '.actionable' "$st")" "19" "...including the counts it did not re-read"
+assert_eq "$(stat -c %a "$st")" "600" "...landing 0600 like every other state write"
+
+# Clears. This is the half a live run needs: reconcile_stage_after_live_run discards a stage its
+# own install superseded, and a state file still promising one leaves the popup offering a restart
+# that would install nothing.
+rm -f "$marker"
+publish
+assert_eq "$(jq -r 'has("offline_staged")' "$st")" "false" \
+  "with no stage left, the promise of one is taken back out of the state"
+assert_eq "$(jq -r '.actionable' "$st")" "19" "...without disturbing the rest of it"
+
+# A state file that is not there is a box that has never checked: there is nothing to keep
+# consistent, and nothing is created. A run must never be the thing that invents a state file.
+rm -f "$st"
+publish
+assert_exit 0 "no state file means nothing to publish into, not a state file to invent" -- test ! -f "$st"
+
+# Corrupt, and the house guard for it - `[inputs][0] | select(type == "object")`, the same two
+# steps every other reader of this file takes. A state file holding TWO documents is valid input to
+# jq, so the plain form would write both back and the widget's JSON.parse would keep throwing on
+# the second; this takes the first document, which is the one every reader already answers from,
+# and writes it back alone. Repairing the file is a side effect worth having rather than a loss.
+jq -n --arg boot b '{staged_at:"2026-09-05T00:00:00+03:00", boot_id:$boot, staged:2, armed:true}' > "$marker"
+printf '%s\n%s\n' '{"schema":1,"actionable":5}' '{"schema":1,"actionable":9}' > "$st"
+publish
+assert_eq "$(jq -s 'length' "$st")" "1" "a two-document state file comes back as one document"
+assert_eq "$(jq -r '.actionable' "$st")" "5" \
+  "...the first, which is the one every other reader answers from"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "2" "...carrying the stage that was published"
+# ...and what has no first document to take is left exactly as it was, for the check behind this
+# one to rewrite properly. Nothing here may turn a corrupt state file into a plausible-looking one.
+printf 'not json at all\n' > "$st"
+publish
+assert_eq "$(cat "$st")" "not json at all" "a state file that is not JSON is left untouched"
+printf '%s\n' '["not","an","object"]' > "$st"
+publish
+assert_eq "$(cat "$st")" '["not","an","object"]' "...and so is one whose document is not an object"
+
 finish
