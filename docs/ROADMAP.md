@@ -66,19 +66,34 @@ already staged for the next restart.
 
 - **First contact.** The announcement wave, and treating every early report as the gift it
   is - what the first outside users hit outranks everything below.
-- **0.1.4, ready to release.** The release with no known way for its numbers to be wrong. A restart
-  is credited to the transaction Kempt actually staged, or says plainly that a different one ran.
-  Flatpak runtimes are counted and listed, so an update cannot change more than the popup said. A
-  staged update can be discarded from the popup as well as the command line. Summaries say how old
-  their information is, what holds kept back, and which packages arrived and left rather than only
-  how many. The warning before a live update of packages the running desktop depends on says what
-  those packages are in plain words, and counts them honestly. The update applied on a restart has a
-  log you can open.
+- **0.1.5, ready to release.** Everything in it is built and on `main`. A finished run no longer
+  offers to stage what it has just staged - the one bug an outside user would have hit on the very
+  first staged update they made. A live run says which dnf transaction it was, so its summary
+  reports that transaction's packages rather than everything that moved on the machine while it ran.
+  Each part of a run has a heading, Flatpak end-of-life notices name the app that is affected and
+  say whether anything needs doing, and `kempt doctor` says when Discover's update notifier also
+  starts with the session. What it waits on is the screenshots below.
 - **The road into the official Fedora repos**: a strict self-review against the packaging
   guidelines is done and its findings shipped in 0.1.3. The review tooling passes on the release;
   the review request is next, and it needs a sponsor.
 
 ## Next - 0.1.5
+
+The work is done; this is the last thing between it and a release.
+
+- **Re-capture the screenshots.** The two in the README, the metainfo and the store listing were
+  taken on 4 September, before three releases. They show a popup with no Flatpak runtimes section
+  and no way to discard a staged update, which is no longer what Kempt looks like. The metainfo
+  already promises this re-capture, and asks for 16:9 while it happens, because software centres
+  crop tall images badly. Needs a real desktop, so it waits for a session with one in front of it.
+
+## 0.1.6 - reclaiming disk space
+
+Held back from 0.1.5 deliberately, and not because it is blocked - it is not, any more. It is a new
+setting, a new prompt and an action that removes things, and that deserves a release of its own
+rather than a corner of one carrying five unrelated changes. The alternative was holding finished
+work, including a bug an outside user would meet on their first staged update, behind a feature
+measured in sessions.
 
 - **Reclaiming the disk space updates leave behind.** Updating a Flatpak runtime does not replace the
   old one. It deploys the new version beside it, and the old copy stays until something removes it,
@@ -124,12 +139,6 @@ already staged for the next restart.
   `--noninteractive`**. `--noninteractive` implies `--assumeyes`
   (`app/flatpak-builtins-uninstall.c`), and those two flags are the only things that turn the
   listing into a removal.
-
-- **Re-capture the screenshots.** The two in the README, the metainfo and the store listing were
-  taken on 4 September, before three releases. They show a popup with no Flatpak runtimes section
-  and no way to discard a staged update, which is no longer what Kempt looks like. The metainfo
-  already promises this re-capture, and asks for 16:9 while it happens, because software centres
-  crop tall images badly. Needs a real desktop, so it waits for a session with one in front of it.
 
 ## 0.2 - a second distribution
 
