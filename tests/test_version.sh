@@ -34,7 +34,12 @@ assert_exit 0 "the AppStream metainfo exists" -- test -f "$META"
 # The FIRST <release> element: AppStream orders releases newest-first, so the top one is this
 # build's. grep and sed rather than an XML parser - the suite's whole dependency list is bash, jq
 # and coreutils, and CI checks for exactly those.
-assert_eq "$(grep -o '<release [^>]*>' "$META" | head -1 | sed -n 's/.*version="\([^"]*\)".*/\1/p')" \
+# `awk NR==1` and never `head -1`: head CLOSES the pipe on its first line, the writer behind it
+# takes SIGPIPE, and pipefail turns that into status 141 for the whole command substitution -
+# which errexit then takes the file down on, with no FAIL line printed and nothing to read
+# afterwards. It is a race, so it fails about one run in three and passes every time it is run by
+# hand. awk reads its input to the end and cannot close anything early.
+assert_eq "$(grep -o '<release [^>]*>' "$META" | awk 'NR==1' | sed -n 's/.*version="\([^"]*\)".*/\1/p')" \
   "$VER" "the metainfo's newest release version agrees with VERSION"
 
 # The fourth: what `rpm -q kempt` answers. A spec that lags ships a package whose own version
@@ -104,9 +109,11 @@ assert_eq "$(KEMPT_ROOT="$TESTTMP/noversion" "$KEMPT" --version)" "kempt 1.2.3" 
 # to exactly what it always did, because that is what every release, COPR and Koji build uses - a
 # stamp leaking into a released NEVR would be worse than the problem it solves.
 if command -v rpmspec >/dev/null 2>&1; then
-  vr_plain="$(rpmspec -q --qf '%{release}\n' "$REPO_ROOT/kempt.spec" 2>/dev/null | head -1)"
+  # awk, not head - see the note on the metainfo above. rpmspec prints a line per subpackage and
+  # kempt.spec has two, so this is the pipeline that was actually losing the race.
+  vr_plain="$(rpmspec -q --qf '%{release}\n' "$REPO_ROOT/kempt.spec" 2>/dev/null | awk 'NR==1')"
   vr_stamped="$(rpmspec -q --define 'kempt_local local19700101T0000' --qf '%{release}\n' \
-                  "$REPO_ROOT/kempt.spec" 2>/dev/null | head -1)"
+                  "$REPO_ROOT/kempt.spec" 2>/dev/null | awk 'NR==1')"
   assert_eq "${vr_plain%%.*}" "1" "with no stamp the Release starts at 1, as every release build expects"
   assert_eq "$([[ "$vr_stamped" == 0.local19700101T0000.* ]] && echo stamped || echo "$vr_stamped")" \
     "stamped" "a hand build carries its stamp in the Release"
