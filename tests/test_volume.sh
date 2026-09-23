@@ -107,7 +107,7 @@ rc=0
 "$KEMPT" update >/dev/null 2>"$TESTTMP/update.err" || rc=$?
 assert_eq "$rc" "0" "a run that updates $N packages exits 0"
 hist_list > "$TESTTMP/hist-after.txt"
-h="$(comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" | head -1)"
+h="$(comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" | awk 'NR==1')"
 assert_eq "$(jq -r .status "$h")" "ok" "...and writes a history entry that calls it a success"
 assert_eq "$(jq '.backends.dnf.updated | length' "$h")" "$N" "...naming every package it moved"
 assert_exit 0 "...from a report far past the cap" \

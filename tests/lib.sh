@@ -211,7 +211,11 @@ assert_contains() {  # haystack needle label
   else
     echo "FAIL: $3  [$_assert_at]"
     echo "  expected to contain: $2"
-    echo "  got:"; sed 's/^/    /' <<<"$1" | head -20
+    # awk, never `head -20`: head closes the pipe on its twentieth line and sed takes SIGPIPE,
+    # which pipefail turns into 141 for the whole statement and errexit acts on - killing the test
+    # file immediately after it printed a FAIL, so the assertions after this one never run and the
+    # failure that IS reported looks like the only one. awk reads its input to the end.
+    echo "  got:"; sed 's/^/    /' <<<"$1" | awk 'NR<=20'
     _fail=1
   fi
 }
@@ -222,7 +226,7 @@ assert_not_contains() {  # haystack needle label
   else
     echo "FAIL: $3  [$_assert_at]"
     echo "  expected NOT to contain: $2"
-    echo "  got:"; sed 's/^/    /' <<<"$1" | head -20
+    echo "  got:"; sed 's/^/    /' <<<"$1" | awk 'NR<=20'   # awk not head: see assert_contains
     _fail=1
   fi
 }

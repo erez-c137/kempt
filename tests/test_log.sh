@@ -156,7 +156,7 @@ assert_exit 0 "a successful background run exits 0" "$KEMPT" update
 assert_eq "$(events | grep -c '^.* run start ')" "1" "...recording exactly one run start"
 assert_eq "$(text_of "$(events | grep ' run start ' | tail -1)")" "run start surface=background" \
   "...which names the surface it ran on"
-hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | head -1)"
+hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
 assert_eq "$(text_of "$(events | grep ' run done ' | tail -1)")" \
   "run done rc=0 updated=$(jq -r '[.backends[].updated | length] | add' "$hist") reboot=needed" \
   "...and one run done carrying the update count and the reboot verdict"
@@ -192,7 +192,7 @@ export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
 "$KEMPT" check >/dev/null
 assert_eq "$(events_like '^.* harvest applied ')" "1" \
   "the check after the reboot harvests it, and says so once"
-harvest_hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | head -1)"
+harvest_hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
 assert_eq "$(text_of "$(events | grep ' harvest applied ' | tail -1)")" \
   "harvest applied ($(bash -c "source '$REPO_ROOT/lib/common.sh'; run_counts_phrase '$harvest_hist'"))" \
   "...carrying the same counts phrase the notification carries"
@@ -252,12 +252,12 @@ export KEMPT_APPLY_HELPER="$TESTTMP/apply-declined"
 assert_exit 1 "a run whose authentication was refused exits 1" "$KEMPT" update --no-flatpak
 assert_eq "$(text_of "$(events | grep ' run failed ' | tail -1)")" "run failed rc=1: $FRIENDLY" \
   "the event line says it in plain words, with the run's own exit status"
-runlog="$(ls -1t "$KEMPT_STATE_DIR/logs"/*.log | head -1)"
+runlog="$(ls -1t "$KEMPT_STATE_DIR/logs"/*.log | awk 'NR==1')"
 assert_eq "$(grep -c 'Not authorized' "$runlog")" "1" \
   "...while the raw pkexec text is kept, in the run log where it belongs"
 assert_eq "$(grep -c "$FRIENDLY" "$runlog")" "0" \
   "...which is not rewritten: the log is evidence, not a summary"
-failhist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | head -1)"
+failhist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
 assert_eq "$(jq -r '.error' "$failhist")" "$FRIENDLY" "the history entry carries the same sentence"
 assert_eq "$(grep -c "FAILED - see .* ($FRIENDLY)" <<<"$("$KEMPT" summary)")" "1" \
   "...so the summary explains the failure instead of pointing at a log file"

@@ -764,11 +764,11 @@ assert_eq "$(printf '%s\n' "$ib_plain" | grep -c '^FAIL  this system updates wit
   "...and on an ordinary one it says nothing of the kind"
 case "$ib_out" in
   *"FAIL"*"rpm-ostree"*) echo "ok: ...and says so as a FAIL, naming the tool that does update it" ;;
-  *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | head -5; _fail=1 ;;
+  *) echo "FAIL: no rpm-ostree FAIL row"; echo "$ib_out" | awk 'NR<=5'; _fail=1 ;;
 esac
 case "$ib_out" in
   *"is planned"*) echo "ok: ...as a not-yet rather than a never, as the other surfaces say" ;;
-  *) echo "FAIL: the doctor row does not say support is planned"; echo "$ib_out" | head -5; _fail=1 ;;
+  *) echo "FAIL: the doctor row does not say support is planned"; echo "$ib_out" | awk 'NR<=5'; _fail=1 ;;
 esac
 case "$ib_out" in
   *"all checks passed"*) echo "FAIL: it still says everything is fine"; _fail=1 ;;
@@ -844,7 +844,7 @@ printf '{"staged_at":"x","staged":3,"armed":true}' > "$D_MARKER"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 grep -qE '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" \
   && echo "ok: a readable marker beside a release upgrade does not swallow the row about it" \
-  || { echo "FAIL: the release upgrade was never named - got: $(grep -i staged "$TESTTMP/staged.txt" | head -2)"; _fail=1; }
+  || { echo "FAIL: the release upgrade was never named - got: $(grep -i staged "$TESTTMP/staged.txt" | awk 'NR<=2')"; _fail=1; }
 assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'the marker cannot be read' \
   "...and does not call a marker that parsed unreadable"
 rm -f "$D_MARKER"

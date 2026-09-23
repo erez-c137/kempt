@@ -111,7 +111,7 @@ grep -q 'org.freedesktop.Platform.GL.default 24.08extra 26.1.8 → 26.2.0' <<<"$
 # The count is the transaction's, not the app list's. Three updated, and the summary says three.
 grep -q 'Apps (flatpak): 3 updated' <<<"$r" \
   && echo "ok: the flatpak count covers runtimes too" || { echo "FAIL: runtime count - got: $r"; _fail=1; }
-assert_eq "$("$KEMPT" history | head -1)" "2026-08-24T13:00:00+03:00  terminal  ok  3 updated" \
+assert_eq "$("$KEMPT" history | awk 'NR==1')" "2026-08-24T13:00:00+03:00  terminal  ok  3 updated" \
   "...and so does the one-line history row"
 
 # --- what happens NEXT, on the surface that reports what happened. A staged transaction is not a
@@ -153,7 +153,7 @@ assert_eq "$("$KEMPT" summary | grep -c '^Staged:')" "0" "no state file at all i
 # The run summary above it is untouched either way: the two answer different questions and the
 # staged line must not displace what the last run did.
 printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":2,"armed":true}}\n' > "$st"
-assert_eq "$("$KEMPT" summary | head -1 | grep -c '^Kempt - 2026-09-02T10:31:00')" "1" \
+assert_eq "$("$KEMPT" summary | awk 'NR==1' | grep -c '^Kempt - 2026-09-02T10:31:00')" "1" \
   "the staged line is added to the summary, not instead of it"
 # --json answers about ONE RUN, verbatim from its history entry. A staged transaction belongs to
 # the box, not to that run, so it must not appear there - the widget reads it from `kempt check`.
@@ -217,16 +217,16 @@ grep -q '6.15.1' <<<"$m" && { echo "FAIL: superseded version leaked into the hum
   || echo "ok: superseded versions stay in the JSON, out of the summary"
 
 # summary reads the LATEST run; `summary N` walks back; history is newest-first.
-assert_eq "$("$KEMPT" summary | head -1 | grep -c '14:00:00')" "1" "summary defaults to the latest run"
-assert_eq "$("$KEMPT" summary 2 | head -1 | grep -c '13:00:00')" "1" "summary N walks back"
+assert_eq "$("$KEMPT" summary | awk 'NR==1' | grep -c '14:00:00')" "1" "summary defaults to the latest run"
+assert_eq "$("$KEMPT" summary 2 | awk 'NR==1' | grep -c '13:00:00')" "1" "summary N walks back"
 assert_eq "$("$KEMPT" history | wc -l)" "3" "history lists every run"
-assert_eq "$("$KEMPT" history | head -1 | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
+assert_eq "$("$KEMPT" history | awk 'NR==1' | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
 assert_exit 2 "summary rejects a non-numeric N" "$KEMPT" summary abc
 
 # --- summary --json: the last run as data ------------------------------------------------------
 # The popup needs what the last run did, and re-deriving it from the human text would be a second,
 # lossier copy of render_summary's rules living in the widget. So --json hands over the entry.
-newest="$(ls -1 "$HIST_DIR"/*.json | sort -r | head -1)"
+newest="$(ls -1 "$HIST_DIR"/*.json | sort -r | awk 'NR==1')"
 "$KEMPT" summary --json > "$TESTTMP/sj.json"
 assert_exit 0 "summary --json exits 0 with runs recorded" "$KEMPT" summary --json
 assert_eq "$(jq -r .timestamp "$TESTTMP/sj.json")" "2026-08-24T14:00:00+03:00" \
@@ -244,7 +244,7 @@ hs="$("$KEMPT" summary)"
 assert_eq "$(grep -c 'System (dnf)' <<<"$hs")" "1" "plain kempt summary still renders the human text"
 assert_eq "$(jq -e . <<<"$hs" >/dev/null 2>&1 && echo json || echo text)" "text" \
   "...which is text, and was never quietly turned into JSON"
-assert_eq "$("$KEMPT" summary 2 | head -1 | grep -c '13:00:00')" "1" "...and summary N still walks back"
+assert_eq "$("$KEMPT" summary 2 | awk 'NR==1' | grep -c '13:00:00')" "1" "...and summary N still walks back"
 
 # A run that installed and removed packages changed the system as much as one that upgraded them.
 cat > "$TESTTMP/ar-entry.json" <<'EOF'
@@ -274,7 +274,7 @@ grep -q '12:00:00' <<<"$cout" && echo "ok: clamped to the oldest run" || { echo 
 # the very run whose summary, rendered by the same command a moment earlier, says
 # "+2 installed, -1 removed". One entry, two renderers, two different truths.
 cp "$TESTTMP/ar-entry.json" "$HIST_DIR/20260824T160000.json"
-# No `| head -1`: history writes row by row, so head closing the pipe early races the writer into
+# No `| awk 'NR==1'`: history writes row by row, so head closing the pipe early races the writer into
 # SIGPIPE (141) and kills the whole test file under pipefail.
 hist_out="$("$KEMPT" history)"
 hrow="${hist_out%%$'\n'*}"
@@ -439,8 +439,8 @@ assert_newest_rejected '"a string"' "bare string entry"
 # `...T120000.json`; under en_US.UTF-8, which ignores punctuation at the first level, it sorts
 # ABOVE. Same two files, same `sort -r`, two different winners - measured on this box:
 #
-#   LC_ALL=C           sort -r | head -1  ->  20260827T120000.json
-#   LC_ALL=en_US.UTF-8 sort -r | head -1  ->  20260827T120000-offline.json
+#   LC_ALL=C           sort -r | awk 'NR==1'  ->  20260827T120000.json
+#   LC_ALL=en_US.UTF-8 sort -r | awk 'NR==1'  ->  20260827T120000-offline.json
 #
 # `kempt summary --json` answers about ONE run, and the widget renders it as "the run that just
 # finished". Which run that is may not be a function of the user's language.
@@ -457,8 +457,8 @@ hist_entry "$KEMPT_STATE_DIR/history/20260827T120000-offline.json" OFFLINE
 # The premise, asserted rather than asserted-about: an UNPINNED sort really does disagree with
 # itself across locales. If a future glibc stopped doing this the guard below would still pass and
 # would quietly be testing nothing, so the hazard gets its own assertion.
-_c_pick="$(cd "$KEMPT_STATE_DIR/history" && ls -1 ./*.json | LC_ALL=C sort -r | head -1)"
-if _en_pick="$(cd "$KEMPT_STATE_DIR/history" && LC_ALL=en_US.UTF-8 ls -1 ./*.json 2>/dev/null | LC_ALL=en_US.UTF-8 sort -r | head -1)" \
+_c_pick="$(cd "$KEMPT_STATE_DIR/history" && ls -1 ./*.json | LC_ALL=C sort -r | awk 'NR==1')"
+if _en_pick="$(cd "$KEMPT_STATE_DIR/history" && LC_ALL=en_US.UTF-8 ls -1 ./*.json 2>/dev/null | LC_ALL=en_US.UTF-8 sort -r | awk 'NR==1')" \
    && locale -a 2>/dev/null | grep -qi '^en_US.utf-\?8$'; then
   assert_eq "$([[ "$_c_pick" != "$_en_pick" ]] && echo differs || echo same)" "differs" \
     "premise: an unpinned sort picks a different entry under en_US.UTF-8"
@@ -472,9 +472,9 @@ for _loc in C C.UTF-8 en_US.UTF-8 he_IL.UTF-8 tr_TR.UTF-8; do
     "summary --json picks the same entry under LC_ALL=$_loc"
 done
 # `kempt summary` and `kempt history` walk the same list, so they must agree about the order.
-assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" summary 1 | head -1 | grep -c PLAIN)" "1" \
+assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" summary 1 | awk 'NR==1' | grep -c PLAIN)" "1" \
   "the human summary picks the same entry too"
-assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" history | head -1 | grep -c PLAIN)" "1" \
+assert_eq "$(LC_ALL=en_US.UTF-8 "$KEMPT" history | awk 'NR==1' | grep -c PLAIN)" "1" \
   "...and so does the top of kempt history"
 rm -f "$KEMPT_STATE_DIR"/history/*.json
 

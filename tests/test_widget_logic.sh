@@ -2657,8 +2657,8 @@ assert_exit 0 "...and an untouched key that was never read is not written" -- \
 # `config set` is remembered as the stored value only once the CLI says it worked. Recorded before
 # the call - as it was - a FAILED write is remembered as a success: the next Apply compares equal,
 # writes nothing, and the setting silently stays as it was with no retry possible.
-_set_ln="$(grep -n 'config set " + key' "$CFG" | head -1 | cut -d: -f1)"
-_rec_ln="$(grep -n 'page.loaded\[key\] = value;' "$CFG" | head -1 | cut -d: -f1)"
+_set_ln="$(grep -n 'config set " + key' "$CFG" | awk 'NR==1' | cut -d: -f1)"
+_rec_ln="$(grep -n 'page.loaded\[key\] = value;' "$CFG" | awk 'NR==1' | cut -d: -f1)"
 _fail_ln="$(awk -v s="${_set_ln:-0}" 'NR > s && /if \(rc !== 0\) \{/ { print NR; exit }' "$CFG")"
 if [[ -n "$_set_ln" && -n "$_rec_ln" && -n "$_fail_ln" && "$_rec_ln" -gt "$_fail_ln" ]]; then
   echo "ok: the stored value is recorded only after the CLI answered, past the failure branch"
@@ -2736,7 +2736,7 @@ assert_eq "$copy_orphans" "" \
 [[ -n "$PAGE_KEYS" ]] && echo "ok: the settings page writes settings this test can see" \
   || { echo "FAIL: found no setIfChanged keys in configGeneral.qml - the grep above has rotted"; _fail=1; }
 for key in $PAGE_KEYS; do
-  assert_eq "$(kempt_default "$key" | head -c 1 | wc -c)" "1" "the CLI has a default for $key, which the page writes"
+  assert_eq "$(kempt_default "$key" | wc -c | awk '{print ($1 > 0) ? 1 : 0}')" "1" "the CLI has a default for $key, which the page writes"
 done
 # ...and every key it writes, it also READS - so the page opens on the stored value instead of on
 # a QML default, and Apply has something real to compare against. A write-only key is how a

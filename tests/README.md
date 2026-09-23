@@ -34,6 +34,15 @@ Label an assertion that only sets up the condition for the next one with `premis
 failure there means the scenario never happened, so the assertions after it prove nothing rather
 than disagreeing with something.
 
+**Never pipe into `head` here - use `awk 'NR==1'`.** `head` closes the pipe as soon as it has its
+lines, the command behind it takes SIGPIPE, and `lib.sh` runs every file under `pipefail` and
+`errexit`: the status becomes 141 and the file dies on the spot, having printed no `FAIL` line and
+nothing else to go on. The runner then reports that file as the suite's only failure with no
+assertion to show for it. It is a race, so it fails perhaps one run in three and passes every time
+you run it by hand - `rpmspec -q | head -1` in `test_version.sh` behaved exactly that way. `awk`
+reads its input to the end and cannot close anything early. The same rule holds for `head -c`:
+count with `wc -c` and compare, rather than reading one byte and leaving.
+
 ## The QML probes
 
 `tests/qml/probe_*.py` run the real Qt 6 QML engine over the shipped `.qml` files against a stubbed

@@ -47,8 +47,8 @@ mk_toml() {  # status → path
 render() {  # status link → sets $R_STATE $R_REFUSE $R_DOCTOR $R_JSON $R_WIDGET
   export KEMPT_OFFLINE_TOML="$(mk_toml "$1")" KEMPT_OFFLINE_LINK="$2"
   R_STATE="$(bash -c "source '$REPO_ROOT/lib/common.sh'; offline_release_upgrade_state")"
-  R_REFUSE="$({ "$KEMPT" update --surface=offline 2>&1 || true; } | head -1)"
-  R_DOCTOR="$({ "$KEMPT" doctor 2>&1 || true; } | grep -E '^(info|FAIL) .*Fedora release upgrade' | head -1)"
+  R_REFUSE="$({ "$KEMPT" update --surface=offline 2>&1 || true; } | awk 'NR==1')"
+  R_DOCTOR="$({ "$KEMPT" doctor 2>&1 || true; } | grep -E '^(info|FAIL) .*Fedora release upgrade' | awk 'NR==1')"
   "$KEMPT" check >/dev/null 2>&1
   R_JSON="$(jq -r '.release_upgrade.state // "MISSING"' "$KEMPT_STATE_DIR/state.json")"
   R_WIDGET=""

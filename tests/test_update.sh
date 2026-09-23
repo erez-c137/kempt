@@ -299,8 +299,8 @@ grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says s
 # shipped first, and it meant "Install on Next Restart" quietly never installed anything, on any
 # number of restarts. The ORDER is asserted, not just the presence: arming before the transaction
 # exists arms nothing.
-stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/apply-calls" | head -1 | cut -d: -f1 || true)"
-arm_ln="$(grep -n 'APPLY dnf-offline-arm' "$WORLD/apply-calls" | head -1 | cut -d: -f1 || true)"
+stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/apply-calls" | awk 'NR==1' | cut -d: -f1 || true)"
+arm_ln="$(grep -n 'APPLY dnf-offline-arm' "$WORLD/apply-calls" | awk 'NR==1' | cut -d: -f1 || true)"
 [[ -n "$stage_ln" && -n "$arm_ln" && "$arm_ln" -gt "$stage_ln" ]] \
   && echo "ok: the run stages the transaction and then arms it" \
   || { echo "FAIL: stage-then-arm (stage=${stage_ln:-none} arm=${arm_ln:-none})"; _fail=1; }
@@ -640,8 +640,8 @@ jq '.backends.dnf.actionable = 999' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/st
 : > "$WORLD/timeline"
 KEMPT_REFRESH_HELPER="$TESTTMP/refresh-timeline" KEMPT_APPLY_HELPER="$TESTTMP/apply-timeline" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null
-check_ln="$(grep -n 'REFRESH check' "$WORLD/timeline" | head -1 | cut -d: -f1 || true)"
-stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/timeline" | head -1 | cut -d: -f1 || true)"
+check_ln="$(grep -n 'REFRESH check' "$WORLD/timeline" | awk 'NR==1' | cut -d: -f1 || true)"
+stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/timeline" | awk 'NR==1' | cut -d: -f1 || true)"
 [[ -n "$check_ln" && -n "$stage_ln" && "$check_ln" -lt "$stage_ln" ]] \
   && echo "ok: the offline surface asks what is pending before it stages" \
   || { echo "FAIL: check-before-stage (check=${check_ln:-none} stage=${stage_ln:-none})"; _fail=1; }
@@ -1009,7 +1009,7 @@ export KEMPT_RETRY_DELAY=0
 # makes "the newest log" unambiguously this run's, whatever second it lands on.
 rm -f "$KEMPT_STATE_DIR"/logs/*.log
 assert_exit 1 "a non-lock failure fails immediately" "$KEMPT" update --no-flatpak
-assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")" "0" "only package-lock errors are retried"
+assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "0" "only package-lock errors are retried"
 
 # helper failure with lock-ish stderr → retried then fails cleanly.
 # --no-flatpak keeps the retry count scoped to ONE apply call (both backends would retry).
@@ -1020,9 +1020,9 @@ STUB
 export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's retries only
 assert_exit 1 "busy rpm lock eventually fails" "$KEMPT" update --no-flatpak
-assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")" "2" "two retries logged"
+assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
-assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | head -1)")" "1" "gives up loudly after the last attempt"
+assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "1" "gives up loudly after the last attempt"
 
 # ...and WHAT THE PERSON IS TOLD, which is the whole point of retrying at all. This is the most
 # likely failure Kempt has - Discover, PackageKit and dnf-automatic all take the same lock - and
@@ -1607,7 +1607,7 @@ STUB
 export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the mixed log must be this run's alone
 assert_exit 1 "a lock-then-disk run fails" "$KEMPT" update --surface=background
-mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | head -1)"
+mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | awk 'NR==1')"
 assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "3" "the dnf lock error is retried three times"
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" "...and the flatpak disk error is tried exactly once"
 assert_eq "$(grep -c 'retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
@@ -1859,7 +1859,7 @@ rc_ro=0; "$KEMPT" check >/dev/null 2>&1 || rc_ro=$?
 chmod 700 "$KEMPT_STATE_DIR/logs"
 assert_eq "$rc_ro" "0" "a harvest whose log cannot be written is not a failed check"
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-after.txt"
-hb3="$(comm -13 "$TESTTMP/hist-ro-before.txt" "$TESTTMP/hist-ro-after.txt" | head -1)"
+hb3="$(comm -13 "$TESTTMP/hist-ro-before.txt" "$TESTTMP/hist-ro-after.txt" | awk 'NR==1')"
 [[ -n "$hb3" ]] && echo "ok: the harvest recorded the transaction even with no writable log dir" \
   || { echo "FAIL: no new history entry from the read-only-log harvest"; _fail=1; }
 assert_eq "$(jq -r .surface "$hb3")" "offline (applied on reboot)" \
@@ -1909,7 +1909,7 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 PATH="$TESTTMP/backwards-clock:$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
 assert_exit 0 "...the fake clock really was consulted" -- test -e "$TESTTMP/backwards-clock/started"
-hb="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+hb="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(jq -r .duration_sec "$hb")" "0" "a run whose clock stepped backwards records a duration of 0, never a negative one"
 
 # --- each backend's output under its own heading, and flatpak's end-of-life notices explained.
@@ -1935,7 +1935,7 @@ export KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $WORLD/fp-runtimes.tsv"
 push_history_back
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the heading count must be this run's alone
 eout="$("$KEMPT" update --surface=terminal </dev/null 2>/dev/null)" || true
-he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_json_eq "$(jq -c .backends.flatpak.eol "$he")" \
   '[{"id":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime","apps":["Speech Note"],"reason":"We strongly recommend moving to the latest stable version of the Platform and SDK"}]' \
   "an end-of-life runtime is recorded once, its Locale folded in, with the app that uses it"
@@ -1952,7 +1952,7 @@ assert_eq "$(jq -r .status "$he")" "ok" "an end-of-life notice does not fail the
 export KEMPT_FLATPAK_APP_RUNTIME_CMD=false
 push_history_back
 "$KEMPT" update --surface=background >/dev/null 2>&1 || true
-he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | head -1)"
+he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(jq -c .backends.flatpak.eol "$he")|$(jq -r .status "$he")" "[]|ok" \
   "a failed app lookup records no notes and the run still succeeds"
 export KEMPT_FLATPAK_APP_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true
