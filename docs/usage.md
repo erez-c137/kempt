@@ -334,6 +334,13 @@ run, the entry is recorded as `restart (staged update did not run)` with everyth
 across the restart, and the notification says so. If dnf5's history cannot answer, the restart is
 reported the way it always was.
 
+**A live run names its transaction too.** `kempt update` reads dnf5's history on both sides of the
+upgrade, and when exactly one new entry ran the command Kempt ran, that entry's id goes into the
+history as `transaction_id` for `dnf5 history info`, and its package list is what the run reports -
+so a package another tool installed while the update was running is not counted as yours. When
+dnf5's history cannot answer, or two entries could be the run, it is reported from the snapshots
+taken either side of it, the way it always was.
+
 Flatpak has no offline mechanism, so an offline run still updates Flatpak apps live. That is
 safe for the running session in a way an rpm transaction is not.
 

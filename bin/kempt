@@ -761,6 +761,10 @@ cmd_update() {
   # dnf
   run_heading "$log" "System (dnf)"
   local yflag=() excl=() dnf_status="ok"
+  # WHICH dnf5 transaction a live run was, when dnf5's history can say (live_history_attribution).
+  # Empty when it cannot, and everything downstream then reports the run from its two snapshots, the
+  # way it did before the lookup existed. Declared here because the live branch below is one of two.
+  local live_txid="" live_keep=""
   is_true "$auto" && yflag=(-y)
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
@@ -912,7 +916,21 @@ cmd_update() {
       fi
     fi
   else
+    # The two reads that make a live run identifiable, taken as close around the apply as they can
+    # be. The command is rebuilt exactly as the root helper builds it (`dnf5 upgrade` then -y then
+    # the excludes, libexec/kempt-apply), because that is the command line dnf5 records; the suite
+    # takes it from the helper itself, so the two cannot drift apart unnoticed.
+    local live_before="" live_cmd live_att
+    live_before="$(dnf_history_max_id)" || live_before=""
+    local -a live_argv=(dnf5 upgrade "${yflag[@]}" "${excl[@]}")
+    live_cmd="${live_argv[*]}"
     apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+    # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
+    # this run was, and its packages are still the honest report of what moved.
+    if [[ -n "$live_before" ]] && live_att="$(live_history_attribution "$live_before" "$live_cmd")"; then
+      live_txid="${live_att%%$'\n'*}"
+      if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
+    fi
   fi
 
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
@@ -938,6 +956,24 @@ cmd_update() {
   else
     snapshots_ok=false
     echo "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected" | tee -a "$log" >&2
+  fi
+  # Exact attribution, when dnf5's history named the transaction: the report keeps only what that
+  # transaction touched, so a package something else moved between the two snapshots is not reported
+  # as part of this run. Same filter, same reason, as the harvest's (harvest_offline). A filter that
+  # fails keeps the whole diff - the identification still stands, only the precision is lost.
+  # The mktemp is part of the condition, like every other file this far past the apply: a temp file
+  # that cannot be created costs the precision, never the run.
+  local keep_f live_filtered
+  if [[ -n "$live_txid" ]] && keep_f="$(mktemp 2>/dev/null)" \
+     && printf '%s\n' "$live_keep" > "$keep_f" 2>/dev/null; then
+    # `. as $x` before index(), for the trap mark_held carries the note about.
+    if live_filtered="$(jq -c --rawfile k "$keep_f" '
+                          ($k | split("\n") | map(select(length > 0))) as $keep
+                          | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
+                          <<<"$dnf_report" 2>/dev/null)" && [[ -n "$live_filtered" ]]; then
+      dnf_report="$live_filtered"
+    fi
+    rm -f "$keep_f"
   fi
   if is_true "$include_fp"; then
     if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
@@ -988,8 +1024,10 @@ cmd_update() {
   # measurement. Every reader would otherwise print it as "in -287s".
   local run_dur=$(( $(date +%s) - start ))
   (( run_dur >= 0 )) || run_dur=0
+  # `transaction_id` is additive and top-level, exactly as the harvest writes it: the id
+  # `dnf5 history info` takes, present only when dnf5's history named the transaction.
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
-        --arg log "$log" --argjson dur "$run_dur" \
+        --arg log "$log" --argjson dur "$run_dur" --arg txid "$live_txid" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
@@ -999,7 +1037,8 @@ cmd_update() {
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
-       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}' > "$hist_tmp" \
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}
+    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)' > "$hist_tmp" \
     || { rm -f "$hist_tmp"; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no

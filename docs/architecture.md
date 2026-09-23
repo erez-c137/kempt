@@ -515,6 +515,19 @@ because the offline transaction runs early in boot and a clock that has not been
 hours before the stage. The cookie is the identity; the window only bounds the lookup. A change in
 dnf5's formats can cost this precision. It cannot make the entry claim a transaction it did not see.
 
+**A live run** is asked the same question and answers it far more cheaply, because nothing has to
+survive a restart. `cmd_update` reads the highest id dnf5's history holds just before the apply
+(`dnf_history_max_id`), and after it looks for the one entry that arrived later running the command
+the root helper runs - `dnf5 upgrade`, then `-y`, then one `--exclude=` per hold, rebuilt from the
+same two arrays the helper is given. That entry's id becomes the run's `transaction_id` and its
+package list decides the report, so a package something else moved between the two snapshots is not
+reported as part of the run. No cookie is involved and none is needed: dnf5 holds its own lock for
+the length of a transaction, so an entry inside that window running that command is this run's. Two
+of them is cannot tell - an apply that was retried leaves exactly that, and either answer would be
+a guess about which attempt the report describes. So is a history that did not answer, or answered
+in a shape this build does not know. Cannot tell is the run reported from its two snapshots, which
+is how every live run was reported before the lookup existed.
+
 **Superseding.** A staged transaction records the rpm database cookie it was built against, and
 dnf5 refuses one whose cookie has moved. So a live `kempt update` that installs anything has
 killed the stage, whether or not anyone notices, and an armed dead stage is a failed offline boot
@@ -730,8 +743,8 @@ right after a run are one fact with one source: **`kempt summary --json`**, pars
 `Logic.lastRunOf` in `plasmoid/contents/ui/logic.js` and held by `main.qml` as `lastRun`. The CLI
 serves the newest history entry byte for byte rather than re-rendering it, so what arrives is
 exactly what `cmd_update` wrote: `{timestamp, surface, status, duration_sec, reboot_needed, log,
-error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`. A harvest also writes
-`transaction_id` when dnf5's history named the transaction it reports. A live run's flatpak backend
+error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`. A live run and a
+harvest both also write `transaction_id` when dnf5's history named the transaction they report. A live run's flatpak backend
 also carries `eol`: one `{id, branch, kind, apps, reason}` per end-of-life ref that flatpak reported
 during the run (see `flatpak_eol_notices`), with `apps` naming the installed apps that depend on it.
 The widget does not draw it yet; `kempt summary` does.
@@ -1080,7 +1093,7 @@ destructive paths without ever running them.
 | `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
 | `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged. The root helper `kempt-apply` reads the same file to refuse its offline verbs over a stored release upgrade, and honours this variable **only when it is not running as root**, so the suite can drive that check while a real privileged run always reads the fixed path |
 | `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction - the resolved package set a restart will install. **Read, never written**, and read LIVE rather than snapshotted: it is the only source that sees the packages the resolver added and a transaction something else replaced. `root:root` 0644 in a 0755 directory (verified in a container, 2026-09-05), which is what lets an unprivileged check reconcile a hold against it. `tests/lib.sh` PINS this at a recorded transaction rather than poisoning it, so the suite's default is the parsing path; pointing it at anything unparsable drives the degraded one |
-| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | The dnf5 that answers `history list --json` and `history info <id> --json`, run as the user with `-C --disablerepo='*'` after a restart to find which transaction ran (see [Which transaction ran](#which-transaction-ran)). **Read, never used to change anything**: the history database is 0644 and both verbs answer an ordinary user (verified in a Fedora 44 container, dnf5 5.4.3). Its own seam rather than `KEMPT_DNF_CMD`, which several test files point at a needs-restarting stub. `tests/lib.sh` points it at a path that does not exist, so no harvest in the suite reads the history of the box running it, and every harvest test written before this lookup existed takes the "cannot tell" branch it was written against |
+| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | The dnf5 that answers `history list --json` and `history info <id> --json`, run as the user with `-C --disablerepo='*'` around a live run, and after a restart, to find which transaction ran (see [Which transaction ran](#which-transaction-ran)). **Read, never used to change anything**: the history database is 0644 and both verbs answer an ordinary user (verified in a Fedora 44 container, dnf5 5.4.3). Its own seam rather than `KEMPT_DNF_CMD`, which several test files point at a needs-restarting stub. `tests/lib.sh` points it at a path that does not exist, so nothing in the suite reads the history of the box running it, and every run and harvest test written before this lookup existed takes the "cannot tell" branch it was written against |
 | `KEMPT_XDG_AUTOSTART_DIR` | `/etc/xdg/autostart` | The system autostart directory `kempt doctor` reads to see whether Discover's update notifier also starts with the session (the user's own `~/.config/autostart` shadows it, per the XDG autostart spec). **Read, never written**: Kempt does not touch anybody's autostart, and the row it feeds is `info`. `tests/lib.sh` points it at a path that does not exist, so a suite run does not describe whether the developer's box happens to have Discover installed |
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | The file `ostree-prepare-root` writes into a booted ostree deployment's `/run`. Its EXISTENCE is the whole test, and it is a file rather than a binary because `rpm-ostree` installs cleanly on ordinary Fedora and says nothing about how that box updates. Read by `kempt update` (which aborts in pre-flight), by `kempt check` (which publishes `image_based`) and by `kempt doctor`. `tests/lib.sh` points it at a path that does not exist, so running the suite on Silverblue or Kinoite describes the code rather than the machine it runs on |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |

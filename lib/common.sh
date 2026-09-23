@@ -1227,6 +1227,108 @@ dnf_history_json() {  # list | info <id> → dnf5's JSON; non-zero when it did n
   timeout 30 $KEMPT_DNF_HISTORY_CMD -C --disablerepo='*' history "$@" --json </dev/null 2>/dev/null
 }
 
+# Where dnf5's history stands right now: its highest id, or 0 for a history with nothing in it. The
+# id is a counter dnf5 only ever raises, so a reading taken before a run and the list read after it
+# are between them the window that run happened in. rc 1 when the list did not read in the shape
+# this build knows, which is what makes a live run fall back to the snapshot diff it reported before
+# any of this existed.
+dnf_history_max_id() {  # → highest id; rc 1 = cannot tell
+  local list out
+  list="$(dnf_history_json list)" || return 1
+  out="$(jq -r -n '
+      ([inputs][0] // error("no document")) as $l
+      | if ($l | type) != "array" then error("not an array") else . end
+      | [ $l[]
+          | if type != "object" then error("entry") else . end
+          | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
+            then error("id") else .id end ]
+      | max // 0' <<<"$list" 2>/dev/null)" || return 1
+  [[ "$out" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$out"
+}
+
+# ONE history entry, read the way both lookups below need one: dnf5 asked for that id alone, the
+# answer checked to BE that id, and its package list split into the two lists callers ask for -
+# what it INSTALLED (the transaction's own set, comparable with a stage's staged_names) and what it
+# TOUCHED (that set plus everything it replaced or removed). Printed as
+#
+#   <rpmdb_version_begin>
+#   --installed
+#   <names>
+#   --touched
+#   <names>
+#
+# The two section heads are lines no package name can be (KEMPT_NAME_RE refuses a leading "-"), and
+# every name is checked against it before any of this comes back. rc 1 when dnf5 did not answer or
+# answered in a shape this build does not know - so the caller cannot tell, which is the answer
+# that costs precision and never truth.
+history_entry_lists() {  # id → cookie, --installed, names, --touched, names
+  local info res installed touched
+  info="$(dnf_history_json info "$1")" || return 1
+  res="$(jq -r -n --argjson id "$1" "$KEMPT_JQ_NEVRA_NAME"'
+      ([inputs][0] // error("no document")) as $i
+      | if ($i | type) != "array" or ($i | length) != 1 then error("shape") else . end
+      | $i[0] as $e
+      | if ($e | type) != "object" or $e.id != $id then error("id") else . end
+      | if ($e.rpmdb_version_begin | type) != "string"
+           or ($e.rpmdb_version_begin | test("^[0-9a-f]{64}$") | not) then error("cookie") else . end
+      | if ($e.packages | type) != "array" then error("packages") else . end
+      | [ $e.packages[]
+          | if type != "object" or (.nevra | type) != "string" or (.action | type) != "string"
+            then error("package") else . end ] as $p
+      | $e.rpmdb_version_begin,
+        "--installed",
+        ([ $p[] | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
+                | basename(.nevra) ] | unique | .[]),
+        "--touched",
+        ([ $p[] | basename(.nevra) ] | unique | .[])' <<<"$info" 2>/dev/null)" || return 1
+  [[ "$res" == *$'\n'--installed$'\n'* || "$res" == *$'\n'--installed ]] || return 1
+  installed="$(sed -n '/^--installed$/,/^--touched$/p' <<<"$res" | sed '1d;$d')"
+  touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
+  printf '%s' "$installed" | names_all_valid || return 1
+  printf '%s' "$touched" | names_all_valid || return 1
+  printf '%s\n' "$res"
+}
+
+# The same question for a LIVE run, where it is far simpler to ask: nothing has to survive a restart,
+# so the identity is just the id the history stood at before the apply and the command Kempt ran.
+#
+#   <id>\n<names>  Exactly one entry arrived after that id running exactly that command. The lines
+#                  after the id are every package name it touched.
+#   rc 1           Cannot tell, and the run is then reported from its two snapshots, the way it was
+#                  before this lookup existed.
+#
+# NO cookie here, and none is needed: the window is not a guess. dnf5 holds its own lock for the
+# length of the transaction, so an entry that both arrived inside the window and ran Kempt's command
+# is Kempt's - unless there are TWO of them, which is what an apply that was retried leaves behind.
+# Then either answer is a guess about which attempt the report describes, and a guess is exactly
+# what this is for avoiding. Same rule as the stage's: more than one candidate is cannot tell.
+live_history_attribution() {  # before-id command-line → id, then names; rc 1 = cannot tell
+  local before="$1" cmd="$2" list out n id res touched
+  [[ "$before" =~ ^[0-9]+$ && -n "$cmd" ]] || return 1
+  list="$(dnf_history_json list)" || return 1
+  # Every entry shape-checked, not only the candidates, and the command compared in here: a list
+  # with one entry dnf5 shaped differently is a list this build cannot claim to have read, and a
+  # command line carrying a tab or a newline must never meet the line-based reader below.
+  out="$(jq -r -n --argjson before "$before" --arg cmd "$cmd" '
+      ([inputs][0] // error("no document")) as $l
+      | if ($l | type) != "array" then error("not an array") else . end
+      | [ $l[]
+          | if type != "object" then error("entry") else . end
+          | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
+               or (.command_line | type) != "string" then error("fields") else . end
+          | select(.id > $before and .command_line == $cmd) ]
+      | (length | tostring), (.[] | .id | tostring)' <<<"$list" 2>/dev/null)" || return 1
+  n="${out%%$'\n'*}"
+  [[ "$n" =~ ^[0-9]+$ ]] || return 1
+  (( n == 1 )) || return 1
+  id="${out#*$'\n'}"; id="${id%%$'\n'*}"
+  [[ "$id" =~ ^[0-9]+$ ]] || return 1
+  res="$(history_entry_lists "$id")" || return 1
+  touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
+  printf '%s\n%s\n' "$id" "$touched"
+}
+
 # After the restart: did the stage this marker records run, and which history entry is it?
 #
 #   applied <id>  Exactly one entry began at the recorded cookie and ran the recorded command. The
@@ -1283,38 +1385,17 @@ offline_history_attribution() {  # marker-json → verdict, then names; rc 1 = c
   # the loop the count itself as an entry.
   local rows=""
   if [[ "$out" == *$'\n'* ]]; then rows="${out#*$'\n'}"; fi
-  local id same info res installed touched applied="" applied_names="" other=0 seen=0
+  local id same res installed touched applied="" applied_names="" other=0 seen=0
   while IFS=' ' read -r id same; do
     [[ -n "$id" ]] || continue
     [[ "$id" =~ ^[0-9]+$ && ( "$same" == true || "$same" == false ) ]] || return 1
     seen=$(( seen + 1 ))
-    info="$(dnf_history_json info "$id")" || return 1
-    # One entry asked for, one entry back, and it has to be that entry. The first line is where it
-    # began; the installed names and the touched names follow, each section headed by a marker line
-    # no package name can be (KEMPT_NAME_RE refuses a leading "-").
-    res="$(jq -r -n --argjson id "$id" --arg cookie "$cookie" "$KEMPT_JQ_NEVRA_NAME"'
-        ([inputs][0] // error("no document")) as $i
-        | if ($i | type) != "array" or ($i | length) != 1 then error("shape") else . end
-        | $i[0] as $e
-        | if ($e | type) != "object" or $e.id != $id then error("id") else . end
-        | if ($e.rpmdb_version_begin | type) != "string"
-             or ($e.rpmdb_version_begin | test("^[0-9a-f]{64}$") | not) then error("cookie") else . end
-        | if ($e.packages | type) != "array" then error("packages") else . end
-        | [ $e.packages[]
-            | if type != "object" or (.nevra | type) != "string" or (.action | type) != "string"
-              then error("package") else . end ] as $p
-        | (if $e.rpmdb_version_begin == $cookie then "at-cookie" else "elsewhere" end),
-          "--installed",
-          ([ $p[] | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
-                  | basename(.nevra) ] | unique | .[]),
-          "--touched",
-          ([ $p[] | basename(.nevra) ] | unique | .[])' <<<"$info" 2>/dev/null)" || return 1
-    [[ "${res%%$'\n'*}" == at-cookie ]] || continue
-    [[ "$res" == *$'\n'--installed$'\n'* || "$res" == *$'\n'--installed ]] || return 1
+    # One entry asked for, one entry back, and it has to be that entry (history_entry_lists). Its
+    # first line is the rpm database it began at: another one, and this is not the stage.
+    res="$(history_entry_lists "$id")" || return 1
+    [[ "${res%%$'\n'*}" == "$cookie" ]] || continue
     installed="$(sed -n '/^--installed$/,/^--touched$/p' <<<"$res" | sed '1d;$d')"
     touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
-    printf '%s' "$installed" | names_all_valid || return 1
-    printf '%s' "$touched" | names_all_valid || return 1
     if [[ "$same" == true ]]; then
       [[ -z "$applied" ]] || return 1      # two candidates: cannot tell which ran
       applied="$id"; applied_names="$touched"

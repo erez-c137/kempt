@@ -9,6 +9,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An update run says which dnf transaction it was.** A run reads dnf5's own transaction history
+  on both sides of the upgrade, and when one new entry ran the command Kempt ran, the run reports
+  that transaction's packages rather than everything that changed on the machine while it was
+  going - so an install somebody started in another window is no longer counted as part of your
+  update. Its id is recorded as `transaction_id` in `kempt summary --json`, for `dnf5 history info`.
+  Staged updates have been identified this way since 0.1.4; this is the same answer for the runs
+  that install right away. When dnf5's history cannot say, the run is reported exactly as before.
+
 - **`kempt doctor` says when Discover's update notifier also starts with your session.** It checks
   on its own schedule from PackageKit's cache, so its count and Kempt's can differ and both be
   right, and PackageKit's background work holds the dnf5 lock, which makes a Kempt run wait or fail

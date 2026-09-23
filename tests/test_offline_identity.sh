@@ -295,4 +295,108 @@ assert_eq "$(HIST_LIST="$TESTTMP/list-garbage.json" strict "$MARKER_REPLACED")" 
 assert_eq "$(strict "$MARKER_REPLACED")" "$(printf 'verdict:applied 8\nstill running')" \
   "...and reads the real one in the same shell"
 
+# --- a live run, and the transaction dnf5 recorded for it ------------------------------------------
+# A stage has a marker and a restart to bridge, so its identity has to be written down and looked up
+# afterwards. A live run has neither, and needs neither: the identity is the two reads around the
+# apply - where dnf5's history stood before it, and the command dnf5 will have recorded for what
+# Kempt ran.
+#
+# That command is taken from the ROOT HELPER here rather than written out by hand, because the
+# helper is what dnf5 sees. A CLI that stopped agreeing with the helper about the command it runs
+# would quietly lose every live attribution, and this is the assertion that would not let it.
+LIVE_CMD="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
+assert_eq "$LIVE_CMD" "dnf5 upgrade -y" "premise: the root helper runs the command dnf5 records"
+
+LIVE_LIST="$TESTTMP/live-list.json"
+mkdir -p "$TESTTMP/live-info"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/live-info/"
+# The history the apply leaves behind. Both new entries come from the capture: entry 10 is history
+# info 8, a real `dnf5 upgrade` transaction, under the id and the command line this run's helper
+# gives it; entry 9 is the capture's entry 3, somebody else's install, landing in the same window.
+# Entry 9 is never looked up - its command is not the one Kempt ran - which is the point.
+jq --arg cmd "$LIVE_CMD" '
+    [ (.[] | select(.id == 8) | .id = 10 | .command_line = $cmd | .start_time += 2),
+      (.[] | select(.id == 3) | .id = 9 | .start_time += 1) ] + .' \
+   "$FIXTURES/dnf-history-list.json" > "$TESTTMP/live-list-after.json"
+jq '.[0].id = 10' "$FIXTURES/dnf-history-info-8.json" > "$TESTTMP/live-info/dnf-history-info-10.json"
+# The apply moves the world AND the history, the way a real one does: the list Kempt reads afterwards
+# is not the list it read before.
+cat > "$TESTTMP/live-apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] || exit 0
+printf 'curl\t8.18.0-10.fc44\nnano\t8.7.1-1.fc44\npatch\t2.8-2.fc44\nzsh\t5.9-21.fc44\n' > "$WORLD/rpm.tsv"
+cp "\$LIVE_AFTER" "$LIVE_LIST"
+exit 0
+STUB
+chmod +x "$TESTTMP/live-apply-stub"
+export LIVE_BEFORE="$FIXTURES/dnf-history-list.json" LIVE_AFTER="$TESTTMP/live-list-after.json"
+
+# Across the run: curl and zsh moved (both in the transaction dnf5 recorded), nano did not, and
+# patch arrived from somewhere else - the same world the harvest cases above use, so both halves of
+# the lookup are judged on identical evidence.
+live_run() {  # → one live update; HH is the entry it wrote
+  rm -rf "$KEMPT_STATE_DIR/history" "$KEMPT_STATE_DIR/snapshots"
+  mkdir -p "$KEMPT_STATE_DIR/history" "$KEMPT_STATE_DIR/snapshots"
+  printf 'curl\t8.18.0-9.fc44\nnano\t8.7.1-1.fc44\nzsh\t5.9-19.fc44\n' > "$WORLD/rpm.tsv"
+  cp "$LIVE_BEFORE" "$LIVE_LIST"
+  rm -f "$marker"
+  : > "$WORLD/notifications"; : > "$WORLD/history-calls"; : > "$WORLD/apply-calls"
+  KEMPT_APPLY_HELPER="$TESTTMP/live-apply-stub" KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" \
+    HIST_LIST="$LIVE_LIST" HIST_INFO="$TESTTMP/live-info" \
+    "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
+  HH="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -1)"
+}
+
+live_run
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "premise: the run upgraded live"
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "10" \
+  "a live run records the dnf5 transaction that was its own"
+assert_eq "$(reported)" "curl zsh" \
+  "...and that transaction's packages are the report: patch, installed by something else while the run was going, is not in it"
+assert_eq "$(jq -r '.backends.dnf.updated[] | select(.name == "curl") | "\(.from) \(.to)"' "$HH")" \
+  "8.18.0-9.fc44 8.18.0-10.fc44" "...with the versions the snapshots saw"
+assert_eq "$(grep -c 'history list' "$WORLD/history-calls" || true)" "2" \
+  "...found by two reads of the list, one on each side of the apply"
+assert_eq "$(grep -c 'history info' "$WORLD/history-calls" || true)" "1" \
+  "...and one entry opened: the only one whose command is the command Kempt ran"
+
+# Every way the history cannot answer is the run as it was before this lookup existed: the whole
+# snapshot diff, and no transaction named.
+live_cannot_tell() {  # label → asserts the last run is that baseline
+  assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "absent" "$1: no transaction is named"
+  assert_eq "$(reported)" "curl patch zsh" "$1: ...and the whole snapshot diff is the report"
+}
+
+LIVE_AFTER="$FIXTURES/dnf-history-list.json"; live_run
+live_cannot_tell "dnf5 recorded nothing for the run"
+LIVE_AFTER="$TESTTMP/live-list-after.json"
+
+KEMPT_DNF_HISTORY_CMD="$POISONED_HISTORY" live_run
+live_cannot_tell "dnf5's history does not answer"
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" \
+  "...and the update itself ran regardless"
+
+# Only an entry that arrived AFTER the run started can be the run. One that was already there ran
+# before Kempt did, whatever command it carries.
+jq --arg cmd "$LIVE_CMD" '[.[] | select(.id == 8) | .command_line = $cmd] + (map(select(.id != 8)))' \
+   "$FIXTURES/dnf-history-list.json" > "$TESTTMP/live-list-early.json"
+LIVE_BEFORE="$TESTTMP/live-list-early.json"; LIVE_AFTER="$TESTTMP/live-list-early.json"; live_run
+live_cannot_tell "an entry that ran the same command was already there before the run"
+LIVE_BEFORE="$FIXTURES/dnf-history-list.json"; LIVE_AFTER="$TESTTMP/live-list-after.json"
+
+# Two of them, both the run by every test there is - an apply that was retried leaves exactly this.
+# Which one to report is not something the ids can settle, and reporting either would be a guess.
+jq '[.[0] | .id = 11] + .' "$TESTTMP/live-list-after.json" > "$TESTTMP/live-list-twice.json"
+jq '.[0].id = 11' "$FIXTURES/dnf-history-info-8.json" > "$TESTTMP/live-info/dnf-history-info-11.json"
+LIVE_AFTER="$TESTTMP/live-list-twice.json"; live_run
+live_cannot_tell "two entries ran the command Kempt ran"
+LIVE_AFTER="$TESTTMP/live-list-after.json"
+
+# The list named an entry the history then has nothing for. `[]` is what real dnf5 answers for an id
+# it does not have, and an id its own list just named is not a history this build can read.
+mv "$TESTTMP/live-info/dnf-history-info-10.json" "$TESTTMP/live-info-10.json"
+live_run
+live_cannot_tell "the history has no entry for an id its own list named"
+mv "$TESTTMP/live-info-10.json" "$TESTTMP/live-info/dnf-history-info-10.json"
+
 finish
