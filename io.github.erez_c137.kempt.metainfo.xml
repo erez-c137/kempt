@@ -61,11 +61,11 @@
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
-      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.4/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.5/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
-      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.4/docs/images/kempt-settings.png</image>
+      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.5/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -77,6 +77,18 @@
     kempt.spec, this file). tests/test_version.sh is what enforces it.
   -->
   <releases>
+    <release version="0.1.5" date="2026-09-23" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.5</url>
+      <description>
+        <p>
+          An update run now says which dnf transaction it was, so it reports what it installed
+          rather than everything that changed on the machine while it was going. A finished run
+          no longer offers to stage what it has just staged. Each part of a run has a heading,
+          flatpak end-of-life notices name the app that uses the runtime, and kempt doctor says
+          when Discover's update notifier also starts with your session.
+        </p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-09-19" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.4</url>
       <description>

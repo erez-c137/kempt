@@ -62,30 +62,53 @@ already staged for the next restart.
 - **The package passes the checks a Fedora reviewer runs:** the metainfo validator Fedora requires,
   rpmlint with no errors, and documentation limited to what someone using Kempt reads.
 
+**0.1.4** makes the counts match what an update really changes, and lets a staged update be taken
+back.
+
+- **Flatpak runtimes are counted and listed,** so the badge matches what an update really changes.
+  They cannot be held: apps share them.
+- **A staged update can be discarded** with `kempt unstage`, from the command line or the panel,
+  and never while a Fedora release upgrade is stored.
+- **A restart reports the transaction Kempt staged,** named from dnf5's own history, or says
+  plainly that a different one ran.
+- **The popup says how old the package metadata behind its counts is.**
+
+**0.1.5** makes a run report what it actually did, and stops the panel arguing with itself.
+
+- **A finished run no longer offers to stage what it has just staged** - the one bug an outside
+  user would have hit on the very first staged update they made. The run publishes what it staged
+  the moment it staged it, and the panel believes that rather than waiting on a check of its own.
+- **An update run says which dnf transaction it was,** so it reports that transaction's packages
+  rather than everything that moved on the machine while it ran. Staged updates have been
+  identified this way since 0.1.4; this is the same answer for the runs that install right away.
+- **Each part of a run has a heading,** and Flatpak end-of-life notices name the app that uses the
+  runtime and say whether anything needs doing.
+- **`kempt doctor` says when Discover's update notifier also starts with the session,** names the
+  entry and how to stop it, and never calls running both a failure.
+
 ## Now
 
 - **First contact.** The announcement wave, and treating every early report as the gift it
   is - what the first outside users hit outranks everything below.
-- **0.1.5, ready to release.** Everything in it is built and on `main`. A finished run no longer
-  offers to stage what it has just staged - the one bug an outside user would have hit on the very
-  first staged update they made. A live run says which dnf transaction it was, so its summary
-  reports that transaction's packages rather than everything that moved on the machine while it ran.
-  Each part of a run has a heading, Flatpak end-of-life notices name the app that is affected and
-  say whether anything needs doing, and `kempt doctor` says when Discover's update notifier also
-  starts with the session. What it waits on is the screenshots below.
+- **0.1.5 is released**, and the store listing is updated by hand after each one. What it still
+  owes is the screenshots below, which can be re-captured and published without waiting for
+  another release.
 - **The road into the official Fedora repos**: a strict self-review against the packaging
   guidelines is done and its findings shipped in 0.1.3. The review tooling passes on the release;
   the review request is next, and it needs a sponsor.
 
-## Next - 0.1.5
+## Next - the screenshots
 
-The work is done; this is the last thing between it and a release.
+Not held behind a release: the images are served from the tag, so the next one to carry them is
+whichever release comes after they are taken.
 
 - **Re-capture the screenshots.** The two in the README, the metainfo and the store listing were
   taken on 4 September, before three releases. They show a popup with no Flatpak runtimes section
   and no way to discard a staged update, which is no longer what Kempt looks like. The metainfo
   already promises this re-capture, and asks for 16:9 while it happens, because software centres
   crop tall images badly. Needs a real desktop, so it waits for a session with one in front of it.
+  The metainfo's two `<screenshot>` URLs name the tag they were released with, so a re-capture
+  lands in the repository first and reaches a software centre with the release after it.
 
 ## 0.1.6 - reclaiming disk space
 

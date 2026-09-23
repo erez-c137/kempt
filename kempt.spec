@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.4
+Version:        0.1.5
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -249,6 +249,15 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Wed Sep 23 2026 Erez <erez.c137@protonmail.com> - 0.1.5-1
+- An update run says which dnf transaction it was, so a run reports what it
+  installed rather than everything that changed while it was going.
+- kempt doctor says when Discover's update notifier also starts with your
+  session, and how to stop it.
+- Each part of a run has a heading, and flatpak end-of-life notices name the
+  app that uses the runtime and say whether anything needs doing.
+- A finished run no longer offers to stage what it has just staged, in the
+  panel or on the command line.
 * Sat Sep 19 2026 Erez <erez.c137@protonmail.com> - 0.1.4-1
 - Flatpak runtimes are counted and listed, so the badge matches what an
   update really changes. They cannot be held: apps share them.

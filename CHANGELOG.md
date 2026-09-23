@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-23
+
 ### Added
 
 - **An update run says which dnf transaction it was.** A run reads dnf5's own transaction history
@@ -47,6 +49,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rest. A run that ends with no staged transaction clears the promise of one the same way. The
   panel reads that record as soon as it lands, rather than waiting on a check of its own that
   cannot start until the run has let go of the lock.
+
+- **A run is never reported as having changed nothing when it changed something.** When a run is
+  matched to a dnf transaction, its report is narrowed to that transaction's packages. If dnf
+  recorded the transaction without a package list, that narrowing emptied the report: a run that
+  updated three packages was summarised as no package changes at all, under an id saying the
+  transaction had been found. An empty list now means the narrowing could not be done, so the run
+  is reported in full, exactly as it is when dnf's history cannot answer at all.
 
 ## [0.1.4] - 2026-09-19
 
@@ -843,7 +852,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/erez-c137/kempt/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/erez-c137/kempt/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/erez-c137/kempt/compare/v0.1.1...v0.1.2
