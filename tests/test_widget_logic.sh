@@ -149,6 +149,24 @@ assert_eq "$(js "L.viewModel($noact,false).footerText.indexOf(\"MB\") >= 0")" "f
   "no actionable updates, no figure in the footer"
 assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
   "...and none in the tooltip"
+
+# --- the tooltip names what is pending ------------------------------------------------------------
+# A count says how many, not what. Three names are enough to recognise a kernel or a browser from
+# the panel, and the session-critical ones come first because they are the ones worth a restart.
+assert_eq "$(js 'V("live",false).tooltipSub.split(" - ")[0]')" \
+  "aajohan-comfortaa-fonts, bash, brandnew and 7 more" "the tooltip names the first three pending"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"),{risky_pending:["curl"]}),false).tooltipSub.split(" - ")[0]')" \
+  "curl, aajohan-comfortaa-fonts, bash and 7 more" "...session-critical ones first"
+assert_eq "$(js 'L.pendingNamesOf([{items:[{name:"a"},{name:"b"},{name:"c"}]}],[])')" "a, b and c" \
+  "three names and nothing more say no 'and 0 more'"
+assert_eq "$(js 'L.pendingNamesOf([{items:[{name:"a"}]}],[])')" "a" "one name is just the name"
+assert_eq "$(js 'L.pendingNamesOf([],[])')" "" "no rows, no names"
+assert_eq "$(js "L.viewModel($dl_state,false).tooltipSub")" "~140 MB to download" \
+  "counts without rows name nothing rather than inventing a list"
+assert_eq "$(js 'V("held-only",false).tooltipSub.indexOf(",") >= 0')" "false" \
+  "held rows are not named as pending"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"),{offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:10,armed:true}}),false).tooltipSub.indexOf("bash") >= 0')" \
+  "false" "...and nothing is named while a stage waits for the restart"
 # A state written before this feature existed has no such key, and must render exactly as it did.
 nokey='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{}}'
 assert_eq "$(js "L.viewModel($nokey,false).downloadText")" "" "a state with no download_bytes shows nothing"
@@ -223,7 +241,7 @@ assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")"
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
 assert_eq "$(js 'V("stale",false).badgeText')" "10" "stale keeps the LAST KNOWN count on the badge"
-assert_eq "$(js 'V("stale",false).tooltipSub')" "dnf check failed - last successful check: $ls_stale" \
+assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more - dnf check failed - last successful check: $ls_stale" \
   "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
 assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
   "...and the reason it carries is the CLI's own staleReason, verbatim"

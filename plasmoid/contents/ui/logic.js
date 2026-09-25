@@ -823,6 +823,29 @@ function riskySummaryOf(names) {
     return names.length + " session-critical pending (" + riskyFamiliesOf(names) + ")";
 }
 
+// pendingNamesOf(sections, riskyNames) -> "kernel-core, bash, curl and 7 more", for the panel
+// tooltip. The session-critical rows come first, then the list's own order. Only names that are
+// rows in the list, so the tooltip never names a package the popup does not show.
+var PENDING_NAMES_SHOWN = 3;
+function pendingNamesOf(sections, riskyNames) {
+    var risky = [], rest = [], i, j, items, name;
+    var riskySet = {};
+    for (i = 0; riskyNames && i < riskyNames.length; i++) riskySet[String(riskyNames[i])] = true;
+    for (i = 0; sections && i < sections.length; i++) {
+        items = sections[i].items || [];
+        for (j = 0; j < items.length; j++) {
+            name = items[j].name;
+            if (!name) continue;
+            (Object.prototype.hasOwnProperty.call(riskySet, name) ? risky : rest).push(name);
+        }
+    }
+    var all = risky.concat(rest), shown = all.slice(0, PENDING_NAMES_SHOWN);
+    if (shown.length === 0) return "";
+    if (all.length > shown.length) return shown.join(", ") + " and " + (all.length - shown.length) + " more";
+    if (shown.length === 1) return shown[0];
+    return shown.slice(0, -1).join(", ") + " and " + shown[shown.length - 1];
+}
+
 // riskyMessageOf(names) -> what to DO about a session-critical transaction, in one sentence.
 // A kernel changes the answer: staging it offline does not help, because the kernel you are
 // running keeps running until you restart either way. The two ingredient tests are deliberately
@@ -1698,6 +1721,10 @@ function viewModel(state, updating, cliError, opts) {
     else if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
     else if (iconState === "error") subParts.push(problemText);
     else {
+        // What is pending, by name - the count says how many, this says what. Not while a stage
+        // is armed: the header already says the work is done and waiting for a restart.
+        var pendingNames = staged ? "" : pendingNamesOf(counted.sections, riskyPending);
+        if (pendingNames !== "") subParts.push(pendingNames);
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
         if (heldTotal > 0) subParts.push(heldTotal + " " + COPY.held);
@@ -1950,6 +1977,7 @@ if (typeof module !== "undefined" && module.exports) {
         relativeTime: relativeTime,
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         riskyMessageOf: riskyMessageOf,
+        pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,

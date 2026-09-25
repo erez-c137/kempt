@@ -260,6 +260,31 @@ replaces the staged update outside Kempt, the next check tells you once. After t
 finds its transaction in dnf5's history and reports only that. If it did not run, the history entry
 says `restart (staged update did not run)` and so does the notification.
 
+### A snapshot before every update
+
+Kempt has no snapshot setting of its own, because dnf5 can already take one. Its actions plugin
+runs a command before each transaction, whether Kempt started it or you ran `dnf5` in a terminal.
+
+```bash
+sudo dnf install libdnf5-plugin-actions
+```
+
+Then put one line in `/etc/dnf/libdnf5-plugins/actions.d/snapshot.actions`. For snapper, once it
+has a config for `/`:
+
+```
+pre_transaction::::/usr/bin/snapper create --description before-update --cleanup-algorithm number
+```
+
+For Timeshift:
+
+```
+pre_transaction::::/usr/bin/timeshift --create --comments before-update --scripted
+```
+
+A failed snapshot is only logged, and the update goes ahead. To make it an error instead, put
+`raise_error=1` in the fourth field. `man libdnf5-actions` has the full format.
+
 ## run
 
 ```
@@ -766,7 +791,7 @@ copy and does not follow the checkout.
 
 | Icon | State | What it tells you |
 |---|---|---|
-| Update icon with a count badge | Updates pending | The count is what an update would change now. Held packages are left out. |
+| Update icon with a count badge | Updates pending | The count is what an update would change now. Held packages are left out. The tooltip names the first three, kernel and other session-critical packages first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still shows how many packages are held. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and the time of that check. |
 | Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem and points at `kempt doctor`. |

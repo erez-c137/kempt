@@ -7,6 +7,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The panel tooltip names what is pending.** It shows the first three package names, with the
+  kernel and other session-critical packages first, then how many more there are.
+- **Docs: a snapshot before every update.** [usage.md](docs/usage.md#a-snapshot-before-every-update)
+  shows how to have dnf5 take a snapper or Timeshift snapshot before each transaction.
+
 ### Fixed
 
 - **A run that staged nothing no longer promises a restart.** If every pending update was held, or
