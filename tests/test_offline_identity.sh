@@ -187,6 +187,9 @@ assert_eq "$(jq -r .surface "$HH")" "offline (applied on reboot)" "a marker with
 assert_eq "$(reported)" "curl patch zsh" "...with the whole snapshot diff as the report"
 assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "absent" "...and no transaction named"
 assert_eq "$(grep -c . "$WORLD/history-calls" || true)" "0" "...and dnf5's history is never asked"
+assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and no duration, because nothing measured one"
+assert_eq "$("$KEMPT" summary 2>/dev/null | awk 'NR==1' | grep -cE '[0-9]+s\)')" "0" \
+  "...so the summary prints no time rather than 0s"
 
 # MATCHED. History entry 8 began at the recorded cookie and ran the recorded command.
 harvest "$MARKER_REPLACED"
@@ -199,6 +202,21 @@ assert_eq "$(jq -r '.backends.dnf.updated[] | select(.name == "curl") | "\(.from
 assert_eq "$(notified 'were applied on reboot')" "1" "...and announced as applied"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...and so is its snapshot copy" -- test ! -f "$PRE"
+# How long it took is dnf5's own record of that entry: 1789500336 to 1789500337.
+assert_eq "$(jq -r '.duration_sec // "absent"' "$HH")" "1" "...taking as long as dnf5 recorded it taking"
+assert_eq "$("$KEMPT" summary 2>/dev/null | awk 'NR==1' | grep -c ', 1s)')" "1" "...which the summary prints"
+
+# An entry whose times do not read as a span is a duration nobody knows, and it is left out rather
+# than written as 0: a restart that installed packages did not take no time.
+mkdir -p "$TESTTMP/info-notime"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/info-notime/"
+jq '.[0].end_time = .[0].start_time - 5' "$FIXTURES/dnf-history-info-8.json" \
+  > "$TESTTMP/info-notime/dnf-history-info-8.json"
+HIST_INFO="$TESTTMP/info-notime" harvest "$MARKER_REPLACED"
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "8" "premise: an entry that ends before it starts is still named"
+assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and says nothing about how long it took"
+jq '.[0] |= del(.end_time)' "$FIXTURES/dnf-history-info-8.json" > "$TESTTMP/info-notime/dnf-history-info-8.json"
+HIST_INFO="$TESTTMP/info-notime" harvest "$MARKER_REPLACED"
+assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and neither does one with no end time"
 
 # ...and the entry that ran can still name nothing. A transaction dnf5 recorded with an empty
 # package list is a filter that cannot be BUILT, not a restart that installed nothing: the identity
@@ -221,6 +239,7 @@ assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "absent" "...names no t
 assert_eq "$(reported)" "curl patch zsh" "...and keeps the whole snapshot diff as the report"
 assert_eq "$(notified 'did not run on the restart')" "1" "...and says the staged update did not run"
 assert_eq "$(notified 'were applied on reboot')" "0" "...never that it was applied"
+assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and gives it no duration"
 assert_eq "$(events_like 'harvest found the staged transaction did not run (2 updated, +1 installed)')" "1" \
   "...and the event carries the counts of what did change"
 assert_exit 0 "...and the marker is consumed: its transaction is gone either way" -- test ! -f "$marker"

@@ -465,6 +465,8 @@ The widget never parses the human `kempt summary`. The CLI serves the newest his
 Optional keys on that entry:
 
 - `transaction_id`, on a live run or a harvest, when dnf5's history named the transaction.
+- `duration_sec` is always on a live or staging run. On a harvest it is dnf5's recorded time for
+  that transaction, and absent when dnf5's history did not name one.
 - `staged_nothing`, on a staging run that staged nothing: `"held"` or `"nothing_pending"`. The
   widget treats any other value as an ordinary stage.
 - `eol` on a live run's flatpak backend: one `{id, branch, kind, apps, reason}` per end-of-life

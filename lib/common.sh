@@ -1290,6 +1290,20 @@ history_entry_lists() {  # id → cookie, --installed, names, --touched, names
   printf '%s\n' "$res"
 }
 
+# How long dnf5 recorded transaction <id> taking, in whole seconds. rc 1 when the entry does not read
+# as a span (no times, or an end before the start), so the caller leaves the duration out.
+dnf_history_duration() {  # id → seconds; rc 1 = unknown
+  local info
+  info="$(dnf_history_json info "$1")" || return 1
+  jq -e -r -n --argjson id "$1" '
+      ([inputs][0] // error("no document")) as $i
+      | if ($i | type) != "array" or ($i | length) != 1 then error("shape") else $i[0] end
+      | if .id != $id then error("id") else . end
+      | if (.start_time | type) != "number" or (.end_time | type) != "number"
+           or .end_time < .start_time then error("times") else (.end_time - .start_time | floor) end
+    ' <<<"$info" 2>/dev/null
+}
+
 # The same question for a LIVE run, where it is far simpler to ask: nothing has to survive a restart,
 # so the identity is just the id the history stood at before the apply and the command Kempt ran.
 #
@@ -1820,7 +1834,9 @@ render_summary() {  # history-json-file → human text
     def counts(b): counts_phrase(b.updated|length; b.added|length; b.removed|length; true);
     # `.error // ""`: entries written before the field existed have no .error at all, and a
     # summary of an old run must still render rather than printing "null".
-    "Kempt - " + .timestamp + " (" + .surface + ", " + (.duration_sec|tostring) + "s) "
+    # No duration is written when none was measured (a restart whose dnf5 record has no times).
+    "Kempt - " + .timestamp + " (" + .surface
+      + (if (.duration_sec | type) == "number" then ", " + (.duration_sec|tostring) + "s" else "" end) + ") "
       + (if .status == "ok" then "✓"
          else "FAILED - see " + .log
               + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),

@@ -1596,14 +1596,19 @@ harvest_offline() {
   # Same guard, same reason as $hist above: this harvest runs inside a check a live run may have
   # triggered in the same second, and that run's log must not be overwritten.
   [[ -e "$hlog" ]] && hlog="$LOG_DIR/$ts-offline.log"
+  # How long the restart's transaction took, from dnf5's record of it. Unknown without that record,
+  # and then left out: 0 would say a restart that installed packages took no time.
+  local hdur=""
+  if [[ -n "$txid" ]]; then hdur="$(dnf_history_duration "$txid")" || hdur=""; fi
   jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" \
-        --arg log "$hlog" '
+        --arg log "$hlog" --arg dur "$hdur" '
     ($repa[0]) as $dnf |
-    {timestamp:$ts, surface:$surface, status:"ok", duration_sec:0,
+    {timestamp:$ts, surface:$surface, status:"ok",
      reboot_needed:false, log:$log,
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}
-    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)' > "$hist" \
+    + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
+    + (if $dur == "" then {} else {duration_sec: ($dur | tonumber)} end)' > "$hist" \
     || { rm -f "$hist"; hist=""
          echo "warning: the staged update was applied, but its history entry could not be written" >&2
          log_event "harvest entry not written (state directory unwritable?)"; }

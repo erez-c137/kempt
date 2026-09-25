@@ -18,6 +18,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   could not re-read the staged update, it treated it as not staged. The panel then offered to
   update right away, which would have discarded the staged download. Kempt now keeps what it
   already knew until it can check again.
+- **An update installed during a restart no longer shows as taking 0 seconds.** Its time now comes
+  from dnf5's record of the transaction. When dnf5 has no record of it, the summary shows no time.
 
 ## [0.1.5] - 2026-09-23
 
