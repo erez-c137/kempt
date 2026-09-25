@@ -1,8 +1,7 @@
 # Working on Kempt
 
-A short map for whoever picks this up next, human or AI. `CONTRIBUTING.md` is the full guide and
-this does not replace it; this is the orientation you want in the first two minutes, and the four
-rules that will bite you if nobody tells you.
+A short map for new contributors: what you need in the first two minutes, and four rules that
+catch people out. `CONTRIBUTING.md` is the full guide.
 
 ## What it is
 

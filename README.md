@@ -1,7 +1,7 @@
 # Kempt
 
-Tidy system updates for the Plasma desktop: a tray widget and a CLI over one engine, for dnf
-and Flatpak. Built to grow into a universal Linux updater.
+Tidy system updates for the Plasma desktop. A tray widget and a command-line tool for dnf and
+Flatpak, built to grow into a universal Linux updater.
 
 [![CI](https://github.com/erez-c137/kempt/actions/workflows/ci.yml/badge.svg)](https://github.com/erez-c137/kempt/actions/workflows/ci.yml)
 [![COPR build](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/package/kempt/status_image/last_build.png)](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/)
@@ -10,151 +10,117 @@ and Flatpak. Built to grow into a universal Linux updater.
 
 ![Kempt in the system tray, with the popup open: 83 updates pending, staged to install on the next restart](docs/images/kempt-tray-popup.png)
 
-*Kempt lives in the system tray. Here: 83 updates pending, already staged to install on the
-next restart, pins on every row to hold a package back, and the download size in the footer.*
+*83 updates, staged to install on the next restart. The padlock on each row holds a package back,
+and the footer shows the download size.*
 
 ## Install
 
-Needs Fedora with Plasma 6. On the image-based editions - Silverblue, Kinoite, Bazzite, bootc
-images - `kempt update` refuses for now, because those update as an image and dnf is not what
-updates them; Kempt says which tool does, and support for them is planned. Checking, holds and
-`kempt doctor` work there today.
-
-The widget package brings the command-line half and the root helpers with it, so this is the whole
-install:
+Kempt needs Fedora with Plasma 6.
 
 ```bash
 sudo dnf copr enable erez-c137/kempt
 sudo dnf install kempt-plasmoid
-kempt doctor          # verify the install: helpers, polkit action, tools, config, state
+kempt doctor          # checks the helpers, polkit, config and state
 ```
 
-Two packages, because the command-line half is a complete tool on its own and has no business
-pulling a desktop onto a machine that does not have one: `kempt` is the CLI, the root helpers and
-the polkit action; `kempt-plasmoid` is the panel widget, and it requires `kempt`. On a box that
-already runs Plasma, installing either one gets you both.
+This installs the widget, the command-line tool and its helpers. Kempt appears in the system tray
+under **System Services**. The first time, it can take a log-out, or `plasmashell --replace`, to
+show up. To have it on the panel instead, add it from **Add Widgets** and turn off the tray entry.
 
-Kempt puts itself in your system tray, under **System Services**. It may take a
-`plasmashell --replace` or a log-out to appear the first time. To have it on the panel itself
-instead, add it from **Add Widgets** and turn the tray entry off; doing both gives you two Kempt
-icons. From then on Kempt updates through dnf like everything else it manages, and shows up in its
-own popup when it does. What lands where, and how to remove it, is in
-[the install guide](docs/install.md#installed-from-the-package).
+From then on, dnf updates Kempt like any other package. The
+[install guide](docs/install.md#installed-from-the-package) lists what goes where and how to remove
+it.
 
-The widget alone is also on the [KDE Store](https://store.kde.org/p/2370353/) and in Plasma's
-own **Get New Widgets** browser - but it needs the CLI, so the package above is the whole
-install. Developing, or somewhere the RPM does not reach? See
-[the checkout install](#from-a-checkout).
+On a machine without a desktop, `sudo dnf install kempt` installs only the command-line tool. The
+widget is also on the [KDE Store](https://store.kde.org/p/2370353/), but it needs that tool, so
+install the package above.
 
-## Why
+On Silverblue, Kinoite, Bazzite and other image-based editions, Kempt can check for updates and
+hold packages. It cannot install updates there yet, and tells you which tool to use instead.
 
-Keeping a Fedora desktop current means remembering that `dnf5 upgrade` and Flatpak are
-separate commands, then reading a wall of transaction output to find out what changed - while
-Discover's notifier counts from PackageKit's separate cache, disagrees with the terminal, and
-holds the dnf5 lock in the background.
+## Why Kempt
 
-Kempt replaces that with one engine and two faces, built on one rule: an updater should never
-make you infer what actually happened. `kempt check` asks the same root metadata cache the
-update itself will use, so the pending count and the transaction cannot disagree. A
-`dnf5 check-update` you run as yourself reads your own user cache instead, which can be older or
-newer, so its count can differ from Kempt's.
-`kempt update` ends with a short summary: every package `old -> new`, how long it took,
-whether a restart is owed. The widget carries no package-manager logic at all - its badge is
-the number the CLI just wrote, its button runs the same engine - which is why the panel and
-the terminal never drift apart, and why everything here works from a terminal whether or not
-the widget is on a panel.
+On Fedora, dnf and Flatpak update separately, and each prints a long transaction to read through.
+Discover's notifier counts from PackageKit's own cache, so its number can differ from what dnf will
+install. Its background work can also hold the dnf lock.
 
-## What you get
+Kempt checks the same cache the update uses, so the count in the tray matches what gets installed.
+(`dnf5 check-update` run as yourself reads your own cache, so its count can differ.) Every update
+ends with a summary: each package's old and new version, how long it took, and whether to restart.
+The widget runs the same commands you can run in a terminal, so the two always agree.
 
-- **A live pending count.** `kempt check` writes a documented JSON state file: every pending
-  item, per backend, with the version you have and the version you would get.
-- **Flatpak apps and the runtimes underneath them.** A Flatpak update also updates the runtimes
-  apps share, which most update tools never show you, so a run can change more than the list said.
-  Kempt counts them and gives them their own section, with no padlock: apps share a runtime, so
-  holding one would hold back everything built on it.
-- **Holds that skip but still notify.** `kempt hold dnf:kernel-core` keeps a package off every
-  run while it stays visible, so skipping something is never the same as forgetting it.
-- **Four ways to run an update.** Terminal with live output, in-popup, silent background, and
-  offline staging - which downloads *and arms* the transaction, so any restart installs it,
-  and the widget then reports what that restart changed. When session-critical packages are
-  pending (kernel, systemd, Qt and friends), Kempt recommends the offline path on its own, and
-  says what they are in plain words: a row reads `graphics drivers (mesa)   6 packages`, not a
-  list of package ids. A staged update can be taken back from the popup, or with `kempt unstage`.
-- **The download size before you press the button.** `Checked 4 min ago · ~140 MB` in the
-  popup footer, from metadata already on disk - no network, and nothing shown when the number
-  is not known.
-- **Honest summaries and history.** Old to new versions from before-and-after snapshots, one
-  renderer for terminal, notification and popup; a JSON entry plus a raw log per run, pruned
-  automatically. The update a restart installs gets a record of its own, written afterwards,
-  because dnf5 applies that one while Kempt is not running.
-- **An event log that answers "did that land?"** `kempt log`: one line per thing Kempt did,
-  each stamped `widget` or `cli`. A closed password prompt reads `authentication cancelled`,
-  not a quoted pkexec error.
-- **Scoped root privileges.** Separate polkit actions for metadata refresh and apply, two
-  argument-validating root helpers, and optional passwordless mode as one rule for the one
-  apply action, active local session only.
-- **A widget that says what it knows.** No data reads as "no data", never as zero; a failed
-  check keeps the last known numbers with the reason in the tooltip; the popup dates its own
-  counts and hides its primary action when there is nothing to run.
-- **A restart is offered, never performed.** When one is owed, the popup says so and opens
-  KDE's own cancellable restart prompt. Skip it and nothing is lost - the updates are on disk.
-- **A checkup that says what is wrong.** `kempt doctor`: one line per check, helpers to config
-  to state, because everything else here degrades quietly rather than crashing.
+## Features
+
+- **Pending updates at a glance.** The badge counts dnf packages and Flatpak apps. The popup lists
+  each one with the version you have and the version you would get.
+- **Flatpak runtimes too.** Updating an app can also update the runtime it runs on. Kempt lists
+  runtimes in their own section, so the count matches what changes.
+- **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
+  Click its padlock, or run `kempt hold dnf:kernel-core`.
+- **Four ways to update.** In a terminal with live output, in the popup, silently in the
+  background, or staged to install on the next restart. When the kernel, systemd, Qt or graphics
+  drivers have updates, Kempt suggests the restart option. `kempt unstage` or the popup takes a
+  staged update back.
+- **The download size up front.** The popup footer shows it before you start, from data already on
+  disk.
+- **A summary of every run.** Each package with its old and new version, plus the full log.
+  Updates installed during a restart get a summary too.
+- **A log of what Kempt did.** `kempt log` has one line per action, stamped with where it came
+  from.
+- **Limited root access.** Two small helper scripts do the work that needs root, through polkit.
+  You can allow updates without a password, for the active local session only.
+- **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
+  you can cancel.
+- **A self-check.** `kempt doctor` checks the install one line at a time.
 
 ![Kempt's settings page: update sources, run surface, check interval, panel icon size, restart reminders and the password-prompt controls](docs/images/kempt-settings.png)
 
-*All of it is configurable, and the settings page is a front end to the same plain config file
-the CLI reads - every key is documented in [docs/configuration.md](docs/configuration.md).*
+*The settings page edits the same config file the command line reads.
+[docs/configuration.md](docs/configuration.md) lists every setting.*
 
 ## From a checkout
 
 ```bash
 git clone https://github.com/erez-c137/kempt.git
 cd kempt
-./install.sh          # one pkexec prompt: root helpers + polkit action, then the panel widget
-kempt doctor          # verify the install: helpers, polkit action, tools, config, state
+./install.sh          # one password prompt: the root helpers and polkit action, then the widget
+kempt doctor
 ```
 
-`install.sh` symlinks `bin/kempt` into `~/.local/bin`, so **keep the checkout where it is** -
-the CLI runs out of it, and only the root helpers, the polkit action and the widget are
-copies. If `kempt` is not found afterwards, `~/.local/bin` was not on your `PATH` when this
-shell started; log out and back in. Full detail, including the Discover-notifier opt-out and
-how to undo everything, is in the [install guide](docs/install.md#from-a-checkout-developers).
+`install.sh` links `bin/kempt` into `~/.local/bin`, so keep the checkout where it is. If `kempt` is
+not found afterwards, log out and back in. The
+[install guide](docs/install.md#from-a-checkout-developers) covers the details and how to undo it.
 
 ## Documentation
 
 | Document | What is in it |
 | --- | --- |
-| [docs/install.md](docs/install.md) | Both installs end to end: the package (what lands where, the tray default, `dnf remove`) and the checkout (what `install.sh` does, and what it does not), plus passwordless setup and uninstall |
-| [docs/usage.md](docs/usage.md) | Every subcommand, its options, its output and its exit codes; and the Plasma widget: what the badge and each icon state mean, where it lives, and what the popup does |
-| [docs/configuration.md](docs/configuration.md) | Every config key with type and default, the run surfaces, holds, file locations, retention |
-| [docs/architecture.md](docs/architecture.md) | How it is built, why it is bash, the state JSON schema, and how to add a backend for your distro |
-| [docs/security.md](docs/security.md) | Exactly what runs as root, why, and what passwordless mode grants |
+| [docs/install.md](docs/install.md) | Installing from the package or a checkout, passwordless updates, and removing Kempt |
+| [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes, and what the widget shows |
+| [docs/configuration.md](docs/configuration.md) | Every setting with its default, holds, and where Kempt keeps its files |
+| [docs/architecture.md](docs/architecture.md) | How Kempt is built, the state file format, and how to add a package manager |
+| [docs/security.md](docs/security.md) | What runs as root, and what passwordless updates allow |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
-| [docs/RELEASING.md](docs/RELEASING.md) | Cutting a release, and why Kempt never updates itself |
+| [docs/RELEASING.md](docs/RELEASING.md) | How a release is made |
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed |
 | [CHANGELOG.md](CHANGELOG.md) | What each release shipped |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, the test-harness rules reviews enforce, shell and docs conventions |
-| [AGENTS.md](AGENTS.md) | Two-minute orientation for a new maintainer, human or AI: the map, and the four rules that bite |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setting up, testing, and the code and writing conventions |
+| [AGENTS.md](AGENTS.md) | A two-minute orientation for new contributors: the map, and four rules that catch people out |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Short: be respectful, stay on topic, how to report a problem |
-
-How it is built, and why, is in [docs/architecture.md](docs/architecture.md).
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Be respectful, stay on topic, and how to report a problem |
 
 ## Contributing
 
-New backends (apt, pacman, zypper) are the most useful thing anyone can add, and the contract
-is deliberately small: two required functions plus the pure parser they share, in one file.
-There is an open issue per backend to coordinate in -
+Support for more package managers is the most useful thing to add. Each has an open issue:
 [apt](https://github.com/erez-c137/kempt/issues/1),
-[pacman](https://github.com/erez-c137/kempt/issues/2),
-[zypper](https://github.com/erez-c137/kempt/issues/3) - each with the honest scope notes.
-Wiring one in also touches the root apply helper, which is a security change and worth an
-issue first. Start with
-[docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro), then
-[CONTRIBUTING.md](CONTRIBUTING.md). Security reports go through [SECURITY.md](SECURITY.md),
+[pacman](https://github.com/erez-c137/kempt/issues/2) and
+[zypper](https://github.com/erez-c137/kempt/issues/3). A backend is one file with two required
+functions and a parser. Adding one also changes the root helper, so open an issue first.
+
+Start with [adding a backend](docs/architecture.md#adding-a-backend-for-your-distro), then read
+[CONTRIBUTING.md](CONTRIBUTING.md). Report security problems through [SECURITY.md](SECURITY.md),
 not the public issue tracker.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
