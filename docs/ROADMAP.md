@@ -27,6 +27,10 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   releases: they show no runtimes section and no way to take back a staged update. The metainfo
   links them by tag, so new ones reach software centres with the release after they land. They
   will be 16:9, because software centres crop tall images badly.
+- **dnf5's JSON output ([#17](https://github.com/erez-c137/kempt/issues/17)).** Kempt still reads
+  two dnf5 commands as text written for people: `check-update` and `needs-restarting`. dnf5 5.4.1
+  and later print both as JSON, and Fedora 44 ships it. Kempt reads JSON where dnf5 has it, and
+  the text parsers are removed when Fedora 43 reaches end of life.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 
@@ -68,9 +72,10 @@ flatpak/flatpak#5185.
   Tumbleweed updates with `zypper dup`, so Kempt tells it apart from Leap. openSUSE has no offline
   updates, so staging is not offered there.
 - **Settings that name backends** (`disable`, `only`), added while there are only two backends.
-- **Debian, Ubuntu ([#1](https://github.com/erez-c137/kempt/issues/1)) and Arch
-  ([#2](https://github.com/erez-c137/kempt/issues/2)) after that.** apt needs a design decision
-  first: multiarch package names do not fit the current hold syntax.
+- **Arch ([#2](https://github.com/erez-c137/kempt/issues/2)) next, then Debian and Ubuntu
+  ([#1](https://github.com/erez-c137/kempt/issues/1)).** Several Arch-based distributions ship
+  Plasma by default. apt needs a design decision first: multiarch package names do not fit the
+  current hold syntax.
 
 ## Before 1.0
 
@@ -122,9 +127,6 @@ package stays ready for review at every release.
   means dnf security advisories with severity, and which updates affect your hardware (for example
   "mesa: affects your AMD GPU", or an NVIDIA driver rebuild on next boot). It also covers what an
   update does to the running session, and optional Fedora Bodhi feedback.
-- **`dnf5 check-update --json`** ([#17](https://github.com/erez-c137/kempt/issues/17)), which
-  replaces the text parser. It needs dnf5 5.4.0, which Fedora 44 and later have.
-- **apt and pacman backends**, on the registry from 0.2.
 - **Standalone tools.** A `tools` backend for programs installed as a single downloaded binary,
   which nothing else keeps track of. Kempt reads the installed version, checks one upstream feed,
   and supports holds and summaries as for any backend. Anything owned by a project, lockfile,
