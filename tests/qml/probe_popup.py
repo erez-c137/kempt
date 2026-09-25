@@ -2049,8 +2049,11 @@ p.check("the restart message carries a close button", "showCloseButton: true" in
 # Geometry, which nothing in this file can measure: with no window the popup is never laid out. The
 # ceiling matters anyway - the expanded history row would otherwise be two hundred packages tall
 # and would squeeze the pending list out of the popup entirely - so it is pinned where it lives.
-p.check("the Last update row cannot grow past half the popup",
-        "Layout.maximumHeight: Math.round(popup.height / 2)" in _code_src, True)
+p.check("the Last update row cannot grow past a third of the popup, so three pending rows stay "
+        "whole at the default size",
+        "Layout.maximumHeight: Math.round(popup.height / 3)" in _code_src, True)
+p.check("...and the default size is tall enough for that",
+        "Layout.preferredHeight: Kirigami.Units.gridUnit * 28" in _src, True)
 p.check("...and scrolls within that rather than clipping what it cannot show",
         "interactive: contentHeight > height" in _code_src, True)
 

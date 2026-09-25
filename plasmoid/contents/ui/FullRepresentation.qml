@@ -69,7 +69,8 @@ PlasmaExtras.Representation {
     Layout.minimumWidth: Kirigami.Units.gridUnit * 22
     Layout.minimumHeight: Kirigami.Units.gridUnit * 18
     Layout.preferredWidth: Kirigami.Units.gridUnit * 26
-    Layout.preferredHeight: Kirigami.Units.gridUnit * 24
+    // 28, not 24: at 24, with Last update expanded, the pending list showed two and a half rows.
+    Layout.preferredHeight: Kirigami.Units.gridUnit * 28
 
     collapseMarginsHint: true
 
@@ -865,11 +866,12 @@ PlasmaExtras.Representation {
             id: lastRunView
             Layout.fillWidth: true
             Layout.preferredHeight: contentHeight
-            // ...but never more than half the popup. An ordinary weekly Fedora update installs
+            // ...but never more than a third of the popup. An ordinary weekly Fedora update installs
             // fifty to two hundred packages, and this row expands to ALL of them: without a
             // ceiling, one click on the expander hands the whole popup to a history entry and
-            // squeezes the pending list, which is what the popup is for, down to nothing.
-            Layout.maximumHeight: Math.round(popup.height / 2)
+            // squeezes the pending list, which is what the popup is for, down to nothing. Half was
+            // too much: it left the list two and a half rows at the default size.
+            Layout.maximumHeight: Math.round(popup.height / 3)
             clip: true
             // Which makes the row's own view scrollable exactly when it overflows and inert when
             // it does not, so a one-line row never eats a wheel event meant for the list above it.

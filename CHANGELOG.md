@@ -16,6 +16,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Opening Last update no longer squeezes the pending list.** The popup is taller by default, and
+  the Last update list takes at most a third of it and scrolls, so at least three pending updates
+  always show in full.
 - **A run that staged nothing no longer promises a restart.** If every pending update was held, or
   none were pending, **Install on Next Restart** correctly did nothing, but the panel still said
   updates would install on the next restart. It now gives the reason: "Nothing to stage - every

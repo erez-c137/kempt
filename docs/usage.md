@@ -1003,7 +1003,7 @@ nodejs* or *No longer holding nodejs*. If the hold fails, the reason appears in 
 next press or the next check.
 
 **Last update 18 min ago · 4 packages** shows what the previous run installed. Expand it for the
-package list and **Show Log**. It takes at most half the popup.
+package list and **Show Log**. It takes at most a third of the popup and scrolls within that.
 
 #### Footer
 
