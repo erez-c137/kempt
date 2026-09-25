@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. The outputs below answer most questions before they are asked - a minute there usually saves a round-trip.
+        Thanks for the report. The output below answers most follow-up questions.
   - type: textarea
     id: what-happened
     attributes:
@@ -17,7 +17,7 @@ body:
     id: doctor
     attributes:
       label: kempt doctor output
-      description: Paste the full output of `kempt doctor`. It states the version, the install shape and the wiring in one place. If the CLI is not installed, say so here instead.
+      description: Paste the full output of `kempt doctor`. It shows the version and how Kempt is installed. If the `kempt` command is not installed, say so here.
       render: text
     validations:
       required: true
@@ -36,5 +36,5 @@ body:
     id: log
     attributes:
       label: Relevant kempt log lines
-      description: If the problem involves a check or a run, `kempt log` has one line per thing Kempt did. Optional but useful.
+      description: Optional. If the problem is with a check or an update, `kempt log` shows what Kempt did.
       render: text

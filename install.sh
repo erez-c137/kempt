@@ -72,9 +72,8 @@ run() {
 }
 
 # Recommended opt-out: plasma-discover-notifier duplicates Kempt's notifications AND its background
-# PackageKit activity takes the dnf5 lock at random, which makes Kempt runs fail spuriously (spec,
-# survey C2). A user-level autostart entry with Hidden=true overrides the system one. Idempotent by
-# construction: re-running the installer must never accumulate lines, and a system entry carrying
+# PackageKit activity takes the dnf5 lock at random, which makes Kempt runs fail at random. A
+# user-level autostart entry with Hidden=true overrides the system one. Idempotent by construction: re-running the installer must never accumulate lines, and a system entry carrying
 # `Hidden=false` must be REPLACED, not joined - two Hidden= keys make an invalid desktop entry that
 # parsers disagree about.
 notifier_optout() {  # autostart_dir
@@ -268,7 +267,7 @@ main() {
   widget_install
 
   # Recommended: stop Discover's notifier (duplicate nags + it holds the dnf5 lock at random).
-  # An OFFER, never silent (spec), default yes. A failed read means there is nobody to ask
+  # An OFFER, never silent, default yes. A failed read means there is nobody to ask
   # (piped or redirected stdin), and "nobody answered" must leave the notifier exactly as it was.
   local ans=""
   if ! read -rp "Disable plasma-discover-notifier for this user? [Y/n] " ans; then

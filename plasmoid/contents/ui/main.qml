@@ -224,8 +224,8 @@ PlasmoidItem {
     // ...and its config, resolved the same way (lib/common.sh's KEMPT_CONFIG_DIR default).
     readonly property string configDir: "${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 
-    // The event-driven half of the refresh (spec: an update applied from ANY source shows up
-    // within seconds). KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
+    // The event-driven half of the refresh: an update applied from any source shows up within
+    // seconds. KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
     // package databases plus our own state file. The config file is watched too, and that is what
     // makes the settings page work at all: the page is built by the shell in its own dialog and
     // cannot call back into this file, so it writes with `kempt config set` and this notices the
@@ -542,7 +542,7 @@ PlasmoidItem {
     // for an hour, in which the stage can be consumed by a restart, replaced, or cleaned away. A
     // rebuild is destructive at its START - dnf5 destroys the stored transaction the moment a
     // re-stage begins - so acting on a stale banner throws away a transaction the person never
-    // agreed to lose (spec 4.4). So: read the state file as it is NOW, and proceed only if it is
+    // agreed to lose. So: read the state file as it is NOW, and proceed only if it is
     // still the same stage and still in conflict. stateDir is NOT shellQuote'd - see findLog().
     function rebuildStaged() {
         // The same guard stageOffline has, and it matters more here: two staging runs at once is a

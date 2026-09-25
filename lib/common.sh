@@ -303,7 +303,7 @@ kempt_default() {  # key → default ("" if unknown)
     # as a missing include_<backend> default (docs/architecture.md, the backend wiring table).
     restart_reminder) echo true ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
-    # mid-transaction (spec §Run surfaces), so Kempt recommends the offline path first.
+    # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
     *) echo "" ;;
   esac

@@ -9,8 +9,7 @@
 // derived values: anything that is a DERIVED string or list belongs in the view model, and adding
 // a derivation here instead is the drift to watch for.
 //
-// The SHAPE is Plasma's own:
-// hig-review.md:
+// The shape follows Plasma's own applets:
 //   header  - the pending count and a refresh icon. Nothing else. A PlasmoidHeading is a
 //             T.ToolBar, and a toolbar is for flat controls, not for messages.
 //   content - a Kirigami.InlineMessage per thing that needs saying, then the list, then what the
@@ -254,7 +253,7 @@ PlasmaExtras.Representation {
     // --- the header ------------------------------------------------------------------------------
     // One row: the count, the refresh icon, the gear. Nothing else - three of the things that used
     // to be stacked in this toolbar were messages rather than controls, and they are InlineMessages
-    // in the content area now (hig-review.md P2).
+    // in the content area now.
     header: PlasmaExtras.PlasmoidHeading {
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
@@ -271,7 +270,7 @@ PlasmaExtras.Representation {
                 elide: Text.ElideRight
             }
 
-            // Refresh, in Bluetooth's Header.qml shape (hig-review.md 2.2) - and hidden in the
+            // Refresh, in Bluetooth's Header.qml shape, and hidden in the
             // tray for the same reason Bluetooth hides its own: Plasma 6.7 renders a SINGLE
             // contextual action as an ICON in the heading it draws, beside the pin and the gear,
             // so registering checkAction (main.qml) already puts a view-refresh icon on screen at
@@ -355,7 +354,7 @@ PlasmaExtras.Representation {
                 icon.name: "configure"
                 display: PlasmaComponents.AbstractButton.IconOnly
                 // A real ellipsis, because this opens a dialog. Three ASCII dots are the one
-                // typographic tell that a widget was not written by KDE (hig-review.md P5).
+                // typographic tell that a widget was not written by KDE.
                 text: i18n("Configure Kempt…")
                 // Icon-only, so `text` is never drawn and this is the only place the button says
                 // what it is. Spelled out rather than left to QQC2: a probe measured an empty name
@@ -440,8 +439,8 @@ PlasmaExtras.Representation {
         }
 
         // The restart. Shown in EVERY state, including up to date: you can owe a restart and have
-        // twelve updates pending at once, and you can owe one with nothing pending at all
-        // (hig-review.md 1c). Bound to vm.restartMessageVisible, which has already folded in the
+        // twelve updates pending at once, and you can owe one with nothing pending at all.
+        // Bound to vm.restartMessageVisible, which has already folded in the
         // `restart_reminder` setting and this session's dismissal - binding it to either half
         // separately would be a second copy of that rule.
         Kirigami.InlineMessage {
@@ -955,7 +954,7 @@ PlasmaExtras.Representation {
     // NOT gated on the containment hint, and this is the whole argument for the row existing:
     // gating it the way org.kde.plasma.vault gates its footer would put the primary action back on
     // the one piece of ground Plasma reserves for itself, which every shipped applet treats as
-    // expendable because the contract says the host may replace it (hig-review.md 3). Update Now
+    // expendable because the contract says the host may replace it. Update Now
     // must exist on every host, and a footer keeps it in reach while a 1200-row list scrolls.
     footer: PlasmaExtras.PlasmoidHeading {
         contentItem: RowLayout {
@@ -983,7 +982,7 @@ PlasmaExtras.Representation {
                 }
 
                 // The relative time in the line is the convenience; the absolute stamp is the
-                // truth, and people compare the two (hig-review.md P6). A HoverHandler rather than
+                // truth, and people compare the two. A HoverHandler rather than
                 // a control's `hovered`, because a Label is not a control.
                 HoverHandler { id: footerHover }
                 PlasmaComponents.ToolTip {

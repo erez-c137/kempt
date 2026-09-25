@@ -6,20 +6,20 @@ body:
     id: problem
     attributes:
       label: The problem
-      description: What you are trying to do that Kempt currently makes hard, wrong or impossible. The problem outranks the solution - a well-stated one often gets a better fix than the one first proposed.
+      description: What you are trying to do, and what makes it hard with Kempt today. A clear problem matters more than a proposed fix.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Proposed behavior
-      description: What you would want to happen, if you have a shape in mind. Optional.
+      description: Optional. What you would like Kempt to do.
   - type: dropdown
     id: surface
     attributes:
-      label: Which surface?
+      label: Which part?
       options:
-        - The CLI
+        - The command line
         - The Plasma widget
         - Both
         - Not sure

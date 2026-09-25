@@ -255,8 +255,7 @@ assert_eq "$(js "$calm_empty.emptyStateText")" "No updates in the last known sta
 
 # --- the empty state: one sentence, said once ---------------------------------------------------
 # No full stop. KDE's own placeholders do not carry one ("No paired devices" in KDE Connect,
-# "No Vaults have been set up" in Vault), and hig-review.md P5 names the trailing dot as one of the
-# tells that a widget was not written by KDE.
+# "No Vaults have been set up" in Vault), and a trailing dot makes a widget look foreign.
 clean='L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false)'
 assert_eq "$(js "$clean.emptyStateText")" "Everything is up to date" \
   "an up-to-date box says so in the placeholder, with no full stop"
@@ -1820,15 +1819,15 @@ assert_eq "$(vm '{}' "$RISKY$STG" 0 'riskySummary')" \
   "$(vm '{}' "$RISKY" 0 'riskySummary')" \
   "...while the count of what is pending is unchanged, because it is still true"
 
-# --- the staged banner FLIPS when a hold lands behind it (spec 4.4) -----------------------------
+# --- the staged banner FLIPS when a hold lands behind it -----------------------------
 # The trap this closes, in the user's own order: stage 83 updates with a kernel among them, read
 # something worrying, press the pin on kernel-core - and restart into the kernel you just tried to
 # keep out. dnf5 built that transaction before the hold existed and offers no way to edit a stored
-# one (spec G4), so the hold is real and so is the install. Nothing lied; the popup was the last
+# one, so the hold is real and so is the install. Nothing lied; the popup was the last
 # surface that could have said so and it was showing a green checkmark with a live Restart… button.
 #
 # So the banner does not GAIN a line, it CHANGES TYPE. A second sentence under a Positive message
-# is the contradiction one level down (spec, UX finding 1): the reassurance and the warning would
+# is the contradiction one level down: the reassurance and the warning would
 # be the same message, and the reassurance is the half with the button on it.
 #
 # Built whole rather than through st(), because the generic variant below needs a HELD dnf item in
@@ -1917,8 +1916,8 @@ assert_eq "$(sv "$GENERIC" "$NOBK" 'stagedType')" "positive" \
   "an unreadable staged list with nothing held at all stays the plain armed banner"
 assert_eq "$(sv "$GENERIC" "$PENDDNF" 'stagedType')" "positive" \
   "...and a pending, unheld package is not a hold either"
-# Flatpak holds can never conflict: the offline surface stages dnf and only dnf (spec, UX finding
-# 2), so a held GIMP behind an unreadable dnf list is not a reason to warn about anything.
+# Flatpak holds can never conflict: the offline surface stages dnf and only dnf,
+# so a held GIMP behind an unreadable dnf list is not a reason to warn about anything.
 assert_eq "$(sv "$GENERIC" "$HELDFP" 'stagedType')" "positive" \
   "a held flatpak is not a conflict: the offline surface stages dnf only"
 
@@ -2008,7 +2007,7 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRestart')" "true" \
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the warning stands it down anyway, which is the whole point of the flip"
 
-# UX finding 10, pinned: riskyMessage stays silent under EVERY staged variant. The staged banner is
+# riskyMessage stays silent under EVERY staged variant. The staged banner is
 # what explains why "Install on Next Restart" is not being offered, and a warning variant is the
 # state where a second offer to stage the same transaction would be worst.
 RISKYPEND=',risky_pending:["kernel-core","kernel-modules"]'
@@ -2326,7 +2325,7 @@ assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
   "The staged update changed since this was offered. Nothing was discarded; check the banner above." \
   "copy: what a discard clicked over a stage that had already moved says instead of acting"
 # "re-downloads" is measurably false and must never appear: a replace-stage reuses dnf5's package
-# cache (spec G8 - re-staging with an exclude transferred 0.0 B, ">>> Already downloaded"). And
+# cache (re-staging with an exclude transferred 0.0 B, ">>> Already downloaded"). And
 # "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
   "[]" "no copy string claims a rebuild re-downloads anything, or calls removing it unstaging"
@@ -2395,8 +2394,8 @@ assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return typeof L.COPY[
 # file that carries one to forbid it would trip the very check it exists to support.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return L.COPY[k].indexOf("\u2014") >= 0; })')" \
   "[]" "no copy string contains an em dash (U+2014)"
-# A real ellipsis, U+2026, on the two labels that open something else. hig-review.md P5 calls three
-# ASCII dots the one typographic tell that a widget was not written by KDE.
+# A real ellipsis, U+2026, on the two labels that open something else. KDE's own labels use it, and
+# three ASCII dots make a widget look foreign.
 for _k in restartAction configure; do
   assert_eq "$(js "L.COPY.$_k.charCodeAt(L.COPY.$_k.length - 1)")" "8230" \
     "copy: $_k ends in a real ellipsis (U+2026)"
@@ -2869,7 +2868,7 @@ for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedD
 done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
-# the authorization and the discard cost by then hears them never (spec, UX finding 9).
+# the authorization and the discard cost by then hears them never.
 assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "2" \
   "...and both banner actions say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
@@ -3011,7 +3010,7 @@ assert_eq "$(grep -c 'removes the current staged update' "$POPUP_DOC")" "1" \
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"
 # The measured truth, kept out of the docs as firmly as out of the copy: a replace-stage reuses
-# dnf5's package cache (spec G8), so nothing anywhere may promise a re-download.
+# dnf5's package cache, so nothing anywhere may promise a re-download.
 assert_eq "$(grep -ciE 're-?downloads? the (staged|transaction)' "$USAGE" || true)" "0" \
   "...and nothing on the page claims a rebuild downloads it all again"
 

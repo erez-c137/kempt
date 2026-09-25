@@ -477,7 +477,7 @@ settle()
 # ==================================================================================================
 
 # --- the 30-second clock ------------------------------------------------------------------------
-# hig-review.md P6: "Checked 4 min ago" is a lie within a minute of being drawn if nothing
+# "Checked 4 min ago" is wrong within a minute of being drawn if nothing
 # re-evaluates it. So there is a clock - and it must not tick while the popup is shut, because a
 # panel process has no business waking every 30 seconds for text nobody is looking at.
 p.check("the clock is idle while the popup is closed", ev("clockTimer.running"), False)
@@ -497,7 +497,7 @@ p.check("opening the popup sets the clock before anything is drawn",
 
 # --- refresh on open ----------------------------------------------------------------------------
 # Plasma's own popups mostly have no refresh button because they refresh themselves on open
-# (hig-review.md 2.3). The staleness guard is what keeps that from being dnfdragora's blocking
+# The staleness guard is what keeps that from being dnfdragora's blocking
 # re-index: state-live.json is a real capture from 2026-08-25, so by the time anyone runs this it
 # is older than both the configured 15 minutes and the 5-minute ceiling.
 ev("root.doCheck()")
@@ -722,7 +722,7 @@ open(XDGRC, "w").write("0")
 ev('root.actionMessage = ""')
 
 # --- Check for Updates as a contextual action -------------------------------------------------------
-# The tray heading has no slot a plasmoid can put a button in (hig-review.md 2.1); one QAction in
+# The tray heading has no slot a plasmoid can put a button in ; one QAction in
 # Plasmoid.contextualActions is the whole channel, and it buys both the tray's More-actions menu
 # and the icon's right-click menu.
 #
@@ -1039,7 +1039,7 @@ state(STAGED_NOCOUNT)
 p.check("an unknown count loses the number, not the sentence",
         lev("stagedMessage.text"), ev("Logic.COPY.stagedUnknownCount"))
 
-# --- the banner FLIPS when a hold lands behind the stage (spec 4.4) ------------------------
+# --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
 # worrying, press the pin on kernel-core - and restart into the kernel you just tried to keep
 # out. dnf5 built that transaction before the hold existed and offers no way to edit a stored
@@ -1103,7 +1103,7 @@ p.check("...disclosing the authorization and the discard cost in its tooltip",
         lev("stagedMessage.actions[1].tooltip"), REBUILD_TIP)
 # ...and the same words to a screen reader, which is the load-bearing half: a polkit dialog
 # takes focus the moment this is pressed, so a person who has not heard the cost by then hears
-# it never (spec, UX finding 9).
+# it never.
 p.check("...in the same words a screen reader gets, before polkit takes the focus",
         lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
 p.check("...which is the copy table's tooltip, not a second copy of it",
@@ -1192,11 +1192,11 @@ p.check("an armed stage with no hold behind it is the Positive banner it always 
 p.check("...with the restart still on it", lev("stagedMessage.actions[0].visible"), True)
 p.check("...and no rebuild offered", lev("stagedMessage.actions[1].visible"), False)
 
-# --- the precondition re-verify, at click time (spec 4.4, systems finding 8) ----------------
+# --- the precondition re-verify, at click time ----------------
 # Consent is given to a BANNER, and the banner describes one transaction. Between rendering it
 # and the click, that transaction can be consumed by a restart, replaced by another stage, or
 # cleaned away - and a rebuild is destructive at its start (dnf5 destroys the stored
-# transaction the moment a re-stage begins, spec G2). So the click re-reads state.json and
+# transaction the moment a re-stage begins). So the click re-reads state.json and
 # proceeds only if it is still looking at the same stage, still in conflict. Anything else and
 # it runs nothing and says so.
 # The 30-second watcher would otherwise be a coin toss inside this section: it polls mtimes,
@@ -1395,7 +1395,7 @@ p.check("...for a screen reader too, since a tooltip is a pointer's channel",
 state(UPTODATE)
 stack("with nothing at all pending")
 
-# hig-review.md P1, and the single easiest thing in this redesign to get wrong: a pending
+# The easiest thing in this layout to get wrong: a pending
 # restart is a fact about the machine, not an "up to date" fact. You can owe one with twelve
 # updates pending, and you can owe one with nothing pending at all.
 state(UPTODATE_REBOOT)
@@ -1559,7 +1559,7 @@ p.pump(50)
 # The footer is the whole reason the primary action moved out of the heading row: the heading is
 # the row Plasma's contract lets the containment replace, and org.kde.plasma.vault gates its own
 # footer on exactly that hint. Copying vault verbatim would put Update Now back on the one piece
-# of ground Plasma reserves for itself (hig-review.md 3).
+# of ground Plasma reserves for itself.
 lev("popup.traysHeading = true")
 p.check("a host that draws its own heading does not take the footer with it",
         lev("popup.footer.visible"), True)
@@ -2018,7 +2018,7 @@ p.check("...while the refresh icon's is that property AND the claim, never the h
 # ...and that the footer never learns the same trick. org.kde.plasma.vault gates its footer on the
 # containment hint, and copying it verbatim would put the primary action back on the one row
 # Plasma's contract lets the host replace - the exact bug moving it here exists to prevent
-# (hig-review.md 3). Counted rather than searched, because "the string is not next to the word
+# Counted rather than searched, because "the string is not next to the word
 # footer" is a pin that a reformatting would satisfy.
 #
 # TWO readers, and the number is the assertion: the gear and the refresh icon, which are the two

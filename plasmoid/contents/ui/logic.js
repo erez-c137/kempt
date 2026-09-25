@@ -196,7 +196,7 @@ var COPY = {
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
-    // contradiction one level down (spec 4.4). "%1"/"%2" because these are the only entries whose
+    // contradiction one level down. "%1"/"%2" because these are the only entries whose
     // subject is a package name from another program, and spec section 7 requires them stated as
     // sentences rather than head/tail fragments; stagedVariantOf substitutes.
     // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
@@ -221,9 +221,9 @@ var COPY = {
 
     // The one action a warning variant offers, and its whole cost. Both facts are real: it runs
     // `kempt update --surface=offline`, a privileged verb, and dnf5 destroys the stored
-    // transaction the moment a re-stage begins (spec G2), so a failed rebuild leaves nothing
+    // transaction the moment a re-stage begins, so a failed rebuild leaves nothing
     // staged. It deliberately does NOT say "re-downloads" - a replace-stage reuses dnf5's package
-    // cache (container-measured, spec G8) - and says "removed", the CLI's own word for it.
+    // cache (container-measured) - and says "removed", the CLI's own word for it.
     stagedRebuildAction: "Rebuild Staged Update",
     stagedRebuildTooltip:
         "Builds the staged update again with your current holds. Asks for authorization; "
@@ -936,7 +936,7 @@ function stagedHeaderOf(staged) {
 //
 // heldDnf is the one fact this file supplies itself: whether the box holds any dnf package at all.
 // It gates the generic warning only - with nothing held there is nothing to be vague ABOUT. dnf
-// only, because the offline surface stages dnf and only dnf (spec, UX finding 2).
+// only, because the offline surface stages dnf and only dnf.
 //
 // TOLERANCE: a key of the wrong type is IGNORED, never duck-typed - a string has a length and
 // indexes into its own characters, so a duck-typed check would warn about a package called "k".
@@ -1863,7 +1863,7 @@ function viewModel(state, updating, cliError, opts) {
         // restart will install the package they tried to keep out.
         stagedShowRestart: staged && !restartMessageVisible && !stagedWarning,
         // ...and what stands in its place. Only on the variants where there is something to
-        // change: rebuilding an ordinary armed stage would destroy a good transaction (spec G2) to
+        // change: rebuilding an ordinary armed stage would destroy a good transaction to
         // produce the same one back.
         // ...and never where a stage is refused: a rebuild runs the same privileged verb, so it
         // would cancel a stored release upgrade exactly as a first stage would, and abort in

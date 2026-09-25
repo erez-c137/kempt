@@ -1,21 +1,18 @@
 # Contributing to Kempt
 
-The most useful contribution is a backend for another distribution. It is also the one kind of
-change that starts with an issue rather than a pull request, because a backend needs a new verb
-in the root helper (see [Adding a backend](#adding-a-backend)). The second most useful is a test
-that fails against a bug nobody had noticed yet, and that one needs no permission at all: send
-it.
+The most useful contribution is a backend for another package manager. Open an issue before you
+start one, because a backend usually needs a new verb in the root helper (see
+[Adding a backend](#adding-a-backend)). The next most useful is a test that fails against a bug
+nobody has noticed yet. That needs no issue: send the pull request.
 
-Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security
-problems go through [SECURITY.md](SECURITY.md), never a public issue.
+Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems through
+[SECURITY.md](SECURITY.md), not a public issue.
 
-New here? [AGENTS.md](AGENTS.md) is the two-minute version: the map of the tree, and the four
-rules that will bite you if nobody tells you first. This file is the long form.
+[AGENTS.md](AGENTS.md) is the two-minute version of this file.
 
 ## Dev setup
 
-There is no build step - that is a design choice, argued in
-[docs/architecture.md](docs/architecture.md#why-bash). Clone it and run it.
+There is no build step ([why](docs/architecture.md#why-bash)). Clone and test:
 
 ```bash
 git clone https://github.com/erez-c137/kempt.git
@@ -23,242 +20,185 @@ cd kempt
 tests/run_tests.sh
 ```
 
-Three entry points, and they answer different questions:
+You need bash 4+, `jq`, `flock` (util-linux) and GNU coreutils. You do not need dnf, Flatpak, polkit
+or root: every outside command goes through an
+[environment seam](docs/architecture.md#environment-seams), and the suite stubs them all.
 
-| Command | What it proves | Needs |
+Two optional tools add the widget's tests, which are more than half the suite. `node` runs the
+tests of `logic.js`. `python3` with PySide6 (`python3-pyside6`) runs the probes that load the real
+QML. The suite prints a warning when either is missing.
+
+| Command | What it tests | Needs |
 | --- | --- | --- |
-| `tests/run_tests.sh` | the code: every backend, parser, renderer and the widget's logic | nothing but bash and jq |
-| `tests/live/run-offline-gate.sh` | the offline transaction against a REAL dnf5, including what a broken package manager does | podman, network |
-| `tests/release/run-release-check.sh` | the packages: installed on a machine that has never seen Kempt, the QML the package installed, a first-time user, an upgrade from the released version, and that removal leaves nothing behind | podman, network |
+| `tests/run_tests.sh` | the code: backends, parsers, renderers and the widget's logic | bash and jq |
+| `tests/live/run-offline-gate.sh` | the offline update against a real dnf5, including a broken one | podman, network |
+| `tests/release/run-release-check.sh` | the packages: a fresh install, the installed QML, an upgrade from the last release, and a clean removal | podman, network |
 
-The last two refuse to run outside a throwaway container, because one breaks the package manager
-on purpose and the other installs and removes packages. Run the release check before tagging: it is
+The last two run only inside a throwaway container. Run the release check before tagging: it is
 step 4 of [docs/RELEASING.md](docs/RELEASING.md).
 
-You need bash 4+, `jq`, `flock` (util-linux) and GNU coreutils. You do **not** need dnf, flatpak, polkit or root to
-work on Kempt: every impure command goes through an environment seam, and the suite stubs all of
-them. See [docs/architecture.md](docs/architecture.md#environment-seams) for the full list.
-
-Two optional tools unlock the widget's coverage, and the suite says loudly when they are missing
-rather than passing quietly: `node` runs the derivation tests over `logic.js`, and `python3` with
-PySide6 (`python3-pyside6`) runs the probes that execute the real QML. Without them you still get
-a green suite, minus the widget's entire derivation and probe coverage - more than half of the
-suite's assertions.
-
-Syntax-check everything before you commit:
+Before you commit, syntax-check and lint. CI runs the same two commands:
 
 ```bash
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
-```
-
-Then lint it, because CI does and a first pull request should not go red on a tool nobody
-mentioned. This is `.github/workflows/ci.yml`'s own command with `$GITHUB_WORKSPACE` replaced by
-the checkout you are standing in:
-
-```bash
-shellcheck -x -s bash \
-  --source-path="$PWD" \
-  --source-path="$PWD/lib" \
-  --source-path="$PWD/backends" \
+shellcheck -x -s bash --source-path="$PWD" --source-path="$PWD/lib" --source-path="$PWD/backends" \
   bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
 ```
 
-`sudo dnf install ShellCheck` if you do not have it. `-x` follows `source`, and the three
-`--source-path` entries are what let it resolve `bin/kempt`'s runtime-computed `$ROOT`; without
-them every sourced file comes back as an informational SC1091. Every finding gets a real fix or a
-one-line `disable` naming the constraint - there are no file-level suppressions in this tree.
+Install ShellCheck with `sudo dnf install ShellCheck`. The `--source-path` entries let it follow
+`bin/kempt`'s `source` lines. Fix every finding, or disable it on one line with a comment that says
+why. There are no file-wide suppressions.
 
-**Never run a real privileged update while developing.** Use the seams and the `--destdir` mode
-of `install.sh`, which stages every file into a prefix with no `pkexec` and no prompts:
+**Never run a real privileged update while developing.** Use the seams, or stage the install into a
+directory with no `pkexec` and no prompts:
 
 ```bash
 ./install.sh --destdir /tmp/stage
 ./install.sh --destdir /tmp/stage --uninstall
 ```
 
-## Test-driven, and the tests have to bind
+## Tests come first, and they have to bind
 
-Write the failing test first, watch it fail for the right reason, then make it pass. Reviews here
-ask for the failure, not just the pass.
+Write the failing test first and check it fails for the right reason. Then make it pass.
 
-Then prove the test binds: break the code it claims to cover, confirm the test goes red, put the
-code back. A test that still passes against the defect it is named after is worse than no test,
-because it advertises coverage that does not exist. Several real bugs in this repo survived a
-green suite for exactly that reason.
+Then prove the test binds: break the code it covers, see it go red, and put the code back. A test
+that passes against the bug it is named after gives false confidence.
 
-## Test harness rules
+### Harness rules
 
-`tests/lib.sh` is small on purpose. These rules are what reviews enforce:
+`tests/lib.sh` is small. Reviews enforce these rules:
 
-- **Call `sandbox` first, before anything else.** It creates one throwaway temp directory and
-  points `HOME`, `KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` at separate paths inside it, so no
-  test can reach your real config or state. It also neutralizes every seam variable (unset, or
-  pointed somewhere harmless) and installs the EXIT trap that cleans up and gives the file a
-  meaningful exit status.
-- **Never install your own EXIT trap.** It replaces the harness's, and a test file that then
-  forgets `finish` silently passes.
-- **Stub the seams you use.** The helper seams deliberately default to nonexistent
-  `UNSTUBBED-*` paths, so a test that forgets to stub one fails loudly instead of reaching for
-  the real system.
-- **Use the assertions**: `assert_eq`, `assert_json_eq`, `assert_exit`, and end with `finish`.
-- **A test file must be runnable on its own** (`bash tests/test_foo.sh`) as well as through
-  `tests/run_tests.sh`, which fails when the suite matches no files at all.
+- **Call `sandbox` first.** It points `HOME`, `KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` into a
+  temp directory, resets every seam, and sets the trap that cleans up.
+- **Never set your own EXIT trap.** It replaces the harness's, and a file that forgets `finish`
+  then passes silently.
+- **Stub the seams you use.** Unstubbed helper seams point at `UNSTUBBED-*` paths, so a missed
+  stub fails loudly.
+- **Use the assertions:** `assert_eq`, `assert_json_eq`, `assert_exit`. End with `finish`.
+- **Every test file runs on its own** (`bash tests/test_foo.sh`) as well as through
+  `tests/run_tests.sh`.
 
 ### Fixtures
 
-- Fixtures are **byte-faithful** captures of real tool output. No comment lines, no markers, no
-  tidying. Several of the parsers are pinned to whitespace and column behavior that a "cleanup"
-  would destroy.
-- Provenance lives in [`tests/fixtures/MANIFEST.md`](tests/fixtures/MANIFEST.md), one entry per
-  file: captured or hand-written, when, from what, and what each deliberate oddity guards. If you
-  add a fixture, add its entry in the same commit.
-- **Capture through the same code path production uses.** An early dnf capture used `sort -u`
-  where production used plain `sort`, which hid an entire bug class (duplicate names
-  cross-producing in `join`) from the whole suite.
-- **Guard rows are mandatory.** Every fixture carries at least one row that fails the test when a
-  guard is deleted: a pending package missing from the installed lookup, a duplicate name at a
-  divergent version, and whatever headers or indented sections the real tool emits.
+- **Fixtures are exact captures of real output.** No comments, no markers, no tidying. Several
+  parsers depend on the exact whitespace.
+- **Record each one in [`tests/fixtures/MANIFEST.md`](tests/fixtures/MANIFEST.md)** in the same
+  commit: captured or hand-written, when, from what, and what each odd row guards.
+- **Capture through the command production runs**, with the same flags and the same sorting.
+- **Include guard rows.** These rows fail a test if a guard is removed. Examples: a pending
+  package missing from the installed list, a duplicate name at two versions, the tool's headers.
+
+More on the test layers is in [tests/README.md](tests/README.md).
 
 ## Working on the widget
 
-The plasmoid lives in `plasmoid/` and is installed as a **copy**, so re-run `./install.sh` after
-every change to it (the CLI is a symlink and needs no such thing). There is no build step here
-either.
+The widget lives in `plasmoid/`. `./install.sh` copies it, so run it again after every change. A
+running Plasma keeps the old copy until `plasmashell --replace` or a new login.
 
-- **Rules go in `logic.js`, bindings go in QML.** The badge number, the icon state, the tooltip,
-  the popup rows, the watcher comparison: all of it is derived in `plasmoid/contents/ui/logic.js`,
-  which must stay engine-agnostic JavaScript - no Qt, no `i18n`, no filesystem, no network, and
-  old-school syntax that runs in whatever JS engine the installed Plasma ships. That is what lets
-  `tests/test_widget_logic.sh` load the same file under node and pin every rule. A decision made
-  in a QML binding is a decision no test can reach.
-- **Quote everything that came from outside.** Package names arrive in the CLI's JSON and go back
-  out on a command line, so they go through `Logic.shellQuote` with no exceptions. See
-  [docs/security.md](docs/security.md#the-panel-widget).
-- **Nothing starts a process except `Executor.qml`.** Add a caller to an existing queue only if it
-  has a similar shape; a fast periodic caller must not share a queue with a slow occasional one.
-  A fourth Executor instance is cheaper than a cleverer queue.
-- **The QML probes run strictly one at a time.** `tests/test_widget_qml.sh` supervises each one
-  through `tests/qml/safe_probe.py` and asserts afterwards that no probe process survived. That
-  discipline is not ceremony: an earlier version with no working timeout left ~2,200 wedged Qt
-  processes and OOM-killed the machine. If the process-count assertion ever fails, stop and fix
-  it rather than re-running.
-- **A setting the widget shows is a setting `kempt config` owns.** `contents/config/main.xml`
-  declares no keys on purpose. Adding a KConfig entry would create a second copy of a value the
-  CLI already owns, and the two would drift the first time somebody used a terminal.
-- **A running Plasma keeps the old copy loaded.** `./install.sh` puts the new files in place, but
-  the panel goes on showing what it loaded at login until you run `plasmashell --replace` or log
-  out and back in. A change that "did nothing" is usually this.
-- **A new user-facing string goes in three places, or a test fails.** The wording itself in the
-  `COPY` table in `logic.js`; the same characters as an `i18n("...")` literal in the QML, because
-  `i18n(someVariable)` extracts nothing for translators; and the key's classification in
-  `tests/qml/probe_popup.py`, which decides how the probe expects to find it (assembled in
-  `logic.js`, substituted in QML with an argument, or a plain label).
+- **Rules go in `logic.js`, bindings go in QML.** Everything the widget decides lives in
+  `plasmoid/contents/ui/logic.js`, so node can test it. Keep it plain, old-style JavaScript: no Qt,
+  no `i18n`, no files, no network. A decision made in a QML binding cannot be tested.
+- **Quote anything that came from outside.** Package names go back out on a command line through
+  `Logic.shellQuote`, always. See [docs/security.md](docs/security.md#the-panel-widget).
+- **Only `Executor.qml` starts processes.** Don't put a fast periodic caller on the same queue as a
+  slow one. Another Executor instance is simpler than a smarter queue.
+- **Settings belong to `kempt config`.** `contents/config/main.xml` declares no keys, so there is
+  only one copy of each value.
+- **A new string goes in three places.** The text in the `COPY` table in `logic.js`. The same text
+  as an `i18n("...")` literal in the QML, so translators see it. Its type in
+  `tests/qml/probe_popup.py`.
 
-Running the probes needs `python3-pyside6` and the Plasma and Kirigami QML modules the widget
-imports, which any Plasma 6 desktop already has. One probe on its own:
+The probes need `python3-pyside6` and the Plasma and Kirigami QML modules, which a Plasma 6
+desktop already has. Run one through its supervisor:
 
 ```bash
 python3 tests/qml/safe_probe.py 120 python3 tests/qml/probe_popup.py
 ```
 
-Never invoke a probe directly: the harness refuses, because without that supervisor there is no
-watchdog, no process group to kill and no offscreen platform. Inside a probe, call
-`p.clear_calls()` before an action whose call count you are about to assert, or the count includes
-every earlier scenario. Label an assertion that only establishes the condition for the next one
-with `premise:`, so a failure there reads as "the scenario never happened" rather than as the
-behaviour being wrong.
+The supervisor adds the timeout, the process group and the offscreen platform, and a probe refuses
+to run without it. `tests/test_widget_qml.sh` runs the probes one at a time and checks that none is
+left running. If that check fails, stop and fix it before running anything else: stuck Qt
+processes pile up fast.
 
-More on the layers, and on writing a test file, is in [tests/README.md](tests/README.md).
+Inside a probe, call `p.clear_calls()` before an action whose calls you count. Label an assertion
+that only sets up the next one with `premise:`, so its failure reads as "the setup failed".
 
 ## Shell conventions
 
 - `set -euo pipefail` at the top of every script.
-- **Backends return status explicitly.** `if x="$(fn)"` disables errexit inside the entire callee,
-  so a function that relies on `set -e` to propagate a failure reports success instead. Return by
-  hand.
-- **Validate before exec in anything privileged.** The root helpers accept a fixed verb list and
-  pattern-checked arguments, build the command themselves, and exit 2 on anything else. A new
-  verb follows that shape or it does not merge.
-- **Do not add locale handling.** `lib/common.sh` pins `LC_ALL=C.UTF-8` once, and the root
-  helpers pin it again for a reason documented in
-  [docs/security.md](docs/security.md#the-locale-pin-is-load-bearing).
-- **Write files atomically** when a reader could see them half-written (`atomic_write`). The
-  widget polls state files on a timer.
-- **Watch pipefail around `ls`.** It exits 2 on an empty directory, which is the normal state on
-  a fresh install; the repo uses process substitution or `|| true` where that matters.
-- **Comments explain why, not what.** The house style is that every non-obvious guard names the
-  bug it prevents, so nobody deletes it as redundant six months later. Keep that up.
+- **Backends return their status by hand.** `if x="$(fn)"` turns off errexit for the whole of
+  `fn`, so a failure that relied on `set -e` would report success.
+- **Privileged code checks before it runs.** The root helpers accept a fixed list of verbs and
+  pattern-checked arguments, build the command themselves, and exit 2 on anything else. A new verb
+  follows that shape.
+- **Don't add locale handling.** `lib/common.sh` sets `LC_ALL=C.UTF-8`, and the root helpers set it
+  again ([why](docs/security.md#the-locale-pin-is-load-bearing)).
+- **Write shared files atomically** with `atomic_write`. The widget reads state files on a timer.
+- **Watch `ls` under pipefail.** It exits 2 on an empty directory, which is normal on a fresh
+  install.
+- **Comments say why.** When a guard is not obviously needed, name the bug it prevents.
 
 ## Adding a backend
 
-Start with the walkthrough in
-[docs/architecture.md](docs/architecture.md#adding-a-backend-for-your-distro). It covers the two
-functions to implement, the apply path (a new verb in the helper, or an unprivileged one in the
-backend), the fixture and MANIFEST workflow, and worked sketches for apt, pacman and zypper.
+Start with [the walkthrough](docs/architecture.md#adding-a-backend-for-your-distro). It covers the
+two functions to write, how updates get applied, fixtures, and sketches for apt, pacman and zypper.
 
-Changes to the state schema, the exit-code contract or the root helpers are worth an issue before
-a pull request. A backend is usually one of those changes, whether or not it looks like one: most
-package managers need root to install anything, which means a new verb in `libexec/kempt-apply`,
-and adding a backend changes `assemble_state`'s signature either way. Flatpak is the exception
-that shows the question is worth asking: `flatpak update` gets its own polkit yes in an active
-local session, so it applies its own updates from `backends/flatpak.sh` with no helper verb at
-all. So open an issue first, and say which package manager it is and whether its apply needs
-root. The backend file itself is the easy part; the review is about the privileged half and the
-state contract.
+Open an issue before a pull request. Say which package manager it is and whether installing
+needs root. Most do, which means a new verb in `libexec/kempt-apply`. Flatpak is the exception: it
+asks polkit for itself, so `backends/flatpak.sh` applies updates with no helper verb. Every backend
+also changes `assemble_state`. The review is mostly about the root helper and the state file.
 
-## Docs
+## Writing
 
-Documentation is a first-class deliverable here, and it is held to the same standard as code:
+Docs, comments, commit messages, issues and the widget's text all follow these rules.
 
-- **Every command, key, default and exit code must be verified against the code**, not
-  remembered. Where a doc and the code disagree, the code is right and the doc is a bug.
-- **Every shell example must be copy-paste runnable.** Run it before you commit it.
-- **No em dashes in documentation or user-facing copy.** Use a spaced hyphen or rephrase. Sweep
-  the published docs before every commit:
+1. Know who reads it. Put what they need first.
+2. One idea per sentence. Aim for about 15 words.
+3. Say what something does, not what it is not.
+4. No asides in brackets or dashes. No em dashes: use " - " or rephrase.
+5. No self-praise (`robust`, `carefully`, `deliberately`).
+6. State the rule. The story of how it came about goes in the commit.
+7. Use the words the reader sees on screen.
+8. Say each thing once, in one place, and link to it.
+9. Cut what the reader does not need.
+10. Check every command, setting, default and exit code against the code. When a doc and the code
+    disagree, fix the doc. Run every example before you commit it.
 
-  ```bash
-  grep -rnP '\x{2014}' *.md docs/*.md docs/man/   # U+2014 EM DASH; expect no output
-  ```
+Address the reader as "you" and the program as "Kempt". Spelling is British (*behaviour*,
+*cancelled*), except text copied from Plasma. Commands, paths and keys go in backticks, and
+on-screen labels in **bold**.
 
-- Concise beats complete. A reader who finishes a page should know what to do next.
+### What never goes in a public file
 
-### What belongs in a public file
+Everyone who reads this repository has only this repository. So, in docs and in code comments:
 
-Everything in this repository is read by people who have only this repository. That rules four
-things out, in code comments as much as in documentation:
+- **No names, and nobody in the third person.** Write "the check runs first", not who decided it.
+- **Nothing about how the work was made.** No review names, finding numbers, task codes or tool
+  names.
+- **No links to private notes.** If a fact from them matters, write the fact here.
+- **No email addresses**, except in `kempt.spec`'s `%changelog`, `SECURITY.md` and
+  `CODE_OF_CONDUCT.md`.
+- **Nothing personal in screenshots.** Check the package names and everything else in the frame.
 
-- **Nobody's name, and no third person.** Not "the maintainer decided", not a first name, not
-  "so-and-so's machine". A fact does not need an owner: "61 packages staged at 10:31 and nothing
-  changed" is the evidence, and whose machine it was adds nothing a reader can use.
-- **No trace of how the work was produced.** No review exercises, no finding numbers, no
-  work-package codes, no names of tools used to write it. A comment saying a rule came out of a
-  review is telling the reader about the project's process instead of about the code.
-- **No email address**, except in the three places a format requires one: `kempt.spec`'s
-  `%changelog`, `SECURITY.md` and `CODE_OF_CONDUCT.md`.
-- **No working papers.** Design notes, research, plans and review reports are not documentation
-  and are not published: they live with the project's private notes, outside this repository.
-  When a fact in one of them matters to a reader, state the fact in the documentation. Do not
-  link to the paper - a public file pointing at a private one is worse than saying nothing.
+`tests/test_docs.sh` checks what a search can find. To check for em dashes yourself:
 
-`tests/test_docs.sh` enforces the mechanical half of this, alongside the em-dash rule. It cannot
-check voice, so that part is yours.
+```bash
+grep -rnP '\x{2014}' *.md docs/*.md docs/man/   # expect no output
+```
 
 ## Bumping the version
 
-`VERSION` at the root of the checkout is the only place this project writes its version down.
-`kempt --version` reads it and `kempt doctor` opens with it - so a bump is one edit to `VERSION`,
-then `tests/test_version.sh`, which fails until `plasmoid/metadata.json`, the metainfo's newest
-`<release>` and `kempt.spec`'s `Version:` all agree:
+`VERSION` is the only file that holds the version. `kempt --version` and `kempt doctor` read it.
+After editing it, run `tests/test_version.sh`, which names each file that does not agree yet
+(`plasmoid/metadata.json`, the metainfo's newest `<release>`, and `kempt.spec`'s `Version:`):
 
 ```bash
 printf '0.2.0\n' > VERSION
-tests/test_version.sh          # names every file that does not agree yet
+tests/test_version.sh
 ```
 
-The git tag is the one number left to a human, along with the spec's `%changelog`, which needs a
-dated entry of its own. Which file to edit and in what order is step 1 of
-[docs/RELEASING.md](docs/RELEASING.md#the-release); add the release's section to `CHANGELOG.md`,
-and bump in its own commit, so the diff that says what the release is stays readable.
+The git tag and the spec's dated `%changelog` entry are done by hand. Bump in a commit of its own.
+The full order is in [docs/RELEASING.md](docs/RELEASING.md#the-release).
 
 ### Building an RPM by hand
 
@@ -266,79 +206,52 @@ and bump in its own commit, so the diff that says what the release is stays read
 tools/build-local.sh          # runs the suite, builds, installs, reloads the widget
 ```
 
-A hand build is named as a preview of the next release, so `rpm -q` and `kempt --version` say
-which commit is installed:
+A hand build is named as a preview of the next release, so you can tell which commit is installed:
 
 ```
 kempt-0.1.5~dev.4-0.git1a2b3c4.20260922T193500.1.fc44     rpm -q kempt
 kempt 0.1.5~dev.4+git1a2b3c4                               kempt --version, the widget
 ```
 
-- **0.1.5** is the release being previewed: the patch after the newest tag, or `VERSION` itself
-  once a release bump has moved past the tag.
-- **dev.N** counts the commits since that tag. It only goes up, and it maps back to one commit.
-  `.dirty` means the tree had changes the commit does not.
-- **The tilde** is RPM's pre-release marker: `0.1.5~dev.4` sorts below `0.1.5`, so the release
-  upgrades over every hand build by itself. A fourth number (`0.1.5.1`) or a suffix would sort
-  above it and leave the hand build pinned with dnf reporting nothing to do.
+- **0.1.5** is the next release: the patch after the newest tag, or `VERSION` once it has been
+  bumped past the tag.
+- **dev.4** is the number of commits since that tag. `.dirty` means there were uncommitted
+  changes.
+- **The tilde** makes `0.1.5~dev.4` sort below `0.1.5`, so the real release replaces the hand build.
 
-The script renames a copy of the tree and never edits the checkout, so `VERSION`, the widget's
-metadata, the metainfo and the spec keep naming the release. `--print-name` prints the name and
-stops; `--no-install` builds into `~/rpmbuild/RPMS/noarch` and stops.
+The script works on a copy and never edits the checkout. `--print-name` prints the name and stops;
+`--no-install` builds into `~/rpmbuild/RPMS/noarch` and stops.
 
-Building with `rpmbuild` directly still works. Pass a stamp, always:
+To use `rpmbuild` directly, always pass a stamp, or the build looks identical to the release:
 
 ```bash
 rpmbuild --define "kempt_local $(date +%Y%m%dT%H%M%S)" -ba kempt.spec
 ```
 
-Without it the package calls itself `<version>-1`, exactly like the release, and two builds of
-different content become indistinguishable to `rpm -q`. The stamp lands in the `Release` as
-`0.local<stamp>.1`, which sorts *below* the release of the same version. Release, COPR and Koji
-builds pass nothing and are unaffected. `tests/test_version.sh` checks both forms.
-
-### After installing a hand build, clear Plasma's QML cache
-
-`tools/build-local.sh` does this for you. After any other hand install:
+After installing a hand build any other way, clear Plasma's QML cache, or the panel keeps showing the
+previous build (`tools/build-local.sh` does this for you):
 
 ```bash
 rm -rf ~/.cache/plasmashell/qmlcache && systemctl --user restart plasma-plasmashell
 ```
 
-Otherwise the panel keeps drawing the previous build's widget, and a restart of plasmashell does not
-help. rpm clamps every installed file's timestamp to `SOURCE_DATE_EPOCH`, which comes from the
-spec's newest `%changelog` date, so two builds of the *same version* install `logic.js` with an
-identical mtime. Plasma compiles QML into `~/.cache/plasmashell/qmlcache` and validates those entries
-against that timestamp, which never moved, so it serves the stale compiled copy. The CLI is
-unaffected, because bash reads its source on every run - which makes this easy to misread as "the fix
-did not work" when only half of it is visible.
-
-This never affects released upgrades: each release carries its own `%changelog` date, so the mtime
-moves and the cache invalidates by itself.
-
-A bump is the first step of a release rather than the whole of one:
-[docs/RELEASING.md](docs/RELEASING.md) is the numbered checklist for the rest, and it also says
-why Kempt has no self-update code and never will.
+The cache is keyed on file timestamps, and rpm sets them from the spec's newest `%changelog` date.
+Two builds of the same version therefore look identical to Plasma. Releases are not affected,
+because each one has a new `%changelog` date.
 
 ## Commits and pull requests
 
-One commit per logical change, present-tense subject, prefixed by type, matching what is already
-in the log:
+One commit per change. Present tense, with a type prefix, like the existing log:
 
 ```
 feat: flatpak backend - pending parser + stub-driven check
 fix: an update that already changed the system always writes its history entry
 docs: install guide
-test: capture dnf/flatpak fixtures from live box
-chore: scaffolding + bash test harness
 ```
 
-A scope in brackets is welcome when it narrows the change, as most of the recent log does:
-`fix(doctor):`, `fix(widget):`, `docs(changelog):`. Changes to the tests use `test:`.
+Add a scope when it helps: `fix(doctor):`, `fix(widget):`, `docs(changelog):`. Use `test:` for
+test-only changes and `style:` for formatting. No trailers or sign-offs.
 
-`style:` for formatting-only changes. No trailers, no generated sign-offs, no "AI assisted"
-footers.
-
-A pull request should say what changed, why, and how you verified it. Paste the relevant test
-output. If you changed a parser, say which fixture proves it. If you changed anything privileged,
-say what an attacker can and cannot do now.
+A pull request says what changed, why, and how you checked it. Paste the test output. For a parser
+change, name the fixture that proves it. For a change to anything that runs as root, say what an
+attacker can and cannot do now.

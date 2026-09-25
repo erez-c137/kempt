@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: CC0-1.0 -->
 <!--
-  A Plasma applet is an ADDON, not a desktop-application: Kempt ships no .desktop file, and
-  type="desktop-application" makes the validator ask for a <launchable> that cannot exist. Plasma
-  itself discovers the widget through plasmoid/metadata.json and never reads this file; it exists
-  so a software centre and the KDE Store have something real to show.
-
-  Lives at the repo root because that is where kempt.spec's %install reads it from, and installs
-  to /usr/share/metainfo/.
+  type="addon": Kempt ships no .desktop file, so it has no <launchable>. Plasma finds the widget
+  through plasmoid/metadata.json; this file is for software centres. kempt.spec installs it to
+  /usr/share/metainfo/.
 -->
 <component type="addon">
   <id>io.github.erez_c137.kempt</id>
@@ -15,14 +11,13 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Kempt</name>
-  <summary>One-click system updates with a truthful badge</summary>
+  <summary>Tidy system updates for the Plasma desktop</summary>
   <description>
     <p>
-      Kempt is a Plasma 6 panel widget and a bash command-line tool that shows exactly which
-      system updates are pending, counts only the ones you have not held, and applies them with
-      one click from the panel.
+      Kempt is a Plasma 6 widget and a command-line tool for dnf and Flatpak updates. It shows
+      which updates are pending, leaves out the ones you hold, and installs them from the panel.
     </p>
-    <p>The badge and the update come from the same command path, so they cannot disagree.</p>
+    <p>The count in the panel comes from the same cache the update uses, so the two agree.</p>
     <ul>
       <li>dnf5 and Flatpak updates, with the version each package moves from and to.</li>
       <li>Holds that skip a package but keep reporting it.</li>
@@ -33,12 +28,10 @@
     <name>Erez</name>
   </developer>
   <!--
-    appstreamcli fetches the four <url/> entries and both screenshots below, and all of them
-    resolve: a clean run is no findings at all. So url-not-reachable or screenshot-image-not-found
-    here is a real broken link and not a known state to wave through - which is what it was while
-    the repo was private, and is not any more. (The release's <url type="details"/> is not fetched,
-    tag or no tag, so it can be written before the tag exists.) Careful with flag names in these
-    comments: a double hyphen ends an XML comment.
+    appstreamcli fetches these four URLs and both screenshots, and a clean run has no findings.
+    url-not-reachable or screenshot-image-not-found means a broken link. A release's details URL
+    is not fetched, so it can name a tag that does not exist yet. A double hyphen ends an XML
+    comment, so write command flags here without one.
   -->
   <url type="homepage">https://github.com/erez-c137/kempt</url>
   <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
@@ -55,9 +48,8 @@
   </keywords>
   <screenshots>
     <!--
-      width/height are the real pixels of the committed file, not a wish: the validator compares
-      them against the image once it can fetch it. The roadmap's 16:9 re-capture replaces this
-      crop, and these two numbers move with it.
+      width and height are the image's real size; the validator compares them. Update them with
+      the new 16:9 screenshots.
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
@@ -72,10 +64,7 @@
   <provides>
     <binary>kempt</binary>
   </provides>
-  <!--
-    The version here is one of the four that must agree (VERSION, plasmoid/metadata.json,
-    kempt.spec, this file). tests/test_version.sh is what enforces it.
-  -->
+  <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
     <release version="0.1.5" date="2026-09-23" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.5</url>

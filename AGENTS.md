@@ -5,97 +5,67 @@ catch people out. `CONTRIBUTING.md` is the full guide.
 
 ## What it is
 
-A Fedora KDE update tool in two halves that talk through one file:
+A Fedora KDE update tool in two halves that share one file:
 
-- **The CLI** (`bin/kempt`, `lib/common.sh`, `backends/*.sh`) does all the work and writes
+- **The CLI** (`bin/kempt`, `lib/common.sh`, `backends/*.sh`) does the work and writes
   `~/.local/state/kempt/state.json`.
-- **The widget** (`plasmoid/`) runs `kempt` commands and renders that file. It computes nothing
-  the CLI could have told it.
+- **The widget** (`plasmoid/`) runs `kempt` commands and shows that file. It works out nothing the
+  CLI could tell it.
 
-Anything needing root goes through one of two small scripts in `libexec/`, reached through polkit.
-Nothing is setuid and the CLI never runs as root.
+Anything that needs root goes through one of two small scripts in `libexec/`, through polkit.
+Nothing is setuid, and the CLI never runs as root.
 
 ## The map
 
 | Path | What it is |
 | --- | --- |
-| `bin/kempt` | Every subcommand. `cmd_check`, `cmd_update`, `cmd_doctor` and friends. |
-| `lib/common.sh` | State, config, holds, locks, the offline marker, the `KEMPT_*` seams. |
-| `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager. Adding a third is documented end to end in `docs/architecture.md`. |
-| `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Read these first if you are reviewing security. |
-| `plasmoid/contents/ui/logic.js` | Pure derivation: state file in, view model out. No Qt, no I/O. Node runs it in the tests, which is why it must stay pure. |
-| `plasmoid/contents/ui/*.qml` | The panel widget. Mostly bindings onto the view model above. |
-| `tests/` | ~3,000 assertions of plain bash, plus QML probes under `tests/qml/`, a live container gate under `tests/live/`, and the release check under `tests/release/` - the one that proves the PACKAGES rather than the code. |
-| `docs/` | User and design documentation. `architecture.md` is the one to read. |
-| `internal/` | Not shipped, gitignored: working notes, specs, review reports. |
+| `bin/kempt` | Every subcommand: `cmd_check`, `cmd_update`, `cmd_doctor` and the rest. |
+| `lib/common.sh` | State, config, holds, locks, the staged-update marker and the `KEMPT_*` seams. |
+| `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager. `docs/architecture.md` explains how to add one. |
+| `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Start here for a security review. |
+| `plasmoid/contents/ui/logic.js` | Turns the state file into what the widget shows. It has no Qt and no I/O, so Node can run it in the tests. |
+| `plasmoid/contents/ui/*.qml` | The widget itself, mostly bindings to `logic.js`. |
+| `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
+| `docs/` | User and design docs. Read `architecture.md` first. |
 
-## Four rules that will bite you
+## Four rules that catch people out
 
-**1. Never run the update paths while testing.** `kempt update`, `kempt run`, `pkexec` and the
-helpers in `libexec/` change the machine you are on. A review probe once ran a real `dnf5 upgrade`
-here because a test stub executed the script it was handed. Before touching anything that can
-reach them, either use a container or neutralise every seam in the same environment:
-`KEMPT_PKEXEC=` empty, `KEMPT_APPLY_HELPER` / `KEMPT_REFRESH_HELPER` / `KEMPT_TERMINAL` /
-`KEMPT_NOTIFY` at scripts that only log their arguments, and `KEMPT_CONFIG_DIR` / `KEMPT_STATE_DIR`
-at temporary directories. `tests/lib.sh` already builds exactly that sandbox - source it and call
-`sandbox`.
+**1. Never run an update while testing.** `kempt update`, `kempt run`, `pkexec` and the helpers in
+`libexec/` change the machine you are on. Use a container, or replace every seam in the same
+environment. Set `KEMPT_PKEXEC=` to empty. Point `KEMPT_APPLY_HELPER`, `KEMPT_REFRESH_HELPER`,
+`KEMPT_TERMINAL` and `KEMPT_NOTIFY` at scripts that only log their arguments. Point
+`KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` at temporary directories. `tests/lib.sh` builds this
+sandbox for you: source it and call `sandbox`.
 
-**2. The seams are the test boundary, and they are documented.** Every impure command in the CLI
-goes through a `KEMPT_*` variable so a test can replace it. `docs/architecture.md` has a table of
-all of them, and `tests/test_docs.sh` derives the list from the code, so adding a seam without a
-row fails the suite. That is deliberate.
+**2. Seams are how tests replace commands.** Every outside command the CLI runs goes through a
+`KEMPT_*` variable. `docs/architecture.md` lists them all. `tests/test_docs.sh` reads the list from
+the code, so a new seam without a row in that table fails the suite.
 
-**3. `tests/live/offline-gate.sh` breaks the package manager on purpose** - it shadows
-`/usr/bin/dnf5`, empties dnf5's package cache and points every repository at a dead address. It
-refuses to run outside a throwaway container. Run it as `tests/live/run-offline-gate.sh`, which
-builds the container, runs it inside, and removes it. Any change to the offline staged-update
-lifecycle needs a green run of it, because a container is the only place that behaviour can be
-exercised against real dnf5.
+**3. `tests/live/offline-gate.sh` breaks dnf5 inside a container.** It hides `/usr/bin/dnf5`,
+empties dnf5's package cache and points every repository at a dead address, and it refuses to run
+anywhere else. Start it with `tests/live/run-offline-gate.sh`, which builds the container, runs the
+gate and removes the container. Any change to staged updates needs a passing run, because only a
+container can test them against real dnf5.
 
-**4. Qt probes must be supervised.** `tests/qml/` runs the real QML engine. Run them through
-`tests/test_widget_qml.sh` and never by hand: the watchdog, the process group and the leak census
-live in `safe_probe.py`, and without them a wedged probe stays resident. One afternoon that reached
-~2,200 Qt processes and OOM-killed unrelated services on the box it ran on.
+**4. Run the Qt probes through their supervisor.** `tests/qml/` runs the real QML engine. Run it
+with `tests/test_widget_qml.sh`, never by hand. Its watchdog stops a probe that hangs. Without it,
+stuck probes pile up until the machine runs out of memory.
 
 ## Running things
 
 ```bash
-tests/run_tests.sh                  # the whole bash suite; says at the end what it SKIPPED
-bash tests/test_doctor.sh           # one file (they are mode 0644, so invoke with bash)
-tests/live/run-offline-gate.sh      # the live container gate, several minutes, needs podman
+tests/run_tests.sh                  # the whole bash suite; lists what it skipped at the end
+bash tests/test_doctor.sh           # one file (they are mode 0644, so run them with bash)
+tests/live/run-offline-gate.sh      # the container test, several minutes, needs podman
 bash -n bin/kempt lib/common.sh     # what CI lints, plus shellcheck
 ```
 
-A skip is not a pass. If node or PySide6 is missing, the widget's halves skip and the summary says
-so; CI runs them in a Fedora container precisely so that a green badge means the widget was tested.
+A skip is not a pass. Without Node or PySide6 the widget tests are skipped, and the summary says
+so. CI runs them in a Fedora container, so a green badge means the widget was tested.
 
-## Writing for people
+## Writing
 
-Everything in this repository gets read by a person: comments, commit messages, docs, the
-changelog, and every message Kempt prints. Write it the way you would explain it to someone sitting
-next to you.
-
-- **Say the point first.** Start with what happens or what the reader needs to do. The reason
-  comes after.
-- **Use plain words and short sentences.** If a sentence has to be read twice, split it. If a
-  simpler word works, use it.
-- **Be specific.** Name the command, the file or the number. "Fails with more than 900 pending
-  updates" tells the reader more than "fails on large systems".
-- **Stay calm.** Describe what went wrong and what changed. Dramatic words make a small bug sound
-  like a disaster and make the writing harder to trust.
-- **Comments explain why, not how the code got here.** A good comment stops someone from making a
-  change that looks right but isn't: a rule that must hold, an order that matters, the reason an odd
-  line is odd. The story of how a bug was found belongs in the commit message or the changelog. If
-  you catch yourself writing "this used to", write the rule as it stands today.
-- **Messages Kempt prints say what happened and what to do next,** using the words people see on
-  screen (Update Now, Held, Install on Next Restart), not internal names.
-- **Commit messages:** the subject line says what changed, the body says why.
-- **Punctuation:** no em dashes. Use a comma, a new sentence or a spaced hyphen. The tests check
-  the widget's messages for this, and CONTRIBUTING.md has the command that checks the docs.
-
-**Public files name nobody and describe no process.** Anyone reading this repository has only the
-repository. So no names, and nothing about who wrote something or how it was made (reviews, task
-codes, the tools used). Email addresses appear only where a format needs one: `kempt.spec`'s
-`%changelog`, `SECURITY.md` and `CODE_OF_CONDUCT.md`. Design notes, research and plans stay
-private. If a fact from one is worth keeping, write it into the docs. `tests/test_docs.sh` checks
-what a search can catch. CONTRIBUTING.md has the long form.
+Everything here is read by someone, from comments and commit messages to the text Kempt shows.
+`CONTRIBUTING.md` has the rules under "Writing". The short version: write what the reader needs
+first, in short sentences, using the words on screen. Public files name nobody and say nothing
+about how the work was made.

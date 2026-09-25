@@ -82,13 +82,12 @@ is the only argument it takes.
 Backend failures do not fail the command: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
-means "no data, keep the last known state", never "zero updates". This command also reconciles a
-staged offline transaction \- harvesting it once the machine has rebooted, and clearing its
-marker when the transaction underneath has gone \- and refreshes package metadata at most
-once every three hours, never on battery or on a metered connection.
+means "no data, keep the last known state", never "zero updates". After a restart, this command
+also records the result of a staged offline update, and it forgets a staged update that no longer
+exists. It refreshes package metadata at most once every three hours, and never on battery or on a
+metered connection.
 .B \-\-refresh
-overrules that interval and neither of the other two rules, so on battery or on a metered link it
-skips the fetch like any other check. When the metadata was last fetched is published as
+skips the three\-hour wait, but not the battery and metered rules. When the metadata was last fetched is published as
 .B metadata_refreshed
 in the state file, and a skipped refresh is written to the event log at most once a day.
 .TP
@@ -146,16 +145,13 @@ A successful launch says nothing about the update's outcome: poll the state file
 Render one run as human\-readable text.
 .I N
 counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
-Held packages are named and then counted, so a run that left nine pending packages behind because
-of holds says so rather than leaving the reader to work out why the pending count did not drop.
+Held packages are named and counted, so you can see why they are still pending.
 .TP
 .B summary \-\-json
 Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated
 before any of it is printed, and a damaged newest entry produces no output at all, with a warning
-on stderr naming it; it never falls back to an older run. That is the difference from the human
-mode above, and it is deliberate: this mode answers "what did the last run do", and serving the run
-underneath is how the widget came to announce an older run's package count as the run that had just
-finished. Takes no
+on stderr naming it. Unlike the text mode, it never falls back to an older run, because it answers
+"what did the last run do". Takes no
 .IR N .
 With no runs recorded, or with the newest entry damaged, it prints nothing and exits 0: empty
 output means "no data", never an empty run and never a different one.
@@ -217,7 +213,7 @@ come from a checkout prints
 and compares nothing, because the package manager keeps those files in step.
 Worth running when
 .B check
-reports nothing pending on a machine that cannot possibly be up to date: a missing root helper
+reports nothing pending on a machine you know is out of date: a missing root helper
 leaves
 .B check
 exiting 0 with a
@@ -266,8 +262,8 @@ Set a configuration value. Keys must match
 .RB ' ^[a-z][a-z0-9_]+$ '
 and values must be single\-line.
 An unrecognized key, or a value outside the set a key accepts, is reported on standard error and
-then stored anyway, with exit status 0: a newer widget or a later version may read a key this build
-does not know, so refusing would make the CLI the thing that stops it working. Booleans are not
+then stored anyway, with exit status 0, because a newer widget may use a key this version does
+not know. Booleans are not
 checked this way, because anything that is not
 .BR true ", " 1 " or " yes
 is documented to mean false.
@@ -286,11 +282,9 @@ Print
 .RB ' "kempt <version>" '
 and exit. The version is read from the
 .I VERSION
-file in the checkout, which is the project's single source of truth for it; a checkout without
-one prints
+file. Without one it prints
 .RB ' "kempt unknown" '
-rather than failing, because a build that cannot say what it is must still be able to update the
-machine.
+and still works.
 .BR "kempt doctor" 's
 first line reports the same version and the tree it came from.
 .TP
@@ -343,10 +337,9 @@ from the package,
 from a checkout.
 .TP
 .IR /usr/share/kempt/VERSION " or " <checkout>/VERSION
-The project's version, and the single source of truth for it: the widget's
-.I metadata.json
-is pinned to this file by the test suite, and a release's tag, RPM version and AppStream release
-are expected to agree with it.
+The version. The widget's
+.IR metadata.json ,
+the RPM and the AppStream release all match it.
 .TP
 .I ~/.config/kempt/config
 Settings.

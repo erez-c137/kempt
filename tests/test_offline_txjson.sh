@@ -106,7 +106,7 @@ JSON
 assert_eq "$(tx "$TESTTMP/multilib.json")" "bash" "multilib twins are one name, listed once"
 
 # --- every way this can go wrong ends in "no list" ------------------------------------------------
-# The format-stability rule (spec 9b, adopted from the second opinion): the parser is pure, the
+# The format-stability rule: the parser is pure, the
 # fixtures are real dnf5 output, and ANY surprise degrades to the marker snapshot plus the generic
 # warning. Never to silence, which would deny a conflict on evidence we do not have; never to a
 # crash, which would take a check or a `kempt hold` down over a file dnf5 owns.

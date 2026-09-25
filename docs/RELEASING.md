@@ -1,100 +1,71 @@
 # Releasing Kempt
 
-The procedure for cutting a release, in the order it is run.
-
-**What has been run.** Every step except 4 has been run for 0.1.0 and 0.1.1, and the whole
-procedure again for 0.1.2, 0.1.3 and 0.1.4. `kempt.spec` is committed at the repo root and has been
-built, installed and smoke-tested in a Fedora 44 container, and the AppStream metainfo is committed
-next to it. Step 9's zip commands were run against this tree. Step 4 is newer than that history: an
-earlier version of it lived outside the repository, hardcoded one release, went stale within a week
-and was never run again, which is why it now reads `VERSION` and is named here. COPR is live: `erez-c137/kempt` builds for fedora-43, fedora-44, fedora-45 and
-rawhide, on x86_64 and aarch64, and both releases reached users through it.
-
-**What that history does not cover.** From 0.1.2 the spec builds TWO binary packages, `kempt` and
-`kempt-plasmoid`, and 0.1.0 and 0.1.1 built one. Everything a split can break is therefore
-unproven by the paragraph above: that an existing install upgrades and keeps its widget, that a
-machine with weak dependencies turned off is told what it has to do by hand, and that the install
-command the README prints resolves at all. Step 8 ends with the check for the last of those,
-and step 4 now covers the first two on every release.
+How to cut a release, in order. Every step has been run for each release since 0.1.2. The spec has
+built two packages, `kempt` and `kempt-plasmoid`, since 0.1.2, and step 4 checks the upgrade across
+that split on every release.
 
 ## Kempt never updates itself
 
-There is no self-update code in Kempt and there will not be. An updater that updates itself has to
-solve, badly and alone, the problem the system's package manager already solves well: signature
-checks, a transaction that can be rolled back, a rebuild when a dependency moves, and one place
-the administrator can audit. So Kempt ships as a package, and a packaged Kempt is updated by the
-package manager it drives. It appears in its own list, in its own popup, next to everything else
-that is pending, and `sudo dnf upgrade` or one press of **Update Now** takes it. The only install
-that needs a human procedure is a checkout install, and step 10 is that procedure.
+Kempt has no self-update code. The package manager already handles signatures, rollback and
+dependencies, and gives the administrator one place to audit. So Kempt ships as a package and
+shows up in its own list like any other update. Only checkout installs upgrade by hand (step 10).
 
 ## The release
 
-1. **Bump `VERSION`.** It is the source of truth, and three other files restate it.
+1. **Bump `VERSION`.** It is the source of truth, and three other files repeat it.
 
    ```bash
    printf '0.2.0\n' > VERSION
    tests/test_version.sh          # names every file that does not agree yet
    ```
 
-   Then bring the other three into line and re-run that file until it is silent:
+   Update these, then run the test again until it passes:
 
-   - `KPlugin.Version` in `plasmoid/metadata.json`
-   - `<release version=` in `io.github.erez_c137.kempt.metainfo.xml`, whose `date=` is the release
-     date, newest release first
-   - the two `<screenshot>` image URLs in the same file, which name the tag being released
-     (`.../kempt/v0.2.0/docs/images/...`), never `main`: a software centre shows them beside this
-     release, and a URL on `main` shows whatever the widget looks like today
-   - `Version:` in `kempt.spec`
+   - `KPlugin.Version` in `plasmoid/metadata.json`.
+   - `<release version=` in `io.github.erez_c137.kempt.metainfo.xml`, with the release date in
+     `date=`, newest first.
+   - The two `<screenshot>` URLs in the same file. They name the new tag
+     (`.../kempt/v0.2.0/docs/images/...`), not `main`, so a software centre shows the screenshots
+     of this release.
+   - `Version:` in `kempt.spec`.
 
-   The test is what keeps the CLI, the widget, the software centre and `rpm -q` from reporting
-   four different releases of one install. It does not check the spec's `%changelog`, which needs
-   a new dated entry of its own, or the git tag in step 6 - those are on you.
+   By hand, because no test checks them: a new dated entry in the spec's `%changelog`, and the
+   supported-versions table in `SECURITY.md` if this release changes it.
 
-   Nothing checks **SECURITY.md's supported-versions table** either, and it is the page a Fedora
-   reviewer opens second. If this release changes which versions are covered, say so there in the
-   same commit: somebody on a packaged release has to be able to tell whether they still are.
+2. **Move the CHANGELOG and the roadmap.** Rename `## [Unreleased]` to
+   `## [0.2.0] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it. Then move what shipped
+   from the plan sections of `docs/ROADMAP.md` into **Shipped**.
 
-2. **Move the CHANGELOG, and the roadmap with it.** Rename the `## [Unreleased]` heading to
-   `## [0.2.0] - YYYY-MM-DD` using the release date, and open a fresh empty `## [Unreleased]`
-   above it. Nothing else in that file changes: the entries were written as the work landed.
-
-   Then move whatever this release shipped out of `docs/ROADMAP.md`'s plan sections and into its
-   **Shipped** section, in that section's style. Nothing checks this either, and the failure mode
-   is a roadmap presenting a built feature as an unbuilt plan to everyone who reads the page.
-
-3. **Run the full suite**, serially, and read the count.
+3. **Run the full suite** and check it ends with `ALL PASS`. Never release over a known failure.
 
    ```bash
    tests/run_tests.sh
    ```
 
-   `ALL PASS` and nothing else. A release is not cut over a known failure.
-
-4. **Run the release check**, which proves the PACKAGES rather than the code:
+4. **Run the release check.** The suite tests the code; this tests the packages.
 
    ```bash
    tests/release/run-release-check.sh
    ```
 
-   Several minutes, needs podman and the network. It builds the packages from the tree you are
-   standing in, installs them in a throwaway Fedora container that has never seen Kempt, and asks
-   the questions the suite cannot: does the spec put the widget where Plasma looks, does the QML
-   *the package installed* actually run (every probe elsewhere executes the checkout, which is a
-   different directory), does a first-time user get sensible answers from `doctor`, `holds`,
-   `config` and an unknown command, does the package carry the man page and the user guides but not
-   the maintainer documents, and does `dnf remove` leave nothing behind except the user's own
-   settings.
+   It takes several minutes and needs podman and the network. It builds the packages from your tree
+   and installs them in a fresh Fedora container. Then it checks that:
 
-   It reads `VERSION`, so there is nothing to edit per release. It refuses to run outside its
-   container, because it installs and removes packages and creates users.
+   - the widget lands where Plasma looks, and the installed QML runs;
+   - `doctor`, `holds`, `config` and an unknown command give a new user sensible answers;
+   - the package has the man page and user guides, and no maintainer documents;
+   - an upgrade from the last release keeps the widget;
+   - `dnf remove` leaves nothing behind except the user's settings.
 
-5. **Commit the bump on its own**, so the diff that says what the release is stays readable.
+   It reads `VERSION`, so nothing needs editing per release. It runs only inside its container.
+
+5. **Commit the bump on its own.**
 
    ```bash
    git commit -am 'chore: release 0.2.0'
    ```
 
-6. **Tag it**, annotated, with a plain message. No trailers, no generated sign-offs.
+6. **Tag it**, annotated, with a plain message and no trailers.
 
    ```bash
    git tag -a v0.2.0 -m 'Kempt 0.2.0'
@@ -102,44 +73,21 @@ that needs a human procedure is a checkout install, and step 10 is that procedur
    git push origin v0.2.0
    ```
 
-7. **Cut the GitHub release**, with short release notes written for people who use Kempt, not the
-   CHANGELOG section. The CHANGELOG is the complete record; the release page is what someone reads
-   before running `sudo dnf upgrade`. Write it in this order: how to upgrade, how to install for
-   the first time, what's new, what's fixed, anything for packagers, then a link to the CHANGELOG
-   at the tag. Keep each item to what a user notices, in a sentence or two.
+7. **Create the GitHub release.** Write short notes for people who use Kempt; the CHANGELOG is the
+   full record. Order: how to upgrade, how to install fresh, what's new, what's fixed, notes for
+   packagers, then a link to the CHANGELOG at the tag. One or two sentences per item.
 
    ```bash
    gh release create v0.2.0 --title 'Kempt 0.2.0' --notes-file notes.md
    ```
 
-   Attach the widget archive as a release asset, so the release page and the store listing serve
-   the same file. It is built by the first block of step 9, which is the one place the numbered
-   order does not run straight through: build it now, before cutting the release, or come back and
-   attach it afterwards with `gh release upload`. (The AppStream metainfo points at no archive -
-   it carries no `<artifact>` element - so nothing there needs the file to exist.)
+   Attach the widget archive from step 9, so the release page and the store serve the same file.
+   Build it before this step, or add it later with `gh release upload`.
 
 ## Packaging
 
-8. **COPR build from the tag.** `kempt.spec` is committed at the repo root, which is exactly where
-   COPR's SCM source method looks for it. Before trusting a COPR failure, know what already
-   passed: the spec builds, installs and smokes clean on Fedora 44, and both the 0.1.0 and the
-   0.1.1 releases went through this exact procedure end to end (project created, rpkg SCM builds
-   green across fedora-43, fedora-44, fedora-45 and rawhide on x86_64 and aarch64,
-   `dnf copr enable` + `dnf install kempt` verified in a clean container).
-
-   `rpmlint` is not silent on this package and does not need to be. Judge it by the KIND of
-   finding, never by the count or the percentage - both move with the build root. It reports no
-   errors, and two warnings: `package-with-huge-docs` on `kempt`, whose user guides and two
-   screenshots outweigh a few hundred kilobytes of bash, and `no-documentation` on
-   `kempt-plasmoid`, which ships none. Depending on the locale the build shell was started in,
-   there can also be a `setlocale` warning. Anything outside that set is new and worth reading.
-   That history is a reason to look at COPR, the chroot and the tag first - it is NOT a reason to
-   assume the spec is innocent. It was not, once: the 0.1.2 suite grew a call to `ps`, which is in
-   neither `BuildRequires` nor Fedora's minimal buildroot, and `%check` failed every build until
-   the call went away. Read the log before deciding which half is at fault.
-
-   The project (`erez-c137/kempt`) and its one package exist; a release is two commands - point
-   the package at the new tag, then build it:
+8. **Build in COPR from the tag.** COPR reads `kempt.spec` from the repository root. Point the
+   package at the new tag, then build:
 
    ```bash
    copr-cli edit-package-scm erez-c137/kempt --name kempt --type git --method rpkg \
@@ -147,73 +95,63 @@ that needs a human procedure is a checkout install, and step 10 is that procedur
    copr-cli build-package erez-c137/kempt --name kempt
    ```
 
-   Deliberately NO push webhook: the spec's `Version:` is static, so a push-triggered rebuild
-   produces the same NVR from different source - dnf offers nobody an upgrade and the repo just
-   quietly swaps the bits under one version. Webhook-rebuild is set `off` on the package;
-   releases are explicit or they are not releases.
+   It builds for Fedora 43, 44, 45 and rawhide, on x86_64 and aarch64. There is no push webhook:
+   `Version:` is fixed in the spec, so a rebuild on push would change the files under an unchanged
+   version, and dnf would offer nobody the upgrade.
 
-   Rebuild the tarball the way the verification did, if you need to reproduce a build locally:
+   If a build fails, read the log before blaming COPR. The spec has broken a build before: a test
+   called `ps`, which the minimal buildroot does not have.
+
+   `rpmlint` reports no errors and two known warnings: `package-with-huge-docs` on `kempt` and
+   `no-documentation` on `kempt-plasmoid`. A `setlocale` warning can also appear, depending on the
+   build shell's locale. Read anything else.
+
+   To reproduce the source tarball locally:
 
    ```bash
    git archive --format=tar.gz --prefix=kempt-0.2.0/ -o kempt-0.2.0.tar.gz v0.2.0
    ```
 
-   Consumers then get the release the ordinary way, which is the whole point:
+   The build is done when the README's install commands work in a clean Fedora container:
 
    ```bash
    sudo dnf copr enable erez-c137/kempt
    sudo dnf install kempt-plasmoid
    ```
 
-   Run exactly that, in a clean Fedora container, before calling the build done. It is the command
-   the repository's front page tells people to run, and between a docs change landing on `main`
-   and this build finishing, it is a command that does not work - `kempt-plasmoid` did not exist
-   in the repo until this build put it there. `dnf install kempt-plasmoid` must succeed and bring
-   `kempt` of the same version with it. Until it does, the front page is describing a package the
-   repository does not serve.
+   `kempt-plasmoid` must install, and bring `kempt` of the same version with it.
 
-9. **KDE Store upload of the widget**, for people who are not on an RPM distro. The archive is a
-   plain zip of the KPackage layout, `metadata.json` at the root next to `contents/`:
+9. **Upload the widget to the KDE Store**, for people not on an RPM distribution. The archive is a
+   zip with `metadata.json` at the root, next to `contents/`:
 
    ```bash
-   # zip -r ADDS to an existing archive and never removes from one. Rebuild over yesterday's
-   # file after deleting a QML file and the deleted file still ships. Start from nothing.
+   # zip -r only adds, so start from an empty archive or deleted files still ship.
    rm -f kempt-0.2.0.plasmoid
    ( cd plasmoid && zip -r ../kempt-0.2.0.plasmoid metadata.json contents )
 
-   unzip -l kempt-0.2.0.plasmoid | head -5   # sanity: metadata.json sits at the root
-   # ...and the whole tree is in there, not just the first screenful. Silence is a pass.
+   unzip -l kempt-0.2.0.plasmoid | head -5   # metadata.json is at the root
+   # Every file is in the archive. No output means a pass.
    diff <( unzip -Z1 kempt-0.2.0.plasmoid | grep -v '/$' | sort ) \
         <( cd plasmoid && find . -type f | sed 's|^\./||' | sort )
    ```
 
-   The archive lands in the repo root and is a build artifact, not a source file: `.gitignore`
-   carries `*.plasmoid` so a release-day `git add -A` cannot swallow it.
+   Add the archive as a new file on the existing product, <https://store.kde.org/p/2370353/>
+   (**Plasma 6 Applets**). Do not use <https://store.kde.org/product/add>: it creates a second product with no
+   downloads or comments, and products cannot be merged. Type the version by hand to match
+   `VERSION`, and paste the same notes as the GitHub release.
 
-   Kempt already has a store product, <https://store.kde.org/p/2370353/>, under **Plasma 6
-   Applets** (category 706). Add this release as a new file on THAT product. Do not use
-   <https://store.kde.org/product/add>: that form creates a second product, and a second product
-   starts at zero downloads with none of the first one's comments, while both stay listed and
-   neither is obviously the real one. There is no merge afterwards.
+   A store install has no `kempt` command behind it. Before uploading, unpack the archive on a
+   machine without the command-line tool and check the popup says *"Kempt's engine is not
+   installed"*.
 
-   The store is a content CMS, not a packaging pipeline: the version and the changelog are
-   free-text fields typed in by hand. Type the same version as `VERSION`, and paste the same
-   CHANGELOG section as the GitHub release. Nothing checks that agreement for you.
+10. **Checkout installs upgrade by hand.** The command is a symlink into the checkout; the rest are
+    copies.
 
-   What a store user gets is the widget ALONE, with no `kempt` command behind it. That is a
-   supported state and the widget is built for it - it says the engine is not installed and offers
-   the commands that install it - so check it stayed true before uploading: the first run of an
-   unpacked copy on a box with no CLI must say *"Kempt's engine is not installed"*, not a blank
-   popup and not the "will not run" message, which is for an engine that is present.
+    ```bash
+    git pull && ./install.sh && plasmashell --replace     # or log out and back in
+    kempt doctor                                          # every copy matches the checkout
+    ```
 
-10. **Checkout installs upgrade by hand**, and always will: they are developer installs, the CLI is
-   a symlink into the git tree and the rest are copies.
-
-   ```bash
-   git pull && ./install.sh && plasmashell --replace     # or log out and back in
-   kempt doctor                                          # every copy matches the checkout
-   ```
-
-   `kempt doctor` ends with `helpers:`, `policy:` and `widget:` lines that compare each installed
-   copy against the checkout. A `DIFFER` line is a pull that was never installed, which is exactly
-   the drift this step exists to prevent. See [docs/usage.md](usage.md#doctor).
+    The `helpers:`, `policy:` and `widget:` lines at the end of `kempt doctor` compare each
+    installed copy with the checkout. `DIFFER` means a pull that was never installed. See
+    [usage](usage.md#doctor).

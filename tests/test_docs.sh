@@ -111,11 +111,8 @@ assert_eq "${undocumented_events%; }" "" \
   "every log_event line has a row in the kempt log vocabulary table"
 
 # --- the release check is named where somebody will look for it ---------------------------------
-# An earlier version of this check lived outside the repository, in a gitignored directory, named by
-# nothing. It hardcoded one release, went stale inside a week, and was never run again - nobody
-# could see it, so nobody could notice it had rotted. These assertions are what stop that happening
-# twice: the script exists, it is executable, and the three documents a person actually reads name
-# the way to run it.
+# A check nobody can find is never run. The script exists, it is executable, and the three
+# documents a contributor reads name it.
 assert_exit 0 "the release check exists" -- test -f "$REPO_ROOT/tests/release/release-check.sh"
 assert_exit 0 "...and its runner is executable" -- test -x "$REPO_ROOT/tests/release/run-release-check.sh"
 for doc in docs/RELEASING.md CONTRIBUTING.md AGENTS.md; do
@@ -123,7 +120,7 @@ for doc in docs/RELEASING.md CONTRIBUTING.md AGENTS.md; do
     && echo "ok: $doc names the release check" \
     || { echo "FAIL: $doc never mentions tests/release, so a reader cannot find it"; _fail=1; }
 done
-# It must READ the version rather than carry one, which is exactly how the previous copy died.
+# It reads the version, so it cannot go stale when the version moves.
 grep -q 'VERSION' "$REPO_ROOT/tests/release/release-check.sh" \
   && echo "ok: the release check reads VERSION" \
   || { echo "FAIL: the release check does not read VERSION"; _fail=1; }
@@ -133,16 +130,9 @@ else
   echo "ok: ...and hardcodes no version of its own"
 fi
 
-# --- the public tree does not talk about its own review process ----------------------------------
-# This repository is public, and it was carrying the vocabulary of a private one: the maintainer
-# named in the third person, the review exercises a finding came out of, work-package codes with
-# no referent, and the codename of a tool used to draft a document. From outside it reads as
-# internal minutes left in the source, and two of them were shipping inside the RPM - the icon
-# SVGs, which name a person and a date for a design decision that stands perfectly well on its own.
-#
-# The rule is the same one the comments follow: the FACT stays, the provenance goes. "61 packages
-# staged at 10:31 and nothing changed" is evidence with or without whose machine it was.
-# internal/ is gitignored and is where that vocabulary belongs.
+# --- the public tree does not talk about how it was made ------------------------------------------
+# Public files state facts without saying who decided them or how the work was done
+# (CONTRIBUTING.md, "What never goes in a public file"). This catches the words a search can find.
 #
 # The patterns are assembled from fragments so this file does not match itself, and the scan skips
 # .git, internal/ and every binary (grep -I). No `git ls-files`: the RPM's %check stage runs the
@@ -159,6 +149,26 @@ done < <(find "$REPO_ROOT" \
            -type f -print)
 assert_eq "${leaked% }" "" \
   "no public file talks about the project's own review process"
+
+# --- and no public file cites a document the public cannot open ----------------------------------
+# A comment that cites a notes file sends the reader to a file that is not here. Every .md a public
+# file names must be in the tree. Paths built from a variable are skipped, and so are the files a
+# documented command creates (made_by_commands).
+# .claude/ is local tooling state, never tracked or shipped, so it is pruned with internal/.
+present="$(find "$REPO_ROOT" -path "$REPO_ROOT/.git" -prune -o -path "$REPO_ROOT/internal" -prune \
+             -o -path "$REPO_ROOT/.claude" -prune -o -name '*.md' -type f -printf '%f\n' | sort -u)"
+made_by_commands=("notes.md")   # docs/RELEASING.md: gh release create --notes-file notes.md
+missing=""
+while IFS= read -r f; do
+  while IFS= read -r ref; do
+    [[ "$ref" == *'$'* ]] && continue
+    [[ " ${made_by_commands[*]} " == *" ${ref##*/} "* ]] && continue
+    grep -qxF -- "${ref##*/}" <<<"$present" || missing+="${f#"$REPO_ROOT/"}:${ref##*/} "
+  done < <(grep -oIE '[$A-Za-z0-9_./{}-]*[A-Za-z0-9_-]\.md\b' "$f" 2>/dev/null | sort -u)
+done < <(find "$REPO_ROOT" -path "$REPO_ROOT/.git" -prune -o -path "$REPO_ROOT/internal" -prune \
+           -o -path "$REPO_ROOT/.claude" -prune -o -type f -print)
+assert_eq "$(tr ' ' '\n' <<<"${missing% }" | sort -u | tr '\n' ' ' | sed 's/ $//')" "" \
+  "every .md file a public file names is in the repository"
 
 # --- and no email address outside the three places a format requires one -------------------------
 # The RPM %changelog's format is `Name <email>`, a security policy has to say where to send a

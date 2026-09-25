@@ -9,23 +9,15 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **A restart is no longer promised after a staging run that staged nothing.** Hold every pending
-  update, or have none pending, and press Install on Next Restart: the run correctly does nothing,
-  and the panel used to answer "Updates are staged - they install on the next restart" over a
-  restart that installs nothing. It now says nothing was staged, and says which of the two reasons
-  it was, in the same words the notification has always used - "every pending update is held" reads
-  as your holds doing what you asked, where "Kempt did nothing" reads as a fault. A run that staged
-  nothing records it as `staged_nothing` in `kempt summary --json`; a run that staged something
-  carries no such key, so nothing written by an older version is read as a stage that never
-  happened.
-
-- **A staged update that Kempt could not re-read is no longer reported as no update at all.** The
-  question "is something staged?" has two ways of producing no answer - there is genuinely nothing
-  staged, or it could not be worked out - and a run treated the second as the first. For the few
-  seconds until the closing check, the panel dropped the staged banner and offered to upgrade
-  live over a transaction that was already downloaded and armed, which makes Kempt discard it as
-  superseded and throw the download away. A question that could not be answered now leaves what
-  was already known in place.
+- **A run that staged nothing no longer promises a restart.** If every pending update was held, or
+  none were pending, **Install on Next Restart** correctly did nothing, but the panel still said
+  updates would install on the next restart. It now gives the reason: "Nothing to stage - every
+  pending update is held" or "Nothing to stage - no updates are pending". `kempt summary --json`
+  marks such a run with `staged_nothing`.
+- **A staged update no longer disappears from the panel for a few seconds after a run.** When Kempt
+  could not re-read the staged update, it treated it as not staged. The panel then offered to
+  update right away, which would have discarded the staged download. Kempt now keeps what it
+  already knew until it can check again.
 
 ## [0.1.5] - 2026-09-23
 
@@ -308,7 +300,7 @@ Nothing else changes. Your settings, holds, history and any staged update stay a
   architecture doc answers this common question once, including the costs, and is linked from the
   README and CONTRIBUTING. Also new: issue forms (the bug report asks for `kempt doctor` output and
   how Kempt was installed), a pull request template, and dependabot watching the CI action pins.
-- **[AGENTS.md](AGENTS.md) is a two-minute introduction for a new maintainer**, human or AI. It
+- **[AGENTS.md](AGENTS.md) is a two-minute introduction for new contributors.** It
   covers what the two halves are, where things live, and four important rules: never run the update
   paths while testing; the environment seams are the test boundary, and the docs test enforces
   them; the live test deliberately breaks a package manager and refuses to run outside a container;

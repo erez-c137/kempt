@@ -184,7 +184,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   the CLI while both were wrong. Re-capture rather than edit if these ever drift again.
 - **state-held-only.json** - captured, after holding all 7 dnf and all 3 flatpak names:
   `actionable: 0`, `held_total: 10`. This is the state that must still look up to date in the
-  panel while the tooltip says "10 held" (spec, Holds semantics).
+  panel while the tooltip says "10 held".
 - **state-flatpak-disabled.json** - captured with `include_flatpak=false`:
   `backends.flatpak.enabled: false` with an empty item list. Note the CLI empties a disabled
   backend, so this file alone cannot prove the widget honours the `enabled` flag - the test pairs

@@ -1,6 +1,7 @@
 # Architecture
 
-Kempt is two layers with a deliberately boring boundary between them.
+This is the map for changing Kempt's code: the parts, the rules that must hold, the state file
+format, the test seams, and how to add a backend.
 
 ```
   Plasma panel widget (QML)          thin: no package-manager knowledge at all
@@ -11,43 +12,29 @@ Kempt is two layers with a deliberately boring boundary between them.
   kempt CLI (bash)                  all the logic
    |-- lib/common.sh                 config, holds, snapshots, diff, state, locking
    |-- backends/dnf.sh               pure parsers + check/snapshot
-   |-- backends/flatpak.sh           same shape - and it applies its own updates, as you
-   |  (privilege boundary: one pkexec per polkit action - dnf only)
+   |-- backends/flatpak.sh           same shape, and it applies its own updates, as you
+   |  (privilege boundary: one pkexec per polkit action, dnf only)
    v
   libexec/kempt-refresh  (root)     metadata only, no dialog
   libexec/kempt-apply    (root)     the dnf upgrade verbs, one auth per run
 ```
 
-The rule that shapes everything: **the badge count must come from the same command path that
-performs the update**. A front end that disagrees with the CLI is the defining complaint about
-every tool in this space, so `kempt check` reads the root metadata cache the update itself will
-use, applies the same holds, and runs the same backends.
+One rule shapes the rest: **the badge count comes from the same command path that performs the
+update**. `kempt check` reads the root metadata cache the update will use, with the same holds and
+backends.
 
 ## Why bash
 
-The recurring question, answered once. The engine is bash on purpose, not by inertia:
+- **The job is running other CLIs** (dnf5, flatpak, pkexec, notify-send) and parsing what they
+  print. In bash, the command Kempt runs is the command you would type.
+- **The root code can be read in one sitting.** The two root helpers are short scripts, so a
+  sysadmin can read every line that runs as root before granting it.
+- **No runtime dependencies and no build step.** bash and jq are on every Fedora install.
 
-- **The job is the shell's native job.** Everything Kempt does is run other CLIs - dnf5,
-  flatpak, pkexec, notify-send - and parse what they print. In bash, the command Kempt runs
-  is literally the command you would type; there is no binding layer where behavior can hide.
-- **The privileged surface must be auditable in one sitting.** The two root helpers are short
-  argument-validating scripts. Any sysadmin can read every line that will ever run as root
-  before granting it, with no toolchain and no trust placed in a build.
-- **Zero runtime dependencies, zero build step.** bash and jq are on every Fedora install
-  already. A system updater with a heavy runtime is a thing that breaks when the system it
-  updates does; a script can be read, patched and rerun in place on the machine it broke on.
-
-The costs are just as real, and they are paid deliberately rather than denied:
-
-- Bash at this scale needs discipline, so the discipline is structural: every impure command
-  goes through an [environment seam](#environment-seams), the suite's assertions run with no
-  package manager present, shellcheck gates CI, and the helpers validate their arguments.
-- Parsing text output is fragile, so the parsers are pure functions tested against recorded
-  fixtures, and the roadmap's `dnf5 check-update --json` migration retires that bug class by
-  construction when it lands.
-- If the project ever outgrows the shell, the boundary is already drawn: the widget speaks to
-  a CLI contract and a state-file schema, not to bash. An engine in another language slots in
-  behind both without the front end noticing.
+The costs are paid in structure. Every impure command goes through an
+[environment seam](#environment-seams), and shellcheck gates CI. The parsers are pure functions
+tested against recorded fixtures. The widget speaks only to the CLI and the state file, so another
+engine could replace the bash one.
 
 ## Repo layout
 
@@ -66,138 +53,94 @@ The costs are just as real, and they are paid deliberately rather than denied:
 
 ## The backend contract
 
-A backend is one file that answers two questions, both on stdout, both with an explicit exit
-status:
+A backend is one file with two functions. Both answer on stdout, with an explicit exit status:
 
 | Function | Input | Output |
 | --- | --- | --- |
-| `<backend>_check` | Optionally, a path to write a sizes TSV to (`name<TAB>bytes`). `flatpak_check` takes one and `cmd_check` passes it; dnf publishes its sizes from a separate `dnf_sizes` instead. Everything else it queries through overridable command variables. A backend that produces no sizes publishes no `download_bytes`. | items JSON: `[{"name": "...", "from": "...", "to": "..."}]`. Empty is `[]` with exit 0. Non-zero means the check failed. |
-| `<backend>_snapshot` | none | TSV, `name<TAB>version`, sorted by name, **exactly one row per name** |
+| `<backend>_check` | Optionally, a path to write a sizes TSV to (`name<TAB>bytes`). `flatpak_check` takes one and `cmd_check` passes it; dnf publishes its sizes from a separate `dnf_sizes`. Everything else it queries through overridable command variables. A backend that produces no sizes publishes no `download_bytes`. | items JSON: `[{"name": "...", "from": "...", "to": "..."}]`. Empty is `[]` with exit 0. Non-zero means the check failed. |
+| `<backend>_snapshot` | none | TSV, `name<TAB>version`, sorted by name, **one row per name** |
 
-Anything a backend parses lives in a pure function that takes stdin plus an installed-lookup
-file, so it can be tested against a recorded fixture with no package manager present:
-`dnf_parse_check_update`, `flatpak_parse_remote_ls`. Two required functions plus that parser is
-the whole *required* contract, and it is the minimum that works rather than the shape either
-shipped file has. Both of those define more: a sizes producer each, dnf's own installed lookup, and
-flatpak's refresh and apply.
+Parsing lives in a pure function that takes stdin plus an installed-lookup file
+(`dnf_parse_check_update`, `flatpak_parse_remote_ls`), so a test can feed it a fixture. The two
+functions plus that parser are the required contract.
 
-One more function exists and is deliberately **not** per-backend: `dnf_reboot_needed`, in
-`backends/dnf.sh`. `cmd_update` calls it unconditionally at the end of every run, whatever
-backends took part, because "does this machine need a reboot" is a property of the machine and
-not of one package manager. The command it runs is `dnf5 -C --disablerepo='*' needs-restarting`:
-cache-only so it never touches the network or waits on stdin, and every repo disabled because the
-answer is purely local (rpm install times against boot time) and needs no repo metadata at all.
-Without the second flag, a box whose user cache has never been filled - the default, since
-`kempt-refresh` fills root's cache - gets an error and exit 1 on every check, which by exit code
-alone reads as "a restart is owed", forever. So "a restart is owed" requires the package list on
-stdout as well; anything else warns on stderr and answers `false`, which throughout Kempt means
-"nothing to say" rather than "no restart needed". On a box without dnf5 the same path degrades
-rather than failing the run: the command errors and the function answers `false`. That is the
-one part of this contract that is still honestly dnf-shaped; a per-backend reboot verdict is v2
-work, and a new backend does not implement one today.
+Three jobs sit outside the backends:
 
-Two things the spec lists as backend responsibilities are deliberately **not** per-backend in the
-build:
+- **Apply** for dnf is `libexec/kempt-apply` plus the wiring in `cmd_update`, so root code stays
+  in one place. Flatpak needs no root, so its apply is `flatpak_apply` in its backend.
+- **Reports** come from `tsv_diff_updates` in `lib/common.sh`, shared by every backend.
+- **The restart check** is `dnf_reboot_needed` in `backends/dnf.sh`. `cmd_update` and `cmd_check`
+  call it whatever backends ran. It runs `dnf5 -C --disablerepo='*' needs-restarting`, offline and
+  with no repo metadata. It answers `true` only when the command also prints the package list.
+  Anything else, including a box without dnf5, warns and answers `false`.
 
-- **update** is `libexec/kempt-apply` plus the wiring in `cmd_update`, because applying dnf
-  updates is the privileged half and must stay in one audited place. The Flatpak apply is the
-  exception that proves the rule: it needs no root, so it stayed in its backend as
-  `flatpak_apply` and never enters the helper at all.
-- **report** is `tsv_diff_updates` in `lib/common.sh`, shared by every backend.
-
-### Why reports come from snapshots, not from history output
+### Reports come from snapshots
 
 `kempt update` takes a `<backend>_snapshot` before the run and another after it, and diffs them.
-It does not parse `dnf5 history info` or flatpak's transaction output. That choice buys three
-things: the parsing surface stays one small function instead of one per tool, the result is
-locale-proof (no human-readable output is parsed at all), and a new backend gets reporting for
-free by implementing a snapshot rather than another parser.
+It parses neither `dnf5 history info` nor flatpak's transaction output. So the result is
+locale-proof, and a new backend gets reports by implementing a snapshot.
 
-The diff classifies every name into `updated` (present in both, different version), `added`
-(after only) and `removed` (before only). Version comparison is forced to string comparison,
-because awk compares numeric-looking fields numerically and a real `1.1` to `1.10` bump would
-otherwise compare equal and vanish from the report.
+The diff sorts every name into `updated` (in both, different version), `added` (after only) and
+`removed` (before only). Versions are compared as strings. awk compares numeric-looking fields as
+numbers, so `1.1` and `1.10` would otherwise compare equal and vanish from the report.
 
-### One row per name, and the installonly story
+### One row per name
 
-Fedora keeps several versions of *installonly* packages installed at once: `kernel-core` and
-friends, plus `gpg-pubkey`. A raw `rpm -qa` listing therefore repeats names, and `join` on
-duplicate names produces a **cross product**. Measured on a real box: a self-diff of the
-installed package list, where nothing had changed at all, produced 192 phantom "updated" rows.
+Fedora keeps several versions of *installonly* packages (`kernel-core`, `gpg-pubkey`), and
+multilib twins (`bash.x86_64`, `bash.i686`) can sit at different releases. Repeated names make
+`join` produce a cross product of phantom updates. So:
 
-So the contract has two halves and both are load-bearing:
+- Every producer pipes through `sort_name_version | collapse_versions`. That gives one row per
+  name, with the versions comma-joined in ascending order (`6.15.3-200.fc44,6.15.4-200.fc44`).
+- `tsv_diff_updates` refuses input with repeated names and returns 65.
 
-- Every producer pipes through `sort_name_version | collapse_versions`, giving one row per name
-  with the versions **comma-joined in ascending version order**
-  (`6.15.3-200.fc44,6.15.4-200.fc44`).
-- `tsv_diff_updates` **refuses** duplicate-name input with exit 65 instead of emitting fiction.
-
-**The last element of a comma-joined set is the newest, and consumers rely on it.**
-`render_summary`'s `newest()` and the widget's `newestOf()` both take the last element, so the
-ordering is a contract, not a coincidence. It is why the sort is version-aware rather than
-lexical: `5.3.10-1` sorts before `5.3.9-4` byte by byte, which would leave the *older* build
-last. `sort_name_version` in `lib/common.sh` is the single definition; its first key stays plain
-byte order because `join` and `tsv_diff_updates` require the name field in exactly that order.
-
-Its honest limit is rpm epochs: `sort -V` reads a leading `1:` as an ordinary number, so a set
-that **mixes** epochs can be ordered wrongly (`1:2.0-1` sorts before `9.0-1` although the epoch
-makes it newer). Sets that share an epoch are exact, and multilib twins and installonly kernel
-sets always do, which is every set this code actually produces today.
-
-The same collapse runs on the pending side, where the problem is multilib rather than installonly:
-`bash.x86_64` and `bash.i686` routinely sit at different releases, and they are one package as far
-as a user is concerned. Human-facing output shows the newest version of a comma-joined set; the
-JSON keeps the whole set.
+**The last element of a set is the newest, and consumers rely on it** (`render_summary`'s
+`newest()`, the widget's `newestOf()`). So the sort is version-aware: byte order puts `5.3.10-1`
+before `5.3.9-4`. `sort_name_version` in `lib/common.sh` is the only definition. Its first key
+stays in byte order, because `join` needs it. It can misorder a set that mixes rpm epochs, which
+installonly and multilib sets never do.
 
 ## Where Kempt writes
 
-Everything lives under `~/.config/kempt` and `~/.local/state/kempt` (both redirectable, see
-[Environment seams](#environment-seams)). Nothing is written anywhere else by an unprivileged
-command, and nothing is written outside these two trees by a privileged one either.
+Everything lives under `~/.config/kempt` and `~/.local/state/kempt`. Both can be redirected (see
+[Environment seams](#environment-seams)). No Kempt command writes outside these two trees, as the
+user or as root.
 
 | Path | What it is | Who prunes it |
 | --- | --- | --- |
 | `~/.config/kempt/config` | `key=value` settings, one per line, the only place a setting is stored | Nothing; it is yours |
 | `~/.config/kempt/holds` | One `backend:name` per line | Nothing; it is yours |
 | `~/.local/state/kempt/state.json` | What is pending right now, schema v1, a public interface | Rewritten by every check |
-| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, reboot verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
-| `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. Evidence, never rewritten or summarised. An update applied on a reboot is the one exception and labels itself as such: dnf5 installed it during boot with Kempt not running, so the file is Kempt's own record of what changed, from the snapshot diff, naming dnf5's transaction when it could identify one | Dropped after 60 days |
+| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, restart verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
+| `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. An update applied on a restart is the exception: dnf5 installed it while Kempt was not running, so the file is Kempt's own record from the snapshot diff, and says so | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
-| `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which is what run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
-| `~/.local/state/kempt/offline_staged.json` | Kempt's half of a staged transaction: when, how many, the boot and package set it was staged against, which packages went in and were left out, and which dnf5 transaction it is, mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
+| `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
+| `~/.local/state/kempt/offline_staged.json` | Kempt's record of a staged transaction (see [the marker](#the-offline-transaction-end-to-end)), mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh,last_refresh_skip}` | flock targets, the refresh timestamp and the once-a-day skip stamp | Never; they are empty files |
-| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch; the window it starts claims it by deleting it | Swept by `kempt_init_dirs` after 60 minutes, like the `.atomic.*` temps - a window that never opens would otherwise leave one for good |
-| `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes. The age bound is the whole design: a live concurrent writer's temp is never eligible, and a crash between the write and the rename leaves nothing that outlives the hour |
+| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch; the window it starts claims it by deleting it | Swept by `kempt_init_dirs` after 60 minutes |
+| `~/.local/state/kempt/.atomic.*`, and the same name under `snapshots/` | `atomic_write`'s temp file, created next to its destination so the `mv` into place stays atomic | Swept by `kempt_init_dirs` once older than 60 minutes, so a live writer's temp is never swept |
 
-Four of those files are locks. `lock` and `check.lock` serialize runs and checks; `stage.lock` is
-held by a stage from the moment it asks dnf5 for a transaction until its marker is written, so a
-check never mistakes that stretch for a transaction replaced outside Kempt (see
-[Which transaction ran](#which-transaction-ran)); `writer.lock`
-serializes the three commands that rewrite the two files in the config directory - `kempt config
-set`, `kempt hold` and `kempt unhold`. Each of them reads the whole file, changes one line and
-writes it back, so without a lock two running together lose one of the two writes: measured on
-the old code, 40 concurrent `config set` commands kept 4 keys and 40 `unhold` commands removed 4
-holds. The lock lives in the state directory because the config directory is the user's. Readers
-take no lock at all and must not start: `atomic_write` renames into place, so a reader already
-sees the whole old file or the whole new one.
+Four of those files are locks:
 
-The event log is the newest of these and the one that answers a different kind of question. The
-other files describe **state** and **runs**; nothing recorded that a setting was changed, a
-package was held, or a check happened at all, so "did the change I just made land?" had no answer
-anywhere on the box. `log_event` in `lib/common.sh` writes it, `kempt log` reads it, and it is
-best-effort by contract: it returns 0 whatever happens, never blocks, and a state directory that
-cannot be written simply gets no events rather than an error on every command.
+- `lock` serialises runs, and `check.lock` serialises checks.
+- `stage.lock` is held by a stage from the moment it asks dnf5 for a transaction until its marker
+  is written. A check that finds it held skips the [replaced-transaction test](#which-transaction-ran).
+- `writer.lock` serialises `kempt config set`, `kempt hold` and `kempt unhold`. Each reads a whole
+  config file, changes one line and writes it back, so two at once would lose a write. It lives in
+  the state directory because the config directory is the user's.
 
-The `via` column comes from `KEMPT_VIA`, which the widget sets to `widget` on every command it
-runs (see [The widget's one command path](#the-widgets-one-command-path)). Anything else is
-`cli`. It is read in exactly one place - `log_event` - and changes nothing else about how the
-CLI behaves.
+Readers take no lock. `atomic_write` renames into place, so a reader sees the whole old file or
+the whole new one.
+
+`log_event` in `lib/common.sh` writes the event log and `kempt log` reads it. It always returns 0
+and never blocks, so no command fails because of it. Its `via` column is `widget` when
+`KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 
 ## State JSON schema v1
 
-`~/.local/state/kempt/state.json` is a **public interface**. The widget parses it blind, and so
-can anything else. It is frozen: fields may be added, nothing may change meaning or type without
-bumping `schema`.
+`~/.local/state/kempt/state.json` is a **public interface**. The widget parses it, and so can
+anything else. It is frozen: fields may be added, but a field that changes meaning or type needs a
+new `schema` number.
 
 ```json
 {
@@ -234,6 +177,9 @@ bumping `schema`.
 }
 ```
 
+Every key marked "additive" may be absent from a file written by an older build, and readers must
+cope with that.
+
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `schema` | integer | Always `1` for this format. |
@@ -244,310 +190,165 @@ bumping `schema`.
 | `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
-| `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package that keeps several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order, so the last element is the newest. Readers that show one version take the last. |
-| `backends.<name>.items[].kind` | string, optional | What sort of thing this item is, when the backend distinguishes more than one. Today only `flatpak` writes it, and only ever as `"runtime"`. **Absent means the backend's ordinary item** - a Flatpak app, a dnf package - which is what makes the key additive: every state file written before runtimes were counted has no `kind` anywhere in it and means exactly what it always did. A reader that has never heard of the key lists runtimes among the apps, which is wrong but not broken; one that has shows them under their own heading. Additive key. |
-| `backends.<name>.items[].branch` | string, optional | The Flatpak branch this item is installed on, written for every item carrying `kind: "runtime"`. **A runtime's identity is its `name` and its `branch` together, not its name**: the same runtime is routinely installed on two branches at once (the GL runtime on `24.08` and `24.08extra`), the two update independently, and two items in this array can therefore share a `name`. Anything that keys items by name alone - a lookup table, a size join, a diff - must key on the pair instead wherever this is present. Absent for apps and for every dnf package. Additive key. |
+| `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package with several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order. Readers that show one version take the last. |
+| `backends.<name>.items[].kind` | string, optional | Only `flatpak` writes it, and only as `"runtime"`. Absent means the backend's ordinary item: a Flatpak app or a dnf package. Additive. |
+| `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every item with `kind: "runtime"`. **A runtime's identity is its `name` and `branch` together.** The same runtime can be installed on two branches that update independently, so two items can share a `name`. Anything that keys items by name (a lookup, a size join, a diff) must key on the pair where this is present. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
-| `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and excluding build or documentation tails (`-devel`, `-doc` and friends). Additive key: readers must tolerate its absence in files written by older builds. |
-| `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name (multilib twins are both fetched). **Absent means not known, never zero.** Additive key: readers must tolerate its absence. |
-| `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item in it has a `size_bytes`** - partial coverage omits the key rather than publishing a total that is quietly short. Additive key. |
-| `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A backend switched off contributes nothing and does not suppress it. Additive key. |
-| `reboot_needed` | boolean | Whether a restart is owed **right now**, asked fresh on every check (`dnf5 -C --disablerepo='*' needs-restarting`, local facts only). Not the same question as the `reboot_needed` in a history entry, which records whether one was owed when that run finished. Additive key: readers must tolerate its absence in files written by older builds. `false` means **nothing to say**, never "no restart needed" - render no affirmative line from it. The underlying check answers `false` whenever it could not work the answer out, and it has a failure mode that proves the point: on a cold user cache it exits 1 having printed nothing at all, which is a failure to compute a verdict rather than a verdict. |
-| `metadata_refreshed` | ISO 8601 with offset, optional | When the package metadata behind these counts was last **fetched**, from `$LAST_REFRESH_FILE`'s timestamp. Deliberately not `last_check`: a check answers from the cache, so a check a minute old can be reporting on week-old metadata, and that gap is the whole reason this key exists. The refresh is rate-limited to three hours and skipped on battery and on a metered connection, so it is a gap a box reaches by behaving exactly as designed. Absent when nothing has ever been fetched on this box, which is a different fact from "old" and is worded differently by every surface that renders it. The widget's footer says `metadata N days old` only past 24 hours; under that there is nothing worth saying about a plugged-in machine. Additive key. |
-| `offline_staged` | object, optional | Present **only** while an offline transaction is staged by Kempt **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when it was staged, `count` is how many updates it covers (`null` for a marker written before the count was recorded, never a guess), `armed` is always `true` - the key's absence is how "not armed" is expressed. A staged transaction whose status is anything else is a discrepancy for `kempt doctor`, not a pending install, and must never be published here. This is the one field a **run** writes as well as a check (`publish_staged_state()`, called by `cmd_update` after the live-run reconciliation and before its closing check): the check that ends a run re-reads dnf and takes tens of seconds, and until it lands every surface is still offering to stage what is already downloaded and armed. The run writes this key and nothing else - the timestamps and counts beside it date a check, and a run has not re-read them. That write takes `check.lock`, the same lock every other writer of this file holds, and gives up after five seconds rather than waiting a check out: whoever holds it is a check, and a check works this field out from the same marker and publishes it itself. A read that FAILS is not an answer and never clears the key - `offline_staged_state()` produces nothing in two different ways, rc 0 for "there is genuinely no stage" and non-zero for "could not tell", and treating the second as the first withdrew a promise the machine was already armed to keep. Additive key. |
-| `image_based` | `true`, optional | Present and `true` **only** on an image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - where rpm-ostree owns `/usr` and dnf is not how the system updates. `kempt update` aborts in pre-flight (exit 5) on such a machine, so this is what lets a reader stop offering the button rather than letting the press be how somebody finds out. Detected by the existence of `/run/ostree-booted`, which `ostree-prepare-root` writes on a booted deployment and which is absent on ordinary Fedora **even when rpm-ostree is installed** - the package resolving says nothing about how the box updates. Never `false`: an ordinary Fedora has nothing to declare, and a reader that has never heard of the key behaves correctly there by doing nothing. Additive key. |
-| `release_upgrade` | object, optional | Present **only** while dnf5 has a Fedora release upgrade stored. `from` and `to` are the two releases, both strings; `state` says where it is in its life, and is one of four words rather than a boolean, because collapsing any of them into another produces a sentence that disproves itself. The four are not dnf5's four status words rearranged: one word splits into two states and two words collapse into one, because arming is the status **and** the symlink. `downloaded`: the status is `download-complete`, which is where `dnf5 system-upgrade download` leaves one and where a box can sit for days. `armed`: `status = "ready"` **and** the `/system-update` symlink - the same pair `offline_staged` is gated on - so the next restart installs it. `stranded`: `ready` with the symlink gone, because systemd removes it once `system-update.target` is reached, so a restart has already been past this transaction and no later one runs it. `incomplete`: dnf5 recorded `download-incomplete` or `transaction-incomplete`, or a status word this build has never seen, so the transaction did not finish and no restart installs it - folded in with `downloaded` it produced "has been downloaded" quoting a status word that says the opposite. `state` is always present when the object is, because a reader holding `from`/`to` without it would word its sentence for a state it cannot name. dnf5 keeps ONE stored transaction for release upgrades and ordinary offline updates alike, so this is the fact that says the offline surface is unavailable: staging over a release upgrade cancels it, and Kempt refuses to. Published so a reader can stop OFFERING to stage rather than letting the press be how somebody finds out. Detected by comparing `system_releasever` with `target_releasever` in dnf5's transaction-state file - a COMPARISON and never a presence test, because both keys are in every `state_version = 2` file and an ordinary offline upgrade carries the same value in both. Absent, never `null`, when there is none. Additive key. |
-| `offline_staged.holds_conflict` | array of strings | dnf package names that are in the staged transaction **and** currently held - the packages a restart will install despite the hold, because dnf5 built that transaction before the hold existed and offers no way to edit a stored one. Sorted, unique, dnf only (a flatpak hold cannot reach an offline transaction). Read it together with `names_source`: an empty array is only a claim when that field says so. Present only inside `offline_staged`; additive, and readers must tolerate its absence in files written by older builds. |
-| `offline_staged.names_source` | `"transaction"`, `"marker"` or `"none"` | Which list `holds_conflict` was computed from, and therefore what an EMPTY list means. `transaction`: dnf5's own stored transaction was read live - empty means **no conflict**. `marker`: that read failed and the marker's own list was used, which was itself transaction-derived - empty still means no conflict. `none`: nothing may be denied - a marker written before names were recorded, or one whose names came only from a check, which cannot see the packages the resolver added. Under `none` an empty list means **cannot tell**, and a surface that renders it as "no conflict" is making a claim the data does not support. Present only inside `offline_staged`; additive. |
+| `risky_pending` | array of strings | dnf package names matching `risky_regex`, excluding held ones and build or documentation packages (`-devel`, `-doc` and similar). Additive. |
+| `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name. **Absent means unknown, never zero.** Additive. |
+| `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item has a `size_bytes`**. Additive. |
+| `download_bytes` | integer, optional | The sum of the per-backend keys, omitted if any **enabled** backend omitted its own. A disabled backend does not suppress it. Additive. |
+| `reboot_needed` | boolean | Whether a restart is owed **now**, asked fresh on every check. `false` means **nothing to say**: the check also answers `false` when it could not tell. Render no "no restart needed" line from it. The `reboot_needed` in a history entry is a different fact: whether one was owed when that run finished. Additive. |
+| `metadata_refreshed` | ISO 8601 with offset, optional | When the package metadata behind these counts was last **fetched** (`$LAST_REFRESH_FILE`). A check answers from the cache, so this can be much older than `last_check`. Absent when nothing has ever been fetched. The widget's footer shows `metadata N days old` only past 24 hours. Additive. |
+| `offline_staged` | object, optional | Present **only** while Kempt staged a transaction **and** dnf5 reports it armed (`status = "ready"`). `staged_at` is when; `count` is how many updates (`null` in a marker from before the count was recorded); `armed` is always `true`, and absence means not armed. Also written by a run (`publish_staged_state()`), which touches this key only. A read that fails leaves the key as it was. Additive. |
+| `offline_staged.holds_conflict` | array of strings | dnf packages that are in the staged transaction **and** held now: a restart installs them despite the hold. Sorted, unique, dnf only. Read it with `names_source`. Additive. |
+| `offline_staged.names_source` | `"transaction"`, `"marker"` or `"none"` | What an **empty** `holds_conflict` means. `transaction`: dnf5's stored transaction was read live, and empty means no conflict. `marker`: that read failed and the marker's transaction-derived list was used, and empty still means no conflict. `none`: there was no transaction-derived list, and empty means **cannot tell**. Additive. |
+| `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5, so a reader can stop offering the button. Never `false`. Additive. |
+| `release_upgrade` | object, optional | Present **only** while dnf5 has a Fedora release upgrade stored, detected by `system_releasever` differing from `target_releasever` in dnf5's state file. `from` and `to` are strings. `state` is always present and is one of: `downloaded` (status `download-complete`); `armed` (`ready` and the `/system-update` symlink, so the next restart installs it); `stranded` (`ready` with the symlink gone, so no restart runs it); `incomplete` (`download-incomplete`, `transaction-incomplete` or an unknown status). dnf5 keeps one stored transaction for both kinds, so staging would cancel the release upgrade: Kempt refuses to, and a reader should stop offering it. Absent, never `null`, when there is none. Additive. |
 
-The download figure is **an estimate, and it is wrong in both directions.** State it with a "~"
-and never with "up to", which would claim a ceiling it does not have:
-
-- **It excludes held items.** Kempt passes `--exclude=` for them, so their bytes are never
-  fetched - but it also means the figure is not "what is pending", it is "what a run would fetch".
-- **It omits dependencies.** `dnf5 repoquery --upgrades` lists the packages being upgraded, not
-  the new packages a real transaction would pull in alongside them. Only a depsolve knows those,
-  and a depsolve is exactly what this feature refuses to run: it can block on the rpm transaction
-  lock, which is the failure dnfdragora and Discover both inherit.
-- **It ignores Flatpak static deltas.** Flatpak transfers ostree deltas, so the real download is
-  routinely a fraction of the published `download-size`. This is the largest single over-count.
-  A transaction Kempt has already staged offline is over-counted the same way: it is on disk, and
-  repoquery still reports the full size.
-- **It reads the system cache, `/var/cache/libdnf5`, not the user's.** The size has to come from
-  the same metadata the check was answered from - `kempt check` lists the updates through the root
-  helper against that cache, and nothing in Kempt ever fills `~/.cache/libdnf5` - because a user
-  cache that has drifted returns no row for a package the check is reporting, and one missing row
-  is what makes the coverage rule above drop the figure entirely. Where the system cache is
-  unreadable the query falls back to whatever dnf5 gives the user, and partial coverage stays
-  hidden exactly as it is anywhere else.
+The download figure is **an estimate**, so show it with "~" and never as "up to". It excludes held
+items. It omits new dependencies, because only a depsolve knows them and a depsolve can block on
+the rpm lock. It ignores Flatpak static deltas and already-staged downloads, which over-count. It
+reads the system cache, `/var/cache/libdnf5`, which holds the metadata the check used.
 
 Two rules for anything that reads this file:
 
 1. **Empty stdout from `kempt check` with exit 0 means "no data, keep the last known state"**,
    never "zero updates". It happens when another check holds the lock and there is no valid
    previous state to serve.
-2. `status: "stale"` is not an error state to alarm the user with. The counts are still the best
-   known truth; surface the staleness in a tooltip, not a warning icon.
+2. `status: "stale"` is not an alarm. The counts are still the best known. Show the staleness in a
+   tooltip, not as a warning icon.
 
-A new backend adds a key under `backends` and stays schema 1: existing readers ignore what they
-do not know, and the totals keep working.
+A new backend adds a key under `backends` and stays schema 1. Readers ignore keys they do not
+know, and the totals keep working.
 
 ## The offline transaction, end to end
 
-The one flow in Kempt whose state lives in **two** files owned by two different programs, and the
-one that was broken from the start because only half of it was being written.
-
-**Staging.** `kempt update --surface=offline` runs a fresh check first, so the count it records is
-the one that describes the transaction it is about to build rather than the last check's; a check
-that cannot answer warns and the stage proceeds on the stale figure. Then two privileged calls
-inside one authentication: `dnf-offline-stage` (`dnf5 upgrade --offline`) downloads the transaction, and
-`dnf-offline-arm` (`env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`) arms it. Only the
-second creates `/system-update`, and that symlink is the entire mechanism: systemd's
-`system-update-generator` looks for it at boot and nothing else does. Staging without arming
-leaves the transaction at `status = "download-complete"`, which installs on no restart, ever -
-which is exactly what shipped first, and what the whole of this section exists to prevent
-recurring. `DNF_SYSTEM_UPGRADE_NO_REBOOT` is the documented way to arm without rebooting
-(dnf5-offline(8)); without it, arming reboots the box on the spot.
-
-An arm that fails fails the run: the stage is discarded with `dnf-offline-clean` and **no marker
-is written**. The marker is a promise, and there is nothing left to promise.
-
-**A rebuild forfeits what it replaces, once dnf5 has replaced it.** What a failed re-stage leaves
-behind depends on how far dnf5 got, and the live container gate (`tests/live/`, 2026-09-05)
-measured both outcomes against real dnf5: a download that cannot complete fails before the previous
-transaction is touched, leaving it armed and intact; a stage that dnf5 got far enough to store
-replaces the previous one first, so a failure after that point leaves a partial transaction nothing
-arms, under the old boot symlink. The offline branch of `cmd_update` therefore reads dnf5's status
-after a failed stage and lands in one of four end states:
-
-1. **New transaction armed, marker rewritten.** The ordinary case. `offline restage` records that
-   there was an old one and which holds it conflicted with - a question that cannot be asked after
-   the stage, because the transaction that contained the held package is gone.
-2. **The previous transaction untouched.** The stage failed with dnf5's status still `ready`.
-   Nothing is cleaned, the marker stays (it still describes the stage that still installs), the run
-   fails saying the previous one is unchanged, and the conflict that asked for the rebuild remains
-   on every surface. A clean here would throw away a stage the person is still counting on.
-3. **Nothing staged, marker cleared, the user told.** The stage failed with the previous
-   transaction gone or unarmed, or the arm failed, and `dnf-offline-clean` succeeded. The run fails
-   with a reason naming what was lost, and the marker and its snapshot copy go with the transaction
-   they described: a marker outliving its transaction is a promise to the harvest, the doctor and
-   the popup that no restart can keep.
-4. **The cleanup failed too.** Reachable only through a double failure. The toml and the boot
-   symlink may now disagree and only root can settle it, so the command that settles it travels on
-   the failure notification as well as on stderr - stderr is nobody's surface when the run came
-   from a panel - and the marker is deliberately KEPT. Doctor's staged row and its boot-symlink row
-   then say two different true things about the box and name the one remedy between them.
-
-Whether a transaction existed before the attempt is read from two places, either of which is
-enough: Kempt's marker, and dnf5's own status. The second is what covers a transaction Kempt did
-not stage, which a re-stage destroys identically.
-
-**The three files.**
+A staged update is the one flow whose state lives in files owned by two programs.
 
 | File | Owner | Says |
 | --- | --- | --- |
 | `~/.local/state/kempt/offline_staged.json` | Kempt | A stage was made: when, how many updates, the boot session, the package set it was staged against, which packages went in and were left out, and the identity dnf5 gave the transaction |
 | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5 | Whether the transaction is still there, whether it is armed (`status = "ready"`), and which transaction it is (`rpmdb_cookie`, `cmd_line`) |
-| `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5 | What that transaction will actually install, by NEVRA, resolver-added packages included |
+| `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5 | What that transaction will install, by NEVRA, resolver-added packages included |
 
-None is sufficient. The marker alone cannot tell "waiting for a restart" from "somebody ran
-`dnf5 offline clean`". The toml alone cannot tell Kempt's transaction from anyone else's, and
-carries no baseline to diff a harvest against. The stored transaction knows the package set exactly
-and knows nothing about why a package is absent from it. `offline_system_status()`,
-`offline_marker_read()`, `offline_txjson_names()` and `offline_staged_state()` in `lib/common.sh`
-are the only readers.
+No one file is enough. The marker cannot tell a pending stage from one removed with
+`dnf5 offline clean`. The toml cannot tell Kempt's transaction from anyone else's. The stored
+transaction knows nothing about why a package is missing from it. The only readers are
+`offline_system_status()`, `offline_marker_read()`, `offline_txjson_names()` and
+`offline_staged_state()` in `lib/common.sh`.
 
-**The marker's fields, and the rule for adding one.** The marker is `{version, staged_at,
-pre_snapshot, boot_id, staged, armed}` plus, since the staged set was recorded, `staged_names`,
-`staged_names_source` and `staged_excluded`, and, since the transaction's identity was recorded,
-`rpmdb_cookie` and `cmd_line`. Every field is **additive**: a marker written by an
-older build carries none of the newer ones, and every reader has to go on working against it - the
-harvest, the doctor, the popup and the two hold commands all do. That is why a fact Kempt could not
-establish is expressed by an ABSENT key rather than an empty one: no `staged_names` at all means
-"nobody could find out", where `staged_names: []` would read as "the transaction installs nothing".
-`staged_names_source` says where the list came from (`transaction`, `check`, or `none`), because a
-list derived from a check is allowed to confirm a conflict and is never allowed to deny one.
-`version` is one integer naming the shape of the marker, so a reader has one thing to ask instead of
-inferring the shape from which optional fields happen to be present. It is stamped where a marker is
-**born** and nowhere else: the three later-written fields below carry forward whatever was already
-on the file, so a marker from an older build is never stamped with a version whose fields it does
-not have. It does not replace the per-field checks, and it cannot: every reader still has to work
-against a marker with no `version` at all, which is what every marker written before it looks like.
-Three fields are written by a later run rather than by the stage. `armed` is flipped to `false` when
-a restart proved the transaction cannot install (below), and that flip is also the record that it
-has already been announced. `set_moved` is added when the harvest finds the installed set changed
-under a stage that is still armed - something other than this stage moved it - and it exists for
-the same reason: to say that once, rather than on every check for as long as the stage waits.
-`replaced` is added when a check before the restart finds dnf5 holding a different transaction from
-the one the marker records, and it is both the announce-once key and what tells the harvest that
-whatever ran was not this stage.
-Every name is filtered through `KEMPT_NAME_RE` as it is written, and one name that fails drops the
-whole list - one gate covers jq, the shell, QML and a terminal.
+**Staging.** `kempt update --surface=offline` asks dnf for a fresh count, then makes two
+privileged calls inside one authentication. `dnf-offline-stage` (`dnf5 upgrade --offline`)
+downloads the transaction. `dnf-offline-arm`
+(`env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`) arms it by creating
+`/system-update`, the symlink systemd looks for at boot. An unarmed transaction stays at
+`download-complete` and no restart installs it. Without `DNF_SYSTEM_UPGRADE_NO_REBOOT`, arming
+reboots at once. If the arm fails, the stage is discarded with `dnf-offline-clean`, no marker is
+written, and the run fails.
 
-**Configuration changes never rewrite already-created operations: a hold applies from the next
-transaction Kempt builds, and a transaction dnf5 has already stored is reported against, never
-edited.** dnf5 offers no API to edit a stored transaction, so a hold added after a stage cannot
-take the package out of it, and the restart installs it anyway. Policy state and transaction state
-have different temporal scopes, and Kempt's answer is to say so rather than to pretend otherwise:
-`kempt hold dnf:<name>` records the hold, exits 0, and then prints on stderr whether the armed
-stage still contains that package, with the two commands that act on it - rebuild the stage with
-your current holds, or remove it. It never prompts, never blocks and never escalates. `kempt
-unhold` carries the mirror: the stage was built without this package, so the restart will not
-install it. The predicate behind both is a set intersection of the staged names against the dnf
-names currently held - never a timestamp comparison, which loses the in-flight-stage race whichever
-way round it is written - and it is published in `state.json` as `offline_staged.holds_conflict` so
-the widget, which can stat nothing, derives the same answer from the same evidence.
+**Rebuilding.** dnf5 replaces the stored transaction as soon as a new stage gets far enough, so a
+failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a failed stage:
 
-**A marker that will not parse is skipped, never cleared.** `update` and `check` hold different
-locks, so a check can read the marker while a stage is writing it. Two things keep that harmless:
-the write is atomic and mode 0600 (`write_offline_marker`), so the window holds the old marker
-rather than half of the new one; and `offline_marker_read` refuses an empty, unparsable or
-over-1 MB file, which every reader treats as "skip this check". Clearing is reserved for a marker
-that **parses** over a transaction dnf5 says has gone. The distinction is not academic: a torn read
-used to reach the stale-pointer branch below and delete the marker, so one badly timed check made
-Kempt disown a transaction that was still going to install on the next restart.
+1. **Old transaction still `ready`.** Nothing is cleaned, the marker stays, and the run fails.
+2. **Old transaction gone or unarmed, or the arm failed, and cleanup succeeded.** The marker and
+   its snapshot copy are removed, and the failure says what was lost.
+3. **Cleanup failed too.** The marker is kept, and the notification carries the command that
+   fixes it.
 
-**Discarding.** `kempt unstage` removes the stored transaction through `dnf-offline-clean`, the same
-verb the failure unwinds use, and then clears the marker. The order is the one every path here
-follows: the marker goes *with* the transaction and never before it, and only once
-`offline_system_status` says `absent`. A helper that exited 0 having changed less than it meant to
-would otherwise leave an armed transaction with no marker, which is an install no surface mentions.
-A stored Fedora release upgrade refuses the command outright, in the CLI and again as root.
+**The marker's fields** are `version`, `staged_at`, `pre_snapshot`, `boot_id`, `staged`, `armed`,
+`staged_names`, `staged_names_source`, `staged_excluded`, `rpmdb_cookie` and `cmd_line`.
 
-**Applying.** Any restart runs it - the popup's button, the K menu, `reboot`. Kempt never
-restarts anything itself.
+- **Every field is additive.** Every reader must work with a marker from an older build.
+- **Unknown is an absent key.** `staged_names: []` would claim the transaction installs nothing.
+- **`staged_names_source`** is `transaction`, `check` or `none`. A list from a check may confirm a
+  hold conflict but never deny one, because a check cannot see resolver-added packages.
+- **`version`** is set when a marker is created and carried forward unchanged.
+- **Later runs add three flags**, each also recording that the event was announced once.
+  `armed: false` means a restart proved the transaction cannot install. `set_moved` means the
+  package set changed under a stage still armed. `replaced` means dnf5 holds a different
+  transaction.
+- **Names pass `KEMPT_NAME_RE`** as they are written, and one bad name drops the whole list.
+- **A marker that will not parse is skipped, never cleared.** `offline_marker_read` returns nothing
+  for an empty, unparsable or over-1 MB file. Clearing needs a marker that parses over a
+  transaction dnf5 says has gone. Writes are atomic and mode 0600 (`write_offline_marker`).
 
-**Harvesting.** The next `kempt check` reconciles, inside the check lock, before anything reads
-the world (`harvest_offline`):
+**Holds after a stage.** dnf5 cannot edit a stored transaction, so a hold applies from the next
+one. `kempt hold dnf:<name>` exits 0 and warns on stderr when the armed stage contains the
+package, naming the commands to rebuild or remove it. `kempt unhold` warns about the reverse. The
+test is a set intersection of staged and held names, never a time comparison, published as
+`offline_staged.holds_conflict`.
+
+**Discarding.** `kempt unstage` runs `dnf-offline-clean`, then clears the marker once
+`offline_system_status` says `absent`. On every path the marker goes after the transaction, never
+before. A stored Fedora release upgrade makes it refuse.
+
+**Applying.** Any restart applies it. Kempt never restarts the machine.
+
+**Harvesting.** The next `kempt check` reconciles inside the check lock, before anything else
+reads the system (`harvest_offline`):
 
 | Marker | dnf5 status | `/system-update` | Boot | Package set | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| yes, with an identity | present, and not the transaction the marker records | - | any | - | **Replaced.** Announced once and flagged `replaced` on the marker, never cleared here. The rows below still apply, and the harvest never reports what then runs as this stage |
+| yes, with an identity | present, and not the transaction the marker records | - | any | - | **Replaced.** Announced once and flagged `replaced` on the marker, never cleared here. The rows below still apply, and what then runs is never reported as this stage |
 | yes | ready / any non-absent | - | same as staged | - | Still pending. Nothing happens |
 | yes | absent | - | same as staged | - | The transaction was thrown away. Clear the marker, `offline marker cleared (stage gone)` |
-| yes | absent | - | different | unchanged | The transaction was thrown away. Clear the marker - this used to be a permanent dead end, waiting forever for an apply that had already been discarded |
-| yes | ready | present | different | unchanged | Still pending: the restart has not got round to running it |
-| yes | ready | **gone** | different | unchanged | **Detour boot.** The symlink is half of arming and systemd removes it once `system-update.target` is reached, so a boot that has been and gone leaving `ready` behind is one that walked past this transaction. Announce once, demote to `armed: false`, never clear |
+| yes | absent | - | different | unchanged | The transaction was thrown away. Clear the marker |
+| yes | ready | present | different | unchanged | Still pending: the restart has not run it yet |
+| yes | ready | **gone** | different | unchanged | **Detour boot.** systemd removes the symlink once `system-update.target` is reached, so this boot walked past the transaction. Announce once, set `armed: false`, never clear |
 | yes | present, not `ready` | - | different | unchanged | **Detour boot.** Same three rules |
-| yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's own snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)): surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
-| yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker is left where it is |
+| yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)): surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
+| yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker stays |
 
-Two gates, and neither is the package set on its own.
+A harvest needs two gates. The boot must have changed, because a live run also moves the package
+set. And dnf5's transaction must be gone, because applying one removes the toml,
+`transaction.json` and `/system-update`. While any remain, a moved package set means another tool
+moved it.
 
-The boot session is the first, because "the installed set moved" was never evidence that the stage
-applied - a live run, or a manual `dnf install`, moves it too.
+**Detour boots.** After a new boot with the package set unchanged, a transaction that is present
+but unarmed can never install. Announce it once (`armed: false` records that). Never clear the
+marker, because `kempt doctor` needs it to say the stage can never install. Never apply this to a
+same-boot `download-complete`, which is a stage still being written.
 
-**dnf5's own transaction is the second**, and it is the one that says an apply really happened:
-applying an offline transaction removes all three of the state toml, `transaction.json` and
-`/system-update` (verified against dnf5 5.4.3 by running `dnf5 offline _execute`, the command the
-offline environment itself runs). So while any of that is still on the box, a package set that
-moved across a reboot means something ELSE moved it - `sudo dnf5 upgrade` typed in a terminal,
-`dnf-automatic`, GNOME Software. Harvesting there wrote a history entry naming the other tool's
-packages, announced "Staged updates were applied on reboot", and deleted the marker and baseline
-of a transaction that was still armed and still going to install on the next restart - after which
-no surface mentioned it again and `kempt doctor` called it "staged outside Kempt".
-
-**Reconciling a detour boot.** A transaction that is present but not `ready`, across a boot that
-changed, with the package set where the stage left it, has one reading: the boot symlink was
-standing over a transaction nothing could apply, so the restart went into the offline updater,
-installed nothing and came back. That transaction can never install on a later restart either -
-only `dnf5 offline reboot` arms one, and nothing is going to run it by itself. Three rules hold
-this branch together:
-
-- **Announce once.** The notification and the event line are said exactly once, and the key is the
-  marker itself: `armed: false` IS the record that it has been said. A box checking every ten
-  minutes would otherwise repeat it 144 times a day about one dead transaction.
-- **Never clear.** The marker is what lets `kempt doctor` say *staged update can never install*.
-  Without it that row degrades into *an offline transaction is staged outside Kempt*, which
-  misattributes Kempt's own stage to somebody else and drops the diagnosis. Clearing stays what it
-  always was: for a marker over a transaction dnf5 says has GONE.
-- **Never reclassify a same-boot stage.** `download-complete` in the boot that staged it is the
-  legitimate transient of a stage still being written - `dnf5 upgrade --offline` sits there for the
-  whole download - and a check that fired in that window and called it dead would announce a
-  transaction about to be armed perfectly.
-
-The reader that keeps this honest is `offline_staged_state`, which publishes nothing at all unless
-dnf5 says `ready`: the popup's staged banner therefore disappears the moment the transaction stops
-being armed, and the notification is what stops that disappearance from being the only thing that
-happens.
+`offline_staged_state` publishes nothing unless dnf5 says `ready`, so the staged banner disappears
+as soon as the transaction stops being armed.
 
 ### Which transaction ran
 
-The boot changing and dnf5's transaction going away together prove that *a* transaction applied,
-not that it was the one Kempt staged. `sudo dnf5 offline clean` followed by a stage of somebody's
-own, or a second admin staging over the first, passes both gates. So a stage also records which
-transaction it is, from two facts dnf5 writes into its state toml when it builds one:
-`rpmdb_cookie`, a hash of the rpm database the transaction was built against, and `cmd_line`, the
-command that built it. They are checked twice.
+A new boot and a vanished transaction prove that *a* transaction applied. To know it was Kempt's,
+a stage records two values from dnf5's toml: `rpmdb_cookie` (a hash of the rpm database it was
+built against) and `cmd_line` (the command that built it).
 
-- **Before the restart**, every check compares the marker with dnf5's toml as it is now. Another
-  cookie, another command, or another package set (compared only when both lists came from a
-  transaction) means the stored transaction is not the stage Kempt made. That is announced once and
-  recorded on the marker as `replaced`. The cookie alone is not enough, and this was measured: a
-  stage, `dnf5 offline clean` and a new stage with another `--exclude`, against an unchanged rpm
-  database, produced two tomls with the same cookie. The command and the package set are what tell
-  them apart. The comparison is skipped while a Kempt stage is in flight, because a rebuild replaces
-  dnf5's transaction minutes before it rewrites the marker: `kempt update` holds `stage.lock` across
-  that stretch, and the check only tries it.
-- **After the restart**, the harvest asks dnf5's transaction history for the entries since the
-  stage (`dnf5 history list --json`, then `history info <id> --json`, both readable as the user).
-  The entry that began at the recorded cookie (`rpmdb_version_begin`) and ran the recorded command
-  (`command_line`) is the stage. Its history entry gets `transaction_id`, and the report keeps only
-  the packages that entry touched, so a package another tool moved across the same restart is not
-  reported as part of the stage. When the history answered in full and nothing in it can be the
-  stage, the entry's surface is `restart (staged update did not run)`, the report stays the whole
-  snapshot diff, and the notification says the staged update did not run.
+- **Before the restart**, every check compares the marker with the toml. A different cookie,
+  command or package set means `replaced`. The cookie alone is not enough, because two stages with
+  different `--exclude` flags can share one. The test is skipped while `stage.lock` is held, since
+  a rebuild replaces dnf5's transaction before it rewrites the marker.
+- **After the restart**, the harvest reads dnf5's history since the stage (`history list --json`,
+  then `history info <id> --json`, as the user). The entry that began at the cookie
+  (`rpmdb_version_begin`) and ran the command (`command_line`, from the list) is the stage. Its id
+  becomes `transaction_id`, and the report keeps only the packages it touched. If the history
+  answered in full and no entry matches, the surface is `restart (staged update did not run)`.
 
-Verified against dnf5 5.4.3 in a Fedora 44 container by running `dnf5 offline _execute`, the
-command the offline boot runs: the applied transaction was recorded with the toml's `cmd_line` as
-its `command_line` and the toml's `rpmdb_cookie` as its `rpmdb_version_begin`, and staging on its
-own recorded no history entry. `history info` has no `command_line` key, so the command comes from
-the list.
+Anything unclear is **cannot tell**, and the harvest reports the whole snapshot diff. That covers an
+older marker, an unknown history format, no entries, more than 20, or two candidates. The lookup
+starts a day before `staged_at`, in case the clock was wrong early in boot.
 
-Everything else is **cannot tell**, and cannot tell is the harvest exactly as it was before any of
-this existed: a marker written by an older build, a history that did not answer or answered in a
-shape this build does not know, no entries at all since the stage, more than 20, two candidates, or
-an entry that began at the cookie with another command and the same packages the marker recorded.
-That last one is what a dnf5 that recorded its commands differently would leave, so it is never
-taken as evidence that the stage did not run. The lookup window opens a day before `staged_at`,
-because the offline transaction runs early in boot and a clock that has not been synced can put it
-hours before the stage. The cookie is the identity; the window only bounds the lookup. A change in
-dnf5's formats can cost this precision. It cannot make the entry claim a transaction it did not see.
+**A live run** reads the highest history id before the apply (`dnf_history_max_id`). Afterwards it
+takes the one newer entry that ran the helper's command (`dnf5 upgrade`, `-y`, one `--exclude=` per
+hold). That gives `transaction_id` and the report. Two matches, or no answer, is cannot tell.
 
-**A live run** is asked the same question and answers it far more cheaply, because nothing has to
-survive a restart. `cmd_update` reads the highest id dnf5's history holds just before the apply
-(`dnf_history_max_id`), and after it looks for the one entry that arrived later running the command
-the root helper runs - `dnf5 upgrade`, then `-y`, then one `--exclude=` per hold, rebuilt from the
-same two arrays the helper is given. That entry's id becomes the run's `transaction_id` and its
-package list decides the report, so a package something else moved between the two snapshots is not
-reported as part of the run. No cookie is involved and none is needed: dnf5 holds its own lock for
-the length of a transaction, so an entry inside that window running that command is this run's. Two
-of them is cannot tell - an apply that was retried leaves exactly that, and either answer would be
-a guess about which attempt the report describes. So is a history that did not answer, or answered
-in a shape this build does not know. Cannot tell is the run reported from its two snapshots, which
-is how every live run was reported before the lookup existed.
-
-**Superseding.** A staged transaction records the rpm database cookie it was built against, and
-dnf5 refuses one whose cookie has moved. So a live `kempt update` that installs anything has
-killed the stage, whether or not anyone notices, and an armed dead stage is a failed offline boot
-waiting to happen. `cmd_update` therefore discards it (`dnf-offline-clean`), removes the marker
-and its snapshot copy, and records `offline stage dropped (superseded by live update)` - except
-over a stored Fedora release upgrade, where the marker alone goes and the transaction is left
-untouched, because dnf5 keeps ONE stored transaction and that one is not ours to clean. Three
-conditions gate that: the stage must still be **pending** (its baseline still matches the world
-this run started from - an already-applied stage has a harvest owed and must not be dropped), dnf
-must have **succeeded**, and the rpm set must actually have **moved**. A Flatpak-only run moves
-nothing and leaves the stage alone.
-
-Third-party rpm changes are not chased: dnf5 refuses the stale transaction at boot and the system
-boots normally. Documented and accepted.
+**Superseding.** dnf5 refuses a stage once the rpm database has moved. So a live `kempt update`
+discards the stage (`dnf-offline-clean`), removes the marker and its snapshot copy, and logs
+`offline stage dropped (superseded by live update)`. Over a stored release upgrade only the marker
+goes. It happens only when the stage is still pending (its baseline matches this run's start), dnf
+succeeded, and the rpm set moved. A Flatpak-only run leaves the stage alone. Rpm changes by other
+tools are not tracked: dnf5 refuses the stale transaction at boot and the system boots normally.
 
 ## The network boundary
 
-The second boundary in Kempt, and the one a user feels first: a laptop on a train should still be
-able to answer "what is pending?". So **every check is read-only against a local cache, and every
-fetch happens in one place, under one policy.**
+**Every check reads a local cache, and every fetch happens in one place, under one policy.** A
+laptop offline can still answer "what is pending?".
 
 | Command | May reach the network |
 | --- | --- |
@@ -560,322 +361,167 @@ fetch happens in one place, under one policy.**
 | `dnf5 --setopt=cachedir=/var/cache/libdnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
-| `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes** - that is what a run is |
+| `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes**, that is what a run is |
 
-There is one flatpak refresh and not two, although there are two cached queries. A refresh fetches a
-**remote's** summary index, and that index is per remote and per arch rather than per kind: the
-cache is one `flathub.idx` plus one `.sub` file, and the `--cached` runtime query answers out of the
-same tree the app refresh fills. A second fetch would re-download a summary that had just arrived.
+Both fetches run from `maybe_refresh_metadata` in `lib/common.sh`: at most once every three
+hours, only on mains power and an unmetered connection, and never failing the check that follows.
+One `$LAST_REFRESH_FILE` stamps both, written when either succeeded. `kempt check --refresh`
+overrides the interval only.
 
-Both backends are therefore **refresh-then-read-cache**, and both refreshes are triggered from
-`maybe_refresh_metadata` in `lib/common.sh`: at most once every three hours, only on mains power,
-only on an unmetered connection, and never in a way that can fail the check that follows. One
-interval, one `$LAST_REFRESH_FILE`, one power rule. The marker is stamped when **either** arm
-succeeded, because its job is to rate-limit the network step - re-fetching a flatpak summary that
-just arrived, because dnf's `makecache` failed, is the failure mode that rule prevents.
+The dnf fetch goes through the root helper (`priv_refresh`), because it fills root's cache, which
+the update uses. The flatpak fetch runs as the user. The runtime query reads the same summary
+cache as the app query, so one fetch serves both. Each fetch logs its own result, and one failing
+does not stop the other.
 
-A skip is otherwise invisible: the check that follows answers from the cache and reports `ok`, so a
-box that has not fetched for a week looks exactly like one that is up to date. Two things close
-that. The fetch stamp is published as `metadata_refreshed`, which the footer and `kempt doctor`
-date; and a skipped refresh is written to the event log **at most once a day**, through
-`$REFRESH_SKIP_FILE`, which is a stamp of its own so that announcing a skip can never postpone a
-fetch. Once a day rather than once a check, because a laptop on battery skips every check it runs.
+A skip is shown two ways. `metadata_refreshed` dates the cache in the footer and `kempt doctor`.
+The event log records a skip at most once a day, through `$REFRESH_SKIP_FILE`.
 
-`kempt check --refresh` passes the interval gate and nothing below it. The interval is a courtesy
-to the mirrors and the person at the machine may overrule it; the battery and metering rules are
-about that person's hardware and their bill, so a flag that quietly spent either would be worse
-than no flag.
-
-The two arms are otherwise independent. The dnf one goes through the root helper (`priv_refresh`)
-because it fills root's cache, the one the update will use. The flatpak one runs **as the user**:
-the system remote's summary, as an unprivileged user sees it, is cached under that user's own
-`~/.cache/flatpak/system-cache/summaries/`, so there is nothing for root to do. Each logs its own
-result (`refresh ok` / `refresh failed`, `refresh flatpak ok` / `refresh flatpak failed`), and one
-failing never stops the other.
-
-Which command does the Flatpak fetching was settled by measurement, not by the help text. Running
-the remote query *without* `--cached` as an ordinary user rewrites
-`~/.cache/flatpak/system-cache/summaries/` - the remote's `.idx`, its signature and a fresh
-subsummary - in 2.0-2.4 s, and the `--cached` query then answers out of it with the network
-blackholed. `flatpak update --appstream` is not the alternative it looks like: it fills the
-root-owned `/var/lib/flatpak/appstream` tree, which is not what `--cached` reads, and writing
-there needs a polkit action of its own. Measured 2026-08-27, flatpak 1.18.1 on Fedora 44.
-
-What this costs: **a cache nothing has ever filled cannot answer.** `--cached` does not fall back
-to the network - not even when the network is right there. With the cache emptied and flathub
-reachable it still exits 1 in 40 ms with `No cached summary for remote 'flathub'`, so on a box
-whose Flatpak summary has never been fetched the check fails and that backend reports `stale` with
-the reason. `dnf5 --cacheonly` behaves identically, and the degrade path is the same one every
-backend failure takes. It resolves itself, because `maybe_refresh_metadata` runs *before* the
-checks and a box with no `$LAST_REFRESH_FILE` passes the interval gate on its very first check.
-Adding a network fallback inside the check would undo the boundary entirely, so there is
-deliberately none.
+A cache nothing has filled cannot answer, and the backend reports `stale`. The first check fixes
+that, because a box with no `$LAST_REFRESH_FILE` passes the interval gate. Keep the network out of
+the check.
 
 ## The privileged boundary
 
-Two root helpers, one per polkit action, because polkit's `auth_admin_keep` caches per action id
-and a cheap verb must never share an action with a dangerous one:
+There are two root helpers, one per polkit action. polkit's `auth_admin_keep` caches per action,
+so a cheap verb must never share an action with a dangerous one.
 
-- `kempt-refresh` (`io.github.erez_c137.kempt.refresh`, no dialog): `check` and `refresh`, metadata only.
+- `kempt-refresh` (`io.github.erez_c137.kempt.refresh`, no dialog): `check` and `refresh`,
+  metadata only.
 - `kempt-apply` (`io.github.erez_c137.kempt.apply`, one auth per run): `dnf-upgrade`,
-  `dnf-offline-stage`, `dnf-offline-arm` and `dnf-offline-clean`. The last two take no arguments
-  at all. dnf only - `flatpak update` asks polkit for itself and is granted to an
-  active local session with no password, so routing it through this action only added a dialog
-  that plain `flatpak update` never raises. Both flatpak arms, the refresh and the apply, now run
-  as the user.
+  `dnf-offline-stage`, `dnf-offline-arm` and `dnf-offline-clean`. The last two take no arguments.
+  It handles dnf only. `flatpak update` asks polkit for itself and runs as the user.
 
-Both validate every argument before running anything, accept no free-form arguments at all, and
+Both helpers validate every argument before running anything, accept no free-form arguments, and
 pin `PATH` and `LC_ALL`. The full model, including what passwordless mode grants, is in
 [security.md](security.md).
 
 ## The widget's one command path
 
-Everything the widget runs - every check, every hold, every `config get`, the log tail, the
-watcher's `stat` - goes through `Executor.qml`. It wraps the executable data engine
-(`Plasma5Support.DataSource`, a deprecated shim KDE plans to drop) behind a queue that is
-serialized, always asynchronous, and hard-timed-out per call. That isolation is the point: the
-eventual swap when KDE removes the shim is a one-file change, and nothing anywhere else in the
-widget is allowed to start a process.
+Every process the widget starts goes through `Executor.qml`. It wraps the executable data engine
+(`Plasma5Support.DataSource`, a shim KDE plans to drop) in a serialised, asynchronous queue with a
+timeout per call. When the shim goes, only this file changes.
 
-Every command it builds is prefixed `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`. The
-PATH assignment is there because plasmashell does not reliably inherit a login shell's one and
-`install.sh` puts the CLI in `~/.local/bin`; `KEMPT_VIA` is read by `log_event` and by nothing
-else, and is what makes `kempt log` able to say a change came from the panel.
+Every command starts with `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`, because
+plasmashell may lack the login shell's `PATH`.
 
-**The settings page's writes are durable, and that is not cosmetic.** Plasma runs its OK button
-as `applyAction.trigger(); configDialog.close()`, and the close destroys the page, its Executor
-and the DataSource behind it - which deletes the KProcess, whose destructor SIGKILLs the `sh`
-still running the command. A 10 ms `kempt config set` against a teardown two event-loop hops away
-is a race, and it was lost in practice. So every write that page dispatches goes through
-`page.durable()`, which appends `& wait $!`: the work forks into a background job the SIGKILL
-never reaches, while `wait $!` still returns the job's real exit status so the page's error
-handling is unchanged. It is applied to writes only, and never to `main.qml`'s executor, whose
-timeout has to be able to kill a wedged `kempt check` outright.
+**Settings page writes go through `page.durable()`**, which appends `& wait $!`. Plasma's OK button
+closes the dialog at once, and the close kills the page's running commands. The background job
+survives that, and `wait $!` still returns its status. Use it for writes only: `main.qml`'s
+executor must be able to kill a stuck `kempt check`.
 
-**ONE component, one queue per kind of caller.** The file is one; the queues are deliberately not,
-and the table below is the whole list.
+**One component, one queue per kind of caller:**
 
 | Instance | Lives in | Carries | Why it is separate |
 | --- | --- | --- | --- |
 | `executor` | `main.qml` | checks, holds, `run`, `summary`, config reads, the watcher poll | The actions. A `kempt check` can take two minutes. |
-| `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is strictly FIFO, so a 2-second tail sharing it with a 120-second check would put ~60 tails ahead of every button press and the Refresh button would look dead for two minutes. |
-| `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` returns as soon as KDE has been ASKED to draw its confirmation screen: no lock, no package database, milliseconds. Behind a 120-second check it sat unsent with nothing on screen to say why, which is indistinguishable from a broken button. |
-| `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog is built by the shell in its own object tree and cannot reach `main.qml` at all. Even if it could, a settings dialog that takes two minutes to populate because a check is running is a broken dialog. |
-| `pwExecutor` | `configGeneral.qml` | `enable-passwordless` and `disable-passwordless`, and nothing else | The same argument one level down: those two buttons wait on a human in an authentication dialog, and parking every other read, write and hold on the page behind that wait is the `executor`/`tailExecutor` split again. |
+| `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is first in, first out. Behind a two-minute check, tails would pile up ahead of every button press. |
+| `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` takes milliseconds. Behind a check it would sit unsent with nothing on screen. |
+| `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog lives in its own object tree and cannot reach `main.qml`. It must also open while a check runs. |
+| `pwExecutor` | `configGeneral.qml` | `enable-passwordless` and `disable-passwordless`, and nothing else | Those two wait on a password dialog, and the page's other work must not wait behind them. |
 
-The rule that follows: a new caller that is *fast and periodic* must not share a queue with one
-that is *slow and occasional*. Adding a fourth instance is cheaper than making the queue clever.
+The rule: a fast, periodic caller must not share a queue with a slow, occasional one. Add another
+instance rather than making the queue clever.
 
-**Rebuild Staged Update runs the same command as Install on Next Restart**, and that is a design
-constraint rather than a convenience. Both are `kempt update --surface=offline`, detached with
-`setsid` and never waited on; one polkit action, one dialog, one verb the helper already knows. A
-second staging path would have been a second privileged surface to review, and there is nothing
-about a rebuild that a stage does not already do - dnf5 replaces a stored transaction by building
-a new one.
+**Rebuild Staged Update runs the same command as Install on Next Restart**
+(`kempt update --surface=offline`, detached with `setsid`), so there is one staging path to
+secure. A rebuild destroys the old transaction as soon as it starts, and a popup can sit open for
+an hour. So `rebuildStaged()` in `main.qml` captures the banner's `staged_at`
+(`vm.stagedStagedAt`), then reads `state.json` with `cat`. It proceeds only if the same stage is
+still published and still raises a warning. Otherwise it redraws the banner and says the staged
+update changed. During a run it does nothing, like `stageOffline`.
 
-What the rebuild adds is a **precondition re-verify at click time**. The action is offered by a
-banner, and a banner describes one transaction; a popup can sit open for an hour, and in that time
-the staged update it names can be applied by a restart, replaced by another stage, or removed by
-hand. That matters more than an ordinary stale click because the re-stage is destructive at its
-*start*: dnf5 destroys the stored transaction the moment a replacement begins, rather than
-swapping at the end. Acting on a stale banner would therefore throw away a staged update the
-person never agreed to lose. So `rebuildStaged()` in `main.qml`:
-
-1. captures the `staged_at` the banner was derived from, synchronously, before anything can move
-   it (`vm.stagedStagedAt`, published by `logic.js` from `offline_staged.staged_at`);
-2. reads the current `state.json` through the executor - a `cat`, not another `kempt check`: the
-   file is what `check` publishes, reading it takes no lock, and a check can run for two minutes
-   between the click and the action it was meant to authorise;
-3. re-derives a view model from those bytes and proceeds only if a staged update is still
-   published, its `staged_at` is the one that was on screen, and it would still raise a warning;
-4. otherwise runs nothing, assigns the freshly read state so the banner re-draws from the truth,
-   and reports `The staged update changed - take another look.` where the press happened.
-
-Consent given to one staged update is never spent on a different one. The same guard `stageOffline`
-has applies first: while a run of ours is in flight, a rebuild does nothing at all.
-
-The 30-second watcher makes the same read, for the other half of the same problem. `state.json`
-moving is how the widget learns a run of ours ended, so it leaves the updating pane on that write -
-and the `kempt check` it starts next queues behind `check.lock`, which the run's own closing check
-is still holding. Until that clears, the popup is showing the state from *before* the run. For a
-run that staged, the gap is not merely stale: the CLI publishes the armed transaction as soon as it
-exists (`publish_staged_state`), and a widget that has not read it still offers **Update Now**,
-which would start a live upgrade over the staged transaction and make the CLI discard it as
-superseded. So `adoptState()` reads the bytes that triggered the watcher and assigns them - one
-`cat`, no lock, the authoritative check still running behind it. It is not a check and makes none
-of a check's writes, so it does not open the quiet window that suppresses the next one.
+When the 30-second watcher sees `state.json` change after a run, `adoptState()` assigns that file
+at once, without waiting for the next check. The run has already published the armed stage
+(`publish_staged_state`). A popup still offering **Update Now** would start a live upgrade that
+discards it.
 
 ### What the message stack says to a screen reader
 
-Kirigami gives every `InlineMessage` the AlertMessage role and **no accessible name**, so a screen
-reader announcing one reads out its icon - "Positive", "Warning" - and nothing about what happened.
-Every message in the popup's stack therefore carries `Accessible.name: text`, including the one
-that only ever reports a failure: a message nobody can hear is a message that is not being shown.
-
-That binding does less than it looks like it does, and the correction matters. A name change on an
-object that does **not** hold focus is not announced by anything: it makes the message readable in
-flat review, where a screen-reader user has to go looking, and that is all. So the staged banner
-could change its type, its colour, its sentence and its buttons - which is the whole point of the
-flip when a hold lands behind a staged update - and a person who cannot see the colour would be
-told none of it, because they were not standing on the banner when it happened.
-
-That is why the announcements exist. The popup has one `announce(sentence, assertive)` function,
-and every announcement in the widget goes through it: it calls `Accessible.announce` (Qt 6.8 and
-later) and emits `announced(string)` alongside, because `Accessible.announce` reaches an
-accessibility bridge and nothing else, so `announced` is the only thing a test can hear.
-
-What is announced, and how:
+Kirigami gives an `InlineMessage` **no accessible name**, so every message in the popup sets
+`Accessible.name: text`. That alone announces nothing when the message lacks focus. So every
+announcement goes through `announce(sentence, assertive)` in `FullRepresentation.qml`. It calls
+`Accessible.announce` (Qt 6.8 and later) and emits `announced(string)`, which tests listen to.
 
 | What | Politeness | Why |
 | --- | --- | --- |
-| `Holding X` / `No longer holding X` | Polite | The outcome of a press the person just made. Interrupting them to confirm their own action is rude. |
-| A hold that failed | Assertive | The row now carries an error and the padlock under their hand is live again. |
-| The staged banner, when its words change while it is visible | Assertive | It is not the outcome of a press: it is the machine saying that what it promised has changed. |
-| The post-run line and a failed press | Assertive | The answer to the one thing the person was waiting for, and the popup may not have the focus. |
-| The footer, when the box goes stale | Polite | Nothing has gone wrong that needs interrupting; the counts above are still the best truth and this dates them. It is keyed on the *reason*, not on the whole line, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. |
+| `Holding X` / `No longer holding X` | Polite | The outcome of the person's own press. |
+| A hold that failed | Assertive | The row now carries an error and the padlock is live again. |
+| The staged banner, when its words change while it is visible | Assertive | The machine is saying that what it promised has changed. |
+| The post-run line and a failed press | Assertive | The answer the person was waiting for, and the popup may not have focus. |
+| The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. |
 
-Each message that announces itself keeps a `spoken` string, because `text` and `visible` are two
-bindings onto the same view-model change and both handlers fire; it is cleared when the message
-goes away, so a banner that comes back says itself again.
-
-The colour is a second channel for the people who have it. The words are the message, and the
-announcement is what makes the words arrive.
-
-The **Rebuild Staged Update** action carries the same discipline one level down. Its tooltip
-discloses the two costs - it asks for authorization, and a failed rebuild removes the current
-staged update - and `Accessible.description` is bound to that same tooltip, because a polkit dialog
-takes the focus the instant the button is pressed. A disclosure that has not been heard by then is
-never heard.
+Each announcing message keeps a `spoken` string so one change is announced once, and clears it
+when hidden. The **Rebuild Staged Update** tooltip names its costs, and `Accessible.description`
+is bound to it, because the polkit dialog takes focus at once.
 
 ### Where the popup's last-run line comes from
 
-The persistent `Last update 18 min ago · 4 packages` row and the transient line the popup shows
-right after a run are one fact with one source: **`kempt summary --json`**, parsed by
-`Logic.lastRunOf` in `plasmoid/contents/ui/logic.js` and held by `main.qml` as `lastRun`. The CLI
-serves the newest history entry byte for byte rather than re-rendering it, so what arrives is
-exactly what `cmd_update` wrote: `{timestamp, surface, status, duration_sec, reboot_needed, log,
-error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`. A live run and a
-harvest both also write `transaction_id` when dnf5's history named the transaction they report. A
-staging run that staged **nothing** also writes `staged_nothing`, whose value is `"held"` (every
-pending dnf update was held) or `"nothing_pending"` (there was nothing to stage). It is written only
-when it happened: such a run is `surface: "offline"`, `status: "ok"`, indistinguishable from one
-that staged sixty packages, and with only those two fields to go on the popup announced a restart
-that would install nothing. Absence therefore has to keep meaning "this run staged something",
-which is also the only reading available for an entry written before the key existed. Additive key,
-and the widget accepts those two words and nothing else - an unknown value is a build it does not
-understand, so it degrades to the ordinary staged wording rather than guessing. A live run's flatpak backend
-also carries `eol`: one `{id, branch, kind, apps, reason}` per end-of-life ref that flatpak reported
-during the run (see `flatpak_eol_notices`), with `apps` naming the installed apps that depend on it.
-The widget does not draw it yet; `kempt summary` does.
+The `Last update 18 min ago · 4 packages` row and the line shown after a run both come from
+**`kempt summary --json`**, parsed by `Logic.lastRunOf` in `logic.js` into `main.qml`'s `lastRun`.
+The widget never parses the human `kempt summary`. The CLI serves the newest history entry as
+`cmd_update` wrote it:
+`{timestamp, surface, status, duration_sec, reboot_needed, log, error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`.
 
-Never the human `kempt summary`. That is a rendering (`render_summary` in `lib/common.sh`) whose
-first line is an ISO timestamp, and re-deriving counts from rendered text would put a second,
-lossier copy of `render_summary`'s rules inside the widget for the two to drift apart in. The
-popup used to paste that first line into its message area after a run - true, and no answer at all
-to "what just happened?".
+Optional keys on that entry:
 
-Four properties of that boundary are contracts, not incidentals:
+- `transaction_id`, on a live run or a harvest, when dnf5's history named the transaction.
+- `staged_nothing`, on a staging run that staged nothing: `"held"` or `"nothing_pending"`. The
+  widget treats any other value as an ordinary stage.
+- `eol` on a live run's flatpak backend: one `{id, branch, kind, apps, reason}` per end-of-life
+  ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far.
 
-- **Empty stdout under exit 0 means "no last run".** With no history recorded, `summary --json`
-  prints nothing rather than an empty object, the same convention `kempt check` keeps for "no
-  data". `lastRunOf` answers `null` for it, and every caller renders nothing - never a fabricated
-  empty run, because a box that has never updated has not "updated 0 packages".
-- **It is the newest entry or nothing - never the one underneath.** `kempt summary` (the human
-  mode) walks back past a damaged entry, because a person asked to see the last run they can be
-  shown. `--json` does not, because its caller asked about one specific run. A damaged newest
-  entry therefore gets the same empty stdout under exit 0, with the warning still on stderr.
-  Walking back here is what let the popup announce an older run's counts and duration as the run
-  that had just finished, in words no reader could tell from the truth. `main.qml` carries the
-  belt to that braces: the transient post-run line is only spoken for an entry stamped at or
-  after the moment `enterUpdating()` ran (`Logic.runFinishedSince`), while the persistent
-  `Last update` row - which claims nothing about *when* - keeps showing whatever entry there is.
-- **Every field tolerates absence.** History entries outlive the build that wrote them (the newest
-  50 are kept, and the widget is a COPY that a `git pull` leaves older than the CLI), so an entry
-  missing a key this build expects is ordinary rather than corrupt. The one field that is not
-  optimistic is `status`: a status that cannot be read counts as a failure, because the two
-  mistakes do not cost the same.
-- **The entry's `reboot_needed` is a fact about that run**, not about now. The state file's own
-  `reboot_needed` is the live answer and the restart message is bound to that one. Rendering the
-  history entry's would go on claiming a restart long after the user had performed one.
+Rules at this boundary:
 
-The display rule on top of it: while the transient post-run line is up, the persistent row is
-hidden. One event, one line at a time.
+- **Empty stdout under exit 0 means "no last run"**, and `lastRunOf` answers `null`.
+- **It is the newest entry or nothing.** Unlike the human mode, `--json` does not walk back past a
+  damaged entry. The post-run line also needs an entry stamped at or after `enterUpdating()` ran
+  (`Logic.runFinishedSince`).
+- **Every field tolerates absence**, because entries outlive the build that wrote them. The
+  exception is `status`: unreadable counts as failed.
+- **The entry's `reboot_needed` describes that run.** The restart message uses the state file's.
 
-### Where the widget lives, and the two lines that decide it
+While the post-run line is up, the persistent row is hidden.
 
-Three facts in `plasmoid/metadata.json` and `main.qml` put Kempt in the system tray, and each one
-fails silently on its own:
+### Where the widget lives
 
-- `"X-Plasma-NotificationAreaCategory": "SystemServices"`, **top level**, not inside `KPlugin`.
-  This is the key the tray actually reads: verified on Plasma 6.7.4, the system tray applet
-  (`/usr/lib64/qt6/plugins/plasma/applets/org.kde.plasma.systemtray.so`) contains this string and
-  the category names beside it, builds its Entries list by listing every `Plasma/Applet` package
-  and keeping the ones that declare a category. Inside `KPlugin` the key parses fine, means
-  nothing, and the widget simply never appears in the tray.
-- `"X-Plasma-NotificationArea": "true"`, also top level. The older boolean. That same binary does
-  **not** reference it any more, so on 6.7 the category alone is what counts - but every shipped
-  tray applet still carries both (`/usr/share/plasma/plasmoids/org.kde.plasma.vault`,
-  `.../org.kde.kdeconnect`), so Kempt does too rather than betting on one Plasma version.
-- `Plasmoid.status = ActiveStatus`, set from `main.qml`. The tray reads nothing else to decide
-  whether an entry on "Auto" is shown or tucked behind the expander arrow, and an applet that
-  never sets a status is *below* passive. Without it the widget installs into the tray, shows as
-  enabled, and appears to do nothing at all. It is assigned in `Component.onCompleted` rather than
-  declared as a binding on purpose: `Plasmoid` is an attached object backed by a real applet, and
-  a declarative assignment makes creating it a precondition of creating `main.qml`, which no QML
-  probe can satisfy. The value never changes, so one assignment is equivalent.
+Three settings put Kempt in the system tray, and each fails silently when wrong:
 
-`KPlugin.EnabledByDefault: true` is what makes it appear without being asked for - the tray reads
-it through `KPluginMetaData::isEnabledByDefault()` when it meets a plugin it has not seen before.
+- `"X-Plasma-NotificationAreaCategory": "SystemServices"` at the **top level** of
+  `plasmoid/metadata.json`, outside `KPlugin`. Plasma 6.7's tray reads this key only there.
+- `"X-Plasma-NotificationArea": "true"`, also top level. Plasma 6.7 ignores it, but shipped
+  tray applets still carry it, so Kempt does too.
+- `Plasmoid.status = ActiveStatus` in `main.qml`. Without it the tray hides the entry on "Auto".
+  It is assigned in `Component.onCompleted`, because the QML probes cannot satisfy a binding.
 
-Inside the tray, the containment hands each entry a square cell at its own icon size, so the
-compact representation must not ask for more: its `Layout.minimumWidth/Height` are the shell's
-own `DefaultCompactRepresentation.qml` rule (the panel's thickness in the direction it is not
-thick), and `Logic.resolveIconSize` falls back to automatic whenever a chosen size does not fit
-the cell. Both are what keeps a Kempt entry from shoving the rest of somebody's tray sideways.
+`KPlugin.EnabledByDefault: true` makes it appear unasked. The compact representation's
+`Layout.minimumWidth/Height` follow the shell's `DefaultCompactRepresentation.qml`, and
+`Logic.resolveIconSize` falls back to automatic when a chosen size does not fit the tray cell.
 
 ### Why the widget is testable at all
 
-A plasmoid cannot be executed in a bash suite, so the widget is split so that almost none of it
-needs to be:
+- `logic.js` holds every derivation (badge, icon state, tooltip, popup rows, watcher comparison,
+  icon size) in engine-agnostic JavaScript. `tests/test_widget_logic.sh` loads it with node.
+- The remaining QML is bindings. `tests/test_widget_logic.sh` compiles every `.qml` with PySide6's
+  `QQmlComponent`. `tests/test_widget_qml.sh` runs each `tests/qml/probe_*.py` against a stubbed
+  `kempt`. Only the two keyboard-focus probes build a window, an offscreen one.
+- Both halves skip, loudly, when node or PySide6 is missing.
 
-- `logic.js` holds every derivation - badge number, icon state, tooltip, popup rows, the watcher
-  comparison, the icon-size snap - in engine-agnostic JavaScript with a CommonJS guard at the
-  bottom. `tests/test_widget_logic.sh` loads that same file with node and pins every rule.
-- The QML that remains is bindings. `tests/test_widget_logic.sh` compiles every `.qml` against
-  the system Qt 6 (via PySide6's `QQmlComponent`), and `tests/test_widget_qml.sh` runs one probe
-  per `tests/qml/probe_*.py` against a stubbed `kempt` on a real `PATH`: the executor, the state
-  machine, the popup's actions, the settings page's apply path, the keyboard and the screen
-  reader, where focus goes when a control vanishes, and the restart message. Two of them build a
-  window, and only those two: `activeFocus` is a property of a scene, so an item with no window
-  never becomes the active focus item and has nowhere for a Tab key to be delivered. Those two use
-  an offscreen window; the rest stay windowless on purpose, because every assertion in them was
-  written under those conditions.
-- Both halves skip LOUDLY rather than failing when node or PySide6 is absent; neither is a
-  dependency of Kempt itself.
+The suite needs no package manager, polkit or desktop. `tests/run_tests.sh` ends with `ALL PASS`
+or `FAILURES`.
 
-The suite runs green with no package manager, no polkit and no desktop present, and the two
-widget halves carry more than half of its assertions. `tests/run_tests.sh` runs every test file
-and ends with `ALL PASS` or `FAILURES`, any skipped checks, and how many test files ran. It does
-not print an assertion total: for the current count, count the `ok:` lines in its output. A
-measured number is the only kind this project quotes. (Exact totals used to live in this sentence;
-they drifted within weeks.)
-
-The probes are run strictly one at a time under `tests/qml/safe_probe.py`, which puts each in its
-own process group and SIGKILLs the group on timeout, with a second watchdog armed inside the
-probe process itself. That is not ceremony: a PySide6 process wedged in Qt teardown never reaches
-a SIGTERM handler, and an earlier version of this kit with no working timeout reached ~2,200
-resident Qt processes in one afternoon and OOM-killed the box. `tests/test_widget_qml.sh` asserts
-the process count afterwards.
+Run the probes only through `tests/test_widget_qml.sh`. It runs them one at a time under
+`tests/qml/safe_probe.py`, which kills a probe's process group on timeout. Stuck Qt processes
+ignore SIGTERM and pile up until the machine runs out of memory.
 
 ## Adding a backend for your distro
 
-This is the most valuable contribution anyone can make, and the contract is small on purpose:
-one new file, one new verb in the apply helper, fixtures, and tests.
+A backend is one new file, one new verb in the apply helper if it needs root, fixtures, tests, and
+the wiring listed in step 2b.
 
 ### 1. Write `backends/<name>.sh`
 
-Two required functions plus the pure parser they share. Model it on `backends/flatpak.sh`, which
-is the shorter of the two shipped backends.
+Two required functions plus the pure parser they share. Model it on `backends/dnf.sh`, the shorter of
+the two shipped backends.
 
 ```bash
 #!/usr/bin/env bash
@@ -886,8 +532,7 @@ KEMPT_APT_PENDING_CMD="${KEMPT_APT_PENDING_CMD:-apt list --upgradable}"
 KEMPT_APT_INSTALLED_CMD="${KEMPT_APT_INSTALLED_CMD:-}"
 
 apt_installed_lookup() {  # -> sorted TSV, one row per name, versions ascending
-  # Both branches share the sort tail on purpose: a seam that bypasses it lets a stub feed
-  # collapse_versions rows in any order, and the suite can never see what the real path produces.
+  # Both branches share the sort tail, so a stubbed command is sorted the same way as the real one.
   { if [[ -n "$KEMPT_APT_INSTALLED_CMD" ]]; then $KEMPT_APT_INSTALLED_CMD
     else dpkg-query -W -f '${Package}\t${Version}\n'; fi; } | sort_name_version | collapse_versions
 }
@@ -912,45 +557,37 @@ apt_check() {    # -> items JSON; explicit non-zero on failure
 apt_snapshot() { apt_installed_lookup; }
 ```
 
-Rules that reviews will hold you to:
+Rules a review will hold you to:
 
 - **Return status explicitly.** `if x="$(fn)"` disables errexit inside the whole callee, so a
-  backend that relies on `set -e` to propagate failure silently reports success. Every shipped
-  backend returns its status by hand for exactly this reason.
-- **Zero pending is success**, not failure. It is the common case; a backend that exits non-zero
-  when nothing is pending turns an up-to-date box into a permanent `stale` state.
-- **Capture the parser's status before cleanup.** An `rm -f` after the parse returns 0 and will
-  mask the parser's failure as an empty, entirely plausible "nothing pending" result.
-- **Collapse, always, behind `sort_name_version`.** Even where duplicates cannot happen today,
-  `tsv_diff_updates` rejects duplicate names, so the contract is one row per name. Use the shared
-  sort rather than a plain one, and put it where **every** branch of the function flows through
-  it: a comma-joined set has to come out ascending, because every consumer reads its last element
-  as the newest version.
-- **Do not add locale handling.** `lib/common.sh` pins `LC_ALL=C.UTF-8` for everything.
+  backend that relies on `set -e` reports success when it failed.
+- **Zero pending is success.** A backend that exits non-zero when nothing is pending leaves an
+  up-to-date box permanently `stale`.
+- **Capture the parser's status before cleanup.** An `rm -f` after the parse returns 0, and a failed
+  parse then looks like "nothing pending".
+- **Collapse, always, behind `sort_name_version`.** `tsv_diff_updates` rejects repeated names. Put
+  the shared sort where every branch of the function passes through it, because consumers read the
+  last version in a set as the newest.
+- **Add no locale handling.** `lib/common.sh` pins `LC_ALL=C.UTF-8` for everything.
 - **Guard the not-installed case.** A pending package with no installed row must come out as
-  `from: "?"`, never as an empty string. GNU `join -a1 -e '?' -o ...` is what does that; jq's
-  `//` does not catch empty strings.
-- **Sizes are optional, and partial sizes are worse than none.** If your package manager already
-  carries the download size in the metadata a check reads, emit `name<TAB>bytes` alongside the
-  items - `flatpak_check` writes it to the path it is handed, `dnf_sizes` is a function of its
-  own - and `cmd_check` prices the backend from it. Skip it and the backend simply publishes no
-  `download_bytes`, which is a supported state; publish a total that covers only some items and
-  the figure is quietly short, which is not.
-- **A network fetch belongs in `maybe_refresh_metadata`, not in your check.** If the backend needs
-  to reach the network before it can answer, add a `<backend>_refresh` and a second arm to that one
-  gate, the way `flatpak_refresh` does. It carries the whole project's interval, mains-power and
-  metered-connection policy; a backend that fetches inside its own check has none of it.
+  `from: "?"`, never an empty string. GNU `join -a1 -e '?' -o ...` does that; jq's `//` does not
+  catch empty strings.
+- **Sizes are optional, and partial sizes are worse than none.** If the metadata a check reads has
+  download sizes, emit `name<TAB>bytes` (as `flatpak_check` or `dnf_sizes` do) and `cmd_check`
+  prices the backend. A backend with no sizes publishes no `download_bytes`, which is fine. A total
+  that covers only some items is wrong.
+- **A network fetch belongs in `maybe_refresh_metadata`, not in your check.** Add a
+  `<backend>_refresh` and another arm to that gate, as `flatpak_refresh` does, so it follows the
+  interval, power and metering rules.
 
 ### 2. Add a verb to `libexec/kempt-apply` (only if root is really needed)
 
-First ask whether it is needed at all. Flatpak's apply lives in its backend, unprivileged, because
-`flatpak update` asks polkit for itself and gets a yes in an active local session; a package
-manager that does the same buys nothing by going through the helper and widens the privileged
-surface for nothing.
+Ask first whether it needs root. If your package manager asks polkit for itself, as
+`flatpak update` does, apply it from the backend as the user.
 
 The apply helper runs as root, so a new verb is a security change. Follow the existing shape:
-match the verb, validate every argument against a strict pattern before building the command,
-reject everything else with exit 2, and never pass a caller-supplied string through unvalidated.
+match the verb, validate every argument against a strict pattern before building the command, and
+reject anything else with exit 2.
 
 ```bash
   apt-upgrade)
@@ -965,71 +602,54 @@ reject everything else with exit 2, and never pass a caller-supplied string thro
     ;;
 ```
 
-Holds become whatever your package manager's exclude mechanism is. Whatever it is, validate every
-name against `NAME_RE` before it reaches a command line, the way the `dnf-upgrade` verb does with
-`--exclude=`, and reject the whole invocation rather than dropping a bad argument quietly.
+Holds become your package manager's exclude mechanism. Validate every name against `NAME_RE`
+before it reaches a command line, as the `dnf-upgrade` verb does with `--exclude=`. Reject the
+whole invocation on one bad name.
 
 ### 2b. Wire it in: every place that names a backend
 
-There is no registry and no discovery. Backends are named literally, in more places than the
-sketch above suggests, and a missed one fails quietly rather than loudly. **The table below is the
-complete list - the CLI, the panel widget and the man page**, so nobody has to find it by grep; one
-row is optional and says so. It was CLI-only once, and following it exactly still shipped a popup
-heading reading `apt` and a panel that never noticed the new backend changing anything. No count is
-quoted here on purpose - the last one drifted, which is exactly the failure this table exists to
-prevent.
+There is no registry or discovery. Backends are named in each place below, and a missed one fails
+silently. This is the complete list for the CLI, the widget and the man page. Only the row marked
+optional can be skipped.
 
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
-| `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. Nothing loads a backend file by discovery. |
+| `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. |
 | `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
-| `maybe_refresh_metadata` (`lib/common.sh`) | `include_flatpak` and `flatpak_refresh`, both by name: one gate, two arms, one interval and one timestamp for the whole metadata fetch | Its own arm and its own enable gate, if the backend needs a network fetch before a check can answer. Skip it and the backend answers from whatever its cache happened to hold, indefinitely, with nothing saying so. |
-| `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**: adding a backend changes the function's parameter list and therefore every caller. This is the one edit here that is not additive. |
-| `cmd_update` | Before and after snapshots, the apply runner and its arguments (`apply_with_retry "$log" priv_apply dnf-upgrade ...` for dnf, `apply_with_retry "$log" flatpak_apply ...` for flatpak), per-backend status, held lists, and the history entry's `backends` object | The same set again, plus a runner: the verb from step 2 behind `priv_apply`, or the backend's own apply function when it needs no root. |
-| `dnf_reboot_needed` in `cmd_update` | Called unconditionally, whatever backends ran | Nothing, today. It answers for the machine, and degrades to `false` where dnf5 is absent. |
-| `dnf_reboot_needed` in `cmd_check` | Called unconditionally too, to write the state file's `reboot_needed` | Nothing, today, and for the same reason. There is no `include_dnf` key to gate it on: `assemble_state` hardcodes `dnf: ($dnf | wrap(true))`, so a gate would be a gate on a constant. **The rule:** the day dnf gains an `include_<name>` gate, this call goes behind it, next to the flatpak one. |
-| `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends | to_entries` that would make the renderer generic for good. |
-| `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key, or that entry is missing a backend the readers expect. |
-| `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `kempt hold apt:foo` exits 2 while the backend works fine. |
-| `cmd_doctor` | The per-tool checks (flatpak's command and dnf's, each read from its own seam) and the checkout file list | A tool check, so a missing package manager is reported rather than showing up as a permanently stale backend, or as a derived answer that silently stops being derived. |
-| `kempt_default` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true` | A default for `include_<name>`. Miss it and `config_get include_<name>` answers the **empty string**, `is_true` reads that as false, and the backend is silently OFF on every box whose config file has never named it. Nothing warns: the check simply reports the backend disabled, forever, and the enable gate above looks correctly wired. |
-| `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same semantics. |
-| **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and the line in `usage` that documents it | A `--no-<name>` override and its usage line. Skip it and the backend can still be switched off, but only in config: `kempt update --no-<name>` exits 2 as an unknown option. This is the one entry here a working backend can do without. |
-| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the popup lists them in | A title and a place in the order. Miss it and the popup still lists your packages, under the raw backend key - the section heading reads `apt`. |
-| `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` - the heading for each `kind` a backend's items carry | Nothing, unless your backend writes `kind` on its items. If it does, a title per kind; miss it and the section still appears, headed `<backend> <kind>`. |
-| The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm` and `/var/lib/flatpak`, stat'ed every 30s so an update applied from anywhere shows up within seconds | The path your backend's database lives at. Miss it and the panel never notices your backend changing anything: the badge only moves on Kempt's own state file, so an update applied in a terminal sits there until the next timed check. |
-| `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. A man page that documents two of three backends is the kind of wrong that outlives the person who wrote it. |
+| `maybe_refresh_metadata` (`lib/common.sh`) | `include_flatpak` and `flatpak_refresh`, by name | Its own arm and enable gate, if the backend needs a network fetch before a check can answer. Without it the backend answers from whatever its cache holds, indefinitely. |
+| `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak) and the jq body writes `backends: {dnf, flatpak}` | A **signature change**, so every caller changes. This is the one edit here that is not additive. |
+| `cmd_update` | Before and after snapshots, the apply runner and its arguments (`apply_with_retry "$log" priv_apply dnf-upgrade ...` for dnf, `apply_with_retry "$log" flatpak_apply ...` for flatpak), per-backend status, held lists, and the history entry's `backends` object | The same set again, plus a runner: the verb from step 2 behind `priv_apply`, or the backend's own apply function. |
+| `dnf_reboot_needed` in `cmd_update` and `cmd_check` | Called whatever backends ran | Nothing today. There is no `include_dnf` key. If dnf ever gets an `include_<name>` gate, these calls go behind it. |
+| `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends \| to_entries`. |
+| `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key. |
+| `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `kempt hold apt:foo` exits 2. |
+| `cmd_doctor` | The per-tool checks (flatpak's command and dnf's, each read from its own seam) and the checkout file list | A tool check, so a missing package manager is reported instead of showing as a permanently stale backend. |
+| `kempt_default` and `KEMPT_CONFIG_KEYS` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true`, and both are known keys | A default for `include_<name>`, and the key in `KEMPT_CONFIG_KEYS` so `config set` does not warn. Without the default `config_get include_<name>` answers the empty string, `is_true` reads that as false, and the backend is silently off wherever the config file never names it. |
+| `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same meaning. |
+| **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and its line in `usage` | A `--no-<name>` override and its usage line. Without it the backend can be switched off only in config. |
+| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the popup lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
+| `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` | A title per `kind`, only if your backend writes `kind`. Without it the heading reads `<backend> <kind>`. |
+| The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm/rpmdb.sqlite`, `/var/lib/rpm` and `/var/lib/flatpak`, checked every 30s | Your package database's path. Without it an update applied in a terminal shows only after the next timed check. |
+| `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. |
 
-**Packaging needs nothing**, and that is deliberate rather than luck: `kempt.spec` ships
-`backends/` as a directory and strips shebangs from `backends/*.sh` with a glob. It named the two
-files once, which meant a third backend would have installed 0644 with its shebang intact and
-rpmlint would have rejected the package - after the contributor had followed this table and done
-everything right. If you ever find yourself listing backend files by name in the spec, that is the
-bug coming back.
+**Packaging needs nothing.** `kempt.spec` ships `backends/` as a directory and strips shebangs from
+`backends/*.sh` with a glob. Keep it a glob: a backend file listed by name is one the next backend
+misses.
 
-What is already generic and needs nothing: the totals in `assemble_state`'s `wrap`,
-`run_counts_phrase`, and the held-items line in `render_summary`. All three iterate
-`.backends[]` and pick up a new backend for free, which is why the ones that do not are worth
-listing.
+Already generic: the totals in `assemble_state`'s `wrap`, `run_counts_phrase`, and the held-items
+line in `render_summary`. All three iterate `.backends[]`.
 
 ### 3. Record fixtures
 
-Fixtures are byte-faithful captures of real tool output. They carry **no comment lines**;
-provenance lives in [`tests/fixtures/MANIFEST.md`](../tests/fixtures/MANIFEST.md), which says for
-every file whether it was captured or hand-written, when, and what each deliberate oddity guards.
+Fixtures are byte-for-byte captures of real tool output, with **no comment lines**. Provenance
+goes in [`tests/fixtures/MANIFEST.md`](../tests/fixtures/MANIFEST.md). Capture through the code
+path production uses. Every fixture contains at least these guard rows:
 
-Capture through the same code path production uses. The original dnf capture used `sort -u`
-while production used plain `sort`, which made the installonly cross-product bug structurally
-invisible to the entire suite.
-
-Guard rows are mandatory, not decorative. Every shipped fixture contains at least:
-
-- a pending package that is **absent** from the installed lookup, so deleting the join guard
-  fails a test instead of silently passing,
-- a duplicate name at a **divergent** version, so the collapse step is actually exercised
-  (identical versions collapse for free at `sort -u` and prove nothing),
-- whatever section headers or indented rows the real tool emits, so the filters that drop them
-  stay honest.
+- a pending package **absent** from the installed lookup, so deleting the join guard fails a test;
+- a repeated name at a **different** version, so the collapse step is exercised (identical
+  versions collapse at `sort -u` and prove nothing);
+- the section headers or indented rows the real tool emits, so the filters that drop them are
+  tested.
 
 ### 4. Write tests that bind
 
@@ -1046,18 +666,17 @@ assert_eq "$(jq -r '.[] | select(.name == "newthing") | .from' <<<"$out")" "?" \
 finish
 ```
 
-`sandbox` must be the first call: it creates one throwaway temp directory, points `HOME`, the
-config directory and the state directory at separate paths inside it, neutralizes every seam,
-and installs the EXIT trap that makes the file's exit status meaningful. Do not install your own
-EXIT trap over it.
+`sandbox` must be the first call. It creates a temp directory, points `HOME`, the config
+directory and the state directory inside it, neutralises every seam, and installs the EXIT trap
+that sets the file's exit status. Do not install your own EXIT trap over it.
 
-Then **prove the test binds**: break the code the test claims to cover, watch the test fail, put
-it back. A test that passes against the defect it is named after is worse than no test.
-`tests/run_tests.sh` runs everything.
+Then **prove the test binds**: break the code it covers, watch it fail, and put the code back. A
+test that passes against the defect it is named after is worse than none. `tests/run_tests.sh`
+runs everything.
 
 ### 5. Worked sketches
 
-These are starting points, not shipped code. The shape is the point.
+Starting points, not shipped code.
 
 | Distro | Pending | Installed snapshot | Apply verb |
 | --- | --- | --- | --- |
@@ -1065,104 +684,76 @@ These are starting points, not shipped code. The shape is the point.
 | Arch | `checkupdates` (pacman-contrib) | `pacman -Q` | `pacman -Syu --noconfirm` |
 | openSUSE | `zypper --quiet list-updates` | `rpm -qa --queryformat '%{NAME}\t%{EVR}\n'` | `zypper -n update` |
 
-Notes worth knowing before you start: apt output is heavily locale-dependent, so the `LC_ALL`
-pin matters more there than it does on dnf; `checkupdates` already prints `name old -> new` and
-needs no installed lookup at all, so its parser is the smallest of the three; and openSUSE can
-reuse `dnf.sh`'s snapshot verbatim, since it is the same rpm database.
+apt output depends heavily on the locale, so the `LC_ALL` pin matters more there. `checkupdates`
+already prints `name old -> new` and needs no installed lookup. openSUSE can reuse `dnf.sh`'s
+snapshot, since it is the same rpm database.
 
-Anything that changes the state schema, the exit-code contract or the privileged helpers is a
-discussion first, a pull request second. A backend touches all three, so it starts there too: a
-new apply verb in root-owned code, a new key under `backends`, and a changed `assemble_state`
-signature. Fixtures, parsers and tests are just files.
+Open a discussion before a pull request for anything that changes the state schema, the exit codes
+or the privileged helpers. A backend touches all three: a new root verb, a new key under
+`backends`, and a changed `assemble_state` signature.
 
 ## Environment seams
 
-Every impure call in the CLI goes through a variable, which is how the suite tests privileged and
-destructive paths without ever running them.
+Every impure call in the CLI goes through a variable. That is how the suite tests privileged and
+destructive paths without running them.
 
 | Variable | Default | Used for |
 | --- | --- | --- |
-| `KEMPT_ROOT` | the directory above `lib/common.sh` | The tree the CLI reads ITSELF out of: `VERSION`, `backends/` and the passwordless rules template all resolve inside it, `kempt doctor`'s first line prints it, and `install.sh`'s absence from it is what tells doctor a packaged install from a checkout. Point it at a tree with no `VERSION` and `kempt --version` answers `kempt unknown`, which is also what an incomplete install looks like |
+| `KEMPT_ROOT` | the directory above `lib/common.sh` | The tree the CLI reads itself from: `VERSION`, `backends/` and the passwordless rules template. `kempt doctor` prints it, and tells a packaged install from a checkout by whether `install.sh` is in it. With no `VERSION`, `kempt --version` answers `kempt unknown` |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
 | `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
-| `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | `/usr/local/libexec/kempt-{refresh,apply}` | Point at stub helpers |
-| `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 **only** when the helper seam equals this one, so a test reaches the ownership branches by setting both to the same file. Nothing execs these; they are compared, never run |
+| `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | the matching `*_HELPER_PATH` | Point at stub helpers |
+| `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 only when the helper seam equals this one. Compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
-| `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 --setopt=cachedir=... -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Its own seam rather than a reuse of `KEMPT_DNF_CMD`, which four test files already point at a `needs-restarting` stub. `tests/lib.sh` points it at a path that does not exist, so no test file runs a real repoquery |
-| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The dnf5 metadata cache `dnf_sizes` is pointed at, so a size comes from the same metadata the check did. Read, never run: when it is not readable the query drops the `--setopt` and falls back. Point it at a directory that does not exist to drive that branch |
+| `KEMPT_DNF_SIZES_CMD` | (empty, so `dnf5 --setopt=cachedir=... -C repoquery --upgrades --latest-limit 1 ...`) | The download-size query. Separate from `KEMPT_DNF_CMD`, which tests point at a `needs-restarting` stub. `tests/lib.sh` points it at a missing path |
+| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The cache `dnf_sizes` reads, so sizes come from the check's metadata. When unreadable the query drops the `--setopt`. Point it at a missing directory to test that |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only; see [the network boundary](#the-network-boundary) |
-| `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime twins. `flatpak update` updates runtimes as well as apps, so the check asks about both; flatpak filters by kind with a flag and has no kind column, which is why this is a second command rather than a wider parse. `branch` is in the columns because a runtime's identity is its id **and** its branch. `tests/lib.sh` PINS both at `true` rather than poisoning them: a path that does not exist would fail the runtime arm, and a failing arm fails the whole flatpak backend by design, so every check in the suite would go stale. `true` is the honest shape of a box with no runtimes |
-| `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | What the run's before-and-after SNAPSHOTS read, and separate from the lookups because they ask for one more column: the deployed commit. A Flatpak ref updates whenever its commit changes, and most runtimes carry a date or nothing at all as their version, so version alone cannot answer "did this move?" - with it, a real runtime update left both snapshots byte-identical and the run reported no package changes. The lookups that build the PENDING list are untouched, because their joins expect two fields. `tests/lib.sh` PINS both at `true`, like the runtime twins above and for the same reason, proven the day they were added: unset, the snapshot fell through to the real `flatpak list` and the assertions described the machine running the suite |
-| `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups. Run only when `flatpak update` printed an end-of-life notice during a run: the app list says which apps depend on the runtime the notice names, and `flatpak info` says which branch is end-of-life when more than one is installed. A failure costs the note and never the run. `tests/lib.sh` PINS both at `true`, like the runtime twins, so a stub that prints a notice cannot read the apps of the machine running the suite |
-| `KEMPT_FLATPAK_REFRESH_CMD` | the remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`, and the only flatpak command that reaches the network to *read*. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a path that does not exist, so no test file can fetch from flathub by accident |
-| `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), which also runs as the user and never through `pkexec`. `tests/lib.sh` poisons it the same way, and for a louder reason: unstubbed, it would update the machine running the suite |
+| `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime queries. flatpak filters by kind with a flag, so runtimes need their own command. `tests/lib.sh` pins both at `true` (a box with no runtimes); a missing path would fail every flatpak check |
+| `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | The run's before and after snapshots. The deployed commit is included because many runtimes have no useful version, so version alone misses updates. `tests/lib.sh` pins both at `true`, so the suite never reads the host's flatpaks |
+| `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups, run only when `flatpak update` printed an end-of-life notice. A failure loses the note, not the run. `tests/lib.sh` pins both at `true` |
+| `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a missing path, so no test fetches from flathub |
+| `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. `tests/lib.sh` points it at a missing path, so the suite cannot update the host |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
-| `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to exactly that, `cli` otherwise. The widget sets it on every command it runs. Read by `log_event` and by nothing else, so it can never change what a command does |
+| `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to that, `cli` otherwise. Read only by `log_event` |
 | `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
-| `KEMPT_RULES_DST` | `/etc/polkit-1/rules.d/49-kempt.rules` | Passwordless rule destination, for tests only. Honoured only when `KEMPT_PKEXEC` is empty and the CLI is not running as root, so the install and removal it redirects always run as the user and can never write as root. It must be an absolute `*.rules` path. Any run through pkexec, and any run as root, installs to and removes exactly `/etc/polkit-1/rules.d/49-kempt.rules`, and setting this variable in such a run is refused with exit 2 rather than ignored |
-| `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` looks for the installed polkit actions. Doctor reads each action's `exec.path` annotation out of it and compares that with the helper path this CLI hands to pkexec |
-| `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The USER's copy of the widget package. It means opposite things to `kempt doctor` on the two installs, which is why it is read and never written: on a checkout install it IS the install, and doctor diffs it against `plasmoid/`; on a packaged one its mere existence is a FAIL, because Plasma prefers a user copy over `/usr/share`, so a store-installed widget goes on being the one the panel loads while every package update lands in a directory nothing reads |
-| `KEMPT_UI_DIR` | the checkout's `plasmoid/contents/ui` | Which copy of the widget's QML the probe battery under `tests/qml/` executes. The release check points it at `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/contents/ui`, so every probe runs against the files the package installed rather than the ones edited in a checkout - a different directory, and until 0.1.2 one that nothing had ever executed. Read by the test harness only; the CLI and the widget never see it |
-| `KEMPT_REFRESH_TIMEOUT` | `120` | Seconds a metadata refresh may take before the check gives up on it and reports stale. The wait this exists for is an authentication dialog nobody is at: a background check cannot answer one, so it waits out the whole timeout. A seam only so the suite can reach that branch, which no test could drive while the number was hardcoded |
-| `KEMPT_CHECK_LOCK_WAIT` | `60` | Seconds a check waits for `check.lock` before giving up and serving the previous state instead. A seam only so the suite can reach that branch: at a fixed minute it cost a minute per test, so the one path that hands a reader the state file directly had no coverage at all - and it was serving multi-document files under exit 0 |
-| `KEMPT_RUN_START_WAIT` | `5` | Seconds `kempt run` waits for the terminal window to start the update before reporting that it did not start (exit 5). A launcher that exits with an error is reported at once, and one still running at the deadline counts as a slow start. A seam only so the suite can reach the late-window branch without waiting out the real figure |
-| `KEMPT_SYSTEM_PLASMOID_DIR` | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt` | Where the PACKAGE puts the widget. Read only by `kempt doctor`, and only on a packaged install: the CLI and the panel widget ship as two packages (`kempt` and `kempt-plasmoid`), so a perfectly healthy CLI can sit on a box with nothing in the panel, and this is what lets the report say which package carries the missing half. `tests/lib.sh` pins it at a path that does not exist, so a suite run does not depend on whether the developer happens to have the widget package installed |
-| `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The PATH order the panel widget's own command line builds (`plasmoid/contents/ui/main.qml`). `kempt doctor` resolves `kempt` through it to report which CLI the **widget** would run, against the one that printed the report. **Resolved, never executed.** `tests/lib.sh` pins it at a directory holding no `kempt`: unset, a suite run on any box that has Kempt installed would compare the tree under test against the developer's own `~/.local/bin/kempt` and report a split install every time |
-| `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's own record of a staged transaction. **Read, never written** - it is dnf5's file, world-readable (0644 on Fedora), which is what lets an unprivileged check reconcile it against Kempt's marker. `tests/lib.sh` PINS this at a `ready` fixture rather than poisoning it: unset, every reconciliation branch in the suite would depend on whether the box running it happens to have a transaction staged. The root helper `kempt-apply` reads the same file to refuse its offline verbs over a stored release upgrade, and honours this variable **only when it is not running as root**, so the suite can drive that check while a real privileged run always reads the fixed path |
-| `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction - the resolved package set a restart will install. **Read, never written**, and read LIVE rather than snapshotted: it is the only source that sees the packages the resolver added and a transaction something else replaced. `root:root` 0644 in a 0755 directory (verified in a container, 2026-09-05), which is what lets an unprivileged check reconcile a hold against it. `tests/lib.sh` PINS this at a recorded transaction rather than poisoning it, so the suite's default is the parsing path; pointing it at anything unparsable drives the degraded one |
-| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | The dnf5 that answers `history list --json` and `history info <id> --json`, run as the user with `-C --disablerepo='*'` around a live run, and after a restart, to find which transaction ran (see [Which transaction ran](#which-transaction-ran)). **Read, never used to change anything**: the history database is 0644 and both verbs answer an ordinary user (verified in a Fedora 44 container, dnf5 5.4.3). Its own seam rather than `KEMPT_DNF_CMD`, which several test files point at a needs-restarting stub. `tests/lib.sh` points it at a path that does not exist, so nothing in the suite reads the history of the box running it, and every run and harvest test written before this lookup existed takes the "cannot tell" branch it was written against |
-| `KEMPT_XDG_AUTOSTART_DIR` | `/etc/xdg/autostart` | The system autostart directory `kempt doctor` reads to see whether Discover's update notifier also starts with the session (the user's own `~/.config/autostart` shadows it, per the XDG autostart spec). **Read, never written**: Kempt does not touch anybody's autostart, and the row it feeds is `info`. `tests/lib.sh` points it at a path that does not exist, so a suite run does not describe whether the developer's box happens to have Discover installed |
-| `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | The file `ostree-prepare-root` writes into a booted ostree deployment's `/run`. Its EXISTENCE is the whole test, and it is a file rather than a binary because `rpm-ostree` installs cleanly on ordinary Fedora and says nothing about how that box updates. Read by `kempt update` (which aborts in pre-flight), by `kempt check` (which publishes `image_based`) and by `kempt doctor`. `tests/lib.sh` points it at a path that does not exist, so running the suite on Silverblue or Kinoite describes the code rather than the machine it runs on |
-| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates and systemd's `system-update-generator` looks for. **`lstat`ed, never resolved and never written** - it is what decides whether a boot detours into the offline updater, and `kempt doctor` is its only reader. `tests/lib.sh` points it at a path that does not exist, so the suite never reads the real one |
+| `KEMPT_RULES_DST` | (unset, so `/etc/polkit-1/rules.d/49-kempt.rules`) | Passwordless rule destination, for tests. Honoured only when `KEMPT_PKEXEC` is empty and the CLI is not root, and it must be an absolute `*.rules` path. Set in a pkexec or root run, it is refused with exit 2 |
+| `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` reads each action's `exec.path`, to compare with the helper path the CLI uses |
+| `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The user's copy of the widget, read by `kempt doctor`. On a checkout install it is the install, and doctor diffs it against `plasmoid/`. On a packaged install its existence is a FAIL, because Plasma prefers a user copy over `/usr/share` |
+| `KEMPT_UI_DIR` | the checkout's `plasmoid/contents/ui` | Which copy of the QML the probes under `tests/qml/` run. The release check points it at the packaged copy under `/usr/share/plasma/plasmoids/`. Read by the test harness only |
+| `KEMPT_REFRESH_TIMEOUT` | `120` | Seconds a metadata refresh may take before the check gives up and reports stale. The long wait is an authentication dialog nobody answers |
+| `KEMPT_CHECK_LOCK_WAIT` | `60` | Seconds a check waits for `check.lock` before serving the previous state instead |
+| `KEMPT_RUN_START_WAIT` | `5` | Seconds `kempt run` waits for the terminal window to start the update before reporting that it did not start (exit 5). A launcher that exits with an error is reported at once |
+| `KEMPT_SYSTEM_PLASMOID_DIR` | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt` | Where the package puts the widget. Read only by `kempt doctor` on a packaged install, to say whether `kempt-plasmoid` is missing. `tests/lib.sh` points it at a missing path |
+| `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The `PATH` the widget's command line builds. `kempt doctor` resolves `kempt` through it to report which CLI the widget would run. Resolved, never executed. `tests/lib.sh` points it at a directory with no `kempt` |
+| `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's record of a staged transaction, world-readable. Read, never written. `tests/lib.sh` pins it at a `ready` fixture. `kempt-apply` reads it to refuse offline verbs over a release upgrade, and honours this variable only when not running as root |
+| `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction, the package set a restart will install. Read live, never written. `tests/lib.sh` pins it at a recorded transaction; point it at anything unparsable to test the fallback |
+| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | Answers `history list --json` and `history info <id> --json`, run as the user to find [which transaction ran](#which-transaction-ran). Read only. `tests/lib.sh` points it at a missing path, so tests take the "cannot tell" branch |
+| `KEMPT_XDG_AUTOSTART_DIR` | `/etc/xdg/autostart` | Where `kempt doctor` looks for Discover's update notifier. Read, never written. `tests/lib.sh` points it at a missing path |
+| `KEMPT_AUTOSTART_SRC` | `/etc/xdg/autostart/org.kde.discover.notifier.desktop` | The system entry `install.sh` copies when it writes the user's autostart override that hides Discover's notifier |
+| `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Its existence marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. `tests/lib.sh` points it at a missing path |
+| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. `lstat`ed only, never resolved or written. `kempt doctor` is its only reader. `tests/lib.sh` points it at a missing path |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
-| `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the panel widget with. Point it at a stub to exercise the widget arm without touching a live plasmashell - it goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it rather than running it |
-| `KEMPT_DBUS_SEND` | `dbus-send` | The one signal `install.sh` emits, `org.kde.KIconLoader.iconChanged` on the session bus, so a plasmashell that started before the icon directory existed looks again. Best-effort by design: no session bus costs nothing. `tests/lib.sh` points it at `true`, so no suite run can reach a real session bus |
-| `KEMPT_INSTALL_ECHO`, `KEMPT_AUTOSTART_SRC` | (unset), the system autostart entry | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. The seam covers privileged commands ONLY - the unprivileged symlinks (CLI, man page) are still created for real, so run it under a scratch `HOME` if you want a fully inert dry run |
+| `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |
+| `KEMPT_DBUS_SEND` | `dbus-send` | The `org.kde.KIconLoader.iconChanged` signal `install.sh` sends so plasmashell reloads icons. Best effort. `tests/lib.sh` points it at `true` |
+| `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run |
 
-The `*_ECHO` seams exist for tests only. The two that live in root-owned code,
-`KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO`, are unreachable in a real privileged run: pkexec
-sanitizes the environment, so a variable set by the caller never arrives inside the root helper.
-`KEMPT_INSTALL_ECHO` runs on the user's side of the boundary, and all it can do is stop
-`install.sh` from running its privileged commands.
+The `*_ECHO` seams are for tests only. `KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO` cannot reach a
+real privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on
+the user's side and can only stop `install.sh` from running privileged commands.
 
 ## Known v1 decisions
 
-- **The dnf check parser is text, not JSON.** dnf5 5.4 supports `check-update --json`, which
-  would remove the whole text-parsing bug class (obsoletes sections, indentation, column drift,
-  locale) by construction. v1 keeps the hardened, fixture-pinned text parser rather than churn
-  the fixture and test layer mid-build. Migrating that one verb is the designated v2 upgrade.
-- **Flatpak is system scope only.** All six flatpak commands in `backends/flatpak.sh` (the app and
-  runtime checks, the app and runtime installed lookups, the refresh and the update) name
-  `--system`, so check, refresh and apply always agree.
-  The scope used to be checked a second time inside the root helper; the apply no longer crosses
-  that boundary, so agreement is now this one file's job. Per-user apps need no privileges and
-  are a possible future unprivileged path.
-- **Both flatpak arms are unprivileged, and neither has a Kempt polkit action.** The refresh
-  fills a cache in the user's own home, so root would buy nothing. The apply is granted to an
-  active local session by the policy flatpak itself ships (`app-update` and `runtime-update` are
-  `allow_active=yes`), so root only bought a dialog. That makes the whole flatpak side asymmetric
-  with dnf on purpose: dnf escalates twice, flatpak not at all. Two cases can still authenticate
-  and are written down in [security.md](security.md#accepted-limitations): a new runtime is an
-  *install*, and `allow_active` means an active **local** session, not one over SSH.
-- **Flatpak runtimes are counted and itemized, and they cannot be held.** `flatpak update` with no
-  ref updates applications *and* runtimes - `--app` and `--runtime` are filters on that default -
-  so a check that asked only about apps counted less than the run would change. Both kinds are now
-  asked about, and a runtime's identity is its id **and** its branch, because the same runtime is
-  commonly installed on two branches that update independently. Holding one is refused (exit 2):
-  apps share a runtime, so a held runtime does not skip an update, it breaks the next app that
-  needs it, somewhere else entirely and with nothing connecting the two on screen. The popup gives
-  runtimes a heading of their own under the apps; **one compact row in place of that section, once
-  the list is long, is deliberately not built** - it is the alternative left to choose between,
-  and the full section is the simpler of the two and the one that keeps every row scannable.
-- **Two installs, and the build rewrites two files to serve the second one.** A checkout install
-  is a symlink into the checkout; the RPM is the answer for shipping this to other people, and it
-  shipped in 0.1.0. The two disagree about exactly one thing, the helper directory, and it is not
-  negotiable at runtime: the polkit action pins `exec.path` and pkexec matches an action by that
-  path and by nothing else. So `kempt.spec`'s `%prep` runs one `sed` over
-  `polkit/io.github.erez_c137.kempt.policy` and `lib/common.sh`, replacing `/usr/local/libexec`
-  with the FHS libexec directory, before anything is packaged. The shipped library therefore
-  differs from the tag by those two lines, deliberately. The check stage keeps a pristine copy of
-  the tree and runs the suite against that, because the suite asserts the tree as shipped from git
-  rather than as packaged.
+- **The dnf check parser reads text.** Moving to dnf5's `check-update --json` is planned for v2.
+- **Flatpak is system scope only.** Every flatpak command in `backends/flatpak.sh` names
+  `--system`, so check, refresh and apply agree.
+- **Flatpak needs no Kempt polkit action.** flatpak's own policy grants `app-update` and
+  `runtime-update` to an active local session. The exceptions are in
+  [security.md](security.md#accepted-limitations).
+- **Flatpak runtimes are counted, and cannot be held** (exit 2). Apps share runtimes, so a held one
+  breaks the next app that needs it.
+- **The package build rewrites two files.** pkexec matches the helper by the path the polkit
+  action pins. So `kempt.spec`'s `%prep` replaces `/usr/local/libexec` with the FHS libexec
+  directory in `polkit/io.github.erez_c137.kempt.policy` and `lib/common.sh`. Its check stage runs
+  the suite on a pristine copy.

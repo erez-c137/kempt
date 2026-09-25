@@ -15,33 +15,25 @@ tests/run_tests.sh            # everything above except tests/live
 bash tests/test_doctor.sh     # one file (they are mode 0644, so invoke with bash)
 ```
 
-A missing `node` or PySide6 does not fail the run. It prints a `skip:` line, and `run_tests.sh`
-lists every skip at the end, because those two layers carry more than half of the assertions and a
-green run without them means much less than it looks like.
+Without `node` or PySide6 the run still passes, but prints a `skip:` line, and `run_tests.sh`
+lists every skip at the end. Those two layers hold more than half of the assertions.
 
 ## Writing a test file
 
-Source `tests/lib.sh` and call `sandbox` first. It creates one throwaway directory, points `HOME`,
-`KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` inside it, neutralizes every environment seam, and
-installs the EXIT trap that cleans up and sets the file's exit status. Never install your own EXIT
-trap, and end the file with `finish`.
+Source `tests/lib.sh` and call `sandbox` first. It points `HOME`, `KEMPT_CONFIG_DIR` and
+`KEMPT_STATE_DIR` into a throwaway directory, resets every environment seam, and sets the EXIT trap
+that cleans up. Never set your own EXIT trap, and end the file with `finish`.
 
-Use the assertions rather than hand-rolled `echo FAIL`: `assert_eq`, `assert_contains`,
-`assert_not_contains`, `assert_json_eq`, `assert_exit`. They print what was expected, what arrived,
-and the file and line the assertion was written on.
+Use the assertions: `assert_eq`, `assert_contains`, `assert_not_contains`, `assert_json_eq`,
+`assert_exit`. They print what was expected, what arrived, and the file and line.
 
-Label an assertion that only sets up the condition for the next one with `premise:`. It says that a
-failure there means the scenario never happened, so the assertions after it prove nothing rather
-than disagreeing with something.
+Label an assertion that only sets up the next one with `premise:`. A failure there means the
+scenario never happened.
 
-**Never pipe into `head` here - use `awk 'NR==1'`.** `head` closes the pipe as soon as it has its
-lines, the command behind it takes SIGPIPE, and `lib.sh` runs every file under `pipefail` and
-`errexit`: the status becomes 141 and the file dies on the spot, having printed no `FAIL` line and
-nothing else to go on. The runner then reports that file as the suite's only failure with no
-assertion to show for it. It is a race, so it fails perhaps one run in three and passes every time
-you run it by hand - `rpmspec -q | head -1` in `test_version.sh` behaved exactly that way. `awk`
-reads its input to the end and cannot close anything early. The same rule holds for `head -c`:
-count with `wc -c` and compare, rather than reading one byte and leaving.
+**Use `awk 'NR==1'`, not `head`.** `head` closes the pipe early, the command before it gets
+SIGPIPE, and under `pipefail` and `errexit` the file exits 141 with no `FAIL` line. It happens only
+some of the time, so it can pass every time you run it by hand. For `head -c`, count with `wc -c`
+instead.
 
 ## The QML probes
 
@@ -55,10 +47,10 @@ Run one on its own:
 python3 tests/qml/safe_probe.py 120 python3 tests/qml/probe_popup.py
 ```
 
-Never `python3 tests/qml/probe_popup.py`: without the supervisor there is no watchdog, no process
-group to kill and no offscreen platform, so a wedged probe stays resident and a probe that builds a
-window opens a real one on your desktop. The harness refuses that command and prints the one above.
+A probe refuses to run without the supervisor, which adds the timeout, a process group to kill,
+and the offscreen platform. Without them a stuck probe keeps running and windows open on your
+desktop.
 
 Inside a probe, `p.stub(...)` writes the fake CLI, `p.calls_matching(...)` reads back what the
-widget ran, and `p.clear_calls()` empties that log. Reset it before an action whose call count you
-are about to assert, or you are counting every earlier scenario's calls as well.
+widget ran, and `p.clear_calls()` empties that log. Clear it before an action whose calls you count,
+or earlier scenarios' calls are counted too.

@@ -276,7 +276,7 @@ preflight_abort() {  # message
 # residue and no history entry, having changed nothing at all.
 # Reads: surface. Writes: surface - answering "s" at the prompt switches this run to offline.
 recommend_offline_if_risky() {
-  # spec §Run surfaces. Recommends, never blocks; an offline run IS the recommendation, so it is
+  # Recommends, never blocks; an offline run IS the recommendation, so it is
   # never nagged.
   #
   # ...and it must never recommend a route that is refused. `[s]tage offline` sets $surface here,

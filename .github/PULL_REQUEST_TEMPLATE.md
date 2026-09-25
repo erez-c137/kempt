@@ -1,12 +1,12 @@
 ## What and why
 
-<!-- The change, and the problem it solves. Link the issue if one exists; backend PRs start
-     with one (see CONTRIBUTING.md). -->
+<!-- The change and the problem it solves. Link the issue; a new backend needs one first
+     (see CONTRIBUTING.md). -->
 
-## How it was verified
+## How it was checked
 
-<!-- For behavior changes: name the test that failed before this change and passes after. -->
+<!-- If behaviour changes, name the test that failed before this change and passes after it. -->
 
 - [ ] The suite is green locally (`tests/run_tests.sh`)
-- [ ] New behavior has a test that fails without the change
-- [ ] Docs updated wherever this changes what they describe
+- [ ] New behaviour has a test that fails without the change
+- [ ] The docs match the change
