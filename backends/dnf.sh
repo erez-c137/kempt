@@ -19,8 +19,21 @@ dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined 
     else rpm -qa --queryformat '%{NAME}\t%{EVR}\n'; fi; } | sort_name_version | collapse_versions
 }
 
-dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines → JSON [{name,from,to}]
-  # Three filters, each load-bearing (see tests/fixtures/MANIFEST.md):
+# dnf5 5.4.0 and later print check-update as JSON, and the root helper asks for it there. The
+# JSON's "upgrades" list is the whole answer: an obsoleted package appears only under
+# "obsoleting_packages", which is not read. dnf5 prints {} when nothing is pending.
+dnf_check_update_json_rows() {  # stdin=dnf5 check-update --json → name<TAB>evr rows; rc≠0 on any other shape
+  jq -r 'if type != "object" then error("not an object") else . end
+         | (.upgrades // []) | if type != "array" then error("upgrades is not a list") else .[] end
+         | if (.name | type) == "string" and (.evr | type) == "string" then [.name, .evr] | @tsv
+           else error("an upgrade without a name and evr") end'
+}
+
+dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update, text or JSON → JSON [{name,from,to}]
+  # JSON starts with "{" (or "[" when it is the wrong shape) and the text never starts with either,
+  # so the content decides and the helper's choice of format never has to match this file's.
+  local in; in="$(cat)"
+  # Three filters on the text, each load-bearing (see tests/fixtures/MANIFEST.md):
   #   /^[^[:space:]]/  column-0 anchor - dnf5's "Obsoleting Packages" section is INDENTED and
   #                    otherwise column-identical. An obsoleted package is being REMOVED, so
   #                    reporting it invents a phantom self-update for something the user is losing.
@@ -31,9 +44,12 @@ dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update lines �
   # (bash.x86_64 5.3.10-1 vs bash.i686 5.3.9-4) and -u only drops rows matching on both keys, so
   # divergent twins would double-count as two updates of one package. sort_name_version rather than
   # a plain sort, for the reason its own comment in lib/common.sh gives.
-  awk '/^[^[:space:]]/ && NF>=3 && $1 ~ /\.[A-Za-z0-9_]+$/ \
-       && $2 ~ /^([0-9]+:)?[^[:space:]]*[0-9][^[:space:]]*-[^[:space:]]+$/ \
-       { n=$1; sub(/\.[^.]+$/,"",n); print n "\t" $2 }' \
+  if [[ "$in" =~ ^[[:space:]]*[{[] ]]; then dnf_check_update_json_rows <<<"$in"
+  else
+    awk '/^[^[:space:]]/ && NF>=3 && $1 ~ /\.[A-Za-z0-9_]+$/ \
+         && $2 ~ /^([0-9]+:)?[^[:space:]]*[0-9][^[:space:]]*-[^[:space:]]+$/ \
+         { n=$1; sub(/\.[^.]+$/,"",n); print n "\t" $2 }' <<<"$in"
+  fi \
   | sort_name_version -u | collapse_versions \
   | join -t "$(printf '\t')" -a1 -e '?' -o '1.1,2.2,1.2' - "$1" \
   | jq -Rn '[inputs | split("\t") | {name:.[0], from:.[1], to:.[2]}]'
@@ -104,6 +120,12 @@ dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY 
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout
 
+# Is the installed dnf5 at least this version? KEMPT_DNF5_VERSION stands in for rpm in tests.
+dnf5_at_least() {  # version → rc 0 when the installed dnf5 is that version or newer
+  local v="${KEMPT_DNF5_VERSION:-$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)}"
+  [[ "$v" =~ ^[0-9][0-9.]*$ ]] && [[ "$(printf '%s\n' "$1" "$v" | sort -V | head -n1)" == "$1" ]]
+}
+
 dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm install times vs boot time)
   # -C keeps it offline: an uncached needs-restarting does NETWORK I/O and can prompt on stdin,
   # and this runs from detached surfaces where nobody is there to answer.
@@ -123,6 +145,22 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   # false positive. So: the indented `  * <package>` list, or dnf5's own "Reboot is required"
   # sentence, either accepted alone, because each covers the other's drift.
   local out rc=0
+  # dnf5 5.4.1 and later print the verdict as JSON, so nothing has to be read out of a sentence.
+  # The exit code must agree with it: rc 1 with true, rc 0 with false. Anything else could not
+  # answer, exactly as on the text path.
+  if dnf5_at_least 5.4.1; then
+    out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting --json </dev/null 2>/dev/null)" || rc=$?
+    local verdict
+    verdict="$(jq -r 'if type == "array" then [.[] | select(.type == "reboot") | .reboot_required]
+                      else [] end | if length == 1 and (.[0] | type) == "boolean" then .[0]
+                      else error("no verdict") end' <<<"$out" 2>/dev/null)" || verdict=""
+    case "$rc:$verdict" in
+      1:true)  echo true ;;
+      0:false) echo false ;;
+      *) echo "warning: reboot check could not answer (rc=$rc, no verdict in dnf5's JSON)" >&2; echo false ;;
+    esac
+    return 0
+  fi
   out="$($KEMPT_DNF_CMD -C --disablerepo='*' needs-restarting </dev/null 2>/dev/null)" || rc=$?
   case $rc in
     1) if grep -qE '^[[:space:]]+\* [^[:space:]]' <<<"$out" \

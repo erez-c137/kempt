@@ -12,13 +12,23 @@ run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of e
   if [[ -n "${KEMPT_REFRESH_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
 }
 
+# Does the installed dnf5 print check-update as JSON? 5.4.0 added --json; Fedora 43 ships 5.2.
+# The CLI tells the two formats apart by content, so this choice never has to match the CLI's.
+# KEMPT_DNF5_VERSION is a test seam; pkexec clears the environment, so it never reaches a real run.
+dnf5_json() {
+  local v="${KEMPT_DNF5_VERSION:-$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)}"
+  [[ "$v" =~ ^[0-9][0-9.]*$ ]] && [[ "$(printf '%s\n' 5.4.0 "$v" | sort -V | head -n1)" == 5.4.0 ]]
+}
+
 # Exactly one argument: extra args are never forwarded, so refusing them keeps the caller honest
 # instead of silently ignoring what it asked for.
 [[ $# -eq 1 ]] || { echo "usage: kempt-refresh check|refresh" >&2; exit 2; }
 case "$1" in
   # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
   # progress/errors on stderr - merging them would feed diagnostics into the parser.
-  check)   run dnf5 --cacheonly check-update --quiet ;;   # exit 100 = updates pending
+  # Text exits 100 when updates are pending; JSON exits 0 either way.
+  check)   if dnf5_json; then run dnf5 --cacheonly check-update --quiet --json
+           else run dnf5 --cacheonly check-update --quiet; fi ;;
   refresh) run dnf5 makecache --refresh ;;
   *) echo "usage: kempt-refresh check|refresh" >&2; exit 2 ;;
 esac

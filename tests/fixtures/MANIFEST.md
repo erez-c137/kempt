@@ -38,6 +38,15 @@ aajohan-comfortaa-fonts), each bumped to a plausible newer EVR. Guard rows added
   `NF>=3` + EVR-shape guards kill the bare header; if either is deleted the item count goes
   to 8 and the test fails.
 
+## tests/fixtures/dnf-check-update.json
+**Hand-written**, in the shape `dnf5 --cacheonly check-update --quiet --json` prints on dnf5 5.4.5
+(indentation and key order copied from a live capture on 2026-09-26). It holds the same eight
+upgrade rows as `dnf-check-update.txt`, so both must parse to the same 7 items. The obsoleted
+`old-tool` sits under `obsoleting_packages`, as the `obsoletes` list of an upgrade (`curl`) that is
+also in `upgrades`, which is where dnf5 puts it: the obsoleting section is a subset of the
+upgrades, and `libdnf5-cli`'s `package_list_sections.cpp` names it by lower-casing the text
+heading.
+
 ## tests/fixtures/rpm-installed.tsv
 **Captured-live**, 2026-08-24, via
 `LC_ALL=C rpm -qa --queryformat '%{NAME}\t%{EVR}\n' | sort` against this box's real installed

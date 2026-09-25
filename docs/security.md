@@ -48,7 +48,8 @@ session fails with `not authorized - the password was refused, or this session c
 (over SSH or switched away)`.
 
 The no-dialog refresh lets the check read the **root** metadata cache that the update will use.
-It can run only `dnf5 --cacheonly check-update --quiet` and `dnf5 makecache --refresh`.
+It can run only `dnf5 --cacheonly check-update --quiet` (with `--json` added on dnf5 5.4.0 and
+later) and `dnf5 makecache --refresh`.
 
 Refresh calls time out after 120 seconds, because nobody is there to answer a dialog during a
 background check. Apply calls have no timeout.

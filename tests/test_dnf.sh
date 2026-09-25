@@ -22,6 +22,19 @@ assert_eq "$(jq -r '[.[].name] | any(test("^Obsoleting"))' <<<"$out")" "false" "
 assert_eq "$(jq -r '.[] | select(.name == "brandnew") | .from' <<<"$out")" "?" "not-installed package falls back to ?"
 assert_eq "$(jq -r '[.[] | select(.name != "brandnew") | .from] | any(. == "?" or . == "")' <<<"$out")" "false" "installed packages resolve real from-versions"
 
+# --- the same answer from dnf5's JSON (5.4.0 and later) ---
+# The helper prints JSON where dnf5 has it, and the parser tells the two apart by content, so the
+# JSON fixture holds the same packages as the text one and must parse to the same items. Its
+# obsoleted package sits under "obsoleting_packages", which is not a list of updates.
+jout="$(dnf_parse_check_update "$FIXTURES/rpm-installed.tsv" < "$FIXTURES/dnf-check-update.json")"
+assert_json_eq "$jout" "$out" "the JSON fixture parses to exactly the items the text fixture does"
+assert_json_eq "$(dnf_parse_check_update "$FIXTURES/rpm-installed.tsv" <<<'{}')" "[]" \
+  "{} is dnf5's JSON for nothing pending"
+for bad in '[]' '{"upgrades":{}}' '{"upgrades":[{"name":"x"}]}' '{"upgrades":[' ; do
+  rc=0; dnf_parse_check_update "$FIXTURES/rpm-installed.tsv" <<<"$bad" >/dev/null 2>&1 || rc=$?
+  assert_eq "$([[ $rc -ne 0 ]] && echo fails || echo passes)" "fails" "JSON of the wrong shape fails loudly: $bad"
+done
+
 # --- a collapsed set is ASCENDING, and both branches of the lookup get there the same way ---
 # "Last element = newest" is the contract every consumer relies on (render_summary's newest(),
 # the widget's newestOf). Lexically it is simply false for the everyday pair 1.9 vs 1.10, because
@@ -73,6 +86,19 @@ crc=0
 none="$(dnf_check)" || crc=$?
 assert_eq "$crc" "0" "zero pending dnf is success"
 assert_json_eq "$none" "[]" "zero pending dnf → empty items"
+
+# The helper prints JSON on dnf5 5.4.0 and later, and exits 0 with updates pending.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == "check" ]] && { cat "$FIXTURES/dnf-check-update.json"; exit 0; }
+exit 2
+STUB
+assert_eq "$(dnf_check | jq length)" "7" "dnf_check reads the helper's JSON too"
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == "check" ]] || exit 2
+exit 0
+STUB
 
 # A parser failure must survive the cleanup rm instead of being masked by its exit 0.
 _real_parse="$(declare -f dnf_parse_check_update)"
@@ -189,6 +215,39 @@ dnf_reboot_needed >/dev/null 2>&1
 assert_eq "$(grep -cx -- '-C' "$TESTTMP/dnf-argv-out")" "1" "the reboot check really is cache-only"
 assert_eq "$(grep -cx -- "--disablerepo=\*" "$TESTTMP/dnf-argv-out")" "1" "...and really does disable every repo"
 assert_eq "$(grep -cx -- 'needs-restarting' "$TESTTMP/dnf-argv-out")" "1" "...on the needs-restarting verb"
+
+# --- reboot check from dnf5's JSON (5.4.1 and later) ---
+# The JSON carries the verdict itself, so no sentence has to be recognised. The exit code must
+# agree with it; when they disagree, or the JSON is not the expected shape, the answer is the same
+# "could not answer" false as on the text path.
+nr_stub() {  # path rc json → a needs-restarting stand-in that insists on --json
+  printf '#!/usr/bin/env bash\n[[ " $* " == *" --json "* ]] || exit 9\nprintf "%%s\\n" %q\nexit %s\n' "$3" "$2" > "$1"
+  chmod +x "$1"
+}
+export KEMPT_DNF5_VERSION=5.4.5.0
+nr_stub "$TESTTMP/nr-yes" 1 '[{"type":"reboot","reboot_required":true,"packages":["kernel-core"],"documentation":"x"}]'
+nr_stub "$TESTTMP/nr-no" 0 '[{"type":"reboot","reboot_required":false,"packages":[],"documentation":"x"}]'
+nr_stub "$TESTTMP/nr-disagree" 0 '[{"type":"reboot","reboot_required":true,"packages":["kernel-core"],"documentation":"x"}]'
+nr_stub "$TESTTMP/nr-shape" 1 '{"reboot_required":true}'
+nr_stub "$TESTTMP/nr-empty" 1 ''
+export KEMPT_DNF_CMD="$TESTTMP/nr-yes"
+assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" "JSON: reboot_required true with rc 1 → true"
+export KEMPT_DNF_CMD="$TESTTMP/nr-no"
+assert_eq "$(dnf_reboot_needed 2>&1)" "false" "JSON: reboot_required false with rc 0 → false, with no warning"
+for c in disagree shape empty; do
+  export KEMPT_DNF_CMD="$TESTTMP/nr-$c"
+  assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "JSON: $c → false"
+  assert_eq "$(dnf_reboot_needed 2>&1 >/dev/null | grep -c 'warning: reboot check could not answer')" "1" "...and warns"
+done
+export KEMPT_DNF_CMD="$TESTTMP/dnf-argv"
+dnf_reboot_needed >/dev/null 2>&1
+assert_eq "$(grep -cx -- '-C' "$TESTTMP/dnf-argv-out") $(grep -cx -- "--disablerepo=\*" "$TESTTMP/dnf-argv-out")" "1 1" \
+  "the JSON reboot check is cache-only with every repo disabled, too"
+# 5.4.0 has check-update --json but not needs-restarting --json.
+export KEMPT_DNF5_VERSION=5.4.0.0
+dnf_reboot_needed >/dev/null 2>&1
+assert_eq "$(grep -cx -- '--json' "$TESTTMP/dnf-argv-out")" "0" "dnf5 5.4.0 gets the text form"
+export KEMPT_DNF5_VERSION=5.2.18.0
 
 # Helper failure (exit 1, not 100) → dnf_check exits non-zero
 cat > "$TESTTMP/refresh-stub" <<'STUB'

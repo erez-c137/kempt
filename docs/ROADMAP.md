@@ -27,10 +27,8 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   releases: they show no runtimes section and no way to take back a staged update. The metainfo
   links them by tag, so new ones reach software centres with the release after they land. They
   will be 16:9, because software centres crop tall images badly.
-- **dnf5's JSON output ([#17](https://github.com/erez-c137/kempt/issues/17)).** Kempt still reads
-  two dnf5 commands as text written for people: `check-update` and `needs-restarting`. dnf5 5.4.1
-  and later print both as JSON, and Fedora 44 ships it. Kempt reads JSON where dnf5 has it, and
-  the text parsers are removed when Fedora 43 reaches end of life.
+- **Removing the dnf5 text parsers when Fedora 43 reaches end of life.** From then on every
+  supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 

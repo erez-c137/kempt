@@ -12,8 +12,16 @@ assert_exit 2 "refresh: bad verb"       env KEMPT_REFRESH_ECHO=1 bash "$RH" nuke
 assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
 assert_exit 2 "refresh: trailing empty arg rejected" bash "$RH" refresh ''
 # KEMPT_REFRESH_ECHO mirrors apply's seam: print the final command instead of exec'ing it.
-assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
+assert_eq "$(KEMPT_DNF5_VERSION=5.2.18.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
   "refresh helper: check builds exact command"
+# dnf5 5.4.0 added --json to check-update. The verb, its polkit action and its one argument stay
+# the same; only the output format follows the installed dnf5.
+assert_eq "$(KEMPT_DNF5_VERSION=5.4.0.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
+  "dnf5 --cacheonly check-update --quiet --json" "refresh helper: check asks for JSON from dnf5 5.4.0"
+assert_eq "$(KEMPT_DNF5_VERSION=5.10.0.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
+  "dnf5 --cacheonly check-update --quiet --json" "...compared as versions, so 5.10 is newer than 5.4"
+assert_eq "$(KEMPT_DNF5_VERSION=5.3.9.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
+  "dnf5 --cacheonly check-update --quiet" "...and text before it"
 assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "dnf5 makecache --refresh" \
   "refresh helper: refresh builds exact command"
 assert_exit 2 "apply: no verb"          bash "$AH"

@@ -352,8 +352,8 @@ laptop offline can still answer "what is pending?".
 
 | Command | May reach the network |
 | --- | --- |
-| `dnf5 --cacheonly check-update --quiet` (`kempt-refresh check`) | No |
-| `dnf5 -C --disablerepo='*' needs-restarting` (`dnf_reboot_needed`) | No |
+| `dnf5 --cacheonly check-update --quiet [--json]` (`kempt-refresh check`) | No |
+| `dnf5 -C --disablerepo='*' needs-restarting [--json]` (`dnf_reboot_needed`) | No |
 | `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
 | `flatpak remote-ls --updates --system --runtime --cached ...` (`flatpak_check`) | No |
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
@@ -737,17 +737,21 @@ destructive paths without running them.
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Its existence marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. `tests/lib.sh` points it at a missing path |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. `lstat`ed only, never resolved or written. `kempt doctor` is its only reader. `tests/lib.sh` points it at a missing path |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
+| `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Decides whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |
 | `KEMPT_DBUS_SEND` | `dbus-send` | The `org.kde.KIconLoader.iconChanged` signal `install.sh` sends so plasmashell reloads icons. Best effort. `tests/lib.sh` points it at `true` |
 | `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them; `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run |
 
-The `*_ECHO` seams are for tests only. `KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO` cannot reach a
-real privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on
+The `*_ECHO` seams are for tests only. `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` and `KEMPT_DNF5_VERSION` cannot
+reach a real privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on
 the user's side and can only stop `install.sh` from running privileged commands.
 
 ## Known v1 decisions
 
-- **The dnf check parser reads text.** Moving to dnf5's `check-update --json` is planned for v2.
+- **dnf5's output is read as JSON where dnf5 prints it** (5.4.0 and later for `check-update`, 5.4.1
+  for `needs-restarting`). The text parsers stay for Fedora 43 and go when it reaches end of life.
+  The parser tells the two formats apart by content, so a helper and a CLI of different versions
+  still agree.
 - **Flatpak is system scope only.** Every flatpak command in `backends/flatpak.sh` names
   `--system`, so check, refresh and apply agree.
 - **Flatpak needs no Kempt polkit action.** flatpak's own policy grants `app-update` and

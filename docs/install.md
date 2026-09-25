@@ -287,8 +287,9 @@ kempt check | jq '.backends.dnf.items | length'
 dnf5 --cacheonly check-update --quiet | wc -l
 ```
 
-Expect the same ballpark. Kempt merges multilib pairs such as `bash.x86_64` and `bash.i686` into
-one item and filters out obsoleted packages. This `dnf5` command also reads your user cache, while
+Expect the same ballpark (dnf5 may print a header line, which `wc` counts). Kempt merges
+multilib pairs such as `bash.x86_64` and `bash.i686` into one item and filters out obsoleted
+packages. This `dnf5` command also reads your user cache, while
 Kempt reads the root cache its update will use.
 
 ## Passwordless updates (optional)

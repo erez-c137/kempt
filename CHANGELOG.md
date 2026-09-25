@@ -14,6 +14,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Docs: a snapshot before every update.** [usage.md](docs/usage.md#a-snapshot-before-every-update)
   shows how to have dnf5 take a snapper or Timeshift snapshot before each transaction.
 
+### Changed
+
+- **Kempt reads dnf5's JSON output where dnf5 prints it.** On Fedora 44 and later, the pending list
+  and the restart check come from dnf5's `--json` output instead of text written for people, so a
+  change in how dnf5 words its output can no longer break the count. Fedora 43 keeps the text
+  parsers until it reaches end of life.
+
 ### Fixed
 
 - **Opening Last update no longer squeezes the pending list.** The popup is taller by default, and
