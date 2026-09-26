@@ -34,6 +34,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **state.json is never left empty.** A check that could not build its result, for example on a
   full disk, now keeps the previous state.
 - **The update window runs its own check when the update's check was skipped.**
+- **A stage that no restart will install no longer shows as staged.** Running dnf5 yourself after
+  staging cancels the stage. The panel kept saying "staged" until the next restart.
+- **An update always records itself.** If the log or a temporary file could not be written after
+  packages changed, the run stopped without a history entry and the popup stayed on "Updating".
+- **A failed Flatpak lookup is reported as a failure.** With a Flatpak app held, a lookup that
+  failed was reported as "ok" and no apps were updated.
+- **After an update, the popup waits for the final check.** A check you started during the update
+  could stand in for it, and the old counts stayed on screen.
 
 ### Security
 
