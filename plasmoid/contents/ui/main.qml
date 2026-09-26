@@ -47,10 +47,11 @@ PlasmoidItem {
     // the news; what a surface DOES about it is that surface's business - the same split as
     // popupShown(). `message` carries the sentence to speak when `ok` is false.
     signal holdOutcome(string name, bool hold, bool ok, string message)
-    // How many times we have re-asked after a check that answered with NOTHING. `kempt check`
-    // prints an empty line and exits 0 when another check holds the lock, which on a fresh login
-    // is the ordinary case. That means "keep the last known state" - but at startup there is none,
-    // so without a retry the panel sits dim until the hourly timer.
+    // How many times we have re-asked after a check that answered with NOTHING. When another check
+    // holds the lock, `kempt check` serves the previous state.json and exits 0 - and prints nothing
+    // when there is no previous state yet, which on a fresh install's first login is the ordinary
+    // case. That means "keep the last known state" - but at startup there is none, so without a
+    // retry the panel sits dim until the hourly timer.
     property int firstCheckRetries: 0
     readonly property int maxFirstCheckRetries: 3
 
@@ -263,9 +264,12 @@ PlasmoidItem {
     //   parseable stdout            -> use it, WHATEVER the exit code was. `kempt check` prints
     //                                  the fresh state before it reports a persistence failure,
     //                                  so the answer is still the answer (answer-first contract).
+    //                                  A lock held by another check lands here too: the CLI then
+    //                                  serves the previous state.json, unchanged.
     //   empty stdout, exit 0        -> "no data, keep the last known state". Another check held
-    //                                  the lock. Changing anything here would turn a lock timeout
-    //                                  into a badge that says zero updates.
+    //                                  the lock and there was no previous state to serve.
+    //                                  Changing anything here would turn a lock timeout into a
+    //                                  badge that says zero updates.
     //   nothing usable, non-zero rc -> leave the state alone as well; the CLI reports its own
     //                                  failures inside the state as `status: "stale"`.
     function doCheck() {
