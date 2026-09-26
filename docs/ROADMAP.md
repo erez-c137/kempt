@@ -19,6 +19,8 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   and the popup shows how old its data is.
 - **0.1.5:** a finished run no longer offers to stage what it just staged. A run reports only its
   own dnf transaction. `kempt doctor` says when Discover's notifier also starts at login.
+- **0.1.6:** on Fedora 44 and later, Kempt reads dnf5's JSON output. The panel tooltip names
+  what is pending, and an update runs one check afterwards instead of four.
 
 ## Now
 

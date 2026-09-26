@@ -7,12 +7,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-26
+
 ### Added
 
 - **The panel tooltip names what is pending.** It shows the first three package names, with the
   kernel and other session-critical packages first, then how many more there are.
-- **Docs: a snapshot before every update.** [usage.md](docs/usage.md#a-snapshot-before-every-update)
-  shows how to have dnf5 take a snapper or Timeshift snapshot before each transaction.
 
 ### Changed
 
@@ -889,7 +889,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/erez-c137/kempt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/erez-c137/kempt/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/erez-c137/kempt/compare/v0.1.2...v0.1.3

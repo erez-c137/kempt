@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.5
+Version:        0.1.6
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -249,6 +249,15 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Sat Sep 26 2026 Erez <erez.c137@protonmail.com> - 0.1.6-1
+- On Fedora 44 and later, the pending list and the restart check come from
+  dnf5's JSON output.
+- The panel tooltip names what is pending.
+- An update runs one check afterwards, not four.
+- A run that staged nothing no longer promises a restart, and a staged update
+  no longer disappears from the panel after a run.
+- An update installed during a restart no longer shows as taking 0 seconds.
+
 * Wed Sep 23 2026 Erez <erez.c137@protonmail.com> - 0.1.5-1
 - An update run says which dnf transaction it was, so a run reports what it
   installed rather than everything that changed while it was going.

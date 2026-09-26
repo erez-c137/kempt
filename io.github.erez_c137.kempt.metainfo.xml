@@ -53,11 +53,11 @@
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the pending-updates popup open</caption>
-      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.5/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
-      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.5/docs/images/kempt-settings.png</image>
+      <image type="source" width="805" height="831">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -66,6 +66,18 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.1.6" date="2026-09-26" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.6</url>
+      <description>
+        <p>
+          On Fedora 44 and later, Kempt reads dnf5's JSON output, so a change in how dnf5 words
+          its output can no longer break the count. The panel tooltip names what is pending, and
+          an update runs one check afterwards instead of four. A run that staged nothing no
+          longer promises a restart, and an update installed during a restart shows its real
+          duration.
+        </p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-09-23" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.5</url>
       <description>
