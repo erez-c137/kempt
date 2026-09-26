@@ -628,6 +628,20 @@ function checkedSince(state, sinceMs) {
     return at >= Math.floor(since / 1000) * 1000;
 }
 
+// checkedAfterRun(state, run, sinceMs) -> checkedSince, anchored to the run's END rather than its
+// press. `run` is the newest history entry. The CLI writes it before its closing check, so a check
+// stamped at or after it is that check - and one stamped between the press and the entry is not:
+// a check somebody asked for mid-run. That check's last_check survives into the state the run
+// publishes on its way out (publish_staged_state touches only the staged key), so the press alone
+// would take it for the closing check and stand the fallback down before the real one had landed.
+// With no entry of this run's (a run that ended before writing one, or a summary that did not
+// answer) the press is the only anchor there is.
+function checkedAfterRun(state, run, sinceMs) {
+    var at = run ? stampMs(run.when) : NaN;
+    var anchor = isFinite(at) && runFinishedSince(run, sinceMs) ? at : sinceMs;
+    return checkedSince(state, anchor);
+}
+
 // holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
@@ -2019,6 +2033,7 @@ if (typeof module !== "undefined" && module.exports) {
         WATCH_FIELDS: WATCH_FIELDS,
         watcherCheckDue: watcherCheckDue,
         checkedSince: checkedSince,
+        checkedAfterRun: checkedAfterRun,
         CHECK_QUIET_MS: CHECK_QUIET_MS
     };
 }

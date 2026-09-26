@@ -432,6 +432,33 @@ p.check("a closing check that never lands is covered by one check from the widge
 ev("postRunCheck.interval = 120000")
 p.wait_idle(ev, "executor")
 
+# A check asked for MID-run is not the closing check, though it too postdates the press. Its
+# last_check survives into the state the run publishes on its way out (publish_staged_state touches
+# only the staged key), so a fallback anchored to the press stood down on that publish, before the
+# closing check had landed - and a closing check that then lost the lock left the pre-run counts
+# on screen. Anchored to the run's history entry, the publish leaves the fallback armed.
+ev("postRunCheck.stop()")
+ev("root.lastCheckFinished = Date.now() - 61000")
+ev("root.enterUpdating('offline')")
+now = datetime.datetime.now().astimezone()
+MIDRUN = dict(STAGED, last_check=now.isoformat(timespec="seconds"))
+open(STATE_JSON, "w").write(json.dumps(MIDRUN))       # a check made mid-run...
+harness.touch(STATE_JSON, "2030-04-04")
+ev("root.watchStamp = ''; root.pollWatch(false)")    # ...landed through the widget: re-baselined
+p.wait_idle(ev, "executor")
+p.check("premise: a mid-run check leaves the run in flight", ev("root.updating"), True)
+open(SUMMARY, "w").write(json.dumps({                  # the run finishes: its entry, seconds later
+    "timestamp": (now + datetime.timedelta(seconds=5)).isoformat(timespec="seconds"),
+    "status": "ok", "surface": "offline", "backends": {}}))
+harness.touch(STATE_JSON, "2030-04-05")                # ...then its publish, same last_check
+ev("root.pollWatch(true)")
+p.wait_for(ev, "root.updating", False, timeout_ms=4000)
+p.wait_idle(ev, "executor")
+p.check("a publish carrying a mid-run check's stamp leaves the fallback armed",
+        ev("postRunCheck.running"), True)
+ev("postRunCheck.stop()")
+os.remove(SUMMARY)
+
 # --- 8e. a run that ends while a check of the widget's own is in flight still ends -------------
 # The watcher learns that a run ended from state.json moving, and every landed check re-baselines
 # it, because the check has just written that file itself. So a check that is in flight when the

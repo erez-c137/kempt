@@ -429,13 +429,20 @@ PlasmoidItem {
             // Read BEFORE leaveUpdating clears it: whether this tick ended a run is what exempts
             // the post-run check from the quiet window below.
             var endedRun = delta.state && root.updating;
-            // A state.json written by a check that ran after the press is the run's own closing
-            // check (the end of cmd_update): the answer the post-run check would give is already
-            // on disk, so the fallback below stands down.
+            // A state.json written by a check that ran after the run FINISHED is the run's own
+            // closing check (the end of cmd_update): the answer the post-run check would give is
+            // already on disk, so the fallback below stands down. After the finish and not after
+            // the press, because a check asked for mid-run also postdates the press, and its stamp
+            // is still in the state the run publishes just before its closing check. The history
+            // entry is the finish (see Logic.checkedAfterRun); it is only asked for while the
+            // fallback is armed, which the lines below do before this callback can run.
             if (delta.state) {
                 root.leaveUpdating();
                 root.adoptState(function (fresh) {
-                    if (Logic.checkedSince(fresh, root.updateStartedMs)) postRunCheck.stop();
+                    if (!postRunCheck.running) return;
+                    root.loadLastRun(function (run) {
+                        if (Logic.checkedAfterRun(fresh, run, root.updateStartedMs)) postRunCheck.stop();
+                    });
                 });
             }
 

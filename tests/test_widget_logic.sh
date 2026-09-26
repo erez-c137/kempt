@@ -2658,6 +2658,26 @@ assert_eq "$(js 'L.checkedSince({}, 1000000)')" "false" "a state with no last_ch
 assert_eq "$(js 'L.checkedSince(null, 1000000)')" "false" "...nor is no state"
 assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T15:25:18+03:00"}, 0)')" "false" \
   "...nor is anything, before a run has started"
+# checkedAfterRun: the same question anchored to the run's END, its history entry. A check that
+# ran after the press but before the run finished (a manual check mid-run) is not the run's
+# closing check, and a state the run published afterwards still carries its last_check.
+PRESS='Date.parse("2026-09-26T15:24:34+03:00")'
+ENTRY='{when: "2026-09-26T15:40:02+03:00"}'
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, $ENTRY, $PRESS)")" "false" \
+  "a check made mid-run, after the press and before the run's entry, is not the closing check"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:40:05+03:00'}, $ENTRY, $PRESS)")" "true" \
+  "...one made after the run's entry is"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:40:02+03:00'}, $ENTRY, $PRESS)")" "true" \
+  "...and the entry's own second counts"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, {when: '2026-09-26T14:00:00+03:00'}, $PRESS)")" "true" \
+  "with only an older run in the history (a run that ended with no entry), the press is the anchor"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, null, $PRESS)")" "true" \
+  "...as it is with no entry at all"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T14:35:14+03:00'}, null, $PRESS)")" "false" \
+  "...and a check from before the press is still not one"
+assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, {when: 'not a date'}, $PRESS)")" "true" \
+  "an entry with no readable stamp is not this run's, so the press is the anchor"
+assert_eq "$(js "L.checkedAfterRun(null, $ENTRY, $PRESS)")" "false" "no state is not a check"
 # Structural, because the rule is only worth anything where it is applied: main.qml must consult it
 # on the watcher's path, and the config field must stay exempt - the settings page has no other way
 # into that file, and docs/usage.md promises the panel catches up within 30 seconds.
