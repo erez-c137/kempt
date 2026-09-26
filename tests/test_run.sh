@@ -333,6 +333,23 @@ wait_until finished && grep -q "aborted" "$TESTTMP/term-out" 2>/dev/null \
   && echo "ok: ...and the update inside it really ran (to the risky prompt)" \
   || { echo "FAIL: the handed-off window did not run the update"; sed 's/^/    /' "$TESTTMP/term-out" 2>/dev/null; _fail=1; }
 
+# (h) a clean run checks ONCE. cmd_update checks on its way out, and the wrapper used to check
+# again straight after it: two dnf and flatpak queries, seconds each on a real box, all before
+# "Press any key" appeared. The wrapper now checks only when the update did not replace state.json.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/apply-ok"; chmod +x "$TESTTMP/apply-ok"
+before_events="$(check_events)"
+reset_capture
+echo /dev/null > "$STDIN_PATH"
+env -u KEMPT_RISKY_RE KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" run
+wait_until finished && echo "ok: the clean window closed" \
+  || { echo "FAIL: the clean window never finished"; _fail=1; }
+assert_eq "$(cat "$TESTTMP/term-rc" 2>/dev/null)" "0" "a clean run leaves the window with 0"
+assert_eq "$(( $(check_events) - before_events ))" "1" "...and runs exactly one check, not one per layer"
+# The line that says what the pause is prints only to a terminal, and this stub's output is a file,
+# so it is read from the source: it must come before the update's closing check, not after it.
+assert_eq "$(grep -A1 -F "&& printf" "$REPO_ROOT/bin/kempt" | grep -A1 -F "left to update" | tail -1 | tr -d ' ')" \
+  "cmd_check>/dev/null2>&1||true" "...and the update says it is checking, right before it checks"
+
 # --- a run while another update holds the lock ---------------------------------------------------
 #
 # The refusal used to happen inside the launched window or the detached shell, where nobody reads

@@ -287,6 +287,7 @@ PlasmoidItem {
             // Stamped for EVERY completed check, whatever it answered: the quiet window below is
             // about the writes a check makes, and it makes those either way.
             root.lastCheckFinished = Date.now();
+            postRunCheck.stop();                   // any landed check is the one it waits for
             var parsed = Logic.parseState(stdout);
             if (parsed !== null) {
                 root.kemptState = parsed;
@@ -378,13 +379,14 @@ PlasmoidItem {
     //
     // One `cat`, taking no lock, the same trade rebuildStaged and discardStaged make before they
     // act on a banner. stateDir is NOT shellQuote'd - see findLog().
-    function adoptState() {
+    function adoptState(done) {
         executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
             var fresh = Logic.parseState(stdout);
             // null means we learned nothing - rule 1 of the schema says keep what we had. And
             // nothing else is touched: this is not a check, it made none of a check's writes, so
             // lastCheckFinished stays where it is and the quiet window is not opened by it.
             if (fresh !== null) root.kemptState = fresh;
+            if (done) done(fresh);
         });
     }
 
@@ -407,7 +409,15 @@ PlasmoidItem {
             // Read BEFORE leaveUpdating clears it: whether this tick ended a run is what exempts
             // the post-run check from the quiet window below.
             var endedRun = delta.state && root.updating;
-            if (delta.state) { root.leaveUpdating(); root.adoptState(); }
+            // A state.json written by a check that ran after the press is the run's own closing
+            // check (the end of cmd_update): the answer the post-run check would give is already
+            // on disk, so the fallback below stands down.
+            if (delta.state) {
+                root.leaveUpdating();
+                root.adoptState(function (fresh) {
+                    if (Logic.checkedSince(fresh, root.updateStartedMs)) postRunCheck.stop();
+                });
+            }
 
             // ...and a package database moving while a run of OURS is in flight is not news, it IS
             // the run: checking on it would queue `kempt check` behind the dnf lock the
@@ -431,16 +441,22 @@ PlasmoidItem {
             root.readRestartReminder();
 
             // ...and the check itself, unless this change is still the wake of the last one.
-            // Logic.watcherCheckDue carries the rule and the trade it makes. Two exemptions,
-            // neither an optimisation:
-            //   endedRun    the moment a run of OURS finishes is the moment the counts on screen
-            //               are most wrong, and the user who pressed Update Now a minute ago is
-            //               the one looking at them.
-            //   delta.config the settings page has no other way in, "changes reach the panel
-            //               within 30 seconds" (docs/usage.md) is measured through this line, and
-            //               include_flatpak changes what is pending.
-            if (endedRun || delta.config
-                || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
+            // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
+            // delta.config, because the settings page has no other way in, "changes reach the panel
+            // within 30 seconds" (docs/usage.md) is measured through this line, and
+            // include_flatpak changes what is pending.
+            // The end of a run is NOT checked here. The CLI checks on its way out of every run, so a
+            // check from here ran the same check again, and on a real box it queued behind the
+            // CLI's and then set off another: four checks for one update. The write that ends the
+            // run is often the one just before that check (publish_staged_state), so the widget
+            // waits for it, with the quiet window opened as if a check had just landed, and
+            // postRunCheck as the fallback for a run whose closing check never writes.
+            if (endedRun && !delta.config) {
+                root.lastCheckFinished = Date.now();
+                postRunCheck.restart();
+                return;
+            }
+            if (delta.config || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
                 root.doCheck();
             }
         });
@@ -901,6 +917,16 @@ PlasmoidItem {
 
     // The bounded retry described on firstCheckRetries above. One-shot: doCheck arms it, and only
     // an empty answer arms it again.
+    // The post-run check, only when the CLI's own never arrived: a closing check that timed out on
+    // the lock writes nothing, and the counts on screen would then stay the pre-run ones until
+    // the next scheduled check. Two minutes is the check's own timeout.
+    Timer {
+        id: postRunCheck
+        interval: 120000
+        repeat: false
+        onTriggered: root.doCheck()
+    }
+
     Timer {
         id: firstCheckRetry
         interval: 10000

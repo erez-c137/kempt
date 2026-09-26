@@ -2646,19 +2646,33 @@ assert_eq "$(js 'L.watcherCheckDue(2000000, 1000000)')" "true" \
   "a clock that moved backwards never suppresses a check"
 assert_eq "$(js 'L.watcherCheckDue(NaN, 1000000)')" "true" "...nor does a stamp that is not a number"
 assert_eq "$(js 'L.watcherCheckDue(1000000, NaN)')" "true" "...nor a now that is not one"
+# checkedSince: whether state.json was written by a check that ran after the press. last_check has
+# whole seconds, so a check in the press's own second counts.
+assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T15:25:18+03:00"}, Date.parse("2026-09-26T15:24:34+03:00"))')" "true" \
+  "a check stamped after the press is the run's closing check"
+assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T14:35:14+03:00"}, Date.parse("2026-09-26T15:24:34+03:00"))')" "false" \
+  "...one from before it is not"
+assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T15:24:34+03:00"}, Date.parse("2026-09-26T15:24:34+03:00") + 700)')" "true" \
+  "...and the press's own second counts"
+assert_eq "$(js 'L.checkedSince({}, 1000000)')" "false" "a state with no last_check is not one"
+assert_eq "$(js 'L.checkedSince(null, 1000000)')" "false" "...nor is no state"
+assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T15:25:18+03:00"}, 0)')" "false" \
+  "...nor is anything, before a run has started"
 # Structural, because the rule is only worth anything where it is applied: main.qml must consult it
 # on the watcher's path, and the config field must stay exempt - the settings page has no other way
 # into that file, and docs/usage.md promises the panel catches up within 30 seconds.
 assert_exit 0 "the watcher's check is gated on it" -- \
   grep -q 'Logic.watcherCheckDue(root.lastCheckFinished' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "...with a config change exempt, so a settings apply still lands within 30 seconds" -- \
-  grep -q 'if (endedRun || delta.config' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-# ...and the post-run check exempt with it, which is the one the window must never eat: a run that
-# took twenty seconds after a popup-open check ends well inside the minute, and that is exactly
-# when the counts on screen are most wrong. Read before leaveUpdating clears `updating`, or the
-# test passes and the behaviour does not.
-assert_exit 0 "...and the post-run check exempt, read before the run state is cleared" -- \
+  grep -q 'if (delta.config || Logic.watcherCheckDue' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+# The end of a run is not checked from the widget: the CLI checks on its way out of every run, and
+# a second check from here made one update cost four checks on a real box (2026-09-26). The widget
+# waits for the CLI's and arms postRunCheck as the fallback. Read before leaveUpdating clears
+# `updating`, or the test passes and the behaviour does not.
+assert_exit 0 "...the end of a run is read before the run state is cleared" -- \
   grep -q 'var endedRun = delta.state && root.updating;' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "...and arms the fallback rather than checking" -- \
+  grep -q 'postRunCheck.restart();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "...and every completed check stamps the window it opens" -- \
   grep -q 'root.lastCheckFinished = Date.now();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 

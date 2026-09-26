@@ -1144,7 +1144,9 @@ cmd_update() {
   # staged. See publish_staged_state.
   publish_staged_state
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
-  # already emptied. Never allowed to change the run's verdict.
+  # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
+  # nothing, so a person watching is told what the pause is.
+  [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
   cmd_check >/dev/null 2>&1 || true
   [[ "$status" == "ok" ]]
 }
@@ -1257,12 +1259,18 @@ cmd_run() {
     token="$(mktemp "$KEMPT_STATE_DIR/run-start.XXXXXX")"
     printf -v token_q '%q' "$token"
     wrapper="rm -- $token_q 2>/dev/null || { echo 'Kempt stopped waiting for this window, so the update was not started. Start it again from Kempt.'; read -rn1 -s -p 'Press any key to close…'; exit 1; }; "
-    wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
+    wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; echo; echo 'Checking for anything left to update…'; $self_q check >/dev/null 2>&1 || true; }; "
     wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
     wrapper+="trap 'ec=\$?; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
-    # The check takes a few seconds (it asks dnf and flatpak again) and prints nothing, so say so:
-    # without the line, the finished update looks hung until the prompt appears.
-    wrapper+="$self_q update; ec=\$?; echo; echo 'Checking for anything left to update…'; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
+    # A finished update has already checked on its way out (the end of cmd_update), and a second
+    # check here only doubled the wait before the prompt and put one more check in the log. So the
+    # wrapper checks only when state.json was NOT replaced during the update, which is the abort and
+    # the early exits. The inode, not the mtime: write_state replaces the file, and mtime has
+    # one-second granularity on some filesystems.
+    local state_q
+    printf -v state_q '%q' "$STATE_FILE"
+    wrapper+="si() { stat -c %i $state_q 2>/dev/null; }; before=\$(si); "
+    wrapper+="$self_q update; ec=\$?; [ \"\$(si)\" != \"\$before\" ] && checked=1; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
     setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
     launcher=$!
     # A window that never opens used to be a complete no-op that said 0: no event, no history, and

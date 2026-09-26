@@ -17,20 +17,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **Kempt reads dnf5's JSON output where dnf5 prints it.** On Fedora 44 and later, the pending list
-  and the restart check come from dnf5's `--json` output instead of text written for people, so a
-  change in how dnf5 words its output can no longer break the count. Fedora 43 keeps the text
+  and the restart check come from dnf5's `--json` output, not text written for people. A change in
+  how dnf5 words its output can no longer break the count. Fedora 43 keeps the text
   parsers until it reaches end of life.
+- **Shorter README and docs.** Each thing is said once, in one place.
 
 ### Fixed
 
-- **The update window no longer looks stuck after an update.** Before its "Press any key" prompt,
-  the window checks again so the panel shows the new state, which takes a few seconds. It now
-  says "Checking for anything left to update…" while it does.
-- **Opening Last update no longer squeezes the pending list.** The popup is taller by default, and
-  the Last update list takes at most a third of it and scrolls, so at least three pending updates
+- **An update runs one check afterwards, not four.** The update window, the update itself and the
+  panel each checked for what was left. The panel's check waited behind the others. The update
+  now checks once on its way out, and the window and the panel use that result. "Press any key to
+  close" appears seconds sooner, and while the check runs the window says "Checking for anything
+  left to update…".
+- **Opening Last update no longer squeezes the pending list.** The popup is taller by default. The
+  Last update list takes at most a third of it and scrolls, so at least three pending updates
   always show in full.
-- **A run that staged nothing no longer promises a restart.** If every pending update was held, or
-  none were pending, **Install on Next Restart** correctly did nothing, but the panel still said
+- **A run that staged nothing no longer promises a restart.** When every pending update was held or
+  none were pending, **Install on Next Restart** correctly did nothing. The panel still said
   updates would install on the next restart. It now gives the reason: "Nothing to stage - every
   pending update is held" or "Nothing to stage - no updates are pending". `kempt summary --json`
   marks such a run with `staged_nothing`.

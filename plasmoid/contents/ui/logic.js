@@ -596,8 +596,8 @@ function watchFieldsOf(stamp) {
 //
 // So a WATCHER-triggered check is dropped while the last completed check is still recent. Only the
 // watcher's: a Refresh press, the scheduled check, the popup opening and a settings write are all
-// somebody ASKING, and the post-run check is exempt because it is the moment the counts are most
-// wrong (main.qml, pollWatch's `endedRun`). The cost is bounded - a change from elsewhere inside
+// somebody ASKING. The end of a run is not checked from the widget at all: the CLI checks on its
+// way out, and the widget waits for that (main.qml, pollWatch's `endedRun`). The cost is bounded - a change from elsewhere inside
 // the window is absorbed and the next scheduled check finds it, so the badge can only
 // over-report, never under-report.
 var CHECK_QUIET_MS = 60000;
@@ -614,6 +614,18 @@ function watcherCheckDue(lastCheckFinished, now) {
     // that can silence the widget indefinitely on a bad clock is not one.
     if (since < 0) return true;
     return since >= CHECK_QUIET_MS;
+}
+
+// checkedSince(state, sinceMs) -> whether `state` was written by a check that ran after `sinceMs`.
+// A run ends with the CLI's own check (the end of cmd_update), and that check is what the widget
+// used to run a second time. last_check has whole seconds, so `sinceMs` is floored to its second:
+// a check stamped in the same second as the press counts. A state with no readable last_check
+// answers no, which means the caller checks - the safe side.
+function checkedSince(state, sinceMs) {
+    if (!state || typeof state !== "object") return false;
+    var at = stampMs(state.last_check), since = Number(sinceMs);
+    if (!isFinite(at) || !isFinite(since) || since <= 0) return false;
+    return at >= Math.floor(since / 1000) * 1000;
 }
 
 // holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
@@ -2006,6 +2018,7 @@ if (typeof module !== "undefined" && module.exports) {
         watchFieldsOf: watchFieldsOf,
         WATCH_FIELDS: WATCH_FIELDS,
         watcherCheckDue: watcherCheckDue,
+        checkedSince: checkedSince,
         CHECK_QUIET_MS: CHECK_QUIET_MS
     };
 }

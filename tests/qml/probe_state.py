@@ -45,9 +45,6 @@ if [[ "$1" == check ]]; then
   case "$mode" in
     live)        cp %(FIX)s/state-live.json %(ST)s; cat %(ST)s ;;
     slow)        sleep 1; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
-    # A check queued behind check.lock, which the run's own closing check is still holding.
-    # Three seconds so that what the widget knows MEANWHILE can be read without a race.
-    slowlock)    sleep 3; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
@@ -365,9 +362,9 @@ p.check("a settings apply inside the window is still acted on at once",
 # transaction into state.json the moment it is armed, rather than leaving it for the run's own
 # closing check thirty seconds later - so `kempt summary` stops contradicting itself.
 #
-# That write is also this watcher's "the run ended" signal, and the check it starts queues behind
-# check.lock, which that closing check is still holding. For as long as it takes, the popup is out
-# of the updating pane with the PRE-RUN state on screen: nothing staged, everything still pending.
+# That write is also this watcher's "the run ended" signal, and the closing check that follows it
+# takes seconds. For as long as it takes, the popup is out of the updating pane with the PRE-RUN
+# state on screen: nothing staged, everything still pending.
 # Update Now is visible on exactly that (FullRepresentation.qml tests !vm.stagedArmed), and
 # pressing it starts a live upgrade over the transaction already staged - which the CLI then has
 # to throw away as superseded. The one press the staged state exists to prevent.
@@ -376,8 +373,8 @@ p.check("a settings apply inside the window is still acted on at once",
 # `cat`, no lock: the same trade rebuildStaged and discardStaged make before they act on a banner.
 STAGED = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
 STAGED["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 7, "armed": True}
-open(MODE, "w").write("slowlock")
-ev("root.lastCheckFinished = Date.now() - 61000")      # outside the quiet window: the check runs
+open(MODE, "w").write("live")
+ev("root.lastCheckFinished = Date.now() - 61000")      # outside the quiet window
 ev("root.enterUpdating('offline')")
 open(STATE_JSON, "w").write(json.dumps(STAGED))        # the CLI's mid-run publish
 harness.touch(STATE_JSON, "2030-04-01")
@@ -388,15 +385,45 @@ p.check("premise: the run's own state write ends the updating pane", ev("root.up
 p.wait_for(ev, "root.vm.stagedArmed", True, timeout_ms=4000)
 p.check("a staged transaction is known from the file that moved",
         ev("root.vm.stagedArmed"), True)
-p.check("...while the check that would otherwise have said so is still behind the lock",
-        ev("root.checking"), True)
-p.wait_for(ev, "root.checking", False, timeout_ms=15000)
-# Read only now: `checking` is set at the call, but the check itself is THIRD in a serialized
-# queue, so counting it while it is still queued counts nothing and proves nothing.
-p.check("premise: that check did run, so the belief above was not waiting on it",
-        p.call_count("check") - before, 1)
 p.wait_idle(ev, "executor")
-open(MODE, "w").write("live")
+
+# --- 8d. the end of a run costs ONE check: the CLI's own -------------------------------------------
+# Measured on a real box (2026-09-26): one update, four checks. The CLI checks on its way out of
+# every run (the end of cmd_update), the terminal window checked again, and the widget ran a third
+# that queued behind the lock and set off a fourth. The widget now waits for the CLI's, and checks
+# only if it never lands.
+p.check("the write that ends a run starts no check from the widget",
+        p.call_count("check") - before, 0)
+p.check("...and arms the fallback instead", ev("postRunCheck.running"), True)
+
+import datetime
+CLOSING = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
+CLOSING["last_check"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+open(STATE_JSON, "w").write(json.dumps(CLOSING))       # the CLI's closing check lands
+harness.touch(STATE_JSON, "2030-04-02")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "postRunCheck.running", False, timeout_ms=4000)
+p.wait_idle(ev, "executor")
+p.check("the closing check landing stands the fallback down", ev("postRunCheck.running"), False)
+p.check("...and still no check from the widget, so the run cost exactly one",
+        p.call_count("check") - before, 0)
+
+# The fallback: a closing check that never wrote (it timed out on the lock). Then the widget checks,
+# once, so the counts on screen do not stay the pre-run ones until the next scheduled check.
+ev("root.lastCheckFinished = Date.now() - 61000")
+ev("root.enterUpdating('terminal')")
+open(STATE_JSON, "w").write(json.dumps(STAGED))        # the publish write, and nothing after it
+harness.touch(STATE_JSON, "2030-04-03")
+before = p.call_count("check")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "postRunCheck.running", True, timeout_ms=4000)
+ev("postRunCheck.interval = 300; postRunCheck.restart()")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("a closing check that never lands is covered by one check from the widget",
+        p.call_count("check") - before, 1)
+ev("postRunCheck.interval = 120000")
+p.wait_idle(ev, "executor")
 
 # ==================================================================================================
 # The compact representation's geometry.

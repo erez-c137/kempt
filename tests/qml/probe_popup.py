@@ -279,13 +279,12 @@ poll(True)
 p.wait_for(ev, "root.updating", False, timeout_ms=8000)
 p.check("the CLI writing state.json DOES end the run", ev("root.updating"), False)
 settle()
-# ...and this check is never debounced. The watcher's quiet window (Logic.watcherCheckDue) drops a
-# watcher-triggered check within a minute of the last one, and a run that took twenty seconds after
-# a popup-open check is squarely inside it - but the end of a run is the moment the counts on
-# screen are most wrong, and the user who pressed Update Now is the one looking at them. Checks
-# have been running throughout this probe, so the window IS open here: this line is the regression
-# test for that exemption as much as for the check itself.
-p.check("...and that is what earns a fresh check", p.call_count("check") > before_check, True)
+# ...and it does NOT send a check of its own. The CLI checks on its way out of every run, so a
+# check from here ran on top of it and queued on the lock: one update cost four checks on a real
+# box. The widget waits for the CLI's and arms a fallback (postRunCheck) for a run that ends
+# without one; probe_state.py section 8d covers the fallback itself.
+p.check("...without a check of its own on top of the CLI's", p.call_count("check"), before_check)
+p.check("...with the fallback armed instead", ev("postRunCheck.running"), True)
 # What this used to assert, verbatim: root.actionMessage == "Kempt - 2026-08-25T01:00:00
 # (terminal, 42s) ok" - the first line of the human `kempt summary`, pasted into the popup as its
 # post-run line. It is true and it is an ISO timestamp, which is no answer at all to "what just
