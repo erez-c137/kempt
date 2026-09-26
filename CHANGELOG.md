@@ -23,6 +23,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The update window no longer looks stuck after an update.** Before its "Press any key" prompt,
+  the window checks again so the panel shows the new state, which takes a few seconds. It now
+  says "Checking for anything left to update…" while it does.
 - **Opening Last update no longer squeezes the pending list.** The popup is taller by default, and
   the Last update list takes at most a third of it and scrolls, so at least three pending updates
   always show in full.

@@ -1260,7 +1260,9 @@ cmd_run() {
     wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; $self_q check >/dev/null 2>&1 || true; }; "
     wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
     wrapper+="trap 'ec=\$?; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
-    wrapper+="$self_q update; ec=\$?; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
+    # The check takes a few seconds (it asks dnf and flatpak again) and prints nothing, so say so:
+    # without the line, the finished update looks hung until the prompt appears.
+    wrapper+="$self_q update; ec=\$?; echo; echo 'Checking for anything left to update…'; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
     setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
     launcher=$!
     # A window that never opens used to be a complete no-op that said 0: no event, no history, and
