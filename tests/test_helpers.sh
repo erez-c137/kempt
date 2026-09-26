@@ -136,6 +136,17 @@ assert_exit 2 "a bad argument is exit 2 even over a stored release upgrade" -- \
 assert_exit 0 "dnf-upgrade is not refused over a stored release upgrade" -- \
   env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-upgrade -y
 assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 upgrade -y" "...and builds its usual command"
+# ...and the security doc must not call that harmless. The file stays, but the package set moves
+# under it: dnf5 drops a stored ordinary offline update after a live transaction, and a release
+# upgrade built against the old package set is not known to survive one. A claim that the live
+# upgrade "leaves the stored transaction alone" tells a reader the unguarded verb costs nothing.
+SEC_DOC="$REPO_ROOT/docs/security.md"
+grep -qiE 'leaves the stored transaction alone' "$SEC_DOC" \
+  && { echo "FAIL: docs/security.md says a live upgrade leaves a stored release upgrade alone"; _fail=1; } \
+  || echo "ok: docs/security.md does not call the unguarded live upgrade harmless"
+grep -qF 'A live upgrade is not refused' "$SEC_DOC" \
+  && echo "ok: docs/security.md names the live upgrade as outside the stored-transaction guard" \
+  || { echo "FAIL: docs/security.md does not say the live upgrade is unguarded"; _fail=1; }
 
 # As root the path is fixed, and KEMPT_OFFLINE_TOML must change nothing. Run for real, without
 # sudo: an unprivileged user namespace makes EUID 0, and a private mount namespace puts a fixture

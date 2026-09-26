@@ -85,7 +85,10 @@ case "$verb" in
       esac
     done
     offline=()
-    # A live upgrade leaves the stored transaction alone, so only the stage is guarded.
+    # Only the stage is guarded. A live upgrade does not replace the stored transaction, but it
+    # moves the package set under it, which can leave a stored release upgrade out of date. It is
+    # allowed on purpose: the CLI runs live updates while a release upgrade waits, and reports a
+    # failure of this verb as a failed run rather than a refusal. docs/security.md says so.
     if [[ "$verb" == dnf-offline-stage ]]; then
       guard_stored_release_upgrade "$verb"
       offline=(--offline)

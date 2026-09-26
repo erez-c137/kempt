@@ -130,8 +130,16 @@ skip the CLI, such as another process running as you inside the
 Kempt's library. When it runs as root, the path is fixed: the `KEMPT_OFFLINE_TOML` test setting is
 honoured only for an unprivileged caller.
 
-`dnf-upgrade` skips this check, because a live upgrade leaves the stored transaction alone. When
-`kempt update` gets exit 3, it reports what is stored and runs no other offline verb to clean up.
+A live upgrade is not refused. `dnf-upgrade` skips this check, and `kempt update` also lets a live
+run go ahead while a release upgrade is stored, so ordinary updates keep working while one waits.
+That has a cost. dnf5's file stays in place, but the installed packages change under it. dnf5
+drops a stored ordinary offline update after a live transaction. Whether it does the same to a
+stored release upgrade is not confirmed, and a release upgrade built against the old package set
+may fail when it starts. After a live upgrade, download the release upgrade again before
+restarting into it.
+
+When `kempt update` gets exit 3, it reports what is stored and runs no other offline verb to clean
+up.
 
 ## The retention window
 
@@ -172,7 +180,8 @@ as you can do these without asking you:
 - discard a staged update.
 
 It cannot stage over, arm or discard a stored Fedora release upgrade, because all three offline
-verbs refuse while one is stored. It cannot install a package of its choosing, pass an arbitrary
+verbs refuse while one is stored. It can still run a live upgrade, which may leave that release
+upgrade out of date (see [above](#the-helper-refuses-to-touch-a-stored-fedora-release-upgrade)). It cannot install a package of its choosing, pass an arbitrary
 flag or run an arbitrary command. That bound is smaller than sudo, but it is more than nothing.
 
 Updating Flatpak apps is outside that bound, because the helper has no Flatpak verb. Flatpak's own
