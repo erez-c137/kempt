@@ -59,6 +59,38 @@ surferr="$("$KEMPT" run --print-command 2>&1 >/dev/null)"
 assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "terminal: $KEMPT_TERMINAL -e kempt update" "unknown surface falls back to terminal"
 grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
 
+# --- --surface=<s>: one run on a named surface, whatever the setting says -----------------------
+# The widget stages through this (`kempt run --surface=offline`) so that a stage gets the same
+# up-front refusals Update Now does - the lock above all - instead of a detached `kempt update`
+# whose exit status nobody reads. The override replaces the configured surface and nothing else:
+# auto_accept=false still means a terminal, the rule cmd_update applies too.
+"$KEMPT" config set surface terminal
+assert_eq "$("$KEMPT" run --print-command --surface=offline)" "detached: kempt update (surface=offline)" \
+  "--surface=offline stages detached on a box configured for the terminal"
+assert_eq "$("$KEMPT" run --surface=offline --print-command)" "detached: kempt update (surface=offline)" \
+  "...with the flags in either order"
+"$KEMPT" config set surface offline
+# The terminal window runs `kempt update`, which reads the configured surface itself: without the
+# override passed on, a terminal asked for by name would stage in that window instead.
+assert_eq "$("$KEMPT" run --print-command --surface=terminal)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
+  "--surface=terminal on a box configured to stage opens a terminal that updates live"
+assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=popup)" \
+  "...a surface is read the way the setting is, trimmed and case-folded"
+"$KEMPT" config set auto_accept false
+assert_eq "$("$KEMPT" run --print-command --surface=offline)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
+  "...and auto_accept=false still forces the terminal, the one surface that can ask"
+"$KEMPT" config set auto_accept true
+# A surface named on the command line is a request, not a stored value, so a typo is refused
+# rather than quietly turned into a terminal the way a mistyped setting is.
+rc=0; surferr="$("$KEMPT" run --print-command --surface=bogus 2>&1 >/dev/null)" || rc=$?
+assert_eq "$rc" "2" "run: an unknown --surface is refused (exit 2)"
+assert_eq "$surferr" "unknown surface: bogus (use terminal, popup, background or offline)" \
+  "...naming the surfaces there are"
+assert_exit 2 "run: an empty --surface is refused" "$KEMPT" run --print-command --surface=
+assert_exit 2 "run: --surface given twice is refused" \
+  "$KEMPT" run --print-command --surface=offline --surface=terminal
+"$KEMPT" config set surface terminal
+
 # No terminal emulator = the button does nothing, forever, silently. Fail loudly instead, and say
 # how to fix it. Checked in --print-command too: "what would happen" has to include "nothing".
 #
@@ -371,6 +403,12 @@ assert_eq "$([[ -e "$TESTTMP/term-argv" ]] && echo launched || echo nothing)" "n
 "$KEMPT" config set surface background
 rc=0; "$KEMPT" run 2>/dev/null || rc=$?
 assert_eq "$rc" "3" "a background run is refused the same way"
+# ...and so is a stage asked for by name, which is how the widget's Install on Next Restart and
+# Rebuild Staged Update reach the CLI. A detached `kempt update` would refuse with an exit 3
+# nobody reads, and the popup would wait in its updating pane for a stage that never began.
+rc=0; lockerr="$("$KEMPT" run --surface=offline 2>&1 >/dev/null)" || rc=$?
+assert_eq "$rc" "3" "a stage asked for with --surface=offline is refused the same way"
+assert_eq "$lockerr" "An update is already running." "...in the same sentence"
 exec 7>&-
 "$KEMPT" config set surface terminal
 

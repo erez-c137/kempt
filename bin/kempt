@@ -1198,22 +1198,36 @@ wait_for_window() {  # pid token seconds
 # cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
 # can never answer a prompt.
 cmd_run() {
-  local dry="" surface auto
+  local dry="" surface auto a named="" named_set=""
   # An unrecognised argument must never fall through to a real launch.
-  case "${1:-}" in
-    "") ;;
+  for a in "$@"; do case "$a" in
     --print-command) dry=1 ;;
     # The old spelling, accepted for one release and advertised nowhere - it is deliberately absent
     # from the usage text above and from the man page. The flag prints the LAUNCHER and never a
     # transaction, so "dry run" promised a preview of the update itself, which is the one thing
     # somebody would reach for it to get.
     --dry-run) dry=1 ;;
-    *) echo "unknown option: $1" >&2; exit 2 ;;
-  esac
-  [[ $# -le 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-  surface="$(config_get surface)"
+    # One run on a named surface instead of the configured one. The widget stages through this
+    # (`run --surface=offline`) so a stage gets the refusals below - the held lock above all -
+    # where the widget can read them, rather than inside a detached `kempt update` whose exit
+    # status nobody reads. Strict where the setting is lenient: a stored typo falls back to the
+    # terminal (resolve_surface), but a surface asked for by name is a request, and guessing at it
+    # could turn a stage into a live update. Once only, so there is no "which one wins".
+    --surface=*)
+      [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
+      named_set=1; named="${a#--surface=}"
+      named="${named#"${named%%[![:space:]]*}"}"; named="${named%"${named##*[![:space:]]}"}"
+      named="${named,,}"
+      case "$named" in
+        terminal|popup|background|offline) ;;
+        *) echo "unknown surface: ${a#--surface=} (use terminal, popup, background or offline)" >&2; exit 2 ;;
+      esac ;;
+    *) echo "unknown option: $a" >&2; exit 2 ;;
+  esac; done
+  if [[ -n "$named_set" ]]; then surface="$named"
+  else surface="$(resolve_surface "$(config_get surface)")"; fi
   auto="$(config_get auto_accept)"
-  surface="$(resolve_surface "$surface")"
+  # A named surface obeys this too, the same rule cmd_update applies to its own --surface.
   is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   # Refused HERE, before anything is launched, while another update holds the lock. cmd_update
@@ -1234,7 +1248,13 @@ cmd_run() {
     # terminal emulator".
     command -v "$KEMPT_TERMINAL" >/dev/null \
       || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit 4; }
-    if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update"; return 0; fi
+    # A named surface is passed on to the update in the window, because `kempt update` reads the
+    # configured surface itself: without it, a terminal asked for by name on a box configured to
+    # stage would stage in that window. Nothing is added without one, so the default launch is
+    # the command it always was.
+    local upd_arg=""
+    [[ -n "$named_set" ]] && upd_arg=" --surface=terminal"
+    if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update$upd_arg"; return 0; fi
     # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
     # watcher (plasmoid/contents/ui/main.qml, pollWatch), or a three-hour guard. So EVERY exit
     # from this window must rewrite state.json, or the popup sits on an empty "Updating…" pane for
@@ -1284,7 +1304,7 @@ cmd_run() {
     wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; echo; echo 'Checking for anything left to update…'; $self_q check >/dev/null 2>&1 || true; }; "
     wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
     wrapper+="trap 'ec=\$?; rm -f \"\$mark\"; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
-    wrapper+="KEMPT_CLOSING_CHECK_MARK=\"\$mark\" $self_q update; ec=\$?; [ -e \"\$mark\" ] && checked=1; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
+    wrapper+="KEMPT_CLOSING_CHECK_MARK=\"\$mark\" $self_q update$upd_arg; ec=\$?; [ -e \"\$mark\" ] && checked=1; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
     setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
     launcher=$!
     # A window that never opens used to be a complete no-op that said 0: no event, no history, and
