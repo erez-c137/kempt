@@ -335,7 +335,9 @@ wait_until finished && grep -q "aborted" "$TESTTMP/term-out" 2>/dev/null \
 
 # (h) a clean run checks ONCE. cmd_update checks on its way out, and the wrapper used to check
 # again straight after it: two dnf and flatpak queries, seconds each on a real box, all before
-# "Press any key" appeared. The wrapper now checks only when the update did not replace state.json.
+# "Press any key" appeared. The wrapper now checks only when the update did not leave its
+# closing-check mark. This failed in the release container and not on the dev box while the test
+# was "did state.json get a new inode": the update writes it twice and can get the inode back.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/apply-ok"; chmod +x "$TESTTMP/apply-ok"
 before_events="$(check_events)"
 reset_capture
@@ -345,6 +347,8 @@ wait_until finished && echo "ok: the clean window closed" \
   || { echo "FAIL: the clean window never finished"; _fail=1; }
 assert_eq "$(cat "$TESTTMP/term-rc" 2>/dev/null)" "0" "a clean run leaves the window with 0"
 assert_eq "$(( $(check_events) - before_events ))" "1" "...and runs exactly one check, not one per layer"
+assert_eq "$(find "$KEMPT_STATE_DIR" -name 'state.json.closing-check*' | wc -l)" "0" \
+  "...and leaves no closing-check mark behind"
 # The line that says what the pause is prints only to a terminal, and this stub's output is a file,
 # so it is read from the source: it must come before the update's closing check, not after it.
 assert_eq "$(grep -A1 -F "&& printf" "$REPO_ROOT/bin/kempt" | grep -A1 -F "left to update" | tail -1 | tr -d ' ')" \
