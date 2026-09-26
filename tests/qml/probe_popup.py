@@ -142,6 +142,8 @@ case "$1" in
 %(CFG)s
   check)  cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    rc="$(cat %(RUNRC)s)"
+          # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
+          [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
@@ -395,8 +397,44 @@ open(RUNRC, "w").write("0")
 # --- Stage offline ----------------------------------------------------------------------------
 ev("root.stageOffline()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-p.check("Stage offline asks for the offline surface", p.argv("update"), ["update", "--surface=offline"])
+p.check("Stage offline asks `kempt run` for the offline surface", p.argv("run"),
+        ["run", "--surface=offline"])
 p.check("...and shows the updating state too", ev("root.updating"), True)
+ev("root.leaveUpdating()")
+settle()
+
+# ...through `run` and not a detached `update`, because only `run` can say no before anything is
+# launched. A detached `kempt update` always "succeeded" as far as the widget could see, exited 3
+# at the lock with nobody reading it, and left the popup in its updating pane for a stage that
+# never began. `run` refuses up front with exit 3, and that is a sentence the popup can show.
+open(RUNRC, "w").write("3")
+p.clear_calls()
+ev('root.actionMessage = ""')
+ev("root.stageOffline()")
+p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
+settle()
+p.check("a stage refused because an update is running says so, in the CLI's words",
+        ev("root.actionMessage"), "An update is already running.")
+p.check("...and does not enter the updating state for a stage that never began",
+        ev("root.updating"), False)
+p.check("...having launched no update of its own", p.call_count("update"), 0)
+ev("root.leaveUpdating()")
+settle()
+open(RUNRC, "w").write("0")
+ev('root.actionMessage = ""')
+
+# --- one press, one stage ----------------------------------------------------------------------
+# `kempt run` is allowed fifteen seconds and `updating` is false for all of them, so the guard on
+# `updating` alone let a second press queue a second staging run behind the first.
+p.clear_calls()
+ev("root.stageOffline(); root.stageOffline()")
+p.check("the first Install on Next Restart press is pending", ev("root.actionPending"), True)
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("two presses start ONE staging run",
+        p.call_count("run") + p.call_count("update"), 1)
+p.check("...and the press is no longer pending once the CLI has answered",
+        ev("root.actionPending"), False)
 ev("root.leaveUpdating()")
 settle()
 
@@ -1222,8 +1260,10 @@ ev('root.actionMessage = ""')
 lev("stagedMessage.actions[1].trigger()")
 settle()
 p.check("a rebuild clicked over a stage that has since been replaced runs NOTHING",
-        p.call_count("update"), 0)
+        p.call_count("run") + p.call_count("update"), 0)
 p.check("...and does not pretend an update started", ev("root.updating"), False)
+p.check("...and the press is over, so the banner's actions are live again",
+        ev("root.actionPending"), False)
 p.check("...it says the stage moved, in the popup, where the press happened",
         ev("root.actionMessage"), ev("Logic.COPY.stagedChanged"))
 p.check("...and the banner is re-derived from what is really on disk now",
@@ -1238,7 +1278,7 @@ ev('root.actionMessage = ""')
 lev("stagedMessage.actions[1].trigger()")
 settle()
 p.check("a rebuild clicked over a stage that is gone runs nothing either",
-        p.call_count("update"), 0)
+        p.call_count("run") + p.call_count("update"), 0)
 p.check("...and the banner goes with it", ev("root.vm.stagedMessage"), "")
 
 # ...and the path that DOES act: nothing moved, so the click spends the consent it was given,
@@ -1252,11 +1292,52 @@ p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 # the stageOffline test far above, so it would answer correctly for a rebuild that never ran.
 # The call log is cleared right before the trigger, so only this press can fill it.
 p.check("an unchanged stage rebuilds through the offline surface, exactly once",
-        p.calls_matching("update"), ["update --surface=offline"])
+        p.calls_matching("run"), ["run --surface=offline"])
 p.check("...with nothing to apologise for", ev("root.actionMessage"), "")
 p.check("...and the popup goes into its updating state", ev("root.updating"), True)
 ev("root.leaveUpdating()")
 settle()
+
+# ...and refused, like Install on Next Restart, when another update holds the lock: `run` says so
+# before anything is launched, and the popup shows it instead of a pane waiting for a rebuild that
+# never began.
+state(CONFLICT1)
+open(RUNRC, "w").write("3")
+p.clear_calls()
+ev('root.actionMessage = ""')
+lev("stagedMessage.actions[1].trigger()")
+p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
+settle()
+p.check("a rebuild refused because an update is running says so, in the CLI's words",
+        ev("root.actionMessage"), "An update is already running.")
+p.check("...and stays out of the updating state", ev("root.updating"), False)
+p.check("...and the press is no longer pending", ev("root.actionPending"), False)
+ev("root.leaveUpdating()")
+settle()
+open(RUNRC, "w").write("0")
+ev('root.actionMessage = ""')
+
+# --- one pending action for the whole banner ---------------------------------------------------
+# A rebuild or a discard first reads state.json, and that read queues behind whatever the executor
+# is running - a check can take two minutes. Without a guard, a second press in that window queues a second
+# action: two unstages, or a discard and then a rebuild of the stage it had just thrown away.
+state(CONFLICT1)
+p.clear_calls()
+ev('root.actionMessage = ""; root.actionDone = ""')
+ev("root.discardStaged()")
+p.check("a discard press is pending until the CLI answers", ev("root.actionPending"), True)
+p.check("...and the banner's actions are disabled meanwhile, not hidden",
+        [lev("stagedMessage.actions[1].enabled"), lev("stagedMessage.actions[2].enabled"),
+         lev("stagedMessage.actions[2].visible")], [False, False, True])
+ev("root.discardStaged(); root.rebuildStaged(); root.stageOffline()")
+p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
+settle()
+p.check("presses while one is pending start nothing: exactly one unstage, no stage",
+        [p.calls_matching("unstage"), p.call_count("run") + p.call_count("update")],
+        [["unstage"], 0])
+p.check("...and the press is over once the CLI has answered", ev("root.actionPending"), False)
+open(CHECKSRC, "w").write(CONFLICT1)
+ev('root.actionMessage = ""; root.actionDone = ""')
 
 # A rebuild asked for while a run is already in flight does nothing, the same guard
 # stageOffline has: two staging runs at once is the double-press this widget already learned
@@ -1265,7 +1346,8 @@ ev("root.enterUpdating()")
 p.clear_calls()
 ev("root.rebuildStaged()")
 settle()
-p.check("a rebuild asked for during a run is not a second run", p.call_count("update"), 0)
+p.check("a rebuild asked for during a run is not a second run",
+        p.call_count("run") + p.call_count("update"), 0)
 ev("root.leaveUpdating()")
 settle()
 ev('root.actionMessage = ""')
@@ -1655,11 +1737,11 @@ p.check("...offering the offline install under a name that is not dnf jargon",
         lev("riskyMessage.actions[0].text"), ev("Logic.COPY.installOnNextRestart"))
 p.check("...with the argument for choosing it in the tooltip",
         lev("riskyMessage.actions[0].tooltip"), ev("Logic.COPY.installOnNextRestartTooltip"))
-before_update = p.call_count("update")
+before_stage = len(p.calls_matching("run --surface=offline"))
 lev("riskyMessage.actions[0].trigger()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 p.check("...and pressing it stages the update for the next restart",
-        p.call_count("update") - before_update, 1)
+        len(p.calls_matching("run --surface=offline")) - before_stage, 1)
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')

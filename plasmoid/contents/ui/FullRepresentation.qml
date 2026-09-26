@@ -568,8 +568,12 @@ PlasmaExtras.Representation {
                     // heard the cost by then hears it never.
                     tooltip: i18n("Builds the staged update again with your current holds. Asks for authorization; if the rebuild fails, the current staged update is removed.")
                     Accessible.description: tooltip
-                    enabled: popup.vm.stagedShowRebuild
-                    visible: enabled
+                    // Shown by the view model, and disabled while a staging action is already
+                    // pending (main.qml, actionPending): a second press would queue a second
+                    // action behind the first. Disabled and not hidden, because the banner it
+                    // stands on has not changed - the answer is on its way.
+                    visible: popup.vm.stagedShowRebuild
+                    enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.rebuildStaged()
                 },
                 Kirigami.Action {
@@ -592,8 +596,8 @@ PlasmaExtras.Representation {
                     // this is pressed.
                     tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. Asks for authorization, and deletes the packages it downloaded, so staging again downloads them again.")
                     Accessible.description: tooltip
-                    enabled: popup.vm.stagedShowDiscard
-                    visible: enabled
+                    visible: popup.vm.stagedShowDiscard
+                    enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.discardStaged()
                 }
             ]
@@ -666,8 +670,8 @@ PlasmaExtras.Representation {
                     // Gone, not greyed, while a Fedora release upgrade is stored: the message that
                     // replaces this one says why, and a disabled button with its explanation in a
                     // different message is a puzzle rather than an answer.
-                    enabled: popup.vm.offlineStageOffered
-                    visible: enabled
+                    visible: popup.vm.offlineStageOffered
+                    enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.stageOffline()
                 }
             ]
@@ -1017,8 +1021,9 @@ PlasmaExtras.Representation {
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather
-                // than hidden here, because the action still exists - it is happening.
-                enabled: !popup.plasmoidItem.runRequested
+                // than hidden here, because the action still exists - it is happening. Likewise
+                // while a staging action from a banner is pending (main.qml, actionPending).
+                enabled: !popup.plasmoidItem.runRequested && !popup.plasmoidItem.actionPending
 
                 // ...which means this control can go off screen while the popup is open and the
                 // keyboard is standing on it: `actionable` reaches 0 on its own - the 30s watcher,

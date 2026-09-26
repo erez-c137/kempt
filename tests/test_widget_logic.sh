@@ -3046,5 +3046,15 @@ assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored tra
 assert_eq "$(grep -ciE 're-?downloads? the (staged|transaction)' "$USAGE" || true)" "0" \
   "...and nothing on the page claims a rebuild downloads it all again"
 
+# The widget stages through `kempt run --surface=offline`, never a detached `kempt update`: only
+# `run` refuses up front (exit 3 while another update holds the lock) where the popup can read it.
+# A detached update's refusal went nowhere and left the popup in its updating pane. Code lines
+# only, so a comment explaining the old form does not count as the old form.
+MAINQML="$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_eq "$(grep -v '^[[:space:]]*//' "$MAINQML" | grep -c 'update --surface=offline')" "0" \
+  "main.qml launches no detached \`kempt update --surface=offline\`"
+assert_eq "$(grep -v '^[[:space:]]*//' "$MAINQML" | grep -c '" run --surface=offline"')" "1" \
+  "...it has one staging command, through \`kempt run\`"
+
 qml_check
 finish

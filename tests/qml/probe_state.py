@@ -31,12 +31,19 @@ open(MODE, "w").write("empty")
 open(IVAL, "w").write("15")
 open(SIZE, "w").write("auto")
 STATE_JSON = os.path.join(p.state, "state.json")
+# What `kempt summary --json` answers: the newest history entry, or nothing at all on a box that
+# has never run an update. Absent until section 8e, which is about a run that wrote one.
+SUMMARY = os.path.join(p.sandbox, "summary")
 
 p.stub("""
 mode="$(cat %(MODE)s)"
 if [[ "$1 $2" == "config get" ]]; then
   [[ "$3" == refresh_interval_min ]] && cat %(IVAL)s
   [[ "$3" == widget_icon_size ]] && cat %(SIZE)s
+  exit 0
+fi
+if [[ "$1 $2" == "summary --json" ]]; then
+  cat %(SUM)s 2>/dev/null
   exit 0
 fi
 if [[ "$1" == check ]]; then
@@ -58,7 +65,7 @@ if [[ "$1" == check ]]; then
   exit 0
 fi
 """ % {"MODE": MODE, "IVAL": IVAL, "SIZE": SIZE, "FIX": harness.FIXTURES,
-       "ST": STATE_JSON})
+       "ST": STATE_JSON, "SUM": SUMMARY})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.checking", False)
@@ -423,6 +430,70 @@ p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.check("a closing check that never lands is covered by one check from the widget",
         p.call_count("check") - before, 1)
 ev("postRunCheck.interval = 120000")
+p.wait_idle(ev, "executor")
+
+# --- 8e. a run that ends while a check of the widget's own is in flight still ends -------------
+# The watcher learns that a run ended from state.json moving, and every landed check re-baselines
+# it, because the check has just written that file itself. So a check that is in flight when the
+# run makes its closing write absorbs it: the re-baseline learns the run's mtime along with its
+# own, the next poll sees nothing, and the popup sat on "Updating" until the three-hour guard. On a
+# real box that check is the menu's Check for Updates, the hourly timer, or the popup opening on a
+# run longer than five minutes - the one moment somebody is looking.
+#
+# The run's history entry is what the landed check reads instead: the CLI writes it before its
+# closing check, it is stamped at or after the press, and no check of ours can write one.
+ev("postRunCheck.stop()")
+ev("root.lastCheckFinished = Date.now() - 61000")
+ev("root.enterUpdating('terminal')")
+open(MODE, "w").write("slow")                          # a check that takes a second, like a real one
+ev("root.doCheck()")                                   # Check for Updates, from the menu, mid-run
+p.pump(100)
+p.check("premise: a check of the widget's own is in flight during the run",
+        ev("root.checking && root.updating"), True)
+RUN_ENTRY = {"timestamp": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+             "status": "ok", "surface": "terminal", "backends": {}}
+open(SUMMARY, "w").write(json.dumps(RUN_ENTRY))        # the run finishes: its history entry...
+harness.touch(STATE_JSON, "2030-05-01")                # ...then its closing check's write
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+ev("root.pollWatch(true)")                             # the next watcher tick finds nothing new
+p.wait_idle(ev, "executor")
+p.wait_for(ev, "root.updating", False, timeout_ms=4000)
+p.check("a run that ended under a check of the widget's own still leaves the updating state",
+        ev("root.updating"), False)
+p.wait_idle(ev, "executor")
+
+# ...and the other half, which a fix that believed any landed check would break: a check of ours
+# landing MID-run, with no entry newer than the press, ends nothing. The newest entry here is the
+# run before this one.
+open(MODE, "w").write("live")
+open(SUMMARY, "w").write(json.dumps(dict(RUN_ENTRY, timestamp="2025-01-01T00:00:00+00:00")))
+ev("root.enterUpdating('terminal')")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("a check landing mid-run, with only an older run in the history, keeps the run going",
+        ev("root.updating"), True)
+
+# The automatic checks stand down for the length of a run: each is a check queued behind the dnf
+# lock the transaction holds, and each is one more chance to absorb the run's closing write. An
+# empty last_success makes the popup opening ask whenever no run is in flight.
+before = p.call_count("check")
+ev("root.kemptState = Object.assign({}, root.kemptState, { last_success: '' })")
+p.check("premise: this popup open would check if no run were in flight",
+        ev("Logic.shouldRefreshOnOpen('', root.refreshIntervalMin, Date.now())"), True)
+ev("root.popupOpened()")
+ev("root.popupClosed()")
+ev("checkTimer.triggered()")
+p.wait_idle(ev, "executor")
+p.check("neither the popup opening nor the hourly timer starts a check during a run",
+        p.call_count("check") - before, 0)
+# ...while the person's own request still goes through: Check again is the way out of a run that
+# will never report back, and it has to be a real check.
+ev("root.checkAgain()")
+p.wait_for(ev, "root.updating", False, timeout_ms=15000)
+p.check("...and Check again still checks, and still ends the run",
+        [p.call_count("check") - before, ev("root.updating")], [1, False])
 p.wait_idle(ev, "executor")
 
 # ==================================================================================================

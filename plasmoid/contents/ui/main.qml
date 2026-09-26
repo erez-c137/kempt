@@ -178,6 +178,12 @@ PlasmoidItem {
     // thing between a double press and two terminals both asking the risky question.
     property bool runRequested: false
 
+    // The same guard for Install on Next Restart, Rebuild Staged Update and Discard Staged Update:
+    // one flag for all three, set at the press and cleared on every callback path. Each waits its
+    // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
+    // time, so without it a second press queues a second action. The popup disables all three.
+    property bool actionPending: false
+
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
     // popup is open and never while it is shut. 0 means "no clock yet", which logic.js answers
     // with the absolute stamp - never a wrong relative time.
@@ -296,10 +302,6 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
-                // ...and the last run may not be the one we knew about. A `kempt update` typed in
-                // a terminal writes a history entry and then re-checks itself, and that state
-                // write is what brought us here.
-                root.loadLastRun();
             } else if (rc === 127) {
                 // Nothing to run. cliError is cleared so the popup shows one message about one
                 // situation instead of both.
@@ -324,6 +326,20 @@ PlasmoidItem {
                 // standing no-engine verdict is stale - and it must not stand, because the retry
                 // below skips retrying while it does.
                 root.engineFault = "";
+            }
+            // The last run may not be the one we knew about: a `kempt update` typed in a terminal
+            // writes a history entry and then re-checks itself.
+            //
+            // While a run of ours is in flight, the entry is also how this check ends it. The
+            // re-baseline below absorbs any state.json write made while this check ran, including
+            // the run's closing one, which is the watcher's only end-of-run signal. The entry is
+            // what tells the two apart: the CLI writes it before its closing check, and no check
+            // writes one. Asked for even when this check answered nothing, since losing the lock
+            // to the run's own check is this same race. Not re-baselining instead would read this
+            // check's own write as the run ending. Runs that end with no entry (an aborted prompt)
+            // are why checkTimer and popupOpened also stand down during a run.
+            if (parsed !== null || root.updating) {
+                root.loadLastRun(function (run) { root.endRunIfFinished(run); });
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
             // next poll would see its own footprint as a change and check again, forever.
@@ -513,7 +529,8 @@ PlasmoidItem {
     // transaction on this queue would block every check and every pin behind it, and the kill
     // timer would only disconnect the reader anyway: the child would keep running, unwatched.
     function startUpdate() {
-        if (updating || runRequested) return;
+        // actionPending too: a stage still waiting its turn on the executor is a run on its way.
+        if (updating || runRequested || actionPending) return;
         runRequested = true;
         actionMessage = "";
         executor.run(kemptCmd + " run", 15000, function(stdout, stderr, rc) {
@@ -531,27 +548,37 @@ PlasmoidItem {
         });
     }
 
-    // The offline recommendation, acted on. `kempt update --surface=offline` runs the staging
-    // synchronously, so unlike `run` it has to be detached here - and detached means it must NOT
-    // be waited on by the executor.
+    // The offline recommendation, acted on. Through `kempt run`, as Update Now is, because `run`
+    // refuses before launching anything: exit 3 while another update holds the lock. A detached
+    // `kempt update` refuses where nobody reads the status, and the popup would wait in its
+    // updating pane for a stage that never began.
     function stageOffline() {
-        if (updating) return;
+        if (updating || runRequested || actionPending) return;
+        actionPending = true;
         actionMessage = "";
-        // `setsid sh -c '<script>'` and not `setsid <script>`: kemptCmd begins with a PATH=
-        // assignment, and setsid would try to EXECUTE a program by that name. The quoted script
-        // keeps the expansion for the inner shell, where it is supposed to happen.
-        executor.run("setsid sh -c " + Logic.shellQuote(kemptCmd + " update --surface=offline")
-                     + " >/dev/null 2>&1 &", 10000,
-                     function(stdout, stderr, rc) {
-            // Offline whatever the configured surface says: this command carries --surface=offline.
-            if (rc === 0) root.enterUpdating("offline");
-            else root.actionMessage = Logic.firstLineOf(stderr) || "Could not stage the offline update.";
+        launchStage();
+    }
+
+    // The one staging command, shared by stageOffline and rebuildStaged. It clears actionPending
+    // on every outcome, including the executor's own timeout (rc 124). The pane gets the surface
+    // the CLI will really use: with auto_accept off, `run` sends a named surface to the terminal
+    // as well, because only a terminal can ask.
+    function launchStage() {
+        executor.run(kemptCmd + " run --surface=offline", 15000, function(stdout, stderr, rc) {
+            root.actionPending = false;
+            if (rc === 0) {
+                root.enterUpdating(Logic.effectiveSurfaceOf("offline", root.autoAccept));
+                return;
+            }
+            // The CLI's own words, as for Update Now: exit 3 is another update holding the lock.
+            root.actionMessage = Logic.runStartMessage(rc, stdout, stderr);
         });
     }
 
-    // The conflict banner's one action. It runs EXACTLY what stageOffline runs above, detached the
-    // same way, the same polkit action: a rebuild IS a stage, and dnf5 replaces the stored
-    // transaction with the one the current holds produce.
+    // The conflict banner's one action. It runs EXACTLY what stageOffline runs above (launchStage),
+    // the same polkit action: a rebuild IS a stage, and dnf5 replaces the stored transaction with
+    // the one the current holds produce. Nothing is unstaged first: `run` launches the same
+    // `kempt update --surface=offline`, whose "offline restage" replaces the old transaction.
     //
     // What is new is the RE-VERIFY, and it is why this is not stageOffline() under a second label.
     // Consent is given to a BANNER, and a banner describes ONE transaction: the popup can sit open
@@ -563,7 +590,8 @@ PlasmoidItem {
     function rebuildStaged() {
         // The same guard stageOffline has, and it matters more here: two staging runs at once is a
         // double press with a destructive first step.
-        if (updating) return;
+        if (updating || runRequested || actionPending) return;
+        actionPending = true;
         actionMessage = "";
         // Read HERE, synchronously, before anything can move it: this is the stamp of the banner
         // the person was looking at when they pressed. Comparing against root.vm instead would
@@ -586,21 +614,12 @@ PlasmoidItem {
             // raise a warning. The third stops a rebuild running over a conflict already resolved.
             if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
                     || !vmNow.stagedShowRebuild) {
+                root.actionPending = false;
                 root.actionMessage = Logic.COPY.stagedChanged;
                 return;
             }
-            // `executor`, not `root.executor`: an id is resolved lexically and is NOT a property
-            // of the object that declares it, so `root.executor` is undefined and calling .run on
-            // it throws inside the callback - silently, as far as the person who pressed is
-            // concerned.
-            executor.run("setsid sh -c "
-                         + Logic.shellQuote(root.kemptCmd + " update --surface=offline")
-                         + " >/dev/null 2>&1 &", 10000,
-                         function(stdout2, stderr2, rc2) {
-                if (rc2 === 0) root.enterUpdating("offline");
-                else root.actionMessage = Logic.firstLineOf(stderr2)
-                                          || "Could not rebuild the staged update.";
-            });
+            // Still pending: launchStage clears the flag when `run` answers.
+            root.launchStage();
         });
     }
 
@@ -608,7 +627,7 @@ PlasmoidItem {
     // nothing. `kempt unstage`, which somebody staging from this popup would otherwise have to
     // open a terminal to reach.
     //
-    // WAITED ON rather than detached, which is where it differs from stageOffline and
+    // WAITED ON rather than handed off, which is where it differs from stageOffline and
     // rebuildStaged. Those two hand off to a run that writes state.json and reports itself through
     // the updating pane; this one is a single short verb with an exit code that means five
     // different things, and the answer IS the report. The timeout is the check's, not the stage's:
@@ -621,7 +640,8 @@ PlasmoidItem {
     // it away - and discarding what arrived in its place is spending consent that was never given.
     // stateDir is NOT shellQuote'd - see findLog().
     function discardStaged() {
-        if (updating) return;
+        if (updating || runRequested || actionPending) return;
+        actionPending = true;
         actionMessage = "";
         actionDone = "";
         var offered = vm.stagedStagedAt;
@@ -631,12 +651,14 @@ PlasmoidItem {
             var vmNow = Logic.viewModel(fresh, false, "");
             if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
                     || !vmNow.stagedShowDiscard) {
+                root.actionPending = false;
                 root.actionMessage = Logic.COPY.stagedDiscardChanged;
                 return;
             }
             // `executor`, not `root.executor`: an id is resolved lexically and is NOT a property of
             // the object that declares it, so the latter is undefined inside this callback.
             executor.run(root.kemptCmd + " unstage", 120000, function(stdout2, stderr2, rc2) {
+                root.actionPending = false;         // first, so no outcome below can skip it
                 var said = Logic.discardStagedMessage(rc2, stdout2, stderr2);
                 if (rc2 !== 0) { root.actionMessage = said; return; }
                 // The same refresh the pin uses, and what stops the popup advertising a staged
@@ -773,6 +795,15 @@ PlasmoidItem {
         });
     }
 
+    // Ends the run a landed check may have hidden from the watcher (see doCheck's callback). `run`
+    // is the newest history entry; one stamped before the press is the previous run. The state
+    // file is adopted too, since the check that got here may have lost the lock and said nothing.
+    function endRunIfFinished(run) {
+        if (!updating || run === null || !Logic.runFinishedSince(run, updateStartedMs)) return;
+        leaveUpdating();
+        adoptState();
+    }
+
     // The way out of an updating state nothing is going to end. A run ends when the CLI writes
     // state.json, and a terminal run that is aborted - the DEFAULT answer to the one question
     // Kempt asks, on the default configuration - exits before the CLI's own post-run check, as
@@ -858,7 +889,12 @@ PlasmoidItem {
         refreshClock();
         var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
             ? kemptState.last_success : "";
-        if (Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now())) doCheck();
+        // ...and not during a run of ours, for checkTimer's reason: the updating pane shows no
+        // counts to refresh, and opening the popup near the end of a long run is the likeliest way
+        // a check ends up in flight across the run's closing write. Check again and the menu's
+        // Check for Updates are the person asking, and still check.
+        if (!updating && Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now()))
+            doCheck();
         root.popupShown();
     }
 
@@ -912,7 +948,10 @@ PlasmoidItem {
         interval: Math.min(1440, Math.max(1, root.refreshIntervalMin)) * 60000
         repeat: true
         running: true
-        onTriggered: root.doCheck()
+        // Not while a run of ours is in flight: the run ends with a check of its own, and one from
+        // here would only queue behind the transaction's dnf lock and risk absorbing the run's
+        // closing write (see the note in doCheck's callback).
+        onTriggered: if (!root.updating) root.doCheck()
     }
 
     // The bounded retry described on firstCheckRetries above. One-shot: doCheck arms it, and only
