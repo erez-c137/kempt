@@ -1002,4 +1002,22 @@ assert_eq "$(jq -r '.backends.flatpak.items[] | select(.name == "org.kde.Platfor
   "a stale hold on a runtime id does not hold the runtime"
 assert_eq "$(jq .held_total <<<"$stale_hold_state")" "0" "...and is counted as held by nothing"
 "$KEMPT" unhold flatpak:org.kde.Platform >/dev/null 2>&1 || true
+
+# write_state is the one door into state.json, and it refuses anything that is not exactly one JSON
+# object. Each case is what a failed producer hands it: nothing at all (assemble_state failing
+# under a caller with errexit off), a bare newline, the wrong type, two documents, and garbage.
+while IFS='|' read -r label doc; do
+  jq -n '{schema: 1, actionable: 5}' > "$STATE_FILE"
+  rc=0; printf '%b' "$doc" | write_state 2>/dev/null || rc=$?
+  assert_eq "$rc" "1" "write_state refuses $label"
+  assert_eq "$(jq -r .actionable "$STATE_FILE" 2>/dev/null)" "5" "...and leaves the previous state in place ($label)"
+done <<'CASES'
+empty input|
+a bare newline|\n
+an array|[]
+two objects|{"a":1}{"b":2}
+garbage|not json
+CASES
+printf '{"schema":1,"actionable":6}\n' | write_state
+assert_eq "$(jq -r .actionable "$STATE_FILE")" "6" "write_state still writes a real state"
 finish

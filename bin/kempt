@@ -133,7 +133,10 @@ cmd_check() {
   # made rather than the one before it.
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
-  printf '%s\n' "$state" | write_state
+  # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
+  # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
+  # failed write a failed check for a caller with errexit off.
+  if printf '%s\n' "$state" | write_state; then CHECK_WROTE_STATE=1; else return 1; fi
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
   if [[ "$status" == "ok" ]]; then
@@ -1149,11 +1152,15 @@ cmd_update() {
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
   # nothing, so a person watching is told what the pause is.
+  CHECK_WROTE_STATE=""
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
   cmd_check >/dev/null 2>&1 || true
   # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
-  # run a second one. Set only by that wrapper.
-  [[ -z "${KEMPT_CLOSING_CHECK_MARK:-}" ]] || : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
+  # run a second one. Set only by that wrapper. Only after a check that wrote state: one that lost
+  # the check lock served the old state, so the window's own check is the one that counts.
+  if [[ -n "${KEMPT_CLOSING_CHECK_MARK:-}" && -n "$CHECK_WROTE_STATE" ]]; then
+    : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
+  fi
   [[ "$status" == "ok" ]]
 }
 

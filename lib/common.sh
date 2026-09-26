@@ -809,7 +809,19 @@ state_prev_items() {  # backend → previous items array; [] for missing/corrupt
   [[ "$out" == \[* ]] && printf '%s\n' "$out" || echo '[]'
 }
 
-write_state() { atomic_write "$STATE_FILE"; }   # per-process mktemp: overlapping checks (timer + event watch + post-run) must never collide
+# The one door into state.json, so the guard lives here rather than in cmd_check. Callers run
+# `cmd_check || true`, which turns errexit off inside it: a failed assemble_state then arrives here
+# as an empty string. Anything but exactly one JSON object keeps the previous state.
+# atomic_write's per-process mktemp keeps overlapping checks (timer, event watch, post-run) apart.
+write_state() {
+  local doc
+  doc="$(cat)"
+  jq -e -n '[inputs] | length == 1 and (.[0] | type == "object")' <<<"$doc" >/dev/null 2>&1 || {
+    echo "kempt: not writing $STATE_FILE: the new state is not a single JSON object - keeping the previous one" >&2
+    return 1
+  }
+  printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
+}
 
 # When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
 # nothing has ever been fetched on this box - a different thing from "old", and every surface that

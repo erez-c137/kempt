@@ -353,9 +353,15 @@ for _i in $(seq 1 100); do
   flock -w 0 -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null || break
   sleep 0.02
 done
-KEMPT_CHECK_LOCK_WAIT=0 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+rm -f "$TESTTMP/closing-mark"
+KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" KEMPT_CHECK_LOCK_WAIT=0 \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 kill "$lockpid" 2>/dev/null || true
 wait "$lockpid" 2>/dev/null || true
+# The closing check lost the lock and served the previous state. The mark would make the update
+# window skip its own check, which is now the only one left to run.
+assert_exit 1 "a closing check that lost the lock does not claim to have checked" -- \
+  test -e "$TESTTMP/closing-mark"
 assert_eq "$(jq -r '.offline_staged.armed // "absent"' "$KEMPT_STATE_DIR/state.json")" "true" \
   "the run records the staged transaction itself, without waiting for a check"
 assert_eq "$(jq -r '.offline_staged.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
@@ -1083,6 +1089,32 @@ case "$(jq -r .error "$lk2")" in
   *) echo "FAIL: the disk failure lost its reason: $(jq -r .error "$lk2")"; _fail=1 ;;
 esac
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+
+# --- the closing check's two promises: the mark means a check wrote state, and state.json only
+# ever holds a state. The closing check runs as `cmd_check || true`, with errexit off inside it, so
+# a failed assemble_state carries on to write_state with an empty string.
+rm -f "$TESTTMP/closing-mark"
+KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
+assert_exit 0 "a closing check that wrote state leaves the mark for the update window" -- \
+  test -e "$TESTTMP/closing-mark"
+# assemble_state's jq is the one call that fails here (a full tmpfs does exactly this), picked out
+# by how its arguments START - the history entry's jq also reads a --slurpfile dnfa. Every other
+# jq runs as usual, so the run itself still succeeds and reaches the closing check.
+mkdir -p "$TESTTMP/jq-fails"
+real_jq="$(command -v jq)"
+cat > "$TESTTMP/jq-fails/jq" <<STUB
+#!/usr/bin/env bash
+[[ "\$*" == "-n --slurpfile dnfa "* ]] && exit 1
+exec "$real_jq" "\$@"
+STUB
+chmod +x "$TESTTMP/jq-fails/jq"
+jq -n '{schema: 1, last_check: "2026-01-01T00:00:00+00:00", actionable: 7}' > "$KEMPT_STATE_DIR/state.json"
+rm -f "$TESTTMP/closing-mark"
+PATH="$TESTTMP/jq-fails:$PATH" KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" \
+  "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
+assert_eq "$(jq -r '.actionable' "$KEMPT_STATE_DIR/state.json" 2>/dev/null)" "7" \
+  "a closing check whose state could not be built leaves the previous state.json in place"
+assert_exit 1 "...and does not leave the mark, because it wrote nothing" -- test -e "$TESTTMP/closing-mark"
 
 # --- offline harvest: the staged transaction applies during a reboot, and the next check has to
 # notice and turn it into a normal history entry + notification.
