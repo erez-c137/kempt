@@ -1572,6 +1572,67 @@ grep -q 'run done rc=0' "$KEMPT_STATE_DIR/events.log" \
 assert_exit 0 "...while the state file is rewritten, which is what stops the popup spinning" \
   -- test -s "$KEMPT_STATE_DIR/state.json"
 
+# (c) the same far side, reached by a write that is not the entry at all: the run log, and the temp
+# files the entry is built from. Once the package set has moved, a full home or a full /tmp must
+# cost at most those niceties - never the history entry, the run-done event and the closing check.
+# The stub fills the gap at exactly that moment: the dnf apply moves the package set and then takes
+# away the write. The flatpak half runs, because its section heading is a write into that log.
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+if [[ "\$1" == dnf-upgrade ]]; then
+  cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
+  chmod 444 "$KEMPT_STATE_DIR"/logs/*.log
+fi
+exit 0
+STUB
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+rm -f "$KEMPT_STATE_DIR"/logs/*.log "$KEMPT_STATE_DIR/state.json"
+push_history_back
+{ ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null || true; } | sort > "$TESTTMP/hist-logro-before.txt"
+logro_end="$(grep -cE 'run done rc=0|run failed rc=1' "$KEMPT_STATE_DIR/events.log" || true)"
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+chmod 644 "$KEMPT_STATE_DIR"/logs/*.log 2>/dev/null || true
+{ ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null || true; } | sort > "$TESTTMP/hist-logro-after.txt"
+logro_hist="$(comm -13 "$TESTTMP/hist-logro-before.txt" "$TESTTMP/hist-logro-after.txt" | head -1)"
+assert_eq "$(jq -r '.backends.dnf.status' "$logro_hist" 2>/dev/null)" "ok" \
+  "a run whose log stops taking writes after the update still records the update in the history"
+assert_eq "$(jq -r '.backends.dnf.updated | length > 0' "$logro_hist" 2>/dev/null)" "true" \
+  "...with the packages that moved"
+# flatpak's output has nowhere to go, so apply_with_retry never starts it and the entry says it
+# failed - which is true, and is not the same as the run dying.
+assert_eq "$(grep -cE 'run done rc=0|run failed rc=1' "$KEMPT_STATE_DIR/events.log" || true)" "$(( logro_end + 1 ))" \
+  "...and the run reaches its own end"
+assert_exit 0 "...and the closing check still rewrites the state the widget waits on" \
+  -- test -s "$KEMPT_STATE_DIR/state.json"
+
+# ...and /tmp filling up at the same moment. The two reports reach jq through temp files; a mktemp
+# that fails there used to end the run under errexit. The entry itself is built in /tmp too, so
+# what this may cost is the durable record - which the run says it lost - and nothing else.
+RUN_TMP="$TESTTMP/run-tmp"; mkdir -p "$RUN_TMP"
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+if [[ "\$1" == dnf-upgrade ]]; then
+  cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
+  chmod 500 "$RUN_TMP"
+fi
+exit 0
+STUB
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+before_done="$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log" || true)"
+before_lost="$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)"
+rc=0
+TMPDIR="$RUN_TMP" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || rc=$?
+chmod 700 "$RUN_TMP"
+assert_eq "$rc" "0" "a run whose temp directory fills after the update is still a successful run"
+assert_eq "$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log")" "$(( before_done + 1 ))" \
+  "...and reaches its own end instead of dying on a temp file"
+assert_eq "$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)" "$(( before_lost + 1 ))" \
+  "...saying what it could not keep"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+
 # (b) the HARVEST's entry, which is worse: harvest_offline runs at the top of EVERY check and the
 # marker is cleared a few lines below it. A failure that escaped left the marker in place, so the
 # next check failed in the same spot, and the next - the box stopped checking at all, with a bash

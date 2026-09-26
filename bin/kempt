@@ -172,12 +172,23 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
 # straight under dnf's "Complete!" and reads as part of the dnf upgrade. Written to the log on every
 # surface, and to the terminal only when the output is live. The labels are the ones the summary
 # uses, so the reader matches a section to its summary line by name.
+# Best-effort, like every write into the run log: the flatpak heading is written AFTER dnf has
+# changed the system, and under errexit a log that stopped taking writes (a full home) ended the
+# run there - no history entry, no closing check, and the widget left spinning until its guard.
 run_heading() {  # log_file title
   if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
-    printf '\n== %s ==\n' "$2" | tee -a "$1"
+    printf '\n== %s ==\n' "$2" | tee -a "$1" 2>/dev/null || true
   else
-    printf '\n== %s ==\n' "$2" >> "$1"
+    printf '\n== %s ==\n' "$2" 2>/dev/null >> "$1" || true
   fi
+}
+
+# A warning for the person AND the run log, and the log half may fail: `echo | tee -a "$log"` is a
+# pipeline whose status is tee's, so a log that could not be opened made the warning itself the
+# thing that killed the run - on the far side of the update, where most of these are said.
+log_warn() {  # log_file message
+  printf '%s\n' "$2" >&2
+  printf '%s\n' "$2" 2>/dev/null >> "$1" || true
 }
 
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
@@ -211,10 +222,10 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
        | grep -qiE 'failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock|\blocking repo.*failed|opening lock file.*failed'; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
-        echo "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)" | tee -a "$log" >&2
+        log_warn "$log" "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)"
         sleep "$KEMPT_RETRY_DELAY"
       else
-        echo "Package system still busy after $attempt attempts - giving up" | tee -a "$log" >&2
+        log_warn "$log" "Package system still busy after $attempt attempts - giving up"
         # Kempt's own sentence for the most likely failure it has. Without this the reason shown
         # in the summary, the notification and the history entry is whichever of dnf's lines
         # matched run_failure_reason's keyword list first - dnf's raw text about a lock file,
@@ -440,7 +451,7 @@ apply_flatpak_updates() {
       # empty installed set means no ids pass and the run reports flatpak failed.
       local installed_fp id pending_fp
       installed_fp="$(flatpak_snapshot | cut -f1)" \
-        || { installed_fp=""; fp_status="failed"; status="failed"; echo "warning: flatpak installed lookup failed - no flatpak apps updated" | tee -a "$log" >&2; }
+        || { installed_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
       # ONE capture, read twice below: the apps to name individually, and whether any runtime is
       # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
       # answer that cannot have changed in between.
@@ -628,7 +639,7 @@ reconcile_stage_after_live_run() {
       local moved=0
       same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv" || moved=$?
       if [[ $moved -eq 2 ]]; then
-        echo "warning: could not compare this run's package snapshots - the staged update was left as it was" | tee -a "$log" >&2
+        log_warn "$log" "warning: could not compare this run's package snapshots - the staged update was left as it was"
       fi
       if [[ $moved -eq 1 ]]; then
         # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against and
@@ -662,12 +673,12 @@ reconcile_stage_after_live_run() {
           log_event "offline stage dropped (superseded by live update)"
         elif [[ $sup_clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, like the failure below: doctor reads it against what is stored.
-          echo "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason) - see: kempt doctor" | tee -a "$log" >&2
+          log_warn "$log" "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason) - see: kempt doctor"
         else
           # Keep the marker: the stage may still be there, and `kempt doctor` reads the two
           # together and says which of them is wrong. Kept DEMOTED, though: the stage can no
           # longer install, and a marker still marked armed goes on telling the widget it will.
-          echo "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+          log_warn "$log" "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean"
           local sup_marker
           if sup_marker="$(offline_marker_read)" && [[ -n "$sup_marker" ]]; then
             jq -c '. + {armed: false}' <<<"$sup_marker" | write_offline_marker \
@@ -923,10 +934,10 @@ cmd_update() {
         apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
-          echo "warning: the stage that failed to arm was left in place because $(apply_refusal_reason) - see: kempt doctor" | tee -a "$log" >&2
+          log_warn "$log" "warning: the stage that failed to arm was left in place because $(apply_refusal_reason) - see: kempt doctor"
           notify_tail=" - the stored transaction was left in place; see: kempt doctor"
         elif [[ $clean_rc -ne 0 ]]; then
-          echo "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+          log_warn "$log" "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean"
           # Escalated past stderr because this is state (d): the toml and the boot symlink
           # now disagree and only root can settle it. The reason stays the ARM - the step
           # that failed - so the command travels on the notification instead.
@@ -1009,10 +1020,10 @@ cmd_update() {
   local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
   if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
-      || { dnf_report="$empty_report"; snapshots_ok=false; echo "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR" | tee -a "$log" >&2; }
+      || { dnf_report="$empty_report"; snapshots_ok=false; log_warn "$log" "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR"; }
   else
     snapshots_ok=false
-    echo "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected" | tee -a "$log" >&2
+    log_warn "$log" "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected"
   fi
   # Exact attribution, when dnf5's history named the transaction: the report keeps only what that
   # transaction touched, so a package something else moved between the two snapshots is not reported
@@ -1039,9 +1050,9 @@ cmd_update() {
   if is_true "$include_fp"; then
     if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
       fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
-        || { fp_report="$empty_report"; echo "warning: flatpak report diff failed - summary incomplete" | tee -a "$log" >&2; }
+        || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed - summary incomplete"; }
     else
-      echo "warning: flatpak snapshot after the run failed - summary incomplete" | tee -a "$log" >&2
+      log_warn "$log" "warning: flatpak snapshot after the run failed - summary incomplete"
     fi
   fi
   # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the verdict rule and the
@@ -1077,9 +1088,15 @@ cmd_update() {
   # summary, no notification, no run-done event, and no post-run check, which is the only thing
   # that takes the popup out of its updating state. A successful 1,200-package update presented as
   # a spinner for three hours.
-  local dnf_rep_f fp_rep_f
-  dnf_rep_f="$(mktemp)"; fp_rep_f="$(mktemp)"
-  printf '%s' "$dnf_report" > "$dnf_rep_f"; printf '%s' "$fp_report" > "$fp_rep_f"
+  # ...and the files themselves are a nicety too. A full /tmp here used to end the run under
+  # errexit with the same cost; now it costs the entry, through the same `hist_tmp=""` degrade the
+  # jq below takes, and the run goes on to its event line and its closing check.
+  local dnf_rep_f="" fp_rep_f=""
+  if ! { dnf_rep_f="$(mktemp 2>/dev/null)" && fp_rep_f="$(mktemp 2>/dev/null)" \
+         && printf '%s' "$dnf_report" 2>/dev/null > "$dnf_rep_f" \
+         && printf '%s' "$fp_report" 2>/dev/null > "$fp_rep_f"; }; then
+    rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""
+  fi
   # Floored at 0: a clock stepped backwards during the run (NTP correcting a fast clock, a resume
   # across a time change) puts the end before the start, and a negative duration is not a
   # measurement. Every reader would otherwise print it as "in -287s".
@@ -1118,12 +1135,12 @@ cmd_update() {
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
-    || { rm -f "$hist_tmp"; hist_tmp=""; }
+    || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no
   # notification, no run-done event and no post-run check, which is the only thing that takes the
   # widget out of its updating state. A successful update presented as a spinner that never stops.
-  rm -f "$dnf_rep_f" "$fp_rep_f"
+  rm -f ${dnf_rep_f:+"$dnf_rep_f"} ${fp_rep_f:+"$fp_rep_f"}
   # Built beside the run and INSTALLED into the history, rather than written there directly. What a
   # failure costs is then only the durable record: everything below reads this file to render the
   # summary, the notification and the run-done count, and rendering from the copy that was built
@@ -1133,7 +1150,7 @@ cmd_update() {
   else
     # "the run itself", not "the update": on the offline surface nothing has been installed - a
     # transaction was staged, and it installs on the next restart. This line is printed on both.
-    echo "warning: this run is not in the history - the run itself finished" | tee -a "$log" >&2
+    log_warn "$log" "warning: this run is not in the history - the run itself finished"
     log_event "history entry not written (state directory unwritable?)"
     rm -f "$hist"
     hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
