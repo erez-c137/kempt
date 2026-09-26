@@ -7,6 +7,42 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`kempt run --surface=<surface>`** runs one update on a surface other than the configured one.
+  **Install on Next Restart** and **Rebuild** use it.
+
+### Fixed
+
+- **A held package no longer installs with a rebuilt stage.** If you held every pending update and
+  then rebuilt a staged update, dnf5 had nothing new to stage and kept the old transaction, held
+  package included. Kempt reported "Updates staged". Kempt now removes the old transaction and says
+  nothing is staged.
+- **A stage that dnf5 cancelled is no longer re-armed.** A live update after staging cancels the
+  stage. Kempt now treats that stage as gone, even when the live update failed partway, and never
+  re-arms it.
+- **The popup no longer stays on "Updating" for hours.** When a scheduled check ran as the update
+  finished, the popup missed the end of the run. It now reads the run's own history entry, and
+  skips automatic checks while an update runs.
+- **Install on Next Restart says when an update is already running.** It used to show "Updating"
+  until the three-hour limit. The two stage buttons are also disabled until the first press is
+  handled, so a second press no longer starts a second action.
+- **With "ask before applying" on, Install on Next Restart stages.** It used to open a terminal that
+  updated live. It now opens a terminal that shows the transaction, asks, and stages.
+- **"Package system busy" only when it is.** A failed update that named a package with "lock" in
+  its name, such as kscreenlocker, was reported as busy and retried twice.
+- **state.json is never left empty.** A check that could not build its result, for example on a
+  full disk, now keeps the previous state.
+- **The update window runs its own check when the update's check was skipped.**
+
+### Security
+
+- **Every command Kempt runs through pkexec is named by its full path.** pkexec looks up a bare
+  name in your `PATH`, where `~/.local/bin` comes first.
+- **The passwordless rule must be plain ASCII.** A carriage return inside a comment line could hide
+  code from Kempt's check of the rendered rule while polkit still ran it. Kempt now refuses such a
+  rule before asking for a password.
+
 ## [0.1.6] - 2026-09-26
 
 ### Added
