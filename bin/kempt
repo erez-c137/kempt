@@ -787,6 +787,9 @@ cmd_update() {
   # staged_nothing: the stage ran, succeeded, and had nothing to build. Not a failure, and not a
   # stage either - no marker, no promise, no "installs on the next restart".
   local staged_nothing=false
+  # stage_discarded: ...and a transaction stored before it was removed, because it held what the
+  # empty stage just excluded.
+  local stage_discarded=false
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
   local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
@@ -842,6 +845,12 @@ cmd_update() {
     # previous stage's. A check comparing the two in that window must not call this rebuild
     # somebody else's (stage_lock). Released right after the marker is written.
     stage_lock
+    # What is stored now, and where the log ends, both read just before the stage: the only way to
+    # tell afterwards whether a stage that exited 0 stored anything over a transaction already
+    # there (see offline_stored_fingerprint).
+    local pre_stage_fp stage_log_sz=0
+    pre_stage_fp="$(offline_stored_fingerprint)"
+    [[ -f "$log" ]] && stage_log_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
@@ -862,6 +871,32 @@ cmd_update() {
           log_event "offline stage found nothing to stage (every pending update is held)"
         else
           log_event "offline stage found nothing to stage"
+        fi
+      elif [[ -n "$pre_stage_fp" && "$(offline_stored_fingerprint)" == "$pre_stage_fp" ]] \
+           && grep -qE '^[[:space:]]*Nothing to do\.?[[:space:]]*$' < <(tail -c +$(( stage_log_sz + 1 )) "$log" 2>/dev/null); then
+        # The same empty stage, over a transaction that was ALREADY stored: dnf5 says "Nothing to
+        # do.", exits 0, and keeps the old transaction byte for byte, still armed. Arming it again
+        # and calling that a restage would install, on the next restart, every package the user
+        # has just held. Both signals are required - dnf5's words in THIS stage's output, and the
+        # stored files untouched - so a real stage is never mistaken for an empty one.
+        # The old transaction goes, through the clean the unwinds below already use, and the run
+        # ends exactly as an empty stage over nothing does.
+        apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        if [[ $clean_rc -eq 0 ]]; then
+          staged_nothing=true; stage_discarded=true
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          if [[ -n "$held_dnf" ]]; then
+            log_event "offline stage found nothing to stage (every pending update is held)"
+          else
+            log_event "offline stage found nothing to stage"
+          fi
+          log_event "offline stage discarded (the stored one would have installed what is now held)"
+        elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+          dnf_status="failed"; status="failed"
+          reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason) - see: kempt doctor"
+        else
+          dnf_status="failed"; status="failed"
+          reason_override="nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included - run: sudo dnf5 offline clean"
         fi
       elif { apply_with_retry "$log" priv_apply dnf-offline-arm || arm_rc=$?; [[ $arm_rc -eq $KEMPT_APPLY_REFUSED ]]; }; then
         # Refused as root: what is stored now is not the transaction this run built (a release
@@ -1125,10 +1160,12 @@ cmd_update() {
       # Nothing was staged, so there is nothing to install on any restart. Saying which of the two
       # reasons it was is the difference between "Kempt did nothing" and "your holds did what you
       # asked": the first reads as a fault.
+      local discarded_tail=""
+      [[ "$stage_discarded" == true ]] && discarded_tail=". The update staged earlier was removed"
       if [[ -n "$held_dnf" ]]; then
-        notify "Kempt" "Nothing to stage - every pending update is held"
+        notify "Kempt" "Nothing to stage - every pending update is held$discarded_tail"
       else
-        notify "Kempt" "Nothing to stage - no updates are pending"
+        notify "Kempt" "Nothing to stage - no updates are pending$discarded_tail"
       fi
     elif [[ "$surface" == "offline" && "$status" == "ok" && -n "$stage_untracked" ]]; then
       # The stage is REAL: it is downloaded, armed, and the next restart installs it. What failed is

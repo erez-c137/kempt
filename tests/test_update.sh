@@ -582,6 +582,74 @@ assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 transaction_armed
 
+# --- the same empty stage over a transaction that is ALREADY stored ------------------------------
+# Measured on Fedora 44, dnf5 5.4.1: with a transaction stored, `dnf5 upgrade --offline -y
+# --exclude=<every pending package>` prints "Nothing to do.", exits 0 and leaves the stored
+# transaction byte-identical, /system-update included. The next restart installs ALL of it,
+# the package just held among them. Kempt used to see status `ready`, arm the old transaction
+# again, log "offline restage" and report success: a hold that did nothing.
+# The stub models exactly that: it prints dnf5's line and touches neither file this world reads.
+cat > "$TESTTMP/apply-stub.nothing" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-offline-stage ]] && echo "Nothing to do."
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.nothing"
+cat > "$TESTTMP/apply-stub.nothing-clean-fail" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-offline-stage ]] && echo "Nothing to do."
+[[ "\$1" == dnf-offline-clean ]] && exit 1
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub.nothing-clean-fail"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_exit 0 "the held-over-stage fixture starts from a real armed stage" -- test -f "$marker"
+nd_pre="$(jq -r .pre_snapshot "$marker")"
+"$KEMPT" hold dnf:bash >/dev/null 2>&1
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+nd_ev="$(wc -l < "$KEMPT_STATE_DIR/events.log")"
+ndrc=0
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.nothing" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || ndrc=$?
+assert_eq "$ndrc" "0" "an empty stage over a stored transaction is not a failure"
+assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" \
+  "...and the old transaction is NOT armed again"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
+  "...it is cleaned away, so the held package does not install on the next restart"
+assert_exit 0 "...its marker goes with it" -- test ! -f "$marker"
+assert_exit 0 "...and so does the marker's snapshot copy" -- test ! -f "$nd_pre"
+tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'offline restage' \
+  && { echo "FAIL: an empty stage over a stored one was logged as a restage"; _fail=1; } \
+  || echo "ok: ...and the log does not call it a restage"
+grep -q 'offline stage discarded' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...the log says the stored one was discarded" \
+  || { echo "FAIL: no discarded event"; _fail=1; }
+grep -q 'Nothing to stage - every pending update is held. The update staged earlier was removed' "$WORLD/notifications" \
+  && echo "ok: ...and the user is told the earlier stage is gone" \
+  || { echo "FAIL: wrong notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
+ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .staged_nothing "$ndhist")" "held" "...and the history entry records nothing staged, because of holds"
+
+# ...and when the clean fails, the old transaction still installs, held package included: that is
+# a failed run that names the command, never a success.
+"$KEMPT" unhold dnf:bash >/dev/null 2>&1
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+"$KEMPT" hold dnf:bash >/dev/null 2>&1
+: > "$WORLD/apply-calls"
+ndrc=0
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.nothing-clean-fail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || ndrc=$?
+assert_eq "$ndrc" "1" "an empty stage whose clean fails fails the run"
+assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...without arming the old transaction"
+ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .error "$ndhist")" \
+  "nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included - run: sudo dnf5 offline clean" \
+  "...and the reason says the old one still installs and how to clear it"
+"$KEMPT" unhold dnf:bash >/dev/null 2>&1
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+
 # The other outcome: dnf5 got as far as replacing the previous transaction and then failed, so the
 # toml is a partial stage nothing arms (download-complete) with the old boot symlink standing over
 # it. That is the strand, and it is what the unwind is for.

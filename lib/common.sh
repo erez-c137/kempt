@@ -999,6 +999,28 @@ offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot
     "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1
 }
 
+# A fingerprint of the stored transaction as it sits on disk: size, mtime to the nanosecond and
+# content hash of both the toml and transaction.json. Both files are 0644 in a 0755 directory, so
+# the user reads them with no privileged call. Nothing when the toml cannot be read, which callers
+# treat as "cannot compare" and never as "unchanged".
+# It exists for one question: did a `dnf5 upgrade --offline` that exited 0 store anything? With a
+# transaction already stored and every pending update excluded, dnf5 prints "Nothing to do.",
+# exits 0 and leaves the old transaction exactly as it was, files untouched, so the next restart
+# installs all of it - the package just held included. A real stage rewrites both files, and the
+# mtime catches a rewrite whose content happens to match.
+offline_stored_fingerprint() {  # → one opaque line, or nothing
+  [[ -r "$KEMPT_OFFLINE_TOML" ]] || return 0
+  local f
+  for f in "$KEMPT_OFFLINE_TOML" "$KEMPT_OFFLINE_TXJSON"; do
+    if [[ -r "$f" ]]; then
+      printf '%s %s ' "$(stat -c '%s %.9Y' "$f" 2>/dev/null)" "$(sha256sum < "$f" 2>/dev/null | cut -d' ' -f1)"
+    else
+      printf 'unreadable '
+    fi
+  done
+  printf '\n'
+}
+
 # Is this an image-based Fedora, where rpm-ostree owns /usr and dnf is not how the system updates?
 # It matters because NOTHING ELSE gives it away: Kinoite ships dnf5 and plasma-workspace, so both
 # Kempt packages install cleanly, the widget appears, `dnf5 check-update` lists updates and
