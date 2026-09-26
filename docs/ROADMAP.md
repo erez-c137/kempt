@@ -32,7 +32,7 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 
-## 0.1.6: reclaiming disk space
+## 0.1.7: reclaiming disk space
 
 Updating a Flatpak runtime installs the new version beside the old one, and the old one stays. A
 machine with one app can end up with two copies of a runtime of a gigabyte or more.
