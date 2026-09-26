@@ -113,8 +113,9 @@ KEMPT_DNF_HISTORY_CMD="${KEMPT_DNF_HISTORY_CMD:-dnf5}"
 # system-update-generator looks for THIS symlink and nothing else (systemd.offline-updates(7)).
 # `dnf5 offline reboot` creates it; the toml above only says what the transaction thinks it is, and
 # the two can disagree - a re-stage destroys the old transaction and leaves the symlink standing,
-# which is a boot that detours into the offline updater and installs nothing. Read by `kempt
-# doctor` alone, with lstat and never a test of the target: the generator does not care whether the
+# which is a boot that detours into the offline updater and installs nothing. Any live dnf5
+# transaction removes it too, leaving the toml at `ready`. Always read with lstat and never a test
+# of the target: the generator does not care whether the
 # target resolves, so neither may we. A seam because a test cannot create /system-update.
 KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:

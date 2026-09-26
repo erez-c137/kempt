@@ -630,10 +630,14 @@ reconcile_stage_after_live_run() {
       if [[ $moved -eq 2 ]]; then
         echo "warning: could not compare this run's package snapshots - the staged update was left as it was" | tee -a "$log" >&2
       fi
-      if [[ "$dnf_status" == "ok" && $moved -eq 1 ]]; then
+      if [[ $moved -eq 1 ]]; then
         # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against and
         # dnf5 refuses one whose cookie has moved, so after a live install the armed stage is a
         # failed offline boot waiting to happen.
+        # Whatever the run's status: a live run that failed part way can still have moved the
+        # rpm database, and any live dnf5 transaction removes /system-update by itself, leaving
+        # the toml at `ready` over a stage no restart will run. Rebasing onto that kept
+        # advertising a dead stage.
         # ORDER: the marker goes with the stage, never before it - a marker without a stage
         # promises the popup and the doctor an install nothing can deliver.
         # ...but never clean a transaction that is not ours. Kempt's marker and dnf5's stored
@@ -661,10 +665,16 @@ reconcile_stage_after_live_run() {
           echo "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason) - see: kempt doctor" | tee -a "$log" >&2
         else
           # Keep the marker: the stage may still be there, and `kempt doctor` reads the two
-          # together and says which of them is wrong.
+          # together and says which of them is wrong. Kept DEMOTED, though: the stage can no
+          # longer install, and a marker still marked armed goes on telling the widget it will.
           echo "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean" | tee -a "$log" >&2
+          local sup_marker
+          if sup_marker="$(offline_marker_read)" && [[ -n "$sup_marker" ]]; then
+            jq -c '. + {armed: false}' <<<"$sup_marker" | write_offline_marker \
+              || echo "warning: could not record that the staged update can no longer install" >&2
+          fi
         fi
-      else
+      elif [[ $moved -eq 0 ]]; then
         # No rpm moved (a flatpak-only run), so the cookie still matches and the stage is good.
         # Rebasing the baseline onto the after-snapshot keeps the post-reboot harvest diffing the
         # staged transaction and nothing else. atomic_write, not cp: the widget's timer can read
@@ -934,10 +944,13 @@ cmd_update() {
       # must land in "nothing staged, and the user told" - never "the old one is gone and nothing
       # says so". `dnf5 offline clean` is idempotent, so this is best-effort like the arm's.
       if [[ "$had_stage" == true ]]; then
-        if [[ "$(offline_system_status)" == ready ]]; then
+        if [[ "$(offline_system_status)" == ready && -L "$KEMPT_OFFLINE_LINK" ]]; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
           # leaves the armed one untouched, toml and symlink included. Nothing to unwind, and a
           # clean would throw away a stage the user still counts on. The marker stays.
+          # BOTH halves of armed, never the status alone: any live dnf5 transaction removes
+          # /system-update and leaves the toml at `ready`, and that stage installs on no restart.
+          # It is stale, and takes the clean below like any other leftover.
           reason_override="could not rebuild the staged update - the previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then

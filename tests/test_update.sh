@@ -122,6 +122,11 @@ release_upgrade_staged() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-
 relup_link_on()  { ln -sfn "$TESTTMP" "$TESTTMP/relup-system-update"
                    export KEMPT_OFFLINE_LINK="$TESTTMP/relup-system-update"; }
 relup_link_off() { export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"; }
+# The same two halves for an ordinary stage. A `ready` toml alone is not armed: any live dnf5
+# transaction removes /system-update and leaves the status as it was.
+stage_link_on()  { ln -sfn "$TESTTMP" "$TESTTMP/stage-system-update"
+                   export KEMPT_OFFLINE_LINK="$TESTTMP/stage-system-update"; }
+stage_link_off() { export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"; }
 transaction_gone()  { export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"; }
 
 # History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
@@ -523,7 +528,9 @@ strc=0
 # is what a download that cannot complete does (live container gate, 2026-09-05: toml ready,
 # symlink present, old set untouched). There is nothing to unwind, and a clean here would throw
 # away a perfectly good armed stage the user is still counting on.
+stage_link_on   # armed is both halves: the toml says `ready` AND /system-update is there
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
+stage_link_off
 assert_eq "$strc" "1" "a rebuild whose stage fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and does NOT clean away the previous transaction dnf5 left armed"
@@ -537,6 +544,22 @@ assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the r
 assert_eq "$(jq -r .error "$sthist")" \
   "could not rebuild the staged update - the previous one is unchanged and still installs on the next restart" \
   "...and the reason says the previous stage still installs, not that it was lost"
+
+# ...but `ready` WITHOUT /system-update is not intact. Measured on Fedora 44: a live dnf5
+# transaction deletes the symlink by itself and leaves the toml at `ready`, and `dnf5 offline
+# status` then calls the transaction invalid. Calling that "unchanged and still installs" promised
+# an install no restart would do; it is a leftover, and it takes the clean.
+: > "$WORLD/apply-calls"
+strc=0
+KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
+assert_eq "$strc" "1" "a rebuild whose stage fails over an unarmed stage fails the run"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
+  "...and cleans the stale stage, which no restart would install"
+assert_exit 0 "...and its marker goes" -- test ! -f "$marker"
+sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+[[ "$(jq -r .error "$sthist")" == *"still installs on the next restart"* ]] \
+  && { echo "FAIL: an unarmed stage was reported as still installing"; _fail=1; } \
+  || echo "ok: ...and the reason does not claim it still installs"
 
 # --- a stage with nothing in it is not a failed stage --------------------------------------------
 # Hold your only pending update, then stage: `dnf5 upgrade --offline` prints "Nothing to do", exits
@@ -1310,6 +1333,49 @@ push_history_back
 assert_exit 0 "a run that changed no rpm leaves the pending stage alone" -- test -f "$marker"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never discards it"
+
+# A live run that FAILED but still moved the rpm database supersedes the stage all the same: the
+# cookie has moved and dnf5 has already removed /system-update. It used to rebase the baseline
+# instead and go on advertising a stage no restart would install.
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && { cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"; echo "error: scriptlet failed" >&2; exit 1; }
+exit 0
+STUB
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+sup_pre="$(jq -r .pre_snapshot "$marker")"
+push_history_back
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
+  && echo "ok: a failed live run that moved rpms discards the stage it invalidated" \
+  || { echo "FAIL: a failed live run left the superseded stage advertised"; _fail=1; }
+assert_exit 0 "...and the marker goes with it" -- test ! -f "$marker"
+assert_exit 0 "...along with its snapshot copy" -- test ! -f "$sup_pre"
+
+# ...and when that clean fails, the marker stays for the doctor but stops claiming the stage is
+# armed, so the widget no longer shows an install that will not happen.
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && { cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"; echo "error: scriptlet failed" >&2; exit 1; }
+[[ "\$1" == dnf-offline-clean ]] && exit 1
+exit 0
+STUB
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+push_history_back
+"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+assert_exit 0 "a superseded stage whose clean failed keeps its marker for the doctor" -- test -f "$marker"
+assert_eq "$(jq -r .armed "$marker")" "false" "...marked as no longer armed"
+assert_eq "$(jq -r '.offline_staged // "none"' "$KEMPT_STATE_DIR/state.json")" "none" \
+  "...so the state the widget reads shows no staged install"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 
 # --- a staged Fedora release upgrade is not ours to destroy --------------------------------------
 # dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, and staging
