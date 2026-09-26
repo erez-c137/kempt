@@ -34,8 +34,10 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 # transaction to work against. Doctor is the one command that REPORTS on it, so most of this file
 # wants the opposite default - a box with nothing staged - and the section at the bottom points the
 # seam at each fixture itself. Left at the sandbox default, every unrelated case here would carry a
-# staged-transaction line it says nothing about.
+# staged-transaction line it says nothing about. The symlink goes with it: nothing staged means no
+# /system-update either, and sandbox()'s armed one would fail doctor's boot-symlink row.
 export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
 
 # Where a REAL install puts its copies, staged into the sandbox through install.sh's own --destdir
 # seam - so what the install-skew section compares is a real staged install rather than a

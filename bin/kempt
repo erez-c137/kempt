@@ -944,7 +944,7 @@ cmd_update() {
       # must land in "nothing staged, and the user told" - never "the old one is gone and nothing
       # says so". `dnf5 offline clean` is idempotent, so this is best-effort like the arm's.
       if [[ "$had_stage" == true ]]; then
-        if [[ "$(offline_system_status)" == ready && -L "$KEMPT_OFFLINE_LINK" ]]; then
+        if offline_armed; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
           # leaves the armed one untouched, toml and symlink included. Nothing to unwind, and a
           # clean would throw away a stage the user still counts on. The marker stays.

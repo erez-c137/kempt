@@ -1106,6 +1106,12 @@ offline_release_upgrade_state() {  # → downloaded | armed | stranded | incompl
   esac
 }
 
+# The same four states answer for ANY stored transaction, Kempt's own included, and `armed` is the
+# only one a restart installs. Every reader that publishes a stage as pending asks this and never
+# the status alone: any live dnf5 transaction, run in a terminal outside Kempt, removes
+# /system-update and leaves the toml at `ready`, which is `stranded` - a stage no restart runs.
+offline_armed() { [[ "$(offline_release_upgrade_state)" == armed ]]; }
+
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
 # come from two places (dnf5's stored transaction, or the check made just before staging) and a name
@@ -1560,11 +1566,13 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
-  [[ "$(offline_system_status)" == ready ]] || return 0
+  # Armed, not merely `ready`: a stranded stage (see offline_release_upgrade_state) is what a live
+  # dnf5 transaction outside Kempt leaves behind in the SAME boot, where the harvest cannot demote
+  # it yet, and publishing it put "staged" in the widget over a stage no restart installs.
+  offline_armed || return 0
   # A marker the harvest has DEMOTED describes a stage that cannot install, whatever dnf5's status
-  # still says - a `ready` transaction whose /system-update symlink is gone is exactly that, and
-  # the status gate above cannot see it. Publishing it anyway would re-make, on every check, the
-  # promise reconcile_detour_stage exists to withdraw.
+  # and the symlink still say - a supersede whose clean failed leaves exactly that. Publishing it
+  # anyway would re-make, on every check, the promise reconcile_detour_stage exists to withdraw.
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
   # A stored RELEASE upgrade is proof the transaction is not ours, whatever the marker says. dnf5
@@ -1703,7 +1711,7 @@ offline_stage_built_without() {  # name → 0 when an armed stage left it out
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 1
-  [[ "$(offline_system_status)" == ready ]] || return 1
+  offline_armed || return 1
   # Same demote gate as offline_staged_state: a stage that can no longer install cannot have
   # missed anything the user is about to release.
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 1

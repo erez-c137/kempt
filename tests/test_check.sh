@@ -558,10 +558,8 @@ export KEMPT_OFFLINE_LINK="$TESTTMP/relup-no-system-update"
 # that will not happen. A restart has already been past this one.
 assert_eq "$(jq -r '.release_upgrade.state' "$st")" "stranded" \
   "a ready release upgrade whose boot symlink is gone is stranded, not downloaded and not armed"
-# Restored, or every check from here on runs with a boot symlink present - which is not the state of
-# a box that has not just staged something, and lib.sh pins the seam away from the real one for
-# exactly that reason.
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+# Restored to lib.sh's armed default, or every stage from here on is stranded.
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 assert_eq "$(jq -r .schema "$st")" "1" "release_upgrade is additive: the schema does not move"
 # It is NOT part of offline_staged, and the distinction is the whole point: that key describes the
@@ -599,6 +597,19 @@ jq 'del(.staged)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "a marker with no count says null, not a guess"
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...and is still a pending install"
+
+# The SAME boot, and the symlink gone under a toml still saying `ready`: what any live dnf5
+# transaction run in a terminal outside Kempt leaves behind. The harvest cannot demote it yet - no
+# restart has happened - so the gate has to be in what the check publishes. It used to publish it,
+# and the widget showed "staged" over a stage no restart installs.
+stage_marker boot-t4 61
+KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
+  "a ready stage whose /system-update a live transaction removed is not published as staged"
+assert_exit 0 "...and its marker is kept, for the doctor to explain" -- test -f "$marker"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" \
+  "...while the same stage with its symlink in place is still a pending install"
 
 # THE STUCK STAGE FROM A REAL BOX. A transaction that was downloaded and never armed installs on
 # no restart, so it is not a pending install and must not be published as one. The marker stays:
@@ -641,7 +652,7 @@ stage_marker boot-before-reboot 61
 "$KEMPT" check >/dev/null
 assert_exit 0 "an untouched transaction after a reboot is still pending" -- test -f "$marker"
 assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and is still published as one"
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
 rm -f "$marker" "$pre"
 
 # No marker at all: an offline transaction somebody else staged is not Kempt's to announce.
@@ -724,6 +735,7 @@ assert_eq "$(jq -Sc . "$marker")" "$inflight_marker" "...and the marker is left 
 # never will: only `dnf5 offline reboot` makes that symlink again. The popup said "installs on the
 # next restart" after every restart, forever, and `kempt doctor` exited 0 the whole time.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
 before_dead="$(events_since 'offline stage cannot install')"
 stage_marker boot-before-reboot 61
 : > "$notify_log"
@@ -755,6 +767,7 @@ rm -f "$marker" "$pre"
 
 rm -f "$marker" "$pre"
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"   # armed again: both halves
 
 # --- the hold that arrived after the stage, published for every surface --------------------------
 # The trap this closes, in one sequence: stage 83 packages, learn something about the kernel, run
@@ -939,7 +952,7 @@ KEMPT_DNF_INSTALLED_CMD="$TESTTMP/moved-installed" KEMPT_BOOT_ID=boot-new "$KEMP
 assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
   "...exactly once, not once per check for as long as the stage waits"
 rm -f "$marker" "$moved_pre"
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
 
 # --- the check lock is not handed to the helpers ------------------------------------------------
 # bash sets no FD_CLOEXEC and a flock lives on the open file description, so it is held while ANY

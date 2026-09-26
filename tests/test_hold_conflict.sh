@@ -221,6 +221,13 @@ assert_eq "$(holds_for dnf | wc -l)" "0" "...and the hold really is gone"
 relup_out="$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" hold_stderr unhold dnf:curl)"
 assert_eq "$relup_out" "" \
   "no claim about a staged update once a release upgrade has replaced it"
+# ...nor over a stage a live dnf5 transaction outside Kempt left stranded: `ready`, with the
+# /system-update symlink gone, installs on no restart, so it cannot have missed anything either.
+: > "$KEMPT_CONFIG_DIR/holds"
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null
+stranded_out="$(KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" hold_stderr unhold dnf:curl)"
+assert_eq "$stranded_out" "" "no claim about a staged update whose /system-update is gone"
 # The same command without the upgrade still warns, so the silence above is the guard and not a
 # broken fixture.
 : > "$KEMPT_CONFIG_DIR/holds"

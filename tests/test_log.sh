@@ -187,7 +187,7 @@ jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$KEMPT_STATE_DIR/offline
 cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"     # the transaction applied during boot
 # ...and applying it removed dnf5's transaction with it, which is the other half of "applied":
 # a moved package set with the transaction still armed is something else having moved it.
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
+export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
 : > "$EV"
 "$KEMPT" check >/dev/null
 assert_eq "$(events_like '^.* harvest applied ')" "1" \

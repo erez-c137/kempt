@@ -108,11 +108,14 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 simulate_reboot() {
   local m="$KEMPT_STATE_DIR/offline_staged.json"
   export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
+  export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
   [[ -f "$m" ]] || return 0
   jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
 }
 # ...and back to a box carrying an armed transaction, for the blocks that stage again afterwards.
-transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"; }
+# Both halves, lib.sh's default pair: the `ready` toml and the /system-update symlink.
+transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+                      export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"; }
 # A Fedora RELEASE upgrade, stored in the same file and armed the same way. The fixture's keys are
 # dnf5's own output, captured from `dnf5 system-upgrade download --releasever=45` on Fedora 44.
 release_upgrade_staged() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"; }

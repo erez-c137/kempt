@@ -90,11 +90,14 @@ sandbox() {  # fresh dirs per test file; call first
   # openldap sees a conflict warning. Files that need a different transaction (or none) point the
   # seam somewhere else themselves.
   export KEMPT_OFFLINE_TXJSON="$FIXTURES/offline-transaction-full.json"
-  # Pointed at a path that does not exist, which is the opposite pin to the toml above and the right
-  # one: `kempt doctor` lstats this, so unset it would read the REAL /system-update and a developer
-  # box with a stage armed would grow a doctor FAIL that no test asked for. "No symlink" is also the
-  # state of every box that has not just staged something. Files that need one make their own.
-  export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+  # The other half of the same armed stage, and PRESENT by default for the reason the toml is
+  # `ready`: armed is both halves, and every reader that publishes a stage asks for both. A `ready`
+  # toml with no symlink is `stranded` - what a live dnf5 transaction outside Kempt leaves - so a
+  # missing link here would turn every staging test into a stale-stage test. Per-test, never the
+  # REAL /system-update, which `kempt doctor` lstats. Files that need it gone point the seam at
+  # $TESTTMP/no-system-update themselves.
+  ln -sfn "$TESTTMP" "$TESTTMP/system-update"
+  export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
