@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Question or idea
+    url: https://github.com/erez-c137/kempt/discussions
+    about: Ask how something works, or float an idea before it becomes an issue.
   - name: Security vulnerability
     url: https://github.com/erez-c137/kempt/security/advisories/new
     about: Report it privately, as SECURITY.md describes.
