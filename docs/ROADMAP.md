@@ -138,6 +138,11 @@ package stays ready for review at every release.
 - Other desktops, through a StatusNotifierItem tray app on the same command-line tool.
 - Firmware through fwupd, possibly. Firmware fails differently from packages, so it waits until the
   distribution backends are proven.
+- **dnf5daemon as an optional backend**, for live download and install progress in the popup.
+  Kempt runs dnf5 directly today, because dnf5daemon is not installed by default on Fedora KDE, it
+  cannot say whether a restart is needed or which packages are held, and its permissions are
+  broader than the one-user rule Kempt installs. This moves up if people ask for progress in the
+  popup, or if Fedora starts installing dnf5daemon by default.
 - Replacing the deprecated `Plasma5Support.DataSource` when KDE ships its successor. It is used in
   one QML file only.
 - Whatever the first outside users ask for most.
