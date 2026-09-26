@@ -146,6 +146,16 @@ grep -q 'mkdir -p -m 0755 /usr/local/libexec' <<<"$out" \
   && echo "ok: creates /usr/local/libexec with an explicit mode (a fresh Fedora box has none)" \
   || { echo "FAIL: mkdir -p -m 0755 missing"; _fail=1; }
 assert_eq "$(grep -c '^pkexec' <<<"$out")" "1" "one pkexec prompt for the whole root install"
+# ...and pkexec is handed bash by its ABSOLUTE path, on both the install and the uninstall step.
+# pkexec resolves a bare name through the caller's PATH, where ~/.local/bin comes first on Fedora.
+# (The commands inside the root script need no such care: pkexec runs them with its own safe PATH.)
+assert_eq "$(grep '^pkexec' <<<"$out" | grep -vc '^pkexec /usr/bin/bash -c ')" "0" \
+  "the root install runs /usr/bin/bash, never a bash found on the caller's PATH"
+uninst_out="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_eq "$(grep -c '^pkexec /usr/bin/bash -c ' <<<"$uninst_out")" "1" \
+  "the root uninstall runs /usr/bin/bash too"
+# The uninstall above removed the CLI symlink the next block checks, so put it back the same way.
+KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" >/dev/null 2>&1 || true
 
 # Real mode is also what a user runs to UPDATE an install, and it must say that the checkout
 # stays load-bearing (only the root helpers are copies).

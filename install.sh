@@ -212,8 +212,10 @@ main() {
     # The $1..$4 are the ROOT shell's positional parameters, filled from the arguments below. They
     # must NOT expand here: interpolating a checkout path into a script that runs as root is the
     # injection this form exists to prevent.
+    # /usr/bin/bash in full: pkexec finds a bare name through the caller's PATH, where ~/.local/bin
+    # comes first on Fedora. The commands inside run with pkexec's own safe PATH.
     # shellcheck disable=SC2016
-    run pkexec bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
+    run pkexec /usr/bin/bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
       || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
     echo "Kempt uninstalled (config/state in ~/.config/kempt, ~/.local/state/kempt left in place;"
@@ -251,8 +253,9 @@ main() {
   # honours it, so `umask 000` would leave the directory holding a root-exec'd helper 0777.
   # $1..$3 belong to the ROOT shell and must survive this file unexpanded; see the uninstall
   # branch above for why interpolating them instead would be the bug.
+  # /usr/bin/bash in full, for the reason given in the uninstall branch.
   # shellcheck disable=SC2016
-  run pkexec bash -c 'mkdir -p -m 0755 /usr/local/libexec \
+  run pkexec /usr/bin/bash -c 'mkdir -p -m 0755 /usr/local/libexec \
   && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
     "$ROOT/libexec/kempt-refresh" "$ROOT/libexec/kempt-apply" "$ROOT/polkit/$POLICY" \

@@ -38,7 +38,7 @@ Fixes ship as a patch release and a COPR rebuild, so they arrive through `dnf up
 
 Nothing Kempt installs is setuid. Two helper scripts run as root, through `pkexec` and two polkit
 actions. The only other root commands are behind their own password prompts: the `install` and
-`rm` in `kempt enable-passwordless` and `kempt disable-passwordless`, and one `pkexec bash -c` in
+`rm` in `kempt enable-passwordless` and `kempt disable-passwordless`, and one `pkexec /usr/bin/bash -c` in
 `install.sh`. Every installed file is mode 0755 or 0644.
 
 ## Scope

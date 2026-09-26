@@ -147,9 +147,12 @@ polkit_dst_rejected '/usr/lib/udev/rules.d/99-kempt.rules' \
 : > "$TESTTMP/pkexec-calls"
 assert_exit 0 "through pkexec, enable installs to the fixed destination" -- \
   env KEMPT_PKEXEC="$TESTTMP/pkexec-record" "$KEMPT" enable-passwordless
+# The command is pinned by its ABSOLUTE path as well. pkexec looks a bare name up in the CALLER's
+# PATH before it drops the environment, and Fedora puts ~/.local/bin first, so a bare `install`
+# runs as root whatever the user (or anything running as the user) has put there.
 assert_eq "$(cat "$TESTTMP/pkexec-calls")" \
-  "install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
-  "...and that destination is exactly /etc/polkit-1/rules.d/49-kempt.rules"
+  "/usr/bin/install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
+  "...and that destination is exactly /etc/polkit-1/rules.d/49-kempt.rules, through /usr/bin/install"
 : > "$TESTTMP/pkexec-calls"
 assert_exit 2 "through pkexec, disable refuses the test setting too" -- \
   env KEMPT_PKEXEC="$TESTTMP/pkexec-record" KEMPT_RULES_DST="$TESTTMP/race/d/49-kempt.rules" "$KEMPT" disable-passwordless
@@ -160,8 +163,8 @@ assert_exit 0 "through pkexec, disable still works on the fixed destination" -- 
 # root to remove the file. A box where the directory is searchable and the file is absent answers
 # "was not enabled" without asking; both are correct, and only the path asked about is pinned.
 if [[ -s "$TESTTMP/pkexec-calls" ]]; then
-  assert_eq "$(cat "$TESTTMP/pkexec-calls")" "rm -f /etc/polkit-1/rules.d/49-kempt.rules" \
-    "...removing exactly /etc/polkit-1/rules.d/49-kempt.rules"
+  assert_eq "$(cat "$TESTTMP/pkexec-calls")" "/usr/bin/rm -f /etc/polkit-1/rules.d/49-kempt.rules" \
+    "...removing exactly /etc/polkit-1/rules.d/49-kempt.rules, through /usr/bin/rm"
 else
   grep -q 'was not enabled' "$TESTTMP/last_output" \
     && echo "ok: ...and reports the fixed destination as not enabled" \
@@ -226,7 +229,7 @@ chmod +x "$TESTTMP/pkexec-swap"
 assert_exit 0 "enable-passwordless succeeds through a pkexec that reads its source as root would" -- \
   env TMPDIR="$TESTTMP/swap-tmp" KEMPT_PKEXEC="$TESTTMP/pkexec-swap" "$KEMPT" enable-passwordless
 assert_eq "$(cat "$TESTTMP/swap-argv")" \
-  "install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
+  "/usr/bin/install -m 0644 -o root -g root /dev/stdin /etc/polkit-1/rules.d/49-kempt.rules" \
   "root's install(1) reads the rule from stdin, not from a file path"
 if cmp -s "$TESTTMP/out-good" "$TESTTMP/swap-installed"; then
   echo "ok: ...and what it installs is byte for byte the rule that was checked, after a same-user rewrite"

@@ -16,7 +16,7 @@ Two more commands run as root, only when you run them. Each raises its own `pkex
 pkexec's generic authentication, outside Kempt's actions. `kempt enable-passwordless` runs
 `install(1)` to write one polkit rule, and `kempt disable-passwordless` runs `rm -f` on that file.
 Both are fixed to `/etc/polkit-1/rules.d/49-kempt.rules` (see
-[Passwordless mode](#passwordless-mode)). A checkout install also runs one `pkexec bash -c` from
+[Passwordless mode](#passwordless-mode)). A checkout install also runs one `pkexec /usr/bin/bash -c` from
 `install.sh` (see [Accepted limitations](#accepted-limitations)).
 
 The helpers are `/usr/libexec/kempt-{refresh,apply}` from the package and
@@ -297,9 +297,12 @@ Rendering the rule is hardened against a template substitution that breaks it:
   Re-indenting the template is fine; changing what it says means changing the string in
   `lib/common.sh` too.
 - **Root installs the bytes that were checked.** The rule is rendered and checked in memory, then
-  piped to `pkexec install -m 0644 -o root -g root /dev/stdin`. No rendered file exists on disk
-  for a process running as you to rewrite while the dialog waits. pkexec asks for the password
-  through its agent or the terminal, separate from stdin.
+  piped to `pkexec /usr/bin/install -m 0644 -o root -g root /dev/stdin`. No rendered file exists
+  on disk for a process running as you to rewrite while the dialog waits. pkexec asks for the
+  password through its agent or the terminal, separate from stdin.
+- **Root commands are named by full path.** pkexec finds a bare command name through your `PATH`,
+  where `~/.local/bin` comes first. Kempt hands it `/usr/bin/install`, `/usr/bin/rm` and
+  `/usr/bin/bash`.
 - **The destination is fixed**, because it is handed to a root `install(1)` and a root `rm`.
   polkit reads **four** rules directories, in this order (polkit(8)):
 
@@ -350,7 +353,7 @@ left in place.
 - **Flatpak is system scope only** in v1, so a per-user app is neither counted nor updated.
 - **Holds apply to Kempt only.** They are Kempt's own exclusion list; a manual
   `sudo dnf5 upgrade` ignores them.
-- **`install.sh` runs one `pkexec bash -c`.** Every repo path is passed as a positional argument,
+- **`install.sh` runs one `pkexec /usr/bin/bash -c`.** Every repo path is passed as a positional argument,
   outside the script text. A checkout path containing a quote cannot break or inject into the root
   command.
 - **Inside the retention window, an armed offline transaction can be replaced without a prompt.**

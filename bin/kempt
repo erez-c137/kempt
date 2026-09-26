@@ -2618,7 +2618,9 @@ cmd_enable_passwordless() {
   # agent or the terminal, not on stdin, so the pipe carries the rule and nothing else.
   # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty KEMPT_PKEXEC means "no wrapper" (test
   # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
-  if ! printf '%s\n' "$rule" | ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} install -m 0644 -o root -g root /dev/stdin "$RULES_DST"; then
+  # Full paths here and in disable: pkexec finds a bare name through the caller's PATH, where
+  # ~/.local/bin comes first on Fedora.
+  if ! printf '%s\n' "$rule" | ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} /usr/bin/install -m 0644 -o root -g root /dev/stdin "$RULES_DST"; then
     log_event "passwordless enable rc=1"
     echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
   fi
@@ -2637,7 +2639,7 @@ cmd_disable_passwordless() {
     echo "passwordless was not enabled"; return 0
   fi
   local rc=0
-  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} rm -f "$RULES_DST" || rc=$?
+  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} /usr/bin/rm -f "$RULES_DST" || rc=$?
   log_event "passwordless disable rc=$rc"
   # The rc is still the command's own: captured only so the event can name it, then handed back
   # unchanged - exactly what errexit would have done here.
