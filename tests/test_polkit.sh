@@ -73,6 +73,31 @@ assert_eq "$(render_stdout "$TESTTMP/tmpl-widened")" "" "widened render prints n
 assert_exit 2 "render refuses a template carrying a second rule block" \
   render_passwordless_rule "$TESTTMP/tmpl-tworules"
 
+# (b3) code hidden behind a carriage return inside a comment line → refused. The self-check drops
+# comment lines by splitting on \n, but polkit's JavaScript parser also ends a line at \r (and at
+# U+2028/U+2029), so everything after the \r is live code that the check never compared.
+awk '/^polkit.addRule/ { print; printf "    // note\r    if (subject.user == \"@USER@\") return polkit.Result.YES;\n"; next } { print }' \
+    "$RULES_IN" > "$TESTTMP/tmpl-cr"
+assert_exit 2 "render refuses code hidden after a carriage return in a comment" -- \
+  render_passwordless_rule "$TESTTMP/tmpl-cr"
+grep -qF 'refusing' "$TESTTMP/last_output" \
+  && echo "ok: ...and says it is refusing" \
+  || { echo "FAIL: the CR refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
+assert_eq "$(render_stdout "$TESTTMP/tmpl-cr")" "" "CR-hidden render prints nothing"
+# ...and the same trick with U+2028 LINE SEPARATOR, which is non-ASCII rather than a control byte.
+awk '/^polkit.addRule/ { print; printf "    // note\342\200\250    if (subject.user == \"@USER@\") return polkit.Result.YES;\n"; next } { print }' \
+    "$RULES_IN" > "$TESTTMP/tmpl-ls"
+assert_exit 2 "render refuses code hidden after a Unicode line separator in a comment" -- \
+  render_passwordless_rule "$TESTTMP/tmpl-ls"
+# ...and any other control byte, even one that hides nothing today: the rule is plain ASCII text.
+{ printf '// form feed \f here\n'; cat "$RULES_IN"; } > "$TESTTMP/tmpl-ff"
+assert_exit 2 "render refuses a control byte anywhere in the rule" -- \
+  render_passwordless_rule "$TESTTMP/tmpl-ff"
+# Tabs stay allowed: indenting the template with them is a reflow, not a change.
+sed 's/^    /\t/' "$RULES_IN" > "$TESTTMP/tmpl-tabs"
+assert_exit 0 "render accepts a template indented with tabs" -- \
+  render_passwordless_rule "$TESTTMP/tmpl-tabs"
+
 # (c) the shipped template → accepted, and what it prints is exactly what should be installed
 assert_exit 0 "render accepts the shipped template" \
   render_passwordless_rule "$RULES_IN"

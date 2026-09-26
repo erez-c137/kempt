@@ -286,6 +286,11 @@ Rendering the rule is hardened against a template substitution that breaks it:
 - The name must match `^[a-z_][a-z0-9._-]*$`, which also keeps substitution metacharacters out.
   Any other name aborts, with an instruction to install the file by hand.
 - Substitution uses `awk -v`, which treats the value as plain text.
+- **The rendered rule must be plain ASCII.** Any byte other than printable ASCII, tab and newline
+  writes nothing and exits 2. The comparison below splits lines only at newlines, but polkit's
+  JavaScript parser also ends a line at a carriage return and at the Unicode line and paragraph
+  separators. Code after one of those inside a comment would be a comment to the check and live
+  code to polkit.
 - **The rendered rule must equal the one rule this command may install.** Comment lines are
   stripped and the rest is collapsed to one whitespace-normalised line. That line is compared with
   a single string in `lib/common.sh`. Anything else, one token different or one clause more, writes

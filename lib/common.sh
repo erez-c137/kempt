@@ -547,6 +547,15 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
     echo "unexpected username: $u - install the rules file manually; see polkit/49-kempt.rules.in" >&2
     return 2; }
   text="$(awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl")" || return 2
+  # Printable ASCII, tab and newline only, checked before the comment strip below. That strip
+  # splits lines on \n alone, but polkit's JavaScript parser also ends a line at \r, U+2028 and
+  # U+2029, so `// note<CR>if (...) return polkit.Result.YES;` is one comment line to the check
+  # and live code to polkit. Refusing every other control byte and all non-ASCII closes that class
+  # instead of listing its members; the shipped template is plain ASCII.
+  if LC_ALL=C grep -q $'[^\t -~]' <<<"$text"; then
+    echo "rendered rule contains a control or non-ASCII character - refusing" >&2
+    return 2
+  fi
   # Self-check by EXACT MATCH against the rule this function is allowed to produce, never by
   # grepping for the clauses that ought to be in it. Greps catch subtraction and miss ADDITION: a
   # template carrying the scope clause, the action id and a single addRule block passes every such
