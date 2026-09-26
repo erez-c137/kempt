@@ -455,7 +455,10 @@ apply_flatpak_updates() {
       # ONE capture, read twice below: the apps to name individually, and whether any runtime is
       # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
       # answer that cannot have changed in between.
-      pending_fp="$(flatpak_check 2>/dev/null || true)"
+      # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
+      # and still reported flatpak `ok`. Failed, like the installed lookup above.
+      pending_fp="$(flatpak_check 2>/dev/null)" \
+        || { pending_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
       while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         grep -qxF "$id" <<<"$held_fp" && continue

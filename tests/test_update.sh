@@ -259,7 +259,21 @@ assert_eq "$(grep '^FLATPAK' "$WORLD/apply-calls")" "FLATPAK --noninteractive -y
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
   "...and no app is named, because every one of them is held"
 
+# ...and the lookup that builds that per-app list FAILING is not "nothing pending". It used to be
+# swallowed to an empty list, so a run with a flatpak hold and a broken remote updated no app and
+# reported flatpak "ok". It is the error it is, the way the installed lookup beside it already was.
 "$KEMPT" unhold flatpak:net.mkiol.SpeechNote
+: > "$WORLD/apply-calls"
+fl_rc=0
+fl_err="$(KEMPT_FLATPAK_REMOTE_CMD=false "$KEMPT" update --surface=background 2>&1 >/dev/null)" || fl_rc=$?
+fl_hist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .backends.flatpak.status "$fl_hist")" "failed" \
+  "a flatpak hold with a failed update lookup reports flatpak failed, not ok"
+assert_eq "$fl_rc" "1" "...and fails the run, as a failed dnf lookup does"
+assert_contains "$fl_err" "flatpak update lookup failed" "...saying which lookup failed"
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls" || true)" "0" "...and runs flatpak on nothing it could not list"
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "...on a run that did reach it"
+
 "$KEMPT" unhold flatpak:org.gimp.GIMP
 
 # A typo'd flag must never be treated as "run with the configured defaults".
