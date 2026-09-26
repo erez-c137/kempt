@@ -692,7 +692,10 @@ cmd_update() {
   # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
   # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
-  is_true "$auto" || { surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
+  # The one exception is a stage asked for at a terminal (what `kempt run --surface=offline` opens
+  # with auto_accept off): dnf5 asks before staging there, and turning a request to install on the
+  # next restart into a live update is the surprise this guard exists to prevent.
+  is_true "$auto" || { [[ "$surface" == "offline" && -t 0 && -t 1 ]] || surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
   [[ "$surface" == "terminal" ]] && KEMPT_LIVE_OUTPUT=1
   export KEMPT_LIVE_OUTPUT
 
@@ -1252,8 +1255,11 @@ cmd_run() {
     # configured surface itself: without it, a terminal asked for by name on a box configured to
     # stage would stage in that window. Nothing is added without one, so the default launch is
     # the command it always was.
+    # A stage asked for by name stays a stage: with auto_accept off it runs in this window, where
+    # dnf5 can show the transaction and ask, and never turns into a live update.
     local upd_arg=""
-    [[ -n "$named_set" ]] && upd_arg=" --surface=terminal"
+    if [[ "$named" == "offline" ]]; then upd_arg=" --surface=offline"
+    elif [[ -n "$named_set" ]]; then upd_arg=" --surface=terminal"; fi
     if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update$upd_arg"; return 0; fi
     # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
     # watcher (plasmoid/contents/ui/main.qml, pollWatch), or a three-hour guard. So EVERY exit

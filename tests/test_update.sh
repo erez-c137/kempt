@@ -285,6 +285,25 @@ assert_eq "$(jq -r .surface "$hs")" "terminal" "unknown surface falls back to te
 "$KEMPT" update --surface=offline >/dev/null
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: offline stages the transaction" || { echo "FAIL: offline stage"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: offline also upgraded live"; _fail=1; } || echo "ok: offline did not upgrade live"
+# auto_accept off: a stage asked for at a terminal stays a stage, without -y so dnf5 asks first.
+# Without a terminal nothing can answer, so it is still turned into a (prompting) live terminal run.
+pty_run() { python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$@"; }
+"$KEMPT" config set auto_accept false
+: > "$WORLD/apply-calls"
+pty_run "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || true
+assert_eq "$(grep -c '^APPLY dnf-offline-stage' "$WORLD/apply-calls")" "1" \
+  "auto_accept=false at a terminal: --surface=offline stages"
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and never upgrades live"
+assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || true
+assert_eq "$(grep -c '^APPLY dnf-offline-stage' "$WORLD/apply-calls")" "0" \
+  "auto_accept=false with no terminal: nothing can answer, so no stage is attempted"
+"$KEMPT" config set auto_accept true
+"$KEMPT" unstage >/dev/null 2>&1 || true
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline >/dev/null
+
 marker="$KEMPT_STATE_DIR/offline_staged.json"
 assert_exit 0 "offline marker written" -- test -f "$marker"
 pre="$(jq -r .pre_snapshot "$marker")"

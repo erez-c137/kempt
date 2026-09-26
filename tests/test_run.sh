@@ -77,8 +77,10 @@ assert_eq "$("$KEMPT" run --print-command --surface=terminal)" "terminal: $KEMPT
 assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=popup)" \
   "...a surface is read the way the setting is, trimmed and case-folded"
 "$KEMPT" config set auto_accept false
-assert_eq "$("$KEMPT" run --print-command --surface=offline)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
-  "...and auto_accept=false still forces the terminal, the one surface that can ask"
+assert_eq "$("$KEMPT" run --print-command --surface=offline)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=offline" \
+  "...auto_accept=false stages in a terminal, the one surface that can ask, and never updates live"
+assert_eq "$("$KEMPT" run --print-command --surface=popup)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
+  "...and sends any other named surface to a live terminal"
 "$KEMPT" config set auto_accept true
 # A surface named on the command line is a request, not a stored value, so a typo is refused
 # rather than quietly turned into a terminal the way a mistyped setting is.
