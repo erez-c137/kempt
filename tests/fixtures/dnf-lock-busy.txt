@@ -1,0 +1,3 @@
+Failed to obtain rpm transaction lock. Another transaction is in progress.
+error: can't create transaction lock on /usr/lib/sysimage/rpm/.rpm.lock (Resource temporarily unavailable)
+Unable to lock package database! There is probably another application using it already.

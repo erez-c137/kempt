@@ -1029,7 +1029,7 @@ assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1'
 # --no-flatpak keeps the retry count scoped to ONE apply call (both backends would retry).
 cat > "$TESTTMP/apply-stub" <<'STUB'
 #!/usr/bin/env bash
-echo "cannot open lock file: held by another process" >&2; exit 1
+echo "Failed to obtain rpm transaction lock. Another transaction is in progress." >&2; exit 1
 STUB
 export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's retries only
@@ -1608,7 +1608,7 @@ rm -f "${decoys[@]}"
 cat > "$TESTTMP/apply-stub" <<'STUB'
 #!/usr/bin/env bash
 echo "APPLY $@" >> "$WORLD/apply-calls"
-[[ "$1" == dnf-upgrade ]] && echo "cannot open lock file: held by another process" >&2
+[[ "$1" == dnf-upgrade ]] && echo "Failed to obtain rpm transaction lock. Another transaction is in progress." >&2
 exit 1
 STUB
 cat > "$TESTTMP/fp-update-stub" <<'STUB'
@@ -1671,6 +1671,32 @@ chmod +x "$TESTTMP/fp-update-stub"
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
   "an UNlock failure is not a lock to wait on, and is tried once"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+
+# --- dnf's side of the same predicate, driven from the tools' own wordings (sources in
+# tests/fixtures/MANIFEST.md). A busy line is retried. A line that only names a lock, such as a
+# dependency error about kscreenlocker, is tried once and never reported as a busy package system.
+dnf_lock_case() {  # line expected_attempts label
+  printf '%s\n' "$1" > "$TESTTMP/dnf-lock-line"
+  cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+cat "$TESTTMP/dnf-lock-line" >&2
+exit 1
+STUB
+  chmod +x "$TESTTMP/apply-stub"
+  : > "$WORLD/apply-calls"
+  rm -f "$KEMPT_STATE_DIR"/logs/*.log
+  # </dev/null: the loops below feed this function from the fixture on stdin.
+  "$KEMPT" update --surface=background --no-flatpak </dev/null >/dev/null 2>&1 || true
+  assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "$2" "$3: $1"
+}
+while IFS= read -r line; do
+  dnf_lock_case "$line" 3 "a real lock-held wording is retried"
+done < "$FIXTURES/dnf-lock-busy.txt"
+while IFS= read -r line; do
+  dnf_lock_case "$line" 1 "a failure that only NAMES a lock is tried once"
+done < "$FIXTURES/dnf-lock-not-busy.txt"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
 # --- double staging leaves ONE pre-snapshot: only the newest can ever be harvested, so an
 # un-swept copy is dead weight that accumulates one file per staged run, forever.

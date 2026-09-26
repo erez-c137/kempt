@@ -513,3 +513,23 @@ does to a transaction Kempt builds, and it is the fixture that lets a test asser
 between "this package is in the staged set" and "this package is not" against real dnf5 output
 rather than an edit of it. The `--exclude` is recorded in the matching toml's `cmd_line`, which is
 how the re-stage is known to be the one described here.
+
+## tests/fixtures/dnf-lock-busy.txt, dnf-lock-not-busy.txt
+**Hand-written from the tools' own message strings**, read 2026-09-26 with `strings` on this box
+(dnf5 5.4.5.0, rpm 6.0.2, PackageKit 1.4.0). Losing a lock for real means racing a live
+transaction, so each line is the message with its placeholders filled in.
+`tests/test_update.sh` feeds each line to the apply stub on its own.
+
+`dnf-lock-busy.txt` holds failures that mean another program has the package system. Kempt retries
+them:
+- `Failed to obtain rpm transaction lock. Another transaction is in progress.` from libdnf5, as is.
+- `error: can't create %s lock on %s (%s)` from librpm. The fill is rpm's `transaction`, this box's
+  `%{_rpmlock_path}` and the text for EAGAIN.
+- `Unable to lock package database! There is probably another application using it already.` from
+  PackageKit, as is.
+
+`dnf-lock-not-busy.txt` holds lines Kempt tries once. Four are dependency and unpack failures for
+real Fedora packages with "lock" in the name (`kscreenlocker`, `xscreensaver-lock-extras`). They
+follow the shape of dnf5's resolver and rpm output, and the versions are made up. The fifth is
+libdnf5's `Waiting for a lock on the system repository` line, as is. dnf5 prints it and then waits
+for the lock, so it never explains a failure.

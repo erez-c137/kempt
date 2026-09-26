@@ -1,0 +1,5 @@
+Problem: package kscreenlocker-6.4.5-1.fc44.x86_64 from updates requires libKScreenLocker.so.6()(64bit), but none of the providers can be installed
+  - package xscreensaver-lock-extras-6.10-1.fc44.x86_64 from fedora requires xscreensaver-base = 1:6.10-1.fc44, but none of the providers can be installed
+  - file /usr/libexec/kscreenlocker_greet from install of kscreenlocker-6.4.5-1.fc44.x86_64 conflicts with file from package xscreensaver-lock-extras-6.10-1.fc44.x86_64
+Transaction failed: Rpm transaction failed: unpacking of archive failed on file /usr/libexec/kscreenlocker_greet
+Waiting for a lock on the system repository; another process is currently accessing it. Use the "--skip-file-locks" option to bypass the lock.
