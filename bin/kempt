@@ -2689,7 +2689,8 @@ usage: kempt <command>
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules
   update                run the update now (options from config; --no-flatpak, --surface=X override)
-  run [--print-command] launch update per configured surface (what the widget calls)
+  run [--print-command] launch update per configured surface (what the widget calls;
+                        --surface=X for one run on another surface)
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)

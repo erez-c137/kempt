@@ -7,7 +7,8 @@ check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh 
                       metadata now, ignoring the 3-hour interval but never the battery or
                       metered-connection rules
 update                run the update now (options from config; --no-flatpak, --surface=X override)
-run [--print-command] launch update per configured surface (what the widget calls)
+run [--print-command] launch update per configured surface (what the widget calls;
+                      --surface=X for one run on another surface)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
@@ -288,7 +289,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command]
+kempt run [--print-command] [--surface=terminal|popup|background|offline]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. This is what **Update Now**
@@ -309,6 +310,11 @@ detached: kempt update (surface=background)
 ```
 
 `--print-command` shows the launch command only. The old name `--dry-run` still works for now.
+
+`--surface=X` runs this one update on another surface, whatever the setting says. **Install on
+Next Restart** calls `kempt run --surface=offline`. An unknown surface is refused with exit code 2.
+With `auto_accept=false`, a stage opens in a terminal so dnf5 can ask first, and any other surface
+becomes a live update in a terminal.
 
 Exit codes:
 
