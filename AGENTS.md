@@ -23,6 +23,7 @@ Nothing is setuid, and the CLI never runs as root.
 | `lib/common.sh` | State, config, holds, locks, the staged-update marker and the `KEMPT_*` seams. |
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager. `docs/architecture.md` explains how to add one. |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Start here for a security review. |
+| `libexec/kempt-flatpak-unused` | The one Python file. It lists unused Flatpak runtimes and runs as the user. |
 | `plasmoid/contents/ui/logic.js` | Turns the state file into what the widget shows. It has no Qt and no I/O, so Node can run it in the tests. |
 | `plasmoid/contents/ui/*.qml` | The widget itself, mostly bindings to `logic.js`. |
 | `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |

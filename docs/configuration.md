@@ -159,6 +159,8 @@ day.
 | `~/.local/state/kempt/last_refresh` | Timestamp of the last metadata refresh, for the 3-hour interval and `metadata_refreshed` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
+| `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
+| `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serialises updates and `check.lock` serialises checks. `writer.lock` serialises `config set`, `hold` and `unhold`, so two at once cannot lose a write to `config` or `holds` |
 
