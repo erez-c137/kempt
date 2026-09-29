@@ -253,9 +253,9 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim"
 
-# The values a key with a FIXED set accepts. Only `surface` has one. The booleans take anything and
+# The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
 # worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
 # the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
@@ -263,6 +263,7 @@ KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widg
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
     surface) printf '%s\n' "terminal popup background offline" ;;
+    reclaim) printf '%s\n' "ask automatic off" ;;
   esac
 }
 
@@ -306,7 +307,24 @@ kempt_default() {  # key → default ("" if unknown)
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
+    # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
+    # reclaim_mode for how a value is read.
+    reclaim) echo ask ;;
     *) echo "" ;;
+  esac
+}
+
+# The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
+# reads as `ask`: a typo must never turn into removing things without asking, and it must not
+# silently hide space the person could free either. Case-folded like is_true, because the file is
+# edited by hand.
+reclaim_mode() {  # → ask | automatic | off
+  local v
+  v="$(config_get reclaim 2>/dev/null)" || v=""
+  v="${v,,}"
+  case "$v" in
+    automatic|off) printf '%s\n' "$v" ;;
+    *) echo ask ;;
   esac
 }
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
