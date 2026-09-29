@@ -655,7 +655,7 @@ _MAIN = _code("main.qml")
 
 p.check("the open really does announce itself, from the function a real expand calls",
         "if (!updating && Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now()))"
-        " doCheck();"
+        " doCheck(true);"
         " root.popupShown(); }" in _MAIN, True)
 p.check("...and the popup is listening to that signal on the widget it was handed",
         "Connections { target: popup.plasmoidItem"
