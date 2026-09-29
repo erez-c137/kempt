@@ -198,6 +198,32 @@ reclaim_record() {  # via digest
   esac
 }
 
+# reclaim=automatic: remove the set the last check offered, after a successful run. Called AFTER
+# the run's fp-after snapshot, so runtimes removed here are not reported as removed by the update,
+# and only when every ref is in the run's fp-before snapshot (reclaim_remove). A removal that
+# fails or needs an administrator is recorded once (reclaim-last.json, then status in state.json)
+# and this step skips while the same set is on offer, so it is never a failure on every run.
+# Sets RECLAIM_RUN_JSON to {refs, bytes, status} for the history entry, or empty when nothing was
+# attempted. Output goes to the run log. Never fails: the run is over.
+reclaim_after_run() {  # log_file
+  RECLAIM_RUN_JSON=""
+  reclaim_as_root && return 0
+  flatpak_present || return 0
+  [[ "$(reclaim_effective_mode)" == automatic ]] || return 0
+  local offer digest
+  offer="$(jq -r -n '[inputs][0].reclaim | select(type == "object")
+                     | select(.status != "needs_auth" and .status != "failed") | .digest // ""' \
+           "$STATE_FILE" 2>/dev/null)" || return 0
+  digest="$offer"
+  [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
+  run_heading "$1" "Unused Flatpak runtimes"
+  reclaim_remove update "$digest" "" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
+  RECLAIM_RUN_JSON="$(jq -cn --argjson g "$RECLAIM_GONE" --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
+    '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
+    || RECLAIM_RUN_JSON=""
+  return 0
+}
+
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
@@ -1221,6 +1247,7 @@ cmd_update() {
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
   # updates both, so the check asks about both and the summary reports both.
   local fp_status=skipped fp_eol='[]'   # apply_flatpak_updates writes these; see its header
+  local RECLAIM_RUN_JSON=""              # reclaim_after_run writes this
   apply_flatpak_updates
   # snapshots (after) + reports
   # Reports must never crash cmd_update after the system already changed - degrade to empty +
@@ -1267,6 +1294,8 @@ cmd_update() {
     if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
       fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
         || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed - summary incomplete"; }
+      # Only here: after the snapshot the report is built from, and only on a run that worked.
+      [[ "$status" == ok ]] && { reclaim_after_run "$log" || true; }
     else
       log_warn "$log" "warning: flatpak snapshot after the run failed - summary incomplete"
     fi
@@ -1342,13 +1371,14 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" '
+        --argjson fp_eol "$fp_eol" --argjson fp_reclaimed "${RECLAIM_RUN_JSON:-null}" '
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
-       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}) }}
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}
+                      + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
     || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
@@ -1421,7 +1451,13 @@ cmd_update() {
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       notify "Kempt" "Updates staged - they install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
     elif [[ "$status" == "ok" ]]; then
-      notify "Kempt" "${phrase:-Update finished}$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+      # The space an automatic removal freed, when it freed some: the one moment it is news.
+      local freed_tail=""
+      if [[ -n "$RECLAIM_RUN_JSON" && "${RECLAIM_RESULT:-}" == removed && -n "${RECLAIM_BYTES:-}" \
+            && "${RECLAIM_BYTES:-0}" != 0 ]]; then
+        freed_tail=", ~$(human_bytes "$RECLAIM_BYTES") freed"
+      fi
+      notify "Kempt" "${phrase:-Update finished}$freed_tail$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
       # The same reason the summary and the event line carry: "see the log" is not an answer.
       notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log$notify_tail"

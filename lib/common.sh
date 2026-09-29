@@ -2030,6 +2030,16 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
+    # What reclaim=automatic removed after this run. Only a removal gets a line: a set that changed
+    # or needs an administrator is for the popup to say, once, not for every summary.
+    def sizetext: if . >= 1e9 then ((. / 1e8 | round) / 10 | tostring | if test("[.]") then . else . + ".0" end) + " GB"
+                  elif . >= 1e6 then (. / 1e6 | round | tostring) + " MB"
+                  else (. / 1e3 | round | tostring) + " kB" end;
+    (.backends.flatpak.reclaimed? // null
+     | if type == "object" and .status == "removed" then
+         "Removed " + ((.refs // []) | length | tostring) + " unused Flatpak runtimes"
+         + (if (.bytes | type) == "number" and .bytes > 0 then ", freeing about " + (.bytes | sizetext) else "" end) + "."
+       else empty end),
     heldline,
     shortfall,
     # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
