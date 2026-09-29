@@ -347,6 +347,16 @@ assert_eq "$rc|$(grep -c 'org.example.Big' <<<"$out")" "0|1000" "kempt reclaim -
 cp "$TESTTMP/du-before-big" "$DU_TABLE"; cp "$UNUSED_FX" "$LISTING"; rm -f "$RECLAIM_SIZES_FILE"
 check >/dev/null; age_state 7200; check >/dev/null
 
+# --- a damaged size cache ---------------------------------------------------------------------------
+# The cache is served only when its key matches AND every unused ref has a number in it.
+assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1975000000" "setup: the size cache holds all five"
+for damage in '.sizes[.sizes | keys[0]] = "lots"' 'del(.sizes[.sizes | keys[0]])' '.sizes = []'; do
+  jq "$damage" "$RECLAIM_SIZES_FILE" > "$TESTTMP/sz" && mv "$TESTTMP/sz" "$RECLAIM_SIZES_FILE"
+  rm -f "$STUBS/du.calls"
+  assert_eq "$(check | jq -c '.reclaim | [.offerable_bytes, .status]')|$(cat "$STUBS/du.calls" 2>/dev/null | wc -l)" \
+    '[1975000000,"ok"]|1' "a size cache damaged by $damage is measured again, not served as unknown"
+done
+
 # --- time limits inside the check ------------------------------------------------------------------
 # The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
 # so both together stay well inside it. A stand-in `timeout` records the limit it was given, and
