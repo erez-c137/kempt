@@ -537,7 +537,7 @@ The wording is fixed, so you can search it:
 | `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
-| `reclaim failed rc=<n>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. |
+| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 

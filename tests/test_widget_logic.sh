@@ -2272,6 +2272,8 @@ assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
   '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
   "a cancelled or refused password dialog says nothing was removed"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
   "Flatpak could not remove them. See: kempt log" "...but an older failure is not this press's: the CLI's words"
 assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Nothing was removed. Removing unused runtimes is turned off (reclaim is off).\n', null, $RC_PRESS).text")" \

@@ -409,8 +409,9 @@ error_line_of() {  # stdin: output → one line, empty when there was none
   printf '%s\n' "${line:0:200}"
 }
 
-# The last removal's outcome: {at, via, result, refs, bytes, digest}, or {} when there is none or
-# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
+# The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
+# line, from error_line_of) when there is one; or {} when there is none or the file is damaged.
+# result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object
   local out
   out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
@@ -420,12 +421,13 @@ reclaim_last_read() {  # → one JSON object
 
 # Best-effort, like every write after a system change: a lost outcome costs a sentence in the
 # popup, never the removal's own exit status.
-reclaim_last_write() {  # via result refs-json bytes-or-empty digest
+reclaim_last_write() {  # via result refs-json bytes-or-empty digest [error-line]
   kempt_init_dirs 2>/dev/null || return 0
   jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
-         --arg bytes "$4" --arg digest "$5" \
+         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" \
     '{at:$at, via:$via, result:$result, refs:$refs,
-      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}' 2>/dev/null \
+      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
+     + (if $error == "" then {} else {error: $error} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
   return 0
 }
