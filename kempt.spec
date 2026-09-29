@@ -195,7 +195,7 @@ install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 rm -rf docs/man docs/RELEASING.md docs/ROADMAP.md docs/images/kempt-tray-icon.png
 
 %check
-bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
+bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply
 # The bash half of the test suite, in full, against the pristine copy - the suite asserts
 # the tree as shipped, not the tree as packaged. It needs only bash, jq and coreutils by
 # design - every impure command goes through an environment seam - and the node/PySide6

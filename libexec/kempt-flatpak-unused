@@ -1,0 +1,66 @@
+#!/usr/bin/python3
+# Kempt's read-only list of the Flatpak refs nothing installed uses. Runs as the desktop user,
+# never as root and never through pkexec: for the system installation, libflatpak also counts the
+# CALLING user's own apps as users, so the answer is only right for the person who runs it.
+#
+# Why a library call and not `flatpak uninstall --unused` with no terminal: list_unused_refs() is
+# the same flatpak_dir_list_unused_refs() call that command makes, so the list is exactly what a
+# removal would take, and it needs no prompt that has to answer itself.
+#
+# JSON on stdout:
+#   {"installation": path,
+#    "unused": [{"ref", "commit", "deploy_dir", "eol"}],   eol is the reason string or null
+#    "used":   [{"ref", "commit", "deploy_dir"}]}          every other installed ref
+# The used refs are there for the size estimate: a file an unused ref shares with a used one is
+# not freed, and du can only tell the two apart when it sees both sets of directories.
+#
+# Exit 0 with the JSON, or non-zero with a one-line reason on stderr. Takes no arguments.
+#
+# System installation ONLY, and only the default one, matching backends/flatpak.sh. Never
+# Installation.new_user(): it creates ~/.local/share/flatpak/repo as a side effect.
+import json
+import sys
+
+
+def ref_entry(ref):
+    return {
+        "ref": ref.format_ref(),
+        "commit": ref.get_commit() or "",
+        "deploy_dir": ref.get_deploy_dir() or "",
+    }
+
+
+def main():
+    if len(sys.argv) != 1:
+        print("usage: kempt-flatpak-unused", file=sys.stderr)
+        return 2
+    try:
+        import gi
+        gi.require_version("Flatpak", "1.0")
+        from gi.repository import Flatpak
+    except (ImportError, ValueError) as e:
+        print("cannot load libflatpak from Python: %s" % e, file=sys.stderr)
+        return 3
+    try:
+        inst = Flatpak.Installation.new_system(None)
+        unused = inst.list_unused_refs(None, None)
+        installed = inst.list_installed_refs(None)
+        path = inst.get_path().get_path()
+    except Exception as e:  # GLib.Error, and anything else the bindings raise
+        print("flatpak did not answer: %s" % e, file=sys.stderr)
+        return 1
+    unused_names = set()
+    out_unused = []
+    for ref in unused:
+        entry = ref_entry(ref)
+        entry["eol"] = ref.get_eol() or None
+        unused_names.add(entry["ref"])
+        out_unused.append(entry)
+    out_used = [ref_entry(r) for r in installed if r.format_ref() not in unused_names]
+    json.dump({"installation": path, "unused": out_unused, "used": out_used}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

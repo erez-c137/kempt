@@ -44,7 +44,7 @@ jobs:
             --source-path="$GITHUB_WORKSPACE" \
             --source-path="$GITHUB_WORKSPACE/lib" \
             --source-path="$GITHUB_WORKSPACE/backends" \
-            bin/kempt lib/common.sh backends/*.sh libexec/* install.sh tools/*.sh
+            bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh tools/*.sh
 
   tests:
     name: test suite
@@ -74,7 +74,9 @@ jobs:
 
       # Same command CONTRIBUTING.md asks for before a commit.
       - name: Syntax check
-        run: bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+        run: |
+          bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
+          python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 
       # run_tests.sh exits non-zero on any failing file, and fails outright if it matches no test
       # files at all, so a suite that silently stopped existing cannot pass as green.

@@ -533,3 +533,18 @@ real Fedora packages with "lock" in the name (`kscreenlocker`, `xscreensaver-loc
 follow the shape of dnf5's resolver and rpm output, and the versions are made up. The fifth is
 libdnf5's `Waiting for a lock on the system repository` line, as is. dnf5 prints it and then waits
 for the lock, so it never explains a failure.
+
+## tests/fixtures/flatpak-unused.json
+**Hand-written in the shape `libexec/kempt-flatpak-unused` prints**, modelled on
+`Installation.list_unused_refs()` output read 2026-09-29 on Fedora 44 with flatpak 1.18.2. This box
+had nothing unused, so the refs are the ones a removed app typically leaves behind: its runtime
+(`org.freedesktop.Platform` 24.08), the GL extension on both branches (`24.08` and `24.08extra`, which
+share most of their files), the runtime's `Locale` extension, and an end-of-life runtime
+(`org.kde.Platform` 5.15-23.08) carrying flatpak's own reason string. The used refs are what is
+still installed: an app, the newer runtimes it uses and their extensions. Commits are the sha256 of
+each ref and deploy directories follow flatpak's `<kind>/<id>/<arch>/<branch>/<commit>` layout.
+
+## tests/fixtures/fake-gi/
+**Hand-written stand-in for PyGObject.** It serves the refs in `$FAKE_FLATPAK_JSON` through the
+calls the listing helper makes, and records which `Installation` constructor was called, so
+`tests/test_reclaim.sh` can run the helper without libflatpak.
