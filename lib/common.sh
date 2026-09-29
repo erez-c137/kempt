@@ -92,6 +92,13 @@ WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
 # marker has not caught up yet.
 STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
+# Reclaiming disk space. The size cache saves a du over every installed Flatpak runtime on each
+# check; it is keyed on the installed set, so any install, update or removal invalidates it. The
+# outcome file is what the last removal did, carried into state.json by the next check, because
+# write_state is the only door into state.json and a removal is not a check.
+# shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
+RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
+RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -123,6 +130,14 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
+# Who has an account here, read by reclaim_human_accounts to decide whether automatic removal of
+# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so accounts from sssd or
+# systemd-homed count too.
+KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
+# Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
+# unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
+# dialog itself.
+KEMPT_PKCHECK="${KEMPT_PKCHECK:-pkcheck}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -253,9 +268,9 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim"
 
-# The values a key with a FIXED set accepts. Only `surface` has one. The booleans take anything and
+# The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
 # worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
 # the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
@@ -263,6 +278,7 @@ KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widg
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
     surface) printf '%s\n' "terminal popup background offline" ;;
+    reclaim) printf '%s\n' "ask automatic off" ;;
   esac
 }
 
@@ -306,8 +322,100 @@ kempt_default() {  # key → default ("" if unknown)
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
+    # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
+    # reclaim_mode for how a value is read.
+    reclaim) echo ask ;;
     *) echo "" ;;
   esac
+}
+
+# The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
+# reads as `ask`: a typo must never turn into removing things without asking, and it must not
+# silently hide space the person could free either. Case-folded like is_true, because the file is
+# edited by hand.
+reclaim_mode() {  # → ask | automatic | off
+  local v
+  v="$(config_get reclaim 2>/dev/null)" || v=""
+  v="${v,,}"
+  case "$v" in
+    automatic|off) printf '%s\n' "$v" ;;
+    *) echo ask ;;
+  esac
+}
+
+# The desktop user, and only the desktop user, may list or remove unused runtimes. For the system
+# installation libflatpak counts the CALLING user's own apps as users, so under sudo or pkexec it
+# counts root's instead, and a system runtime that one of this person's --user apps needs would
+# be listed as unused and removed. SUDO_UID and PKEXEC_UID are how an elevated shell announces
+# itself when EUID alone does not (`sudo -u` back to a user keeps SUDO_UID).
+reclaim_as_root() {  # → 0 when this process must not reclaim
+  [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
+}
+
+# Human accounts on this machine: a UID in Fedora's regular range and a shell someone can log in
+# with. More than one means automatic removal behaves as ask, because libflatpak counts only the
+# calling user's --user apps as users, and another person's app may need a runtime this listing
+# calls unused. A lookup that fails counts as "more than one", for the same reason.
+reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
+  local out
+  out="$($KEMPT_GETENT_CMD 2>/dev/null </dev/null)" || return 1
+  awk -F: '$3 >= 1000 && $3 <= 60000 && $7 != "" && $7 !~ /(nologin|false)$/ { n++ } END { print n + 0 }' <<<"$out"
+}
+
+# The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
+# image-based system Kempt runs no updates, so there is no run to remove after, and with more than
+# one human account the listing does not know about the others' apps. Both fall back to ask, so
+# the space is still shown and a person decides.
+reclaim_effective_mode() {  # → ask | automatic | off
+  local mode n
+  mode="$(reclaim_mode)"
+  if [[ "$mode" == automatic ]]; then
+    if on_ostree; then mode=ask
+    elif ! n="$(reclaim_human_accounts)" || [[ -z "$n" ]] || (( n > 1 )); then mode=ask
+    fi
+  fi
+  printf '%s\n' "$mode"
+}
+
+# What a set of refs is called when a person agrees to remove it: 16 hex characters of the sha256
+# of its sorted `ref commit` lines. The commit is part of it, so a runtime that updated between the
+# check and the click is a different set. Empty input is the empty digest.
+reclaim_digest() {  # stdin: ref<TAB>commit lines → digest, or nothing for an empty set
+  local lines
+  lines="$(awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | sort -u)"
+  [[ -n "$lines" ]] || return 0
+  printf '%s\n' "$lines" | sha256sum | cut -c1-16
+}
+
+# Bytes as a person reads them, SI decimal like flatpak and Discover: "850 MB", "1.5 GB". Used for
+# estimates only, so one decimal is all the precision there is.
+human_bytes() {  # bytes → text
+  awk -v b="$1" 'BEGIN {
+    if (b >= 1e9) printf "%.1f GB\n", b / 1e9
+    else if (b >= 1e6) printf "%d MB\n", b / 1e6 + 0.5
+    else if (b >= 1e3) printf "%d kB\n", b / 1e3 + 0.5
+    else printf "%d bytes\n", b }'
+}
+
+# The last removal's outcome: {at, via, result, refs, bytes, digest}, or {} when there is none or
+# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
+reclaim_last_read() {  # → one JSON object
+  local out
+  out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
+  [[ -n "$out" ]] || out='{}'
+  printf '%s\n' "$out"
+}
+
+# Best-effort, like every write after a system change: a lost outcome costs a sentence in the
+# popup, never the removal's own exit status.
+reclaim_last_write() {  # via result refs-json bytes-or-empty digest
+  kempt_init_dirs 2>/dev/null || return 0
+  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
+         --arg bytes "$4" --arg digest "$5" \
+    '{at:$at, via:$via, result:$result, refs:$refs,
+      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}' 2>/dev/null \
+    | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
+  return 0
 }
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
 
@@ -1857,7 +1965,8 @@ staged_summary_line() {  # → one line, or nothing
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  jq -r "$KEMPT_JQ_COUNTS"'
+  # The reclaim setting now, for the end-of-life hint: with reclaim=off, kempt reclaim refuses.
+  jq -r --arg reclaim "$(reclaim_mode 2>/dev/null || echo ask)" "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     # NOT always an arrow. A Flatpak runtime can update without its version string moving - most
     # runtimes carry a date, or nothing, as their version, and the commit is what differs - so
@@ -1922,10 +2031,24 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
+    # What reclaim=automatic removed after this run. Only a removal gets a line: a set that changed
+    # or needs an administrator is for the popup to say, once, not for every summary.
+    def sizetext: if . >= 1e9 then ((. / 1e8 | round) / 10 | tostring | if test("[.]") then . else . + ".0" end) + " GB"
+                  elif . >= 1e6 then (. / 1e6 | round | tostring) + " MB"
+                  else (. / 1e3 | round | tostring) + " kB" end;
+    (.backends.flatpak.reclaimed? // null
+     | if type == "object" and .status == "removed" then
+         ((.refs // []) | length) as $n
+         | "Removed " + ($n | tostring) + " unused Flatpak " + (if $n == 1 then "runtime" else "runtimes" end)
+         + (if (.bytes | type) == "number" and .bytes > 0 then ", freeing about " + (.bytes | sizetext) else "" end) + "."
+       else empty end),
     heldline,
     shortfall,
     # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
     # anything needs doing. `// []` keeps entries written before the field existed rendering.
+    # An unused one points at `kempt reclaim`, which shows what goes and asks, rather than at the
+    # flatpak command that removes every unused runtime without a list. With reclaim=off that
+    # command refuses, so the flatpak one is the hint again.
     # NO APOSTROPHES IN HERE either (see above).
     def names(a): if (a|length) == 1 then a[0]
                   else (a[0:-1] | join(", ")) + " and " + a[-1] end;
@@ -1934,7 +2057,9 @@ render_summary() {  # history-json-file → human text
                    + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
                  elif (.apps|length) == 0 then
                    "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
-                   + " has reached end-of-life and no installed app uses it. To remove it once nothing needs it: flatpak uninstall --unused"
+                   + " has reached end-of-life and no installed app uses it. "
+                   + (if $reclaim == "off" then "To remove it once nothing needs it: flatpak uninstall --unused"
+                      else "To remove it: kempt reclaim" end)
                  else
                    "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
                    + .id + (if .branch != "" then " " + .branch else "" end)

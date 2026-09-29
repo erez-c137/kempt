@@ -48,6 +48,29 @@ assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
 config_set restart_reminder true
 assert_eq "$(config_get restart_reminder)" "true" "and back on again"
 
+# --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
+# ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
+# anything that is not exactly `automatic` must never remove without asking, so an unknown value
+# and a stored empty value both read as ask.
+assert_eq "$(kempt_default reclaim)" "ask" "the defaults table knows reclaim, and it is ask"
+assert_contains " $KEMPT_CONFIG_KEYS " " reclaim " "...and it is a known setting"
+assert_eq "$(reclaim_mode)" "ask" "an unset reclaim reads as ask"
+for v in ask automatic off; do
+  config_set reclaim "$v"
+  assert_eq "$(reclaim_mode)" "$v" "reclaim=$v reads as $v"
+done
+config_set reclaim Automatic
+assert_eq "$(reclaim_mode)" "automatic" "...case-folded, because the file is edited by hand"
+for v in auto always yes true bogus ""; do
+  config_set reclaim "$v"
+  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask, never automatic"
+done
+rc=0; "$KEMPT" config set reclaim auto 2>"$TESTTMP/rc-err" >/dev/null || rc=$?
+assert_eq "$rc" "0" "an unknown reclaim value is stored and warned about, like surface"
+assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, automatic, off" "...and the warning lists the three values"
+assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
+sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
+
 # --- config set says when it did not recognise what you wrote ------------------------------------
 # A typo used to be stored in silence: `kempt config set surfce terminal` wrote a key nothing
 # reads, and `kempt config set surface bogus` wrote a value nothing accepts, both under exit 0 with

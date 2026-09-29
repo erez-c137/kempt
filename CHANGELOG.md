@@ -14,6 +14,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt check --coalesce`** takes the answer of a check that finished while this one waited
   for its turn. The widget uses it for the checks nobody asked for. `kempt log` shows such a check
   as `check shared`.
+- **`kempt reclaim` frees the space old Flatpak runtimes take.** It lists the runtimes no
+  installed app uses, says about how much space they take, and removes them when you agree. The
+  new `reclaim` setting (`ask`, `automatic`, `off`) can also remove them after each update.
+  Scripts read the list as `reclaim` in `state.json`.
 
 ### Fixed
 

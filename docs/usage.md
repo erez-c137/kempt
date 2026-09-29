@@ -38,7 +38,8 @@ Every command uses the same codes:
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
-| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; or `run` when the terminal window it launched never opened. |
+| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything (see [reclaim](#reclaim)). |
+| 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown. Nothing was removed. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
 They take a lock at `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot
@@ -363,6 +364,41 @@ the upgrade. Another update running exits 3. Kempt clears its own record of the 
 dnf5 confirms the transaction is gone. If the transaction is still there, the command exits 1 and
 keeps the record.
 
+## reclaim
+
+```
+kempt reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
+```
+
+Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
+and each can take hundreds of megabytes.
+
+```
+No installed app uses these Flatpak runtimes:
+  runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
+  runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
+  runtime/org.kde.Platform/x86_64/5.15-23.08 (end of life)
+Removing them frees about 1.5 GB.
+Remove them? [y/N]
+```
+
+The list comes from Flatpak itself, so it is what `flatpak uninstall --unused` would remove. The
+size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
+tool is installing is left alone. `--list` shows the list and stops. `-y` removes without asking.
+`--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
+whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
+and without a yes at the terminal, a removal that needs a password removes nothing. The widget's
+button passes it.
+
+To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
+Flatpak never lists a pinned runtime as unused.
+
+It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
+when `reclaim=off`, or when removing needs an administrator's password. If the list changed since
+it was shown, it exits 6. Another update running exits 3. A removal writes an event line and no
+history entry. With `reclaim=automatic` (see [configuration](configuration.md#keys)), a
+successful update removes the offered set for you and its summary says how much was freed.
+
 ## summary and history
 
 ```
@@ -497,6 +533,12 @@ The wording is fixed, so you can search it:
 | `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
 | `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. |
+| `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
+| `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
+| `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
+| `reclaim failed rc=<n>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. |
+| `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600. Past 2500 lines it is trimmed to the

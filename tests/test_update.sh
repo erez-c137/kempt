@@ -2261,4 +2261,119 @@ assert_eq "$(jq -c .backends.flatpak.eol "$he")|$(jq -r .status "$he")" "[]|ok" 
 export KEMPT_FLATPAK_APP_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
+# --- reclaim=automatic: unused runtimes removed after a successful run ------------------------------
+# The listing, du and removal stand-ins of test_reclaim.sh, reduced: the removal logs its arguments
+# and empties the listing, the way a real one changes the next answer.
+RC="$TESTTMP/rc"; mkdir -p "$RC"
+export RC_LISTING="$RC/listing.json" RC_DU="$RC/du.tsv" RC
+cp "$FIXTURES/flatpak-unused.json" "$RC_LISTING"
+cat > "$RC/unused" <<'STUB'
+#!/usr/bin/env bash
+cat "$RC_LISTING"
+STUB
+cat > "$RC/du" <<'STUB'
+#!/usr/bin/env bash
+[[ -n "${DU_SWAP:-}" ]] && cp "$DU_SWAP" "$RC_LISTING"   # the installation changes while du runs
+shift 2
+for d in "$@"; do printf '%s\t%s\n' "$(awk -F'\t' -v d="$d" '$1 == d { print $2 }' "$RC_DU")" "$d"; done
+STUB
+cat > "$RC/uninstall" <<'STUB'
+#!/usr/bin/env bash
+echo "UNINSTALL $*" >> "$RC/calls"
+[[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
+jq '.unused = []' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
+echo "Uninstalling..."
+STUB
+printf '#!/usr/bin/env bash\nexit "${PKCHECK_RC:-0}"\n' > "$RC/pkcheck"
+printf '#!/usr/bin/env bash\necho "alex:x:1000:1000::/home/alex:/bin/bash"\n' > "$RC/getent"
+chmod +x "$RC"/*
+{ jq -r '.used[].deploy_dir | "\(.)\t4000000000"' "$RC_LISTING"
+  jq -r '.unused[].deploy_dir | "\(.)\t395000000"' "$RC_LISTING"; } > "$RC_DU"   # five: 1975000000
+# The run's before-snapshot, as `flatpak list --runtime` prints it: without --all it hides the
+# .Locale, .Debug and .Sources extensions, so the Locale is not in it and its parent runtime is.
+jq -r '.unused[].ref | split("/") | select(.[1] | test("[.](Locale|Debug|Sources)$") | not)
+       | "\(.[1])\t\(.[3])\t?"' "$RC_LISTING" > "$WORLD/fp-snap-rt.tsv"
+export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $WORLD/fp-snap-rt.tsv" \
+       KEMPT_FLATPAK_UNUSED_CMD="$RC/unused" KEMPT_DU_CMD="$RC/du" \
+       KEMPT_FLATPAK_UNINSTALL_CMD="$RC/uninstall" KEMPT_PKCHECK="$RC/pkcheck" KEMPT_GETENT_CMD="$RC/getent"
+# An offer on the table: seen once, then aged past the hour, then published with its digest.
+rc_offer() {
+  cp "$FIXTURES/flatpak-unused.json" "$RC_LISTING"; rm -f "$RC/calls" "$KEMPT_STATE_DIR/reclaim-last.json"
+  "$KEMPT" check >/dev/null 2>&1 || true
+  local t; t="$(date -u -d "@$(( $(date +%s) - 7200 ))" +%Y-%m-%dT%H:%M:%SZ)"
+  jq --arg t "$t" '.reclaim.refs[].since = $t' "$KEMPT_STATE_DIR/state.json" > "$RC/st" \
+    && mv "$RC/st" "$KEMPT_STATE_DIR/state.json"
+  "$KEMPT" check >/dev/null 2>&1 || true
+}
+rc_update() { push_history_back; : > "$WORLD/notifications"
+              "$KEMPT" update --surface=background >/dev/null 2>&1 || true
+              RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
+rc_calls() { cat "$RC/calls" 2>/dev/null || echo "(none)"; }
+
+"$KEMPT" config set reclaim ask >/dev/null
+rc_offer
+assert_eq "$(jq -r '.reclaim.digest | length' "$KEMPT_STATE_DIR/state.json")" "16" "setup: the five runtimes are on offer"
+rc_update
+assert_eq "$(rc_calls)" "(none)" "reclaim=ask: a run removes nothing"
+assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" "...and its history entry has no reclaimed field"
+
+"$KEMPT" config set reclaim automatic >/dev/null
+rc_offer
+rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=background 2>/dev/null)" || true
+RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
+assert_eq "$(rc_calls)" "UNINSTALL --noninteractive" "reclaim=automatic: the run removes them, never with a dialog"
+assert_json_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" \
+  "{\"refs\":$(jq -c '[.unused[].ref]' "$FIXTURES/flatpak-unused.json"),\"bytes\":1975000000,\"status\":\"removed\"}" \
+  "...recorded in the run's own history entry"
+assert_eq "$(jq -r '.status' "$RH")|$(jq -c '.backends.flatpak.removed' "$RH")" "ok|[]" \
+  "...and not reported as runtimes the update removed"
+assert_contains "$(cat "$WORLD/notifications")" "~2.0 GB freed" "the notification says what was freed"
+assert_contains "$rsum" "Removed 5 unused Flatpak runtimes, freeing about 2.0 GB." "...and so does the summary"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "== Unused Flatpak runtimes ==" "the run log has the removal under its own heading"
+assert_eq "$(jq -c '.reclaim.refs' "$KEMPT_STATE_DIR/state.json")" "[]" "the closing check publishes nothing left to offer"
+
+# An app that starts needing a runtime while du measures must stop the removal: after a run that
+# updated a runtime the size cache misses, and a full du can take many seconds. So du comes before
+# the last re-list, and the removal follows that re-list directly.
+rc_offer
+jq '.used += [.unused[0]] | .unused = .unused[1:]' "$FIXTURES/flatpak-unused.json" > "$RC/now-used.json"
+rm -f "$KEMPT_STATE_DIR/reclaim-sizes.json"
+DU_SWAP="$RC/now-used.json" rc_update
+assert_eq "$(rc_calls)|$(jq -r '.backends.flatpak.reclaimed.status' "$RH")" "(none)|changed" \
+  "a runtime that became used while du ran is not removed"
+
+# A runtime the run's before-snapshot does not have was installed during the run: not removed.
+rc_offer
+grep -v 'org.kde.Platform' "$WORLD/fp-snap-rt.tsv" > "$RC/snap" && cp "$WORLD/fp-snap-rt.tsv" "$RC/snap.full" \
+  && cp "$RC/snap" "$WORLD/fp-snap-rt.tsv"
+rc_update
+assert_eq "$(rc_calls)" "(none)" "a ref missing from the before-snapshot stops the removal"
+assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "changed|ok" \
+  "...recorded as changed, and the run still ok"
+cp "$RC/snap.full" "$WORLD/fp-snap-rt.tsv"
+
+rc_offer
+PKCHECK_RC=1 rc_update
+assert_eq "$(rc_calls)" "(none)" "polkit would ask: nothing removed"
+assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "needs_auth|ok" \
+  "...recorded as needs_auth, and the run still ok"
+assert_not_contains "$(cat "$WORLD/notifications")" "freed" "...and the notification claims nothing"
+assert_eq "$(jq -r '.reclaim.status' "$KEMPT_STATE_DIR/state.json")" "needs_auth" "state carries needs_auth for this set"
+rc_update
+assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" \
+  "the next run does not try the same set again: a failure is shown once, not every run"
+
+rc_offer
+UNINSTALL_RC=1 rc_update
+assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "failed|ok" \
+  "a removal flatpak fails never fails the run"
+
+# A run that failed removes nothing.
+rc_offer
+printf '#!/usr/bin/env bash\necho "FLATPAK $@" >> "%s/apply-calls"\nexit 1\n' "$WORLD" > "$TESTTMP/fp-update-stub"
+rc_update
+assert_eq "$(jq -r .status "$RH")|$(rc_calls)" "failed|(none)" "a failed run removes nothing"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+"$KEMPT" config set reclaim ask >/dev/null
+
 finish

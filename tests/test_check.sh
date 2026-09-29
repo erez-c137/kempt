@@ -1116,4 +1116,25 @@ garbage|not json
 CASES
 printf '{"schema":1,"actionable":6}\n' | write_state
 assert_eq "$(jq -r .actionable "$STATE_FILE")" "6" "write_state still writes a real state"
+
+# --- the reclaim block is optional and has no say in the check ------------------------------------
+# It is merged in after assembly. With flatpak absent (the sandbox default: the removal command does
+# not resolve) there is no key at all, so every reader that predates it sees the state it always saw.
+out="$(KEMPT_SKIP_REFRESH=1 "$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("reclaim")' <<<"$out")" "false" "no flatpak: the state has no reclaim key"
+# Everything the block runs, broken at once: a listing that dies, a du that dies and an account
+# lookup that dies. The check still answers, still writes, and its counts are untouched.
+cat > "$TESTTMP/dies" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+chmod +x "$TESTTMP/dies"
+before="$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")"
+rc=0
+out="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/dies" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/dies" \
+       KEMPT_DU_CMD="$TESTTMP/dies" KEMPT_GETENT_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
+assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
+assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
+assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
+assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
 finish

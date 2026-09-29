@@ -1,0 +1,67 @@
+{
+ "installation": "/var/lib/flatpak",
+ "unused": [
+  {
+   "ref": "runtime/org.freedesktop.Platform/x86_64/24.08",
+   "commit": "66a5e89b10ea2031d447604a6cea0b6b13edf4aebc56ab7f27be91996eab26cc",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform/x86_64/24.08/66a5e89b10ea2031d447604a6cea0b6b13edf4aebc56ab7f27be91996eab26cc",
+   "eol": null
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",
+   "commit": "2decc27918c94d6d09d5a1fbc0dc0e6664e6eecb5336532595907f8f122d985b",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.GL.default/x86_64/24.08/2decc27918c94d6d09d5a1fbc0dc0e6664e6eecb5336532595907f8f122d985b",
+   "eol": null
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra",
+   "commit": "4c9172449a848fff770e47c440041ebb7b10122fc309f501db5b6a53b7272351",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra/4c9172449a848fff770e47c440041ebb7b10122fc309f501db5b6a53b7272351",
+   "eol": null
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform.Locale/x86_64/24.08",
+   "commit": "24edbed19948feeac336059cc057773ab16c4719ccb4b5f7a838ac7e0319fe0a",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.Locale/x86_64/24.08/24edbed19948feeac336059cc057773ab16c4719ccb4b5f7a838ac7e0319fe0a",
+   "eol": null
+  },
+  {
+   "ref": "runtime/org.kde.Platform/x86_64/5.15-23.08",
+   "commit": "880f9bb6c08df31c30c3e4347fab521b580ffec7a9c612fc2970558ab443f44a",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.kde.Platform/x86_64/5.15-23.08/880f9bb6c08df31c30c3e4347fab521b580ffec7a9c612fc2970558ab443f44a",
+   "eol": "We strongly recommend moving to the latest stable version of the Platform and SDK"
+  }
+ ],
+ "used": [
+  {
+   "ref": "app/net.mkiol.SpeechNote/x86_64/stable",
+   "commit": "517eea1a73e36432c16e14b5543227921b6ade3512a8586e74d4cca3702ee404",
+   "deploy_dir": "/var/lib/flatpak/app/net.mkiol.SpeechNote/x86_64/stable/517eea1a73e36432c16e14b5543227921b6ade3512a8586e74d4cca3702ee404"
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform/x86_64/25.08",
+   "commit": "3e32d97bd5de5979c2b89817ed6be202ebbca0dce26ea8ca77fd33ad16a88e98",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform/x86_64/25.08/3e32d97bd5de5979c2b89817ed6be202ebbca0dce26ea8ca77fd33ad16a88e98"
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/25.08",
+   "commit": "313e2c62e8eb0cd938a8cc63e2d575b78fdefbe5ee595a06dd8bed01dc5636c6",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.GL.default/x86_64/25.08/313e2c62e8eb0cd938a8cc63e2d575b78fdefbe5ee595a06dd8bed01dc5636c6"
+  },
+  {
+   "ref": "runtime/org.freedesktop.Platform.Locale/x86_64/25.08",
+   "commit": "0e1ad9bb316735f39a082c45e4cb66cbd4587f0ab2cdbe23c4527e663a9305ba",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.Locale/x86_64/25.08/0e1ad9bb316735f39a082c45e4cb66cbd4587f0ab2cdbe23c4527e663a9305ba"
+  },
+  {
+   "ref": "runtime/org.kde.Platform/x86_64/5.15-24.08",
+   "commit": "26ae8fbc80576e4248c7a7ac4da624b6fc620f5e0d06584d9fe86fefcd390a4c",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.kde.Platform/x86_64/5.15-24.08/26ae8fbc80576e4248c7a7ac4da624b6fc620f5e0d06584d9fe86fefcd390a4c"
+  },
+  {
+   "ref": "runtime/org.kde.Platform.Locale/x86_64/5.15-24.08",
+   "commit": "4507362e8479ba5fc4371667cafcc81ad78dacb4368c8d20ca87bd9eb62472b7",
+   "deploy_dir": "/var/lib/flatpak/runtime/org.kde.Platform.Locale/x86_64/5.15-24.08/4507362e8479ba5fc4371667cafcc81ad78dacb4368c8d20ca87bd9eb62472b7"
+  }
+ ]
+}

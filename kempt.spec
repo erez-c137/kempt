@@ -43,6 +43,8 @@ BuildRequires:  libappstream-glib
 # runtime too, so they are also Requires below - the build root does not inherit those).
 BuildRequires:  jq
 BuildRequires:  util-linux-core
+# The compile check of the Flatpak listing helper below, and its tests in the suite.
+BuildRequires:  python3
 
 # No Requires on bash: rpm generates /usr/bin/bash from the shebangs, and every supported Fedora
 # ships bash 5.
@@ -59,6 +61,11 @@ Requires:       util-linux-core
 Requires:       dnf5-command(needs-restarting)
 # Optional backend: the CLI runs fine without it (include_flatpak simply reports disabled).
 Recommends:     flatpak
+# The Flatpak listing helper (libexec/kempt-flatpak-unused) reads the installation through
+# libflatpak's GObject bindings; flatpak-libs carries the typelib, PyGObject is the other half.
+# python3 itself is always required: rpm reads the helper's shebang and adds /usr/bin/python3.
+# The bindings come only with flatpak: without it there is nothing to list.
+Requires:       (python3-gobject-base if flatpak)
 # Both of these are weak on purpose. libnotify was declared nowhere, and konsole was only
 # Suggested, which dnf does not install.
 # notify-send is how every detached surface reports what it did; without it those runs finish
@@ -146,6 +153,13 @@ install -p -D -m 0644 polkit/49-kempt.rules.in \
 sed -i '1{/^#!/d}' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
                    %{buildroot}%{_datadir}/%{name}/backends/*.sh
 
+# The Flatpak listing helper runs as the desktop user, never through pkexec, so it is not a root
+# helper and does not go in %%{_libexecdir} beside them: it stays in Kempt's own tree, where the
+# CLI finds it through $ROOT. Outside lib/ and backends/, whose shebangs the sed above strips,
+# because this one is executed.
+install -p -D -m 0755 libexec/kempt-flatpak-unused \
+    %{buildroot}%{_datadir}/%{name}/libexec/kempt-flatpak-unused
+
 # Root helpers. Mode 0755, owned by root: the polkit action execs these and nothing else.
 install -p -D -m 0755 libexec/kempt-refresh %{buildroot}%{_libexecdir}/kempt-refresh
 install -p -D -m 0755 libexec/kempt-apply   %{buildroot}%{_libexecdir}/kempt-apply
@@ -195,7 +209,9 @@ install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 rm -rf docs/man docs/RELEASING.md docs/ROADMAP.md docs/images/kempt-tray-icon.png
 
 %check
-bash -n bin/kempt lib/common.sh backends/*.sh libexec/*
+bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply
+# compile() rather than py_compile, which would leave a __pycache__ in the tree.
+python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 # The bash half of the test suite, in full, against the pristine copy - the suite asserts
 # the tree as shipped, not the tree as packaged. It needs only bash, jq and coreutils by
 # design - every impure command goes through an environment seam - and the node/PySide6
@@ -216,7 +232,8 @@ appstreamcli validate --no-net --explain \
 # the CLI asks it to run, every privileged call falls back to an authentication dialog, and
 # background checks time out - a failure nobody sees until the package is on someone's machine.
 # So: assert the four paths, in the buildroot, as installed.
-for f in %{buildroot}%{_libexecdir}/kempt-refresh %{buildroot}%{_libexecdir}/kempt-apply; do
+for f in %{buildroot}%{_libexecdir}/kempt-refresh %{buildroot}%{_libexecdir}/kempt-apply \
+         %{buildroot}%{_datadir}/%{name}/libexec/kempt-flatpak-unused; do
     test -x "$f" || { echo "packaging check: missing helper $f" >&2; exit 1; }
 done
 grep -q '<annotate key="org.freedesktop.policykit.exec.path">%{_libexecdir}/kempt-refresh</annotate>' \

@@ -37,12 +37,14 @@ QML. The suite prints a warning when either is missing.
 The last two run only inside a throwaway container. Run the release check before tagging: it is
 step 4 of [docs/RELEASING.md](docs/RELEASING.md).
 
-Before you commit, syntax-check and lint. CI runs the same two commands:
+Before you commit, syntax-check and lint. CI runs the same commands. The third checks the one
+Python file, the Flatpak listing helper:
 
 ```bash
-bash -n bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
 shellcheck -x -s bash --source-path="$PWD" --source-path="$PWD/lib" --source-path="$PWD/backends" \
-  bin/kempt lib/common.sh backends/*.sh libexec/* install.sh
+  bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
+python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 ```
 
 Install ShellCheck with `sudo dnf install ShellCheck`. The `--source-path` entries let it follow

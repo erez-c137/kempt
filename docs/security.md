@@ -63,6 +63,15 @@ leaves the root-owned `/var/lib/flatpak/appstream` cache alone.
 an active local session, with no password. Two cases can still ask for authentication; see
 [Accepted limitations](#accepted-limitations).
 
+**Removing unused Flatpak runtimes runs as you too.** `kempt reclaim`, and the removal after an
+update with `reclaim=automatic`, run `flatpak uninstall --unused --system`, which asks polkit for
+`org.freedesktop.Flatpak.runtime-uninstall`. They refuse to run as root, under `sudo` or under
+`pkexec`. Flatpak counts the calling user's own apps as users of a system runtime. As root it
+would see root's apps instead of yours, and could remove a runtime one of yours needs. Before an
+unattended removal, Kempt asks polkit with `pkcheck` and no dialog. If the answer is anything but
+yes, nothing is removed. polkit may show its dialog only when a person asked: a yes at the
+terminal, or the widget's button, which passes `--allow-auth`.
+
 ## Validate before exec
 
 Neither helper forwards an argument it was given. Each parses its arguments, validates them, and
