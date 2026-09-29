@@ -55,11 +55,10 @@ Two rules hold for every value:
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
-To show the list, Kempt runs `flatpak uninstall --unused` with no terminal attached. Flatpak then
-prints what it would remove and answers no by itself (`flatpak_yes_no_prompt()` in
-`app/flatpak-tty-utils.c`, as of 1.18.2). The command never gets `-y` or `--noninteractive`,
-because those turn the listing into a removal. A proper listing option is requested upstream in
-flatpak/flatpak#5185.
+To show the list, Kempt asks libflatpak for its unused refs (`list_unused_refs()`), the same call
+`flatpak uninstall --unused` makes, so the list is what a removal takes. The removal itself is
+`flatpak uninstall --unused`, run only after Kempt has checked that the list is still the one you
+agreed to.
 
 ## 0.2: a second distribution
 

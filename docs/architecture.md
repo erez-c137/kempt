@@ -44,12 +44,19 @@ engine could replace the bash one.
 | `lib/common.sh` | Shared library: paths, config, holds, snapshot diff, state assembly, locks, summary rendering |
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root |
+| `libexec/kempt-flatpak-unused` | Lists the Flatpak runtimes no installed app uses. Runs as the user (see below) |
 | `polkit/` | The two action definitions plus the passwordless rule template |
 | `plasmoid/` | The Plasma 6 panel widget: a client of the CLI with no package-manager knowledge |
 | `plasmoid/contents/ui/logic.js` | The widget's whole derivation layer, in engine-agnostic JS so node can test it |
 | `install.sh` | Symlink install, staged install (`--destdir`), uninstall |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
 | `tests/qml/` | PySide6 probes that execute the real QML against a stubbed CLI (see below) |
+
+`libexec/kempt-flatpak-unused` is the one Python file. It calls libflatpak's `list_unused_refs()`
+through PyGObject, the same call `flatpak uninstall --unused` makes, so the list matches what a
+removal takes. It is executed, so it stays out of `lib/` and `backends/`, whose shebangs the
+package strips. It runs as the user, so the package installs it in Kempt's own tree
+(`/usr/share/kempt/libexec/`) and leaves `%{_libexecdir}` to the two root helpers.
 
 ## The backend contract
 
@@ -115,6 +122,8 @@ user or as root.
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. An update applied on a restart is the exception: dnf5 installed it while Kempt was not running, so the file is Kempt's own record from the snapshot diff, and says so | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
+| `~/.local/state/kempt/reclaim-sizes.json` | The size of each unused Flatpak runtime, keyed on the whole installed set, so a check does not run `du` again until something is installed, updated or removed | Replaced when the installed set changes |
+| `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did. The next check copies it into `state.json` as `reclaim.last` | Replaced by the next removal |
 | `~/.local/state/kempt/offline_staged.json` | Kempt's record of a staged transaction (see [the marker](#the-offline-transaction-end-to-end)), mode 0600 | Consumed by the harvest, or cleared when the transaction under it has gone |
 | `~/.local/state/kempt/{lock,check.lock,writer.lock,stage.lock,last_refresh,last_refresh_skip}` | flock targets, the refresh timestamp and the once-a-day skip stamp | Never; they are empty files |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch; the window it starts claims it by deleting it | Swept by `kempt_init_dirs` after 60 minutes |
@@ -208,6 +217,7 @@ cope with that.
 | `offline_staged.holds_conflict` | array of strings | dnf packages that are in the staged transaction **and** held now: a restart installs them despite the hold. Sorted, unique, dnf only. Read it with `names_source`. Additive. |
 | `offline_staged.names_source` | `"transaction"`, `"marker"` or `"none"` | What an **empty** `holds_conflict` means. `transaction`: dnf5's stored transaction was read live, and empty means no conflict. `marker`: that read failed and the marker's transaction-derived list was used, and empty still means no conflict. `none`: there was no transaction-derived list, and empty means **cannot tell**. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5, so a reader can stop offering the button. Never `false`. Additive. |
+| `reclaim` | object, optional | The Flatpak runtimes no installed app uses. Present only when Flatpak is installed and enabled, `reclaim` is not `off`, and the check did not run as root. `mode` is `ask` or `automatic`: the mode Kempt acts on, which is `ask` on an image-based system or with more than one human account, whatever the setting. `refs[]` lists every unused ref: `ref`, `commit`, `since` (UTC, when it was first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). Only refs unused for an hour are offered. `offerable_bytes` is their estimated size (`null` when unknown). `digest` names the offered set and is what `kempt reclaim --expect` takes; `""` when nothing is offered. `status` is `ok`, `unknown_size`, `needs_auth` or `failed`; the last two are carried from the last removal while the same set is on offer. `last` is that removal: `at`, `via`, `result` (`removed`, `nothing`, `changed`, `needs_auth` or `failed`), `refs`, `bytes` and `digest`. Additive. |
 | `release_upgrade` | object, optional | Present **only** while dnf5 has a Fedora release upgrade stored, detected by `system_releasever` differing from `target_releasever` in dnf5's state file. `from` and `to` are strings. `state` is always present and is one of: `downloaded` (status `download-complete`); `armed` (`ready` and the `/system-update` symlink, so the next restart installs it); `stranded` (`ready` with the symlink gone, so no restart runs it); `incomplete` (`download-incomplete`, `transaction-incomplete` or an unknown status). dnf5 keeps one stored transaction for both kinds, so staging would cancel the release upgrade: Kempt refuses to, and a reader should stop offering it. Absent, never `null`, when there is none. Additive. |
 
 The download figure is **an estimate**, so show it with "~" and never as "up to". It excludes held
@@ -718,6 +728,11 @@ destructive paths without running them.
 | `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups, run only when `flatpak update` printed an end-of-life notice. A failure loses the note, not the run. `tests/lib.sh` pins both at `true` |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a missing path, so no test fetches from flathub |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. `tests/lib.sh` points it at a missing path, so the suite cannot update the host |
+| `KEMPT_FLATPAK_UNUSED_CMD` | `libexec/kempt-flatpak-unused` in `KEMPT_ROOT` | Lists unused Flatpak refs as JSON, run as the user. `tests/lib.sh` points it at a missing path |
+| `KEMPT_DU_CMD` | `du` | Sizes the unused runtimes in one `du -sb` call, used directories first, so files an unused runtime shares with a used one are not counted. `tests/lib.sh` points it at a missing path |
+| `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --unused --system -y` | The removal, run as the user. Its first word is also how Kempt tells whether Flatpak is installed. `tests/lib.sh` points it at a missing path, which turns the whole feature off in every test that does not stub it |
+| `KEMPT_PKCHECK` | `pkcheck` | Asks polkit, without a dialog, whether this process may remove runtimes. A no, or no `pkcheck`, means no removal. `tests/lib.sh` points it at a missing path |
+| `KEMPT_GETENT_CMD` | `getent passwd` | Counts human accounts: with more than one, `reclaim=automatic` acts as `ask`. `tests/lib.sh` points it at a missing path |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
