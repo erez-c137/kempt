@@ -382,8 +382,8 @@ Removing them frees about 1.5 GB.
 Remove them? [y/N]
 ```
 
-The list comes from Flatpak itself, so it is what `flatpak uninstall --unused` would remove. The
-size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
+Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on that list and
+nothing else. An extension another installed runtime still uses stays. The size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
 tool is installing is left alone. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
 whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
@@ -537,7 +537,7 @@ The wording is fixed, so you can search it:
 | `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
-| `reclaim failed rc=<n>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. |
+| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 
@@ -630,6 +630,7 @@ What each check means when it fails:
 | `jq` is present | Always passes when doctor runs; without `jq` every command exits 3. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
 | `flatpak` is present | Every check reports Flatpak stale. `info` when `include_flatpak=false`. |
+| Kempt can list unused Flatpak runtimes | `kempt reclaim` and the widget cannot offer to free space. Usually `flatpak-libs` or `python3-gobject-base` is missing, and the line says to install them. Runs only when Flatpak is on and `reclaim` is not `off`. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
 | The checkout still has `lib/`, `backends/` and the passwordless rules template | The checkout is damaged. |

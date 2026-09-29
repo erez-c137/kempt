@@ -397,8 +397,21 @@ human_bytes() {  # bytes → text
     else printf "%d bytes\n", b }'
 }
 
-# The last removal's outcome: {at, via, result, refs, bytes, digest}, or {} when there is none or
-# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
+# The line of a command's output that says what went wrong: the last line starting with
+# "error:", else the last non-empty one. One line, with colour codes and control characters
+# removed and at most 200 characters, so it is safe in an event line, a JSON field or a sentence.
+error_line_of() {  # stdin: output → one line, empty when there was none
+  local line
+  line="$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
+          | awk '{ sub(/[[:space:]]+$/, "") } tolower($0) ~ /^error:/ { e = $0 } NF { l = $0 }
+                 END { print (e != "" ? e : l) }')" || line=""
+  line="$(printf '%s' "$line" | tr -d '[:cntrl:]')" || line=""
+  printf '%s\n' "${line:0:200}"
+}
+
+# The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
+# line, from error_line_of) when there is one; or {} when there is none or the file is damaged.
+# result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object
   local out
   out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
@@ -408,12 +421,13 @@ reclaim_last_read() {  # → one JSON object
 
 # Best-effort, like every write after a system change: a lost outcome costs a sentence in the
 # popup, never the removal's own exit status.
-reclaim_last_write() {  # via result refs-json bytes-or-empty digest
+reclaim_last_write() {  # via result refs-json bytes-or-empty digest [error-line]
   kempt_init_dirs 2>/dev/null || return 0
   jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
-         --arg bytes "$4" --arg digest "$5" \
+         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" \
     '{at:$at, via:$via, result:$result, refs:$refs,
-      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}' 2>/dev/null \
+      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
+     + (if $error == "" then {} else {error: $error} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
   return 0
 }

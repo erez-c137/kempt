@@ -100,9 +100,12 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # The removal. --unused rather than a list of refs, because flatpak recomputes the set when it
 # runs: an extension an app started needing a moment ago is kept, where a named ref would be
 # removed regardless. reclaim_remove re-lists first and stops if the set differs from what the
-# person agreed to. --noninteractive is appended there, except when a person pressed the button
-# and a polkit dialog is welcome. System scope only, the contract every command above keeps.
-KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --unused --system -y}"
+# person agreed to. --no-related because without it flatpak also removes the autodelete related
+# refs of what it removes, even one another installed runtime still uses (a codecs extension
+# shared by two platforms); the listing already names the unused extensions itself. The
+# --noninteractive is appended there, except when a person pressed the button and a polkit
+# dialog is welcome. System scope only, the contract every command above keeps.
+KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --unused --no-related --system -y}"
 # Both the listing and the size estimate run inside the check lock, and the widget kills a check
 # after 120 s, so the two together stay well inside that. A du that runs out is an unknown size.
 KEMPT_RECLAIM_LIST_TIMEOUT=15

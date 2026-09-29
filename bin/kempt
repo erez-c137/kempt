@@ -16,6 +16,8 @@ cmd_version() {
 }
 
 # --- reclaiming disk space ------------------------------------------------------------------------
+# The error line of a removal that stopped because the list of unused runtimes could not be read.
+KEMPT_RECLAIM_NO_LIST="Flatpak did not answer when asked what is unused"
 # How long a ref must stay unused, with the same commit, before Kempt offers or removes it. flatpak
 # deploys a runtime BEFORE the app that needs it, and nothing locks the whole transaction, so a
 # runtime another tool is installing right now can look unused for a moment. An hour keeps that
@@ -116,6 +118,7 @@ reclaim_authorized() {
 #   RECLAIM_WHY     for changed: digest | unstable | new (not in the run's before-snapshot)
 #   RECLAIM_GONE    JSON array of the refs that are really gone
 #   RECLAIM_BYTES   their cached sizes added up, or empty when unknown
+#   RECLAIM_ERROR   why it failed: flatpak's error line (error_line_of), or empty
 #
 # `flatpak uninstall --unused` works out its own list when it runs, and that is the point: removing
 # the exact refs shown would not be safe against an app that started needing one a moment ago. So
@@ -125,10 +128,10 @@ reclaim_authorized() {
 # is the only thing between the list and the removal.
 reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   local via="$1" expected="$2" allow_auth="$3" before="${4:-}"
-  RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC=""
-  local listing sizes_tsv="" after rc=0 extra=()
+  RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
+  local listing sizes_tsv="" after rc=0 extra=() out_file=""
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
-    reclaim_record "$via" "$expected"; return 0
+    RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
   if [[ -z "$allow_auth" ]] && ! reclaim_authorized; then
@@ -137,7 +140,7 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   # Sizes BEFORE the removal: afterwards the directories are gone and du has nothing to measure.
   sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)" || sizes_tsv=""
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
-    RECLAIM_RESULT=failed; reclaim_record "$via" "$expected"; return 0
+    RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
   # --noninteractive unless a person asked for this one (the widget button, a yes at the terminal):
@@ -147,9 +150,21 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   # dialog, a stuck system helper) must not keep every later run out. Time running out is exit 124,
   # recorded as a failure like any other.
   [[ -n "$allow_auth" ]] || extra=(--noninteractive)
+  # A copy of flatpak's output goes to a file, so its error line can be kept after it has scrolled
+  # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does.
+  out_file="$(mktemp 2>/dev/null)" || out_file=""
   # shellcheck disable=SC2086  # the seam carries its own arguments
-  timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- || rc=$?
+  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- \
+       | tee "${out_file:-/dev/null}" 9>&-; then
+    rc=0
+  else
+    rc=${PIPESTATUS[0]}
+  fi
   RECLAIM_RC=$rc
+  if [[ $rc -ne 0 && -n "$out_file" ]]; then
+    RECLAIM_ERROR="$(error_line_of <"$out_file" 2>/dev/null)" || RECLAIM_ERROR=""
+  fi
+  [[ -z "$out_file" ]] || rm -f "$out_file" || true
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak exits 0 on
   # "Nothing unused to uninstall", so its status alone does not say.
@@ -183,7 +198,7 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
   local classified
   RECLAIM_DIGEST=""
   if ! classified="$(reclaim_classify "$1" 2>/dev/null)"; then
-    RECLAIM_RESULT=failed; reclaim_record "$via" "$2"; return 1
+    RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$2"; return 1
   fi
   if [[ "$(jq -r 'length' <<<"$classified" 2>/dev/null)" == 0 ]]; then
     RECLAIM_RESULT=nothing; reclaim_record "$via" "$2"; return 1
@@ -222,9 +237,9 @@ reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are t
 }
 
 # The outcome, in the two places that keep it: reclaim-last.json (the next check carries it into
-# state.json) and the event log. Both best-effort.
+# state.json) and the event log. Both best-effort. A failure carries its error line in both.
 reclaim_record() {  # via digest
-  reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2"
+  reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2" "${RECLAIM_ERROR:-}"
   local n
   n="$(jq -r 'length' <<<"$RECLAIM_GONE" 2>/dev/null)" || n="?"
   case "$RECLAIM_RESULT" in
@@ -232,7 +247,7 @@ reclaim_record() {  # via digest
     nothing)    log_event "reclaim found nothing to remove" ;;
     changed)    log_event "reclaim changed ($RECLAIM_WHY), nothing removed" ;;
     needs_auth) log_event "reclaim needs authorization, nothing removed" ;;
-    *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}" ;;
+    *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
   esac
 }
 
@@ -2367,7 +2382,13 @@ cmd_reclaim() {
       fi
       rc=6 ;;
     needs_auth) echo "Removing these needs an administrator. Nothing was removed." >&2; rc=5 ;;
-    *) echo "Flatpak could not remove them. See: kempt log" >&2; rc=1 ;;
+    # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
+    *) if [[ -n "$RECLAIM_ERROR" ]]; then
+         echo "Flatpak could not remove them: $RECLAIM_ERROR" >&2
+       else
+         echo "Flatpak could not remove them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
+       fi
+       rc=1 ;;
   esac
   # state.json is the widget's only channel: the offer disappears when this rewrites it. Still
   # under the update lock, then check.lock, the order cmd_update takes them in.
@@ -2698,6 +2719,29 @@ doctor_tool_rows() {
     doctor_ok "dnf: $(command -v "$dnf_cmd")"
   else
     doctor_info "dnf command '$dnf_cmd' not found - updates still work (they go through the root helper), but reboot_needed answers false on every check whether or not a restart is owed; install dnf5, or point KEMPT_DNF_CMD at the right command"
+  fi
+}
+
+# The listing behind `kempt reclaim` and the widget's offer. Its Python bindings come from two
+# packages, and the flatpak command needs neither, so without them every check just reports the
+# listing failed. Asked only where the feature is on: flatpak present, include_flatpak true and
+# reclaim not off. Exit 3 is the helper's "cannot load libflatpak from Python".
+doctor_reclaim_row() {
+  flatpak_present || return 0
+  is_true "$(config_get include_flatpak)" || return 0
+  [[ "$(reclaim_mode)" != off ]] || return 0
+  local out rc=0 why
+  # shellcheck disable=SC2086  # the seam may carry its own arguments
+  out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD 2>&1 >/dev/null </dev/null 9>&-)" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    doctor_ok "unused Flatpak runtimes: Kempt can list them"
+    return 0
+  fi
+  why="$(error_line_of <<<"$out")" || why=""
+  if [[ $rc -eq 3 ]]; then
+    doctor_fail "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak${why:+ ($why)}. Install the missing packages: sudo dnf install flatpak-libs python3-gobject-base"
+  else
+    doctor_fail "unused Flatpak runtimes: the listing failed (rc=$rc${why:+: $why}), so kempt reclaim and the widget cannot offer to free space"
   fi
 }
 
@@ -3048,6 +3092,7 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
+  doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
   doctor_config_row
