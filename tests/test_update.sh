@@ -2288,8 +2288,10 @@ printf '#!/usr/bin/env bash\necho "alex:x:1000:1000::/home/alex:/bin/bash"\n' > 
 chmod +x "$RC"/*
 { jq -r '.used[].deploy_dir | "\(.)\t4000000000"' "$RC_LISTING"
   jq -r '.unused[].deploy_dir | "\(.)\t395000000"' "$RC_LISTING"; } > "$RC_DU"   # five: 1975000000
-# The run's before-snapshot has to know the five runtimes, as it would on a real machine.
-jq -r '.unused[].ref | split("/") | "\(.[1])\t\(.[3])\t?"' "$RC_LISTING" > "$WORLD/fp-snap-rt.tsv"
+# The run's before-snapshot, as `flatpak list --runtime` prints it: without --all it hides the
+# .Locale, .Debug and .Sources extensions, so the Locale is not in it and its parent runtime is.
+jq -r '.unused[].ref | split("/") | select(.[1] | test("[.](Locale|Debug|Sources)$") | not)
+       | "\(.[1])\t\(.[3])\t?"' "$RC_LISTING" > "$WORLD/fp-snap-rt.tsv"
 export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $WORLD/fp-snap-rt.tsv" \
        KEMPT_FLATPAK_UNUSED_CMD="$RC/unused" KEMPT_DU_CMD="$RC/du" \
        KEMPT_FLATPAK_UNINSTALL_CMD="$RC/uninstall" KEMPT_PKCHECK="$RC/pkcheck" KEMPT_GETENT_CMD="$RC/getent"
