@@ -459,6 +459,9 @@ and
 .B unhold
 hold that lock across their whole read\-modify\-write and refuse rather than write after 30
 seconds, so one of those three can exit 1 with no run having failed and nothing having changed.
+.B reclaim
+exits 1 when Flatpak fails, even after removing some of the runtimes, or when what it removed
+cannot be read afterwards.
 .TP
 .B 2
 Usage error: unknown command, option or argument.
@@ -484,7 +487,7 @@ while one is stored, or when the root helper refuses to discard what is; and
 .B run
 when the terminal window it launched never opened, so the update never began. Also
 .B reclaim
-when it may not remove anything.
+when it may not remove anything, including when polkit refuses Flatpak itself.
 .TP
 .B 6
 .B reclaim

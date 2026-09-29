@@ -36,11 +36,11 @@ Every command uses the same codes:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `doctor` found a problem, or a command could not take the writers' lock. |
+| 1 | The run failed (a backend returned non-zero), `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
-| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything (see [reclaim](#reclaim)). |
+| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything, including when polkit refuses Flatpak itself (see [reclaim](#reclaim)). |
 | 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it has been unused for less than an hour. Nothing was removed. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
@@ -394,6 +394,11 @@ removed.
 
 To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 Flatpak never lists a pinned runtime as unused.
+
+If Flatpak fails part-way, `kempt reclaim` says how much it freed and that Flatpak could not
+remove all of them, and exits 1. If Flatpak fails and the list afterwards cannot be read, Kempt
+cannot tell what went. It says the removal may be partial, and exits 1. Run `kempt reclaim --list`
+to see what is left. If polkit refuses Flatpak's own helper, nothing was removed, and it exits 5.
 
 It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
 when `reclaim=off`, or when removing needs an administrator's password. Without `-y` and without a

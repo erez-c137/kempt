@@ -3234,11 +3234,13 @@ cmd_disable_passwordless() {
 #   0 success - including a user who declines at the risky-transaction prompt
 #   1 the run itself failed (a backend returned non-zero), `doctor` found a problem, or a writer
 #     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
-#     same table and calls that third case the one that surprises people - keep the two in step
+#     same table and calls that third case the one that surprises people - keep the two in step.
+#     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)
-#   5 aborted during pre-flight - nothing was changed
+#   5 aborted during pre-flight - nothing was changed. For reclaim: may not remove, flatpak's refusal
+#     by polkit included
 #   6 reclaim only: what Flatpak would remove is not the set that was shown - nothing was removed
 usage() {
   cat <<'EOF'
