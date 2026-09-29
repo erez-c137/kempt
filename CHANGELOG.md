@@ -16,11 +16,15 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as `check shared`.
 - **`kempt reclaim` frees the space old Flatpak runtimes take.** It lists the runtimes no
   installed app uses, says about how much space they take, and removes those runtimes when you
-  agree. It removes a runtime only once it has been unused for an hour. Scripts read the list
-  as `reclaim` in `state.json`.
+  agree. It removes only the runtimes it showed you, named one by one, and only once each has
+  been unused for an hour. The first time, it checks and asks you to come back in an hour. It
+  never asks for a password: when removing them needs an administrator, it says so and removes
+  nothing. If Flatpak stops part-way, it says how much was freed. Scripts read the list as
+  `reclaim` in `state.json`.
 - **The new `reclaim` setting can remove them after each update.** It is `ask` (the default),
-  `automatic` or `off`. On an image-based system, or with more than one user account, `automatic`
-  acts as `ask`.
+  `automatic` or `off`. `automatic` acts as `ask` on an image-based system, and when more than one
+  person may use the machine: more than one login account, network accounts such as SSSD or LDAP,
+  or Flatpak data in more than one home folder.
 - **The widget offers to free the space too.** When unused Flatpak runtimes take 100 MB or more,
   the popup says how much and offers **Free Up Space**. **Show What** lists them. In Settings,
   **Unused Flatpak runtimes** offers **Ask me first**, **Remove after updates** and **Never**.
