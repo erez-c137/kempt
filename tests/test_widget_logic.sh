@@ -2274,6 +2274,24 @@ assert_eq "$(js "L.reclaimOutcomeOf(124, '', '', null, $RC_PRESS).text")" "Could
   "...and a failure with nothing said names its exit code"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" "...and is not a success"
 
+# The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
+# `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
+# worst case is the uninstall, two listings, du, and the closing check (the widget's own check
+# allowance, 120 s).
+_fp="$REPO_ROOT/backends/flatpak.sh"
+_un="$(sed -n 's/^KEMPT_RECLAIM_UNINSTALL_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
+_ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
+_du="$(sed -n 's/^KEMPT_RECLAIM_DU_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
+assert_eq "$([[ -n "$_un" && -n "$_ls" && -n "$_du" ]] && echo read)" "read" "premise: the engine's reclaim timeouts are readable"
+assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_un + 2 * $_ls + $_du + 120) * 1000")" "true" \
+  "Free Up Space waits longer than the engine's worst case for kempt reclaim"
+# ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \
+  '{"ok":false,"text":"Kempt stopped waiting. The removal may still finish. Check again in a few minutes."}' \
+  "the widget giving up says the removal may still finish"
+assert_eq "$(js "L.reclaimOutcomeOf(124, '', 'Flatpak could not remove them. See: kempt log', null, $RC_PRESS).text")" \
+  "Flatpak could not remove them. See: kempt log" "...but an exit 124 the CLI explained keeps its words"
+
 # --- the last update row carries what an automatic reclaim freed -------------------------------
 RC_RUN='{timestamp:"2026-09-29T10:00:00+03:00",surface:"popup",status:"ok",backends:{dnf:{updated:[{name:"a",from:"1",to:"2"}]},flatpak:{updated:[],reclaimed:{refs:["runtime/x/x86_64/1","runtime/y/x86_64/2"],bytes:1530000000,status:"removed"}}}}'
 assert_eq "$(js "JSON.stringify([L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedBytes, L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedCount])")" \

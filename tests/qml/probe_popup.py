@@ -2316,6 +2316,7 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
     "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
+    "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up
     "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
     "reclaimRemovedTail",   # -> reclaimedTailOf -> postRunLine and lastRunText
     "upToDate",             # -> countPhrase -> vm.headerText

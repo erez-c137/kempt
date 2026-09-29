@@ -366,6 +366,7 @@ var COPY = {
     reclaimNeedsAuth: "Removing these needs an administrator.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
+    reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Check again in a few minutes.",
     // The Last update row and the line after a run, when automatic reclaim removed something.
     reclaimFreedTail: "%1 freed",
     reclaimRemovedTail: "unused runtimes removed"
@@ -991,6 +992,11 @@ function messageStack(wants) {
 // Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
 var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
+// How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, which is
+// backends/flatpak.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s) + two listings of
+// KEMPT_RECLAIM_LIST_TIMEOUT (15 s) + KEMPT_RECLAIM_DU_TIMEOUT (30 s) + the closing check.
+// Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
+var RECLAIM_TIMEOUT_MS = 780000;
 
 // The size on offer, or null when the CLI could not work it out. A value of the wrong type is
 // read as unknown, never coerced.
@@ -1562,6 +1568,8 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
     }
     if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
     var msg = firstLineOf(stderr);
+    // The Executor's own kill (Executor.qml): the CLI never answered, and its removal may be running.
+    if (rc === 124 && msg.indexOf("timeout after ") === 0) return { ok: false, text: COPY.reclaimTimedOut };
     if (msg !== "") return { ok: false, text: msg };
     if (rc === 6) return { ok: false, text: COPY.reclaimChanged };
     return { ok: false, text: fill(COPY.reclaimFailed, "%1", String(rc)) };
@@ -2166,6 +2174,7 @@ if (typeof module !== "undefined" && module.exports) {
         reclaimMessageOf: reclaimMessageOf,
         reclaimRefLineOf: reclaimRefLineOf,
         reclaimOutcomeOf: reclaimOutcomeOf,
+        RECLAIM_TIMEOUT_MS: RECLAIM_TIMEOUT_MS,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
