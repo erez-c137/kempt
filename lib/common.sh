@@ -92,6 +92,13 @@ WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
 # marker has not caught up yet.
 STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
+# Reclaiming disk space. The size cache saves a du over every installed Flatpak runtime on each
+# check; it is keyed on the installed set, so any install, update or removal invalidates it. The
+# outcome file is what the last removal did, carried into state.json by the next check, because
+# write_state is the only door into state.json and a removal is not a check.
+# shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
+RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
+RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -123,6 +130,14 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
+# Who has an account here, read by reclaim_human_accounts to decide whether automatic removal of
+# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so accounts from sssd or
+# systemd-homed count too.
+KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
+# Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
+# unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
+# dialog itself.
+KEMPT_PKCHECK="${KEMPT_PKCHECK:-pkcheck}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -326,6 +341,81 @@ reclaim_mode() {  # → ask | automatic | off
     automatic|off) printf '%s\n' "$v" ;;
     *) echo ask ;;
   esac
+}
+
+# The desktop user, and only the desktop user, may list or remove unused runtimes. For the system
+# installation libflatpak counts the CALLING user's own apps as users, so under sudo or pkexec it
+# counts root's instead, and a system runtime that one of this person's --user apps needs would
+# be listed as unused and removed. SUDO_UID and PKEXEC_UID are how an elevated shell announces
+# itself when EUID alone does not (`sudo -u` back to a user keeps SUDO_UID).
+reclaim_as_root() {  # → 0 when this process must not reclaim
+  [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
+}
+
+# Human accounts on this machine: a UID in Fedora's regular range and a shell someone can log in
+# with. More than one means automatic removal behaves as ask, because libflatpak counts only the
+# calling user's --user apps as users, and another person's app may need a runtime this listing
+# calls unused. A lookup that fails counts as "more than one", for the same reason.
+reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
+  local out
+  out="$($KEMPT_GETENT_CMD 2>/dev/null </dev/null)" || return 1
+  awk -F: '$3 >= 1000 && $3 <= 60000 && $7 != "" && $7 !~ /(nologin|false)$/ { n++ } END { print n + 0 }' <<<"$out"
+}
+
+# The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
+# image-based system Kempt runs no updates, so there is no run to remove after, and with more than
+# one human account the listing does not know about the others' apps. Both fall back to ask, so
+# the space is still shown and a person decides.
+reclaim_effective_mode() {  # → ask | automatic | off
+  local mode n
+  mode="$(reclaim_mode)"
+  if [[ "$mode" == automatic ]]; then
+    if on_ostree; then mode=ask
+    elif ! n="$(reclaim_human_accounts)" || [[ -z "$n" ]] || (( n > 1 )); then mode=ask
+    fi
+  fi
+  printf '%s\n' "$mode"
+}
+
+# What a set of refs is called when a person agrees to remove it: 16 hex characters of the sha256
+# of its sorted `ref commit` lines. The commit is part of it, so a runtime that updated between the
+# check and the click is a different set. Empty input is the empty digest.
+reclaim_digest() {  # stdin: ref<TAB>commit lines → digest, or nothing for an empty set
+  local lines
+  lines="$(awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | sort -u)"
+  [[ -n "$lines" ]] || return 0
+  printf '%s\n' "$lines" | sha256sum | cut -c1-16
+}
+
+# Bytes as a person reads them, SI decimal like flatpak and Discover: "850 MB", "1.5 GB". Used for
+# estimates only, so one decimal is all the precision there is.
+human_bytes() {  # bytes → text
+  awk -v b="$1" 'BEGIN {
+    if (b >= 1e9) printf "%.1f GB\n", b / 1e9
+    else if (b >= 1e6) printf "%d MB\n", b / 1e6 + 0.5
+    else if (b >= 1e3) printf "%d kB\n", b / 1e3 + 0.5
+    else printf "%d bytes\n", b }'
+}
+
+# The last removal's outcome: {at, via, result, refs, bytes, digest}, or {} when there is none or
+# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
+reclaim_last_read() {  # → one JSON object
+  local out
+  out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
+  [[ -n "$out" ]] || out='{}'
+  printf '%s\n' "$out"
+}
+
+# Best-effort, like every write after a system change: a lost outcome costs a sentence in the
+# popup, never the removal's own exit status.
+reclaim_last_write() {  # via result refs-json bytes-or-empty digest
+  kempt_init_dirs 2>/dev/null || return 0
+  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
+         --arg bytes "$4" --arg digest "$5" \
+    '{at:$at, via:$via, result:$result, refs:$refs,
+      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}' 2>/dev/null \
+    | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
+  return 0
 }
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
 

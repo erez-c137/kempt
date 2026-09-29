@@ -15,6 +15,81 @@ cmd_version() {
   printf 'kempt %s\n' "$(kempt_version)"
 }
 
+# --- reclaiming disk space ------------------------------------------------------------------------
+# How long a ref must stay unused, with the same commit, before Kempt offers or removes it. flatpak
+# deploys a runtime BEFORE the app that needs it, and nothing locks the whole transaction, so a
+# runtime another tool is installing right now can look unused for a moment. An hour keeps that
+# moment out of every offer and every removal.
+KEMPT_RECLAIM_SETTLE=3600
+
+# The unused refs with the time each was first seen unused, carried over from the last check's
+# state.json when the ref still has the same commit. `since` is UTC with a Z, because jq can read
+# that form back and the offerable test below is done in jq. A since that cannot be read, or lies
+# in the future (a clock stepped back), starts again now: the safe direction.
+reclaim_classify() {  # $1 = listing JSON → [{ref, commit, since, eol, offerable}]
+  local prev
+  prev="$(jq -c -n '[inputs][0].reclaim.refs? // []
+                    | if type == "array" then [.[] | select(type == "object"
+                        and (.ref | type == "string") and (.commit | type == "string"))] else [] end' \
+          "$STATE_FILE" 2>/dev/null)" || prev='[]'
+  [[ "$prev" == \[* ]] || prev='[]'
+  jq -c -n --argjson l "$1" --argjson prev "$prev" --argjson now "$(date +%s)" \
+        --arg nowiso "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson settle "$KEMPT_RECLAIM_SETTLE" '
+    ($prev | map({key: (.ref + " " + .commit), value: .since}) | from_entries) as $p
+    | [$l.unused[]
+       | ($p[.ref + " " + .commit] // null) as $s
+       | (if ($s | type) == "string" then (try ($s | fromdateiso8601) catch null) else null end) as $se
+       | (if $se == null or $se > $now then {since: $nowiso, age: 0}
+          else {since: $s, age: ($now - $se)} end) as $t
+       | {ref, commit, since: $t.since, eol, offerable: ($t.age >= $settle)}]'
+}
+
+# The reclaim object for state.json, or nothing when the feature does not apply here: flatpak off
+# or absent, reclaim=off, or a process running as root. Called from cmd_check, which must never fail
+# because of it, so every step degrades instead of returning an error: a listing that fails is
+# status `failed`, a size that cannot be worked out is status `unknown_size`.
+reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
+  [[ "$1" == true ]] || return 0
+  reclaim_as_root && return 0
+  flatpak_present || return 0
+  local mode last listing classified sizes_tsv sizes='{}' sized=true digest
+  mode="$(reclaim_effective_mode)"
+  [[ "$mode" != off ]] || return 0
+  last="$(reclaim_last_read)"
+  if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
+    jq -cn --arg mode "$mode" --argjson last "$last" \
+      '{mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
+       + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
+    return 0
+  fi
+  classified="$(reclaim_classify "$listing")" || return 0
+  if sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
+    sizes="$(jq -R -n -c '[inputs | split("\t") | select(length == 2)
+                           | {key: .[0], value: (.[1] | tonumber)}] | from_entries' <<<"$sizes_tsv" 2>/dev/null)" \
+      || { sizes='{}'; sized=false; }
+  else
+    sized=false
+  fi
+  digest="$(jq -r '.[] | select(.offerable) | "\(.ref)\t\(.commit)"' <<<"$classified" 2>/dev/null | reclaim_digest)" \
+    || return 0
+  # needs_auth and failed are carried from the last removal only while the set it tried is still
+  # the set on offer: a failure is shown once per set, and a new set gets a fresh chance.
+  jq -cn --arg mode "$mode" --argjson c "$classified" --argjson sz "$sizes" --argjson sized "$sized" \
+         --arg digest "$digest" --argjson last "$last" '
+    ($c | map(select(.offerable))) as $off
+    | {mode: $mode,
+       refs: [$c[] | {ref, commit, since, eol}],
+       offerable_bytes: (if ($off | length) == 0 then 0
+                         elif $sized then ($off | map($sz[.ref] // 0) | add)
+                         else null end),
+       digest: $digest,
+       status: (if ($off | length) > 0 and ($sized | not) then "unknown_size"
+                elif $digest != "" and $last.digest? == $digest
+                     and ($last.result? == "needs_auth" or $last.result? == "failed") then $last.result
+                else "ok" end)}
+    + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
+}
+
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
@@ -152,6 +227,16 @@ cmd_check() {
   # Read AFTER maybe_refresh_metadata, so a check that has just fetched publishes the fetch it
   # made rather than the one before it.
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
+  # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
+  # say in the check's status. Guarded at every step (set -e, and this runs inside the check lock):
+  # a helper, du or jq that fails leaves the state exactly as assembled, never a failed check.
+  local reclaim_json merged
+  reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
+  if [[ -n "$reclaim_json" ]] \
+     && merged="$(jq --argjson r "$reclaim_json" '. + {reclaim: $r}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
   # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a

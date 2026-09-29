@@ -84,6 +84,82 @@ KEMPT_FLATPAK_APP_RUNTIME_CMD="${KEMPT_FLATPAK_APP_RUNTIME_CMD:-flatpak list --s
 # blaming the apps on the branch that is still supported.
 KEMPT_FLATPAK_INFO_CMD="${KEMPT_FLATPAK_INFO_CMD:-flatpak info --system}"
 
+# --- reclaiming disk space: the refs nothing installed uses ---------------------------------------
+# The list comes from libflatpak's list_unused_refs(), through a small Python helper, because it is
+# the same call `flatpak uninstall --unused` makes: what Kempt shows is exactly what a removal
+# takes. The helper lives in libexec/ and not beside this file because the package strips the
+# shebang from everything under lib/ and backends/, and this one is executed, not sourced.
+# Read-only and unprivileged, and it must run as the desktop user (see reclaim_as_root).
+KEMPT_FLATPAK_UNUSED_CMD="${KEMPT_FLATPAK_UNUSED_CMD:-$KEMPT_ROOT/libexec/kempt-flatpak-unused}"
+# The size estimate. ONE du over the used deploy directories first and then the unused ones: GNU du
+# counts a hard-linked file once, for the first argument that reaches it, and flatpak deploys
+# hard-link shared files. So a file an unused ref shares with a used one is credited to the used
+# one, and is not counted as space a removal frees. Summing get_installed_size() instead overstated
+# a real removal by about a third (GL 24.08 and 24.08extra share most of their files).
+KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
+# The removal. --unused rather than a list of refs, because flatpak recomputes the set when it
+# runs: an extension an app started needing a moment ago is kept, where a named ref would be
+# removed regardless. reclaim_remove re-lists first and stops if the set differs from what the
+# person agreed to. --noninteractive is appended there, except when a person pressed the button
+# and a polkit dialog is welcome. System scope only, the contract every command above keeps.
+KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --unused --system -y}"
+# Both the listing and the size estimate run inside the check lock, so each has a bound.
+KEMPT_RECLAIM_TIMEOUT=60
+
+# Whether there is a flatpak to reclaim anything from: the command a removal would run resolves.
+# Absent flatpak means no listing and no reclaim block in state.json at all.
+flatpak_present() { command -v "${KEMPT_FLATPAK_UNINSTALL_CMD%% *}" >/dev/null 2>&1; }
+
+# The helper's answer, checked for shape before anything reads it: every ref is kind/id/arch/branch
+# with a hex commit and an absolute deploy directory. One bad entry rejects the whole answer, since
+# its deploy directories are handed to du and its refs end up in state.json.
+flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when the helper did not answer
+  local out
+  # Unquoted: a seam may carry its own arguments (as dnf_history_json).
+  # shellcheck disable=SC2086
+  out="$(timeout "$KEMPT_RECLAIM_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD </dev/null 9>&-)" || return 1
+  jq -e -c '
+    def okref: type == "object"
+      and (.ref | type == "string" and test("^(runtime|app)/[A-Za-z0-9._-]+/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$"))
+      and (.commit | type == "string" and test("^[0-9a-f]{64}$"))
+      and (.deploy_dir | type == "string" and test("^/[^\t\n]*$"));
+    select(type == "object" and (.installation | type == "string")
+           and (.unused | type == "array") and (.used | type == "array")
+           and all(.unused[]; okref and ((.eol == null) or (.eol | type == "string")))
+           and all(.used[]; okref))
+    | {installation, unused: [.unused[] | {ref, commit, deploy_dir, eol}],
+       used: [.used[] | {ref, commit, deploy_dir}]}' <<<"$out" 2>/dev/null
+}
+
+# Bytes each unused ref would free, as TSV ref<TAB>bytes. Non-zero when there is no estimate: a du
+# that fails, times out or leaves a directory out. Cached in RECLAIM_SIZES_FILE under a key made of
+# the installation and every installed ref with its commit, so the du runs again only when the
+# installed set changed. Nothing to size prints nothing and succeeds.
+flatpak_unused_sizes() {  # $1 = listing JSON → TSV; non-zero when unknown
+  local listing="$1" key cached out dirs=()
+  jq -e '.unused | length > 0' <<<"$listing" >/dev/null 2>&1 || return 0
+  key="$(jq -r '.installation, ([.unused[], .used[] | .ref + " " + .commit] | sort[])' <<<"$listing" \
+         | sha256sum | cut -c1-64)" || return 1
+  cached="$(jq -r -n --arg k "$key" '[inputs][0] | select(.key == $k) | .sizes
+                                     | to_entries[] | "\(.key)\t\(.value)"' "$RECLAIM_SIZES_FILE" 2>/dev/null)" \
+    || cached=""
+  if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return 0; fi
+  readarray -t dirs < <(jq -r '.used[].deploy_dir, .unused[].deploy_dir' <<<"$listing")
+  # shellcheck disable=SC2086  # the seam may carry its own arguments
+  out="$(timeout "$KEMPT_RECLAIM_TIMEOUT" $KEMPT_DU_CMD -sb -- "${dirs[@]}" </dev/null 2>/dev/null 9>&-)" || return 1
+  # du prints `bytes<TAB>path` in argument order. Every unused directory must have its line, and
+  # each must be a number, or there is no estimate at all rather than a smaller one.
+  out="$(jq -R -n -c --argjson l "$listing" '
+      ([inputs | split("\t") | select(length == 2 and (.[0] | test("^[0-9]+$")))
+        | {key: .[1], value: (.[0] | tonumber)}] | from_entries) as $du
+      | [$l.unused[] | {key: .ref, value: $du[.deploy_dir]}]
+      | select(all(.[]; .value != null)) | from_entries' <<<"$out" 2>/dev/null)" || return 1
+  [[ -n "$out" ]] || return 1
+  jq -c -n --arg k "$key" --argjson s "$out" '{key: $k, sizes: $s}' 2>/dev/null \
+    | atomic_write "$RECLAIM_SIZES_FILE" 2>/dev/null || true
+  jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"$out"
+}
+
 # remote-ls with --columns=application,version may emit an empty version column, and a pending app
 # can be missing from the installed lookup entirely. GNU join's `-a1 -e '?' -o` flags fill both
 # gaps - and they are not redundant with jq's `//`, which does NOT catch empty strings.
