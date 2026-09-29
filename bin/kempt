@@ -148,7 +148,9 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   readarray -t refs < <(jq -r '.unused[].ref' <<<"$listing")
   # The seam's --noninteractive makes flatpak's transaction non-interactive, so polkit never raises a
   # dialog for it: the pkcheck above is the whole permission decision.
-  # </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
+  # </dev/null so no prompt waits on a terminal. 9>&- keeps check.lock's descriptor out of flatpak
+  # and tee, so a check never waits on them. The update lock (fd 8) is inherited on purpose: if
+  # kempt is killed mid-removal, flatpak keeps the lock and no update starts until flatpak exits.
   # Ten minutes at most: this holds the update lock, and a removal that hangs (a stuck system
   # helper) must not keep every later run out. Time running out is exit 124, recorded as a failure
   # like any other.
