@@ -2307,14 +2307,18 @@ assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" ".
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
 # `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
-# worst case is the uninstall, two listings, du, and the closing check (the widget's own check
-# allowance, 120 s).
+# worst case is the uninstall, four listings, two du runs, and the closing check: the check lock
+# wait, then the check itself, bounded here by the widget's own check allowance.
 _fp="$REPO_ROOT/backends/flatpak.sh"
 _un="$(sed -n 's/^KEMPT_RECLAIM_UNINSTALL_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _du="$(sed -n 's/^KEMPT_RECLAIM_DU_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
-assert_eq "$([[ -n "$_un" && -n "$_ls" && -n "$_du" ]] && echo read)" "read" "premise: the engine's reclaim timeouts are readable"
-assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_un + 2 * $_ls + $_du + 120) * 1000")" "true" \
+_lw="$(sed -n 's/^KEMPT_CHECK_LOCK_WAIT="\${KEMPT_CHECK_LOCK_WAIT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_ck="$(sed -n 's/.*executor\.run(kemptCmd + (auto ? " check --coalesce" : " check"), \([0-9]*\).*/\1/p' "$REPO_ROOT/plasmoid/contents/ui/main.qml")"
+assert_eq "$([[ -n "$_un" && -n "$_ls" && -n "$_du" && -n "$_lw" && -n "$_ck" ]] && echo read)" "read" \
+  "premise: the engine's reclaim timeouts, the check lock wait and the check allowance are readable"
+assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance covers the check's own listing and du"
+assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_un + 4 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \
