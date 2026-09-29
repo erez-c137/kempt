@@ -391,7 +391,9 @@ is left alone. The hour starts at the first check that lists the runtime. If no 
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
 whole list. It never asks for a password. When removing needs an administrator, nothing is
-removed.
+removed: your account is not an administrator (not in the `wheel` group), or you are logged in
+over the network rather than at the desktop. Run `kempt reclaim` from an administrator's desktop
+session instead.
 
 To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 Flatpak never lists a pinned runtime as unused.
@@ -402,7 +404,7 @@ cannot tell what went. It says the removal may be partial, and exits 1. Run `kem
 to see what is left. If polkit refuses Flatpak's own helper, nothing was removed, and it exits 5.
 
 It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
-when `reclaim=off`, or when removing needs an administrator's password. Without `-y` and without a
+when `reclaim=off`, or when removing needs an administrator. Without `-y` and without a
 terminal to ask at, it also exits 5. It exits 6 if the list changed since it was shown, or if part
 of it became unused less than an hour ago, which includes a first use with no check on record. Another update running exits 3. If Flatpak fails to
 list or remove the runtimes, it exits 1. A removal writes an event line and no
@@ -546,7 +548,7 @@ The wording is fixed, so you can search it:
 | `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. |
 | `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
-| `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
+| `reclaim needs authorization, nothing removed` | Removing them needed an administrator (see [reclaim](#reclaim)), so nothing was removed. |
 | `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
@@ -982,8 +984,8 @@ lower in this list are left out. If that hides the restart message, the footer s
 8. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
    `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
    lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
-   saw: if the list changed, nothing is removed and the popup says so. Flatpak may ask for an
-   administrator's password. With `reclaim=automatic` the message adds *"Kempt removes them after
+   saw: if the list changed, nothing is removed and the popup says so. It never asks for a
+   password: when removing needs an administrator, the popup says so and nothing is removed. With `reclaim=automatic` the message adds *"Kempt removes them after
    the next update."* and the button reads **Free Up Space Now**. Closing the message hides it
    until the list changes or Plasma restarts.
 

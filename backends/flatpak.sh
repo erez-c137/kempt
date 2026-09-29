@@ -100,7 +100,8 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # The removal. The refs are appended by name, the set the person agreed to and nothing else.
 # `--unused` would make flatpak work its own list out at removal time, and a runtime another tool
 # deployed a moment ago (before its app) would be on it. Named, the removed set is a subset of the
-# agreed one, and flatpak refuses to remove a runtime an installed app needs. --no-related because
+# agreed one, and flatpak refuses to remove a runtime an installed app needs (not an extension:
+# see reclaim_remove). --no-related because
 # without it flatpak also removes the autodelete related refs of what it removes, even one another
 # installed runtime still uses (a codecs extension shared by two platforms); the listing already
 # names the unused extensions itself. --noninteractive answers yes and turns off interaction for the

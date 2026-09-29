@@ -517,6 +517,20 @@ assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
 assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
 assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim changed (digest), nothing removed" "...and in the event log"
 
+# Every runtime on the offer in use again: the set changed, not "nothing to remove", and the check
+# that follows takes the offer out of state.json so the widget stops showing it.
+jq '.used += .unused | .unused = []' "$UNUSED_FX" > "$LISTING"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "6|(none)" "an offer whose runtimes are all in use again: exit 6, nothing removed"
+assert_contains "$out" "What Flatpak can remove changed since this was shown." "...in the widget's words"
+assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim changed (digest), nothing removed" "...and in the event log"
+assert_eq "$(state_reclaim | jq -r '.digest')" "" "...and the offer is gone from state.json"
+rc=0; out="$(reclaim -y)" || rc=$?
+assert_eq "$rc" "0" "the same, with no offer named: nothing to remove, exit 0"
+assert_contains "$out" "Nothing to remove." "...said as such"
+restore_offer
+
 # A set that grew: one more unused ref than was shown means the removal would take it too, unseen.
 jq '.unused += [{"ref":"runtime/org.gnome.Platform/x86_64/46","commit":"'"$(printf 'g%.0s' {1..64} | tr g a)"'",
      "deploy_dir":"/var/lib/flatpak/runtime/org.gnome.Platform/x86_64/46/aa","eol":null}]' "$UNUSED_FX" > "$LISTING"

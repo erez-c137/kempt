@@ -134,7 +134,10 @@ reclaim_authorized() {
 # list is taken again first, and the removal goes ahead only when ALL of it is that set (the digest)
 # and all of it has been unused for the settle time. A runtime that an app started needing after
 # that last look stays: flatpak refuses to remove a runtime an installed app uses, and no
-# --force-remove is passed. The slow steps (polkit, du) come first; the last look, and its
+# --force-remove is passed. An extension is not protected the same way: flatpak 1.18 prints that
+# an app uses it and removes it anyway (seen on a VM, a Locale extension). Only an app installed
+# in the moment between the last look and the removal meets that, and `flatpak update` puts the
+# extension back. The slow steps (polkit, du) come first; the last look, and its
 # comparison, is the only thing between the list and the removal.
 reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   local via="$1" expected="$2" before="${3:-}"
@@ -2384,6 +2387,22 @@ cmd_reclaim() {
     exit 1
   fi
   if [[ "$(jq -r 'length' <<<"$classified")" == 0 ]]; then
+    # An offer was acted on (the widget's button, a script with the digest), and every runtime on
+    # it is in use again: the set changed, as below. The check rewrites state.json, so the widget
+    # stops offering what is gone instead of offering it until the next scheduled check.
+    if [[ -n "$expect" ]]; then
+      echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
+      local via_e=cli
+      [[ "${KEMPT_VIA:-}" == widget ]] && via_e=widget
+      reclaim_last_write "$via_e" changed '[]' "" "$expect"
+      log_event "reclaim changed (digest), nothing removed"
+      if acquire_lock; then
+        cmd_check >/dev/null 2>&1 || true
+        { flock -u 9; exec 9>&-; } 2>/dev/null || true
+        release_lock
+      fi
+      exit 6
+    fi
     echo "Nothing to remove. Every installed Flatpak runtime is in use."
     return 0
   fi

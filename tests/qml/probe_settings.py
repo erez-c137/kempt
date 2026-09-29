@@ -623,8 +623,11 @@ p.check("an untouched page writes nothing at all", p.calls_matching("config set"
 
 # --- unused Flatpak runtimes ----------------------------------------------------------------------
 p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "automatic")
-p.check("...and with flatpak installed and included, the group is usable and says nothing more",
-        [ev6("reclaimRepeater.itemAt(0).enabled"), ev6("reclaimNote.visible")], [True, False])
+p.check("...and with flatpak installed and included, the group is usable",
+        ev6("reclaimRepeater.itemAt(0).enabled"), True)
+p.check("...and with Remove after updates chosen, it says a shared computer is still asked first",
+        [ev6("reclaimNote.visible"), ev6("reclaimNote.text")],
+        [True, "On a computer with more than one account, Kempt still asks first."])
 p.check("...under the label the plan gives it",
         ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
 p.check("...with its three choices in words",
@@ -636,6 +639,7 @@ p.clear_calls()
 ev6("page.saveConfig()")
 p.wait_idle(ev6, "cfgExecutor")
 p.check("choosing Ask me first writes it through the CLI", stored("reclaim"), "ask")
+p.check("...and with Ask me first the group says nothing more", ev6("reclaimNote.visible"), False)
 p.check("...and only that key", [c.split()[2] for c in p.calls_matching("config set")], ["reclaim"])
 
 # Leaving Flatpak out of updates turns the feature off in the CLI, so the group greys out.
