@@ -398,14 +398,26 @@ human_bytes() {  # bytes → text
 }
 
 # The line of a command's output that says what went wrong: the last line starting with
-# "error:", else the last non-empty one. One line, with colour codes and control characters
-# removed and at most 200 characters, so it is safe in an event line, a JSON field or a sentence.
+# "error: Failed to" (flatpak's per-ref reason, which its closing "error: There were one or more
+# errors" would hide), else the last starting with "error:", else the last non-empty one. One line,
+# with terminal escapes (CSI, OSC, the C1 CSI) and control characters removed, and at most 200
+# characters, cut on a character boundary, so it is safe in an event line, a JSON field or a sentence.
+# The C1 CSI is taken as U+009B (bytes c2 9b), or as a lone 0x9b byte after ASCII: elsewhere 0x9b
+# is part of a UTF-8 character.
 error_line_of() {  # stdin: output → one line, empty when there was none
   local line
-  line="$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
-          | awk '{ sub(/[[:space:]]+$/, "") } tolower($0) ~ /^error:/ { e = $0 } NF { l = $0 }
-                 END { print (e != "" ? e : l) }')" || line=""
-  line="$(printf '%s' "$line" | tr -d '[:cntrl:]')" || line=""
+  line="$(LC_ALL=C sed -e 's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)\{0,1\}//g' \
+                       -e 's/\x1b\[[0-?]*[ -/]*[@-~]//g' \
+                       -e 's/\xc2\x9b[0-?]*[ -/]*[@-~]//g' \
+                       -e 's/\(^\|[\x01-\x7f]\)\x9b[0-?]*[ -/]*[@-~]/\1/g' \
+          | LC_ALL=C tr -d '\r' \
+          | LC_ALL=C awk '{ sub(/[[:space:]]+$/, "") }
+                          tolower($0) ~ /^error: failed to/ { f = $0 }
+                          tolower($0) ~ /^error:/ { e = $0 }
+                          NF { l = $0 }
+                          END { print (f != "" ? f : (e != "" ? e : l)) }')" || line=""
+  line="$(printf '%s' "$line" | LC_ALL=C tr -d '[:cntrl:]')" || line=""
+  local LC_ALL=C.UTF-8   # the file exports it too; the cut below counts characters only under it
   printf '%s\n' "${line:0:200}"
 }
 

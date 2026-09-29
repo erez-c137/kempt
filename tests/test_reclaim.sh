@@ -7,6 +7,22 @@ KEMPT="$REPO_ROOT/bin/kempt"
 HELPER="$REPO_ROOT/libexec/kempt-flatpak-unused"
 UNUSED_FX="$FIXTURES/flatpak-unused.json"
 
+# --- error_line_of: the one line of flatpak's output that says why --------------------------------
+# flatpak ends a failed transaction with a generic "error: There were one or more errors"; the line
+# that names the ref and the reason is the "error: Failed to" before it.
+assert_eq "$(printf 'Uninstalling\nerror: Failed to uninstall runtime/a/x86_64/1: busy\nerror: There were one or more errors\n' | error_line_of)" \
+  "error: Failed to uninstall runtime/a/x86_64/1: busy" "error_line_of prefers flatpak's \"Failed to\" line over its generic last one"
+assert_eq "$(printf 'error: first\nerror: second\nwarning: after\n' | error_line_of)" "error: second" \
+  "...else the last error: line"
+# Terminal escapes of every kind go: CSI with private parameters (hide cursor), OSC (window title,
+# hyperlink) and the C1 CSI, as U+009B or a lone byte after ASCII. A 0x9b inside a UTF-8 character stays.
+assert_eq "$(printf '\033[?25l\033]0;flatpak\007error: Failed to \033]8;;http://x\033\\go\033]8;;\033\\ \xc2\x9b1mhere\xc2\x9b0m \x9b1mnow \xc3\x9b\033[?25h\n' | error_line_of)" \
+  "error: Failed to go here now $(printf '\xc3\x9b')" "...with CSI, OSC and C1 CSI sequences removed"
+# 200 characters, cut on a character boundary: the result is still valid UTF-8.
+long="$(printf 'error: %s' "$(printf '\xc3\xa9%.0s' {1..300})" | error_line_of)"
+assert_eq "$(printf '%s' "$long" | LC_ALL=C.UTF-8 wc -m)|$(printf '%s' "$long" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && echo valid)" "200|valid" \
+  "...cut to 200 characters without splitting one"
+
 # --- the listing helper ---------------------------------------------------------------------------
 # Run against a stand-in for PyGObject (tests/fixtures/fake-gi) that serves the fixture's refs, so
 # this needs python3 and nothing else: no libflatpak, no system installation, no network.
