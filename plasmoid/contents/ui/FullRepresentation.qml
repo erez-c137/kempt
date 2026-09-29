@@ -155,6 +155,16 @@ PlasmaExtras.Representation {
     // staged" to "you held kf6-kio after this was prepared" changes its colour, its type and its
     // buttons silently, for the person who most needs to hear it.
     //
+    // closedByButton(message, key) -> did this message's close button just hide it?
+    // `visible` is the EFFECTIVE visibility, so it also goes false when an ancestor hides: Plasma
+    // builds the popup in a hidden container and hides it on every close. The close button hides
+    // only the message, so its parent is still visible then; an ancestor hiding takes the parent
+    // with it (Qt updates a parent before its children). And the view model must still want the
+    // message, which is what a run starting (the stack put away) fails.
+    function closedByButton(message, key) {
+        return message.parent !== null && message.parent.visible && popup.shows(key);
+    }
+
     // `spoken` is what stops one change being announced twice: `text` and `visible` are two
     // bindings onto the same view-model change and both handlers fire. It is cleared when the
     // message goes away, so a banner that comes back says itself again.
@@ -495,7 +505,7 @@ PlasmaExtras.Representation {
             // and an update would quietly switch the reminder off for the rest of the session.
             onVisibleChanged: {
                 if (visible) return;
-                if (!popup.shows("restart")) return;
+                if (!popup.closedByButton(restartMessage, "restart")) return;
                 popup.plasmoidItem.dismissRestart();
                 visible = Qt.binding(function () { return popup.shows("restart"); });
             }
@@ -757,7 +767,7 @@ PlasmaExtras.Representation {
             onVisibleChanged: {
                 if (visible) { popup.speakMessage(reclaimMessage, false); return; }
                 reclaimMessage.spoken = "";
-                if (!popup.shows("reclaim")) return;
+                if (!popup.closedByButton(reclaimMessage, "reclaim")) return;
                 popup.plasmoidItem.dismissReclaim();
                 visible = Qt.binding(function () { return popup.shows("reclaim"); });
             }

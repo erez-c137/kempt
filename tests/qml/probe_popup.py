@@ -1850,6 +1850,74 @@ p.check("...and the message can come back at all, which the raw assignment would
 p.check("...with the footer quiet about it again",
         "restart pending" in str(lev("footerLabel.text")), False)
 
+# --- an ancestor hiding is not the close button ----------------------------------------------------
+# Plasma builds the popup inside a container that is hidden until the popup opens, and hides it
+# again when it closes. Either way the messages' effective `visible` goes false with the view model
+# still wanting them, which is also what the close button looks like. Neither message may read it
+# as a close: that dismissed both at startup, before anyone saw them.
+# The container is a CHILD of the inline root: a parentless item with no window cannot be shown
+# again once hidden, so toggling the root would measure Qt rather than the popup.
+RC_BOTH = reclaim_from(UPTODATE_REBOOT, "state-reclaim-reboot.json")
+state(RC_BOTH)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
+p.pump(50)
+p.check("premise: restart and reclaim are both in the stack",
+        ev("JSON.stringify(root.vm.messageSlots)"), '["restart","reclaim"]')
+_outer, _hev = p.create_inline("""
+import QtQuick
+Item {
+    property alias host: host
+    property var made: null
+    Item {
+        id: host
+        visible: false
+    }
+    function make(item, model, later) {
+        var c = Qt.createComponent("FullRepresentation.qml");
+        made = c.createObject(later ? null : host, {plasmoidItem: item, vm: model});
+        if (made !== null && later) made.parent = host;
+        return made !== null;
+    }
+}
+""", "hidden-host.qml")
+p.engine.rootContext().setContextProperty("probeRoot", root)
+p.check("a popup can be built and then moved into a hidden container",
+        _hev("make(probeRoot, probeRoot.vm, true)"), True)
+p.pump(80)
+p.check("...and that dismisses neither message",
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+_hev("made.destroy()")
+p.pump(30)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+p.pump(30)
+p.check("a popup can be built inside a hidden container, as Plasma builds it",
+        _hev("make(probeRoot, probeRoot.vm, false)"), True)
+p.pump(80)
+p.check("...and building it hidden dismisses neither message",
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+_hev("host.visible = true")
+p.pump(80)
+p.check("...so both show once the container does",
+        [_hev("made.visible"), _hev("made.children.length > 0")], [True, True])
+_shown = """(function () { var out = [];
+  (function walk(o) {
+     if (o.showCloseButton !== undefined && o.visible) out.push(String(o.text).split("\\n")[0]);
+     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
+  })(made); return out.length; })()"""
+p.check("...both messages on screen in it", _hev(_shown), 2)
+_hev("host.visible = false")
+p.pump(50)
+_hev("host.visible = true")
+p.pump(50)
+p.check("hiding the container and showing it again (closing and opening the popup) dismisses "
+        "neither", [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+p.check("...so both are still wanted, and on screen",
+        [ev("JSON.stringify(root.vm.messageSlots)"), _hev(_shown)], ['["restart","reclaim"]', 2])
+_hev("made.destroy()")
+p.pump(30)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+p.pump(30)
+
 # A prompt that could not be opened is said HERE, where the user pressed. Silence is the worst
 # outcome of all: a button that appears to do nothing looks exactly like one that did something
 # invisible.
