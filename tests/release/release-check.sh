@@ -106,7 +106,7 @@ if KEMPT_UI_DIR="$PDIR/contents/ui" timeout 900 bash "$SRC/tests/test_widget_qml
   grep -c '^ok' /tmp/qml.log | xargs -I{} echo "  {} assertions against the installed QML"
   ok "every probe passes against the installed copy"
 else
-  bad "a probe failed against the installed copy"; grep -E '^FAIL:' /tmp/qml.log | head -5
+  bad "a probe failed against the installed copy"; grep -E -A2 '^FAIL:' /tmp/qml.log | head -15
 fi
 grep -q '^skip:' /tmp/qml.log \
   && { bad "a probe skipped, so this proved less than it claims"; grep '^skip:' /tmp/qml.log | head -3; } \

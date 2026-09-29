@@ -630,7 +630,7 @@ What each check means when it fails:
 | `jq` is present | Always passes when doctor runs; without `jq` every command exits 3. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
 | `flatpak` is present | Every check reports Flatpak stale. `info` when `include_flatpak=false`. |
-| Kempt can list unused Flatpak runtimes | `kempt reclaim` and the widget cannot offer to free space. Usually `flatpak-libs` or `python3-gobject-base` is missing, and the line says to install them. Runs only when Flatpak is on and `reclaim` is not `off`. |
+| Kempt can list unused Flatpak runtimes | `kempt reclaim` and the widget cannot offer to free space. When `flatpak-libs` or `python3-gobject-base` is missing, the line fails and says to install them. Any other listing error is an info line with Flatpak's reason. Runs only when Flatpak is on and `reclaim` is not `off`. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
 | The checkout still has `lib/`, `backends/` and the passwordless rules template | The checkout is damaged. |

@@ -2741,7 +2741,9 @@ doctor_reclaim_row() {
   if [[ $rc -eq 3 ]]; then
     doctor_fail "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak${why:+ ($why)}. Install the missing packages: sudo dnf install flatpak-libs python3-gobject-base"
   else
-    doctor_fail "unused Flatpak runtimes: the listing failed (rc=$rc${why:+: $why}), so kempt reclaim and the widget cannot offer to free space"
+    # Not a missing package but flatpak itself failing (no system bus, a damaged installation):
+    # worth saying, not Kempt's to fail on.
+    doctor_info "unused Flatpak runtimes: the listing failed (rc=$rc${why:+: $why}), so kempt reclaim and the widget cannot offer to free space"
   fi
 }
 

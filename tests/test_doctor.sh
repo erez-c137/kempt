@@ -401,9 +401,11 @@ assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" \
   "...naming what failed"
 assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" "sudo dnf install flatpak-libs python3-gobject-base" \
   "...and the packages to install"
-assert_exit 1 "a listing that fails some other way fails doctor too" \
+# Any other failure is flatpak's own (no system bus, a damaged installation), not a missing
+# package: said, with its reason, but doctor's verdict stays about Kempt.
+assert_exit 0 "a listing that fails some other way is reported, not a doctor failure" \
   env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-broken" "$KEMPT" doctor
-assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" "the listing failed (rc=1: flatpak did not answer: boom)" \
+assert_contains "$(grep '^info' "$TESTTMP/last_output")" "the listing failed (rc=1: flatpak did not answer: boom)" \
   "...with its exit code and its own reason"
 assert_exit 0 "a listing that answers is an ok row" \
   env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-ok" "$KEMPT" doctor

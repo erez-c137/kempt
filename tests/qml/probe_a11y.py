@@ -545,7 +545,9 @@ PAINTED = ("JSON.stringify([placeholder.visible, placeholder.iconName !== '', pl
 def placeholder_walk(widths):
     seen, outside = set(), []
     for w in widths:
-        for h in range(18 * GU, 560 + 1, 6):
+        # Up to 1000 px, well past the default popup: with larger fonts (a container with only
+        # the fallback font) the full icon and words need more room than 560 px leaves.
+        for h in range(18 * GU, 1000 + 1, 6):
             live.setWidth(w)
             live.setHeight(h)
             p.pump(40)
