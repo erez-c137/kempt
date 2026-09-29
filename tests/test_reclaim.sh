@@ -192,7 +192,7 @@ realdu_listing="$(jq -cn --arg r "$R" --arg c "$(printf 'a%.0s' {1..64})" '{inst
   unused: [{ref: "runtime/org.example.A/x86_64/1", commit: $c, deploy_dir: ($r + "/a"), eol: null},
            {ref: "runtime/org.example.B/x86_64/1", commit: $c, deploy_dir: ($r + "/b"), eol: null}]}')"
 rm -f "$RECLAIM_SIZES_FILE"
-realdu_sizes="$(KEMPT_DU_CMD=du flatpak_unused_sizes "$realdu_listing")" || realdu_sizes="rc=$?"
+realdu_sizes="$(KEMPT_DU_CMD="du" flatpak_unused_sizes "$realdu_listing")" || realdu_sizes="rc=$?"
 a_bytes="$(awk -F'\t' '$1 ~ /example.A/ { print $2 }' <<<"$realdu_sizes")"
 b_bytes="$(awk -F'\t' '$1 ~ /example.B/ { print $2 }' <<<"$realdu_sizes")"
 assert_eq "$([[ "$a_bytes" =~ ^[0-9]+$ ]] && (( a_bytes >= 53000 && a_bytes < 1000000 )) && echo yes || echo "no: $realdu_sizes")" "yes" \
