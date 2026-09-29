@@ -42,7 +42,7 @@ Every command uses the same codes:
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
 | 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything (see [reclaim](#reclaim)). |
-| 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it has been unused for less than an hour. Nothing was removed. |
+| 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. Nothing was removed. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
 They take a lock at `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot
@@ -401,7 +401,7 @@ Flatpak never lists a pinned runtime as unused.
 It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
 when `reclaim=off`, or when removing needs an administrator's password. Without `-y` and without a
 terminal to ask at, it also exits 5. It exits 6 if the list changed since it was shown, or if part
-of it has been unused for less than an hour. Another update running exits 3. If Flatpak fails to
+of it became unused less than an hour ago, which includes a first use with no check on record. Another update running exits 3. If Flatpak fails to
 list or remove the runtimes, it exits 1. A removal writes an event line and no
 history entry. With `reclaim=automatic` (see [configuration](configuration.md#keys)), a
 successful update removes the offered set for you and its summary says how much was freed.

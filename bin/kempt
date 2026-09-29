@@ -3252,7 +3252,8 @@ cmd_disable_passwordless() {
 #   3 cannot start: jq missing, or another kempt update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)
 #   5 aborted during pre-flight - nothing was changed
-#   6 reclaim only: what Flatpak would remove is not the set that was shown - nothing was removed
+#   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
+#     unused less than an hour ago (every ref, on first use) - nothing was removed
 usage() {
   cat <<'EOF'
 usage: kempt <command>
