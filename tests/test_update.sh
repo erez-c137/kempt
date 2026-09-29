@@ -2263,7 +2263,8 @@ cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
 # --- reclaim=automatic: unused runtimes removed after a successful run ------------------------------
 # The listing, du and removal stand-ins of test_reclaim.sh, reduced: the removal logs its arguments
-# and empties the listing, the way a real one changes the next answer.
+# and empties the listing, the way a real one changes the next answer. It also drops the removed
+# runtimes from the snapshot, so a removal that ran before the fp-after snapshot shows up in it.
 RC="$TESTTMP/rc"; mkdir -p "$RC"
 export RC_LISTING="$RC/listing.json" RC_DU="$RC/du.tsv" RC
 cp "$FIXTURES/flatpak-unused.json" "$RC_LISTING"
@@ -2281,6 +2282,9 @@ cat > "$RC/uninstall" <<'STUB'
 #!/usr/bin/env bash
 echo "UNINSTALL $*" >> "$RC/calls"
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
+jq -r '.unused[].ref | split("/") | "\(.[1])\t\(.[3])"' "$RC_LISTING" \
+  | awk -F'\t' 'NR == FNR { gone[$1 FS $2] = 1; next } !(($1 FS $2) in gone)' - "$WORLD/fp-snap-rt.tsv" > "$RC/snap.left"
+mv "$RC/snap.left" "$WORLD/fp-snap-rt.tsv"
 jq '.unused = []' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
 echo "Uninstalling..."
 STUB
@@ -2293,12 +2297,14 @@ chmod +x "$RC"/*
 # .Locale, .Debug and .Sources extensions, so the Locale is not in it and its parent runtime is.
 jq -r '.unused[].ref | split("/") | select(.[1] | test("[.](Locale|Debug|Sources)$") | not)
        | "\(.[1])\t\(.[3])\t?"' "$RC_LISTING" > "$WORLD/fp-snap-rt.tsv"
+cp "$WORLD/fp-snap-rt.tsv" "$RC/snap-rt.installed"
 export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="cat $WORLD/fp-snap-rt.tsv" \
        KEMPT_FLATPAK_UNUSED_CMD="$RC/unused" KEMPT_DU_CMD="$RC/du" \
        KEMPT_FLATPAK_UNINSTALL_CMD="$RC/uninstall" KEMPT_PKCHECK="$RC/pkcheck" KEMPT_GETENT_CMD="$RC/getent"
 # An offer on the table: seen once, then aged past the hour, then published with its digest.
 rc_offer() {
   cp "$FIXTURES/flatpak-unused.json" "$RC_LISTING"; rm -f "$RC/calls" "$KEMPT_STATE_DIR/reclaim-last.json"
+  cp "$RC/snap-rt.installed" "$WORLD/fp-snap-rt.tsv"
   "$KEMPT" check >/dev/null 2>&1 || true
   local t; t="$(date -u -d "@$(( $(date +%s) - 7200 ))" +%Y-%m-%dT%H:%M:%SZ)"
   jq --arg t "$t" '.reclaim.refs[].since = $t' "$KEMPT_STATE_DIR/state.json" > "$RC/st" \
