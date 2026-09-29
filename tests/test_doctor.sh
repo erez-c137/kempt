@@ -384,6 +384,43 @@ assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || ec
   "a disabled backend is information, not a failure"
 "$KEMPT" config set include_flatpak true
 
+# --- the listing behind reclaim ------------------------------------------------------------------
+# The listing helper needs PyGObject and the Flatpak typelib in flatpak-libs, and the flatpak
+# command pulls in neither. Without them every check reports the listing failed and nothing says
+# why, so doctor runs the helper wherever the feature is on.
+printf '#!/usr/bin/env bash\necho "cannot load libflatpak from Python: Namespace Flatpak not available" >&2\nexit 3\n' \
+  > "$TESTTMP/unused-nogi"
+printf '#!/usr/bin/env bash\necho "flatpak did not answer: boom" >&2\nexit 1\n' > "$TESTTMP/unused-broken"
+printf '#!/usr/bin/env bash\necho "{\\"installation\\":\\"/var/lib/flatpak\\",\\"unused\\":[],\\"used\\":[]}"\n' \
+  > "$TESTTMP/unused-ok"
+chmod +x "$TESTTMP/unused-nogi" "$TESTTMP/unused-broken" "$TESTTMP/unused-ok"
+assert_exit 1 "a listing helper that cannot load libflatpak fails doctor" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
+assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" \
+  "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak (cannot load libflatpak from Python: Namespace Flatpak not available)" \
+  "...naming what failed"
+assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" "sudo dnf install flatpak-libs python3-gobject-base" \
+  "...and the packages to install"
+assert_exit 1 "a listing that fails some other way fails doctor too" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-broken" "$KEMPT" doctor
+assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" "the listing failed (rc=1: flatpak did not answer: boom)" \
+  "...with its exit code and its own reason"
+assert_exit 0 "a listing that answers is an ok row" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-ok" "$KEMPT" doctor
+assert_eq "$(grep -cE '^ok +unused Flatpak runtimes: Kempt can list them' "$TESTTMP/last_output")" "1" \
+  "...saying the runtimes can be listed"
+"$KEMPT" config set reclaim off
+assert_exit 0 "reclaim=off: the listing is not run" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
+assert_not_contains "$(cat "$TESTTMP/last_output")" "unused Flatpak runtimes" "...and has no row"
+"$KEMPT" config set reclaim ask
+"$KEMPT" config set include_flatpak false
+assert_exit 0 "include_flatpak=false: the listing is not run" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
+"$KEMPT" config set include_flatpak true
+assert_exit 0 "no flatpak: the listing is not run" \
+  env KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/no-such-flatpak" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
+
 # --- the command behind the reboot verdict -----------------------------------------------------
 # `kempt check` is the hourly, detached path, so when this command cannot run its
 # "warning: reboot check failed (rc=127)" goes to a stderr nobody is attached to, and the event

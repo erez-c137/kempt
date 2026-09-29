@@ -397,6 +397,18 @@ human_bytes() {  # bytes → text
     else printf "%d bytes\n", b }'
 }
 
+# The line of a command's output that says what went wrong: the last line starting with
+# "error:", else the last non-empty one. One line, with colour codes and control characters
+# removed and at most 200 characters, so it is safe in an event line, a JSON field or a sentence.
+error_line_of() {  # stdin: output → one line, empty when there was none
+  local line
+  line="$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
+          | awk '{ sub(/[[:space:]]+$/, "") } tolower($0) ~ /^error:/ { e = $0 } NF { l = $0 }
+                 END { print (e != "" ? e : l) }')" || line=""
+  line="$(printf '%s' "$line" | tr -d '[:cntrl:]')" || line=""
+  printf '%s\n' "${line:0:200}"
+}
+
 # The last removal's outcome: {at, via, result, refs, bytes, digest}, or {} when there is none or
 # the file is damaged. result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object

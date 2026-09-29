@@ -47,6 +47,25 @@ su - builder -c "rpmdev-setuptree && cp /tmp/kempt-$VER.tar.gz ~/rpmbuild/SOURCE
 mkdir -p /localrepo && cp /home/builder/rpmbuild/RPMS/noarch/*.rpm /localrepo/ && createrepo_c -q /localrepo
 printf '[local]\nname=local\nbaseurl=file:///localrepo\nenabled=1\ngpgcheck=0\n' > /etc/yum.repos.d/local.repo
 
+sec "the Flatpak listing's dependencies come only with flatpak"
+# Asked of the transaction dnf would run (--assumeno), before anything is installed. Weak
+# dependencies are off, or the Recommends on flatpak would bring it in on both sides.
+# libexec/kempt-flatpak-unused needs PyGObject and the Flatpak typelib in flatpak-libs.
+tx_names() { dnf --assumeno --setopt=install_weak_deps=False install "$@" 2>&1 | awk '/^ [^ ]/ { print $1 }'; }
+tx_without="$(tx_names kempt)"
+tx_with="$(tx_names kempt flatpak)"
+grep -qx kempt <<<"$tx_without" && grep -qx flatpak <<<"$tx_with" \
+  && ok "dnf resolves kempt with and without flatpak" \
+  || bad "dnf did not resolve the kempt transactions" "$(tail -3 <<<"$tx_with")"
+for dep in python3-gobject-base flatpak-libs; do
+  if rpm -q "$dep" >/dev/null 2>&1; then
+    echo "note: the image already has $dep, so its place in the transaction was NOT checked"
+    continue
+  fi
+  grep -qx "$dep" <<<"$tx_without" && bad "$dep is installed without flatpak" || ok "$dep stays out without flatpak"
+  grep -qx "$dep" <<<"$tx_with" && ok "...and comes with flatpak" || bad "$dep does not come with flatpak"
+done
+
 sec "a Plasma user installs the widget package"
 dnf -y --setopt=tsflags= install kempt-plasmoid > /tmp/i.log 2>&1 \
   && ok "kempt-plasmoid installs" || { bad "install failed"; tail -5 /tmp/i.log; exit 1; }

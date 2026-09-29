@@ -2701,6 +2701,29 @@ doctor_tool_rows() {
   fi
 }
 
+# The listing behind `kempt reclaim` and the widget's offer. Its Python bindings come from two
+# packages, and the flatpak command needs neither, so without them every check just reports the
+# listing failed. Asked only where the feature is on: flatpak present, include_flatpak true and
+# reclaim not off. Exit 3 is the helper's "cannot load libflatpak from Python".
+doctor_reclaim_row() {
+  flatpak_present || return 0
+  is_true "$(config_get include_flatpak)" || return 0
+  [[ "$(reclaim_mode)" != off ]] || return 0
+  local out rc=0 why
+  # shellcheck disable=SC2086  # the seam may carry its own arguments
+  out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD 2>&1 >/dev/null </dev/null 9>&-)" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    doctor_ok "unused Flatpak runtimes: Kempt can list them"
+    return 0
+  fi
+  why="$(error_line_of <<<"$out")" || why=""
+  if [[ $rc -eq 3 ]]; then
+    doctor_fail "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak${why:+ ($why)}. Install the missing packages: sudo dnf install flatpak-libs python3-gobject-base"
+  else
+    doctor_fail "unused Flatpak runtimes: the listing failed (rc=$rc${why:+: $why}), so kempt reclaim and the widget cannot offer to free space"
+  fi
+}
+
 # How old the metadata behind every count is. Nothing else in this report would say: a check
 # answers from a cache it refreshes at most once every three hours and skips on battery and on a
 # metered link, so a box can go a week on one fetch with every surface looking freshly checked.
@@ -3048,6 +3071,7 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
+  doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
   doctor_config_row
