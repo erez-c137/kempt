@@ -510,7 +510,7 @@ p.check("Free Up Space is named by its label, which is what the message's button
         lev("reclaimMessage.actions[0].text"), "Free Up Space")
 p.check("...and says what pressing it does before a polkit dialog takes the focus",
         lev("reclaimMessage.actions[0].Accessible.description"),
-        "Removes the Flatpak runtimes listed under Show What. May ask for authorization.")
+        "Removes the Flatpak runtimes listed under Show What.")
 lev("reclaimMessage.showingWhat = true")
 p.pump(60)
 p.check("Show What puts one line per runtime under it, and the name read out says them too",

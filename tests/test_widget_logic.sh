@@ -2244,7 +2244,7 @@ assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
   "a state without the block (flatpak off or absent, reclaim=off) has no offer"
 
 # --- reclaimOutcomeOf: what the popup says after Free Up Space ---------------------------------
-# The widget runs `kempt reclaim -y --expect=<digest> --allow-auth`. The size comes from
+# The widget runs `kempt reclaim -y --expect=<digest>`. The size comes from
 # reclaim.last, which that run writes, so it is formatted the way the offer was ("~1.5 GB") rather
 # than the CLI's "about". A last record older than the press is some other removal: `kempt reclaim`
 # writes none when nothing at all is unused, so an old one must not be read as this press's.
@@ -2267,11 +2267,30 @@ assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remo
   "exit 6: the set changed after it was shown, so nothing was removed"
 assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
   "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
-# The button passes --allow-auth, so the CLI never stops at needs_auth for it: a polkit dialog that
-# was cancelled or denied comes back as exit 1 with reclaim.last saying failed and nothing gone.
+# The CLI asks polkit without a dialog, so where an administrator is needed the press ends in exit 5
+# with this press's record saying needs_auth.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(5, '', '', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Removing these needs an administrator. Nothing was removed."}' \
+  "exit 5 with needs_auth says an administrator is needed and nothing was removed"
+assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null,error:'error: Failed to uninstall x: Flatpak system operation Uninstall not allowed for user'}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimNeedsAuth')" "...also when flatpak's helper refused after the check said yes"
+# A failed uninstall that removed nothing comes back as exit 1 with reclaim.last saying failed.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
   '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
-  "a cancelled or refused password dialog says nothing was removed"
+  "a failed uninstall that removed nothing says so"
+# Flatpak stopped part-way: what went is said, and so is that it was not everything. Never a success.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could not remove all of them: error: Failed to uninstall x\n', Object.assign($RC_LAST,{partial:true,error:'error: Failed to uninstall x'}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Freed ~1.5 GB. Flatpak could not remove all of them."}' \
+  "a partial removal says what it freed and that flatpak could not remove all of them"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
+# Flatpak failed and what is left could not be read: never "Nothing was removed".
+RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
+  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left."}' \
+  "a removal whose outcome is unknown says it may be partial"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null}), $RC_PRESS).text.indexOf('Nothing was removed')")" \
+  "-1" "...and a record with refs null never reads as nothing removed"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
   "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
@@ -2288,14 +2307,18 @@ assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" ".
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
 # `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
-# worst case is the uninstall, two listings, du, and the closing check (the widget's own check
-# allowance, 120 s).
+# worst case is the uninstall, four listings, two du runs, and the closing check: the check lock
+# wait, then the check itself, bounded here by the widget's own check allowance.
 _fp="$REPO_ROOT/backends/flatpak.sh"
 _un="$(sed -n 's/^KEMPT_RECLAIM_UNINSTALL_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _du="$(sed -n 's/^KEMPT_RECLAIM_DU_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
-assert_eq "$([[ -n "$_un" && -n "$_ls" && -n "$_du" ]] && echo read)" "read" "premise: the engine's reclaim timeouts are readable"
-assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_un + 2 * $_ls + $_du + 120) * 1000")" "true" \
+_lw="$(sed -n 's/^KEMPT_CHECK_LOCK_WAIT="\${KEMPT_CHECK_LOCK_WAIT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_ck="$(sed -n 's/.*executor\.run(kemptCmd + (auto ? " check --coalesce" : " check"), \([0-9]*\).*/\1/p' "$REPO_ROOT/plasmoid/contents/ui/main.qml")"
+assert_eq "$([[ -n "$_un" && -n "$_ls" && -n "$_du" && -n "$_lw" && -n "$_ck" ]] && echo read)" "read" \
+  "premise: the engine's reclaim timeouts, the check lock wait and the check allowance are readable"
+assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance covers the check's own listing and du"
+assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_un + 4 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \

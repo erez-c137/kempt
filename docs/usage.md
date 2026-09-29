@@ -21,9 +21,8 @@ unhold <same>         remove a hold
 holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                       arguments, on one line, to reuse by hand
 unstage               discard the staged offline update; the next restart installs nothing
-reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
-                      remove the Flatpak runtimes no installed app uses (--list only shows them;
-                      --allow-auth lets polkit ask for a password instead of stopping)
+reclaim [--list] [-y] [--expect=DIGEST]
+                      remove the Flatpak runtimes no installed app uses (--list only shows them)
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
 --version | version | -V   print the version and exit
@@ -37,11 +36,11 @@ Every command uses the same codes:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `doctor` found a problem, or a command could not take the writers' lock. |
+| 1 | The run failed (a backend returned non-zero), `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
-| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything (see [reclaim](#reclaim)). |
+| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything, including when polkit refuses Flatpak itself (see [reclaim](#reclaim)). |
 | 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. Nothing was removed. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
@@ -370,7 +369,7 @@ keeps the record.
 ## reclaim
 
 ```
-kempt reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
+kempt reclaim [--list] [-y] [--expect=DIGEST]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
@@ -391,12 +390,16 @@ Kempt waits until a runtime has been unused for an hour, so a runtime another to
 is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
-whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
-and without a yes at the terminal, a removal that needs a password removes nothing. The widget's
-button passes it.
+whole list. It never asks for a password. When removing needs an administrator, nothing is
+removed.
 
 To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 Flatpak never lists a pinned runtime as unused.
+
+If Flatpak fails part-way, `kempt reclaim` says how much it freed and that Flatpak could not
+remove all of them, and exits 1. If Flatpak fails and the list afterwards cannot be read, Kempt
+cannot tell what went. It says the removal may be partial, and exits 1. Run `kempt reclaim --list`
+to see what is left. If polkit refuses Flatpak's own helper, nothing was removed, and it exits 5.
 
 It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
 when `reclaim=off`, or when removing needs an administrator's password. Without `-y` and without a
@@ -540,11 +543,11 @@ The wording is fixed, so you can search it:
 | `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
 | `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. |
 | `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
-| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. |
+| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 

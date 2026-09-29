@@ -2281,6 +2281,10 @@ STUB
 cat > "$RC/uninstall" <<'STUB'
 #!/usr/bin/env bash
 echo "UNINSTALL $*" >> "$RC/calls"
+if [[ -n "${UNINSTALL_PARTIAL:-}" ]]; then   # every ref but the KDE runtime goes, then flatpak fails
+  jq '.unused = [.unused[] | select(.ref | test("kde"))]' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
+  echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08"; exit 1
+fi
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
 jq -r '.unused[].ref | split("/") | "\(.[1])\t\(.[3])"' "$RC_LISTING" \
   | awk -F'\t' 'NR == FNR { gone[$1 FS $2] = 1; next } !(($1 FS $2) in gone)' - "$WORLD/fp-snap-rt.tsv" > "$RC/snap.left"
@@ -2327,7 +2331,8 @@ assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" "...and its hist
 rc_offer
 rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=background 2>/dev/null)" || true
 RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
-assert_eq "$(rc_calls)" "UNINSTALL --noninteractive" "reclaim=automatic: the run removes them, never with a dialog"
+assert_eq "$(rc_calls)" "UNINSTALL $(jq -r '[.unused[].ref] | join(" ")' "$FIXTURES/flatpak-unused.json")" \
+  "reclaim=automatic: the run removes the refs on offer by name"
 assert_json_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" \
   "{\"refs\":$(jq -c '[.unused[].ref]' "$FIXTURES/flatpak-unused.json"),\"bytes\":1975000000,\"status\":\"removed\"}" \
   "...recorded in the run's own history entry"
@@ -2373,6 +2378,11 @@ rc_offer
 UNINSTALL_RC=1 rc_update
 assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "failed|ok" \
   "a removal flatpak fails never fails the run"
+
+rc_offer
+UNINSTALL_PARTIAL=1 rc_update
+assert_eq "$(jq -c '.backends.flatpak.reclaimed | [.status, .partial, (.refs | length)]' "$RH")|$(jq -r .status "$RH")" \
+  '["removed",true,4]|ok' "a removal flatpak stopped part-way is recorded as partial in the run's entry, and the run stays ok"
 
 # A run that failed removes nothing.
 rc_offer

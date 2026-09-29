@@ -64,13 +64,26 @@ an active local session, with no password. Two cases can still ask for authentic
 [Accepted limitations](#accepted-limitations).
 
 **Removing unused Flatpak runtimes runs as you too.** `kempt reclaim`, and the removal after an
-update with `reclaim=automatic`, run `flatpak uninstall --unused --no-related --system`, which asks polkit for
-`org.freedesktop.Flatpak.runtime-uninstall`. They refuse to run as root, under `sudo` or under
-`pkexec`. Flatpak counts the calling user's own apps as users of a system runtime. As root it
-would see root's apps instead of yours, and could remove a runtime one of yours needs. Before an
-unattended removal, Kempt asks polkit with `pkcheck` and no dialog. If the answer is anything but
-yes, nothing is removed. polkit may show its dialog only when a person asked: a yes at the
-terminal, or the widget's button, which passes `--allow-auth`.
+update with `reclaim=automatic`, run `flatpak uninstall --system --no-related --noninteractive`
+with the refs you were shown, by name. Nothing else is named, and `--no-related` stops Flatpak
+adding related refs. Kempt lists the runtimes again just before, and removes nothing unless the
+list is still exactly that set. Flatpak refuses to remove a runtime an installed app uses, and
+Kempt never passes `--force-remove`.
+
+Flatpak does the removal through its own system helper, which asks polkit for
+`org.freedesktop.Flatpak.runtime-uninstall`. This gives you nothing you did not already have.
+Fedora's Flatpak rule allows that action without a password for a member of `wheel` in an active
+local session, and anyone can run the same `flatpak uninstall` by hand. Before the removal, Kempt
+asks polkit with `pkcheck` and no dialog. If the answer is anything but yes, nothing is removed and
+Kempt says removing needs an administrator. With `--noninteractive`, Flatpak never shows a polkit
+dialog either. If polkit still refuses Flatpak's helper, the answer is the same.
+
+Kempt refuses to remove as root, under `sudo` or under `pkexec`. Flatpak counts the calling user's
+own apps as users of a system runtime. As root it would see root's apps instead of yours, and
+could remove a runtime one of yours needs. For the same reason, Flatpak cannot see another
+account's own apps. When more than one person may use the machine, `reclaim=automatic` acts as
+`ask`, so a person always agrees to each removal (see
+[configuration](configuration.md#keys)).
 
 ## Validate before exec
 

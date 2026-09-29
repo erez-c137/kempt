@@ -1467,7 +1467,7 @@ ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
 
 # --- Free Up Space: the reclaim offer's button ------------------------------------------------
-# `kempt reclaim -y --expect=<digest> --allow-auth`: the digest is the consent (the CLI removes
+# `kempt reclaim -y --expect=<digest>`: the digest is the consent (the CLI removes
 # nothing unless the set on offer is still the one shown), and the size reported is the one the
 # run wrote to reclaim.last, in the offer's own spelling.
 def reclaim_from(source, name, mode="ask", last=None, offer=True):
@@ -1490,8 +1490,8 @@ RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
     "at": "@NOW@", "via": "widget", "result": "removed",
     "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
     "digest": "0123456789abcdef"})
-RC_CANCEL = reclaim_from(UPTODATE, "state-reclaim-cancel.json", last={
-    "at": "@NOW@", "via": "widget", "result": "failed", "refs": [], "bytes": None,
+RC_AUTH = reclaim_from(UPTODATE, "state-reclaim-auth.json", last={
+    "at": "@NOW@", "via": "widget", "result": "needs_auth", "refs": [], "bytes": None,
     "digest": "0123456789abcdef"})
 state(RC_OFFER)
 ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
@@ -1502,7 +1502,7 @@ p.check("the offer is on screen with its two actions",
 p.check("...and the button says what it does, for the eye and for a screen reader",
         [lev("reclaimMessage.actions[0].tooltip"),
          lev("reclaimMessage.actions[0].Accessible.description")],
-        ["Removes the Flatpak runtimes listed under Show What. May ask for authorization."] * 2)
+        ["Removes the Flatpak runtimes listed under Show What."] * 2)
 
 open(CHECKSRC, "w").write(RC_GONE)
 open(RECLAIMST, "w").write(RC_GONE)
@@ -1519,8 +1519,8 @@ p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
 p.check("...presses while it is pending start nothing: exactly one reclaim",
         [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
-p.check("...which removes only the set shown, and may ask for an administrator",
-        p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef", "--allow-auth"])
+p.check("...which removes only the set shown",
+        p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef"])
 p.check("...and says how much it freed, in the offer's own spelling", ev("root.actionDone"),
         "Freed ~1.5 GB.")
 p.check("...as the thing that just happened, not as a failure",
@@ -1544,18 +1544,17 @@ p.check("a set that changed since it was shown removes nothing, and says so",
         "What Flatpak can remove changed since this was shown. Nothing was removed.")
 p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
 
-# The password dialog cancelled or refused: with --allow-auth that is a failed uninstall, exit 1,
-# and this press's record says nothing is gone.
-open(CHECKSRC, "w").write(RC_CANCEL)
-open(RECLAIMST, "w").write(RC_CANCEL)
-open(RECLAIMRC, "w").write("1")
-open(RECLAIMERR, "w").write("Flatpak could not remove them. See: kempt log\n")
+# polkit would ask for a password: the CLI never lets it, so this is exit 5 with needs_auth.
+open(CHECKSRC, "w").write(RC_AUTH)
+open(RECLAIMST, "w").write(RC_AUTH)
+open(RECLAIMRC, "w").write("5")
+open(RECLAIMERR, "w").write("")
 ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
-p.check("a cancelled password dialog says nothing was removed",
-        ev("root.actionMessage"), "Could not free the space. Nothing was removed.")
+p.check("a removal that needs an administrator says so, and that nothing was removed",
+        ev("root.actionMessage"), "Removing these needs an administrator. Nothing was removed.")
 
 # An update holding the lock.
 open(CHECKSRC, "w").write(RC_OFFER)
@@ -1726,6 +1725,16 @@ p.check("...saying what failed, in the words main.qml was given",
 p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...with no Show Log on it, because a failed press wrote no log",
         lev("reportMessage.actions[0].visible"), False)
+# Words from outside (flatpak's error line, the CLI's stderr) are shown as written, never as markup.
+ev('root.actionMessage = "error: <b>x</b> &amp; y"')
+p.pump(50)
+for _m in ("reportMessage", "reclaimMessage"):
+    _label = ("Array.prototype.filter.call(%s.contentItem.children, c => c.textFormat !== undefined)" % _m)
+    p.check("%s's label shows its text as plain text" % _m,
+            [lev(_label + ".length"), lev(_label + "[0].textFormat")], [1, lev("TextEdit.PlainText")])
+p.check("...so markup in a failure reads as its characters",
+        lev("Array.prototype.filter.call(reportMessage.contentItem.children, c => c.textFormat !== undefined)[0].length"),
+        len("error: <b>x</b> &amp; y"))
 ev('root.actionMessage = ""')
 p.pump(50)
 
@@ -2446,6 +2455,10 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
     "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
     "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
+    "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
+    "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
+    "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
+    "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
     "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
     "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up

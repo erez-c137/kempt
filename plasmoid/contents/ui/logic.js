@@ -363,6 +363,12 @@ var COPY = {
     reclaimFreed: "Freed %1.",
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
+    reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
+    // Flatpak stopped part-way. The first is filled with the size of what did go.
+    reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
+    reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
+    // Flatpak failed and Kempt could not read what is left afterwards.
+    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
@@ -993,11 +999,13 @@ function messageStack(wants) {
 // Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
 var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
-// How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, which is
-// backends/flatpak.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s) + two listings of
-// KEMPT_RECLAIM_LIST_TIMEOUT (15 s) + KEMPT_RECLAIM_DU_TIMEOUT (30 s) + the closing check.
+// How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
+// backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s), four listings of
+// KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the after-list),
+// two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing check: KEMPT_CHECK_LOCK_WAIT (60 s)
+// and the widget's own check allowance (120 s). 900 s in all, plus a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
-var RECLAIM_TIMEOUT_MS = 780000;
+var RECLAIM_TIMEOUT_MS = 960000;
 
 // The size on offer, or null when the CLI could not work it out. A value of the wrong type is
 // read as unknown, never coerced.
@@ -1548,7 +1556,7 @@ function discardStagedMessage(rc, stdout, stderr) {
 }
 
 // reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
-// Free Up Space (`kempt reclaim -y --expect=<digest> --allow-auth`). `last` is the state's
+// Free Up Space (`kempt reclaim -y --expect=<digest>`). `last` is the state's
 // reclaim.last as read after the run, and only counts when it is at least as new as the press
 // (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
 // stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
@@ -1569,9 +1577,23 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
         return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
     }
-    // --allow-auth means a cancelled or refused polkit dialog is a failed uninstall (exit 1), and
-    // this press's record says so with nothing gone.
-    if (rc === 1 && fresh !== null && fresh.result === "failed" && arrayOf(fresh.refs).length === 0
+    // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
+    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
+        return { ok: false, text: COPY.reclaimNeedsAuth };
+    }
+    // Flatpak failed after the removal began. `partial` with refs null: what went is unknown, and
+    // "nothing was removed" could be false. With refs: some went, and a plain "Freed" would be.
+    if (rc === 1 && fresh !== null && fresh.partial === true) {
+        if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
+        if (fresh.result === "removed") {
+            if (typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0) {
+                return { ok: false, text: fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes)) };
+            }
+            return { ok: false, text: COPY.reclaimPartialUnsized };
+        }
+    }
+    // A failed uninstall whose record says nothing is gone.
+    if (rc === 1 && fresh !== null && fresh.result === "failed" && isArray(fresh.refs) && fresh.refs.length === 0
             && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
         return { ok: false, text: COPY.reclaimNothingRemoved };
     }

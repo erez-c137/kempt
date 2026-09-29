@@ -169,6 +169,9 @@ kempt_init_dirs() {
   # the other way round: `kempt run` waits SECONDS for a token to be claimed, so an hour is far past
   # any launch that is still legitimately waiting for its window.
   find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'run-start.*' -mmin +60 -delete 2>/dev/null || true
+  # ...and a removal's copy of flatpak's output (reclaim_remove), left by a kempt killed outright.
+  # The removal is given ten minutes, so an hour is past any that is still running.
+  find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'reclaim-out.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names
@@ -457,20 +460,33 @@ human_bytes() {  # bytes → text
 }
 
 # The line of a command's output that says what went wrong: the last line starting with
-# "error:", else the last non-empty one. One line, with colour codes and control characters
-# removed and at most 200 characters, so it is safe in an event line, a JSON field or a sentence.
+# "error: Failed to" (flatpak's per-ref reason, which its closing "error: There were one or more
+# errors" would hide), else the last starting with "error:", else the last non-empty one. One line,
+# with terminal escapes (CSI, OSC, the C1 CSI) and control characters removed, and at most 200
+# characters, cut on a character boundary, so it is safe in an event line, a JSON field or a sentence.
+# The C1 CSI is taken as U+009B (bytes c2 9b), or as a lone 0x9b byte after ASCII: elsewhere 0x9b
+# is part of a UTF-8 character.
 error_line_of() {  # stdin: output → one line, empty when there was none
   local line
-  line="$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r' \
-          | awk '{ sub(/[[:space:]]+$/, "") } tolower($0) ~ /^error:/ { e = $0 } NF { l = $0 }
-                 END { print (e != "" ? e : l) }')" || line=""
-  line="$(printf '%s' "$line" | tr -d '[:cntrl:]')" || line=""
+  line="$(LC_ALL=C sed -e 's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)\{0,1\}//g' \
+                       -e 's/\x1b\[[0-?]*[ -/]*[@-~]//g' \
+                       -e 's/\xc2\x9b[0-?]*[ -/]*[@-~]//g' \
+                       -e 's/\(^\|[\x01-\x7f]\)\x9b[0-?]*[ -/]*[@-~]/\1/g' \
+          | LC_ALL=C tr -d '\r' \
+          | LC_ALL=C awk '{ sub(/[[:space:]]+$/, "") }
+                          tolower($0) ~ /^error: failed to/ { f = $0 }
+                          tolower($0) ~ /^error:/ { e = $0 }
+                          NF { l = $0 }
+                          END { print (f != "" ? f : (e != "" ? e : l)) }')" || line=""
+  line="$(printf '%s' "$line" | LC_ALL=C tr -d '[:cntrl:]')" || line=""
+  local LC_ALL=C.UTF-8   # the file exports it too; the cut below counts characters only under it
   printf '%s\n' "${line:0:200}"
 }
 
 # The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
-# line, from error_line_of) when there is one; or {} when there is none or the file is damaged.
-# result is removed | nothing | changed | needs_auth | failed.
+# line, from error_line_of) when there is one, and partial: true when flatpak failed after the
+# removal began (refs is then what went, or null when that is unknown); or {} when there is none or
+# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object
   local out
   out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
@@ -480,13 +496,14 @@ reclaim_last_read() {  # → one JSON object
 
 # Best-effort, like every write after a system change: a lost outcome costs a sentence in the
 # popup, never the removal's own exit status.
-reclaim_last_write() {  # via result refs-json bytes-or-empty digest [error-line]
+reclaim_last_write() {  # via result refs-json-or-null bytes-or-empty digest [error-line] [partial(1|"")]
   kempt_init_dirs 2>/dev/null || return 0
   jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --slurpfile refs <(printf '%s\n' "$3") \
-         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" \
+         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" --arg partial "${7:-}" \
     '{at:$at, via:$via, result:$result, refs:$refs[0],
       bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
-     + (if $error == "" then {} else {error: $error} end)' 2>/dev/null \
+     + (if $error == "" then {} else {error: $error} end)
+     + (if $partial == "" then {} else {partial: true} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
   return 0
 }
