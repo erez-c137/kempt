@@ -351,8 +351,7 @@ reset_calls
 hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc" "0" "the set on offer, allowed: removed, exit 0"
-assert_eq "$(calls uninstall)" "--noninteractive $REFS5" \
-  "flatpak removes the refs on offer by name, with --noninteractive when nobody pressed anything"
+assert_eq "$(calls uninstall)" "$REFS5" "flatpak is given the refs on offer by name"
 assert_contains "$out" "Uninstalling..." "flatpak's own output is shown"
 assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
 assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
@@ -369,12 +368,11 @@ rc=0; out="$(reclaim -y)" || rc=$?
 assert_eq "$rc" "0" "nothing unused: exit 0"
 assert_eq "$out" "Nothing to remove. Every installed Flatpak runtime is in use." "...in plain words"
 
-# The widget's button: a person pressed it, so no permission check and no --noninteractive.
+# There is no way past the permission check: flatpak's --noninteractive transaction never shows a
+# polkit dialog, so a removal polkit would ask about can only fail.
 restore_offer
 rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5" --allow-auth)" || rc=$?
-assert_eq "$rc" "0" "--allow-auth removes where polkit would ask"
-assert_eq "$(calls pkcheck)" "(none)" "...without the no-dialog check"
-assert_eq "$(calls uninstall)" "$REFS5" "...and lets flatpak raise the dialog"
+assert_eq "$rc|$(calls uninstall)" "2|(none)" "--allow-auth is not an option: a usage error, nothing removed"
 
 # Only some of the set went: the refs really gone are what counts, and so are only their bytes.
 restore_offer
@@ -403,7 +401,7 @@ assert_eq "$(state_reclaim | jq -c '[.status, .digest]')" "[\"failed\",\"$DIGEST
 # Flatpak's reason is kept: on screen, in the event log and in the last outcome. The last line
 # starting with "error:" wins over any later line, and it is made safe first: one line, no colour
 # codes or control characters, 200 characters at most.
-FP_ERR="error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Flatpak system operation Uninstall not allowed for user"
+FP_ERR="error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: No such file or directory"
 printf 'Uninstalling 5 refs\n\033[1m%s\033[0m\r\n\nwarning: something after it\n' "$FP_ERR" > "$TESTTMP/fp-out"
 restore_offer
 rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
@@ -415,6 +413,13 @@ assert_eq "$(jq -c '[.result, .refs, .bytes]' "$RECLAIM_LAST_FILE")" '["failed",
 assert_contains "$(grep 'reclaim failed' "$EVENTS_FILE" | tail -n 1)" "reclaim failed rc=1: $FP_ERR" \
   "...and in the event log, with the exit code"
 assert_eq "$(state_reclaim | jq -r '.last.error')" "$FP_ERR" "...and in state.json after the closing check"
+# polkit refusing flatpak's system helper after pkcheck said yes is the same answer as the gate's no.
+printf 'error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Flatpak system operation Uninstall not allowed for user\n' > "$TESTTMP/fp-out"
+restore_offer
+rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "5|needs_auth" \
+  "flatpak's \"not allowed for user\" is needs_auth: exit 5"
+assert_contains "$out" "Removing these needs an administrator. Nothing was removed." "...in the widget's words"
 # No error line: the last line that says anything. A long one is cut, and a tab is dropped.
 printf 'Uninstalling\n%s\tend\n\n' "$(printf 'x%.0s' {1..300})" > "$TESTTMP/fp-out"
 restore_offer
@@ -487,7 +492,7 @@ STUB
 chmod +x "$TESTTMP/fpbin/flatpak"
 rc=0; out="$(env -u KEMPT_FLATPAK_UNINSTALL_CMD PATH="$TESTTMP/fpbin:$PATH" \
   "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related -y --noninteractive $REFS5" \
+assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related --noninteractive $REFS5" \
   "the removal names the refs on offer and passes --no-related, so it takes those refs and no related ref besides"
 restore_offer
 

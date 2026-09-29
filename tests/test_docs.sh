@@ -191,11 +191,11 @@ done < <(find "$REPO_ROOT" \
 assert_eq "${addressed% }" "" \
   "no email address outside the spec changelog, SECURITY.md and CODE_OF_CONDUCT.md"
 
-# The widget runs kempt reclaim --allow-auth, so the option is documented wherever the others are.
+# kempt reclaim has no --allow-auth: every removal asks polkit without a dialog. No doc may offer it.
 USAGE_RECLAIM="$(awk '/^  reclaim \[/ { print; getline; print }' "$REPO_ROOT/bin/kempt")"
-assert_contains "$USAGE_RECLAIM" "--allow-auth" "kempt usage lists reclaim --allow-auth"
-assert_contains "$(cat "$REPO_ROOT/docs/man/kempt.1")" 'allow\-auth' "the man page documents reclaim --allow-auth"
-assert_contains "$(awk '/^## reclaim$/ { f = 1; next } f && /^## / { exit } f' "$REPO_ROOT/docs/usage.md")" \
-  "--allow-auth" "docs/usage.md documents reclaim --allow-auth"
+assert_contains "$USAGE_RECLAIM" "--expect=DIGEST" "premise: kempt usage has the reclaim line"
+assert_eq "$(grep -rlF -e '--allow-auth' -e 'allow\-auth' "$REPO_ROOT/bin" "$REPO_ROOT/docs" "$REPO_ROOT/plasmoid" \
+  "$REPO_ROOT/README.md" 2>/dev/null | sed "s|$REPO_ROOT/||" | tr '\n' ' ')" "" \
+  "no command line, doc or widget passes or documents reclaim --allow-auth"
 
 finish

@@ -104,7 +104,7 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
 # May this process remove runtimes without anyone being asked? pkcheck answers for this process
 # WITHOUT --allow-user-interaction, so it never raises a dialog: yes only where polkit already says
 # yes (Fedora's rule: an active local session of a wheel member). Anything else, including a
-# missing pkcheck, is "no", and the removal becomes needs_auth instead of a dialog nobody asked for.
+# missing pkcheck, is "no", and the removal becomes needs_auth. Every removal asks this first.
 reclaim_authorized() {
   $KEMPT_PKCHECK --action-id org.freedesktop.Flatpak.runtime-uninstall --process $$ \
     </dev/null >/dev/null 2>&1 9>&-
@@ -126,15 +126,15 @@ reclaim_authorized() {
 # that last look stays: flatpak refuses to remove a runtime an installed app uses, and no
 # --force-remove is passed. The slow steps (polkit, du) come first; the last look, and its
 # comparison, is the only thing between the list and the removal.
-reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
-  local via="$1" expected="$2" allow_auth="$3" before="${4:-}"
+reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
+  local via="$1" expected="$2" before="${3:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
-  local listing sizes_tsv="" after rc=0 extra=() out_file="" refs=()
+  local listing sizes_tsv="" after rc=0 out_file="" refs=()
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
-  if [[ -z "$allow_auth" ]] && ! reclaim_authorized; then
+  if ! reclaim_authorized; then
     RECLAIM_RESULT=needs_auth; reclaim_record "$via" "$RECLAIM_DIGEST"; return 0
   fi
   # Sizes BEFORE the removal: afterwards the directories are gone and du has nothing to measure.
@@ -144,18 +144,17 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
   readarray -t refs < <(jq -r '.unused[].ref' <<<"$listing")
-  # --noninteractive unless a person asked for this one (the widget button, a yes at the terminal):
-  # it tells polkit not to raise a dialog, which is right for the automatic step and wrong for a
-  # click. </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
-  # Ten minutes at most: this holds the update lock, and a removal that hangs (an unanswered polkit
-  # dialog, a stuck system helper) must not keep every later run out. Time running out is exit 124,
-  # recorded as a failure like any other.
-  [[ -n "$allow_auth" ]] || extra=(--noninteractive)
+  # The seam's --noninteractive makes flatpak's transaction non-interactive, so polkit never raises a
+  # dialog for it: the pkcheck above is the whole permission decision.
+  # </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
+  # Ten minutes at most: this holds the update lock, and a removal that hangs (a stuck system
+  # helper) must not keep every later run out. Time running out is exit 124, recorded as a failure
+  # like any other.
   # A copy of flatpak's output goes to a file, so its error line can be kept after it has scrolled
   # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does.
   out_file="$(mktemp 2>/dev/null)" || out_file=""
   # shellcheck disable=SC2086  # the seam carries its own arguments
-  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" "${refs[@]}" </dev/null 2>&1 9>&- \
+  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${refs[@]}" </dev/null 2>&1 9>&- \
        | tee "${out_file:-/dev/null}" 9>&-; then
     rc=0
   else
@@ -184,8 +183,11 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
       '[inputs | split("\t") | select(length == 2) | select(.[0] as $r | $g | index($r)) | (.[1] | tonumber)] | add // 0' \
       <<<"$sizes_tsv" 2>/dev/null)" || RECLAIM_BYTES=""
   fi
+  # polkit can still refuse flatpak's system helper after pkcheck said yes (a rule that changed in
+  # between). That is the same answer as the gate's no, so it is needs_auth too.
   if [[ "$RECLAIM_GONE" != '[]' ]]; then RECLAIM_RESULT=removed
   elif [[ $rc -eq 0 ]]; then RECLAIM_RESULT=nothing
+  elif [[ "${RECLAIM_ERROR,,}" == *"not allowed for user"* ]]; then RECLAIM_RESULT=needs_auth
   else RECLAIM_RESULT=failed
   fi
   reclaim_record "$via" "$RECLAIM_DIGEST"
@@ -271,7 +273,7 @@ reclaim_after_run() {  # log_file
   digest="$offer"
   [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
   run_heading "$1" "Unused Flatpak runtimes"
-  reclaim_remove update "$digest" "" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
+  reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
   RECLAIM_RUN_JSON="$(jq -cn --argjson g "$RECLAIM_GONE" --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
     '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
@@ -2283,16 +2285,13 @@ cmd_unstage() {
 # and the person should look again. It writes no history entry: `kempt summary` and the widget's
 # last-run line read the newest history file, and a removal is not an update run.
 cmd_reclaim() {
-  local list="" yes="" expect="" allow_auth=""
+  local list="" yes="" expect=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --list) list=1; shift ;;
       -y|--yes) yes=1; shift ;;
       --expect=*) expect="${1#--expect=}"; shift
                   [[ "$expect" =~ ^[0-9a-f]{16}$ ]] || { echo "--expect takes the 16-character digest from kempt check" >&2; exit 2; } ;;
-      # The widget's button: a person pressed it, so a polkit dialog is the right thing to see
-      # and the no-dialog permission check is skipped.
-      --allow-auth) allow_auth=1; shift ;;
       *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
   done
@@ -2351,7 +2350,6 @@ cmd_reclaim() {
     local answer=""
     read -r -p "Remove them? [y/N] " answer || answer=""
     [[ "${answer,,}" == y || "${answer,,}" == yes ]] || { echo "Nothing was removed."; return 0; }
-    allow_auth=1   # a person at a terminal said yes: a polkit prompt is theirs to answer
   fi
   # What is agreed to: the digest the widget showed, or the set just printed.
   if [[ -z "$expect" ]]; then
@@ -2364,7 +2362,7 @@ cmd_reclaim() {
   trap release_lock EXIT
   local via=cli
   [[ "${KEMPT_VIA:-}" == widget ]] && via=widget
-  reclaim_remove "$via" "$expect" "$allow_auth"
+  reclaim_remove "$via" "$expect"
   local rc=0
   case "$RECLAIM_RESULT" in
     removed)
@@ -3223,9 +3221,8 @@ usage: kempt <command>
   holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                         arguments, on one line, to reuse by hand
   unstage               discard the staged offline update; the next restart installs nothing
-  reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
-                        remove the Flatpak runtimes no installed app uses (--list only shows them;
-                        --allow-auth lets polkit ask for a password instead of stopping)
+  reclaim [--list] [-y] [--expect=DIGEST]
+                        remove the Flatpak runtimes no installed app uses (--list only shows them)
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit

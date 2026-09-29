@@ -746,7 +746,7 @@ PlasmaExtras.Representation {
                     text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
                         : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
                     icon.name: "edit-clear-all"
-                    tooltip: i18n("Removes the Flatpak runtimes listed under Show What. May ask for authorization.")
+                    tooltip: i18n("Removes the Flatpak runtimes listed under Show What.")
                     Accessible.description: tooltip
                     enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
                              && !popup.plasmoidItem.updating

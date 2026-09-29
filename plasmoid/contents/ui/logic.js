@@ -363,6 +363,7 @@ var COPY = {
     reclaimFreed: "Freed %1.",
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
+    reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
@@ -1548,7 +1549,7 @@ function discardStagedMessage(rc, stdout, stderr) {
 }
 
 // reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
-// Free Up Space (`kempt reclaim -y --expect=<digest> --allow-auth`). `last` is the state's
+// Free Up Space (`kempt reclaim -y --expect=<digest>`). `last` is the state's
 // reclaim.last as read after the run, and only counts when it is at least as new as the press
 // (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
 // stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
@@ -1569,8 +1570,11 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
         return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
     }
-    // --allow-auth means a cancelled or refused polkit dialog is a failed uninstall (exit 1), and
-    // this press's record says so with nothing gone.
+    // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
+    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
+        return { ok: false, text: COPY.reclaimNeedsAuth };
+    }
+    // A failed uninstall whose record says nothing is gone.
     if (rc === 1 && fresh !== null && fresh.result === "failed" && arrayOf(fresh.refs).length === 0
             && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
         return { ok: false, text: COPY.reclaimNothingRemoved };

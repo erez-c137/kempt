@@ -780,8 +780,8 @@ PlasmoidItem {
     // outlasts the engine's own, so actionPending keeps Update Now off for the whole removal.
     // --expect is the consent: the CLI removes nothing
     // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
-    // re-read is needed first. --allow-auth because a person pressed it, and a polkit dialog is
-    // fine here. The size reported comes from reclaim.last, read back after the run.
+    // re-read is needed first. The CLI asks polkit without a dialog, so a press where an
+    // administrator is needed ends in exit 5. The size reported comes from reclaim.last.
     function reclaimSpace() {
         if (updating || runRequested || actionPending) return;
         var digest = vm.reclaimDigest;
@@ -791,8 +791,8 @@ PlasmoidItem {
         actionMessage = "";
         actionDone = "";
         var pressedMs = Date.now();
-        executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest)
-                     + " --allow-auth", Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
+        executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest),
+                     Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
             root.actionPending = false;             // first, so no outcome below can skip it
             root.reclaimRunning = false;
             root.adoptState(function (fresh) {

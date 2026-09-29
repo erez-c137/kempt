@@ -103,10 +103,10 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # agreed one, and flatpak refuses to remove a runtime an installed app needs. --no-related because
 # without it flatpak also removes the autodelete related refs of what it removes, even one another
 # installed runtime still uses (a codecs extension shared by two platforms); the listing already
-# names the unused extensions itself. reclaim_remove appends --noninteractive, except when a person
-# pressed the button and a polkit dialog is welcome. System scope only, the contract every command
-# above keeps.
-KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --system --no-related -y}"
+# names the unused extensions itself. --noninteractive answers yes and turns off interaction for the
+# whole transaction, so polkit never shows a dialog: Kempt's pkcheck gate decides. System scope
+# only, the contract every command above keeps.
+KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --system --no-related --noninteractive}"
 # Both the listing and the size estimate run inside the check lock, and the widget kills a check
 # after 120 s, so the two together stay well inside that. A du that runs out is an unknown size.
 KEMPT_RECLAIM_LIST_TIMEOUT=15

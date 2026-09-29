@@ -68,9 +68,8 @@ update with `reclaim=automatic`, run `flatpak uninstall --system --no-related` w
 `org.freedesktop.Flatpak.runtime-uninstall`. They refuse to run as root, under `sudo` or under
 `pkexec`. Flatpak counts the calling user's own apps as users of a system runtime. As root it
 would see root's apps instead of yours, and could remove a runtime one of yours needs. Before an
-unattended removal, Kempt asks polkit with `pkcheck` and no dialog. If the answer is anything but
-yes, nothing is removed. polkit may show its dialog only when a person asked: a yes at the
-terminal, or the widget's button, which passes `--allow-auth`.
+removal, Kempt asks polkit with `pkcheck` and no dialog. If the answer is anything but yes,
+nothing is removed. Flatpak runs with `--noninteractive`, so it never shows a polkit dialog either.
 
 ## Validate before exec
 

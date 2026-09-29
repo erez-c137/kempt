@@ -21,9 +21,8 @@ unhold <same>         remove a hold
 holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                       arguments, on one line, to reuse by hand
 unstage               discard the staged offline update; the next restart installs nothing
-reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
-                      remove the Flatpak runtimes no installed app uses (--list only shows them;
-                      --allow-auth lets polkit ask for a password instead of stopping)
+reclaim [--list] [-y] [--expect=DIGEST]
+                      remove the Flatpak runtimes no installed app uses (--list only shows them)
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
 --version | version | -V   print the version and exit
@@ -370,7 +369,7 @@ keeps the record.
 ## reclaim
 
 ```
-kempt reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
+kempt reclaim [--list] [-y] [--expect=DIGEST]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
@@ -390,9 +389,8 @@ nothing else. An extension another installed runtime still uses stays. The size 
 Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
 is left alone. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
-whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
-and without a yes at the terminal, a removal that needs a password removes nothing. The widget's
-button passes it.
+whole list. It never asks for a password. When removing needs an administrator, nothing is
+removed.
 
 To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 Flatpak never lists a pinned runtime as unused.

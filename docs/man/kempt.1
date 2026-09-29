@@ -46,7 +46,6 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .RB [ \-\-list ]
 .RB [ \-y ]
 .RB [ \-\-expect=\fIdigest\fR ]
-.RB [ \-\-allow\-auth ]
 .br
 .B kempt config get
 .I key
@@ -281,9 +280,7 @@ removes without asking.
 removes only if the list is still the set named by
 .B reclaim.digest
 in the state file.
-.B \-\-allow\-auth
-lets polkit ask for an administrator\(aqs password in a dialog; without it, and without a yes at the
-terminal, a removal that needs a password removes nothing. The widget\(aqs button passes it.
+It never asks for a password: when removing needs an administrator, nothing is removed.
 A runtime is removed only after it has been unused for an hour. To keep one,
 pin it with
 .BR "flatpak pin" .

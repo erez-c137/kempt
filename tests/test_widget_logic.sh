@@ -2244,7 +2244,7 @@ assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
   "a state without the block (flatpak off or absent, reclaim=off) has no offer"
 
 # --- reclaimOutcomeOf: what the popup says after Free Up Space ---------------------------------
-# The widget runs `kempt reclaim -y --expect=<digest> --allow-auth`. The size comes from
+# The widget runs `kempt reclaim -y --expect=<digest>`. The size comes from
 # reclaim.last, which that run writes, so it is formatted the way the offer was ("~1.5 GB") rather
 # than the CLI's "about". A last record older than the press is some other removal: `kempt reclaim`
 # writes none when nothing at all is unused, so an old one must not be read as this press's.
@@ -2267,11 +2267,17 @@ assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remo
   "exit 6: the set changed after it was shown, so nothing was removed"
 assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
   "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
-# The button passes --allow-auth, so the CLI never stops at needs_auth for it: a polkit dialog that
-# was cancelled or denied comes back as exit 1 with reclaim.last saying failed and nothing gone.
+# The CLI asks polkit without a dialog, so where an administrator is needed the press ends in exit 5
+# with this press's record saying needs_auth.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(5, '', '', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Removing these needs an administrator. Nothing was removed."}' \
+  "exit 5 with needs_auth says an administrator is needed and nothing was removed"
+assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null,error:'error: Failed to uninstall x: Flatpak system operation Uninstall not allowed for user'}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimNeedsAuth')" "...also when flatpak's helper refused after the check said yes"
+# A failed uninstall that removed nothing comes back as exit 1 with reclaim.last saying failed.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
   '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
-  "a cancelled or refused password dialog says nothing was removed"
+  "a failed uninstall that removed nothing says so"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
   "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
