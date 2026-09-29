@@ -1016,6 +1016,89 @@ assert_eq "$(jq -r '.backends.flatpak.items[] | select(.name == "org.kde.Platfor
 assert_eq "$(jq .held_total <<<"$stale_hold_state")" "0" "...and is counted as held by nothing"
 "$KEMPT" unhold flatpak:org.kde.Platform >/dev/null 2>&1 || true
 
+# --- --coalesce: a check that waited out another one takes that one's answer --------------------
+# Two widget instances (one per panel tray) both react to every automatic trigger. The second
+# `kempt check` queued on the lock behind the first and then asked dnf the same question again.
+# With --coalesce, a check whose wait ended on a state written AFTER it was asked for serves that
+# state. The helper below records every dnf query, which is what "no second query" is measured by.
+cat > "$TESTTMP/recording-helper" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) echo check >> "$TESTTMP/dnf-queries"; cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) exit 0 ;;
+esac
+STUB
+chmod +x "$TESTTMP/recording-helper"
+dnf_queries() { if [[ -f "$TESTTMP/dnf-queries" ]]; then wc -l < "$TESTTMP/dnf-queries"; else echo 0; fi; }
+events_matching() { grep -c -- "$1" "$EVENTS_FILE" 2>/dev/null || true; }
+
+# Holds the lock for two seconds, then leaves state.json the way `mode` says and lets go. The check
+# under test starts while it is held, so its request time is at least a second older than any stamp
+# written here, which is what the whole-second comparison needs in order to see "after".
+race_check() {  # mode (fresh|stale|corrupt|absent) kempt-check-args... → sets race_rc
+  local mode="$1"; shift
+  rm -f "$TESTTMP/dnf-queries" "$TESTTMP/race.json"
+  ( flock 9; sleep 2
+    case "$mode" in
+      fresh)   jq -n --arg t "$(now_iso)" '{schema:1, last_check:$t, status:"ok", marker:"WRITTEN",
+                                            actionable:0, held_total:0}' > "$STATE_FILE" ;;
+      stale)   jq -n --arg t "$(now_iso)" '{schema:1, last_check:$t, status:"stale", marker:"WRITTEN"}' > "$STATE_FILE" ;;
+      corrupt) printf '{"schema":1,"status":"ok","last_check":"%s"}\n{"b":2}\n' "$(now_iso)" > "$STATE_FILE" ;;
+      absent)  rm -f "$STATE_FILE" ;;
+    esac ) 9>"$KEMPT_STATE_DIR/check.lock" &
+  local holder=$!
+  for _ in $(seq 1 200); do
+    flock -w 0 -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null || break; sleep 0.02
+  done
+  race_rc=0
+  KEMPT_REFRESH_HELPER="$TESTTMP/recording-helper" "$KEMPT" check "$@" > "$TESTTMP/race.json" 2>/dev/null \
+    || race_rc=$?
+  wait "$holder" 2>/dev/null || true
+}
+
+ok_before="$(events_matching ' check ok ')"
+race_check fresh --coalesce
+assert_eq "$race_rc" "0" "a coalesced check exits 0"
+assert_eq "$(dnf_queries)" "0" "a --coalesce check that waited on another check's write asks dnf nothing"
+assert_eq "$(jq -r .marker "$TESTTMP/race.json" 2>/dev/null)" "WRITTEN" "...and prints the state that check wrote"
+assert_eq "$(jq -s length "$TESTTMP/race.json" 2>/dev/null)" "1" "...as exactly one document"
+assert_eq "$(jq -r .marker "$STATE_FILE")" "WRITTEN" "...and leaves state.json as that check wrote it"
+assert_eq "$(events_matching ' check ok ')" "$ok_before" "...and is not logged as a check"
+assert_eq "$(tail -n 1 "$EVENTS_FILE" | cut -d' ' -f3-4)" "check shared" "...but as a shared one"
+
+race_check fresh
+assert_eq "$(dnf_queries)" "1" "without --coalesce the same race still runs its own check"
+
+race_check fresh --refresh --coalesce
+assert_eq "$(dnf_queries)" "1" "--refresh never coalesces"
+assert_eq "$(jq -r '.marker // "none"' "$TESTTMP/race.json")" "none" "...and prints its own answer"
+
+for mode in stale corrupt absent; do
+  race_check "$mode" --coalesce
+  assert_eq "$(dnf_queries)" "1" "a --coalesce check runs a real one when the state it waited on is $mode"
+  assert_eq "$(jq -r .status "$TESTTMP/race.json" 2>/dev/null)" "ok" "...and answers from it ($mode)"
+done
+
+# A state from before the request, with the lock free: nothing answered this check, so it runs.
+jq -n --arg t "$(date -Is -d '-1 hour')" '{schema:1, last_check:$t, status:"ok", marker:"OLD"}' > "$STATE_FILE"
+rm -f "$TESTTMP/dnf-queries"
+old_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/recording-helper" "$KEMPT" check --coalesce)"
+assert_eq "$(dnf_queries)" "1" "a --coalesce check whose state predates the request runs a real check"
+assert_eq "$(jq -r '.marker // "none"' <<<"$old_out")" "none" "...and does not serve the old state"
+
+# Same second is not "after": last_check has whole seconds, and a stamp in the request's own second
+# may have been written before the request was.
+same_sec_state="$(mktemp)"
+same_sec() {  # offset-seconds → state_checked_since's rc for a last_check that far past "now"
+  local now; now="$(date +%s)"
+  jq -n --arg t "$(date -Is -d "@$((now + $1))")" '{last_check:$t, status:"ok"}' > "$same_sec_state"
+  if STATE_FILE="$same_sec_state" state_checked_since "$now" >/dev/null; then echo 0; else echo 1; fi
+}
+assert_eq "$(same_sec 0)" "1" "a last_check in the request's own second does not count as after it"
+assert_eq "$(same_sec 1)" "0" "...and one a second later does"
+assert_eq "$(same_sec -1)" "1" "...and one a second earlier does not"
+rm -f "$same_sec_state"
+
 # write_state is the one door into state.json, and it refuses anything that is not exactly one JSON
 # object. Each case is what a failed producer hands it: nothing at all (assemble_state failing
 # under a caller with errexit off), a bare newline, the wrong type, two documents, and garbage.

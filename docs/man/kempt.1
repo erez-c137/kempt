@@ -8,6 +8,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .PP
 .B kempt check
 .RB [ \-\-refresh ]
+.RB [ \-\-coalesce ]
 .br
 .B kempt update
 .RB [ \-\-no\-flatpak ]
@@ -75,10 +76,8 @@ grants a system app update to an active local session without a password, so a r
 but Flatpak updates in it never raises an authentication dialog.
 .SH COMMANDS
 .TP
-.BR check " [" \-\-refresh ]
+.BR check " [" \-\-refresh "] [" \-\-coalesce ]
 Query every enabled backend, write the state file and print it as JSON.
-.B \-\-refresh
-is the only argument it takes.
 Backend failures do not fail the command: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
@@ -90,6 +89,13 @@ metered connection.
 skips the three\-hour wait, but not the battery and metered rules. When the metadata was last fetched is published as
 .B metadata_refreshed
 in the state file, and a skipped refresh is written to the event log at most once a day.
+.B \-\-coalesce
+is for automatic checks. When this check waited for another one, and that one succeeded and was
+stamped in a later second than this request, its state is printed and nothing is queried or
+written. The event log says
+.BR "check shared" .
+.B \-\-refresh
+turns it off.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface ]

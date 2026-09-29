@@ -255,6 +255,41 @@ p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
 p.check("...and two opens during one check cost exactly one extra check, not two",
         p.call_count("check") - before, 2)
 
+# --- 6b. automatic checks coalesce in the CLI, a person's never do ------------------------------
+# With two instances of the widget, every automatic trigger fired in both and the second check
+# queued on the lock and asked dnf again. `--coalesce` lets the CLI answer it with the check that
+# just finished; a press must never be answered that way.
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+open(MODE, "w").write("live")
+p.clear_calls()
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("an automatic check asks the CLI to coalesce", p.calls_matching("check"), ["check --coalesce"])
+p.clear_calls()
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("a check with no argument is a person's and runs its own", p.calls_matching("check"), ["check"])
+# A Refresh pressed while a timer's check runs: the deferred check carries the press.
+open(MODE, "w").write("slow")
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+ev("root.doCheck(true)")
+ev("root.doCheck()")
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("a press folded into a running automatic check is answered by a check of its own",
+        p.calls_matching("check"), ["check --coalesce", "check"])
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...while only automatic requests folded together still coalesce",
+        p.calls_matching("check"), ["check --coalesce", "check --coalesce"])
+p.check("...leaving nothing remembered as a press", ev("root.recheckAsked"), False)
+open(MODE, "w").write("live")
+
 # The box with no successful check at all: there is no stamp to be old, so every open asks. That
 # is the box whose counts are most worth getting - a fresh install behind a broken repo has
 # nothing to show and no other way to learn it has started working. This reads as a possible bug

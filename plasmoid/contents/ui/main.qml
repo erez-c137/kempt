@@ -20,6 +20,7 @@ PlasmoidItem {
     property bool updating: false          // a run WE started is in flight
     property bool checking: false          // a check is in flight; keeps checks from piling up
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
+    property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     // When the last check FINISHED, as Date.now(); 0 until one has. The watcher's quiet window is
     // measured from here - see Logic.watcherCheckDue. A `double`, not an `int`: Date.now() is
     // milliseconds since 1970 and does not fit in QML's 32-bit int.
@@ -272,7 +273,17 @@ PlasmoidItem {
     //                                  badge that says zero updates.
     //   nothing usable, non-zero rc -> leave the state alone as well; the CLI reports its own
     //                                  failures inside the state as `status: "stale"`.
-    function doCheck() {
+    //
+    // `automatic` is true only for the checks nobody pressed anything for: checkTimer, the
+    // watcher, the popup opening, startup, firstCheckRetry and postRunCheck. Those pass
+    // `--coalesce`, which lets the CLI answer with a check that finished while this one waited on
+    // the lock: with two instances of this widget (one per panel tray) every such trigger fired in
+    // both, and the second queued behind the first and asked dnf the same question again. Anything
+    // a person did (Refresh, Check again, the menu entry, a hold, a discard) leaves it out and
+    // always gets a check of its own. Omitted means false, so a new caller is manual until it is
+    // deliberately made otherwise.
+    function doCheck(automatic) {
+        var auto = automatic === true;
         // The last event's reports have had their moment. Cleared BEFORE the coalesce guard: a
         // Refresh pressed while a check runs is still the user asking for the next thing.
         //
@@ -290,9 +301,16 @@ PlasmoidItem {
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
         // next interval, which is the exact bug the watcher exists to prevent.
-        if (checking) { recheckPending = true; return; }
+        // The deferred check is automatic only if EVERY request folded into it was: a Refresh
+        // pressed during a timer's check must not be answered by somebody else's.
+        if (checking) {
+            recheckPending = true;
+            if (!auto) recheckAsked = true;
+            return;
+        }
         checking = true;
-        executor.run(kemptCmd + " check", 120000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + (auto ? " check --coalesce" : " check"), 120000,
+                     function(stdout, stderr, rc) {
             root.checking = false;
             // Stamped for EVERY completed check, whatever it answered: the quiet window below is
             // about the writes a check makes, and it makes those either way.
@@ -353,8 +371,10 @@ PlasmoidItem {
             root.watchStamp = "";
             root.pollWatch(false);
             if (root.recheckPending) {
+                var asked = root.recheckAsked;
                 root.recheckPending = false;
-                root.doCheck();
+                root.recheckAsked = false;
+                root.doCheck(!asked);
                 return;
             }
             // Anything waiting for a check to LAND is free now. Before the bounded retry on
@@ -483,8 +503,10 @@ PlasmoidItem {
                 postRunCheck.restart();
                 return;
             }
+            // Automatic, and so coalescing, unless the config moved: include_flatpak changes what
+            // is pending, and a check that began before the settings write must not answer for it.
             if (delta.config || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
-                root.doCheck();
+                root.doCheck(!delta.config);
             }
         });
     }
@@ -905,7 +927,7 @@ PlasmoidItem {
         // a check ends up in flight across the run's closing write. Check again and the menu's
         // Check for Updates are the person asking, and still check.
         if (!updating && Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now()))
-            doCheck();
+            doCheck(true);
         root.popupShown();
     }
 
@@ -962,7 +984,7 @@ PlasmoidItem {
         // Not while a run of ours is in flight: the run ends with a check of its own, and one from
         // here would only queue behind the transaction's dnf lock and risk absorbing the run's
         // closing write (see the note in doCheck's callback).
-        onTriggered: if (!root.updating) root.doCheck()
+        onTriggered: if (!root.updating) root.doCheck(true)
     }
 
     // The bounded retry described on firstCheckRetries above. One-shot: doCheck arms it, and only
@@ -974,14 +996,14 @@ PlasmoidItem {
         id: postRunCheck
         interval: 120000
         repeat: false
-        onTriggered: root.doCheck()
+        onTriggered: root.doCheck(true)
     }
 
     Timer {
         id: firstCheckRetry
         interval: 10000
         repeat: false
-        onTriggered: root.doCheck()
+        onTriggered: root.doCheck(true)
     }
 
     // The clock behind "Checked 4 min ago", which is a lie within a minute of being drawn without
@@ -1123,7 +1145,7 @@ PlasmoidItem {
         // Before any run happens in this session, so the popup's Last update row has something
         // true to say the first time it is opened.
         loadLastRun();
-        doCheck();
+        doCheck(true);
         claimTrayPresence();
         claimContextualActions();
     }

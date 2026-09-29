@@ -1499,6 +1499,26 @@ write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
 # the one that hands a reader the state file directly - costs a minute per test and goes uncovered.
 KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 
+# `kempt check --coalesce`: prints state.json and returns 0 when it is ONE object, status "ok", whose
+# last_check is provably later than the epoch second in $1 (when the coalescing check was asked
+# for). Anything else - no file, a corrupt or multi-document one, a stale status, no readable
+# last_check - returns 1, and the caller runs a real check: the safe side.
+# STRICTLY later, in whole seconds, because last_check has whole seconds and so does $1. A check
+# stamped in the same second as the request may have been stamped BEFORE it, from a query that
+# started even earlier; `>` on truncated seconds proves last_check came after the request, at the
+# price of a redundant check when the two land in the same second. `>=` would serve an answer
+# older than the question.
+state_checked_since() {  # requested-epoch → state on stdout, or 1
+  local doc at
+  [[ "$1" =~ ^[0-9]+$ ]] || return 1
+  doc="$(jq -e -n '[inputs] | select(length == 1) | .[0]
+                   | select(type == "object" and .status == "ok" and (.last_check | type) == "string")' \
+           "$STATE_FILE" 2>/dev/null)" || return 1
+  at="$(date -d "$(jq -r '.last_check' <<<"$doc")" +%s 2>/dev/null)" || return 1
+  [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 )) || return 1
+  printf '%s\n' "$doc"
+}
+
 # The shape of the marker Kempt writes today: ONE integer, in place of a reader working the shape
 # out from which of several optional fields happen to be present.
 # Stamped where a marker is BORN (write_stage_marker) and nowhere else. The additive updates -

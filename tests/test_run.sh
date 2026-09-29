@@ -186,7 +186,8 @@ finished()  { [[ -e "$TESTTMP/term-rc" ]]; }
 # The inode, not the mtime: write_state goes through atomic_write, so a rewrite REPLACES the file.
 # mtime has one-second granularity on some filesystems and these runs finish inside one second.
 state_inode() { stat -c %i "$STATE" 2>/dev/null || echo none; }
-check_events() { grep -c ' check ' "$EVENTS" 2>/dev/null || true; }
+# `check shared` is a --coalesce check that asked nothing, so it is not a check here.
+check_events() { grep ' check ' "$EVENTS" 2>/dev/null | grep -vc ' check shared ' || true; }
 reset_capture() { rm -f "$TESTTMP/term-argv" "$TESTTMP/term-rc" "$TESTTMP/term-out" "$TESTTMP/term-pgid"; }
 
 "$KEMPT" config set surface terminal

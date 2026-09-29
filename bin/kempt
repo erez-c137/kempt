@@ -21,13 +21,24 @@ cmd_check() {
   # --refresh overrules the three-hour interval and NOTHING else: the battery and metering rules
   # are about the person's hardware and their bill, not about being polite to a mirror, so a flag
   # that quietly spent either would be worse than no flag. maybe_refresh_metadata carries the rule.
-  local force_refresh=""
+  # --coalesce is the widget's automatic checks (timer, watcher, popup open, startup, post-run
+  # fallback): "any check that finishes after I asked answers me too". Two widget instances (one
+  # per panel tray) otherwise turn every automatic trigger into two dnf queries back to back, the
+  # second queued on the lock behind the first. Never with --refresh: that flag asks for a FETCH,
+  # and a state someone else produced from the old metadata does not answer it.
+  local force_refresh="" coalesce=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --refresh) force_refresh=force; shift ;;
+      --coalesce) coalesce=1; shift ;;
       *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
   done
+  [[ -n "$force_refresh" ]] && coalesce=""
+  # Taken BEFORE the lock wait: the question is whether a check finished after this one was asked
+  # for, and the wait is exactly where that other check runs.
+  local requested_at=""
+  [[ -n "$coalesce" ]] && requested_at="$(date +%s)"
   kempt_init_dirs
   # serialize checks: without this the last FINISHER wins and a stale result overwrites a fresh one
   exec 9>"$KEMPT_STATE_DIR/check.lock"
@@ -37,6 +48,15 @@ cmd_check() {
     # plain form prints BOTH documents under exit 0 and the widget's JSON.parse throws on the
     # second. House idiom - same guard on prev_ls below, in state_prev_items and `summary --json`.
     jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
+    return 0
+  fi
+  local shared
+  if [[ -n "$coalesce" ]] && shared="$(state_checked_since "$requested_at")"; then
+    # The state that check wrote IS the answer. Nothing is written and nothing is harvested (that
+    # check did both), and the event is its own word: `check shared` asked no backend, so it is not
+    # a `check ok` and nothing counting checks counts it.
+    printf '%s\n' "$shared"
+    log_event "check shared last_check=$(jq -r '.last_check' <<<"$shared" 2>/dev/null)"
     return 0
   fi
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
@@ -2757,7 +2777,8 @@ usage() {
 usage: kempt <command>
   check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
                         metadata now, ignoring the 3-hour interval but never the battery or
-                        metered-connection rules
+                        metered-connection rules. --coalesce accepts the answer of a check that
+                        finished while this one waited (the widget's automatic checks)
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--print-command] launch update per configured surface (what the widget calls;
                         --surface=X for one run on another surface)

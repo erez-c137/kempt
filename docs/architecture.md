@@ -122,7 +122,10 @@ user or as root.
 
 Four of those files are locks:
 
-- `lock` serialises runs, and `check.lock` serialises checks.
+- `lock` serialises runs, and `check.lock` serialises checks. `kempt check --coalesce` notes the
+  time before it waits for `check.lock`. Once it has the lock, a successful `state.json` whose
+  `last_check` is in a later second is its answer, and it queries nothing. The widget passes the
+  flag for its automatic checks only, so two widget instances do not check twice per trigger.
 - `stage.lock` is held by a stage from the moment it asks dnf5 for a transaction until its marker
   is written. A check that finds it held skips the [replaced-transaction test](#which-transaction-ran).
 - `writer.lock` serialises `kempt config set`, `kempt hold` and `kempt unhold`. Each reads a whole

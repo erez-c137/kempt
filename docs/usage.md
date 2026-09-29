@@ -5,7 +5,8 @@ Every command is `kempt <subcommand>`. `kempt help` prints the same list.
 ```
 check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
                       metadata now, ignoring the 3-hour interval but never the battery or
-                      metered-connection rules
+                      metered-connection rules. --coalesce accepts the answer of a check that
+                      finished while this one waited (the widget's automatic checks)
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--print-command] launch update per configured surface (what the widget calls;
                       --surface=X for one run on another surface)
@@ -47,11 +48,11 @@ command writes nothing, says so on stderr and exits 1. Commands that only read t
 ## check
 
 ```
-kempt check [--refresh]
+kempt check [--refresh] [--coalesce]
 ```
 
 Asks every enabled backend what is pending, writes `~/.local/state/kempt/state.json`, and prints
-the same JSON. `--refresh` is the only option.
+the same JSON.
 
 ```bash
 kempt check | jq '{status, actionable, held_total}'
@@ -104,6 +105,15 @@ hours, `kempt doctor` has a row for it, and a skipped refresh goes into the even
 **`--refresh`** fetches now, ignoring the 3-hour interval. On battery or a metered connection it
 still skips the fetch, and the event log records it.
 
+**`--coalesce`** is for checks nobody asked for by hand. Only one check runs at a time, so a check
+may wait for another to finish. With `--coalesce`, if that other check succeeded and finished after
+this one was asked for, its state is the answer. It is printed as is, nothing is queried or
+written, and the event log says `check shared`. "After" means a later second: `last_check` has
+whole seconds, so a check stamped in the same second runs a check of its own. `--refresh` turns
+`--coalesce` off. The widget passes it for its timer, its file watcher, the popup opening and its
+startup check, so two widgets on two panels cost one check instead of two. Refresh, Check again,
+Check for Updates and a hold always run a check of their own.
+
 A check also records a staged update once the restart has installed it, and clears Kempt's
 record of a stage that has gone.
 
@@ -115,6 +125,8 @@ record of a stage that has gone.
 - **The state file is missing or corrupt:** exit 0, and the check starts from an empty list.
 - **The new state cannot be saved:** the state is printed first, then the command exits non-zero.
 - **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0.
+- **With `--coalesce`, another check answered while this one waited:** that state is printed,
+  exit 0, and `state.json` is not rewritten.
 
 **Empty output with exit 0 means "no data, keep what you had".** It never means zero updates.
 
@@ -459,6 +471,7 @@ The wording is fixed, so you can search it:
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded. The numbers are what the badge shows next. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
+| `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>` and asked nothing itself. Not a check: it changes no counts. |
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran (at most every three hours, on mains power and an unmetered connection). |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak metadata refresh ran, in the same step. Only while `include_flatpak` is on. Either can fail without stopping the other. |
 | `refresh skipped (<reason>)` | A refresh was skipped on battery or a metered connection. At most once a day. |

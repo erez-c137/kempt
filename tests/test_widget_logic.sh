@@ -2696,6 +2696,38 @@ assert_exit 0 "...and arms the fallback rather than checking" -- \
 assert_exit 0 "...and every completed check stamps the window it opens" -- \
   grep -q 'root.lastCheckFinished = Date.now();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 
+# --- automatic checks coalesce in the CLI, checks a person asked for never do --------------------
+# Two instances of the widget (one per panel tray) both fire every automatic trigger, and the second
+# `kempt check` used to queue on the lock behind the first and ask dnf again. `--coalesce` lets the
+# CLI answer it with the check that just finished. It must reach exactly the automatic triggers: a
+# Refresh answered by somebody else's check that began before the press is a Refresh that did not
+# happen. Structural, one block per call site, because the rule lives in WHICH sites pass the flag.
+# qml_block prints a root-level block (4-space indent) from the line matching $2 to its closing brace.
+qml_block() { awk -v pat="$2" '!f && $0 ~ pat { f = 1 } f { print } f && /^    }$/ { exit }' "$1"; }
+MQ="$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "doCheck adds --coalesce only when asked to" -- \
+  grep -qF 'kemptCmd + (auto ? " check --coalesce" : " check")' "$MQ"
+assert_exit 0 "...and only for a literal true, so a caller that passes nothing is manual" -- \
+  grep -qF 'var auto = automatic === true;' "$MQ"
+for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function popupOpened' \
+            'Component.onCompleted'; do
+  assert_contains "$(qml_block "$MQ" "$site")" "doCheck(true)" "the automatic check at '$site' coalesces"
+done
+assert_contains "$(qml_block "$MQ" 'function pollWatch')" "root.doCheck(!delta.config);" \
+  "the watcher's check coalesces, except for a settings write"
+for site in 'function checkAgain' 'function setHold' 'function discardStaged' 'id: updateGuard' \
+            'id: checkAction'; do
+  blk="$(qml_block "$MQ" "$site")"
+  assert_contains "$blk" "doCheck()" "the check at '$site' is a person's, and runs its own"
+  assert_not_contains "$blk" "doCheck(true)" "...with no --coalesce at '$site'"
+done
+assert_contains "$(grep -F 'plasmoidItem.doCheck(' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" \
+  "plasmoidItem.doCheck()" "the popup's Check for Updates button runs its own check"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked = true;" \
+  "a person's request folded into a running check is remembered as a person's"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked);" \
+  "...and the deferred check it becomes does not coalesce"
+
 # --- the settings page's apply path -------------------------------------------------------------
 # These are structural rather than behavioural - the page needs a real QML engine to drive, which
 # the suite does not have. Each one pins a fix whose absence is silent: the page still opens, still
