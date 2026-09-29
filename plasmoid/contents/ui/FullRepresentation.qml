@@ -732,11 +732,14 @@ PlasmaExtras.Representation {
             actions: [
                 Kirigami.Action {
                     id: reclaimAction
-                    text: popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
+                    // The label is also what a screen reader reads, so the running state is words.
+                    text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
+                        : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
                     icon.name: "edit-clear-all"
                     tooltip: i18n("Removes the Flatpak runtimes listed under Show What. May ask for authorization.")
                     Accessible.description: tooltip
-                    enabled: !popup.plasmoidItem.actionPending
+                    enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
+                             && !popup.plasmoidItem.updating
                     onTriggered: source => popup.plasmoidItem.reclaimSpace()
                 },
                 Kirigami.Action {

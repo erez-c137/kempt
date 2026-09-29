@@ -1509,6 +1509,8 @@ p.clear_calls()
 lev("reclaimMessage.actions[0].trigger()")
 p.check("a press is pending until the CLI answers, and the button is disabled meanwhile",
         [ev("root.actionPending"), lev("reclaimMessage.actions[0].enabled")], [True, False])
+p.check("...and says the removal is running, in the label a screen reader reads too",
+        lev("reclaimMessage.actions[0].text"), "Freeing Up Space…")
 ev("root.reclaimSpace(); root.discardStaged(); root.stageOffline()")
 p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
@@ -1564,6 +1566,18 @@ p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("an update holding the lock is a sentence, not the CLI's lowercase note",
         ev("root.actionMessage"), ev("Logic.COPY.reclaimBusy"))
+
+p.check("the label is back once the CLI has answered", lev("reclaimMessage.actions[0].text"),
+        "Free Up Space")
+
+# A run on its way (Update Now pressed, `kempt run` not back yet) greys the button out.
+ev("root.runRequested = true")
+p.pump(30)
+p.check("the button is greyed out while a run is starting",
+        lev("reclaimMessage.actions[0].enabled"), False)
+ev("root.runRequested = false")
+p.pump(30)
+p.check("...and usable again after", lev("reclaimMessage.actions[0].enabled"), True)
 
 # The guard every banner action has: nothing runs during a run.
 ev("root.enterUpdating()")

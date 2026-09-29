@@ -113,6 +113,8 @@ PlasmoidItem {
     // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
     // unused runtimes is offered again; not persisted, like restartDismissed.
     property string reclaimDismissed: ""
+    // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
+    property bool reclaimRunning: false
 
     // Our own report of a restart prompt that could not be opened; empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message, which is where the
@@ -785,12 +787,14 @@ PlasmoidItem {
         var digest = vm.reclaimDigest;
         if (digest === "") return;
         actionPending = true;
+        reclaimRunning = true;
         actionMessage = "";
         actionDone = "";
         var pressedMs = Date.now();
         executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest)
                      + " --allow-auth", Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
             root.actionPending = false;             // first, so no outcome below can skip it
+            root.reclaimRunning = false;
             root.adoptState(function (fresh) {
                 var reclaim = fresh !== null && fresh.reclaim && typeof fresh.reclaim === "object"
                     ? fresh.reclaim : {};
