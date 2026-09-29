@@ -184,9 +184,10 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   # used ones included, so a removal that took more than the list says so. flatpak's status alone
   # does not say: it can fail part-way, after some refs are gone.
   if after="$(flatpak_unused_list 2>/dev/null)"; then
-    RECLAIM_GONE="$(jq -c -n --argjson b "$listing" --argjson a "$after" \
-      '[$a.unused[].ref, $a.used[].ref] as $left
-       | [$b.unused[].ref, $b.used[].ref] | map(select(. as $r | $left | index($r) | not))' 2>/dev/null)" \
+    # Files, not --argjson: one argument is capped at 128 KiB, a few hundred refs.
+    RECLAIM_GONE="$(jq -c -n --slurpfile b <(printf '%s\n' "$listing") --slurpfile a <(printf '%s\n' "$after") \
+      '[$a[0].unused[].ref, $a[0].used[].ref] as $left
+       | [$b[0].unused[].ref, $b[0].used[].ref] | map(select(. as $r | $left | index($r) | not))' 2>/dev/null)" \
       || RECLAIM_GONE='[]'
   elif [[ $rc -eq 0 ]]; then
     # flatpak removed every named ref and cannot be asked again: take its word for the list
@@ -197,8 +198,8 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   fi
   [[ "$RECLAIM_GONE" == \[* || "$RECLAIM_GONE" == null ]] || RECLAIM_GONE='[]'
   if [[ -n "$sizes_tsv" && "$RECLAIM_GONE" != null ]]; then
-    RECLAIM_BYTES="$(jq -R -n -r --argjson g "$RECLAIM_GONE" \
-      '[inputs | split("\t") | select(length == 2) | select(.[0] as $r | $g | index($r)) | (.[1] | tonumber)] | add // 0' \
+    RECLAIM_BYTES="$(jq -R -n -r --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") \
+      '[inputs | split("\t") | select(length == 2) | select(.[0] as $r | $g[0] | index($r)) | (.[1] | tonumber)] | add // 0' \
       <<<"$sizes_tsv" 2>/dev/null)" || RECLAIM_BYTES=""
   fi
   # polkit can still refuse flatpak's system helper after pkcheck said yes (a rule that changed in

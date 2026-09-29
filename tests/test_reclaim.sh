@@ -549,6 +549,33 @@ restore_offer; reclaim --list >/dev/null 2>&1 || true
 assert_eq "$([[ -e "$KEMPT_STATE_DIR/reclaim-out.stale" ]] && echo left || echo swept)" "swept" \
   "a copy left by a kempt killed outright is swept after an hour"
 
+# A long list of refs passes through jq as files, not arguments: Linux caps one argument at 128 KiB,
+# and past it the gone set and its size would silently read as nothing. reclaim_remove alone, with
+# the listing, the gate and the record stubbed.
+BIG="$TESTTMP/big"; mkdir -p "$BIG"
+jq -cn '{installation: "/var/lib/flatpak", used: [],
+  unused: [range(1000) | {ref: ("runtime/org.example.Platform.Extension.With.A.Long.Name.Number\(.)/x86_64/"
+    + ("x" * 60)), commit: "c", deploy_dir: "/d", eol: null}]}' > "$BIG/before.json"
+jq -r '.unused[].ref + "\t1000000"' "$BIG/before.json" > "$BIG/sizes.tsv"
+assert_eq "$(( $(jq -c '[.unused[].ref]' "$BIG/before.json" | wc -c) > 131072 ))" "1" \
+  "premise: the synthetic gone set is past the 128 KiB argument limit"
+big_out="$(
+  trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
+  export KEMPT_STATE_DIR="$BIG" KEMPT_FLATPAK_UNINSTALL_CMD=true
+  eval "$(sed -n '/^reclaim_remove() {/,/^}/p' "$KEMPT")"
+  flatpak_unused_list() {
+    local n; n=$(( $(cat "$BIG/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$BIG/calls"
+    if (( n <= 2 )); then cat "$BIG/before.json"; else jq -c '.unused = []' "$BIG/before.json"; fi
+  }
+  flatpak_unused_sizes() { cat "$BIG/sizes.tsv"; }
+  reclaim_compare() { RECLAIM_DIGEST=d; return 0; }
+  reclaim_authorized() { return 0; }
+  reclaim_record() { :; }
+  reclaim_remove cli d >/dev/null
+  printf '%s|%s|%s' "$RECLAIM_RESULT" "$(jq length <<<"$RECLAIM_GONE")" "$RECLAIM_BYTES"
+)"
+assert_eq "$big_out" "removed|1000|1000000000" "a removal of 1000 refs records all of them and their size"
+
 # The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
 # removes the related refs of what it removes, even one another installed runtime still uses.
 restore_offer
