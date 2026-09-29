@@ -538,6 +538,13 @@ function resolveIconSizeSetting(value) {
     return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
 }
 
+// resolveReclaimSetting(value) -> ask | automatic | off, read as the CLI's reclaim_mode reads it:
+// case-folded, and anything that is not exactly automatic or off is ask.
+function resolveReclaimSetting(value) {
+    var s = String(value === undefined || value === null ? "" : value).toLowerCase();
+    return (s === "automatic" || s === "off") ? s : "ask";
+}
+
 // resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
 // A chosen size the cell cannot hold falls back to `auto` rather than overflowing: inside the tray
 // the cell is the tray's to decide, and 32px in a 22px slot pushes every other entry around.
@@ -2178,6 +2185,7 @@ if (typeof module !== "undefined" && module.exports) {
         snapIconSize: snapIconSize,
         resolveIconSize: resolveIconSize,
         resolveIconSizeSetting: resolveIconSizeSetting,
+        resolveReclaimSetting: resolveReclaimSetting,
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,

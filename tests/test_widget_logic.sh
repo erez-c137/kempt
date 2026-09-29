@@ -2669,6 +2669,12 @@ assert_eq "$(js 'L.resolveIconSizeSetting("enormous")')" "auto" "an unknown valu
 assert_eq "$(js 'L.resolveIconSizeSetting("")')" "auto" "an empty value is auto"
 assert_eq "$(js 'L.resolveIconSizeSetting(null)')" "auto" "a missing value is auto"
 assert_eq "$(js 'L.resolveIconSizeSetting(undefined)')" "auto" "...and so is no value at all"
+# The reclaim setting, read the way the CLI's reclaim_mode reads it: only automatic and off are
+# themselves, case-folded, and anything else is ask - a typo must never read as automatic.
+assert_eq "$(js '["ask","automatic","off","OFF","Automatic"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,automatic,off,off,automatic" "the three reclaim settings survive, case-folded as the CLI does"
+assert_eq "$(js '["","auto","always",null,undefined,"toString"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,ask,ask,ask,ask,ask" "...and anything else is ask, never automatic"
 # Object.prototype keys are not settings. `toString` is a property of every object in JavaScript,
 # so a naive `key in table` lookup answers yes for it - and the index it would then read is a
 # function, which reaches Kirigami as an icon size.

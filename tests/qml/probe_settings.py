@@ -34,7 +34,15 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
 
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
-            ("widget_icon_size", "medium"), ("restart_reminder", "true"))
+            ("widget_icon_size", "medium"), ("restart_reminder", "true"),
+            ("reclaim", "automatic"))
+# Whether flatpak is installed, as the page asks it: `command -v` on the first word of the CLI's
+# own uninstall command. Pointed at a file in the sandbox, so this probe decides the answer
+# rather than the box it runs on; removing the file is "flatpak is not installed".
+FLATPAK_BIN = os.path.join(p.sandbox, "flatpak")
+open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
+os.chmod(FLATPAK_BIN, 0o755)
+os.environ["KEMPT_FLATPAK_UNINSTALL_CMD"] = FLATPAK_BIN + " uninstall --unused --system -y"
 
 
 def setval(k, v):
@@ -158,7 +166,8 @@ p.check("...shown as the selected radio, not merely held in a property",
         ev0("iconSizeRepeater.itemAt(2).checked"), True)
 
 # ==================================================================================================
-# The two radio groups are INDEPENDENT of each other.
+# The three radio groups are INDEPENDENT of each other (the third, unused Flatpak runtimes, came
+# later and joins the same FormLayout parent, so it would have joined the same group).
 # Measured on a fresh install: the settings page opened with NOTHING selected under "Panel icon
 # size". Both Repeaters put their delegates under the same Kirigami.FormLayout, and a QQC2
 # RadioButton with autoExclusive left on takes its exclusive group from its PARENT - so the four
@@ -192,6 +201,8 @@ for icon_size, want in (("auto", 0), ("medium", 2)):
             group(evR, "iconSizeRepeater"), [1, want])
     p.check("...and exactly one surface radio, the stored one",
             group(evR, "surfaceRepeater"), [1, 1])
+    p.check("...and exactly one unused-runtimes radio, the stored one",
+            group(evR, "reclaimRepeater"), [1, 1])
 
 # Driven the way a user drives it, in the two steps a click really is: toggle() flips `checked`
 # through the same C++ setter the mouse goes through - which is where QQC2 would uncheck the rest
@@ -200,6 +211,7 @@ for icon_size, want in (("auto", 0), ("medium", 2)):
 # `checked` binding, so the button would stay lit whatever the page property said afterwards and
 # this section would be proving nothing. The other group must not move.
 before_icon = group(evR, "iconSizeRepeater")
+before_reclaim = group(evR, "reclaimRepeater")
 evR("surfaceRepeater.itemAt(3).toggle()")
 evR("surfaceRepeater.itemAt(3).toggled()")
 p.pump(60)
@@ -208,6 +220,7 @@ p.check("...leaving exactly one of its own buttons checked", group(evR, "surface
 p.check("...and the panel-icon-size group exactly as it was",
         group(evR, "iconSizeRepeater"), before_icon)
 p.check("...including the property behind it", evR("page.iconSizeKey"), "medium")
+p.check("...and the unused-runtimes group too", group(evR, "reclaimRepeater"), before_reclaim)
 
 before_surface = group(evR, "surfaceRepeater")
 evR("iconSizeRepeater.itemAt(1).toggle()")
@@ -218,6 +231,19 @@ p.check("...leaving exactly one of its own buttons checked",
         group(evR, "iconSizeRepeater"), [1, 1])
 p.check("...and the surface group untouched", group(evR, "surfaceRepeater"), before_surface)
 p.check("...including the property behind it", evR("page.surfaceKey"), "offline")
+p.check("...and the unused-runtimes group untouched", group(evR, "reclaimRepeater"), before_reclaim)
+
+before_icon = group(evR, "iconSizeRepeater")
+before_surface = group(evR, "surfaceRepeater")
+evR("reclaimRepeater.itemAt(2).toggle()")
+evR("reclaimRepeater.itemAt(2).toggled()")
+p.pump(60)
+p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "off")
+p.check("...leaving exactly one of its own buttons checked",
+        group(evR, "reclaimRepeater"), [1, 2])
+p.check("...and the other two groups untouched",
+        [group(evR, "surfaceRepeater"), group(evR, "iconSizeRepeater")],
+        [before_surface, before_icon])
 
 # ==================================================================================================
 # The Apply button, wired the way the shell wires it.
@@ -567,7 +593,7 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "refresh_interval_min", "restart_reminder",
+        ["auto_accept", "include_flatpak", "reclaim", "refresh_interval_min", "restart_reminder",
          "surface", "widget_icon_size"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
@@ -576,6 +602,55 @@ p.check("the interval box shows the stored value", ev6("interval.value"), 60)
 p.check("the holds list is populated", ev6("page.holds.length"), 3)
 p.check("...with the CLI's own ids", ev6("page.holds[0].id"), "dnf:vim-common")
 p.check("an untouched page writes nothing at all", p.calls_matching("config set"), [])
+
+# --- unused Flatpak runtimes ----------------------------------------------------------------------
+p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "automatic")
+p.check("...and with flatpak installed and included, the group is usable and says nothing more",
+        [ev6("reclaimRepeater.itemAt(0).enabled"), ev6("reclaimNote.visible")], [True, False])
+p.check("...under the label the plan gives it",
+        ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
+p.check("...with its three choices in words",
+        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(3)],
+        ["Ask me first", "Remove after updates", "Never"])
+ev6("reclaimRepeater.itemAt(0).toggle()")
+ev6("reclaimRepeater.itemAt(0).toggled()")
+p.clear_calls()
+ev6("page.saveConfig()")
+p.wait_idle(ev6, "cfgExecutor")
+p.check("choosing Ask me first writes it through the CLI", stored("reclaim"), "ask")
+p.check("...and only that key", [c.split()[2] for c in p.calls_matching("config set")], ["reclaim"])
+
+# Leaving Flatpak out of updates turns the feature off in the CLI, so the group greys out.
+ev6("includeFlatpak.checked = false")
+p.pump(30)
+p.check("with Flatpak apps left out of updates the group is greyed out",
+        ev6("reclaimRepeater.itemAt(0).enabled"), False)
+p.check("...and says why", ev6("reclaimNote.text"),
+        "Only applies when Flatpak apps are included in updates.")
+ev6("includeFlatpak.checked = true")
+
+# No flatpak on the box at all.
+os.remove(FLATPAK_BIN)
+for k, v in DEFAULTS:
+    setval(k, v)
+pageNF, evNF = build()
+p.check("with flatpak not installed the group is greyed out",
+        evNF("reclaimRepeater.itemAt(0).enabled"), False)
+p.check("...and says so", evNF("reclaimNote.text"), "Flatpak is not installed.")
+p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "automatic")
+open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
+os.chmod(FLATPAK_BIN, 0o755)
+
+# An older CLI answers "" for a key it has never heard of: unknown, not ask.
+os.remove(os.path.join(VALUES, "reclaim"))
+p.clear_calls()
+pageOR, evOR = build()
+p.check("an empty answer for reclaim is remembered as unknown",
+        evOR("page.readFailed['reclaim']"), True)
+evOR("page.saveConfig()")
+p.wait_idle(evOR, "cfgExecutor")
+p.check("...so an untouched Apply writes nothing over it", stored("reclaim"), "(absent)")
+setval("reclaim", "automatic")
 
 p.clear_calls()
 ev6('page.removeHold("dnf:vim-common")')
