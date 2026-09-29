@@ -14,6 +14,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Two widgets no longer check twice.** With the widget on two panels, every automatic check ran
+  twice, one behind the other. Automatic checks now pass `kempt check --coalesce` and take the
+  answer of a check that finished while they waited. Refresh still always checks.
 - **A held package no longer installs with a rebuilt stage.** If you held every pending update and
   then rebuilt a staged update, dnf5 had nothing new to stage and kept the old transaction, held
   package included. Kempt reported "Updates staged". Kempt now removes the old transaction and says
