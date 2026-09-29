@@ -63,7 +63,8 @@ Requires:       dnf5-command(needs-restarting)
 Recommends:     flatpak
 # The Flatpak listing helper (libexec/kempt-flatpak-unused) reads the installation through
 # libflatpak's GObject bindings; flatpak-libs carries the typelib, PyGObject is the other half.
-# Only with flatpak: without it there is nothing to list, and no reason to pull Python bindings in.
+# python3 itself is always required: rpm reads the helper's shebang and adds /usr/bin/python3.
+# The bindings come only with flatpak: without it there is nothing to list.
 Requires:       (python3-gobject-base if flatpak)
 # Both of these are weak on purpose. libnotify was declared nowhere, and konsole was only
 # Suggested, which dnf does not install.
