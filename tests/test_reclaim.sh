@@ -36,7 +36,19 @@ else
 fi
 # Not under lib/ or backends/: the package strips the shebang from every file there, and this one
 # is executed rather than sourced.
-assert_eq "$(head -1 "$HELPER")" "#!/usr/bin/python3" "the helper names its interpreter absolutely"
+assert_eq "$(head -1 "$HELPER")" "#!/usr/bin/python3 -s" "the helper names its interpreter absolutely, without the user's site-packages"
+# -s keeps a `gi` in ~/.local/lib/python3.*/site-packages from shadowing the system one. Proved with
+# usercustomize, which Python imports from the user site at startup unless -s is given.
+if command -v python3 >/dev/null 2>&1; then
+  export PYTHONUSERBASE="$TESTTMP/userbase"
+  usite="$(python3 -c 'import site; print(site.getusersitepackages())')"
+  mkdir -p "$usite"
+  printf 'open(%s, "w").write("loaded")\n' "'$TESTTMP/usersite-loaded'" > "$usite/usercustomize.py"
+  FAKE_FLATPAK_JSON="$UNUSED_FX" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" >/dev/null 2>&1 || true
+  assert_eq "$(cat "$TESTTMP/usersite-loaded" 2>/dev/null || echo "not loaded")" "not loaded" \
+    "...so nothing in the user's site-packages is loaded"
+  unset PYTHONUSERBASE
+fi
 assert_exit 0 "...and is executable in the tree" -- test -x "$HELPER"
 
 # --- stubs for everything the CLI runs ------------------------------------------------------------

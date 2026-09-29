@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -s
 # Kempt's read-only list of the Flatpak refs nothing installed uses. Runs as the desktop user,
 # never as root and never through pkexec: for the system installation, libflatpak also counts the
 # CALLING user's own apps as users, so the answer is only right for the person who runs it.
