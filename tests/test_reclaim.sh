@@ -260,4 +260,125 @@ config_set reclaim ask
 age_state 7200
 check >/dev/null
 
+# --- kempt reclaim ----------------------------------------------------------------------------------
+# Every ref has been unused for two hours now, so the whole set is on offer under DIGEST5.
+jq '.unused = []' "$UNUSED_FX" > "$AFTER"   # what a removal that took everything leaves behind
+reclaim() { "$KEMPT" reclaim "$@" </dev/null 2>&1; }
+calls() { cat "$STUBS/$1.calls" 2>/dev/null || echo "(none)"; }
+reset_calls() { rm -f "$STUBS"/uninstall.calls "$STUBS"/pkcheck.calls; }
+# Back to all five unused and offerable: the listing restored, one check to record them, aged.
+restore_offer() { cp "$UNUSED_FX" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls; }
+reset_calls
+
+rc=0; out="$(reclaim --list)" || rc=$?
+assert_eq "$rc" "0" "reclaim --list exits 0"
+assert_contains "$out" "No installed app uses these Flatpak runtimes:" "...under a plain heading"
+assert_contains "$out" "  runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra" "...one ref per line"
+assert_contains "$out" "runtime/org.kde.Platform/x86_64/5.15-23.08 (end of life)" "...an end-of-life one marked"
+assert_contains "$out" "Removing them frees about 2.0 GB." "...and the estimate, said as one"
+assert_eq "$(calls uninstall)" "(none)" "...and removes nothing"
+
+rc=0; out="$(reclaim)" || rc=$?
+assert_eq "$rc" "5" "no -y and no terminal to ask on: refused, exit 5"
+assert_contains "$out" "Run kempt reclaim -y" "...saying how to remove without being asked"
+assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+
+assert_exit 2 "--expect takes a digest and nothing else" -- "$KEMPT" reclaim -y --expect=HEAD
+assert_exit 2 "an unknown option is a usage error" -- "$KEMPT" reclaim --force
+
+rc=0; out="$(reclaim -y --expect=0123456789abcdef)" || rc=$?
+assert_eq "$rc" "6" "a digest that is not the set on offer: exit 6"
+assert_contains "$out" "What Flatpak can remove changed since this was shown. Nothing was removed." "...in the widget's words"
+assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim changed (digest), nothing removed" "...and in the event log"
+
+# A set that grew: one more unused ref than was shown means the removal would take it too, unseen.
+jq '.unused += [{"ref":"runtime/org.gnome.Platform/x86_64/46","commit":"'"$(printf 'g%.0s' {1..64} | tr g a)"'",
+     "deploy_dir":"/var/lib/flatpak/runtime/org.gnome.Platform/x86_64/46/aa","eol":null}]' "$UNUSED_FX" > "$LISTING"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "6" "one ref more than was shown: exit 6"
+assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+# The same set without --expect, where the extra ref has only just been seen: too new to remove.
+rc=0; out="$(reclaim -y)" || rc=$?
+assert_eq "$rc" "6" "a ref unused for less than an hour blocks the removal: exit 6"
+assert_contains "$out" "Kempt waits an hour" "...saying why"
+assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+cp "$UNUSED_FX" "$LISTING"
+
+# Permission: asked of polkit without a dialog, and a no is needs_auth, not a prompt.
+rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "5" "polkit would ask for a password: exit 5"
+assert_contains "$out" "Removing these needs an administrator. Nothing was removed." "...in the widget's words"
+assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+assert_contains "$(calls pkcheck)" "--action-id org.freedesktop.Flatpak.runtime-uninstall --process " \
+  "the permission asked is flatpak's own removal action, for this process"
+assert_not_contains "$(calls pkcheck)" "--allow-user-interaction" "...never allowed to raise a dialog"
+assert_eq "$(state_reclaim | jq -r '.status')" "needs_auth" "the closing check publishes needs_auth"
+assert_eq "$(state_reclaim | jq -r '.last.result')" "needs_auth" "...with the outcome as last"
+reset_calls
+
+hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "0" "the set on offer, allowed: removed, exit 0"
+assert_eq "$(calls uninstall)" "--noninteractive" "flatpak removes with --noninteractive when nobody pressed anything"
+assert_contains "$out" "Uninstalling..." "flatpak's own output is shown"
+assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
+assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
+  "{\"via\":\"cli\",\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000,\"digest\":\"$DIGEST5\"}" \
+  "the outcome names the refs that went, their size and the set agreed to"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim removed 5 runtimes (1975000000 bytes)" "...and the event log says it"
+assert_eq "$(state_reclaim | jq -c '[.refs, .digest, .status, .last.result]')" '[[],"","ok","removed"]' \
+  "the closing check publishes that nothing is left to offer"
+assert_eq "$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)" "$hist_before" \
+  "a removal writes no history entry: the last run is still the last update"
+assert_exit 0 "...and leaves the update lock free" -- flock -n "$KEMPT_STATE_DIR/lock" true
+
+rc=0; out="$(reclaim -y)" || rc=$?
+assert_eq "$rc" "0" "nothing unused: exit 0"
+assert_eq "$out" "Nothing to remove. Every installed Flatpak runtime is in use." "...in plain words"
+
+# The widget's button: a person pressed it, so no permission check and no --noninteractive.
+restore_offer
+rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5" --allow-auth)" || rc=$?
+assert_eq "$rc" "0" "--allow-auth removes where polkit would ask"
+assert_eq "$(calls pkcheck)" "(none)" "...without the no-dialog check"
+assert_eq "$(calls uninstall)" "" "...and lets flatpak raise the dialog"
+
+# Only some of the set went: the refs really gone are what counts, and so are only their bytes.
+restore_offer
+jq '.unused = [.unused[] | select(.ref | test("kde"))]' "$UNUSED_FX" > "$AFTER"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$(jq -c '[(.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '[4,1075000000]' \
+  "a partial removal counts only the refs gone, at their own sizes"
+jq '.unused = []' "$UNUSED_FX" > "$AFTER"
+
+restore_offer
+rc=0; out="$(UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "1" "a removal flatpak fails: exit 1"
+assert_contains "$out" "Flatpak could not remove them." "...said plainly"
+assert_eq "$(state_reclaim | jq -c '[.status, .digest]')" "[\"failed\",\"$DIGEST5\"]" \
+  "the closing check publishes failed, for this set only"
+
+# Refusals that come before anything is listed.
+reset_calls
+rc=0; out="$(SUDO_UID=1000 reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "5" "under sudo: refused, exit 5"
+assert_contains "$out" "not as root" "...saying why"
+rc=0; PKEXEC_UID=1000 reclaim -y >/dev/null || rc=$?
+assert_eq "$rc" "5" "under pkexec: the same"
+config_set reclaim off
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc" "5" "reclaim=off: removal refused, exit 5"
+assert_exit 0 "...while --list still shows what could go" -- "$KEMPT" reclaim --list
+config_set reclaim ask
+config_set include_flatpak false
+assert_exit 5 "include_flatpak=false: refused" -- "$KEMPT" reclaim -y
+config_set include_flatpak true
+assert_exit 3 "an update holding the lock: exit 3, without waiting" -- \
+  flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y --expect="$DIGEST5"
+assert_eq "$(calls uninstall)" "(none)" "and none of those removed anything"
+rc=0; out="$(UNUSED_FAIL=1 reclaim -y)" || rc=$?
+assert_eq "$rc" "1" "a listing that fails: exit 1, nothing removed"
+
 finish
