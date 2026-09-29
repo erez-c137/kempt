@@ -257,6 +257,34 @@ assert_eq "$(KEMPT_GETENT_CMD="$TESTTMP/no-getent" check | jq -r '.reclaim.mode'
 touch "$TESTTMP/ostree-booted"
 assert_eq "$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" check | jq -r '.reclaim.mode')" "ask" \
   "...and on an image-based system, where Kempt runs no updates to remove after, it publishes ask"
+# Accounts the old count missed. A second stand-in getent prints the one-person machine above plus
+# $EXTRA_PASSWD, so each case adds one line.
+cat > "$STUBS/getent-plus" <<'STUB'
+#!/usr/bin/env bash
+"$STUBS/getent"
+[[ -n "${EXTRA_PASSWD:-}" ]] && printf '%s\n' "$EXTRA_PASSWD"
+exit 0
+STUB
+chmod +x "$STUBS/getent-plus"
+mode_with() { EXTRA_PASSWD="$1" KEMPT_GETENT_CMD="$STUBS/getent-plus" check | jq -r '.reclaim.mode'; }
+assert_eq "$(mode_with 'kim:x:60100:60100:Kim:/home/kim:/bin/bash')" "ask" \
+  "a systemd-homed account (UID above 60000) is a second person"
+assert_eq "$(mode_with 'lee:x:1002:1002:Lee:/home/lee:')" "ask" "...and so is an account with an empty shell, which means /bin/sh"
+assert_eq "$(mode_with 'nobody:x:65534:65534:Nobody:/:/bin/bash')" "automatic" "...but never nobody, whatever its shell"
+assert_eq "$(mode_with 'svc:x:1003:1003::/var/lib/svc:/sbin/nologin')" "automatic" "...nor an account that cannot log in"
+printf 'passwd:     files sss systemd\n' > "$TESTTMP/nss-sss"
+printf '# passwd: files sss\npasswd:     files systemd  # no sss here\n' > "$TESTTMP/nss-local"
+assert_eq "$(KEMPT_NSSWITCH_FILE="$TESTTMP/nss-sss" check | jq -r '.reclaim.mode')" "ask" \
+  "accounts from a network directory (sss in nsswitch.conf) publish ask, since getent lists none of them"
+assert_eq "$(KEMPT_NSSWITCH_FILE="$TESTTMP/nss-local" check | jq -r '.reclaim.mode')" "automatic" \
+  "...while local sources, and a commented-out sss, publish automatic"
+HR="$TESTTMP/homes"; mkdir -p "$HR/home/alex/.local/share/flatpak"
+ln -s home "$HR/var-home"
+assert_eq "$(KEMPT_HOME_ROOTS="$HR/home $HR/var-home" check | jq -r '.reclaim.mode')" "automatic" \
+  "one home with Flatpak data, reached through two paths, is one person"
+mkdir -p "$HR/home/sam/.local/share/flatpak"
+assert_eq "$(KEMPT_HOME_ROOTS="$HR/home $HR/var-home" check | jq -r '.reclaim.mode')" "ask" \
+  "two homes with Flatpak data publish ask"
 config_set reclaim nonsense
 assert_eq "$(check | jq -r '.reclaim.mode')" "ask" "an unknown value publishes ask"
 config_set reclaim ask
@@ -315,6 +343,12 @@ rm -f "$RECLAIM_SIZES_FILE" "$STUBS/timeout.calls"
 PATH="$TESTTMP/tbin:$PATH" check >/dev/null
 assert_contains "$(cat "$STUBS/timeout.calls")" "15 unused" "the listing is given 15 seconds"
 assert_contains "$(cat "$STUBS/timeout.calls")" "30 du" "...and du 30"
+config_set reclaim automatic
+rm -f "$STUBS/timeout.calls"
+assert_eq "$(TIMEOUT_EXPIRE=getent PATH="$TESTTMP/tbin:$PATH" check | jq -r '.reclaim.mode')" "ask" \
+  "an account lookup that runs out of time publishes ask"
+assert_contains "$(cat "$STUBS/timeout.calls")" "5 getent" "...and it is given 5 seconds"
+config_set reclaim ask
 rm -f "$RECLAIM_SIZES_FILE"
 out="$(TIMEOUT_EXPIRE=du PATH="$TESTTMP/tbin:$PATH" check)"
 assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"unknown_size"]' \

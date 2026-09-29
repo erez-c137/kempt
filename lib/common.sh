@@ -130,10 +130,13 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
-# Who has an account here, read by reclaim_human_accounts to decide whether automatic removal of
-# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so accounts from sssd or
-# systemd-homed count too.
+# Who has an account here, read by reclaim_many_accounts to decide whether automatic removal of
+# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so systemd-homed accounts
+# count too. Network directories (sssd, LDAP, AD) list nobody by default, so nsswitch.conf is read
+# for them, and the home directories that hold Flatpak data are counted as a third signal.
 KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
+KEMPT_NSSWITCH_FILE="${KEMPT_NSSWITCH_FILE:-/etc/nsswitch.conf}"
+KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
 # Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
 # unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
 # dialog itself.
@@ -352,14 +355,29 @@ reclaim_as_root() {  # → 0 when this process must not reclaim
   [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
 }
 
-# Human accounts on this machine: a UID in Fedora's regular range and a shell someone can log in
-# with. More than one means automatic removal behaves as ask, because libflatpak counts only the
-# calling user's --user apps as users, and another person's app may need a runtime this listing
-# calls unused. A lookup that fails counts as "more than one", for the same reason.
-reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
-  local out
-  out="$($KEMPT_GETENT_CMD 2>/dev/null </dev/null)" || return 1
-  awk -F: '$3 >= 1000 && $3 <= 60000 && $7 != "" && $7 !~ /(nologin|false)$/ { n++ } END { print n + 0 }' <<<"$out"
+# Whether more than one person may have apps here. libflatpak counts only the calling user's
+# --user apps as users, so another person's app may need a runtime this listing calls unused, and
+# automatic removal then behaves as ask. Any one signal is enough: more than one local login
+# account (UID 1000 or above, except nobody; an empty shell means /bin/sh), a network account
+# source in nsswitch.conf, or Flatpak data in more than one home. A lookup that fails or takes
+# longer than 5 seconds counts as more than one, for the same reason.
+reclaim_many_accounts() {  # → 0 when more than one person may use this machine, or it cannot tell
+  local out n
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  out="$(timeout 5 $KEMPT_GETENT_CMD 2>/dev/null </dev/null 9>&-)" || return 0
+  n="$(awk -F: '$3 ~ /^[0-9]+$/ && $3 >= 1000 && $3 != 65534 && $7 !~ /(nologin|false)$/ { n++ }
+               END { print n + 0 }' <<<"$out")" || return 0
+  (( n > 1 )) && return 0
+  if [[ -r "$KEMPT_NSSWITCH_FILE" ]] \
+     && awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
+               if ($i ~ /^(sss|ldap|winbind|nis)$/) f = 1 } END { exit !f }' "$KEMPT_NSSWITCH_FILE"; then
+    return 0
+  fi
+  local root d
+  n="$(for root in $KEMPT_HOME_ROOTS; do
+         for d in "$root"/*/.local/share/flatpak; do [[ -d "$d" ]] && readlink -f "$d" || :; done
+       done 2>/dev/null | sort -u | awk 'NF { n++ } END { print n + 0 }')" || n=0
+  (( n > 1 ))
 }
 
 # The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
@@ -367,11 +385,11 @@ reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
 # one human account the listing does not know about the others' apps. Both fall back to ask, so
 # the space is still shown and a person decides.
 reclaim_effective_mode() {  # → ask | automatic | off
-  local mode n
+  local mode
   mode="$(reclaim_mode)"
   if [[ "$mode" == automatic ]]; then
     if on_ostree; then mode=ask
-    elif ! n="$(reclaim_human_accounts)" || [[ -z "$n" ]] || (( n > 1 )); then mode=ask
+    elif reclaim_many_accounts; then mode=ask
     fi
   fi
   printf '%s\n' "$mode"
