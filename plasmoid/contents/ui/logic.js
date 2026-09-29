@@ -358,7 +358,17 @@ var COPY = {
     reclaimAutomatic: "Kempt removes them after the next update.",
     // After a ref in the Show What list whose branch Flatpak marks end of life.
     reclaimEol: "(no longer supported)",
-    reclaimShowWhat: "Show What"
+    reclaimShowWhat: "Show What",
+    // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
+    reclaimFreed: "Freed %1.",
+    reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
+    reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
+    reclaimNeedsAuth: "Removing these needs an administrator.",
+    reclaimBusy: "An update is already running. Nothing was removed.",
+    reclaimFailed: "Could not free the space (exit %1).",
+    // The Last update row and the line after a run, when automatic reclaim removed something.
+    reclaimFreedTail: "%1 freed",
+    reclaimRemovedTail: "unused runtimes removed"
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -1368,6 +1378,18 @@ function lastRunOf(text) {
         removed += arrayOf(backend.removed).length;
     }
 
+    // What automatic reclaim removed after this run (backends.flatpak.reclaimed). Only a removal
+    // counts: a failed or refused one never fails the run and is reported through the state.
+    var reclaimed = backends.flatpak && typeof backends.flatpak === "object"
+        ? backends.flatpak.reclaimed : null;
+    var reclaimedCount = 0, reclaimedBytes = null;
+    if (reclaimed && typeof reclaimed === "object" && reclaimed.status === "removed") {
+        reclaimedCount = arrayOf(reclaimed.refs).length;
+        if (typeof reclaimed.bytes === "number" && isFinite(reclaimed.bytes) && reclaimed.bytes > 0) {
+            reclaimedBytes = reclaimed.bytes;
+        }
+    }
+
     var status = typeof entry.status === "string" ? entry.status : "";
     var when = typeof entry.timestamp === "string" ? entry.timestamp : "";
     return {
@@ -1400,8 +1422,19 @@ function lastRunOf(text) {
         // real stage as nothing. Only the two words the CLI writes are accepted; anything else is
         // a build this one does not understand, and "I do not know" is the honest reading of it.
         stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
-            ? entry.staged_nothing : null
+            ? entry.staged_nothing : null,
+        reclaimedCount: reclaimedCount,
+        reclaimedBytes: reclaimedBytes
     };
+}
+
+// reclaimedTailOf(run) -> "" or the clause the run lines append: " · ~1.5 GB freed".
+function reclaimedTailOf(run) {
+    if (!run || run.failed || !(run.reclaimedCount > 0)) return "";
+    if (typeof run.reclaimedBytes === "number") {
+        return DOT + fill(COPY.reclaimFreedTail, "%1", formatDownload(run.reclaimedBytes));
+    }
+    return DOT + COPY.reclaimRemovedTail;
 }
 
 // postRunLine(run) -> the transient line shown once, right after a run finishes.
@@ -1426,14 +1459,14 @@ function postRunLine(run) {
     }
     if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges;
+    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run);
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
     var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -1495,6 +1528,38 @@ function discardStagedMessage(rc, stdout, stderr) {
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
 }
 
+// reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
+// Free Up Space (`kempt reclaim -y --expect=<digest> --allow-auth`). `last` is the state's
+// reclaim.last as read after the run, and only counts when it is at least as new as the press
+// (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
+// stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
+// LAST line is its outcome, and on failure stderr's first line is.
+function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
+    var fresh = null;
+    if (last && typeof last === "object" && typeof sinceMs === "number" && isFinite(sinceMs)) {
+        var at = stampMs(last.at);
+        if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
+    }
+    if (rc === 0) {
+        if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
+                && isFinite(fresh.bytes) && fresh.bytes > 0) {
+            return { ok: true, text: fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) };
+        }
+        var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+        var tail = "";
+        for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
+        return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
+    }
+    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
+        return { ok: false, text: COPY.reclaimNeedsAuth };
+    }
+    if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
+    var msg = firstLineOf(stderr);
+    if (msg !== "") return { ok: false, text: msg };
+    if (rc === 6) return { ok: false, text: COPY.reclaimChanged };
+    return { ok: false, text: fill(COPY.reclaimFailed, "%1", String(rc)) };
+}
+
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar around a
 // number, not a wording decision. The zero case is the exception: "no package changes" is the
@@ -1525,7 +1590,7 @@ function lastRunText(run, nowMs) {
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
-    return "Last update " + relativeTime(run.when, nowMs) + DOT + what;
+    return "Last update " + relativeTime(run.when, nowMs) + DOT + what + reclaimedTailOf(run);
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2093,6 +2158,7 @@ if (typeof module !== "undefined" && module.exports) {
         reclaimOffered: reclaimOffered,
         reclaimMessageOf: reclaimMessageOf,
         reclaimRefLineOf: reclaimRefLineOf,
+        reclaimOutcomeOf: reclaimOutcomeOf,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,

@@ -73,6 +73,16 @@ UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
 open(UNSTAGERC, "w").write("0")
 open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
 open(UNSTAGEERR, "w").write("")
+# `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
+# behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
+# state.json alone). The real command rewrites state.json before it exits, with reclaim.last.
+RECLAIMRC = os.path.join(p.sandbox, "reclaimrc")
+RECLAIMOUT = os.path.join(p.sandbox, "reclaimout")
+RECLAIMERR = os.path.join(p.sandbox, "reclaimerr")
+RECLAIMST = os.path.join(p.sandbox, "reclaimst")
+for _f in (RECLAIMOUT, RECLAIMERR, RECLAIMST):
+    open(_f, "w").write("")
+open(RECLAIMRC, "w").write("0")
 
 
 def now_stamped(entry):
@@ -152,11 +162,15 @@ case "$1" in
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
   unstage) cat %(UOUT)s; cat %(UERR)s >&2; exit "$(cat %(URC)s)" ;;
+  reclaim) src="$(cat %(RST)s)"
+           if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
+           cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
 esac
 """ % {"CFG": harness.config_arm(surface="echo popup", auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
        "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
-       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC})
+       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
+       "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget
 # that regressed to the old command would produce that line again, and the run-end assertion far
@@ -1449,6 +1463,130 @@ open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart insta
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
 
+# --- Free Up Space: the reclaim offer's button ------------------------------------------------
+# `kempt reclaim -y --expect=<digest> --allow-auth`: the digest is the consent (the CLI removes
+# nothing unless the set on offer is still the one shown), and the size reported is the one the
+# run wrote to reclaim.last, in the offer's own spelling.
+def reclaim_from(source, name, mode="ask", last=None, offer=True):
+    doc = json.load(open(source))
+    block = {"mode": mode, "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    if offer:
+        block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
+            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
+             "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"}])
+    if last is not None:
+        block["last"] = last
+    doc["reclaim"] = block
+    path = os.path.join(p.sandbox, name)
+    open(path, "w").write(json.dumps(doc))
+    return path
+
+
+RC_OFFER = reclaim_from(UPTODATE, "state-reclaim.json")
+RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
+    "at": "@NOW@", "via": "widget", "result": "removed",
+    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
+    "digest": "0123456789abcdef"})
+RC_AUTH = reclaim_from(UPTODATE, "state-reclaim-auth.json", last={
+    "at": "@NOW@", "via": "widget", "result": "needs_auth",
+    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": None,
+    "digest": "0123456789abcdef"})
+state(RC_OFFER)
+ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
+p.pump(100)
+p.check("the offer is on screen with its two actions",
+        [lev("reclaimMessage.visible"), lev("reclaimMessage.actions[0].text"),
+         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show What"])
+p.check("...and the button says what it does, for the eye and for a screen reader",
+        [lev("reclaimMessage.actions[0].tooltip"),
+         lev("reclaimMessage.actions[0].Accessible.description")],
+        ["Removes the Flatpak runtimes listed under Show What. May ask for authorization."] * 2)
+
+open(CHECKSRC, "w").write(RC_GONE)
+open(RECLAIMST, "w").write(RC_GONE)
+open(RECLAIMOUT, "w").write("No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\n"
+                            "Removing them frees about 1.5 GB.\nFreed about 1.5 GB.\n")
+p.clear_calls()
+lev("reclaimMessage.actions[0].trigger()")
+p.check("a press is pending until the CLI answers, and the button is disabled meanwhile",
+        [ev("root.actionPending"), lev("reclaimMessage.actions[0].enabled")], [True, False])
+ev("root.reclaimSpace(); root.discardStaged(); root.stageOffline()")
+p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
+settle()
+p.check("...presses while it is pending start nothing: exactly one reclaim",
+        [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
+p.check("...which removes only the set shown, and may ask for an administrator",
+        p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef", "--allow-auth"])
+p.check("...and says how much it freed, in the offer's own spelling", ev("root.actionDone"),
+        "Freed ~1.5 GB.")
+p.check("...as the thing that just happened, not as a failure",
+        [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
+p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)
+
+# The set changed after it was shown: exit 6, in the CLI's words, and the offer stays for the new
+# set the CLI's own re-check publishes.
+state(RC_OFFER)
+open(RECLAIMST, "w").write("")
+open(RECLAIMRC, "w").write("6")
+open(RECLAIMOUT, "w").write("")
+open(RECLAIMERR, "w").write(
+    "What Flatpak can remove changed since this was shown. Nothing was removed.\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a set that changed since it was shown removes nothing, and says so",
+        ev("root.actionMessage"),
+        "What Flatpak can remove changed since this was shown. Nothing was removed.")
+p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
+
+# polkit said no: the plan's short sentence, from reclaim.last, not the CLI's longer stderr.
+open(CHECKSRC, "w").write(RC_AUTH)
+open(RECLAIMST, "w").write(RC_AUTH)
+open(RECLAIMRC, "w").write("5")
+open(RECLAIMERR, "w").write("Removing these needs an administrator. Nothing was removed.\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a removal polkit refused says it needs an administrator",
+        ev("root.actionMessage"), "Removing these needs an administrator.")
+
+# An update holding the lock.
+open(CHECKSRC, "w").write(RC_OFFER)
+state(RC_OFFER)
+open(RECLAIMST, "w").write("")
+open(RECLAIMRC, "w").write("3")
+open(RECLAIMERR, "w").write("another kempt update is running\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("an update holding the lock is a sentence, not the CLI's lowercase note",
+        ev("root.actionMessage"), ev("Logic.COPY.reclaimBusy"))
+
+# The guard every banner action has: nothing runs during a run.
+ev("root.enterUpdating()")
+p.clear_calls()
+ev("root.reclaimSpace()")
+settle()
+p.check("a reclaim asked for during a run does not run", p.call_count("reclaim"), 0)
+ev("root.leaveUpdating()")
+settle()
+
+# reclaim=automatic: the line says the next update removes them, and the button is the one that
+# does not wait.
+state(reclaim_from(UPTODATE, "state-reclaim-auto.json", mode="automatic"))
+p.pump(100)
+p.check("with reclaim=automatic the button does not wait for the next update",
+        lev("reclaimMessage.actions[0].text"), "Free Up Space Now")
+p.check("...and the line says the next update would",
+        str(lev("reclaimMessage.text")).endswith("Kempt removes them after the next update."), True)
+open(RECLAIMRC, "w").write("0")
+open(RECLAIMERR, "w").write("")
+open(CHECKSRC, "w").write(CONFLICT1)
+ev('root.actionMessage = ""; root.actionDone = ""')
+
 # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
 # own reason in the tooltip of the button that tries again.
 _sev("clear()")
@@ -2172,6 +2310,14 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimUnsized",       # -> reclaimMessageOf -> vm.reclaimMessage
     "reclaimAutomatic",     # -> reclaimMessageOf -> vm.reclaimMessage, after either of those
     "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
+    "reclaimFreed",         # -> reclaimOutcomeOf -> actionDone (the size goes into the %1)
+    "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
+    "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
+    "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
+    "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
+    "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
+    "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
+    "reclaimRemovedTail",   # -> reclaimedTailOf -> postRunLine and lastRunText
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message

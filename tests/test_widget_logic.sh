@@ -2238,6 +2238,59 @@ assert_eq "$(js "L.viewModel($RC_STATE,true).messageSlots")" '[]' "a run in flig
 assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
   "a state without the block (flatpak off or absent, reclaim=off) has no offer"
 
+# --- reclaimOutcomeOf: what the popup says after Free Up Space ---------------------------------
+# The widget runs `kempt reclaim -y --expect=<digest> --allow-auth`. The size comes from
+# reclaim.last, which that run writes, so it is formatted the way the offer was ("~1.5 GB") rather
+# than the CLI's "about". A last record older than the press is some other removal: `kempt reclaim`
+# writes none when nothing at all is unused, so an old one must not be read as this press's.
+RC_PRESS=$(( $(date +%s) * 1000 ))
+RC_AT="$(date -Iseconds)"
+RC_LAST="{at:'$RC_AT',via:'widget',result:'removed',refs:['runtime/org.kde.Platform/x86_64/5.15-23.08'],bytes:1530000000,digest:'0123456789abcdef'}"
+RC_OUT='No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\nRemoving them frees about 1.5 GB.\nFreed about 1.5 GB.\n'
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(0, '$RC_OUT', '', $RC_LAST, $RC_PRESS))")" \
+  '{"ok":true,"text":"Freed ~1.5 GB."}' "a removal says how much it freed, in the offer's own spelling"
+assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
+  "Freed about 1.5 GB." "...a last record older than the press is not this press: the CLI's own last line is"
+assert_eq "$(js "L.reclaimOutcomeOf(0, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{bytes:null}), $RC_PRESS).text")" \
+  "Removed 2 runtimes." "...with no size, the CLI's count"
+assert_eq "$(js "L.reclaimOutcomeOf(0, 'Nothing to remove. Every installed Flatpak runtime is in use.\n', '', null, $RC_PRESS).text")" \
+  "Nothing to remove. Every installed Flatpak runtime is in use." "...and nothing unused at all, as the CLI says it"
+assert_eq "$(js "L.reclaimOutcomeOf(0, '', '', null, $RC_PRESS).text")" "$(js 'L.COPY.reclaimNothing')" \
+  "...a success with nothing said still says something"
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\n', null, $RC_PRESS))")" \
+  '{"ok":false,"text":"What Flatpak can remove changed since this was shown. Nothing was removed."}' \
+  "exit 6: the set changed after it was shown, so nothing was removed"
+assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
+  "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
+assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',bytes:null}), $RC_PRESS).text")" \
+  "Removing these needs an administrator." "exit 5 after this press asked for an administrator"
+assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Nothing was removed. Removing unused runtimes is turned off (reclaim is off).\n', null, $RC_PRESS).text")" \
+  "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." "...any other refusal in the CLI's words"
+assert_eq "$(js "L.reclaimOutcomeOf(3, '', 'another kempt update is running\n', null, $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimBusy')" "exit 3: an update holds the lock"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'No installed app uses these Flatpak runtimes:\n', 'Flatpak could not remove them. See: kempt log\n', null, $RC_PRESS).text")" \
+  "Flatpak could not remove them. See: kempt log" "a failure is stderr's first line, never the list on stdout"
+assert_eq "$(js "L.reclaimOutcomeOf(124, '', '', null, $RC_PRESS).text")" "Could not free the space (exit 124)." \
+  "...and a failure with nothing said names its exit code"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" "...and is not a success"
+
+# --- the last update row carries what an automatic reclaim freed -------------------------------
+RC_RUN='{timestamp:"2026-09-29T10:00:00+03:00",surface:"popup",status:"ok",backends:{dnf:{updated:[{name:"a",from:"1",to:"2"}]},flatpak:{updated:[],reclaimed:{refs:["runtime/x/x86_64/1","runtime/y/x86_64/2"],bytes:1530000000,status:"removed"}}}}'
+assert_eq "$(js "JSON.stringify([L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedBytes, L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedCount])")" \
+  "[1530000000,2]" "the run's entry says what automatic reclaim removed"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).changedCount")" "1" "...and the removed runtimes are not package changes"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
+  "the line after the run says how much it freed"
+assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_RUN)), Date.parse('2026-09-29T11:00:00+03:00'))")" \
+  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...and so does the Last update row"
+RC_NOSIZE="$(printf '%s' "$RC_RUN" | sed 's/bytes:1530000000/bytes:null/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_NOSIZE)))")" "Updated 1 package · unused runtimes removed" \
+  "...without a size it says what went"
+RC_FAILED="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"failed"/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Updated 1 package" \
+  "...and a reclaim that did not remove anything is not mentioned: it never fails the run"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_FAILED)).reclaimedCount")" "0" "...and counts nothing"
+
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
 # and it was the fifth thing competing for a popup that fits two. The dateline it explains is one
@@ -3019,8 +3072,8 @@ done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "2" \
-  "...and both banner actions say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "3" \
+  "...and both banner actions, and Free Up Space, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

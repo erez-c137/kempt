@@ -506,6 +506,11 @@ p.check("...and announces its own sentence",
         "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.")
 p.check("...as the alert every message is",
         lev("reclaimMessage.Accessible.role === Accessible.AlertMessage"), True)
+p.check("Free Up Space is named by its label, which is what the message's button hands over",
+        lev("reclaimMessage.actions[0].text"), "Free Up Space")
+p.check("...and says what pressing it does before a polkit dialog takes the focus",
+        lev("reclaimMessage.actions[0].Accessible.description"),
+        "Removes the Flatpak runtimes listed under Show What. May ask for authorization.")
 lev("reclaimMessage.showingWhat = true")
 p.pump(60)
 p.check("Show What puts one line per runtime under it, and the name read out says them too",
@@ -662,7 +667,10 @@ def _code(name):
 # The third is Discard Staged Update, on the same banner and for the same reason: its tooltip
 # discloses the authorization and that the downloaded packages go with the transaction, and polkit
 # takes the focus the instant it is pressed.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 3}
+#
+# The fourth is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
+# same way, so the tooltip that says so is its description too.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

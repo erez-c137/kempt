@@ -774,6 +774,33 @@ PlasmoidItem {
         restartDismissed = true;
     }
 
+    // Free Up Space: the discardStaged pattern. --expect is the consent: the CLI removes nothing
+    // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
+    // re-read is needed first. --allow-auth because a person pressed it, and a polkit dialog is
+    // fine here. The size reported comes from reclaim.last, read back after the run.
+    function reclaimSpace() {
+        if (updating || runRequested || actionPending) return;
+        var digest = vm.reclaimDigest;
+        if (digest === "") return;
+        actionPending = true;
+        actionMessage = "";
+        actionDone = "";
+        var pressedMs = Date.now();
+        executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest)
+                     + " --allow-auth", 120000, function(stdout, stderr, rc) {
+            root.actionPending = false;             // first, so no outcome below can skip it
+            root.adoptState(function (fresh) {
+                var reclaim = fresh !== null && fresh.reclaim && typeof fresh.reclaim === "object"
+                    ? fresh.reclaim : {};
+                var said = Logic.reclaimOutcomeOf(rc, stdout, stderr, reclaim.last || null, pressedMs);
+                // doCheck clears the last event's lines at its top; this one is about the press.
+                root.doCheck();
+                if (said.ok) root.actionDone = said.text;
+                else root.actionMessage = said.text;
+            });
+        });
+    }
+
     // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
     function dismissReclaim() {
         reclaimDismissed = vm.reclaimDigest;
