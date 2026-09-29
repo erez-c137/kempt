@@ -554,8 +554,8 @@ esum="$(render_summary "$TESTTMP/eol-entry.json")"
 assert_contains "$esum" "Note: Speech Note uses org.kde.Platform 5.15-24.08, which has reached end-of-life and gets no more updates. Nothing to do now: when its developer moves it to a supported runtime, a normal update installs that." \
   "one app on an end-of-life runtime: named, and told nothing needs doing"
 assert_contains "$esum" "Note: A, B and C use org.a.Platform 1," "several apps are listed in one sentence"
-assert_contains "$esum" "no installed app uses it. To remove it once nothing needs it: flatpak uninstall --unused" \
-  "an unused end-of-life runtime says how to remove it"
+assert_contains "$esum" "no installed app uses it. To remove it: kempt reclaim" \
+  "an unused end-of-life runtime points at kempt reclaim"
 assert_contains "$esum" "Note: Old has reached end-of-life and gets no more updates (Replaced by New)." \
   "an end-of-life app carries the reason flatpak gave"
 assert_not_contains "$(render_summary "$TESTTMP/eol-base.json")" "Note:" \

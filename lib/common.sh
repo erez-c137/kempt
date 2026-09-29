@@ -2034,6 +2034,8 @@ render_summary() {  # history-json-file → human text
     shortfall,
     # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
     # anything needs doing. `// []` keeps entries written before the field existed rendering.
+    # An unused one points at `kempt reclaim`, which shows what goes and asks, rather than at the
+    # flatpak command that removes every unused runtime without a list.
     # NO APOSTROPHES IN HERE either (see above).
     def names(a): if (a|length) == 1 then a[0]
                   else (a[0:-1] | join(", ")) + " and " + a[-1] end;
@@ -2042,7 +2044,7 @@ render_summary() {  # history-json-file → human text
                    + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
                  elif (.apps|length) == 0 then
                    "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
-                   + " has reached end-of-life and no installed app uses it. To remove it once nothing needs it: flatpak uninstall --unused"
+                   + " has reached end-of-life and no installed app uses it. To remove it: kempt reclaim"
                  else
                    "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
                    + .id + (if .branch != "" then " " + .branch else "" end)
