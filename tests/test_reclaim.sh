@@ -50,7 +50,7 @@ export LISTING AFTER DU_TABLE STUBS
 cat > "$STUBS/unused" <<'STUB'
 #!/usr/bin/env bash
 echo run >> "$STUBS/unused.calls"
-[[ -n "${UNUSED_FAIL:-}" ]] && { echo "flatpak did not answer" >&2; exit 1; }
+[[ -n "${UNUSED_FAIL:-}" || -e "$STUBS/unused.fail" ]] && { echo "flatpak did not answer" >&2; exit 1; }
 cat "$LISTING"
 STUB
 cat > "$STUBS/du" <<'STUB'
@@ -477,6 +477,34 @@ rc=0; out="$(KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-used" reclaim -y --ex
 assert_not_contains "$(calls uninstall)" "--force-remove" "a removal never forces out a runtime an app uses"
 assert_eq "$(jq -r '.refs | index("runtime/org.kde.Platform/x86_64/5.15-23.08")' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | length' "$RECLAIM_LAST_FILE")" \
   "null|4" "...so the runtime that became used in the gap is not among the refs gone"
+# Flatpak failing part-way is reported as it happened: what was freed, flatpak's error, and exit 1.
+assert_eq "$rc" "1" "a removal flatpak stopped part-way: exit 1"
+assert_contains "$out" "Freed about 1.1 GB." "...saying what it freed"
+assert_contains "$out" "Flatpak could not remove all of them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08" \
+  "...and flatpak's error"
+assert_eq "$(jq -c '[.result, .partial, .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,1075000000]' \
+  "...recorded as removed and partial, with the bytes of the refs that went"
+assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "reclaim removed 4 runtimes (1075000000 bytes) rc=1, not all of them: error: Failed" \
+  "...and in the event log"
+
+# Flatpak failed and the list afterwards cannot be read: what went is unknown, never "nothing".
+cat > "$STUBS/uninstall-blind" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUBS/uninstall.calls"
+touch "$STUBS/unused.fail"
+echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: interrupted" >&2
+exit 1
+STUB
+chmod +x "$STUBS/uninstall-blind"
+restore_offer
+rc=0; out="$(KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-blind" reclaim -y --expect="$DIGEST5")" || rc=$?
+rm -f "$STUBS/unused.fail"
+assert_eq "$rc" "1" "a failed removal whose outcome cannot be read: exit 1"
+assert_contains "$out" "the removal may be partial. Check again with: kempt reclaim --list" "...saying it may be partial"
+assert_not_contains "$out" "Nothing was removed" "...and never that nothing was removed"
+assert_eq "$(jq -c '[.result, .refs, .bytes, .partial]' "$RECLAIM_LAST_FILE")" '["failed",null,null,true]' \
+  "...recorded with refs null and partial, so no reader counts it as nothing"
+assert_contains "$(grep 'reclaim failed' "$EVENTS_FILE" | tail -n 1)" "what was removed is unknown" "...and the event log says so"
 
 # The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
 # removes the related refs of what it removes, even one another installed runtime still uses.

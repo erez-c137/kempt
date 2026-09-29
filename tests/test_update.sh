@@ -2280,6 +2280,10 @@ STUB
 cat > "$RC/uninstall" <<'STUB'
 #!/usr/bin/env bash
 echo "UNINSTALL $*" >> "$RC/calls"
+if [[ -n "${UNINSTALL_PARTIAL:-}" ]]; then   # every ref but the KDE runtime goes, then flatpak fails
+  jq '.unused = [.unused[] | select(.ref | test("kde"))]' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
+  echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08"; exit 1
+fi
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
 jq '.unused = []' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
 echo "Uninstalling..."
@@ -2368,6 +2372,11 @@ rc_offer
 UNINSTALL_RC=1 rc_update
 assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "failed|ok" \
   "a removal flatpak fails never fails the run"
+
+rc_offer
+UNINSTALL_PARTIAL=1 rc_update
+assert_eq "$(jq -c '.backends.flatpak.reclaimed | [.status, .partial, (.refs | length)]' "$RH")|$(jq -r .status "$RH")" \
+  '["removed",true,4]|ok' "a removal flatpak stopped part-way is recorded as partial in the run's entry, and the run stays ok"
 
 # A run that failed removes nothing.
 rc_offer

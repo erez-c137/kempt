@@ -537,11 +537,11 @@ The wording is fixed, so you can search it:
 | `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
 | `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. |
 | `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | polkit would have asked for a password, so nothing was removed. |
-| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. |
+| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 

@@ -2446,6 +2446,9 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
     "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
     "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
+    "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
+    "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
+    "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
     "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
     "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up

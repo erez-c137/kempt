@@ -116,7 +116,8 @@ reclaim_authorized() {
 # it does may fail the run.
 #   RECLAIM_RESULT  removed | nothing | changed | needs_auth | failed
 #   RECLAIM_WHY     for changed: digest | unstable | new (not in the run's before-snapshot)
-#   RECLAIM_GONE    JSON array of the refs that are really gone
+#   RECLAIM_GONE    JSON array of the refs that are really gone, or null when that is unknown
+#   RECLAIM_PARTIAL 1 when flatpak failed after the removal began: some refs may be gone, not all
 #   RECLAIM_BYTES   their cached sizes added up, or empty when unknown
 #   RECLAIM_ERROR   why it failed: flatpak's error line (error_line_of), or empty
 #
@@ -129,6 +130,7 @@ reclaim_authorized() {
 reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   local via="$1" expected="$2" before="${3:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
+  RECLAIM_PARTIAL=""
   local listing sizes_tsv="" after rc=0 out_file="" refs=()
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
@@ -174,18 +176,25 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
        | [$b.unused[].ref, $b.used[].ref] | map(select(. as $r | $left | index($r) | not))' 2>/dev/null)" \
       || RECLAIM_GONE='[]'
   elif [[ $rc -eq 0 ]]; then
-    # flatpak said it worked and cannot be asked again: take its word for the list
+    # flatpak removed every named ref and cannot be asked again: take its word for the list
     RECLAIM_GONE="$(jq -c '[.unused[].ref]' <<<"$listing" 2>/dev/null)" || RECLAIM_GONE='[]'
+  else
+    # flatpak failed and cannot be asked what is left: anything from none to all may be gone
+    RECLAIM_GONE=null
   fi
-  [[ "$RECLAIM_GONE" == \[* ]] || RECLAIM_GONE='[]'
-  if [[ -n "$sizes_tsv" ]]; then
+  [[ "$RECLAIM_GONE" == \[* || "$RECLAIM_GONE" == null ]] || RECLAIM_GONE='[]'
+  if [[ -n "$sizes_tsv" && "$RECLAIM_GONE" != null ]]; then
     RECLAIM_BYTES="$(jq -R -n -r --argjson g "$RECLAIM_GONE" \
       '[inputs | split("\t") | select(length == 2) | select(.[0] as $r | $g | index($r)) | (.[1] | tonumber)] | add // 0' \
       <<<"$sizes_tsv" 2>/dev/null)" || RECLAIM_BYTES=""
   fi
   # polkit can still refuse flatpak's system helper after pkcheck said yes (a rule that changed in
   # between). That is the same answer as the gate's no, so it is needs_auth too.
-  if [[ "$RECLAIM_GONE" != '[]' ]]; then RECLAIM_RESULT=removed
+  # A failure after some refs went is still `removed`, with partial set and flatpak's error kept.
+  if [[ "$RECLAIM_GONE" == null ]]; then RECLAIM_RESULT=failed RECLAIM_PARTIAL=1
+  elif [[ "$RECLAIM_GONE" != '[]' ]]; then
+    RECLAIM_RESULT=removed
+    [[ $rc -eq 0 ]] || RECLAIM_PARTIAL=1
   elif [[ $rc -eq 0 ]]; then RECLAIM_RESULT=nothing
   elif [[ "${RECLAIM_ERROR,,}" == *"not allowed for user"* ]]; then RECLAIM_RESULT=needs_auth
   else RECLAIM_RESULT=failed
@@ -242,15 +251,16 @@ reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are t
 # The outcome, in the two places that keep it: reclaim-last.json (the next check carries it into
 # state.json) and the event log. Both best-effort. A failure carries its error line in both.
 reclaim_record() {  # via digest
-  reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2" "${RECLAIM_ERROR:-}"
+  reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2" "${RECLAIM_ERROR:-}" \
+    "${RECLAIM_PARTIAL:-}"
   local n
   n="$(jq -r 'length' <<<"$RECLAIM_GONE" 2>/dev/null)" || n="?"
   case "$RECLAIM_RESULT" in
-    removed)    log_event "reclaim removed $n runtimes (${RECLAIM_BYTES:-?} bytes) rc=${RECLAIM_RC:-0}" ;;
+    removed)    log_event "reclaim removed $n runtimes (${RECLAIM_BYTES:-?} bytes) rc=${RECLAIM_RC:-0}${RECLAIM_PARTIAL:+, not all of them}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
     nothing)    log_event "reclaim found nothing to remove" ;;
     changed)    log_event "reclaim changed ($RECLAIM_WHY), nothing removed" ;;
     needs_auth) log_event "reclaim needs authorization, nothing removed" ;;
-    *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
+    *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}${RECLAIM_PARTIAL:+, what was removed is unknown}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
   esac
 }
 
@@ -275,7 +285,9 @@ reclaim_after_run() {  # log_file
   run_heading "$1" "Unused Flatpak runtimes"
   reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
   RECLAIM_RUN_JSON="$(jq -cn --argjson g "$RECLAIM_GONE" --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
+    --arg p "${RECLAIM_PARTIAL:-}" \
+    '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}
+     + (if $p == "" then {} else {partial: true} end)' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
 }
@@ -2371,6 +2383,15 @@ cmd_reclaim() {
       else
         local n; n="$(jq -r 'length' <<<"$RECLAIM_GONE")"
         if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
+      fi
+      # flatpak stopped part-way: what went is said above, and it was not everything agreed to.
+      if [[ -n "$RECLAIM_PARTIAL" ]]; then
+        if [[ -n "$RECLAIM_ERROR" ]]; then
+          echo "Flatpak could not remove all of them: $RECLAIM_ERROR" >&2
+        else
+          echo "Flatpak could not remove all of them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
+        fi
+        rc=1
       fi ;;
     nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
     changed)
@@ -2382,7 +2403,12 @@ cmd_reclaim() {
       rc=6 ;;
     needs_auth) echo "Removing these needs an administrator. Nothing was removed." >&2; rc=5 ;;
     # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
-    *) if [[ -n "$RECLAIM_ERROR" ]]; then
+    # With RECLAIM_PARTIAL set here, flatpak failed and the list afterwards could not be read, so
+    # some runtimes may be gone: never "nothing was removed".
+    *) if [[ -n "$RECLAIM_PARTIAL" ]]; then
+         echo "Flatpak stopped with an error${RECLAIM_ERROR:+: $RECLAIM_ERROR}" >&2
+         echo "Kempt could not check what was removed, so the removal may be partial. Check again with: kempt reclaim --list" >&2
+       elif [[ -n "$RECLAIM_ERROR" ]]; then
          echo "Flatpak could not remove them: $RECLAIM_ERROR" >&2
        else
          echo "Flatpak could not remove them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2

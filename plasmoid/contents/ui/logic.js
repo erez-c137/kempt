@@ -364,6 +364,11 @@ var COPY = {
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
     reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
+    // Flatpak stopped part-way. The first is filled with the size of what did go.
+    reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
+    reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
+    // Flatpak failed and Kempt could not read what is left afterwards.
+    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
@@ -1574,8 +1579,19 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
     if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
         return { ok: false, text: COPY.reclaimNeedsAuth };
     }
+    // Flatpak failed after the removal began. `partial` with refs null: what went is unknown, and
+    // "nothing was removed" could be false. With refs: some went, and a plain "Freed" would be.
+    if (rc === 1 && fresh !== null && fresh.partial === true) {
+        if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
+        if (fresh.result === "removed") {
+            if (typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0) {
+                return { ok: false, text: fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes)) };
+            }
+            return { ok: false, text: COPY.reclaimPartialUnsized };
+        }
+    }
     // A failed uninstall whose record says nothing is gone.
-    if (rc === 1 && fresh !== null && fresh.result === "failed" && arrayOf(fresh.refs).length === 0
+    if (rc === 1 && fresh !== null && fresh.result === "failed" && isArray(fresh.refs) && fresh.refs.length === 0
             && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
         return { ok: false, text: COPY.reclaimNothingRemoved };
     }

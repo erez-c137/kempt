@@ -2278,6 +2278,19 @@ assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrato
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
   '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
   "a failed uninstall that removed nothing says so"
+# Flatpak stopped part-way: what went is said, and so is that it was not everything. Never a success.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could not remove all of them: error: Failed to uninstall x\n', Object.assign($RC_LAST,{partial:true,error:'error: Failed to uninstall x'}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Freed ~1.5 GB. Flatpak could not remove all of them."}' \
+  "a partial removal says what it freed and that flatpak could not remove all of them"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
+# Flatpak failed and what is left could not be read: never "Nothing was removed".
+RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
+  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left."}' \
+  "a removal whose outcome is unknown says it may be partial"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null}), $RC_PRESS).text.indexOf('Nothing was removed')")" \
+  "-1" "...and a record with refs null never reads as nothing removed"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
   "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
