@@ -261,6 +261,28 @@ config_set reclaim ask
 age_state 7200
 check >/dev/null
 
+# --- time limits inside the check ------------------------------------------------------------------
+# The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
+# so both together stay well inside it. A stand-in `timeout` records the limit it was given, and
+# answers 124 (time is up) for the command named in TIMEOUT_EXPIRE.
+mkdir -p "$TESTTMP/tbin"
+cat > "$TESTTMP/tbin/timeout" <<'STUB'
+#!/usr/bin/env bash
+echo "$1 $(basename "$2")" >> "$STUBS/timeout.calls"
+[[ -n "${TIMEOUT_EXPIRE:-}" && "$(basename "$2")" == "$TIMEOUT_EXPIRE" ]] && exit 124
+shift; exec "$@"
+STUB
+chmod +x "$TESTTMP/tbin/timeout"
+rm -f "$RECLAIM_SIZES_FILE" "$STUBS/timeout.calls"
+PATH="$TESTTMP/tbin:$PATH" check >/dev/null
+assert_contains "$(cat "$STUBS/timeout.calls")" "15 unused" "the listing is given 15 seconds"
+assert_contains "$(cat "$STUBS/timeout.calls")" "30 du" "...and du 30"
+rm -f "$RECLAIM_SIZES_FILE"
+out="$(TIMEOUT_EXPIRE=du PATH="$TESTTMP/tbin:$PATH" check)"
+assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"unknown_size"]' \
+  "a du that runs out of time is an unknown size"
+check >/dev/null
+
 # --- kempt reclaim ----------------------------------------------------------------------------------
 # Every ref has been unused for two hours now, so the whole set is on offer under DIGEST5.
 jq '.unused = []' "$UNUSED_FX" > "$AFTER"   # what a removal that took everything leaves behind

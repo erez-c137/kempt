@@ -103,8 +103,10 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # person agreed to. --noninteractive is appended there, except when a person pressed the button
 # and a polkit dialog is welcome. System scope only, the contract every command above keeps.
 KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --unused --system -y}"
-# Both the listing and the size estimate run inside the check lock, so each has a bound.
-KEMPT_RECLAIM_TIMEOUT=60
+# Both the listing and the size estimate run inside the check lock, and the widget kills a check
+# after 120 s, so the two together stay well inside that. A du that runs out is an unknown size.
+KEMPT_RECLAIM_LIST_TIMEOUT=15
+KEMPT_RECLAIM_DU_TIMEOUT=30
 
 # Whether there is a flatpak to reclaim anything from: the command a removal would run resolves.
 # Absent flatpak means no listing and no reclaim block in state.json at all.
@@ -117,7 +119,7 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
   local out
   # Unquoted: a seam may carry its own arguments (as dnf_history_json).
   # shellcheck disable=SC2086
-  out="$(timeout "$KEMPT_RECLAIM_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD </dev/null 9>&-)" || return 1
+  out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD </dev/null 9>&-)" || return 1
   jq -e -c '
     def okref: type == "object"
       and (.ref | type == "string" and test("^(runtime|app)/[A-Za-z0-9._-]+/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$"))
@@ -146,7 +148,7 @@ flatpak_unused_sizes() {  # $1 = listing JSON → TSV; non-zero when unknown
   if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return 0; fi
   readarray -t dirs < <(jq -r '.used[].deploy_dir, .unused[].deploy_dir' <<<"$listing")
   # shellcheck disable=SC2086  # the seam may carry its own arguments
-  out="$(timeout "$KEMPT_RECLAIM_TIMEOUT" $KEMPT_DU_CMD -sb -- "${dirs[@]}" </dev/null 2>/dev/null 9>&-)" || return 1
+  out="$(timeout "$KEMPT_RECLAIM_DU_TIMEOUT" $KEMPT_DU_CMD -sb -- "${dirs[@]}" </dev/null 2>/dev/null 9>&-)" || return 1
   # du prints `bytes<TAB>path` in argument order. Every unused directory must have its line, and
   # each must be a number, or there is no estimate at all rather than a smaller one.
   out="$(jq -R -n -c --argjson l "$listing" '
