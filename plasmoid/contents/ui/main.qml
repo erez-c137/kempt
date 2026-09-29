@@ -110,6 +110,10 @@ PlasmoidItem {
     // within half a minute of it being made.
     onRestartReminderChanged: if (restartReminder) restartDismissed = false;
 
+    // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
+    // unused runtimes is offered again; not persisted, like restartDismissed.
+    property string reclaimDismissed: ""
+
     // Our own report of a restart prompt that could not be opened; empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message, which is where the
     // user pressed. Silence is the worst outcome available: a button that appears to do nothing is
@@ -202,6 +206,7 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
+                                                reclaimDismissed: reclaimDismissed,
                                                 engineFault: engineFault,
                                                 // What a run started NOW would actually do. The
                                                 // popup needs it because the refusals the CLI
@@ -767,6 +772,11 @@ PlasmoidItem {
     // and a status line that ends "restart pending", so the popup stops nagging without lying.
     function dismissRestart() {
         restartDismissed = true;
+    }
+
+    // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
+    function dismissReclaim() {
+        reclaimDismissed = vm.reclaimDigest;
     }
 
     // Show Log, through the desktop's own handler so the user gets whatever they have chosen for a

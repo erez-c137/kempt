@@ -2168,6 +2168,10 @@ _SUBSTITUTED_IN_QML = {
 }
 
 _ASSEMBLED_IN_LOGIC = {
+    "reclaimSized",         # -> reclaimMessageOf -> vm.reclaimMessage (the size goes into the %1)
+    "reclaimUnsized",       # -> reclaimMessageOf -> vm.reclaimMessage
+    "reclaimAutomatic",     # -> reclaimMessageOf -> vm.reclaimMessage, after either of those
+    "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message

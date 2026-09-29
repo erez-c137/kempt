@@ -712,6 +712,45 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
+        // wrong, and LAST in the order (logic.js, MESSAGE_ORDER): the offer keeps until the next open.
+        // Show What adds one line per runtime under the sentence, so the name read out lists them too.
+        Kirigami.InlineMessage {
+            id: reclaimMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            showCloseButton: true
+            property bool showingWhat: false
+            text: showingWhat && popup.vm.reclaimLines.length > 0
+                  ? popup.vm.reclaimMessage + "\n" + popup.vm.reclaimLines.join("\n")
+                  : popup.vm.reclaimMessage
+            Accessible.name: text
+            visible: popup.shows("reclaim")
+            // Polite: an offer, not something that happened to the person.
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(reclaimMessage, false)
+            actions: [
+                Kirigami.Action {
+                    id: reclaimShowWhat
+                    text: i18n("Show What")
+                    icon.name: "view-list-details"
+                    checkable: true
+                    checked: reclaimMessage.showingWhat
+                    onTriggered: source => reclaimMessage.showingWhat = !reclaimMessage.showingWhat
+                }
+            ]
+            // The close button assigns visible = false and breaks the binding, as on the restart
+            // message: turn it into a dismissal of this digest and put the binding back. The guard
+            // tells a close apart from the popup hiding for a run.
+            onVisibleChanged: {
+                if (visible) { popup.speakMessage(reclaimMessage, false); return; }
+                reclaimMessage.spoken = "";
+                if (!popup.shows("reclaim")) return;
+                popup.plasmoidItem.dismissReclaim();
+                visible = Qt.binding(function () { return popup.shows("reclaim"); });
+            }
+        }
+
         // --- the list, and what stands in for it when there is none --------------------------------
         // One Item holding both, so the placeholder is centred in the space the list would have
         // occupied rather than in the whole popup.

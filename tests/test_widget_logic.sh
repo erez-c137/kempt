@@ -2172,6 +2172,72 @@ assert_eq "$(js "L.viewModel($STACK_ALL,true,'',{reportShown:false}).messageSlot
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessage")" "" \
   "premise: an armed stage silences the offline offer, so it is not competing here at all"
 
+# --- the reclaim offer: unused Flatpak runtimes -------------------------------------------------
+# The CLI's `reclaim` block, rendered as an Information message LAST in the stack. An empty digest
+# is no offer (nothing unused, or part of the list is younger than an hour), and so is an offer
+# under the size threshold. A size the CLI could not work out still shows, without a number.
+RC_OFFER='{mode:"ask",refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
+assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "the threshold is 100 MB, in the SI bytes the footer uses"
+assert_eq "$(js "L.reclaimOffered($RC_OFFER)")" "true" "an offer with a digest and 1.5 GB is shown"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:99999999}))")" "false" \
+  "...one under 100 MB is not worth the room in a popup that fits two messages"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:100000000}))")" "true" \
+  "...and exactly 100 MB is"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:null}))")" "true" \
+  "...a size the CLI could not work out still shows"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:''}))")" "false" \
+  "an empty digest is no offer, whatever else the block says"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:42}))")" "false" \
+  "...and neither is a digest that is not a string"
+assert_eq "$(js 'L.reclaimOffered(null)')" "false" "no block, no offer"
+assert_eq "$(js 'L.reclaimOffered("x")')" "false" "...and a block of the wrong type is ignored"
+
+assert_eq "$(js "L.reclaimMessageOf($RC_OFFER)")" \
+  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
+  "the line says how much, with the download footer's ~, and why it is safe"
+assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{offerable_bytes:null}))")" \
+  "Space can be freed. No installed app uses these Flatpak runtimes." \
+  "...and without a number when the size is unknown"
+assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic'}))")" \
+  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes. Kempt removes them after the next update." \
+  "with reclaim=automatic it says the next update removes them"
+assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic',status:'needs_auth'}))")" \
+  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
+  "...but not when the last automatic try needed an administrator: the next update skips this set"
+
+assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08',eol:null})")" \
+  "org.freedesktop.Platform.GL.default 24.08" "a ref reads as its id and branch"
+assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.kde.Platform/x86_64/5.15-23.08',eol:'gone'})")" \
+  "org.kde.Platform 5.15-23.08 (no longer supported)" "...and an end-of-life one says so"
+assert_eq "$(js "L.reclaimRefLineOf({ref:'odd',eol:null})")" "odd" \
+  "a ref of a shape this build does not know is shown as the CLI wrote it"
+assert_eq "$(js 'L.reclaimRefLineOf(null)')" "" "...and a missing entry is nothing"
+
+# The stack: last, so everything else outranks it.
+assert_eq "$(js 'L.messageStack({kernel:true, reclaim:true})')" '["kernel","reclaim"]' \
+  "the reclaim offer is last in the stack"
+assert_eq "$(js 'L.messageStack({report:true, restart:true, reclaim:true})')" '["report","restart"]' \
+  "...so any two other messages displace it"
+
+RC_STATE="{schema:1,status:\"ok\",actionable:0,held_total:0,last_check:\"2026-09-29T12:00:00+03:00\",last_success:\"2026-09-29T12:00:00+03:00\",backends:{},reclaim:$RC_OFFER}"
+assert_eq "$(js "L.viewModel($RC_STATE,false).messageSlots")" '["reclaim"]' \
+  "a state with an offer puts the message in the stack"
+assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimMessage")" \
+  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." "...with its line"
+assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
+  '["org.kde.Platform 5.15-23.08 (no longer supported)","org.freedesktop.Platform.GL.default 24.08"]' \
+  "...one line per runtime for Show What"
+assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimDigest")" "0123456789abcdef" \
+  "...and the digest the button hands back to the CLI"
+assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimAutomatic")" "false" "...in ask mode"
+assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'0123456789abcdef'}).messageSlots")" '[]' \
+  "closed for this digest, it stays closed"
+assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'ffffffffffffffff'}).messageSlots")" '["reclaim"]' \
+  "...and a new set of runtimes brings it back"
+assert_eq "$(js "L.viewModel($RC_STATE,true).messageSlots")" '[]' "a run in flight hides it"
+assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
+  "a state without the block (flatpak off or absent, reclaim=off) has no offer"
+
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
 # and it was the fifth thing competing for a popup that fits two. The dateline it explains is one
@@ -2425,7 +2491,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

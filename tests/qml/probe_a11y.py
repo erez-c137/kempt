@@ -479,6 +479,52 @@ p.check("staleness is on the footer now, beside the date it explains",
 p.check("...and the reason a person has to act on is on the button that acts",
         "dnf check failed" in str(lev("refreshButton.Accessible.description")), True)
 
+# Unused Flatpak runtimes: an offer, last in the stack. Derived from the up-to-date state with a
+# reclaim block added, in the shape cmd_check writes, so nothing else in the stack competes for
+# the two slots.
+def reclaim_from(source, name, mode="ask"):
+    doc = json.load(open(source))
+    doc["reclaim"] = {
+        "mode": mode, "status": "ok", "offerable_bytes": 1530000000,
+        "digest": "0123456789abcdef",
+        "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
+                  "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"},
+                 {"ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/23.08",
+                  "commit": "b" * 64, "since": "2026-09-28T10:00:00+03:00", "eol": ""}]}
+    path = os.path.join(p.sandbox, name)
+    open(path, "w").write(json.dumps(doc))
+    return path
+
+
+RECLAIM = reclaim_from(UPTODATE, "state-reclaim.json")
+state(RECLAIM)
+ev('root.reclaimDismissed = ""')
+p.pump(120)
+p.check("the reclaim offer is on screen", lev("reclaimMessage.visible"), True)
+p.check("...and announces its own sentence",
+        lev("reclaimMessage.Accessible.name"),
+        "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.")
+p.check("...as the alert every message is",
+        lev("reclaimMessage.Accessible.role === Accessible.AlertMessage"), True)
+lev("reclaimMessage.showingWhat = true")
+p.pump(60)
+p.check("Show What puts one line per runtime under it, and the name read out says them too",
+        lev("reclaimMessage.Accessible.name"),
+        "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.\n"
+        "org.kde.Platform 5.15-23.08 (no longer supported)\n"
+        "org.freedesktop.Platform.GL.default 23.08")
+lev("reclaimMessage.showingWhat = false")
+# The close button: hidden for this digest only.
+lev("reclaimMessage.visible = false")
+p.pump(60)
+p.check("closing it dismisses this set of runtimes", ev("root.reclaimDismissed"),
+        "0123456789abcdef")
+p.check("...and it stays closed", lev("reclaimMessage.visible"), False)
+ev('root.reclaimDismissed = ""')
+p.pump(60)
+p.check("...until the set it was closed for is no longer the one on offer",
+        lev("reclaimMessage.visible"), True)
+
 # ==================================================================================================
 # What AT-SPI is actually handed, with accessibility ACTIVE.
 # ==================================================================================================

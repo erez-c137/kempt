@@ -347,7 +347,18 @@ var COPY = {
     // their command. And it points at Discover for the Flatpak rows, which are the one thing on
     // this list somebody CAN act on - saying nothing about them next to a list of them would be
     // its own small lie.
-    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below."
+    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below.",
+
+    // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
+    // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
+    // own estimate, never a promise. The second sentence is why removing them is safe.
+    reclaimSized: "%1 can be freed. No installed app uses these Flatpak runtimes.",
+    reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
+    // Added with reclaim=automatic, where the next successful update removes them anyway.
+    reclaimAutomatic: "Kempt removes them after the next update.",
+    // After a ref in the Show What list whose branch Flatpak marks end of life.
+    reclaimEol: "(no longer supported)",
+    reclaimShowWhat: "Show What"
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -936,12 +947,14 @@ var MESSAGE_CAP = 2;
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
 //            pending" whenever this message is not on screen, so the fact is never lost.
-//   kernel   the offline recommendation. Last: it is advice about a transaction that will still be
-//            there next time the popup is opened.
+//   kernel   the offline recommendation: advice about a transaction that will still be there next
+//            time the popup is opened.
+//   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
 // `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
 // the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel"];
+var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel",
+                     "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -955,6 +968,51 @@ function messageStack(wants) {
         if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
     }
     return out;
+}
+
+// --- the reclaim offer ------------------------------------------------------------------------
+// Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
+var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
+var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
+
+// The size on offer, or null when the CLI could not work it out. A value of the wrong type is
+// read as unknown, never coerced.
+function reclaimBytesOf(reclaim) {
+    var b = reclaim.offerable_bytes;
+    return (typeof b === "number" && isFinite(b) && b >= 0) ? b : null;
+}
+
+// reclaimOffered(state.reclaim) -> may the popup offer to remove these? Only with a digest: the
+// CLI leaves it empty when nothing is unused or part of the list is younger than an hour.
+function reclaimOffered(reclaim) {
+    if (!reclaim || typeof reclaim !== "object" || isArray(reclaim)) return false;
+    if (typeof reclaim.digest !== "string" || !RECLAIM_DIGEST_RE.test(reclaim.digest)) return false;
+    var bytes = reclaimBytesOf(reclaim);
+    return bytes === null || bytes >= RECLAIM_MIN_BYTES;
+}
+
+// reclaimMessageOf(state.reclaim) -> the offer's one line. The automatic sentence is left out
+// while the last automatic try needed an administrator or failed: the next update skips that set.
+function reclaimMessageOf(reclaim) {
+    if (!reclaimOffered(reclaim)) return "";
+    var bytes = reclaimBytesOf(reclaim);
+    var line = bytes === null ? COPY.reclaimUnsized
+                              : fill(COPY.reclaimSized, "%1", formatDownload(bytes));
+    if (reclaim.mode === "automatic" && reclaim.status !== "needs_auth"
+            && reclaim.status !== "failed") {
+        line += " " + COPY.reclaimAutomatic;
+    }
+    return line;
+}
+
+// reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
+// kind/id/arch/branch ref. Any other shape is shown as the CLI wrote it.
+function reclaimRefLineOf(entry) {
+    if (!entry || typeof entry !== "object" || typeof entry.ref !== "string") return "";
+    var parts = entry.ref.split("/");
+    var line = parts.length === 4 ? parts[1] + " " + parts[3] : entry.ref;
+    if (typeof entry.eol === "string" && entry.eol !== "") line += " " + COPY.reclaimEol;
+    return line;
 }
 
 // stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
@@ -1481,6 +1539,8 @@ function lastRunText(run, nowMs) {
 //                      not say, and the CLI's default is true. Read with isTrue, because config
 //                      values arrive as text.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
+//   reclaimDismissed - the reclaim digest whose offer was closed in this session, or "". A new
+//                      digest (a different set of runtimes) shows the offer again.
 //   engineFault      - "" when the engine answered, else WHICH way it did not: "missing" (rc 127,
 //                      nothing to run) or "unrunnable" (rc 126, there and would not start). Any
 //                      other value reads as "", because this replaces the popup's whole body and
@@ -1799,6 +1859,20 @@ function viewModel(state, updating, cliError, opts) {
         ? true : isTrue(opts.restartReminder);
     var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
 
+    // --- unused Flatpak runtimes ------------------------------------------------------------------
+    var reclaim = usable ? state.reclaim : null;
+    var reclaimMessage = reclaimMessageOf(reclaim);
+    var reclaimDigest = reclaimMessage !== "" ? reclaim.digest : "";
+    var reclaimLines = [];
+    if (reclaimMessage !== "") {
+        var reclaimRefs = arrayOf(reclaim.refs);
+        for (var r = 0; r < reclaimRefs.length; r++) {
+            var refLine = reclaimRefLineOf(reclaimRefs[r]);
+            if (refLine !== "") reclaimLines.push(refLine);
+        }
+    }
+    var reclaimShown = reclaimMessage !== "" && opts.reclaimDismissed !== reclaimDigest;
+
     // --- which messages actually fit ------------------------------------------------------------
     // Decided HERE and not in the popup, because the footer depends on the answer: a restart the
     // cap displaced has to reappear as "restart pending" on the status line, and a popup deciding
@@ -1823,7 +1897,8 @@ function viewModel(state, updating, cliError, opts) {
         // without the advice. Dropping it entirely took the warning off the screen while the live
         // button stayed on it, which is the wrong half to lose. On an image-based box there is no
         // live button either, and riskyIsMoot silences it outright.
-        kernel: riskyMessage !== ""
+        kernel: riskyMessage !== "",
+        reclaim: reclaimShown && !updating
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -1974,6 +2049,12 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
+        // The reclaim offer: its line, one line per runtime for Show What, the digest the button
+        // passes to `kempt reclaim --expect`, and which of the two button labels applies.
+        reclaimMessage: reclaimMessage,
+        reclaimLines: reclaimLines,
+        reclaimDigest: reclaimDigest,
+        reclaimAutomatic: reclaimMessage !== "" && reclaim.mode === "automatic",
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
@@ -2008,6 +2089,10 @@ if (typeof module !== "undefined" && module.exports) {
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,
         MESSAGE_CAP: MESSAGE_CAP,
+        RECLAIM_MIN_BYTES: RECLAIM_MIN_BYTES,
+        reclaimOffered: reclaimOffered,
+        reclaimMessageOf: reclaimMessageOf,
+        reclaimRefLineOf: reclaimRefLineOf,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
