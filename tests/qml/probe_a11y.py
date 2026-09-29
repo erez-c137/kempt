@@ -573,8 +573,13 @@ p.check("...and at no popup size does the placeholder paint outside the list's a
 lev("reclaimMessage.showingWhat = true")
 seen_open, outside = placeholder_walk((22 * GU,))
 p.check("...Show What open included", outside, [])
-p.check("...going from icon and words, to words alone, to standing down as the area shrinks",
-        sorted(seen | seen_open), [(False, False), (True, False), (True, True)])
+# Which states a walk reaches depends on the font: with a small one the words fit even in the
+# smallest popup and it never stands down. probe_popup pins each threshold at forced heights;
+# here only that nothing else occurs, and that the icon both shows and drops.
+walked = seen | seen_open
+p.check("...going from icon and words, to words alone (and standing down if even they do not fit)",
+        [sorted(walked - {(False, False), (True, False), (True, True)}),
+         (True, True) in walked, (True, False) in walked], [[], True, True])
 lev("reclaimMessage.showingWhat = false")
 ev("root.kemptState = null")
 ev('root.cliError = "kempt: command not found"')
