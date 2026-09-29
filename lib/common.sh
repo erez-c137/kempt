@@ -137,6 +137,13 @@ KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
 KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
 KEMPT_NSSWITCH_FILE="${KEMPT_NSSWITCH_FILE:-/etc/nsswitch.conf}"
 KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
+# An sss or winbind source only counts when that service is set up. Upgraded machines keep an old
+# authselect `passwd: sss files systemd` line with no sssd behind it. /etc/sssd is readable only by
+# root and the sssd group, so for everyone else systemd, which checked for a config file as root
+# when it tried to start sssd, answers instead.
+KEMPT_SSSD_DIR="${KEMPT_SSSD_DIR:-/etc/sssd}"
+KEMPT_SMB_CONF="${KEMPT_SMB_CONF:-/etc/samba/smb.conf}"
+KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
 # Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
 # unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
 # dialog itself.
@@ -361,6 +368,34 @@ reclaim_as_root() {  # → 0 when this process must not reclaim
 # account (UID 1000 or above, except nobody; an empty shell means /bin/sh), a network account
 # source in nsswitch.conf, or Flatpak data in more than one home. A lookup that fails or takes
 # longer than 5 seconds counts as more than one, for the same reason.
+reclaim_sssd_configured() {  # → 0 when sssd defines a domain, or it cannot tell
+  local d="$KEMPT_SSSD_DIR" f out
+  [[ -e "$d" ]] || return 1
+  if [[ -r "$d" && -x "$d" ]]; then
+    for f in "$d/sssd.conf" "$d"/conf.d/*.conf; do
+      [[ -e "$f" ]] || continue
+      [[ -r "$f" ]] || return 0
+      grep -qE '^[[:space:]]*\[domain/' "$f" && return 0
+    done
+    return 1
+  fi
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  out="$(timeout 5 $KEMPT_SYSTEMCTL_CMD show -p ActiveState -p ConditionResult \
+           -p ConditionTimestampMonotonic sssd.service 2>/dev/null </dev/null 9>&-)" || return 0
+  # Not running, and systemd found no config file when it last tried to start it.
+  awk -F= '{ v[$1] = $2 } END { exit !(v["ActiveState"] != "active" && v["ConditionResult"] == "no" &&
+            v["ConditionTimestampMonotonic"] ~ /^[1-9][0-9]*$/) }' <<<"$out" && return 1
+  return 0
+}
+
+reclaim_winbind_configured() {  # → 0 when Samba joins a domain, or it cannot tell
+  local f="$KEMPT_SMB_CONF"
+  [[ -e "$f" ]] || return 1
+  [[ -r "$f" ]] || return 0
+  awk '{ sub(/[;#].*/, ""); line = tolower($0); gsub(/[[:space:]]/, "", line) }
+       line ~ /^security=(ads|domain)$/ { f = 1 } END { exit !f }' "$f"
+}
+
 reclaim_many_accounts() {  # → 0 when more than one person may use this machine, or it cannot tell
   local out n
   # shellcheck disable=SC2086  # the seam carries its own arguments
@@ -368,10 +403,16 @@ reclaim_many_accounts() {  # → 0 when more than one person may use this machin
   n="$(awk -F: '$3 ~ /^[0-9]+$/ && $3 >= 1000 && $3 != 65534 && $7 !~ /(nologin|false)$/ { n++ }
                END { print n + 0 }' <<<"$out")" || return 0
   (( n > 1 )) && return 0
-  if [[ -r "$KEMPT_NSSWITCH_FILE" ]] \
-     && awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
-               if ($i ~ /^(sss|ldap|winbind|nis)$/) f = 1 } END { exit !f }' "$KEMPT_NSSWITCH_FILE"; then
-    return 0
+  local src
+  if [[ -r "$KEMPT_NSSWITCH_FILE" ]]; then
+    while IFS= read -r src; do
+      case "$src" in
+        sss) reclaim_sssd_configured && return 0 ;;
+        winbind) reclaim_winbind_configured && return 0 ;;
+        *) return 0 ;;
+      esac
+    done < <(awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
+                    if ($i ~ /^(sss|ldap|winbind|nis)$/) print $i }' "$KEMPT_NSSWITCH_FILE")
   fi
   local root d
   n="$(for root in $KEMPT_HOME_ROOTS; do

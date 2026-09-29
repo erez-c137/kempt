@@ -286,8 +286,48 @@ assert_eq "$(mode_with 'nobody:x:65534:65534:Nobody:/:/bin/bash')" "automatic" "
 assert_eq "$(mode_with 'svc:x:1003:1003::/var/lib/svc:/sbin/nologin')" "automatic" "...nor an account that cannot log in"
 printf 'passwd:     files sss systemd\n' > "$TESTTMP/nss-sss"
 printf '# passwd: files sss\npasswd:     files systemd  # no sss here\n' > "$TESTTMP/nss-local"
-assert_eq "$(KEMPT_NSSWITCH_FILE="$TESTTMP/nss-sss" check | jq -r '.reclaim.mode')" "ask" \
-  "accounts from a network directory (sss in nsswitch.conf) publish ask, since getent lists none of them"
+# sss and winbind count only when that service is set up, since upgraded machines keep an old
+# `passwd: sss files` line with no sssd behind it.
+nss_mode() { KEMPT_NSSWITCH_FILE="$TESTTMP/$1" check | jq -r '.reclaim.mode'; }
+assert_eq "$(nss_mode nss-sss)" "automatic" \
+  "sss in nsswitch.conf with no sssd config publishes automatic, as an upgraded machine keeps the line"
+SD="$TESTTMP/sssd"; mkdir -p "$SD/conf.d"
+printf '[sssd]\nservices = nss\n' > "$SD/sssd.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "automatic" "...and so does an sssd config with no domain"
+printf '[domain/corp.example]\nid_provider = ldap\n' > "$SD/conf.d/corp.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "ask" \
+  "an sssd domain publishes ask, since getent lists none of its accounts"
+rm "$SD/conf.d/corp.conf"; chmod 000 "$SD/sssd.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "ask" "...and so does an sssd config it cannot read"
+chmod 600 "$SD/sssd.conf"; chmod 000 "$SD"
+cat > "$STUBS/systemctl" <<'STUB'
+#!/usr/bin/env bash
+[[ "$*" == *sssd.service* ]] || exit 1
+[[ -n "${SSSD_SHOW:-}" ]] || exit 1
+printf '%b' "$SSSD_SHOW"
+STUB
+chmod +x "$STUBS/systemctl"
+sd_mode() { SSSD_SHOW="$1" KEMPT_SYSTEMCTL_CMD="$STUBS/systemctl" KEMPT_SSSD_DIR="$SD" nss_mode nss-sss; }
+assert_eq "$(sd_mode 'ActiveState=inactive\nConditionResult=no\nConditionTimestampMonotonic=4512\n')" "automatic" \
+  "an sssd dir it cannot read defers to systemd: sssd found no config when it last tried, automatic"
+assert_eq "$(sd_mode 'ActiveState=active\nConditionResult=yes\nConditionTimestampMonotonic=4512\n')" "ask" \
+  "...sssd running publishes ask"
+assert_eq "$(sd_mode 'ActiveState=inactive\nConditionResult=no\nConditionTimestampMonotonic=0\n')" "ask" \
+  "...sssd never tried is not proof of no config, so ask"
+assert_eq "$(sd_mode '')" "ask" "...and a systemctl that fails publishes ask"
+chmod 700 "$SD"
+printf 'passwd:     files winbind\n' > "$TESTTMP/nss-winbind"
+assert_eq "$(nss_mode nss-winbind)" "automatic" "winbind in nsswitch.conf with no smb.conf publishes automatic"
+printf '[global]\n\tsecurity = user\n; security = ads\n' > "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "automatic" \
+  "...and so does a Samba that joins no domain, a commented-out line included"
+printf '[global]\n   Security = ADS\n' > "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "ask" "a Samba joined to a domain publishes ask"
+chmod 000 "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "ask" "...and so does an smb.conf it cannot read"
+chmod 600 "$TESTTMP/smb.conf"
+printf 'passwd:     files ldap\n' > "$TESTTMP/nss-ldap"
+assert_eq "$(nss_mode nss-ldap)" "ask" "ldap in nsswitch.conf publishes ask from the line alone"
 assert_eq "$(KEMPT_NSSWITCH_FILE="$TESTTMP/nss-local" check | jq -r '.reclaim.mode')" "automatic" \
   "...while local sources, and a commented-out sss, publish automatic"
 HR="$TESTTMP/homes"; mkdir -p "$HR/home/alex/.local/share/flatpak"
