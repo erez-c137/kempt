@@ -135,7 +135,7 @@ fi
 # (CONTRIBUTING.md, "What never goes in a public file"). This catches the words a search can find.
 #
 # The patterns are assembled from fragments so this file does not match itself, and the scan skips
-# .git, internal/ and every binary (grep -I). No `git ls-files`: the RPM's %check stage runs the
+# .git, internal/, .claude/ (local tool state, gitignored, never shipped) and every binary (grep -I). No `git ls-files`: the RPM's %check stage runs the
 # suite against a copy of the tree with no .git in it at all.
 private_words=("found""er" "hostile ""panel" "UX ""panel" "Task ""W[0-9]" "WP-""[A-Z][0-9]" "\bFab""le\b" "sub""agent")
 private_re="$(printf '%s|' "${private_words[@]}")"; private_re="${private_re%|}"
@@ -146,6 +146,7 @@ while IFS= read -r f; do
 done < <(find "$REPO_ROOT" \
            -path "$REPO_ROOT/.git" -prune -o \
            -path "$REPO_ROOT/internal" -prune -o \
+           -path "$REPO_ROOT/.claude" -prune -o \
            -type f -print)
 assert_eq "${leaked% }" "" \
   "no public file talks about the project's own review process"
