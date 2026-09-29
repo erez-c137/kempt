@@ -63,6 +63,15 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
     return 0
   fi
   classified="$(reclaim_classify "$listing")" || return 0
+  # The removal takes the whole list or nothing, so while any ref has been unused for less than
+  # an hour there is no offer at all: the refs are listed with their since, the digest is empty,
+  # and there is no size to estimate.
+  if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
+    jq -cn --arg mode "$mode" --argjson c "$classified" --argjson last "$last" \
+      '{mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
+       + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
+    return 0
+  fi
   if sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
     sizes="$(jq -R -n -c '[inputs | split("\t") | select(length == 2)
                            | {key: .[0], value: (.[1] | tonumber)}] | from_entries' <<<"$sizes_tsv" 2>/dev/null)" \
@@ -2307,6 +2316,12 @@ cmd_reclaim() {
     echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
     log_event "reclaim refused (reclaim=off)"
     exit 5
+  fi
+  # Said before any question: agreeing to a set that is not yet removable would only end in a refusal.
+  if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
+    echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+    log_event "reclaim changed (unstable), nothing removed"
+    exit 6
   fi
   if [[ -z "$yes" ]]; then
     # No -y and nobody to ask: never a silent yes.

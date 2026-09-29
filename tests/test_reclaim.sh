@@ -122,8 +122,9 @@ assert_eq "$(jq -c '.reclaim.refs[0] | keys' <<<"$out")" '["commit","eol","ref",
 assert_eq "$(jq -r '.reclaim.refs[4].eol' <<<"$out")" \
   "We strongly recommend moving to the latest stable version of the Platform and SDK" "...the reason carried as flatpak gave it"
 # Seen for the first time, so none has been unused for an hour: nothing is offered yet.
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .digest, .status]' <<<"$out")" '[0,"","ok"]' \
+assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .digest, .status]' <<<"$out")" '[null,"","ok"]' \
   "refs seen unused for the first time are not offered: no bytes, no digest"
+assert_eq "$([[ -s "$STUBS/du.calls" ]] && echo ran || echo none)" "none" "...and with no offer there is no size to estimate"
 assert_eq "$(jq -r '.reclaim.refs[0].since | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' <<<"$out")" "true" \
   "...and since is UTC in a form jq and JavaScript both read back"
 first_since="$(jq -r '.reclaim.refs[0].since' <<<"$out")"
@@ -156,15 +157,15 @@ assert_eq "$(awk '{print $3}' <<<"$first_du")" "$(jq -r '.used[0].deploy_dir' "$
 assert_eq "$(awk '{print NF - 2}' <<<"$first_du")" "11" "...all eleven of them, in one call"
 assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "the size estimate is cached while the installed set is unchanged"
 
-# Part of the set offerable: a ref whose commit changed starts again.
+# A ref whose commit changed starts again, and while any ref is younger than an hour nothing is
+# offered: the removal takes the whole list, so an offer of the older part could only fail.
 jq '(.unused[] | select(.ref | endswith("24.08extra"))).commit = ("e" * 64)' "$UNUSED_FX" > "$LISTING"
 out="$(check)"
 assert_eq "$(jq -r '.reclaim.refs[] | select(.ref | endswith("24.08extra")) | .since' <<<"$out" | cut -c1-10)" \
   "$(date -u +%Y-%m-%d)" "a ref whose commit changed is a new sighting"
-assert_eq "$(jq -r '.reclaim.offerable_bytes' <<<"$out")" "1955000000" "...and drops out of the offer until it has aged"
-assert_eq "$(wc -l < "$STUBS/du.calls")" "2" "...and a changed commit means a new size estimate"
-assert_eq "$([[ "$(jq -r '.reclaim.digest' <<<"$out")" != "$DIGEST5" ]] && echo differs)" "differs" \
-  "...under a different digest"
+assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .digest, .status, (.refs | length)]' <<<"$out")" '[null,"","ok",5]' \
+  "...and until it has aged nothing is offered, while every ref is still listed"
+assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "...and no size estimate while there is no offer"
 cp "$UNUSED_FX" "$LISTING"
 check >/dev/null
 age_state 7200
@@ -322,11 +323,15 @@ jq '.unused += [{"ref":"runtime/org.gnome.Platform/x86_64/46","commit":"'"$(prin
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc" "6" "one ref more than was shown: exit 6"
 assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-# The same set without --expect, where the extra ref has only just been seen: too new to remove.
+# The same set without --expect, where the extra ref has only just been seen: too new to remove,
+# and said before any question is asked.
 rc=0; out="$(reclaim -y)" || rc=$?
 assert_eq "$rc" "6" "a ref unused for less than an hour blocks the removal: exit 6"
 assert_contains "$out" "Kempt waits an hour" "...saying why"
 assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
+rc=0; out="$(reclaim)" || rc=$?
+assert_eq "$rc" "6" "...refused before the question, not after it"
+assert_not_contains "$out" "Remove them?" "...so nobody is asked to agree to a removal that cannot happen"
 cp "$UNUSED_FX" "$LISTING"
 
 # Permission: asked of polkit without a dialog, and a no is needs_auth, not a prompt.
