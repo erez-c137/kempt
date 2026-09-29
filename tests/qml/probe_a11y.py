@@ -530,6 +530,60 @@ p.pump(60)
 p.check("...until the set it was closed for is no longer the one on offer",
         lev("reclaimMessage.visible"), True)
 
+# --- the placeholder stays inside its area, measured where a layout really runs -----------------
+# At the smallest popup size, with the restart message and the offer both up, the space left for
+# the list is shorter than the placeholder's icon and sentence. Centred, it used to spill upward
+# over the messages. Walked through every height from the minimum to this window's, at both
+# widths, with Show What shut and open: wherever it is shown, its painted box is inside the area.
+GU = lev("Kirigami.Units.gridUnit")
+BOTH = reclaim_from(uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json"),
+                    "state-reclaim-reboot.json")
+PAINTED = ("JSON.stringify([placeholder.visible, placeholder.iconName !== '', placeholder.y,"
+           " placeholder.height, listArea.height])")
+
+
+def placeholder_walk(widths):
+    seen, outside = set(), []
+    for w in widths:
+        for h in range(18 * GU, 560 + 1, 6):
+            live.setWidth(w)
+            live.setHeight(h)
+            p.pump(40)
+            vis, icon, y, ph, ah = json.loads(lev(PAINTED))
+            seen.add((vis, icon))
+            if vis and (y < -0.5 or y + ph > ah + 0.5):
+                outside.append((w, h, y, ph, ah))
+    live.setWidth(460)
+    live.setHeight(560)
+    p.pump(60)
+    return seen, outside
+
+
+state(BOTH)
+ev("root.restartDismissed = false")
+ev('root.reclaimDismissed = ""')
+ev('root.postRunLine = ""')
+p.pump(120)
+p.check("up to date with a restart owed and space to free: both messages are up",
+        [lev("restartMessage.visible"), lev("reclaimMessage.visible")], [True, True])
+seen, outside = placeholder_walk((22 * GU, 460))
+p.check("...and at no popup size does the placeholder paint outside the list's area", outside, [])
+lev("reclaimMessage.showingWhat = true")
+seen_open, outside = placeholder_walk((22 * GU,))
+p.check("...Show What open included", outside, [])
+p.check("...going from icon and words, to words alone, to standing down as the area shrinks",
+        sorted(seen | seen_open), [(False, False), (True, False), (True, True)])
+lev("reclaimMessage.showingWhat = false")
+ev("root.kemptState = null")
+ev('root.cliError = "kempt: command not found"')
+p.pump(120)
+p.check("the empty state with an explanation under it is the tallest one",
+        lev("placeholder.visible and placeholder.explanation !== ''".replace("and", "&&")), True)
+seen, outside = placeholder_walk((22 * GU,))
+p.check("...and it stays inside its area as well", outside, [])
+ev('root.cliError = ""')
+state(RECLAIM)
+
 # ==================================================================================================
 # What AT-SPI is actually handed, with accessibility ACTIVE.
 # ==================================================================================================

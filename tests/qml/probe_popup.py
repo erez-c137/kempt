@@ -848,6 +848,9 @@ if live is None:
 QQmlEngine.setObjectOwnership(live, QQmlEngine.CppOwnership)
 p.keep.append((full, live))
 lev = p.evaluator(live)
+# No window, so no layout pass: the list area would stay 0 px tall and the placeholder, which
+# stands down when it does not fit, would never show. Give it the room a real popup has.
+lev("listArea.height = 2000")
 
 # No applet behind the attached object here, exactly as on a panel where the containment draws
 # nothing: the expression evaluates (a `False`, not the `None` an EXPR ERROR would give) and
@@ -1756,6 +1759,46 @@ p.check("with no answer at all there is nothing to offer, so no Update Now",
         lev("updateButton.visible"), False)
 p.check("...and the popup says it has no data rather than claiming zero updates",
         lev("placeholder.visible"), True)
+
+# --- the placeholder never paints outside its area ------------------------------------------------
+# It is centred in the space the list would take, and at the smallest popup size with a message
+# or two above it that space is shorter than icon + sentence: centred, it spilled upward over the
+# messages, the offer's buttons included. So it drops the icon when the whole thing does not fit,
+# and stands down when even the words do not - the header says the same thing. Every empty state
+# uses it, so each is driven here: up to date, no answer yet, and a CLI that could not be run.
+# Nothing lays out a popup with no window, so the area's height is forced and the thresholds are
+# the file's own measurements; probe_a11y.py checks the painted geometry in a real window.
+
+
+def placeholder_fits(label):
+    words = lev("placeholderWords.implicitHeight")
+    full = lev("placeholderFull.implicitHeight")
+    p.check(label + ": the words are measured, and the icon adds to them", 0 < words < full, True)
+    for h, want in ((2000, [True, True]), (full, [True, True]), (full - 1, [True, False]),
+                    (words, [True, False]), (words - 1, [False, False])):
+        lev("listArea.height = %d" % h)
+        p.pump(20)
+        p.check("...area %s: shown, with icon" % ({2000: "roomy", full: "exactly full",
+                                                   full - 1: "a pixel short of full",
+                                                   words: "exactly the words",
+                                                   words - 1: "a pixel short of the words"}[h]),
+                [lev("placeholder.visible"), lev("placeholder.iconName") != ""], want)
+    lev("listArea.height = 2000")
+    p.pump(20)
+
+
+state(UPTODATE)
+placeholder_fits("up to date")
+ev("root.kemptState = null")
+p.pump(50)
+placeholder_fits("no answer yet")
+ev('root.cliError = "kempt: command not found"')
+p.pump(50)
+p.check("a CLI that could not be run is an empty state with an explanation",
+        lev("placeholder.explanation") != "", True)
+placeholder_fits("could not run the CLI")
+ev('root.cliError = ""')
+p.pump(20)
 
 # --- the refresh icon, and the one spinner ---------------------------------------------------------
 state(fixture("state-live.json"))

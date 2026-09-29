@@ -777,6 +777,7 @@ PlasmaExtras.Representation {
         // One Item holding both, so the placeholder is centred in the space the list would have
         // occupied rather than in the whole popup.
         Item {
+            id: listArea
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -905,17 +906,47 @@ PlasmaExtras.Representation {
             // diagnoses it. Note what it is NOT shown for: a box whose only pending updates are
             // held has rows, so the Held group carries the truth instead and "everything is up to
             // date" is never said over the top of it.
+            //
+            // Centred, it grows both ways, so in an area shorter than itself it paints over the
+            // messages above - measured at the smallest popup size with the reclaim offer up. So
+            // it never takes more than the area has: the icon goes first, and when even the words
+            // do not fit the whole thing stands down, because the header already says the same.
+            // The heights come from the two copies below, never from the placeholder itself:
+            // dropping the icon changes its height, and a test against that would be a loop.
             PlasmaExtras.PlaceholderMessage {
                 id: placeholder
                 anchors.centerIn: parent
                 width: parent.width - Kirigami.Units.gridUnit * 4
-                visible: popup.vm.rows.length === 0 && text.length > 0
-                iconName: popup.vm.iconState === "error" ? "dialog-error"
+                readonly property bool wanted: popup.vm.rows.length === 0 && text.length > 0
+                readonly property bool iconFits: listArea.height >= placeholderFull.implicitHeight
+                visible: wanted && listArea.height >= placeholderWords.implicitHeight
+                iconName: !iconFits ? ""
+                          : popup.vm.iconState === "error" ? "dialog-error"
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.remedyCommand.length > 0
                              ? i18n("Run `%1` in a terminal to find out why.", popup.vm.remedyCommand)
                              : ""
+            }
+
+            // Two copies of the placeholder, never shown, to measure it with and without the
+            // icon: its own height cannot be the test, because the test changes it. Copies rather
+            // than arithmetic on its parts, because PlaceholderMessage adds space of its own: a sum
+            // of the icon and the words came out 14 px short in a real window.
+            PlasmaExtras.PlaceholderMessage {
+                id: placeholderFull
+                visible: false
+                width: placeholder.width
+                iconName: "update-none"
+                text: placeholder.text
+                explanation: placeholder.explanation
+            }
+            PlasmaExtras.PlaceholderMessage {
+                id: placeholderWords
+                visible: false
+                width: placeholder.width
+                text: placeholder.text
+                explanation: placeholder.explanation
             }
         }
 
