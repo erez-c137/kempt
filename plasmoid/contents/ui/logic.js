@@ -369,7 +369,8 @@ var COPY = {
     reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Check again in a few minutes.",
     // The Last update row and the line after a run, when automatic reclaim removed something.
     reclaimFreedTail: "%1 freed",
-    reclaimRemovedTail: "unused runtimes removed"
+    reclaimRemovedOne: "1 unused runtime removed",
+    reclaimRemovedMore: "%1 unused runtimes removed"
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -1451,7 +1452,8 @@ function reclaimedTailOf(run) {
     if (typeof run.reclaimedBytes === "number") {
         return DOT + fill(COPY.reclaimFreedTail, "%1", formatDownload(run.reclaimedBytes));
     }
-    return DOT + COPY.reclaimRemovedTail;
+    return DOT + (run.reclaimedCount === 1 ? COPY.reclaimRemovedOne
+                  : fill(COPY.reclaimRemovedMore, "%1", String(run.reclaimedCount)));
 }
 
 // postRunLine(run) -> the transient line shown once, right after a run finishes.

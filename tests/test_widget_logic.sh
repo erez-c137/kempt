@@ -2312,8 +2312,11 @@ assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated
 assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_RUN)), Date.parse('2026-09-29T11:00:00+03:00'))")" \
   "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...and so does the Last update row"
 RC_NOSIZE="$(printf '%s' "$RC_RUN" | sed 's/bytes:1530000000/bytes:null/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_NOSIZE)))")" "Updated 1 package · unused runtimes removed" \
-  "...without a size it says what went"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_NOSIZE)))")" "Updated 1 package · 2 unused runtimes removed" \
+  "...without a size it says how many went"
+RC_ONE="$(printf '%s' "$RC_NOSIZE" | sed 's/refs:\["runtime\/x\/x86_64\/1","runtime\/y\/x86_64\/2"\]/refs:["runtime\/x\/x86_64\/1"]/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_ONE)))")" "Updated 1 package · 1 unused runtime removed" \
+  "...in the singular for one"
 RC_FAILED="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"failed"/')"
 assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Updated 1 package" \
   "...and a reclaim that did not remove anything is not mentioned: it never fails the run"

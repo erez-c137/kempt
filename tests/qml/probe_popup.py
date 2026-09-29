@@ -2339,7 +2339,8 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
     "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up
     "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
-    "reclaimRemovedTail",   # -> reclaimedTailOf -> postRunLine and lastRunText
+    "reclaimRemovedOne",    # -> reclaimedTailOf -> postRunLine and lastRunText
+    "reclaimRemovedMore",   # -> reclaimedTailOf -> postRunLine and lastRunText (a count)
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message

@@ -2306,7 +2306,7 @@ cmd_reclaim() {
     return 0
   fi
   echo "No installed app uses these Flatpak runtimes:"
-  jq -r '.[] | "  \(.ref)" + (if .eol != null then " (end of life)" else "" end)
+  jq -r '.[] | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)
                           + (if .offerable then "" else " (unused for less than an hour)" end)' <<<"$classified"
   if sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
     bytes="$(jq -R -n -r '[inputs | split("\t") | select(length == 2) | (.[1] | tonumber)] | add // 0' \

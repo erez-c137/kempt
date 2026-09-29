@@ -298,7 +298,7 @@ rc=0; out="$(reclaim --list)" || rc=$?
 assert_eq "$rc" "0" "reclaim --list exits 0"
 assert_contains "$out" "No installed app uses these Flatpak runtimes:" "...under a plain heading"
 assert_contains "$out" "  runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra" "...one ref per line"
-assert_contains "$out" "runtime/org.kde.Platform/x86_64/5.15-23.08 (end of life)" "...an end-of-life one marked"
+assert_contains "$out" "runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)" "...an end-of-life one marked, in the widget's words"
 assert_contains "$out" "Removing them frees about 2.0 GB." "...and the estimate, said as one"
 assert_eq "$(calls uninstall)" "(none)" "...and removes nothing"
 

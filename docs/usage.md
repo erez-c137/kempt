@@ -377,7 +377,7 @@ and each can take hundreds of megabytes.
 No installed app uses these Flatpak runtimes:
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
-  runtime/org.kde.Platform/x86_64/5.15-23.08 (end of life)
+  runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)
 Removing them frees about 1.5 GB.
 Remove them? [y/N]
 ```
@@ -973,7 +973,7 @@ lower in this list are left out. If that hides the restart message, the footer s
    saw: if the list changed, nothing is removed and the popup says so. Flatpak may ask for an
    administrator's password. With `reclaim=automatic` the message adds *"Kempt removes them after
    the next update."* and the button reads **Free Up Space Now**. Closing the message hides it
-   until the list changes.
+   until the list changes or Plasma restarts.
 
 A failed check shows in the footer as `last check failed`, with the reason in the **Check for
 Updates** tooltip. A failed hold shows in the row you pressed.
