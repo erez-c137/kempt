@@ -143,9 +143,12 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   # --noninteractive unless a person asked for this one (the widget button, a yes at the terminal):
   # it tells polkit not to raise a dialog, which is right for the automatic step and wrong for a
   # click. </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
+  # Ten minutes at most: this holds the update lock, and a removal that hangs (an unanswered polkit
+  # dialog, a stuck system helper) must not keep every later run out. Time running out is exit 124,
+  # recorded as a failure like any other.
   [[ -n "$allow_auth" ]] || extra=(--noninteractive)
   # shellcheck disable=SC2086  # the seam carries its own arguments
-  $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- || rc=$?
+  timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- || rc=$?
   RECLAIM_RC=$rc
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak exits 0 on

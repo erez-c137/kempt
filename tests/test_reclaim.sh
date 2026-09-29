@@ -388,6 +388,15 @@ assert_contains "$out" "Flatpak could not remove them." "...said plainly"
 assert_eq "$(state_reclaim | jq -c '[.status, .digest]')" "[\"failed\",\"$DIGEST5\"]" \
   "the closing check publishes failed, for this set only"
 
+# The removal is given ten minutes: one that hangs must not hold the update lock for ever, and
+# running out of time is a failure like any other.
+restore_offer
+rm -f "$STUBS/timeout.calls"
+rc=0; out="$(TIMEOUT_EXPIRE=uninstall PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_contains "$(cat "$STUBS/timeout.calls" 2>/dev/null)" "600 uninstall" "the removal is given 600 seconds"
+assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|failed" "...and one that runs out of time is a failure: exit 1"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "failed rc=124" "...logged with its exit code"
+
 # The last thing before the removal is the re-list and its comparison. An app that starts needing a
 # runtime while polkit answers must stop the removal, so the permission check comes before that last
 # look. (The same for du, which only the automatic step can reach uncached: test_update.sh.)

@@ -107,6 +107,9 @@ KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --
 # after 120 s, so the two together stay well inside that. A du that runs out is an unknown size.
 KEMPT_RECLAIM_LIST_TIMEOUT=15
 KEMPT_RECLAIM_DU_TIMEOUT=30
+# The removal itself, run by bin/kempt under the update lock.
+# shellcheck disable=SC2034  # read by bin/kempt
+KEMPT_RECLAIM_UNINSTALL_TIMEOUT=600
 
 # Whether there is a flatpak to reclaim anything from: the command a removal would run resolves.
 # Absent flatpak means no listing and no reclaim block in state.json at all.
