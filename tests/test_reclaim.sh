@@ -113,6 +113,7 @@ export KEMPT_REFRESH_HELPER="$STUBS/refresh" KEMPT_SKIP_REFRESH=1 KEMPT_DNF_CMD=
 check() { "$KEMPT" check 2>/dev/null; }
 state_reclaim() { jq -c '.reclaim' "$KEMPT_STATE_DIR/state.json"; }
 ALL5="$(jq -c '[.unused[].ref]' "$UNUSED_FX")"
+REFS5="$(jq -r '[.unused[].ref] | join(" ")' "$UNUSED_FX")"
 
 # --- the reclaim block: first sighting --------------------------------------------------------------
 out="$(check)"
@@ -350,7 +351,8 @@ reset_calls
 hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc" "0" "the set on offer, allowed: removed, exit 0"
-assert_eq "$(calls uninstall)" "--noninteractive" "flatpak removes with --noninteractive when nobody pressed anything"
+assert_eq "$(calls uninstall)" "--noninteractive $REFS5" \
+  "flatpak removes the refs on offer by name, with --noninteractive when nobody pressed anything"
 assert_contains "$out" "Uninstalling..." "flatpak's own output is shown"
 assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
 assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
@@ -372,7 +374,7 @@ restore_offer
 rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5" --allow-auth)" || rc=$?
 assert_eq "$rc" "0" "--allow-auth removes where polkit would ask"
 assert_eq "$(calls pkcheck)" "(none)" "...without the no-dialog check"
-assert_eq "$(calls uninstall)" "" "...and lets flatpak raise the dialog"
+assert_eq "$(calls uninstall)" "$REFS5" "...and lets flatpak raise the dialog"
 
 # Only some of the set went: the refs really gone are what counts, and so are only their bytes.
 restore_offer
@@ -443,7 +445,7 @@ rc=0; out="$(PKCHECK_SWAP="$TESTTMP/now-used.json" reclaim -y --expect="$DIGEST5
 assert_eq "$rc|$(calls uninstall)" "6|(none)" "a runtime that became used while polkit answered is not removed"
 
 # What went is everything installed before minus what is left, so a removal that took more than the
-# list (flatpak works its list out again when it runs) is reported as it happened.
+# list is reported as it happened.
 restore_offer
 jq '.unused = [] | .used = .used[1:]' "$UNUSED_FX" > "$AFTER"
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
@@ -452,6 +454,24 @@ assert_eq "$(jq -c '.refs | length' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | index
 assert_eq "$(jq -r '.bytes' "$RECLAIM_LAST_FILE")" "1975000000" \
   "...and adds nothing to the space freed, which counts only the refs on offer"
 jq '.unused = []' "$UNUSED_FX" > "$AFTER"
+
+# A runtime an app starts needing between the last look and the removal is only named, never
+# forced: flatpak refuses to remove a runtime an installed app uses, and it stays.
+cat > "$STUBS/uninstall-used" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUBS/uninstall.calls"
+keep="runtime/org.kde.Platform/x86_64/5.15-23.08"
+jq --arg k "$keep" '.used += [.unused[] | select(.ref == $k)] | .unused = []' "$LISTING" > "$LISTING.new" \
+  && mv "$LISTING.new" "$LISTING"
+echo "error: Failed to uninstall $keep: Can't remove $keep, it is needed for: app/org.example.App/x86_64/stable" >&2
+exit 1
+STUB
+chmod +x "$STUBS/uninstall-used"
+restore_offer
+rc=0; out="$(KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-used" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_not_contains "$(calls uninstall)" "--force-remove" "a removal never forces out a runtime an app uses"
+assert_eq "$(jq -r '.refs | index("runtime/org.kde.Platform/x86_64/5.15-23.08")' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | length' "$RECLAIM_LAST_FILE")" \
+  "null|4" "...so the runtime that became used in the gap is not among the refs gone"
 
 # The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
 # removes the related refs of what it removes, even one another installed runtime still uses.
@@ -467,8 +487,8 @@ STUB
 chmod +x "$TESTTMP/fpbin/flatpak"
 rc=0; out="$(env -u KEMPT_FLATPAK_UNINSTALL_CMD PATH="$TESTTMP/fpbin:$PATH" \
   "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|uninstall --unused --no-related --system -y --noninteractive" \
-  "the removal passes --no-related, so it takes the listed refs and no related ref besides"
+assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related -y --noninteractive $REFS5" \
+  "the removal names the refs on offer and passes --no-related, so it takes those refs and no related ref besides"
 restore_offer
 
 # Refusals that come before anything is listed.

@@ -97,15 +97,16 @@ KEMPT_FLATPAK_UNUSED_CMD="${KEMPT_FLATPAK_UNUSED_CMD:-$KEMPT_ROOT/libexec/kempt-
 # one, and is not counted as space a removal frees. Summing get_installed_size() instead overstated
 # a real removal by about a third (GL 24.08 and 24.08extra share most of their files).
 KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
-# The removal. --unused rather than a list of refs, because flatpak recomputes the set when it
-# runs: an extension an app started needing a moment ago is kept, where a named ref would be
-# removed regardless. reclaim_remove re-lists first and stops if the set differs from what the
-# person agreed to. --no-related because without it flatpak also removes the autodelete related
-# refs of what it removes, even one another installed runtime still uses (a codecs extension
-# shared by two platforms); the listing already names the unused extensions itself. The
-# --noninteractive is appended there, except when a person pressed the button and a polkit
-# dialog is welcome. System scope only, the contract every command above keeps.
-KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --unused --no-related --system -y}"
+# The removal. The refs are appended by name, the set the person agreed to and nothing else.
+# `--unused` would make flatpak work its own list out at removal time, and a runtime another tool
+# deployed a moment ago (before its app) would be on it. Named, the removed set is a subset of the
+# agreed one, and flatpak refuses to remove a runtime an installed app needs. --no-related because
+# without it flatpak also removes the autodelete related refs of what it removes, even one another
+# installed runtime still uses (a codecs extension shared by two platforms); the listing already
+# names the unused extensions itself. reclaim_remove appends --noninteractive, except when a person
+# pressed the button and a polkit dialog is welcome. System scope only, the contract every command
+# above keeps.
+KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --system --no-related -y}"
 # Both the listing and the size estimate run inside the check lock, and the widget kills a check
 # after 120 s, so the two together stay well inside that. A du that runs out is an unknown size.
 KEMPT_RECLAIM_LIST_TIMEOUT=15

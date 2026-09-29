@@ -120,16 +120,16 @@ reclaim_authorized() {
 #   RECLAIM_BYTES   their cached sizes added up, or empty when unknown
 #   RECLAIM_ERROR   why it failed: flatpak's error line (error_line_of), or empty
 #
-# `flatpak uninstall --unused` works out its own list when it runs, and that is the point: removing
-# the exact refs shown would not be safe against an app that started needing one a moment ago. So
-# the list is taken again, and the removal goes ahead only when ALL of it is the set the person
-# agreed to (the digest) and all of it has been unused for the settle time: anything extra would be
-# removed too, unseen. The slow steps (polkit, du) come first; the last look, and its comparison,
-# is the only thing between the list and the removal.
+# The refs are removed by name, so what goes is always part of the set the person agreed to. The
+# list is taken again first, and the removal goes ahead only when ALL of it is that set (the digest)
+# and all of it has been unused for the settle time. A runtime that an app started needing after
+# that last look stays: flatpak refuses to remove a runtime an installed app uses, and no
+# --force-remove is passed. The slow steps (polkit, du) come first; the last look, and its
+# comparison, is the only thing between the list and the removal.
 reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   local via="$1" expected="$2" allow_auth="$3" before="${4:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
-  local listing sizes_tsv="" after rc=0 extra=() out_file=""
+  local listing sizes_tsv="" after rc=0 extra=() out_file="" refs=()
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
@@ -143,6 +143,7 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
+  readarray -t refs < <(jq -r '.unused[].ref' <<<"$listing")
   # --noninteractive unless a person asked for this one (the widget button, a yes at the terminal):
   # it tells polkit not to raise a dialog, which is right for the automatic step and wrong for a
   # click. </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
@@ -154,7 +155,7 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does.
   out_file="$(mktemp 2>/dev/null)" || out_file=""
   # shellcheck disable=SC2086  # the seam carries its own arguments
-  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- \
+  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" "${refs[@]}" </dev/null 2>&1 9>&- \
        | tee "${out_file:-/dev/null}" 9>&-; then
     rc=0
   else
@@ -166,8 +167,8 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   fi
   [[ -z "$out_file" ]] || rm -f "$out_file" || true
   # What is really gone: every ref installed before the removal that is not installed after it,
-  # used ones included, so a removal that took more than the list says so. flatpak exits 0 on
-  # "Nothing unused to uninstall", so its status alone does not say.
+  # used ones included, so a removal that took more than the list says so. flatpak's status alone
+  # does not say: it can fail part-way, after some refs are gone.
   if after="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_GONE="$(jq -c -n --argjson b "$listing" --argjson a "$after" \
       '[$a.unused[].ref, $a.used[].ref] as $left

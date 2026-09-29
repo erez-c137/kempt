@@ -2321,7 +2321,8 @@ assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" "...and its hist
 rc_offer
 rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=background 2>/dev/null)" || true
 RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
-assert_eq "$(rc_calls)" "UNINSTALL --noninteractive" "reclaim=automatic: the run removes them, never with a dialog"
+assert_eq "$(rc_calls)" "UNINSTALL --noninteractive $(jq -r '[.unused[].ref] | join(" ")' "$FIXTURES/flatpak-unused.json")" \
+  "reclaim=automatic: the run removes the refs on offer by name, never with a dialog"
 assert_json_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" \
   "{\"refs\":$(jq -c '[.unused[].ref]' "$FIXTURES/flatpak-unused.json"),\"bytes\":1975000000,\"status\":\"removed\"}" \
   "...recorded in the run's own history entry"
