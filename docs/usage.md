@@ -388,7 +388,8 @@ Remove them? [y/N]
 Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on that list and
 nothing else. An extension another installed runtime still uses stays. The size is an estimate.
 Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
-is left alone. `--list` shows the list and stops. `-y` removes without asking.
+is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
+`kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
 whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
 and without a yes at the terminal, a removal that needs a password removes nothing. The widget's

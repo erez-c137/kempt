@@ -2295,6 +2295,13 @@ cmd_unstage() {
   cmd_check >/dev/null 2>&1 || true
 }
 
+# Whether state.json holds a list of unused refs from a check that could read one, so each ref's
+# since is on record.
+reclaim_on_record() {
+  jq -e -n '[inputs][0].reclaim | type == "object" and (.refs | type) == "array" and .status != "failed"' \
+    "$STATE_FILE" >/dev/null 2>&1
+}
+
 # `kempt reclaim` - remove the Flatpak runtimes no installed app uses. Run as the desktop user,
 # never as root (reclaim_as_root says why). Exit 6 is this command's own: the set Flatpak would
 # remove is not the one that was shown (or part of it is too new to trust), so nothing was removed
@@ -2328,6 +2335,19 @@ cmd_reclaim() {
     echo "Nothing was removed. Flatpak is not installed." >&2
     exit 5
   fi
+  # With no check on record, nothing says when any ref became unused, so every ref is first seen
+  # now and the removal is refused. Run a check first so the hour starts now. The update lock comes
+  # before check.lock, as in cmd_update, and both are let go before anything below takes one.
+  # With an update running, its own closing check does this instead.
+  local first=""
+  if [[ "$(reclaim_mode)" != off ]] && ! reclaim_on_record; then
+    first=1
+    if acquire_lock; then
+      cmd_check >/dev/null 2>&1 || true
+      { flock -u 9; exec 9>&-; } 2>/dev/null || true
+      release_lock
+    fi
+  fi
   local listing classified sizes_tsv bytes="" digest
   if ! listing="$(flatpak_unused_list 2>/dev/null)" \
      || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
@@ -2340,14 +2360,18 @@ cmd_reclaim() {
     return 0
   fi
   echo "No installed app uses these Flatpak runtimes:"
-  jq -r '.[] | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)
-                          + (if .offerable then "" else " (unused for less than an hour)" end)' <<<"$classified"
+  jq -r --arg young "$([[ -n "$first" ]] && echo "first seen just now" || echo "unused for less than an hour")" '
+    .[] | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)
+                     + (if .offerable then "" else " (\($young))" end)' <<<"$classified"
   if sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
     bytes="$(jq -R -n -r '[inputs | split("\t") | select(length == 2) | (.[1] | tonumber)] | add // 0' \
              <<<"$sizes_tsv" 2>/dev/null)" || bytes=""
   fi
   [[ -n "$bytes" && "$bytes" != 0 ]] && echo "Removing them frees about $(human_bytes "$bytes")."
-  [[ -n "$list" ]] && return 0
+  if [[ -n "$list" ]]; then
+    [[ -n "$first" ]] && echo "These were first seen just now. They can be removed in an hour."
+    return 0
+  fi
 
   if [[ "$(reclaim_mode)" == off ]]; then
     echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
@@ -2356,7 +2380,11 @@ cmd_reclaim() {
   fi
   # Said before any question: agreeing to a set that is not yet removable would only end in a refusal.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+    if [[ -n "$first" ]]; then
+      echo "Nothing was removed. These were first seen just now, and Kempt waits an hour in case something is still being installed. Try again in an hour." >&2
+    else
+      echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+    fi
     log_event "reclaim changed (unstable), nothing removed"
     exit 6
   fi

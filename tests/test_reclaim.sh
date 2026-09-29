@@ -397,6 +397,35 @@ assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"
   "a du that runs out of time is an unknown size"
 check >/dev/null
 
+# --- kempt reclaim with no check on record ---------------------------------------------------------
+# Nothing records when a ref became unused until a check lists it. kempt reclaim runs that check
+# itself, so the hour starts now and a second try an hour later can remove them.
+cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-first"
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$("$KEMPT" reclaim -y </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "6" "first use, with no check on record: refused, exit 6"
+assert_contains "$out" "These were first seen just now" "...saying they were first seen now"
+assert_contains "$out" "Try again in an hour." "...and when to try again"
+assert_contains "$out" "(first seen just now)" "...with each ref marked the same way"
+assert_eq "$(state_reclaim | jq -c '[.status, (.refs | length)]')" '["ok",5]' \
+  "...and a check has recorded when each was first seen"
+assert_exit 0 "...and let go of the update lock" -- flock -n "$KEMPT_STATE_DIR/lock" true
+assert_exit 0 "...and of the check lock" -- flock -n "$KEMPT_STATE_DIR/check.lock" true
+age_state 7200
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "0" "an hour later the same list is on record"
+assert_not_contains "$out" "first seen just now" "...and no longer called new"
+assert_not_contains "$out" "less than an hour" "...nor too young to remove"
+# --list says the same on first use. With an update holding the lock it lists without the check.
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "0" "reclaim --list on first use exits 0"
+assert_contains "$out" "These were first seen just now. They can be removed in an hour." "...and says when they can go"
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$(flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$(state_reclaim)" "0|null" "with an update running, --list still lists and runs no check"
+cp "$TESTTMP/state-before-first" "$KEMPT_STATE_DIR/state.json"
+
 # --- kempt reclaim ----------------------------------------------------------------------------------
 # Every ref has been unused for two hours now, so the whole set is on offer under DIGEST5.
 jq '.unused = []' "$UNUSED_FX" > "$AFTER"   # what a removal that took everything leaves behind
