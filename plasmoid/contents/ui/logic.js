@@ -1000,10 +1000,11 @@ function messageStack(wants) {
 var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
-// backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s), four listings of
+// backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_PKCHECK_TIMEOUT (10 s),
+// KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s), four listings of
 // KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the after-list),
 // two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing check: KEMPT_CHECK_LOCK_WAIT (60 s)
-// and the widget's own check allowance (120 s). 900 s in all, plus a minute of margin.
+// and the widget's own check allowance (120 s). 910 s in all, plus most of a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
 var RECLAIM_TIMEOUT_MS = 960000;
 

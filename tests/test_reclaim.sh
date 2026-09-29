@@ -104,6 +104,7 @@ cat > "$STUBS/pkcheck" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$STUBS/pkcheck.calls"
 [[ -n "${PKCHECK_SWAP:-}" ]] && cp "$PKCHECK_SWAP" "$LISTING"
+[[ -n "${PKCHECK_HANG:-}" ]] && exec sleep 30
 exit "${PKCHECK_RC:-0}"
 STUB
 cat > "$STUBS/getent" <<'STUB'
@@ -543,6 +544,9 @@ assert_contains "$(calls pkcheck)" "--action-id org.freedesktop.Flatpak.runtime-
 assert_not_contains "$(calls pkcheck)" "--allow-user-interaction" "...never allowed to raise a dialog"
 assert_eq "$(state_reclaim | jq -r '.status')" "needs_auth" "the closing check publishes needs_auth"
 assert_eq "$(state_reclaim | jq -r '.last.result')" "needs_auth" "...with the outcome as last"
+# A polkit that never answers is a no, within the bound, not a removal that waits with the lock.
+rc=0; out="$(PKCHECK_HANG=1 KEMPT_RECLAIM_PKCHECK_TIMEOUT=1 reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "5|(none)" "a pkcheck that hangs: needs an administrator, nothing removed"
 reset_calls
 
 hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"

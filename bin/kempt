@@ -111,9 +111,11 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
 # May this process remove runtimes without anyone being asked? pkcheck answers for this process
 # WITHOUT --allow-user-interaction, so it never raises a dialog: yes only where polkit already says
 # yes (Fedora's rule: an active local session of a wheel member). Anything else, including a
-# missing pkcheck, is "no", and the removal becomes needs_auth. Every removal asks this first.
+# missing pkcheck or one that does not answer in time, is "no", and the removal becomes needs_auth.
+# Every removal asks this first.
 reclaim_authorized() {
-  $KEMPT_PKCHECK --action-id org.freedesktop.Flatpak.runtime-uninstall --process $$ \
+  # shellcheck disable=SC2086  # the seam may carry its own arguments
+  timeout "$KEMPT_RECLAIM_PKCHECK_TIMEOUT" $KEMPT_PKCHECK --action-id org.freedesktop.Flatpak.runtime-uninstall --process $$ \
     </dev/null >/dev/null 2>&1 9>&-
 }
 
@@ -1687,9 +1689,9 @@ cmd_run() {
     # up to three hours. The two easy to miss: the risky prompt's abort (cmd_update exits 0 there,
     # BEFORE its own post-run check) and the user closing the window mid-run.
     # Hence two traps, NOT redundant: EXIT covers every ordinary exit whatever the status, and
-    # HUP/INT/TERM exist because bash runs no EXIT trap when it dies of an untrapped fatal signal
-    # and closing a terminal window SIGHUPs the foreground process group. They do nothing but
-    # `exit`, which is what makes EXIT fire.
+    # HUP/INT/TERM make the signal path certain: closing a terminal window SIGHUPs the foreground
+    # process group, and whether bash runs the EXIT trap when it dies of an untrapped fatal signal
+    # has differed between versions. They do nothing but `exit`, which is what makes EXIT fire.
     # The check is quiet and its status discarded, so it cannot turn a good run into a failed one;
     # $ec, the UPDATE's status, is what leaves this shell on both paths. run_check is guarded so
     # the ordinary path checks once BEFORE the "press any key" prompt - the window must not be
