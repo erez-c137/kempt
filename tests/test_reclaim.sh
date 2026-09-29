@@ -728,7 +728,8 @@ cat > "$STUBS/uninstall-peek" <<'STUB'
 echo "$*" >> "$STUBS/uninstall.calls"
 ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l > "$STUBS/peek"
 ls "$TMPDIR" | wc -l >> "$STUBS/peek"
-[[ -n "${PEEK_KILL:-}" ]] && { kill -TERM "$(ps -o ppid= -p "$PPID" | tr -d ' ')"; sleep 1; exit 1; }
+# kempt is timeout's parent. Read from /proc, not ps: the package build has no procps.
+[[ -n "${PEEK_KILL:-}" ]] && { kill -TERM "$(sed 's/.*) //' "/proc/$PPID/stat" | cut -d' ' -f2)"; sleep 1; exit 1; }
 [[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
 STUB
 chmod +x "$STUBS/uninstall-peek"
