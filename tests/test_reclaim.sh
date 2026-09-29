@@ -267,12 +267,34 @@ check >/dev/null
 # reclaim_all_in_snapshot, from bin/kempt: after an update, every ref must have been installed when
 # the run began. Its snapshot rows are `id/branch` for a runtime and a bare `id` for an app.
 source /dev/stdin <<<"$(sed -n '/^reclaim_all_in_snapshot()/,/^}/p' "$KEMPT")"
-snap_classified() { jq -c '[.[] | {ref: ., commit: ("a" * 64), since: "2026-01-01T00:00:00Z", eol: null, offerable: true}]' <<<"$1"; }
+snap_classified() { jq -c --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '[.[] | {ref: ., commit: ("a" * 64), since: $now, eol: null, offerable: true}]' <<<"$1"; }
 SNAPF="$TESTTMP/fp-before.tsv"
 printf 'org.freedesktop.Platform/24.08\t?\t%s\n' "$(printf 'a%.0s' {1..64})" > "$SNAPF"
 in_snap() { reclaim_all_in_snapshot "$(snap_classified "$1")" "$SNAPF" && echo present || echo missing; }
 assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "present" "a runtime in the snapshot is present"
 assert_eq "$(in_snap '["runtime/org.kde.Platform/x86_64/6.9"]')" "missing" "...one that is not there is missing"
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform.Locale/x86_64/24.08"]')" "present" \
+  "a runtime's Locale extension, hidden from the snapshot, is present when its runtime is"
+# An app's extension: the app row is its bare id, with no branch.
+printf 'org.mozilla.firefox\t140.0\t%s\n' "$(printf 'b%.0s' {1..64})" >> "$SNAPF"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox.Locale/x86_64/stable"]')" "present" \
+  "an app's Locale extension is present when the app is"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox/x86_64/stable"]')" "missing" \
+  "...but a runtime that is not an extension never matches an app row"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox2.Locale/x86_64/stable"]')" "missing" \
+  "...nor does another app's extension"
+# The app is gone as well, so the snapshot cannot show the extension. A check that saw it unused
+# before the run began proves it was there.
+grep -v firefox "$SNAPF" > "$SNAPF.new" && mv "$SNAPF.new" "$SNAPF"
+touch -d '2026-06-01 12:00:00 UTC' "$SNAPF"
+fx_ref='[{"ref":"runtime/org.mozilla.firefox.Locale/x86_64/stable","commit":"'"$(printf 'c%.0s' {1..64})"'","eol":null,"offerable":true'
+assert_eq "$(reclaim_all_in_snapshot "$fx_ref"',"since":"2026-06-01T10:00:00Z"}]' "$SNAPF" && echo present || echo missing)" "present" \
+  "an extension whose app is gone is present when a check saw it unused before the run began"
+assert_eq "$(reclaim_all_in_snapshot "$fx_ref"',"since":"2026-06-01T12:30:00Z"}]' "$SNAPF" && echo present || echo missing)" "missing" \
+  "...and missing when it was first seen after"
+fx_rt='[{"ref":"runtime/org.kde.Platform/x86_64/6.9","commit":"'"$(printf 'c%.0s' {1..64})"'","eol":null,"offerable":true'
+assert_eq "$(reclaim_all_in_snapshot "$fx_rt"',"since":"2026-06-01T10:00:00Z"}]' "$SNAPF" && echo present || echo missing)" "missing" \
+  "...a rule for extensions only: a runtime the snapshot does not have stays missing"
 : > "$SNAPF"
 assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "missing" \
   "an empty snapshot proves nothing: every ref reads as missing"

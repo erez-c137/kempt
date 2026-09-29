@@ -221,20 +221,30 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
 }
 
 # Every listed ref present in the run's before-snapshot, whose rows are `id/branch` for a runtime
-# and `id` for an app (flatpak_snapshot). `flatpak list --runtime` hides the .Locale, .Debug and
-# .Sources extensions without --all, so one of those counts as present when its parent runtime is,
-# on the same branch. The snapshot has no arch column, so the branch is the whole match.
+# and `id` for an app (flatpak_snapshot). `flatpak list` hides the .Locale, .Debug and .Sources
+# extensions without --all, so one of those counts as present when its parent is: a runtime on the
+# same branch, or an app (whose row has no branch). An extension whose parent is gone too is
+# present when a check saw it unused before the run began (its since predates the snapshot).
 reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are there
-  local keys missing
-  keys="$(jq -r '.[].ref | split("/")
-                 | if .[0] == "runtime" then "\(.[1] | sub("[.](Locale|Debug|Sources)$"; ""))/\(.[3])"
-                   else .[1] end' \
-          <<<"$1" 2>/dev/null)" || return 1
-  [[ -n "$keys" ]] || return 1
+  local keys missing start
   # An empty snapshot would put every key in the lookup table below, not none of them.
   [[ -s "$2" ]] || return 1
-  missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next } !($0 in have)' "$2" - <<<"$keys" 2>/dev/null)" \
-    || return 1
+  start="$(date -r "$2" +%s 2>/dev/null)" || return 1
+  # One line per ref: the snapshot rows that would prove it present, tab-separated. `*` (never a
+  # row) stands for "seen unused before the run began".
+  keys="$(jq -r --argjson start "$start" '
+            .[] | (.ref | split("/")) as $r
+            | if $r[0] != "runtime" then $r[1]
+              elif ($r[1] | test("[.](Locale|Debug|Sources)$")) then
+                ($r[1] | sub("[.](Locale|Debug|Sources)$"; "")) as $p
+                | ((try (.since | fromdateiso8601) catch null) // $start) as $s
+                | [$p + "/" + $r[3], $p] + (if $s < $start then ["*"] else [] end) | join("\t")
+              else $r[1] + "/" + $r[3] end' \
+          <<<"$1" 2>/dev/null)" || return 1
+  [[ -n "$keys" ]] || return 1
+  missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next }
+                         { for (i = 1; i <= NF; i++) if ($i in have || $i == "*") next; print }' \
+             "$2" - <<<"$keys" 2>/dev/null)" || return 1
   [[ -z "$missing" ]]
 }
 
