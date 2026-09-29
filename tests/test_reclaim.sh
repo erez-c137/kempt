@@ -381,6 +381,15 @@ assert_eq "$(jq -c '[(.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '[4,10750
   "a partial removal counts only the refs gone, at their own sizes"
 jq '.unused = []' "$UNUSED_FX" > "$AFTER"
 
+# With no size to give, the count is said instead, and one is said as one.
+restore_offer
+jq '.unused = .unused[1:]' "$UNUSED_FX" > "$AFTER"
+mv "$DU_TABLE" "$DU_TABLE.off"; rm -f "$RECLAIM_SIZES_FILE"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+mv "$DU_TABLE.off" "$DU_TABLE"
+assert_contains "$out" "Removed 1 runtime." "one runtime removed with no size known is said in the singular"
+jq '.unused = []' "$UNUSED_FX" > "$AFTER"
+
 restore_offer
 rc=0; out="$(UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc" "1" "a removal flatpak fails: exit 1"

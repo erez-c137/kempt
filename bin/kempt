@@ -2355,7 +2355,8 @@ cmd_reclaim() {
       if [[ -n "$RECLAIM_BYTES" && "$RECLAIM_BYTES" != 0 ]]; then
         echo "Freed about $(human_bytes "$RECLAIM_BYTES")."
       else
-        echo "Removed $(jq -r 'length' <<<"$RECLAIM_GONE") runtimes."
+        local n; n="$(jq -r 'length' <<<"$RECLAIM_GONE")"
+        if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
       fi ;;
     nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
     changed)
@@ -3174,8 +3175,9 @@ usage: kempt <command>
   holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                         arguments, on one line, to reuse by hand
   unstage               discard the staged offline update; the next restart installs nothing
-  reclaim [--list] [-y] [--expect=DIGEST]
-                        remove the Flatpak runtimes no installed app uses (--list only shows them)
+  reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
+                        remove the Flatpak runtimes no installed app uses (--list only shows them;
+                        --allow-auth lets polkit ask for a password instead of stopping)
   config get|set        read/write settings
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit

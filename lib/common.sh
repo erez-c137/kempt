@@ -1965,7 +1965,8 @@ staged_summary_line() {  # → one line, or nothing
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  jq -r "$KEMPT_JQ_COUNTS"'
+  # The reclaim setting now, for the end-of-life hint: with reclaim=off, kempt reclaim refuses.
+  jq -r --arg reclaim "$(reclaim_mode 2>/dev/null || echo ask)" "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     # NOT always an arrow. A Flatpak runtime can update without its version string moving - most
     # runtimes carry a date, or nothing, as their version, and the commit is what differs - so
@@ -2037,7 +2038,8 @@ render_summary() {  # history-json-file → human text
                   else (. / 1e3 | round | tostring) + " kB" end;
     (.backends.flatpak.reclaimed? // null
      | if type == "object" and .status == "removed" then
-         "Removed " + ((.refs // []) | length | tostring) + " unused Flatpak runtimes"
+         ((.refs // []) | length) as $n
+         | "Removed " + ($n | tostring) + " unused Flatpak " + (if $n == 1 then "runtime" else "runtimes" end)
          + (if (.bytes | type) == "number" and .bytes > 0 then ", freeing about " + (.bytes | sizetext) else "" end) + "."
        else empty end),
     heldline,
@@ -2045,7 +2047,8 @@ render_summary() {  # history-json-file → human text
     # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
     # anything needs doing. `// []` keeps entries written before the field existed rendering.
     # An unused one points at `kempt reclaim`, which shows what goes and asks, rather than at the
-    # flatpak command that removes every unused runtime without a list.
+    # flatpak command that removes every unused runtime without a list. With reclaim=off that
+    # command refuses, so the flatpak one is the hint again.
     # NO APOSTROPHES IN HERE either (see above).
     def names(a): if (a|length) == 1 then a[0]
                   else (a[0:-1] | join(", ")) + " and " + a[-1] end;
@@ -2054,7 +2057,9 @@ render_summary() {  # history-json-file → human text
                    + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
                  elif (.apps|length) == 0 then
                    "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
-                   + " has reached end-of-life and no installed app uses it. To remove it: kempt reclaim"
+                   + " has reached end-of-life and no installed app uses it. "
+                   + (if $reclaim == "off" then "To remove it once nothing needs it: flatpak uninstall --unused"
+                      else "To remove it: kempt reclaim" end)
                  else
                    "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
                    + .id + (if .branch != "" then " " + .branch else "" end)

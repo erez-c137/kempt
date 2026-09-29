@@ -367,7 +367,7 @@ keeps the record.
 ## reclaim
 
 ```
-kempt reclaim [--list] [-y] [--expect=DIGEST]
+kempt reclaim [--list] [-y] [--expect=DIGEST] [--allow-auth]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
@@ -386,7 +386,9 @@ The list comes from Flatpak itself, so it is what `flatpak uninstall --unused` w
 size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
 tool is installing is left alone. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
-whole list.
+whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
+and without a yes at the terminal, a removal that needs a password removes nothing. The widget's
+button passes it.
 
 To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 Flatpak never lists a pinned runtime as unused.
