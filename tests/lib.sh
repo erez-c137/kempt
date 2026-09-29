@@ -107,6 +107,18 @@ sandbox() {  # fresh dirs per test file; call first
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.
   export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/UNSTUBBED-flatpak-update"
+  # The reclaim seams, poisoned for the update seam's reason and one more: the removal is
+  # `flatpak uninstall`, and a test that forgot its stub must not remove the host's runtimes. The
+  # uninstall seam doubles as the "is flatpak here" test (flatpak_present), so with it poisoned the
+  # feature is off in every file that does not opt in, and no existing state.json grows a block.
+  # The other four fail loudly the moment a file turns the feature on without stubbing them:
+  # the listing and du report failed and unknown_size, pkcheck says no, and getent reads as
+  # "cannot tell", which keeps automatic at ask.
+  export KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/UNSTUBBED-flatpak-uninstall"
+  export KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/UNSTUBBED-flatpak-unused"
+  export KEMPT_DU_CMD="$TESTTMP/UNSTUBBED-du"
+  export KEMPT_PKCHECK="$TESTTMP/UNSTUBBED-pkcheck"
+  export KEMPT_GETENT_CMD="$TESTTMP/UNSTUBBED-getent"
   # PINNED at `true`, not poisoned, and this is the seam where the usual "a path that does not
   # exist" would be exactly wrong. Unset, the runtime arms fall back to the REAL flatpak and every
   # test file that stubs only the app seams would read the runtimes of the box running the suite.
@@ -140,6 +152,10 @@ sandbox() {  # fresh dirs per test file; call first
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \
         KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_RULES_DST KEMPT_CHECK_LOCK_WAIT \
         KEMPT_REFRESH_HELPER_PATH KEMPT_APPLY_HELPER_PATH KEMPT_PLASMOID_DIR
+  # A shell reached through sudo or pkexec announces itself with these, and reclaim_as_root then
+  # switches the reclaim feature off. Unset so a developer's elevated shell cannot decide which
+  # branch the reclaim tests take; the files that test the guard set them per command.
+  unset SUDO_UID PKEXEC_UID
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 
