@@ -429,7 +429,10 @@ KCM.SimpleKCM {
                 checked: page.reclaimKey === reclaimOption
                 enabled: !page.loading && page.flatpakPresent && includeFlatpak.checked
                 onToggled: {
-                    if (!checked) { checked = true; return; }   // autoExclusive is off: a click can uncheck the selected radio; a radio never un-selects itself
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.surfaceKey moves on.
+                    if (!checked) { toggle(); return; }
                     page.reclaimKey = reclaimOption;
                     page.markChanged("reclaim");
                 }
@@ -481,7 +484,10 @@ KCM.SimpleKCM {
                 // A view of page.surfaceKey, and the only writer of it is a click.
                 checked: page.surfaceKey === surfaceKey
                 onToggled: {
-                    if (!checked) { checked = true; return; }   // autoExclusive is off: a click can uncheck the selected radio; a radio never un-selects itself
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.iconSizeKey moves on.
+                    if (!checked) { toggle(); return; }
                     page.surfaceKey = surfaceKey;
                     page.markChanged("surface");
                 }
@@ -539,7 +545,10 @@ KCM.SimpleKCM {
                 checked: page.iconSizeKey === sizeKey
                 enabled: !page.loading
                 onToggled: {
-                    if (!checked) { checked = true; return; }   // autoExclusive is off: a click can uncheck the selected radio; a radio never un-selects itself
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.reclaimKey moves on.
+                    if (!checked) { toggle(); return; }
                     page.iconSizeKey = sizeKey;
                     page.markChanged("widget_icon_size");
                 }

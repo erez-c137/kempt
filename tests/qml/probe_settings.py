@@ -245,6 +245,24 @@ p.check("...and the other two groups untouched",
         [group(evR, "surfaceRepeater"), group(evR, "iconSizeRepeater")],
         [before_surface, before_icon])
 
+# Clicking the radio that is ALREADY selected unchecks it in C++, and the page puts it back. Put
+# back by assignment, `checked` stops following the page property, so the next click on another
+# radio would leave both lit. Every group, clicked the way a mouse clicks.
+for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 1),
+                           ("iconSizeRepeater", "iconSizeKey", 3),
+                           ("reclaimRepeater", "reclaimKey", 0)):
+    _sel = group(evR, _rep)[1]
+    evR("%s.itemAt(%d).toggle()" % (_rep, _sel))
+    evR("%s.itemAt(%d).toggled()" % (_rep, _sel))
+    p.pump(30)
+    p.check("re-clicking the selected %s radio keeps it selected" % _rep,
+            group(evR, _rep), [1, _sel])
+    evR("%s.itemAt(%d).toggle()" % (_rep, _other))
+    evR("%s.itemAt(%d).toggled()" % (_rep, _other))
+    p.pump(30)
+    p.check("...and clicking another one after that leaves only that one lit",
+            group(evR, _rep), [1, _other])
+
 # ==================================================================================================
 # The Apply button, wired the way the shell wires it.
 # ==================================================================================================
