@@ -53,8 +53,9 @@ engine could replace the bash one.
 | `tests/qml/` | PySide6 probes that execute the real QML against a stubbed CLI (see below) |
 
 `libexec/kempt-flatpak-unused` is the one Python file. It calls libflatpak's `list_unused_refs()`
-through PyGObject, the same call `flatpak uninstall --unused` makes, so the list matches what a
-removal takes. It is executed, so it stays out of `lib/` and `backends/`, whose shebangs the
+through PyGObject, the same call `flatpak uninstall --unused` makes. The removal adds
+`--no-related`, so it takes the listed refs and leaves a related ref another runtime still uses.
+It is executed, so it stays out of `lib/` and `backends/`, whose shebangs the
 package strips. It runs as the user, so the package installs it in Kempt's own tree
 (`/usr/share/kempt/libexec/`) and leaves `%{_libexecdir}` to the two root helpers.
 
@@ -730,7 +731,7 @@ destructive paths without running them.
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. `tests/lib.sh` points it at a missing path, so the suite cannot update the host |
 | `KEMPT_FLATPAK_UNUSED_CMD` | `libexec/kempt-flatpak-unused` in `KEMPT_ROOT` | Lists unused Flatpak refs as JSON, run as the user. `tests/lib.sh` points it at a missing path |
 | `KEMPT_DU_CMD` | `du` | Sizes the unused runtimes in one `du -sb` call, used directories first, so files an unused runtime shares with a used one are not counted. `tests/lib.sh` points it at a missing path |
-| `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --unused --system -y` | The removal, run as the user. Its first word is also how Kempt tells whether Flatpak is installed. `tests/lib.sh` points it at a missing path, which turns the whole feature off in every test that does not stub it |
+| `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --unused --no-related --system -y` | The removal, run as the user. Its first word is also how Kempt tells whether Flatpak is installed. `tests/lib.sh` points it at a missing path, which turns the whole feature off in every test that does not stub it |
 | `KEMPT_PKCHECK` | `pkcheck` | Asks polkit, without a dialog, whether this process may remove runtimes. A no, or no `pkcheck`, means no removal. `tests/lib.sh` points it at a missing path |
 | `KEMPT_GETENT_CMD` | `getent passwd` | Counts human accounts: with more than one, `reclaim=automatic` acts as `ask`. `tests/lib.sh` points it at a missing path |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |

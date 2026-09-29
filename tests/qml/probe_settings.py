@@ -42,7 +42,7 @@ DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
 FLATPAK_BIN = os.path.join(p.sandbox, "flatpak")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)
-os.environ["KEMPT_FLATPAK_UNINSTALL_CMD"] = FLATPAK_BIN + " uninstall --unused --system -y"
+os.environ["KEMPT_FLATPAK_UNINSTALL_CMD"] = FLATPAK_BIN + " uninstall --unused --no-related --system -y"
 
 
 def setval(k, v):

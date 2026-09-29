@@ -421,7 +421,26 @@ jq '.unused = [] | .used = .used[1:]' "$UNUSED_FX" > "$AFTER"
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$(jq -c '.refs | length' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | index("app/net.mkiol.SpeechNote/x86_64/stable") != null' "$RECLAIM_LAST_FILE")" \
   "6|true" "an extra ref that went is named among the refs gone"
+assert_eq "$(jq -r '.bytes' "$RECLAIM_LAST_FILE")" "1975000000" \
+  "...and adds nothing to the space freed, which counts only the refs on offer"
 jq '.unused = []' "$UNUSED_FX" > "$AFTER"
+
+# The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
+# removes the related refs of what it removes, even one another installed runtime still uses.
+restore_offer
+mkdir -p "$TESTTMP/fpbin"
+cat > "$TESTTMP/fpbin/flatpak" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == uninstall ]] || exit 0
+echo "$*" >> "$STUBS/uninstall.calls"
+[[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
+exit 0
+STUB
+chmod +x "$TESTTMP/fpbin/flatpak"
+rc=0; out="$(env -u KEMPT_FLATPAK_UNINSTALL_CMD PATH="$TESTTMP/fpbin:$PATH" \
+  "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "0|uninstall --unused --no-related --system -y --noninteractive" \
+  "the removal passes --no-related, so it takes the listed refs and no related ref besides"
 restore_offer
 
 # Refusals that come before anything is listed.

@@ -56,9 +56,9 @@ Two rules hold for every value:
   and it removes old ones on its own schedule.
 
 To show the list, Kempt asks libflatpak for its unused refs (`list_unused_refs()`), the same call
-`flatpak uninstall --unused` makes, so the list is what a removal takes. The removal itself is
-`flatpak uninstall --unused`, run only after Kempt has checked that the list is still the one you
-agreed to.
+`flatpak uninstall --unused` makes. The removal is `flatpak uninstall --unused --no-related`, so it
+takes the refs on the list and leaves the related refs another runtime still uses. It runs only
+after Kempt has checked that the list is still the one you agreed to.
 
 ## 0.2: a second distribution
 

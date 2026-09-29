@@ -382,8 +382,8 @@ Removing them frees about 1.5 GB.
 Remove them? [y/N]
 ```
 
-The list comes from Flatpak itself, so it is what `flatpak uninstall --unused` would remove. The
-size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
+Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on that list and
+nothing else. An extension another installed runtime still uses stays. The size is an estimate. Kempt waits until a runtime has been unused for an hour, so a runtime another
 tool is installing is left alone. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
 whole list. `--allow-auth` lets polkit ask for an administrator's password in a dialog. Without it,
