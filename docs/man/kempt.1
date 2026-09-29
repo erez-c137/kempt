@@ -198,7 +198,13 @@ Check this installation and print one line per check, prefixed
 .BR ok ", " info " or " FAIL :
 both root helpers at the polkit\-annotated paths and owned by root, the polkit action file,
 .BR jq ,
-the terminal emulator, flatpak, dnf, the configuration file's syntax, a writable state directory,
+the terminal emulator, flatpak, dnf, whether Kempt can list unused Flatpak runtimes (a
+.B FAIL
+only when
+.B flatpak\-libs
+or
+.B python3\-gobject\-base
+is missing), the configuration file's syntax, a writable state directory,
 an intact tree, and any staged offline transaction or live boot symlink. Every check runs even after one fails.
 Exit status 1 when anything failed. A staged transaction that was downloaded but never armed is a
 .B FAIL
@@ -284,7 +290,10 @@ pin it with
 Runs as the user and refuses to run as root. Exits 5 with nothing removed when it may not remove
 (root, Flatpak off or missing,
 .BR reclaim=off ,
-or removal needs an administrator), and 6 when the list changed since it was shown.
+removal needs an administrator, or no
+.B \-y
+and no terminal to ask at), and 6 when the list changed since it was shown or part of it has
+been unused for less than an hour.
 .TP
 .BI "config get" " key " [ default ]
 Print a configuration value, falling back to the built\-in default for the key, or to
@@ -482,7 +491,8 @@ when it may not remove anything.
 .TP
 .B 6
 .B reclaim
-only: the runtimes Flatpak would remove are no longer the set that was shown. Nothing was removed.
+only: the runtimes Flatpak would remove are no longer the set that was shown, or part of it has
+been unused for less than an hour. Nothing was removed.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),

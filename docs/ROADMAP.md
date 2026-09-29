@@ -34,31 +34,29 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 
-## 0.1.7: reclaiming disk space
+## Next: 0.1.7, reclaiming disk space
+
+Built and on `main`, waiting for its release. [CHANGELOG.md](../CHANGELOG.md) lists it under
+Unreleased.
 
 Updating a Flatpak runtime installs the new version beside the old one, and the old one stays. A
 machine with one app can end up with two copies of a runtime of a gigabyte or more.
-`flatpak uninstall --unused` removes them, but no update tool runs it.
 
-A new setting controls it:
+- **`kempt reclaim`** lists the runtimes no installed app uses, estimates the space they take, and
+  removes them when you agree.
+- **The widget** offers the same when there is 100 MB or more to free.
+- **The `reclaim` setting** is `ask` (the default), `automatic` or `off`. `automatic` removes them
+  after each update. It acts as `ask` on an image-based system, and with more than one user
+  account. `off` hides them.
 
-| Value | What happens |
-| --- | --- |
-| `ask` (default) | When there is space to reclaim, Kempt shows how much and what, and asks. |
-| `automatic` | Kempt removes it without asking. |
-| `off` | Nothing is removed. |
+Three rules hold for every value:
 
-Two rules hold for every value:
-
-- Kempt removes only what the package manager itself calls unused, and nothing an installed app
-  needs.
+- Kempt removes only what Flatpak itself calls unused, and only the list you were shown. If the
+  list changed, nothing is removed.
+- A runtime is offered once it has been unused for an hour, so one another tool is installing is
+  left alone.
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
-
-To show the list, Kempt asks libflatpak for its unused refs (`list_unused_refs()`), the same call
-`flatpak uninstall --unused` makes. The removal is `flatpak uninstall --unused --no-related`, so it
-takes the refs on the list and leaves the related refs another runtime still uses. It runs only
-after Kempt has checked that the list is still the one you agreed to.
 
 ## 0.2: a second distribution
 

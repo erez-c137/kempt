@@ -15,12 +15,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for its turn. The widget uses it for the checks nobody asked for. `kempt log` shows such a check
   as `check shared`.
 - **`kempt reclaim` frees the space old Flatpak runtimes take.** It lists the runtimes no
-  installed app uses, says about how much space they take, and removes them when you agree. The
-  new `reclaim` setting (`ask`, `automatic`, `off`) can also remove them after each update.
-  Scripts read the list as `reclaim` in `state.json`.
+  installed app uses, says about how much space they take, and removes those runtimes when you
+  agree. It removes a runtime only once it has been unused for an hour. Scripts read the list
+  as `reclaim` in `state.json`.
+- **The new `reclaim` setting can remove them after each update.** It is `ask` (the default),
+  `automatic` or `off`. On an image-based system, or with more than one user account, `automatic`
+  acts as `ask`.
 - **The widget offers to free the space too.** When unused Flatpak runtimes take 100 MB or more,
-  the popup says how much and offers **Free Up Space**. **Show What** lists them. Settings has
-  **Unused Flatpak runtimes** to choose ask, remove after updates, or never.
+  the popup says how much and offers **Free Up Space**. **Show What** lists them. In Settings,
+  **Unused Flatpak runtimes** offers **Ask me first**, **Remove after updates** and **Never**.
+- **`kempt doctor` says whether Kempt can list unused Flatpak runtimes.** When a package it needs
+  is missing, the row fails and names the packages to install.
+
+### Changed
+
+- **With Flatpak installed, Kempt also needs `flatpak-libs` and `python3-gobject-base`.** dnf
+  installs them with the update. They let Kempt ask Flatpak which runtimes are unused. A machine
+  without Flatpak gets neither.
 
 ### Fixed
 
@@ -56,6 +67,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed was reported as "ok" and no apps were updated.
 - **After an update, the popup waits for the final check.** A check you started during the update
   could stand in for it, and the old counts stayed on screen.
+- **The restart message stays until you close it.** Plasma builds the popup hidden and hides it
+  each time it closes. The message took either for its close button, so it was usually gone before
+  you opened the popup.
+- **"Everything is up to date" stays clear of the messages.** In a popup at its smallest, with
+  two messages up, it spilled over them. It now drops its icon, or steps aside, when there is no
+  room.
 
 ### Security
 
