@@ -2749,6 +2749,11 @@ doctor_reclaim_row() {
   flatpak_present || return 0
   is_true "$(config_get include_flatpak)" || return 0
   [[ "$(reclaim_mode)" != off ]] || return 0
+  # As root the helper would list against root's apps, which is not the listing a check makes.
+  if reclaim_as_root; then
+    doctor_info "unused Flatpak runtimes: not checked as root. Run kempt doctor as yourself to check the listing"
+    return 0
+  fi
   local out rc=0 why
   # shellcheck disable=SC2086  # the seam may carry its own arguments
   out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD 2>&1 >/dev/null </dev/null 9>&-)" || rc=$?
