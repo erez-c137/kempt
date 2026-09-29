@@ -377,7 +377,7 @@ and each can take hundreds of megabytes.
 No installed app uses these Flatpak runtimes:
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
-  runtime/org.kde.Platform/x86_64/5.15-23.08 (end of life)
+  runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)
 Removing them frees about 1.5 GB.
 Remove them? [y/N]
 ```
@@ -967,6 +967,13 @@ lower in this list are left out. If that hides the restart message, the footer s
    `kempt update --surface=offline`. Without a kernel, it names what is in the update: `This update
    touches 20 packages the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way
    is to install them on the next restart.` It is hidden while an update is staged.
+8. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
+   `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
+   lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
+   saw: if the list changed, nothing is removed and the popup says so. Flatpak may ask for an
+   administrator's password. With `reclaim=automatic` the message adds *"Kempt removes them after
+   the next update."* and the button reads **Free Up Space Now**. Closing the message hides it
+   until the list changes or Plasma restarts.
 
 A failed check shows in the footer as `last check failed`, with the reason in the **Check for
 Updates** tooltip. A failed hold shows in the row you pressed.
@@ -1169,6 +1176,10 @@ never restarts on its own either way.
 ```bash
 kempt config set restart_reminder false   # the fact stays, the message goes
 ```
+
+**Unused Flatpak runtimes** is the `reclaim` setting: **Ask me first** (the default), **Remove
+after updates** or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are
+left out of updates. See [reclaim](#reclaim).
 
 **Password prompts** has **Allow without password…** and **Require a password…**. They run
 `kempt enable-passwordless` and `kempt disable-passwordless`, each with its own password dialog, and

@@ -130,6 +130,7 @@ KCM.SimpleKCM {
         setIfChanged("refresh_interval_min", String(interval.value));
         setIfChanged("widget_icon_size", page.iconSizeKey);
         setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
+        setIfChanged("reclaim", page.reclaimKey);
         finishWrite();      // release the sentinel
     }
 
@@ -218,6 +219,14 @@ KCM.SimpleKCM {
     function applyIconSize(key) {
         page.iconSizeKey = Logic.resolveIconSizeSetting(key);
     }
+
+    // The unused-runtimes setting, held here for the same reason as surfaceKey and iconSizeKey.
+    property string reclaimKey: "ask"
+
+    // Whether flatpak is installed, asked the way the CLI's flatpak_present asks. True until the
+    // answer says otherwise: a page that cannot tell keeps the group usable and says when it applies.
+    property bool flatpakPresent: true
+    property bool flatpakKnown: false
 
     function readKey(key, apply) {
         pendingReads++;
@@ -323,6 +332,22 @@ KCM.SimpleKCM {
             }
             restartReminder.checked = Logic.isTrue(v);
         });
+        // Newer than `kempt config` too, so the same guard: an older CLI answers "" for a key it
+        // does not know, and that is unknown, not ask.
+        readKey("reclaim", function (v) {
+            if (v === "") {
+                page.readFailed["reclaim"] = true;
+                return;
+            }
+            page.reclaimKey = Logic.resolveReclaimSetting(v);
+        });
+        // Not a read of a setting, so not counted in pendingReads: the controls do not wait for it.
+        cfgExecutor.run("f=\"${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak}\"; command -v \"${f%% *}\" >/dev/null",
+                        15000, function (stdout, stderr, rc) {
+            if (rc !== 0 && rc !== 1) return;       // no answer: keep the group usable
+            page.flatpakPresent = rc === 0;
+            page.flatpakKnown = true;
+        });
         loadHolds();
     }
 
@@ -380,6 +405,53 @@ KCM.SimpleKCM {
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
+        // --- unused Flatpak runtimes ---------------------------------------------------------------
+        // `reclaim`: what Kempt does with runtimes no installed app uses. The CLI does nothing with
+        // it when flatpak is absent or left out of updates, so the group greys out and says which.
+        Repeater {
+            id: reclaimRepeater
+            model: [
+                { key: "ask",       label: i18n("Ask me first") },
+                { key: "automatic", label: i18n("Remove after updates") },
+                { key: "off",       label: i18n("Never") }
+            ]
+
+            QQC2.RadioButton {
+                required property var modelData
+                required property int index
+                readonly property string reclaimOption: modelData.key
+
+                Kirigami.FormData.label: index === 0 ? i18n("Unused Flatpak runtimes:") : ""
+                text: modelData.label
+                // Off for the same reason as the other radio groups on this page: they share one
+                // FormLayout parent, and QQC2 would otherwise run them all as one exclusive group.
+                autoExclusive: false
+                checked: page.reclaimKey === reclaimOption
+                enabled: !page.loading && page.flatpakPresent && includeFlatpak.checked
+                onToggled: {
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.surfaceKey moves on.
+                    if (!checked) { toggle(); return; }
+                    page.reclaimKey = reclaimOption;
+                    page.markChanged("reclaim");
+                }
+            }
+        }
+
+        QQC2.Label {
+            id: reclaimNote
+            text: !page.flatpakPresent ? i18n("Flatpak is not installed.")
+                : !includeFlatpak.checked ? i18n("Only applies when Flatpak apps are included in updates.")
+                : !page.flatpakKnown ? i18n("Only applies when Flatpak is installed.")
+                : ""
+            visible: text !== ""
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
         Item { Kirigami.FormData.isSection: true }
 
         // --- where a run happens -----------------------------------------------------------------
@@ -412,7 +484,10 @@ KCM.SimpleKCM {
                 // A view of page.surfaceKey, and the only writer of it is a click.
                 checked: page.surfaceKey === surfaceKey
                 onToggled: {
-                    if (!checked) { checked = true; return; }   // autoExclusive is off: a click can uncheck the selected radio; a radio never un-selects itself
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.iconSizeKey moves on.
+                    if (!checked) { toggle(); return; }
                     page.surfaceKey = surfaceKey;
                     page.markChanged("surface");
                 }
@@ -470,7 +545,10 @@ KCM.SimpleKCM {
                 checked: page.iconSizeKey === sizeKey
                 enabled: !page.loading
                 onToggled: {
-                    if (!checked) { checked = true; return; }   // autoExclusive is off: a click can uncheck the selected radio; a radio never un-selects itself
+                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
+                    // way the click did, from C++: assigning true from here would end the binding and
+                    // leave it lit after page.reclaimKey moves on.
+                    if (!checked) { toggle(); return; }
                     page.iconSizeKey = sizeKey;
                     page.markChanged("widget_icon_size");
                 }

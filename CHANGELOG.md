@@ -18,6 +18,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installed app uses, says about how much space they take, and removes them when you agree. The
   new `reclaim` setting (`ask`, `automatic`, `off`) can also remove them after each update.
   Scripts read the list as `reclaim` in `state.json`.
+- **The widget offers to free the space too.** When unused Flatpak runtimes take 100 MB or more,
+  the popup says how much and offers **Free Up Space**. **Show What** lists them. Settings has
+  **Unused Flatpak runtimes** to choose ask, remove after updates, or never.
 
 ### Fixed
 

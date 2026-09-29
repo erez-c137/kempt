@@ -73,6 +73,16 @@ UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
 open(UNSTAGERC, "w").write("0")
 open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
 open(UNSTAGEERR, "w").write("")
+# `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
+# behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
+# state.json alone). The real command rewrites state.json before it exits, with reclaim.last.
+RECLAIMRC = os.path.join(p.sandbox, "reclaimrc")
+RECLAIMOUT = os.path.join(p.sandbox, "reclaimout")
+RECLAIMERR = os.path.join(p.sandbox, "reclaimerr")
+RECLAIMST = os.path.join(p.sandbox, "reclaimst")
+for _f in (RECLAIMOUT, RECLAIMERR, RECLAIMST):
+    open(_f, "w").write("")
+open(RECLAIMRC, "w").write("0")
 
 
 def now_stamped(entry):
@@ -152,11 +162,15 @@ case "$1" in
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
   unstage) cat %(UOUT)s; cat %(UERR)s >&2; exit "$(cat %(URC)s)" ;;
+  reclaim) src="$(cat %(RST)s)"
+           if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
+           cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
 esac
 """ % {"CFG": harness.config_arm(surface="echo popup", auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
        "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
-       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC})
+       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
+       "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget
 # that regressed to the old command would produce that line again, and the run-end assertion far
@@ -834,6 +848,9 @@ if live is None:
 QQmlEngine.setObjectOwnership(live, QQmlEngine.CppOwnership)
 p.keep.append((full, live))
 lev = p.evaluator(live)
+# No window, so no layout pass: the list area would stay 0 px tall and the placeholder, which
+# stands down when it does not fit, would never show. Give it the room a real popup has.
+lev("listArea.height = 2000")
 
 # No applet behind the attached object here, exactly as on a panel where the containment draws
 # nothing: the expression evaluates (a `False`, not the `None` an EXPR ERROR would give) and
@@ -1449,6 +1466,151 @@ open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart insta
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
 
+# --- Free Up Space: the reclaim offer's button ------------------------------------------------
+# `kempt reclaim -y --expect=<digest> --allow-auth`: the digest is the consent (the CLI removes
+# nothing unless the set on offer is still the one shown), and the size reported is the one the
+# run wrote to reclaim.last, in the offer's own spelling.
+def reclaim_from(source, name, mode="ask", last=None, offer=True):
+    doc = json.load(open(source))
+    block = {"mode": mode, "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    if offer:
+        block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
+            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
+             "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"}])
+    if last is not None:
+        block["last"] = last
+    doc["reclaim"] = block
+    path = os.path.join(p.sandbox, name)
+    open(path, "w").write(json.dumps(doc))
+    return path
+
+
+RC_OFFER = reclaim_from(UPTODATE, "state-reclaim.json")
+RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
+    "at": "@NOW@", "via": "widget", "result": "removed",
+    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
+    "digest": "0123456789abcdef"})
+RC_CANCEL = reclaim_from(UPTODATE, "state-reclaim-cancel.json", last={
+    "at": "@NOW@", "via": "widget", "result": "failed", "refs": [], "bytes": None,
+    "digest": "0123456789abcdef"})
+state(RC_OFFER)
+ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
+p.pump(100)
+p.check("the offer is on screen with its two actions",
+        [lev("reclaimMessage.visible"), lev("reclaimMessage.actions[0].text"),
+         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show What"])
+p.check("...and the button says what it does, for the eye and for a screen reader",
+        [lev("reclaimMessage.actions[0].tooltip"),
+         lev("reclaimMessage.actions[0].Accessible.description")],
+        ["Removes the Flatpak runtimes listed under Show What. May ask for authorization."] * 2)
+
+open(CHECKSRC, "w").write(RC_GONE)
+open(RECLAIMST, "w").write(RC_GONE)
+open(RECLAIMOUT, "w").write("No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\n"
+                            "Removing them frees about 1.5 GB.\nFreed about 1.5 GB.\n")
+p.clear_calls()
+lev("reclaimMessage.actions[0].trigger()")
+p.check("a press is pending until the CLI answers, and the button is disabled meanwhile",
+        [ev("root.actionPending"), lev("reclaimMessage.actions[0].enabled")], [True, False])
+p.check("...and says the removal is running, in the label a screen reader reads too",
+        lev("reclaimMessage.actions[0].text"), "Freeing Up Space…")
+ev("root.reclaimSpace(); root.discardStaged(); root.stageOffline()")
+p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
+settle()
+p.check("...presses while it is pending start nothing: exactly one reclaim",
+        [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
+p.check("...which removes only the set shown, and may ask for an administrator",
+        p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef", "--allow-auth"])
+p.check("...and says how much it freed, in the offer's own spelling", ev("root.actionDone"),
+        "Freed ~1.5 GB.")
+p.check("...as the thing that just happened, not as a failure",
+        [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
+p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)
+
+# The set changed after it was shown: exit 6, in the CLI's words, and the offer stays for the new
+# set the CLI's own re-check publishes.
+state(RC_OFFER)
+open(RECLAIMST, "w").write("")
+open(RECLAIMRC, "w").write("6")
+open(RECLAIMOUT, "w").write("")
+open(RECLAIMERR, "w").write(
+    "What Flatpak can remove changed since this was shown. Nothing was removed.\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a set that changed since it was shown removes nothing, and says so",
+        ev("root.actionMessage"),
+        "What Flatpak can remove changed since this was shown. Nothing was removed.")
+p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
+
+# The password dialog cancelled or refused: with --allow-auth that is a failed uninstall, exit 1,
+# and this press's record says nothing is gone.
+open(CHECKSRC, "w").write(RC_CANCEL)
+open(RECLAIMST, "w").write(RC_CANCEL)
+open(RECLAIMRC, "w").write("1")
+open(RECLAIMERR, "w").write("Flatpak could not remove them. See: kempt log\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a cancelled password dialog says nothing was removed",
+        ev("root.actionMessage"), "Could not free the space. Nothing was removed.")
+
+# An update holding the lock.
+open(CHECKSRC, "w").write(RC_OFFER)
+state(RC_OFFER)
+open(RECLAIMST, "w").write("")
+open(RECLAIMRC, "w").write("3")
+open(RECLAIMERR, "w").write("another kempt update is running\n")
+ev('root.actionMessage = ""; root.actionDone = ""')
+lev("reclaimMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("an update holding the lock is a sentence, not the CLI's lowercase note",
+        ev("root.actionMessage"), ev("Logic.COPY.reclaimBusy"))
+
+p.check("the label is back once the CLI has answered", lev("reclaimMessage.actions[0].text"),
+        "Free Up Space")
+
+# A run on its way (Update Now pressed, `kempt run` not back yet) greys the button out.
+ev("root.runRequested = true")
+p.pump(30)
+p.check("the button is greyed out while a run is starting",
+        lev("reclaimMessage.actions[0].enabled"), False)
+ev("root.runRequested = false")
+p.pump(30)
+p.check("...and usable again after", lev("reclaimMessage.actions[0].enabled"), True)
+
+# The guard every banner action has: nothing runs during a run.
+ev("root.enterUpdating()")
+p.clear_calls()
+ev("root.reclaimSpace()")
+settle()
+p.check("a reclaim asked for during a run does not run", p.call_count("reclaim"), 0)
+ev("root.leaveUpdating()")
+settle()
+
+# reclaim=automatic: the line says the next update removes them, and the button is the one that
+# does not wait.
+state(reclaim_from(UPTODATE, "state-reclaim-auto.json", mode="automatic"))
+p.pump(100)
+p.check("with reclaim=automatic the button does not wait for the next update",
+        lev("reclaimMessage.actions[0].text"), "Free Up Space Now")
+p.check("...and the line says the next update would",
+        str(lev("reclaimMessage.text")).endswith("Kempt removes them after the next update."), True)
+_auto_failed = json.load(open(os.path.join(p.sandbox, "state-reclaim-auto.json")))
+_auto_failed["reclaim"]["status"] = "failed"
+open(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"), "w").write(json.dumps(_auto_failed))
+state(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"))
+p.pump(100)
+p.check("after the automatic try failed, the next update skips this set, so the button is plain",
+        lev("reclaimMessage.actions[0].text"), "Free Up Space")
+open(RECLAIMRC, "w").write("0")
+open(RECLAIMERR, "w").write("")
+open(CHECKSRC, "w").write(CONFLICT1)
+ev('root.actionMessage = ""; root.actionDone = ""')
+
 # Stale is not a message any more. It is three words on the footer's dateline, with the CLI's
 # own reason in the tooltip of the button that tries again.
 _sev("clear()")
@@ -1598,6 +1760,46 @@ p.check("with no answer at all there is nothing to offer, so no Update Now",
 p.check("...and the popup says it has no data rather than claiming zero updates",
         lev("placeholder.visible"), True)
 
+# --- the placeholder never paints outside its area ------------------------------------------------
+# It is centred in the space the list would take, and at the smallest popup size with a message
+# or two above it that space is shorter than icon + sentence: centred, it spilled upward over the
+# messages, the offer's buttons included. So it drops the icon when the whole thing does not fit,
+# and stands down when even the words do not - the header says the same thing. Every empty state
+# uses it, so each is driven here: up to date, no answer yet, and a CLI that could not be run.
+# Nothing lays out a popup with no window, so the area's height is forced and the thresholds are
+# the file's own measurements; probe_a11y.py checks the painted geometry in a real window.
+
+
+def placeholder_fits(label):
+    words = lev("placeholderWords.implicitHeight")
+    full = lev("placeholderFull.implicitHeight")
+    p.check(label + ": the words are measured, and the icon adds to them", 0 < words < full, True)
+    for h, want in ((2000, [True, True]), (full, [True, True]), (full - 1, [True, False]),
+                    (words, [True, False]), (words - 1, [False, False])):
+        lev("listArea.height = %d" % h)
+        p.pump(20)
+        p.check("...area %s: shown, with icon" % ({2000: "roomy", full: "exactly full",
+                                                   full - 1: "a pixel short of full",
+                                                   words: "exactly the words",
+                                                   words - 1: "a pixel short of the words"}[h]),
+                [lev("placeholder.visible"), lev("placeholder.iconName") != ""], want)
+    lev("listArea.height = 2000")
+    p.pump(20)
+
+
+state(UPTODATE)
+placeholder_fits("up to date")
+ev("root.kemptState = null")
+p.pump(50)
+placeholder_fits("no answer yet")
+ev('root.cliError = "kempt: command not found"')
+p.pump(50)
+p.check("a CLI that could not be run is an empty state with an explanation",
+        lev("placeholder.explanation") != "", True)
+placeholder_fits("could not run the CLI")
+ev('root.cliError = ""')
+p.pump(20)
+
 # --- the refresh icon, and the one spinner ---------------------------------------------------------
 state(fixture("state-live.json"))
 before_check = p.call_count("check")
@@ -1690,6 +1892,74 @@ p.check("...and the message can come back at all, which the raw assignment would
         lev("restartMessage.visible"), True)
 p.check("...with the footer quiet about it again",
         "restart pending" in str(lev("footerLabel.text")), False)
+
+# --- an ancestor hiding is not the close button ----------------------------------------------------
+# Plasma builds the popup inside a container that is hidden until the popup opens, and hides it
+# again when it closes. Either way the messages' effective `visible` goes false with the view model
+# still wanting them, which is also what the close button looks like. Neither message may read it
+# as a close: that dismissed both at startup, before anyone saw them.
+# The container is a CHILD of the inline root: a parentless item with no window cannot be shown
+# again once hidden, so toggling the root would measure Qt rather than the popup.
+RC_BOTH = reclaim_from(UPTODATE_REBOOT, "state-reclaim-reboot.json")
+state(RC_BOTH)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
+p.pump(50)
+p.check("premise: restart and reclaim are both in the stack",
+        ev("JSON.stringify(root.vm.messageSlots)"), '["restart","reclaim"]')
+_outer, _hev = p.create_inline("""
+import QtQuick
+Item {
+    property alias host: host
+    property var made: null
+    Item {
+        id: host
+        visible: false
+    }
+    function make(item, model, later) {
+        var c = Qt.createComponent("FullRepresentation.qml");
+        made = c.createObject(later ? null : host, {plasmoidItem: item, vm: model});
+        if (made !== null && later) made.parent = host;
+        return made !== null;
+    }
+}
+""", "hidden-host.qml")
+p.engine.rootContext().setContextProperty("probeRoot", root)
+p.check("a popup can be built and then moved into a hidden container",
+        _hev("make(probeRoot, probeRoot.vm, true)"), True)
+p.pump(80)
+p.check("...and that dismisses neither message",
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+_hev("made.destroy()")
+p.pump(30)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+p.pump(30)
+p.check("a popup can be built inside a hidden container, as Plasma builds it",
+        _hev("make(probeRoot, probeRoot.vm, false)"), True)
+p.pump(80)
+p.check("...and building it hidden dismisses neither message",
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+_hev("host.visible = true")
+p.pump(80)
+p.check("...so both show once the container does",
+        [_hev("made.visible"), _hev("made.children.length > 0")], [True, True])
+_shown = """(function () { var out = [];
+  (function walk(o) {
+     if (o.showCloseButton !== undefined && o.visible) out.push(String(o.text).split("\\n")[0]);
+     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
+  })(made); return out.length; })()"""
+p.check("...both messages on screen in it", _hev(_shown), 2)
+_hev("host.visible = false")
+p.pump(50)
+_hev("host.visible = true")
+p.pump(50)
+p.check("hiding the container and showing it again (closing and opening the popup) dismisses "
+        "neither", [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+p.check("...so both are still wanted, and on screen",
+        [ev("JSON.stringify(root.vm.messageSlots)"), _hev(_shown)], ['["restart","reclaim"]', 2])
+_hev("made.destroy()")
+p.pump(30)
+ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+p.pump(30)
 
 # A prompt that could not be opened is said HERE, where the user pressed. Silence is the worst
 # outcome of all: a button that appears to do nothing looks exactly like one that did something
@@ -2168,6 +2438,20 @@ _SUBSTITUTED_IN_QML = {
 }
 
 _ASSEMBLED_IN_LOGIC = {
+    "reclaimSized",         # -> reclaimMessageOf -> vm.reclaimMessage (the size goes into the %1)
+    "reclaimUnsized",       # -> reclaimMessageOf -> vm.reclaimMessage
+    "reclaimAutomatic",     # -> reclaimMessageOf -> vm.reclaimMessage, after either of those
+    "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
+    "reclaimFreed",         # -> reclaimOutcomeOf -> actionDone (the size goes into the %1)
+    "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
+    "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
+    "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
+    "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
+    "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
+    "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up
+    "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
+    "reclaimRemovedOne",    # -> reclaimedTailOf -> postRunLine and lastRunText
+    "reclaimRemovedMore",   # -> reclaimedTailOf -> postRunLine and lastRunText (a count)
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message

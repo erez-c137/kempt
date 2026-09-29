@@ -110,6 +110,12 @@ PlasmoidItem {
     // within half a minute of it being made.
     onRestartReminderChanged: if (restartReminder) restartDismissed = false;
 
+    // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
+    // unused runtimes is offered again; not persisted, like restartDismissed.
+    property string reclaimDismissed: ""
+    // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
+    property bool reclaimRunning: false
+
     // Our own report of a restart prompt that could not be opened; empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message, which is where the
     // user pressed. Silence is the worst outcome available: a button that appears to do nothing is
@@ -202,6 +208,7 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
+                                                reclaimDismissed: reclaimDismissed,
                                                 engineFault: engineFault,
                                                 // What a run started NOW would actually do. The
                                                 // popup needs it because the refusals the CLI
@@ -767,6 +774,42 @@ PlasmoidItem {
     // and a status line that ends "restart pending", so the popup stops nagging without lying.
     function dismissRestart() {
         restartDismissed = true;
+    }
+
+    // Free Up Space: the discardStaged pattern, with a longer wait (Logic.RECLAIM_TIMEOUT_MS) that
+    // outlasts the engine's own, so actionPending keeps Update Now off for the whole removal.
+    // --expect is the consent: the CLI removes nothing
+    // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
+    // re-read is needed first. --allow-auth because a person pressed it, and a polkit dialog is
+    // fine here. The size reported comes from reclaim.last, read back after the run.
+    function reclaimSpace() {
+        if (updating || runRequested || actionPending) return;
+        var digest = vm.reclaimDigest;
+        if (digest === "") return;
+        actionPending = true;
+        reclaimRunning = true;
+        actionMessage = "";
+        actionDone = "";
+        var pressedMs = Date.now();
+        executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest)
+                     + " --allow-auth", Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
+            root.actionPending = false;             // first, so no outcome below can skip it
+            root.reclaimRunning = false;
+            root.adoptState(function (fresh) {
+                var reclaim = fresh !== null && fresh.reclaim && typeof fresh.reclaim === "object"
+                    ? fresh.reclaim : {};
+                var said = Logic.reclaimOutcomeOf(rc, stdout, stderr, reclaim.last || null, pressedMs);
+                // doCheck clears the last event's lines at its top; this one is about the press.
+                root.doCheck();
+                if (said.ok) root.actionDone = said.text;
+                else root.actionMessage = said.text;
+            });
+        });
+    }
+
+    // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
+    function dismissReclaim() {
+        reclaimDismissed = vm.reclaimDigest;
     }
 
     // Show Log, through the desktop's own handler so the user gets whatever they have chosen for a

@@ -347,7 +347,30 @@ var COPY = {
     // their command. And it points at Discover for the Flatpak rows, which are the one thing on
     // this list somebody CAN act on - saying nothing about them next to a list of them would be
     // its own small lie.
-    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below."
+    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below.",
+
+    // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
+    // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
+    // own estimate, never a promise. The second sentence is why removing them is safe.
+    reclaimSized: "%1 can be freed. No installed app uses these Flatpak runtimes.",
+    reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
+    // Added with reclaim=automatic, where the next successful update removes them anyway.
+    reclaimAutomatic: "Kempt removes them after the next update.",
+    // After a ref in the Show What list whose branch Flatpak marks end of life.
+    reclaimEol: "(no longer supported)",
+    reclaimShowWhat: "Show What",
+    // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
+    reclaimFreed: "Freed %1.",
+    reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
+    reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
+    reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
+    reclaimBusy: "An update is already running. Nothing was removed.",
+    reclaimFailed: "Could not free the space (exit %1).",
+    reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Check again in a few minutes.",
+    // The Last update row and the line after a run, when automatic reclaim removed something.
+    reclaimFreedTail: "%1 freed",
+    reclaimRemovedOne: "1 unused runtime removed",
+    reclaimRemovedMore: "%1 unused runtimes removed"
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -515,6 +538,13 @@ var ICON_SIZE_FLOOR_AT_AUTO = { large: true };
 function resolveIconSizeSetting(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
     return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
+}
+
+// resolveReclaimSetting(value) -> ask | automatic | off, read as the CLI's reclaim_mode reads it:
+// case-folded, and anything that is not exactly automatic or off is ask.
+function resolveReclaimSetting(value) {
+    var s = String(value === undefined || value === null ? "" : value).toLowerCase();
+    return (s === "automatic" || s === "off") ? s : "ask";
 }
 
 // resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
@@ -936,12 +966,14 @@ var MESSAGE_CAP = 2;
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
 //            pending" whenever this message is not on screen, so the fact is never lost.
-//   kernel   the offline recommendation. Last: it is advice about a transaction that will still be
-//            there next time the popup is opened.
+//   kernel   the offline recommendation: advice about a transaction that will still be there next
+//            time the popup is opened.
+//   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
 // `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
 // the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel"];
+var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel",
+                     "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -955,6 +987,60 @@ function messageStack(wants) {
         if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
     }
     return out;
+}
+
+// --- the reclaim offer ------------------------------------------------------------------------
+// Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
+var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
+var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
+// How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, which is
+// backends/flatpak.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s) + two listings of
+// KEMPT_RECLAIM_LIST_TIMEOUT (15 s) + KEMPT_RECLAIM_DU_TIMEOUT (30 s) + the closing check.
+// Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
+var RECLAIM_TIMEOUT_MS = 780000;
+
+// The size on offer, or null when the CLI could not work it out. A value of the wrong type is
+// read as unknown, never coerced.
+function reclaimBytesOf(reclaim) {
+    var b = reclaim.offerable_bytes;
+    return (typeof b === "number" && isFinite(b) && b >= 0) ? b : null;
+}
+
+// reclaimOffered(state.reclaim) -> may the popup offer to remove these? Only with a digest: the
+// CLI leaves it empty when nothing is unused or part of the list is younger than an hour.
+function reclaimOffered(reclaim) {
+    if (!reclaim || typeof reclaim !== "object" || isArray(reclaim)) return false;
+    if (typeof reclaim.digest !== "string" || !RECLAIM_DIGEST_RE.test(reclaim.digest)) return false;
+    var bytes = reclaimBytesOf(reclaim);
+    return bytes === null || bytes >= RECLAIM_MIN_BYTES;
+}
+
+// reclaimMessageOf(state.reclaim) -> the offer's one line. The automatic sentence is left out
+// while the last automatic try needed an administrator or failed: the next update skips that set.
+// reclaimAutoPending(reclaim) -> will the next update remove this set? Not after an automatic try
+// that failed or needed an administrator: the CLI skips that set until it changes.
+function reclaimAutoPending(reclaim) {
+    return reclaimOffered(reclaim) && reclaim.mode === "automatic"
+        && reclaim.status !== "needs_auth" && reclaim.status !== "failed";
+}
+
+function reclaimMessageOf(reclaim) {
+    if (!reclaimOffered(reclaim)) return "";
+    var bytes = reclaimBytesOf(reclaim);
+    var line = bytes === null ? COPY.reclaimUnsized
+                              : fill(COPY.reclaimSized, "%1", formatDownload(bytes));
+    if (reclaimAutoPending(reclaim)) line += " " + COPY.reclaimAutomatic;
+    return line;
+}
+
+// reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
+// kind/id/arch/branch ref. Any other shape is shown as the CLI wrote it.
+function reclaimRefLineOf(entry) {
+    if (!entry || typeof entry !== "object" || typeof entry.ref !== "string") return "";
+    var parts = entry.ref.split("/");
+    var line = parts.length === 4 ? parts[1] + " " + parts[3] : entry.ref;
+    if (typeof entry.eol === "string" && entry.eol !== "") line += " " + COPY.reclaimEol;
+    return line;
 }
 
 // stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
@@ -1310,6 +1396,18 @@ function lastRunOf(text) {
         removed += arrayOf(backend.removed).length;
     }
 
+    // What automatic reclaim removed after this run (backends.flatpak.reclaimed). Only a removal
+    // counts: a failed or refused one never fails the run and is reported through the state.
+    var reclaimed = backends.flatpak && typeof backends.flatpak === "object"
+        ? backends.flatpak.reclaimed : null;
+    var reclaimedCount = 0, reclaimedBytes = null;
+    if (reclaimed && typeof reclaimed === "object" && reclaimed.status === "removed") {
+        reclaimedCount = arrayOf(reclaimed.refs).length;
+        if (typeof reclaimed.bytes === "number" && isFinite(reclaimed.bytes) && reclaimed.bytes > 0) {
+            reclaimedBytes = reclaimed.bytes;
+        }
+    }
+
     var status = typeof entry.status === "string" ? entry.status : "";
     var when = typeof entry.timestamp === "string" ? entry.timestamp : "";
     return {
@@ -1342,8 +1440,20 @@ function lastRunOf(text) {
         // real stage as nothing. Only the two words the CLI writes are accepted; anything else is
         // a build this one does not understand, and "I do not know" is the honest reading of it.
         stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
-            ? entry.staged_nothing : null
+            ? entry.staged_nothing : null,
+        reclaimedCount: reclaimedCount,
+        reclaimedBytes: reclaimedBytes
     };
+}
+
+// reclaimedTailOf(run) -> "" or the clause the run lines append: " · ~1.5 GB freed".
+function reclaimedTailOf(run) {
+    if (!run || run.failed || !(run.reclaimedCount > 0)) return "";
+    if (typeof run.reclaimedBytes === "number") {
+        return DOT + fill(COPY.reclaimFreedTail, "%1", formatDownload(run.reclaimedBytes));
+    }
+    return DOT + (run.reclaimedCount === 1 ? COPY.reclaimRemovedOne
+                  : fill(COPY.reclaimRemovedMore, "%1", String(run.reclaimedCount)));
 }
 
 // postRunLine(run) -> the transient line shown once, right after a run finishes.
@@ -1368,14 +1478,14 @@ function postRunLine(run) {
     }
     if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges;
+    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run);
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
     var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -1437,6 +1547,43 @@ function discardStagedMessage(rc, stdout, stderr) {
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
 }
 
+// reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
+// Free Up Space (`kempt reclaim -y --expect=<digest> --allow-auth`). `last` is the state's
+// reclaim.last as read after the run, and only counts when it is at least as new as the press
+// (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
+// stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
+// LAST line is its outcome, and on failure stderr's first line is.
+function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
+    var fresh = null;
+    if (last && typeof last === "object" && typeof sinceMs === "number" && isFinite(sinceMs)) {
+        var at = stampMs(last.at);
+        if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
+    }
+    if (rc === 0) {
+        if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
+                && isFinite(fresh.bytes) && fresh.bytes > 0) {
+            return { ok: true, text: fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) };
+        }
+        var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+        var tail = "";
+        for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
+        return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
+    }
+    // --allow-auth means a cancelled or refused polkit dialog is a failed uninstall (exit 1), and
+    // this press's record says so with nothing gone.
+    if (rc === 1 && fresh !== null && fresh.result === "failed" && arrayOf(fresh.refs).length === 0
+            && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
+        return { ok: false, text: COPY.reclaimNothingRemoved };
+    }
+    if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
+    var msg = firstLineOf(stderr);
+    // The Executor's own kill (Executor.qml): the CLI never answered, and its removal may be running.
+    if (rc === 124 && msg.indexOf("timeout after ") === 0) return { ok: false, text: COPY.reclaimTimedOut };
+    if (msg !== "") return { ok: false, text: msg };
+    if (rc === 6) return { ok: false, text: COPY.reclaimChanged };
+    return { ok: false, text: fill(COPY.reclaimFailed, "%1", String(rc)) };
+}
+
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
 // The counting phrases are built here rather than kept in COPY because they are grammar around a
 // number, not a wording decision. The zero case is the exception: "no package changes" is the
@@ -1467,7 +1614,7 @@ function lastRunText(run, nowMs) {
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
-    return "Last update " + relativeTime(run.when, nowMs) + DOT + what;
+    return "Last update " + relativeTime(run.when, nowMs) + DOT + what + reclaimedTailOf(run);
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -1481,6 +1628,8 @@ function lastRunText(run, nowMs) {
 //                      not say, and the CLI's default is true. Read with isTrue, because config
 //                      values arrive as text.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
+//   reclaimDismissed - the reclaim digest whose offer was closed in this session, or "". A new
+//                      digest (a different set of runtimes) shows the offer again.
 //   engineFault      - "" when the engine answered, else WHICH way it did not: "missing" (rc 127,
 //                      nothing to run) or "unrunnable" (rc 126, there and would not start). Any
 //                      other value reads as "", because this replaces the popup's whole body and
@@ -1799,6 +1948,20 @@ function viewModel(state, updating, cliError, opts) {
         ? true : isTrue(opts.restartReminder);
     var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
 
+    // --- unused Flatpak runtimes ------------------------------------------------------------------
+    var reclaim = usable ? state.reclaim : null;
+    var reclaimMessage = reclaimMessageOf(reclaim);
+    var reclaimDigest = reclaimMessage !== "" ? reclaim.digest : "";
+    var reclaimLines = [];
+    if (reclaimMessage !== "") {
+        var reclaimRefs = arrayOf(reclaim.refs);
+        for (var r = 0; r < reclaimRefs.length; r++) {
+            var refLine = reclaimRefLineOf(reclaimRefs[r]);
+            if (refLine !== "") reclaimLines.push(refLine);
+        }
+    }
+    var reclaimShown = reclaimMessage !== "" && opts.reclaimDismissed !== reclaimDigest;
+
     // --- which messages actually fit ------------------------------------------------------------
     // Decided HERE and not in the popup, because the footer depends on the answer: a restart the
     // cap displaced has to reappear as "restart pending" on the status line, and a popup deciding
@@ -1823,7 +1986,8 @@ function viewModel(state, updating, cliError, opts) {
         // without the advice. Dropping it entirely took the warning off the screen while the live
         // button stayed on it, which is the wrong half to lose. On an image-based box there is no
         // live button either, and riskyIsMoot silences it outright.
-        kernel: riskyMessage !== ""
+        kernel: riskyMessage !== "",
+        reclaim: reclaimShown && !updating
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -1974,6 +2138,12 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
+        // The reclaim offer: its line, one line per runtime for Show What, the digest the button
+        // passes to `kempt reclaim --expect`, and which of the two button labels applies.
+        reclaimMessage: reclaimMessage,
+        reclaimLines: reclaimLines,
+        reclaimDigest: reclaimDigest,
+        reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
@@ -2008,6 +2178,12 @@ if (typeof module !== "undefined" && module.exports) {
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,
         MESSAGE_CAP: MESSAGE_CAP,
+        RECLAIM_MIN_BYTES: RECLAIM_MIN_BYTES,
+        reclaimOffered: reclaimOffered,
+        reclaimMessageOf: reclaimMessageOf,
+        reclaimRefLineOf: reclaimRefLineOf,
+        reclaimOutcomeOf: reclaimOutcomeOf,
+        RECLAIM_TIMEOUT_MS: RECLAIM_TIMEOUT_MS,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
         runFinishedSince: runFinishedSince,
@@ -2027,6 +2203,7 @@ if (typeof module !== "undefined" && module.exports) {
         snapIconSize: snapIconSize,
         resolveIconSize: resolveIconSize,
         resolveIconSizeSetting: resolveIconSizeSetting,
+        resolveReclaimSetting: resolveReclaimSetting,
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,

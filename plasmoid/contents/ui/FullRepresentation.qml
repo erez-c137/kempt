@@ -155,6 +155,16 @@ PlasmaExtras.Representation {
     // staged" to "you held kf6-kio after this was prepared" changes its colour, its type and its
     // buttons silently, for the person who most needs to hear it.
     //
+    // closedByButton(message, key) -> did this message's close button just hide it?
+    // `visible` is the EFFECTIVE visibility, so it also goes false when an ancestor hides: Plasma
+    // builds the popup in a hidden container and hides it on every close. The close button hides
+    // only the message, so its parent is still visible then; an ancestor hiding takes the parent
+    // with it (Qt updates a parent before its children). And the view model must still want the
+    // message, which is what a run starting (the stack put away) fails.
+    function closedByButton(message, key) {
+        return message.parent !== null && message.parent.visible && popup.shows(key);
+    }
+
     // `spoken` is what stops one change being announced twice: `text` and `visible` are two
     // bindings onto the same view-model change and both handlers fire. It is cleared when the
     // message goes away, so a banner that comes back says itself again.
@@ -495,7 +505,7 @@ PlasmaExtras.Representation {
             // and an update would quietly switch the reminder off for the rest of the session.
             onVisibleChanged: {
                 if (visible) return;
-                if (!popup.shows("restart")) return;
+                if (!popup.closedByButton(restartMessage, "restart")) return;
                 popup.plasmoidItem.dismissRestart();
                 visible = Qt.binding(function () { return popup.shows("restart"); });
             }
@@ -712,10 +722,62 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
+        // wrong, and LAST in the order (logic.js, MESSAGE_ORDER): the offer keeps until the next open.
+        // Show What adds one line per runtime under the sentence, so the name read out lists them too.
+        Kirigami.InlineMessage {
+            id: reclaimMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            showCloseButton: true
+            property bool showingWhat: false
+            text: showingWhat && popup.vm.reclaimLines.length > 0
+                  ? popup.vm.reclaimMessage + "\n" + popup.vm.reclaimLines.join("\n")
+                  : popup.vm.reclaimMessage
+            Accessible.name: text
+            visible: popup.shows("reclaim")
+            // Polite: an offer, not something that happened to the person.
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(reclaimMessage, false)
+            actions: [
+                Kirigami.Action {
+                    id: reclaimAction
+                    // The label is also what a screen reader reads, so the running state is words.
+                    text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
+                        : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
+                    icon.name: "edit-clear-all"
+                    tooltip: i18n("Removes the Flatpak runtimes listed under Show What. May ask for authorization.")
+                    Accessible.description: tooltip
+                    enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
+                             && !popup.plasmoidItem.updating
+                    onTriggered: source => popup.plasmoidItem.reclaimSpace()
+                },
+                Kirigami.Action {
+                    id: reclaimShowWhat
+                    text: i18n("Show What")
+                    icon.name: "view-list-details"
+                    checkable: true
+                    checked: reclaimMessage.showingWhat
+                    onTriggered: source => reclaimMessage.showingWhat = !reclaimMessage.showingWhat
+                }
+            ]
+            // The close button assigns visible = false and breaks the binding, as on the restart
+            // message: turn it into a dismissal of this digest and put the binding back. The guard
+            // tells a close apart from the popup hiding for a run.
+            onVisibleChanged: {
+                if (visible) { popup.speakMessage(reclaimMessage, false); return; }
+                reclaimMessage.spoken = "";
+                if (!popup.closedByButton(reclaimMessage, "reclaim")) return;
+                popup.plasmoidItem.dismissReclaim();
+                visible = Qt.binding(function () { return popup.shows("reclaim"); });
+            }
+        }
+
         // --- the list, and what stands in for it when there is none --------------------------------
         // One Item holding both, so the placeholder is centred in the space the list would have
         // occupied rather than in the whole popup.
         Item {
+            id: listArea
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -844,17 +906,47 @@ PlasmaExtras.Representation {
             // diagnoses it. Note what it is NOT shown for: a box whose only pending updates are
             // held has rows, so the Held group carries the truth instead and "everything is up to
             // date" is never said over the top of it.
+            //
+            // Centred, it grows both ways, so in an area shorter than itself it paints over the
+            // messages above - measured at the smallest popup size with the reclaim offer up. So
+            // it never takes more than the area has: the icon goes first, and when even the words
+            // do not fit the whole thing stands down, because the header already says the same.
+            // The heights come from the two copies below, never from the placeholder itself:
+            // dropping the icon changes its height, and a test against that would be a loop.
             PlasmaExtras.PlaceholderMessage {
                 id: placeholder
                 anchors.centerIn: parent
                 width: parent.width - Kirigami.Units.gridUnit * 4
-                visible: popup.vm.rows.length === 0 && text.length > 0
-                iconName: popup.vm.iconState === "error" ? "dialog-error"
+                readonly property bool wanted: popup.vm.rows.length === 0 && text.length > 0
+                readonly property bool iconFits: listArea.height >= placeholderFull.implicitHeight
+                visible: wanted && listArea.height >= placeholderWords.implicitHeight
+                iconName: !iconFits ? ""
+                          : popup.vm.iconState === "error" ? "dialog-error"
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.remedyCommand.length > 0
                              ? i18n("Run `%1` in a terminal to find out why.", popup.vm.remedyCommand)
                              : ""
+            }
+
+            // Two copies of the placeholder, never shown, to measure it with and without the
+            // icon: its own height cannot be the test, because the test changes it. Copies rather
+            // than arithmetic on its parts, because PlaceholderMessage adds space of its own: a sum
+            // of the icon and the words came out 14 px short in a real window.
+            PlasmaExtras.PlaceholderMessage {
+                id: placeholderFull
+                visible: false
+                width: placeholder.width
+                iconName: "update-none"
+                text: placeholder.text
+                explanation: placeholder.explanation
+            }
+            PlasmaExtras.PlaceholderMessage {
+                id: placeholderWords
+                visible: false
+                width: placeholder.width
+                text: placeholder.text
+                explanation: placeholder.explanation
             }
         }
 
