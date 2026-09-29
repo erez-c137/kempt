@@ -11,6 +11,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`kempt run --surface=<surface>`** runs one update on a surface other than the configured one.
   **Install on Next Restart** and **Rebuild** use it.
+- **`kempt check --coalesce`** takes the answer of a check that finished while this one waited
+  for its turn. The widget uses it for the checks nobody asked for. `kempt log` shows such a check
+  as `check shared`.
 
 ### Fixed
 
