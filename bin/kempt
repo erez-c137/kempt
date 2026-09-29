@@ -35,9 +35,13 @@ reclaim_classify() {  # $1 = listing JSON → [{ref, commit, since, eol, offerab
                         and (.ref | type == "string") and (.commit | type == "string"))] else [] end' \
           "$STATE_FILE" 2>/dev/null)" || prev='[]'
   [[ "$prev" == \[* ]] || prev='[]'
-  jq -c -n --argjson l "$1" --argjson prev "$prev" --argjson now "$(date +%s)" \
+  # Every listing and ref list goes to jq as a file, never as an argument: Linux caps one argument
+  # at 128 KiB, which a machine with a few hundred installed refs passes.
+  jq -c -n --slurpfile l <(printf '%s\n' "$1") --slurpfile prev <(printf '%s\n' "$prev") \
+        --argjson now "$(date +%s)" \
         --arg nowiso "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson settle "$KEMPT_RECLAIM_SETTLE" '
-    ($prev | map({key: (.ref + " " + .commit), value: .since}) | from_entries) as $p
+    $l[0] as $l | $prev[0] as $prev
+    | ($prev | map({key: (.ref + " " + .commit), value: .since}) | from_entries) as $p
     | [$l.unused[]
        | ($p[.ref + " " + .commit] // null) as $s
        | (if ($s | type) == "string" then (try ($s | fromdateiso8601) catch null) else null end) as $se
@@ -59,8 +63,9 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   [[ "$mode" != off ]] || return 0
   last="$(reclaim_last_read)"
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
-    jq -cn --arg mode "$mode" --argjson last "$last" \
-      '{mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
+    jq -cn --arg mode "$mode" --slurpfile last <(printf '%s\n' "$last") \
+      '$last[0] as $last
+       | {mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -69,8 +74,9 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   # an hour there is no offer at all: the refs are listed with their since, the digest is empty,
   # and there is no size to estimate.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    jq -cn --arg mode "$mode" --argjson c "$classified" --argjson last "$last" \
-      '{mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
+    jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile last <(printf '%s\n' "$last") \
+      '$c[0] as $c | $last[0] as $last
+       | {mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -85,9 +91,10 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
     || return 0
   # needs_auth and failed are carried from the last removal only while the set it tried is still
   # the set on offer: a failure is shown once per set, and a new set gets a fresh chance.
-  jq -cn --arg mode "$mode" --argjson c "$classified" --argjson sz "$sizes" --argjson sized "$sized" \
-         --arg digest "$digest" --argjson last "$last" '
-    ($c | map(select(.offerable))) as $off
+  jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile sz <(printf '%s\n' "$sizes") \
+         --argjson sized "$sized" --arg digest "$digest" --slurpfile last <(printf '%s\n' "$last") '
+    $c[0] as $c | $sz[0] as $sz | $last[0] as $last
+    | ($c | map(select(.offerable))) as $off
     | {mode: $mode,
        refs: [$c[] | {ref, commit, since, eol}],
        offerable_bytes: (if ($off | length) == 0 then 0
@@ -221,18 +228,30 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
 }
 
 # Every listed ref present in the run's before-snapshot, whose rows are `id/branch` for a runtime
-# and `id` for an app (flatpak_snapshot). `flatpak list --runtime` hides the .Locale, .Debug and
-# .Sources extensions without --all, so one of those counts as present when its parent runtime is,
-# on the same branch. The snapshot has no arch column, so the branch is the whole match.
+# and `id` for an app (flatpak_snapshot). `flatpak list` hides the .Locale, .Debug and .Sources
+# extensions without --all, so one of those counts as present when its parent is: a runtime on the
+# same branch, or an app (whose row has no branch). An extension whose parent is gone too is
+# present when a check saw it unused before the run began (its since predates the snapshot).
 reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are there
-  local keys missing
-  keys="$(jq -r '.[].ref | split("/")
-                 | if .[0] == "runtime" then "\(.[1] | sub("[.](Locale|Debug|Sources)$"; ""))/\(.[3])"
-                   else .[1] end' \
+  local keys missing start
+  # An empty snapshot would put every key in the lookup table below, not none of them.
+  [[ -s "$2" ]] || return 1
+  start="$(date -r "$2" +%s 2>/dev/null)" || return 1
+  # One line per ref: the snapshot rows that would prove it present, tab-separated. `*` (never a
+  # row) stands for "seen unused before the run began".
+  keys="$(jq -r --argjson start "$start" '
+            .[] | (.ref | split("/")) as $r
+            | if $r[0] != "runtime" then $r[1]
+              elif ($r[1] | test("[.](Locale|Debug|Sources)$")) then
+                ($r[1] | sub("[.](Locale|Debug|Sources)$"; "")) as $p
+                | ((try (.since | fromdateiso8601) catch null) // $start) as $s
+                | [$p + "/" + $r[3], $p] + (if $s < $start then ["*"] else [] end) | join("\t")
+              else $r[1] + "/" + $r[3] end' \
           <<<"$1" 2>/dev/null)" || return 1
   [[ -n "$keys" ]] || return 1
-  missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next } !($0 in have)' "$2" - <<<"$keys" 2>/dev/null)" \
-    || return 1
+  missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next }
+                         { for (i = 1; i <= NF; i++) if ($i in have || $i == "*") next; print }' \
+             "$2" - <<<"$keys" 2>/dev/null)" || return 1
   [[ -z "$missing" ]]
 }
 
@@ -271,8 +290,8 @@ reclaim_after_run() {  # log_file
   [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
   run_heading "$1" "Unused Flatpak runtimes"
   reclaim_remove update "$digest" "" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
-  RECLAIM_RUN_JSON="$(jq -cn --argjson g "$RECLAIM_GONE" --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
+  RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
+    '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
 }
@@ -420,7 +439,7 @@ cmd_check() {
   local reclaim_json merged
   reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
   if [[ -n "$reclaim_json" ]] \
-     && merged="$(jq --argjson r "$reclaim_json" '. + {reclaim: $r}' <<<"$state" 2>/dev/null)" \
+     && merged="$(jq --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}' <<<"$state" 2>/dev/null)" \
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
@@ -1424,8 +1443,8 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" --argjson fp_reclaimed "${RECLAIM_RUN_JSON:-null}" '
-    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
+        --argjson fp_eol "$fp_eol" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") '
+    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
@@ -2276,6 +2295,13 @@ cmd_unstage() {
   cmd_check >/dev/null 2>&1 || true
 }
 
+# Whether state.json holds a list of unused refs from a check that could read one, so each ref's
+# since is on record.
+reclaim_on_record() {
+  jq -e -n '[inputs][0].reclaim | type == "object" and (.refs | type) == "array" and .status != "failed"' \
+    "$STATE_FILE" >/dev/null 2>&1
+}
+
 # `kempt reclaim` - remove the Flatpak runtimes no installed app uses. Run as the desktop user,
 # never as root (reclaim_as_root says why). Exit 6 is this command's own: the set Flatpak would
 # remove is not the one that was shown (or part of it is too new to trust), so nothing was removed
@@ -2309,6 +2335,19 @@ cmd_reclaim() {
     echo "Nothing was removed. Flatpak is not installed." >&2
     exit 5
   fi
+  # With no check on record, nothing says when any ref became unused, so every ref is first seen
+  # now and the removal is refused. Run a check first so the hour starts now. The update lock comes
+  # before check.lock, as in cmd_update, and both are let go before anything below takes one.
+  # With an update running, its own closing check does this instead.
+  local first=""
+  if [[ "$(reclaim_mode)" != off ]] && ! reclaim_on_record; then
+    first=1
+    if acquire_lock; then
+      cmd_check >/dev/null 2>&1 || true
+      { flock -u 9; exec 9>&-; } 2>/dev/null || true
+      release_lock
+    fi
+  fi
   local listing classified sizes_tsv bytes="" digest
   if ! listing="$(flatpak_unused_list 2>/dev/null)" \
      || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
@@ -2321,14 +2360,18 @@ cmd_reclaim() {
     return 0
   fi
   echo "No installed app uses these Flatpak runtimes:"
-  jq -r '.[] | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)
-                          + (if .offerable then "" else " (unused for less than an hour)" end)' <<<"$classified"
+  jq -r --arg young "$([[ -n "$first" ]] && echo "first seen just now" || echo "unused for less than an hour")" '
+    .[] | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)
+                     + (if .offerable then "" else " (\($young))" end)' <<<"$classified"
   if sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
     bytes="$(jq -R -n -r '[inputs | split("\t") | select(length == 2) | (.[1] | tonumber)] | add // 0' \
              <<<"$sizes_tsv" 2>/dev/null)" || bytes=""
   fi
   [[ -n "$bytes" && "$bytes" != 0 ]] && echo "Removing them frees about $(human_bytes "$bytes")."
-  [[ -n "$list" ]] && return 0
+  if [[ -n "$list" ]]; then
+    [[ -n "$first" ]] && echo "These were first seen just now. They can be removed in an hour."
+    return 0
+  fi
 
   if [[ "$(reclaim_mode)" == off ]]; then
     echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
@@ -2337,7 +2380,11 @@ cmd_reclaim() {
   fi
   # Said before any question: agreeing to a set that is not yet removable would only end in a refusal.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+    if [[ -n "$first" ]]; then
+      echo "Nothing was removed. These were first seen just now, and Kempt waits an hour in case something is still being installed. Try again in an hour." >&2
+    else
+      echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+    fi
     log_event "reclaim changed (unstable), nothing removed"
     exit 6
   fi
@@ -2730,6 +2777,11 @@ doctor_reclaim_row() {
   flatpak_present || return 0
   is_true "$(config_get include_flatpak)" || return 0
   [[ "$(reclaim_mode)" != off ]] || return 0
+  # As root the helper would list against root's apps, which is not the listing a check makes.
+  if reclaim_as_root; then
+    doctor_info "unused Flatpak runtimes: not checked as root. Run kempt doctor as yourself to check the listing"
+    return 0
+  fi
   local out rc=0 why
   # shellcheck disable=SC2086  # the seam may carry its own arguments
   out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD 2>&1 >/dev/null </dev/null 9>&-)" || rc=$?
@@ -3200,7 +3252,8 @@ cmd_disable_passwordless() {
 #   3 cannot start: jq missing, or another kempt update already holds the lock
 #   4 launcher missing (no terminal emulator for the terminal surface)
 #   5 aborted during pre-flight - nothing was changed
-#   6 reclaim only: what Flatpak would remove is not the set that was shown - nothing was removed
+#   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
+#     unused less than an hour ago (every ref, on first use) - nothing was removed
 usage() {
   cat <<'EOF'
 usage: kempt <command>

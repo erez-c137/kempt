@@ -148,8 +148,12 @@ flatpak_unused_sizes() {  # $1 = listing JSON → TSV; non-zero when unknown
   jq -e '.unused | length > 0' <<<"$listing" >/dev/null 2>&1 || return 0
   key="$(jq -r '.installation, ([.unused[], .used[] | .ref + " " + .commit] | sort[])' <<<"$listing" \
          | sha256sum | cut -c1-64)" || return 1
-  cached="$(jq -r -n --arg k "$key" '[inputs][0] | select(.key == $k) | .sizes
-                                     | to_entries[] | "\(.key)\t\(.value)"' "$RECLAIM_SIZES_FILE" 2>/dev/null)" \
+  # Served only when every unused ref has a number in it: a damaged cache is measured again.
+  cached="$(jq -r -n --arg k "$key" --slurpfile l <(printf '%s\n' "$listing") '
+              [inputs][0] | select(type == "object" and .key == $k) | .sizes
+              | select(type == "object") as $s
+              | select(all($l[0].unused[]; ($s[.ref] | type) == "number" and $s[.ref] >= 0))
+              | $l[0].unused[] | "\(.ref)\t\($s[.ref])"' "$RECLAIM_SIZES_FILE" 2>/dev/null)" \
     || cached=""
   if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return 0; fi
   readarray -t dirs < <(jq -r '.used[].deploy_dir, .unused[].deploy_dir' <<<"$listing")
@@ -157,13 +161,14 @@ flatpak_unused_sizes() {  # $1 = listing JSON → TSV; non-zero when unknown
   out="$(timeout "$KEMPT_RECLAIM_DU_TIMEOUT" $KEMPT_DU_CMD -sb -- "${dirs[@]}" </dev/null 2>/dev/null 9>&-)" || return 1
   # du prints `bytes<TAB>path` in argument order. Every unused directory must have its line, and
   # each must be a number, or there is no estimate at all rather than a smaller one.
-  out="$(jq -R -n -c --argjson l "$listing" '
-      ([inputs | split("\t") | select(length == 2 and (.[0] | test("^[0-9]+$")))
+  out="$(jq -R -n -c --slurpfile l <(printf '%s\n' "$listing") '
+      $l[0] as $l
+      | ([inputs | split("\t") | select(length == 2 and (.[0] | test("^[0-9]+$")))
         | {key: .[1], value: (.[0] | tonumber)}] | from_entries) as $du
       | [$l.unused[] | {key: .ref, value: $du[.deploy_dir]}]
       | select(all(.[]; .value != null)) | from_entries' <<<"$out" 2>/dev/null)" || return 1
   [[ -n "$out" ]] || return 1
-  jq -c -n --arg k "$key" --argjson s "$out" '{key: $k, sizes: $s}' 2>/dev/null \
+  jq -c -n --arg k "$key" --slurpfile s <(printf '%s\n' "$out") '{key: $k, sizes: $s[0]}' 2>/dev/null \
     | atomic_write "$RECLAIM_SIZES_FILE" 2>/dev/null || true
   jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"$out"
 }

@@ -411,6 +411,15 @@ assert_exit 0 "a listing that answers is an ok row" \
   env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-ok" "$KEMPT" doctor
 assert_eq "$(grep -cE '^ok +unused Flatpak runtimes: Kempt can list them' "$TESTTMP/last_output")" "1" \
   "...saying the runtimes can be listed"
+# Under sudo or pkexec the listing would count root's apps, like a removal would: skipped, said.
+printf '#!/usr/bin/env bash\necho ran >> "%s/unused-root.calls"\nexit 3\n' "$TESTTMP" > "$TESTTMP/unused-root"
+chmod +x "$TESTTMP/unused-root"
+for elevated in SUDO_UID=1000 PKEXEC_UID=1000; do
+  assert_exit 0 "doctor with $elevated does not fail on the listing" \
+    env "$elevated" KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-root" "$KEMPT" doctor
+  assert_contains "$(grep '^info' "$TESTTMP/last_output")" "unused Flatpak runtimes: not checked as root" "...and says it skipped it"
+done
+assert_eq "$(cat "$TESTTMP/unused-root.calls" 2>/dev/null || echo never)" "never" "...without running the helper"
 "$KEMPT" config set reclaim off
 assert_exit 0 "reclaim=off: the listing is not run" \
   env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor

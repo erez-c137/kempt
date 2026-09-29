@@ -48,9 +48,10 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    tests/release/run-release-check.sh
    ```
 
-   It takes several minutes and needs podman and the network. It builds the packages from the files
-   git would ship: tracked files, plus new ones not yet committed, but nothing `.gitignore` keeps
-   out. It installs them in a fresh Fedora container. Then it checks that:
+   It takes several minutes and needs podman and the network. It builds the packages from
+   `git archive`, as the release tarball is built. Uncommitted edits to tracked files are included.
+   Untracked files are left out, and the check lists them in a warning, because the tag leaves them
+   out too. It installs the packages in a fresh Fedora container. Then it checks that:
 
    - the widget lands where Plasma looks, and the installed QML runs;
    - `doctor`, `holds`, `config` and an unknown command give a new user sensible answers;

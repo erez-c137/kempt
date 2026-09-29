@@ -130,10 +130,20 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
-# Who has an account here, read by reclaim_human_accounts to decide whether automatic removal of
-# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so accounts from sssd or
-# systemd-homed count too.
+# Who has an account here, read by reclaim_many_accounts to decide whether automatic removal of
+# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so systemd-homed accounts
+# count too. Network directories (sssd, LDAP, AD) list nobody by default, so nsswitch.conf is read
+# for them, and the home directories that hold Flatpak data are counted as a third signal.
 KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
+KEMPT_NSSWITCH_FILE="${KEMPT_NSSWITCH_FILE:-/etc/nsswitch.conf}"
+KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
+# An sss or winbind source only counts when that service is set up. Upgraded machines keep an old
+# authselect `passwd: sss files systemd` line with no sssd behind it. /etc/sssd is readable only by
+# root and the sssd group, so for everyone else systemd, which checked for a config file as root
+# when it tried to start sssd, answers instead.
+KEMPT_SSSD_DIR="${KEMPT_SSSD_DIR:-/etc/sssd}"
+KEMPT_SMB_CONF="${KEMPT_SMB_CONF:-/etc/samba/smb.conf}"
+KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
 # Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
 # unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
 # dialog itself.
@@ -352,14 +362,63 @@ reclaim_as_root() {  # → 0 when this process must not reclaim
   [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
 }
 
-# Human accounts on this machine: a UID in Fedora's regular range and a shell someone can log in
-# with. More than one means automatic removal behaves as ask, because libflatpak counts only the
-# calling user's --user apps as users, and another person's app may need a runtime this listing
-# calls unused. A lookup that fails counts as "more than one", for the same reason.
-reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
-  local out
-  out="$($KEMPT_GETENT_CMD 2>/dev/null </dev/null)" || return 1
-  awk -F: '$3 >= 1000 && $3 <= 60000 && $7 != "" && $7 !~ /(nologin|false)$/ { n++ } END { print n + 0 }' <<<"$out"
+# Whether more than one person may have apps here. libflatpak counts only the calling user's
+# --user apps as users, so another person's app may need a runtime this listing calls unused, and
+# automatic removal then behaves as ask. Any one signal is enough: more than one local login
+# account (UID 1000 or above, except nobody; an empty shell means /bin/sh), a network account
+# source in nsswitch.conf, or Flatpak data in more than one home. A lookup that fails or takes
+# longer than 5 seconds counts as more than one, for the same reason.
+reclaim_sssd_configured() {  # → 0 when sssd defines a domain, or it cannot tell
+  local d="$KEMPT_SSSD_DIR" f out
+  [[ -e "$d" ]] || return 1
+  if [[ -r "$d" && -x "$d" ]]; then
+    for f in "$d/sssd.conf" "$d"/conf.d/*.conf; do
+      [[ -e "$f" ]] || continue
+      [[ -r "$f" ]] || return 0
+      grep -qE '^[[:space:]]*\[domain/' "$f" && return 0
+    done
+    return 1
+  fi
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  out="$(timeout 5 $KEMPT_SYSTEMCTL_CMD show -p ActiveState -p ConditionResult \
+           -p ConditionTimestampMonotonic sssd.service 2>/dev/null </dev/null 9>&-)" || return 0
+  # Not running, and systemd found no config file when it last tried to start it.
+  awk -F= '{ v[$1] = $2 } END { exit !(v["ActiveState"] != "active" && v["ConditionResult"] == "no" &&
+            v["ConditionTimestampMonotonic"] ~ /^[1-9][0-9]*$/) }' <<<"$out" && return 1
+  return 0
+}
+
+reclaim_winbind_configured() {  # → 0 when Samba joins a domain, or it cannot tell
+  local f="$KEMPT_SMB_CONF"
+  [[ -e "$f" ]] || return 1
+  [[ -r "$f" ]] || return 0
+  awk '{ sub(/[;#].*/, ""); line = tolower($0); gsub(/[[:space:]]/, "", line) }
+       line ~ /^security=(ads|domain)$/ { f = 1 } END { exit !f }' "$f"
+}
+
+reclaim_many_accounts() {  # → 0 when more than one person may use this machine, or it cannot tell
+  local out n
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  out="$(timeout 5 $KEMPT_GETENT_CMD 2>/dev/null </dev/null 9>&-)" || return 0
+  n="$(awk -F: '$3 ~ /^[0-9]+$/ && $3 >= 1000 && $3 != 65534 && $7 !~ /(nologin|false)$/ { n++ }
+               END { print n + 0 }' <<<"$out")" || return 0
+  (( n > 1 )) && return 0
+  local src
+  if [[ -r "$KEMPT_NSSWITCH_FILE" ]]; then
+    while IFS= read -r src; do
+      case "$src" in
+        sss) reclaim_sssd_configured && return 0 ;;
+        winbind) reclaim_winbind_configured && return 0 ;;
+        *) return 0 ;;
+      esac
+    done < <(awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
+                    if ($i ~ /^(sss|ldap|winbind|nis)$/) print $i }' "$KEMPT_NSSWITCH_FILE")
+  fi
+  local root d
+  n="$(for root in $KEMPT_HOME_ROOTS; do
+         for d in "$root"/*/.local/share/flatpak; do [[ -d "$d" ]] && readlink -f "$d" || :; done
+       done 2>/dev/null | sort -u | awk 'NF { n++ } END { print n + 0 }')" || n=0
+  (( n > 1 ))
 }
 
 # The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
@@ -367,11 +426,11 @@ reclaim_human_accounts() {  # → a count, or nothing when the lookup failed
 # one human account the listing does not know about the others' apps. Both fall back to ask, so
 # the space is still shown and a person decides.
 reclaim_effective_mode() {  # → ask | automatic | off
-  local mode n
+  local mode
   mode="$(reclaim_mode)"
   if [[ "$mode" == automatic ]]; then
     if on_ostree; then mode=ask
-    elif ! n="$(reclaim_human_accounts)" || [[ -z "$n" ]] || (( n > 1 )); then mode=ask
+    elif reclaim_many_accounts; then mode=ask
     fi
   fi
   printf '%s\n' "$mode"
@@ -423,9 +482,9 @@ reclaim_last_read() {  # → one JSON object
 # popup, never the removal's own exit status.
 reclaim_last_write() {  # via result refs-json bytes-or-empty digest [error-line]
   kempt_init_dirs 2>/dev/null || return 0
-  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
+  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --slurpfile refs <(printf '%s\n' "$3") \
          --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" \
-    '{at:$at, via:$via, result:$result, refs:$refs,
+    '{at:$at, via:$via, result:$result, refs:$refs[0],
       bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
      + (if $error == "" then {} else {error: $error} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true

@@ -36,7 +36,19 @@ else
 fi
 # Not under lib/ or backends/: the package strips the shebang from every file there, and this one
 # is executed rather than sourced.
-assert_eq "$(head -1 "$HELPER")" "#!/usr/bin/python3" "the helper names its interpreter absolutely"
+assert_eq "$(head -1 "$HELPER")" "#!/usr/bin/python3 -s" "the helper names its interpreter absolutely, without the user's site-packages"
+# -s keeps a `gi` in ~/.local/lib/python3.*/site-packages from shadowing the system one. Proved with
+# usercustomize, which Python imports from the user site at startup unless -s is given.
+if command -v python3 >/dev/null 2>&1; then
+  export PYTHONUSERBASE="$TESTTMP/userbase"
+  usite="$(python3 -c 'import site; print(site.getusersitepackages())')"
+  mkdir -p "$usite"
+  printf 'open(%s, "w").write("loaded")\n' "'$TESTTMP/usersite-loaded'" > "$usite/usercustomize.py"
+  FAKE_FLATPAK_JSON="$UNUSED_FX" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" >/dev/null 2>&1 || true
+  assert_eq "$(cat "$TESTTMP/usersite-loaded" 2>/dev/null || echo "not loaded")" "not loaded" \
+    "...so nothing in the user's site-packages is loaded"
+  unset PYTHONUSERBASE
+fi
 assert_exit 0 "...and is executable in the tree" -- test -x "$HELPER"
 
 # --- stubs for everything the CLI runs ------------------------------------------------------------
@@ -257,11 +269,145 @@ assert_eq "$(KEMPT_GETENT_CMD="$TESTTMP/no-getent" check | jq -r '.reclaim.mode'
 touch "$TESTTMP/ostree-booted"
 assert_eq "$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" check | jq -r '.reclaim.mode')" "ask" \
   "...and on an image-based system, where Kempt runs no updates to remove after, it publishes ask"
+# Accounts the old count missed. A second stand-in getent prints the one-person machine above plus
+# $EXTRA_PASSWD, so each case adds one line.
+cat > "$STUBS/getent-plus" <<'STUB'
+#!/usr/bin/env bash
+"$STUBS/getent"
+[[ -n "${EXTRA_PASSWD:-}" ]] && printf '%s\n' "$EXTRA_PASSWD"
+exit 0
+STUB
+chmod +x "$STUBS/getent-plus"
+mode_with() { EXTRA_PASSWD="$1" KEMPT_GETENT_CMD="$STUBS/getent-plus" check | jq -r '.reclaim.mode'; }
+assert_eq "$(mode_with 'kim:x:60100:60100:Kim:/home/kim:/bin/bash')" "ask" \
+  "a systemd-homed account (UID above 60000) is a second person"
+assert_eq "$(mode_with 'lee:x:1002:1002:Lee:/home/lee:')" "ask" "...and so is an account with an empty shell, which means /bin/sh"
+assert_eq "$(mode_with 'nobody:x:65534:65534:Nobody:/:/bin/bash')" "automatic" "...but never nobody, whatever its shell"
+assert_eq "$(mode_with 'svc:x:1003:1003::/var/lib/svc:/sbin/nologin')" "automatic" "...nor an account that cannot log in"
+printf 'passwd:     files sss systemd\n' > "$TESTTMP/nss-sss"
+printf '# passwd: files sss\npasswd:     files systemd  # no sss here\n' > "$TESTTMP/nss-local"
+# sss and winbind count only when that service is set up, since upgraded machines keep an old
+# `passwd: sss files` line with no sssd behind it.
+nss_mode() { KEMPT_NSSWITCH_FILE="$TESTTMP/$1" check | jq -r '.reclaim.mode'; }
+assert_eq "$(nss_mode nss-sss)" "automatic" \
+  "sss in nsswitch.conf with no sssd config publishes automatic, as an upgraded machine keeps the line"
+SD="$TESTTMP/sssd"; mkdir -p "$SD/conf.d"
+printf '[sssd]\nservices = nss\n' > "$SD/sssd.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "automatic" "...and so does an sssd config with no domain"
+printf '[domain/corp.example]\nid_provider = ldap\n' > "$SD/conf.d/corp.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "ask" \
+  "an sssd domain publishes ask, since getent lists none of its accounts"
+rm "$SD/conf.d/corp.conf"; chmod 000 "$SD/sssd.conf"
+assert_eq "$(KEMPT_SSSD_DIR="$SD" nss_mode nss-sss)" "ask" "...and so does an sssd config it cannot read"
+chmod 600 "$SD/sssd.conf"; chmod 000 "$SD"
+cat > "$STUBS/systemctl" <<'STUB'
+#!/usr/bin/env bash
+[[ "$*" == *sssd.service* ]] || exit 1
+[[ -n "${SSSD_SHOW:-}" ]] || exit 1
+printf '%b' "$SSSD_SHOW"
+STUB
+chmod +x "$STUBS/systemctl"
+sd_mode() { SSSD_SHOW="$1" KEMPT_SYSTEMCTL_CMD="$STUBS/systemctl" KEMPT_SSSD_DIR="$SD" nss_mode nss-sss; }
+assert_eq "$(sd_mode 'ActiveState=inactive\nConditionResult=no\nConditionTimestampMonotonic=4512\n')" "automatic" \
+  "an sssd dir it cannot read defers to systemd: sssd found no config when it last tried, automatic"
+assert_eq "$(sd_mode 'ActiveState=active\nConditionResult=yes\nConditionTimestampMonotonic=4512\n')" "ask" \
+  "...sssd running publishes ask"
+assert_eq "$(sd_mode 'ActiveState=inactive\nConditionResult=no\nConditionTimestampMonotonic=0\n')" "ask" \
+  "...sssd never tried is not proof of no config, so ask"
+assert_eq "$(sd_mode '')" "ask" "...and a systemctl that fails publishes ask"
+chmod 700 "$SD"
+printf 'passwd:     files winbind\n' > "$TESTTMP/nss-winbind"
+assert_eq "$(nss_mode nss-winbind)" "automatic" "winbind in nsswitch.conf with no smb.conf publishes automatic"
+printf '[global]\n\tsecurity = user\n; security = ads\n' > "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "automatic" \
+  "...and so does a Samba that joins no domain, a commented-out line included"
+printf '[global]\n   Security = ADS\n' > "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "ask" "a Samba joined to a domain publishes ask"
+chmod 000 "$TESTTMP/smb.conf"
+assert_eq "$(KEMPT_SMB_CONF="$TESTTMP/smb.conf" nss_mode nss-winbind)" "ask" "...and so does an smb.conf it cannot read"
+chmod 600 "$TESTTMP/smb.conf"
+printf 'passwd:     files ldap\n' > "$TESTTMP/nss-ldap"
+assert_eq "$(nss_mode nss-ldap)" "ask" "ldap in nsswitch.conf publishes ask from the line alone"
+assert_eq "$(KEMPT_NSSWITCH_FILE="$TESTTMP/nss-local" check | jq -r '.reclaim.mode')" "automatic" \
+  "...while local sources, and a commented-out sss, publish automatic"
+HR="$TESTTMP/homes"; mkdir -p "$HR/home/alex/.local/share/flatpak"
+ln -s home "$HR/var-home"
+assert_eq "$(KEMPT_HOME_ROOTS="$HR/home $HR/var-home" check | jq -r '.reclaim.mode')" "automatic" \
+  "one home with Flatpak data, reached through two paths, is one person"
+mkdir -p "$HR/home/sam/.local/share/flatpak"
+assert_eq "$(KEMPT_HOME_ROOTS="$HR/home $HR/var-home" check | jq -r '.reclaim.mode')" "ask" \
+  "two homes with Flatpak data publish ask"
 config_set reclaim nonsense
 assert_eq "$(check | jq -r '.reclaim.mode')" "ask" "an unknown value publishes ask"
 config_set reclaim ask
 age_state 7200
 check >/dev/null
+
+# --- the before-snapshot guard ----------------------------------------------------------------------
+# reclaim_all_in_snapshot, from bin/kempt: after an update, every ref must have been installed when
+# the run began. Its snapshot rows are `id/branch` for a runtime and a bare `id` for an app.
+source /dev/stdin <<<"$(sed -n '/^reclaim_all_in_snapshot()/,/^}/p' "$KEMPT")"
+snap_classified() { jq -c --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '[.[] | {ref: ., commit: ("a" * 64), since: $now, eol: null, offerable: true}]' <<<"$1"; }
+SNAPF="$TESTTMP/fp-before.tsv"
+printf 'org.freedesktop.Platform/24.08\t?\t%s\n' "$(printf 'a%.0s' {1..64})" > "$SNAPF"
+in_snap() { reclaim_all_in_snapshot "$(snap_classified "$1")" "$SNAPF" && echo present || echo missing; }
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "present" "a runtime in the snapshot is present"
+assert_eq "$(in_snap '["runtime/org.kde.Platform/x86_64/6.9"]')" "missing" "...one that is not there is missing"
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform.Locale/x86_64/24.08"]')" "present" \
+  "a runtime's Locale extension, hidden from the snapshot, is present when its runtime is"
+# An app's extension: the app row is its bare id, with no branch.
+printf 'org.mozilla.firefox\t140.0\t%s\n' "$(printf 'b%.0s' {1..64})" >> "$SNAPF"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox.Locale/x86_64/stable"]')" "present" \
+  "an app's Locale extension is present when the app is"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox/x86_64/stable"]')" "missing" \
+  "...but a runtime that is not an extension never matches an app row"
+assert_eq "$(in_snap '["runtime/org.mozilla.firefox2.Locale/x86_64/stable"]')" "missing" \
+  "...nor does another app's extension"
+# The app is gone as well, so the snapshot cannot show the extension. A check that saw it unused
+# before the run began proves it was there.
+grep -v firefox "$SNAPF" > "$SNAPF.new" && mv "$SNAPF.new" "$SNAPF"
+touch -d '2026-06-01 12:00:00 UTC' "$SNAPF"
+fx_ref='[{"ref":"runtime/org.mozilla.firefox.Locale/x86_64/stable","commit":"'"$(printf 'c%.0s' {1..64})"'","eol":null,"offerable":true'
+assert_eq "$(reclaim_all_in_snapshot "$fx_ref"',"since":"2026-06-01T10:00:00Z"}]' "$SNAPF" && echo present || echo missing)" "present" \
+  "an extension whose app is gone is present when a check saw it unused before the run began"
+assert_eq "$(reclaim_all_in_snapshot "$fx_ref"',"since":"2026-06-01T12:30:00Z"}]' "$SNAPF" && echo present || echo missing)" "missing" \
+  "...and missing when it was first seen after"
+fx_rt='[{"ref":"runtime/org.kde.Platform/x86_64/6.9","commit":"'"$(printf 'c%.0s' {1..64})"'","eol":null,"offerable":true'
+assert_eq "$(reclaim_all_in_snapshot "$fx_rt"',"since":"2026-06-01T10:00:00Z"}]' "$SNAPF" && echo present || echo missing)" "missing" \
+  "...a rule for extensions only: a runtime the snapshot does not have stays missing"
+: > "$SNAPF"
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "missing" \
+  "an empty snapshot proves nothing: every ref reads as missing"
+
+# --- a listing too big for one argument ------------------------------------------------------------
+# Linux caps one argument at 128 KiB, which about 460 installed refs pass. 1000 unused refs must
+# still be listed, sized and offered.
+jq -n --arg c "$(printf 'd%.0s' {1..64})" '{installation: "/var/lib/flatpak", used: [],
+  unused: [range(1000) | {ref: "runtime/org.example.Big\(.)/x86_64/1", commit: $c,
+                          deploy_dir: "/var/lib/flatpak/runtime/org.example.Big\(.)/x86_64/1/\($c)", eol: null}]}' > "$LISTING"
+cp "$DU_TABLE" "$TESTTMP/du-before-big"
+jq -r '.unused[].deploy_dir | "\(.)\t1000"' "$LISTING" > "$DU_TABLE"
+rm -f "$RECLAIM_SIZES_FILE"
+assert_eq "$(check | jq -c '.reclaim | [.status, (.refs | length)]')" '["ok",1000]' "a check lists 1000 unused refs"
+age_state 7200
+out="$(check)"
+assert_eq "$(jq -c '.reclaim | [.status, (.refs | length), .offerable_bytes, (.digest | length)]' <<<"$out")" '["ok",1000,1000000,16]' \
+  "...and, once they have aged, sizes and offers all of them"
+assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1000000" "...and serves the size from its cache"
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$(grep -c 'org.example.Big' <<<"$out")" "0|1000" "kempt reclaim --list shows all 1000"
+cp "$TESTTMP/du-before-big" "$DU_TABLE"; cp "$UNUSED_FX" "$LISTING"; rm -f "$RECLAIM_SIZES_FILE"
+check >/dev/null; age_state 7200; check >/dev/null
+
+# --- a damaged size cache ---------------------------------------------------------------------------
+# The cache is served only when its key matches AND every unused ref has a number in it.
+assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1975000000" "setup: the size cache holds all five"
+for damage in '.sizes[.sizes | keys[0]] = "lots"' 'del(.sizes[.sizes | keys[0]])' '.sizes = []'; do
+  jq "$damage" "$RECLAIM_SIZES_FILE" > "$TESTTMP/sz" && mv "$TESTTMP/sz" "$RECLAIM_SIZES_FILE"
+  rm -f "$STUBS/du.calls"
+  assert_eq "$(check | jq -c '.reclaim | [.offerable_bytes, .status]')|$(cat "$STUBS/du.calls" 2>/dev/null | wc -l)" \
+    '[1975000000,"ok"]|1' "a size cache damaged by $damage is measured again, not served as unknown"
+done
 
 # --- time limits inside the check ------------------------------------------------------------------
 # The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
@@ -279,11 +425,46 @@ rm -f "$RECLAIM_SIZES_FILE" "$STUBS/timeout.calls"
 PATH="$TESTTMP/tbin:$PATH" check >/dev/null
 assert_contains "$(cat "$STUBS/timeout.calls")" "15 unused" "the listing is given 15 seconds"
 assert_contains "$(cat "$STUBS/timeout.calls")" "30 du" "...and du 30"
+config_set reclaim automatic
+rm -f "$STUBS/timeout.calls"
+assert_eq "$(TIMEOUT_EXPIRE=getent PATH="$TESTTMP/tbin:$PATH" check | jq -r '.reclaim.mode')" "ask" \
+  "an account lookup that runs out of time publishes ask"
+assert_contains "$(cat "$STUBS/timeout.calls")" "5 getent" "...and it is given 5 seconds"
+config_set reclaim ask
 rm -f "$RECLAIM_SIZES_FILE"
 out="$(TIMEOUT_EXPIRE=du PATH="$TESTTMP/tbin:$PATH" check)"
 assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"unknown_size"]' \
   "a du that runs out of time is an unknown size"
 check >/dev/null
+
+# --- kempt reclaim with no check on record ---------------------------------------------------------
+# Nothing records when a ref became unused until a check lists it. kempt reclaim runs that check
+# itself, so the hour starts now and a second try an hour later can remove them.
+cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-first"
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$("$KEMPT" reclaim -y </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "6" "first use, with no check on record: refused, exit 6"
+assert_contains "$out" "These were first seen just now" "...saying they were first seen now"
+assert_contains "$out" "Try again in an hour." "...and when to try again"
+assert_contains "$out" "(first seen just now)" "...with each ref marked the same way"
+assert_eq "$(state_reclaim | jq -c '[.status, (.refs | length)]')" '["ok",5]' \
+  "...and a check has recorded when each was first seen"
+assert_exit 0 "...and let go of the update lock" -- flock -n "$KEMPT_STATE_DIR/lock" true
+assert_exit 0 "...and of the check lock" -- flock -n "$KEMPT_STATE_DIR/check.lock" true
+age_state 7200
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "0" "an hour later the same list is on record"
+assert_not_contains "$out" "first seen just now" "...and no longer called new"
+assert_not_contains "$out" "less than an hour" "...nor too young to remove"
+# --list says the same on first use. With an update holding the lock it lists without the check.
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc" "0" "reclaim --list on first use exits 0"
+assert_contains "$out" "These were first seen just now. They can be removed in an hour." "...and says when they can go"
+jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
+rc=0; out="$(flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$(state_reclaim)" "0|null" "with an update running, --list still lists and runs no check"
+cp "$TESTTMP/state-before-first" "$KEMPT_STATE_DIR/state.json"
 
 # --- kempt reclaim ----------------------------------------------------------------------------------
 # Every ref has been unused for two hours now, so the whole set is on offer under DIGEST5.
