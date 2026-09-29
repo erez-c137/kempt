@@ -363,7 +363,7 @@ var COPY = {
     reclaimFreed: "Freed %1.",
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
-    reclaimNeedsAuth: "Removing these needs an administrator.",
+    reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
     reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Check again in a few minutes.",
@@ -1016,15 +1016,19 @@ function reclaimOffered(reclaim) {
 
 // reclaimMessageOf(state.reclaim) -> the offer's one line. The automatic sentence is left out
 // while the last automatic try needed an administrator or failed: the next update skips that set.
+// reclaimAutoPending(reclaim) -> will the next update remove this set? Not after an automatic try
+// that failed or needed an administrator: the CLI skips that set until it changes.
+function reclaimAutoPending(reclaim) {
+    return reclaimOffered(reclaim) && reclaim.mode === "automatic"
+        && reclaim.status !== "needs_auth" && reclaim.status !== "failed";
+}
+
 function reclaimMessageOf(reclaim) {
     if (!reclaimOffered(reclaim)) return "";
     var bytes = reclaimBytesOf(reclaim);
     var line = bytes === null ? COPY.reclaimUnsized
                               : fill(COPY.reclaimSized, "%1", formatDownload(bytes));
-    if (reclaim.mode === "automatic" && reclaim.status !== "needs_auth"
-            && reclaim.status !== "failed") {
-        line += " " + COPY.reclaimAutomatic;
-    }
+    if (reclaimAutoPending(reclaim)) line += " " + COPY.reclaimAutomatic;
     return line;
 }
 
@@ -1563,8 +1567,11 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
         return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
     }
-    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
-        return { ok: false, text: COPY.reclaimNeedsAuth };
+    // --allow-auth means a cancelled or refused polkit dialog is a failed uninstall (exit 1), and
+    // this press's record says so with nothing gone.
+    if (rc === 1 && fresh !== null && fresh.result === "failed" && arrayOf(fresh.refs).length === 0
+            && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
+        return { ok: false, text: COPY.reclaimNothingRemoved };
     }
     if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
     var msg = firstLineOf(stderr);
@@ -2134,7 +2141,7 @@ function viewModel(state, updating, cliError, opts) {
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,
         reclaimDigest: reclaimDigest,
-        reclaimAutomatic: reclaimMessage !== "" && reclaim.mode === "automatic",
+        reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
         footerText: footerParts.join(DOT),
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.

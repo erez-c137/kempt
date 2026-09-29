@@ -1487,9 +1487,8 @@ RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
     "at": "@NOW@", "via": "widget", "result": "removed",
     "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
     "digest": "0123456789abcdef"})
-RC_AUTH = reclaim_from(UPTODATE, "state-reclaim-auth.json", last={
-    "at": "@NOW@", "via": "widget", "result": "needs_auth",
-    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": None,
+RC_CANCEL = reclaim_from(UPTODATE, "state-reclaim-cancel.json", last={
+    "at": "@NOW@", "via": "widget", "result": "failed", "refs": [], "bytes": None,
     "digest": "0123456789abcdef"})
 state(RC_OFFER)
 ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
@@ -1540,17 +1539,18 @@ p.check("a set that changed since it was shown removes nothing, and says so",
         "What Flatpak can remove changed since this was shown. Nothing was removed.")
 p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
 
-# polkit said no: the plan's short sentence, from reclaim.last, not the CLI's longer stderr.
-open(CHECKSRC, "w").write(RC_AUTH)
-open(RECLAIMST, "w").write(RC_AUTH)
-open(RECLAIMRC, "w").write("5")
-open(RECLAIMERR, "w").write("Removing these needs an administrator. Nothing was removed.\n")
+# The password dialog cancelled or refused: with --allow-auth that is a failed uninstall, exit 1,
+# and this press's record says nothing is gone.
+open(CHECKSRC, "w").write(RC_CANCEL)
+open(RECLAIMST, "w").write(RC_CANCEL)
+open(RECLAIMRC, "w").write("1")
+open(RECLAIMERR, "w").write("Flatpak could not remove them. See: kempt log\n")
 ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
-p.check("a removal polkit refused says it needs an administrator",
-        ev("root.actionMessage"), "Removing these needs an administrator.")
+p.check("a cancelled password dialog says nothing was removed",
+        ev("root.actionMessage"), "Could not free the space. Nothing was removed.")
 
 # An update holding the lock.
 open(CHECKSRC, "w").write(RC_OFFER)
@@ -1582,6 +1582,13 @@ p.check("with reclaim=automatic the button does not wait for the next update",
         lev("reclaimMessage.actions[0].text"), "Free Up Space Now")
 p.check("...and the line says the next update would",
         str(lev("reclaimMessage.text")).endswith("Kempt removes them after the next update."), True)
+_auto_failed = json.load(open(os.path.join(p.sandbox, "state-reclaim-auto.json")))
+_auto_failed["reclaim"]["status"] = "failed"
+open(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"), "w").write(json.dumps(_auto_failed))
+state(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"))
+p.pump(100)
+p.check("after the automatic try failed, the next update skips this set, so the button is plain",
+        lev("reclaimMessage.actions[0].text"), "Free Up Space")
 open(RECLAIMRC, "w").write("0")
 open(RECLAIMERR, "w").write("")
 open(CHECKSRC, "w").write(CONFLICT1)
@@ -2313,7 +2320,7 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimFreed",         # -> reclaimOutcomeOf -> actionDone (the size goes into the %1)
     "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
     "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
-    "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
+    "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
     "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
     "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up

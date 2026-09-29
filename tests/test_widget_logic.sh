@@ -2230,6 +2230,11 @@ assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimDigest")" "0123456789abcdef" \
   "...and the digest the button hands back to the CLI"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimAutomatic")" "false" "...in ask mode"
+RC_AUTO_STATE="$(printf '%s' "$RC_STATE" | sed 's/mode:"ask"/mode:"automatic"/')"
+assert_eq "$(js "L.viewModel($RC_AUTO_STATE,false).reclaimAutomatic")" "true" \
+  "in automatic mode the button is Free Up Space Now"
+assert_eq "$(js "[L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"failed"/'),false).reclaimAutomatic, L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"needs_auth"/'),false).reclaimAutomatic].join()")" \
+  "false,false" "...but not after the automatic try failed or needed an administrator: the next update skips this set"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'0123456789abcdef'}).messageSlots")" '[]' \
   "closed for this digest, it stays closed"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'ffffffffffffffff'}).messageSlots")" '["reclaim"]' \
@@ -2262,8 +2267,13 @@ assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remo
   "exit 6: the set changed after it was shown, so nothing was removed"
 assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
   "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
-assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',bytes:null}), $RC_PRESS).text")" \
-  "Removing these needs an administrator." "exit 5 after this press asked for an administrator"
+# The button passes --allow-auth, so the CLI never stops at needs_auth for it: a polkit dialog that
+# was cancelled or denied comes back as exit 1 with reclaim.last saying failed and nothing gone.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
+  "a cancelled or refused password dialog says nothing was removed"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
+  "Flatpak could not remove them. See: kempt log" "...but an older failure is not this press's: the CLI's words"
 assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Nothing was removed. Removing unused runtimes is turned off (reclaim is off).\n', null, $RC_PRESS).text")" \
   "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." "...any other refusal in the CLI's words"
 assert_eq "$(js "L.reclaimOutcomeOf(3, '', 'another kempt update is running\n', null, $RC_PRESS).text")" \
