@@ -2273,6 +2273,7 @@ cat "$RC_LISTING"
 STUB
 cat > "$RC/du" <<'STUB'
 #!/usr/bin/env bash
+[[ -n "${DU_SWAP:-}" ]] && cp "$DU_SWAP" "$RC_LISTING"   # the installation changes while du runs
 shift 2
 for d in "$@"; do printf '%s\t%s\n' "$(awk -F'\t' -v d="$d" '$1 == d { print $2 }' "$RC_DU")" "$d"; done
 STUB
@@ -2330,6 +2331,16 @@ assert_contains "$(cat "$WORLD/notifications")" "~2.0 GB freed" "the notificatio
 assert_contains "$rsum" "Removed 5 unused Flatpak runtimes, freeing about 2.0 GB." "...and so does the summary"
 assert_contains "$(cat "$(jq -r .log "$RH")")" "== Unused Flatpak runtimes ==" "the run log has the removal under its own heading"
 assert_eq "$(jq -c '.reclaim.refs' "$KEMPT_STATE_DIR/state.json")" "[]" "the closing check publishes nothing left to offer"
+
+# An app that starts needing a runtime while du measures must stop the removal: after a run that
+# updated a runtime the size cache misses, and a full du can take many seconds. So du comes before
+# the last re-list, and the removal follows that re-list directly.
+rc_offer
+jq '.used += [.unused[0]] | .unused = .unused[1:]' "$FIXTURES/flatpak-unused.json" > "$RC/now-used.json"
+rm -f "$KEMPT_STATE_DIR/reclaim-sizes.json"
+DU_SWAP="$RC/now-used.json" rc_update
+assert_eq "$(rc_calls)|$(jq -r '.backends.flatpak.reclaimed.status' "$RH")" "(none)|changed" \
+  "a runtime that became used while du ran is not removed"
 
 # A runtime the run's before-snapshot does not have was installed during the run: not removed.
 rc_offer

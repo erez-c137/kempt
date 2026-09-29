@@ -74,6 +74,7 @@ STUB
 cat > "$STUBS/pkcheck" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$STUBS/pkcheck.calls"
+[[ -n "${PKCHECK_SWAP:-}" ]] && cp "$PKCHECK_SWAP" "$LISTING"
 exit "${PKCHECK_RC:-0}"
 STUB
 cat > "$STUBS/getent" <<'STUB'
@@ -359,6 +360,24 @@ assert_eq "$rc" "1" "a removal flatpak fails: exit 1"
 assert_contains "$out" "Flatpak could not remove them." "...said plainly"
 assert_eq "$(state_reclaim | jq -c '[.status, .digest]')" "[\"failed\",\"$DIGEST5\"]" \
   "the closing check publishes failed, for this set only"
+
+# The last thing before the removal is the re-list and its comparison. An app that starts needing a
+# runtime while polkit answers must stop the removal, so the permission check comes before that last
+# look. (The same for du, which only the automatic step can reach uncached: test_update.sh.)
+jq '.used += [.unused[0]] | .unused = .unused[1:]' "$UNUSED_FX" > "$TESTTMP/now-used.json"
+restore_offer
+rc=0; out="$(PKCHECK_SWAP="$TESTTMP/now-used.json" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "6|(none)" "a runtime that became used while polkit answered is not removed"
+
+# What went is everything installed before minus what is left, so a removal that took more than the
+# list (flatpak works its list out again when it runs) is reported as it happened.
+restore_offer
+jq '.unused = [] | .used = .used[1:]' "$UNUSED_FX" > "$AFTER"
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$(jq -c '.refs | length' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | index("app/net.mkiol.SpeechNote/x86_64/stable") != null' "$RECLAIM_LAST_FILE")" \
+  "6|true" "an extra ref that went is named among the refs gone"
+jq '.unused = []' "$UNUSED_FX" > "$AFTER"
+restore_offer
 
 # Refusals that come before anything is listed.
 reset_calls

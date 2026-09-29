@@ -110,37 +110,27 @@ reclaim_authorized() {
 #
 # `flatpak uninstall --unused` works out its own list when it runs, and that is the point: removing
 # the exact refs shown would not be safe against an app that started needing one a moment ago. So
-# the list is taken again first, and the removal goes ahead only when ALL of it is the set the
-# person agreed to (the digest) and all of it has been unused for the settle time: anything extra
-# would be removed too, unseen.
+# the list is taken again, and the removal goes ahead only when ALL of it is the set the person
+# agreed to (the digest) and all of it has been unused for the settle time: anything extra would be
+# removed too, unseen. The slow steps (polkit, du) come first; the last look, and its comparison,
+# is the only thing between the list and the removal.
 reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   local via="$1" expected="$2" allow_auth="$3" before="${4:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC=""
-  local listing classified digest sizes_tsv="" after rc=0 refs_json extra=()
-  if ! listing="$(flatpak_unused_list 2>/dev/null)" \
-     || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
+  local listing sizes_tsv="" after rc=0 extra=()
+  if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     reclaim_record "$via" "$expected"; return 0
   fi
-  refs_json="$(jq -c '[.[].ref]' <<<"$classified" 2>/dev/null)" || refs_json='[]'
-  if [[ "$refs_json" == '[]' ]]; then
-    RECLAIM_RESULT=nothing; reclaim_record "$via" "$expected"; return 0
-  fi
-  digest="$(jq -r '.[] | "\(.ref)\t\(.commit)"' <<<"$classified" 2>/dev/null | reclaim_digest)" || digest=""
-  if [[ -z "$digest" || "$digest" != "$expected" ]]; then
-    RECLAIM_RESULT=changed RECLAIM_WHY=digest
-  elif ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    RECLAIM_RESULT=changed RECLAIM_WHY=unstable
-  elif [[ -n "$before" ]] && ! reclaim_all_in_snapshot "$classified" "$before"; then
-    # After an update: a ref that was not installed when the run began was put there by the run, or
-    # by something running beside it, and the hour it has "been unused" belongs to another ref.
-    RECLAIM_RESULT=changed RECLAIM_WHY=new
-  fi
-  if [[ "$RECLAIM_RESULT" == changed ]]; then reclaim_record "$via" "$digest"; return 0; fi
+  reclaim_compare "$listing" "$expected" "$before" || return 0
   if [[ -z "$allow_auth" ]] && ! reclaim_authorized; then
-    RECLAIM_RESULT=needs_auth; reclaim_record "$via" "$digest"; return 0
+    RECLAIM_RESULT=needs_auth; reclaim_record "$via" "$RECLAIM_DIGEST"; return 0
   fi
   # Sizes BEFORE the removal: afterwards the directories are gone and du has nothing to measure.
   sizes_tsv="$(flatpak_unused_sizes "$listing" 2>/dev/null)" || sizes_tsv=""
+  if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
+    RECLAIM_RESULT=failed; reclaim_record "$via" "$expected"; return 0
+  fi
+  reclaim_compare "$listing" "$expected" "$before" || return 0
   # --noninteractive unless a person asked for this one (the widget button, a yes at the terminal):
   # it tells polkit not to raise a dialog, which is right for the automatic step and wrong for a
   # click. </dev/null so no prompt waits on a terminal; 9>&- so nothing outlives this holding a lock.
@@ -148,14 +138,17 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   # shellcheck disable=SC2086  # the seam carries its own arguments
   $KEMPT_FLATPAK_UNINSTALL_CMD "${extra[@]}" </dev/null 2>&1 9>&- || rc=$?
   RECLAIM_RC=$rc
-  # What is really gone: the refs from the list that no longer appear anywhere in the installation.
-  # flatpak exits 0 on "Nothing unused to uninstall", so its status alone does not say.
+  # What is really gone: every ref installed before the removal that is not installed after it,
+  # used ones included, so a removal that took more than the list says so. flatpak exits 0 on
+  # "Nothing unused to uninstall", so its status alone does not say.
   if after="$(flatpak_unused_list 2>/dev/null)"; then
-    RECLAIM_GONE="$(jq -c --argjson a "$after" \
-      '([$a.unused[].ref, $a.used[].ref]) as $left | [.[].ref | select(. as $r | $left | index($r) | not)]' \
-      <<<"$classified" 2>/dev/null)" || RECLAIM_GONE='[]'
+    RECLAIM_GONE="$(jq -c -n --argjson b "$listing" --argjson a "$after" \
+      '[$a.unused[].ref, $a.used[].ref] as $left
+       | [$b.unused[].ref, $b.used[].ref] | map(select(. as $r | $left | index($r) | not))' 2>/dev/null)" \
+      || RECLAIM_GONE='[]'
   elif [[ $rc -eq 0 ]]; then
-    RECLAIM_GONE="$refs_json"   # flatpak said it worked and cannot be asked again: take its word
+    # flatpak said it worked and cannot be asked again: take its word for the list
+    RECLAIM_GONE="$(jq -c '[.unused[].ref]' <<<"$listing" 2>/dev/null)" || RECLAIM_GONE='[]'
   fi
   [[ "$RECLAIM_GONE" == \[* ]] || RECLAIM_GONE='[]'
   if [[ -n "$sizes_tsv" ]]; then
@@ -167,8 +160,37 @@ reclaim_remove() {  # via expected-digest allow-auth(1|"") [before-snapshot.tsv]
   elif [[ $rc -eq 0 ]]; then RECLAIM_RESULT=nothing
   else RECLAIM_RESULT=failed
   fi
-  reclaim_record "$via" "$digest"
+  reclaim_record "$via" "$RECLAIM_DIGEST"
   return 0
+}
+
+# One look at the list against what was agreed to. Non-zero when the removal must stop, with the
+# outcome already recorded (nothing unused, or changed and why). Sets RECLAIM_DIGEST. Called only
+# from reclaim_remove, whose local `via` it records under.
+reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
+  local classified
+  RECLAIM_DIGEST=""
+  if ! classified="$(reclaim_classify "$1" 2>/dev/null)"; then
+    RECLAIM_RESULT=failed; reclaim_record "$via" "$2"; return 1
+  fi
+  if [[ "$(jq -r 'length' <<<"$classified" 2>/dev/null)" == 0 ]]; then
+    RECLAIM_RESULT=nothing; reclaim_record "$via" "$2"; return 1
+  fi
+  RECLAIM_DIGEST="$(jq -r '.[] | "\(.ref)\t\(.commit)"' <<<"$classified" 2>/dev/null | reclaim_digest)" \
+    || RECLAIM_DIGEST=""
+  if [[ -z "$RECLAIM_DIGEST" || "$RECLAIM_DIGEST" != "$2" ]]; then
+    RECLAIM_RESULT=changed RECLAIM_WHY=digest
+  elif ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
+    RECLAIM_RESULT=changed RECLAIM_WHY=unstable
+  elif [[ -n "${3:-}" ]] && ! reclaim_all_in_snapshot "$classified" "$3"; then
+    # After an update: a ref that was not installed when the run began was put there by the run, or
+    # by something running beside it, and the hour it has "been unused" belongs to another ref.
+    RECLAIM_RESULT=changed RECLAIM_WHY=new
+  else
+    return 0
+  fi
+  reclaim_record "$via" "$RECLAIM_DIGEST"
+  return 1
 }
 
 # Every listed ref present in the run's before-snapshot, whose rows are `id/branch` for a runtime
