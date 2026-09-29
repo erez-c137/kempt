@@ -1725,6 +1725,16 @@ p.check("...saying what failed, in the words main.qml was given",
 p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...with no Show Log on it, because a failed press wrote no log",
         lev("reportMessage.actions[0].visible"), False)
+# Words from outside (flatpak's error line, the CLI's stderr) are shown as written, never as markup.
+ev('root.actionMessage = "error: <b>x</b> &amp; y"')
+p.pump(50)
+for _m in ("reportMessage", "reclaimMessage"):
+    _label = ("Array.prototype.filter.call(%s.contentItem.children, c => c.textFormat !== undefined)" % _m)
+    p.check("%s's label shows its text as plain text" % _m,
+            [lev(_label + ".length"), lev(_label + "[0].textFormat")], [1, lev("TextEdit.PlainText")])
+p.check("...so markup in a failure reads as its characters",
+        lev("Array.prototype.filter.call(reportMessage.contentItem.children, c => c.textFormat !== undefined)[0].length"),
+        len("error: <b>x</b> &amp; y"))
 ev('root.actionMessage = ""')
 p.pump(50)
 

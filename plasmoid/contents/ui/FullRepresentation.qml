@@ -175,6 +175,16 @@ PlasmaExtras.Representation {
         popup.announce(item.text, assertive);
     }
 
+    // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
+    // they are shown as they are, never read as markup. InlineMessage has no textFormat of its
+    // own; its label is the one child of contentItem that has one.
+    function plainTextMessage(message) {
+        var kids = message.contentItem ? message.contentItem.children : [];
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].textFormat !== undefined) kids[i].textFormat = TextEdit.PlainText;
+        }
+    }
+
     // --- the hold round trip, on this side ------------------------------------------------------
     // main.qml runs the hold and the check that follows it; what arrives here is the moment the
     // model has been replaced and the row has moved. Three things have to happen then: the
@@ -695,6 +705,7 @@ PlasmaExtras.Representation {
         // which is the line it was always explaining, with the reason in the Refresh tooltip.
         Kirigami.InlineMessage {
             id: reportMessage
+            Component.onCompleted: popup.plainTextMessage(reportMessage)
             Layout.fillWidth: true
             type: popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
                                                   : Kirigami.MessageType.Positive
@@ -727,6 +738,7 @@ PlasmaExtras.Representation {
         // Show What adds one line per runtime under the sentence, so the name read out lists them too.
         Kirigami.InlineMessage {
             id: reclaimMessage
+            Component.onCompleted: popup.plainTextMessage(reclaimMessage)
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
             showCloseButton: true
