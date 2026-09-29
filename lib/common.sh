@@ -441,9 +441,9 @@ reclaim_last_read() {  # → one JSON object
 # popup, never the removal's own exit status.
 reclaim_last_write() {  # via result refs-json bytes-or-empty digest [error-line]
   kempt_init_dirs 2>/dev/null || return 0
-  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --argjson refs "$3" \
+  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --slurpfile refs <(printf '%s\n' "$3") \
          --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" \
-    '{at:$at, via:$via, result:$result, refs:$refs,
+    '{at:$at, via:$via, result:$result, refs:$refs[0],
       bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
      + (if $error == "" then {} else {error: $error} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true

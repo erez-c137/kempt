@@ -327,6 +327,26 @@ assert_eq "$(reclaim_all_in_snapshot "$fx_rt"',"since":"2026-06-01T10:00:00Z"}]'
 assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "missing" \
   "an empty snapshot proves nothing: every ref reads as missing"
 
+# --- a listing too big for one argument ------------------------------------------------------------
+# Linux caps one argument at 128 KiB, which about 460 installed refs pass. 1000 unused refs must
+# still be listed, sized and offered.
+jq -n --arg c "$(printf 'd%.0s' {1..64})" '{installation: "/var/lib/flatpak", used: [],
+  unused: [range(1000) | {ref: "runtime/org.example.Big\(.)/x86_64/1", commit: $c,
+                          deploy_dir: "/var/lib/flatpak/runtime/org.example.Big\(.)/x86_64/1/\($c)", eol: null}]}' > "$LISTING"
+cp "$DU_TABLE" "$TESTTMP/du-before-big"
+jq -r '.unused[].deploy_dir | "\(.)\t1000"' "$LISTING" > "$DU_TABLE"
+rm -f "$RECLAIM_SIZES_FILE"
+assert_eq "$(check | jq -c '.reclaim | [.status, (.refs | length)]')" '["ok",1000]' "a check lists 1000 unused refs"
+age_state 7200
+out="$(check)"
+assert_eq "$(jq -c '.reclaim | [.status, (.refs | length), .offerable_bytes, (.digest | length)]' <<<"$out")" '["ok",1000,1000000,16]' \
+  "...and, once they have aged, sizes and offers all of them"
+assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1000000" "...and serves the size from its cache"
+rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$(grep -c 'org.example.Big' <<<"$out")" "0|1000" "kempt reclaim --list shows all 1000"
+cp "$TESTTMP/du-before-big" "$DU_TABLE"; cp "$UNUSED_FX" "$LISTING"; rm -f "$RECLAIM_SIZES_FILE"
+check >/dev/null; age_state 7200; check >/dev/null
+
 # --- time limits inside the check ------------------------------------------------------------------
 # The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
 # so both together stay well inside it. A stand-in `timeout` records the limit it was given, and

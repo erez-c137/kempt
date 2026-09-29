@@ -35,9 +35,13 @@ reclaim_classify() {  # $1 = listing JSON → [{ref, commit, since, eol, offerab
                         and (.ref | type == "string") and (.commit | type == "string"))] else [] end' \
           "$STATE_FILE" 2>/dev/null)" || prev='[]'
   [[ "$prev" == \[* ]] || prev='[]'
-  jq -c -n --argjson l "$1" --argjson prev "$prev" --argjson now "$(date +%s)" \
+  # Every listing and ref list goes to jq as a file, never as an argument: Linux caps one argument
+  # at 128 KiB, which a machine with a few hundred installed refs passes.
+  jq -c -n --slurpfile l <(printf '%s\n' "$1") --slurpfile prev <(printf '%s\n' "$prev") \
+        --argjson now "$(date +%s)" \
         --arg nowiso "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson settle "$KEMPT_RECLAIM_SETTLE" '
-    ($prev | map({key: (.ref + " " + .commit), value: .since}) | from_entries) as $p
+    $l[0] as $l | $prev[0] as $prev
+    | ($prev | map({key: (.ref + " " + .commit), value: .since}) | from_entries) as $p
     | [$l.unused[]
        | ($p[.ref + " " + .commit] // null) as $s
        | (if ($s | type) == "string" then (try ($s | fromdateiso8601) catch null) else null end) as $se
@@ -59,8 +63,9 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   [[ "$mode" != off ]] || return 0
   last="$(reclaim_last_read)"
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
-    jq -cn --arg mode "$mode" --argjson last "$last" \
-      '{mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
+    jq -cn --arg mode "$mode" --slurpfile last <(printf '%s\n' "$last") \
+      '$last[0] as $last
+       | {mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -69,8 +74,9 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   # an hour there is no offer at all: the refs are listed with their since, the digest is empty,
   # and there is no size to estimate.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    jq -cn --arg mode "$mode" --argjson c "$classified" --argjson last "$last" \
-      '{mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
+    jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile last <(printf '%s\n' "$last") \
+      '$c[0] as $c | $last[0] as $last
+       | {mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -85,9 +91,10 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
     || return 0
   # needs_auth and failed are carried from the last removal only while the set it tried is still
   # the set on offer: a failure is shown once per set, and a new set gets a fresh chance.
-  jq -cn --arg mode "$mode" --argjson c "$classified" --argjson sz "$sizes" --argjson sized "$sized" \
-         --arg digest "$digest" --argjson last "$last" '
-    ($c | map(select(.offerable))) as $off
+  jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile sz <(printf '%s\n' "$sizes") \
+         --argjson sized "$sized" --arg digest "$digest" --slurpfile last <(printf '%s\n' "$last") '
+    $c[0] as $c | $sz[0] as $sz | $last[0] as $last
+    | ($c | map(select(.offerable))) as $off
     | {mode: $mode,
        refs: [$c[] | {ref, commit, since, eol}],
        offerable_bytes: (if ($off | length) == 0 then 0
@@ -283,8 +290,8 @@ reclaim_after_run() {  # log_file
   [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
   run_heading "$1" "Unused Flatpak runtimes"
   reclaim_remove update "$digest" "" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
-  RECLAIM_RUN_JSON="$(jq -cn --argjson g "$RECLAIM_GONE" --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    '{refs: $g, bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
+  RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
+    '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
 }
@@ -432,7 +439,7 @@ cmd_check() {
   local reclaim_json merged
   reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
   if [[ -n "$reclaim_json" ]] \
-     && merged="$(jq --argjson r "$reclaim_json" '. + {reclaim: $r}' <<<"$state" 2>/dev/null)" \
+     && merged="$(jq --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}' <<<"$state" 2>/dev/null)" \
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
@@ -1436,8 +1443,8 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" --argjson fp_reclaimed "${RECLAIM_RUN_JSON:-null}" '
-    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
+        --argjson fp_eol "$fp_eol" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") '
+    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
