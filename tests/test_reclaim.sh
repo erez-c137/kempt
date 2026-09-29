@@ -263,6 +263,20 @@ config_set reclaim ask
 age_state 7200
 check >/dev/null
 
+# --- the before-snapshot guard ----------------------------------------------------------------------
+# reclaim_all_in_snapshot, from bin/kempt: after an update, every ref must have been installed when
+# the run began. Its snapshot rows are `id/branch` for a runtime and a bare `id` for an app.
+source /dev/stdin <<<"$(sed -n '/^reclaim_all_in_snapshot()/,/^}/p' "$KEMPT")"
+snap_classified() { jq -c '[.[] | {ref: ., commit: ("a" * 64), since: "2026-01-01T00:00:00Z", eol: null, offerable: true}]' <<<"$1"; }
+SNAPF="$TESTTMP/fp-before.tsv"
+printf 'org.freedesktop.Platform/24.08\t?\t%s\n' "$(printf 'a%.0s' {1..64})" > "$SNAPF"
+in_snap() { reclaim_all_in_snapshot "$(snap_classified "$1")" "$SNAPF" && echo present || echo missing; }
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "present" "a runtime in the snapshot is present"
+assert_eq "$(in_snap '["runtime/org.kde.Platform/x86_64/6.9"]')" "missing" "...one that is not there is missing"
+: > "$SNAPF"
+assert_eq "$(in_snap '["runtime/org.freedesktop.Platform/x86_64/24.08"]')" "missing" \
+  "an empty snapshot proves nothing: every ref reads as missing"
+
 # --- time limits inside the check ------------------------------------------------------------------
 # The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
 # so both together stay well inside it. A stand-in `timeout` records the limit it was given, and

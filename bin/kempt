@@ -231,6 +231,8 @@ reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are t
                    else .[1] end' \
           <<<"$1" 2>/dev/null)" || return 1
   [[ -n "$keys" ]] || return 1
+  # An empty snapshot would put every key in the lookup table below, not none of them.
+  [[ -s "$2" ]] || return 1
   missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next } !($0 in have)' "$2" - <<<"$keys" 2>/dev/null)" \
     || return 1
   [[ -z "$missing" ]]
