@@ -522,6 +522,33 @@ assert_eq "$(jq -c '[.result, .refs, .bytes, .partial]' "$RECLAIM_LAST_FILE")" '
   "...recorded with refs null and partial, so no reader counts it as nothing"
 assert_contains "$(grep 'reclaim failed' "$EVENTS_FILE" | tail -n 1)" "what was removed is unknown" "...and the event log says so"
 
+# flatpak's output is copied to a file in Kempt's own state dir, never the shared /tmp, and the
+# file goes with kempt: at the end of a removal, and from the EXIT trap when kempt is killed.
+cat > "$STUBS/uninstall-peek" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUBS/uninstall.calls"
+ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l > "$STUBS/peek"
+ls "$TMPDIR" | wc -l >> "$STUBS/peek"
+[[ -n "${PEEK_KILL:-}" ]] && { kill -TERM "$(ps -o ppid= -p "$PPID" | tr -d ' ')"; sleep 1; exit 1; }
+[[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
+STUB
+chmod +x "$STUBS/uninstall-peek"
+mkdir -p "$TESTTMP/tmpdir"
+restore_offer
+rc=0; out="$(TMPDIR="$TESTTMP/tmpdir" KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-peek" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(tr '\n' ' ' < "$STUBS/peek")" "0|1 0 " "the removal keeps flatpak's output in Kempt's state dir, not in TMPDIR"
+assert_eq "$(ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l)" "0" "...and removes it afterwards"
+restore_offer
+rc=0; out="$(PEEK_KILL=1 KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-peek" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(head -1 "$STUBS/peek")" "143|1" "premise: kempt was killed while the file existed"
+assert_eq "$(ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l)" "0" "...and its EXIT trap removed the file"
+assert_exit 0 "...and still released the update lock" -- flock -n "$KEMPT_STATE_DIR/lock" true
+# A kill no trap sees leaves the file for the next run's sweep, once it is an hour old.
+touch -d '2 hours ago' "$KEMPT_STATE_DIR/reclaim-out.stale"
+restore_offer; reclaim --list >/dev/null 2>&1 || true
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/reclaim-out.stale" ]] && echo left || echo swept)" "swept" \
+  "a copy left by a kempt killed outright is swept after an hour"
+
 # The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
 # removes the related refs of what it removes, even one another installed runtime still uses.
 restore_offer

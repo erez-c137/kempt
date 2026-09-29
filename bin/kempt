@@ -131,7 +131,7 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   local via="$1" expected="$2" before="${3:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
   RECLAIM_PARTIAL=""
-  local listing sizes_tsv="" after rc=0 out_file="" refs=()
+  local listing sizes_tsv="" after rc=0 out_file="" refs=() saved_trap="" prev_cmd=""
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
@@ -153,8 +153,16 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   # helper) must not keep every later run out. Time running out is exit 124, recorded as a failure
   # like any other.
   # A copy of flatpak's output goes to a file, so its error line can be kept after it has scrolled
-  # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does.
-  out_file="$(mktemp 2>/dev/null)" || out_file=""
+  # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does. The file is in
+  # Kempt's state dir, and the caller's EXIT trap is extended to remove it if kempt dies meanwhile.
+  # A kill no trap sees leaves it to kempt_init_dirs' sweep.
+  out_file="$(mktemp "$KEMPT_STATE_DIR/reclaim-out.XXXXXX" 2>/dev/null)" || out_file=""
+  if [[ -n "$out_file" ]]; then
+    saved_trap="$(trap -p EXIT)"
+    [[ -z "$saved_trap" ]] || { eval "set -- $saved_trap"; prev_cmd="$3"; }
+    # shellcheck disable=SC2064  # the path is fixed now, on purpose
+    trap "rm -f -- $(printf '%q' "$out_file"); ${prev_cmd:-:}" EXIT
+  fi
   # shellcheck disable=SC2086  # the seam carries its own arguments
   if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${refs[@]}" </dev/null 2>&1 9>&- \
        | tee "${out_file:-/dev/null}" 9>&-; then
@@ -166,7 +174,10 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   if [[ $rc -ne 0 && -n "$out_file" ]]; then
     RECLAIM_ERROR="$(error_line_of <"$out_file" 2>/dev/null)" || RECLAIM_ERROR=""
   fi
-  [[ -z "$out_file" ]] || rm -f "$out_file" || true
+  if [[ -n "$out_file" ]]; then
+    rm -f -- "$out_file" || true
+    if [[ -n "$saved_trap" ]]; then eval "$saved_trap"; else trap - EXIT; fi
+  fi
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak's status alone
   # does not say: it can fail part-way, after some refs are gone.

@@ -159,6 +159,9 @@ kempt_init_dirs() {
   # the other way round: `kempt run` waits SECONDS for a token to be claimed, so an hour is far past
   # any launch that is still legitimately waiting for its window.
   find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'run-start.*' -mmin +60 -delete 2>/dev/null || true
+  # ...and a removal's copy of flatpak's output (reclaim_remove), left by a kempt killed outright.
+  # The removal is given ten minutes, so an hour is past any that is still running.
+  find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'reclaim-out.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names
