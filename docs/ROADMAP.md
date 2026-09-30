@@ -46,15 +46,19 @@ machine with one app can end up with two copies of a runtime of a gigabyte or mo
   removes them when you agree.
 - **The widget** offers the same when there is 100 MB or more to free.
 - **The `reclaim` setting** is `ask` (the default), `automatic` or `off`. `automatic` removes them
-  after each update. It acts as `ask` on an image-based system, and with more than one user
-  account. `off` hides them.
+  after each update. It acts as `ask` on an image-based system, and when more than one person may
+  use the machine. `off` hides them.
 
-Three rules hold for every value:
+These rules hold for every value:
 
 - Kempt removes only what Flatpak itself calls unused, and only the list you were shown. If the
   list changed, nothing is removed.
 - A runtime is offered once it has been unused for an hour, so one another tool is installing is
   left alone.
+- Kempt never asks for a password. When removing needs an administrator, it says so and removes
+  nothing.
+- Extensions, such as a graphics driver or a translation, go last. Kempt lists again first and
+  removes only those still unused, so one an app has just started using stays.
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
@@ -64,6 +68,10 @@ Three rules hold for every value:
   [architecture.md](architecture.md#adding-a-backend-for-your-distro). With a registry, each
   package manager declares how it is detected, labelled and applied, and when it needs a restart.
   A new backend becomes one file plus its tests. The state file stays at schema v1.
+- **Offline updates move behind the backend.** Staging an update for the next restart is
+  dnf5-specific and spread through the tool, not kept in the dnf backend. It moves there first,
+  so a distribution without offline updates simply does not offer staging. Flatpak, reclaiming
+  space, holds and history already work the same on any distribution.
 - **openSUSE first ([#3](https://github.com/erez-c137/kempt/issues/3)).** zypper uses the same rpm
   database, has machine-readable output, and keeps locked packages visible, as Kempt's holds do.
   Tumbleweed updates with `zypper dup`, so Kempt tells it apart from Leap. openSUSE has no offline
