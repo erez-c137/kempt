@@ -340,13 +340,22 @@ reclaim_in_use_of() {  # stdin: flatpak's output
 # The extensions in flatpak's Info lines that an app new since the listing uses, as id//branch
 # lines. flatpak names every installed app whose extension points match, even for an extension it
 # lists as unused because it is pruned (an old GL driver with autoprune-unless), so an app that was
-# already installed when the listing was taken is no sign of a race.
+# already installed when the listing was taken is no sign of a race. A listing jq cannot read
+# names no app as installed before, so every extension an Info line names counts: the warning errs
+# toward being said.
 reclaim_in_use_new() {  # listing-json; stdin: flatpak's output
-  reclaim_in_use_of | jq -R -r --slurpfile l <(printf '%s\n' "$1") '
+  local info
+  info="$(reclaim_in_use_of)" || info=""
+  [[ -n "$info" ]] || return 0
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$1"; then
+    cut -f1 <<<"$info"
+    return 0
+  fi
+  jq -R -r --slurpfile l <(printf '%s\n' "$1") '
       [$l[0].unused[]?, $l[0].used[]? | .ref | split("/") | select(.[0] == "app") | .[1]] as $had
       | split("\t") | select(length == 2)
       | select(.[1] | split(" ") | map(select(. != "")) | any(. as $a | $had | index($a) | not))
-      | .[0]' 2>/dev/null
+      | .[0]' <<<"$info" 2>/dev/null || cut -f1 <<<"$info"
 }
 
 # One look at the list against what was agreed to. Non-zero when the removal must stop, with the

@@ -1055,7 +1055,7 @@ restore_offer
 rc=0; out="$(HOOK_2="$TESTTMP/hook-pruned" byname -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc|$(jq -r 'has("in_use")' "$RECLAIM_LAST_FILE")" "0|false" \
   "an extension whose named apps were all installed before the pass is not recorded as in use"
-assert_not_contains "$out" "started using" "...nor said"
+assert_not_contains "$out" "Flatpak also removed" "...nor said"
 # Any one new app among those named is the race. The list may run over more than one line.
 cat > "$TESTTMP/hook-mixed" <<'HOOK'
 printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote,\n   org.example.App\n'
@@ -1075,6 +1075,18 @@ restore_offer
 rc=0; out="$(HOOK_1="$TESTTMP/hook-p1" byname -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08"]' \
   "an Info line in the first pass counts an app installed during it as new"
+# A listing jq cannot read names no app as installed before it, so the warning is said: every
+# extension an Info line names counts, even for an app that was already there.
+in_use_new() (
+  trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
+  eval "$(sed -n '/^reclaim_in_use_of() {/,/^}/p; /^reclaim_in_use_new() {/,/^}/p' "$KEMPT")"
+  printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote\n' \
+    | reclaim_in_use_new "$1"
+)
+assert_eq "$(in_use_new "$(cat "$UNUSED_FX")")" "" "premise: with the listing read, an app already there is no race"
+assert_eq "$(in_use_new '{"unused": [')" "org.freedesktop.Platform.GL.default//24.08extra" \
+  "a listing jq cannot read keeps every extension an Info line names as in use"
+assert_eq "$(in_use_new '')" "org.freedesktop.Platform.GL.default//24.08extra" "...and so does no listing at all"
 
 # A theme left behind by a runtime that goes: flatpak's metadata marks it an extension, so it waits
 # for the second pass though its id does not start with the runtime's.
