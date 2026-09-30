@@ -1004,6 +1004,27 @@ rm -f "$STUBS/unused.fail"
 assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs]' "$RECLAIM_LAST_FILE")" \
   "1|$P1|[\"removed\",true,[\"runtime/org.freedesktop.Platform/x86_64/24.08\",\"runtime/org.kde.Platform/x86_64/5.15-23.08\"]]" \
   "...and when no list can be read after it either, flatpak's word for the first pass"
+# A first pass flatpak refused, then a list between the passes that fails: that is a refusal, never
+# extensions left in place. Also when flatpak printed no error line to keep.
+cat > "$TESTTMP/hook-refuse-blind" <<'HOOK'
+touch "$STUBS/unused.fail-once"
+refuse="runtime/org.kde.Platform/x86_64/5.15-23.08"
+HOOK
+cat > "$TESTTMP/hook-quiet-blind" <<'HOOK'
+touch "$STUBS/unused.fail-once"
+jq '.unused |= map(select(.ref != "runtime/org.freedesktop.Platform/x86_64/24.08"))' "$LISTING" > "$LISTING.h" \
+  && mv "$LISTING.h" "$LISTING"
+exit 1
+HOOK
+for h in refuse-blind quiet-blind; do
+  restore_offer
+  rc=0; out="$(HOOK_1="$TESTTMP/hook-$h" byname -y --expect="$DIGEST5")" || rc=$?
+  assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs, has("skipped")]' "$RECLAIM_LAST_FILE")" \
+    "1|$P1|[\"removed\",true,[\"runtime/org.freedesktop.Platform/x86_64/24.08\"],false]" \
+    "a refused first pass and a failed list between the passes ($h): no skipped flag"
+  assert_not_contains "$out" "left in place" "...and no sentence about extensions left in place ($h)"
+  assert_contains "$out" "Flatpak could not remove all of them" "...but flatpak's refusal ($h)"
+done
 
 # The race that is left: an app installed in the moment before the second pass. flatpak says so in
 # an Info line and removes the extension anyway. Kempt records it and says how to put it back. One

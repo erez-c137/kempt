@@ -222,9 +222,9 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
     fi
   fi
   RECLAIM_RC=$rc
-  # The list between the passes failed and no pass failed: the extensions were never tried, and
-  # nothing was refused. RECLAIM_SKIPPED says so to the outcome sentences and reclaim-last.json.
-  if [[ -n "$skip2" && -z "$RECLAIM_ERROR" ]]; then RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST" RECLAIM_SKIPPED=1; fi
+  # The list between the passes failed after the first pass succeeded: the extensions were never
+  # tried, and nothing was refused. RECLAIM_SKIPPED is set below, once the result is known.
+  [[ -z "$skip2" || $rc -ne 0 ]] || RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak's status alone
   # does not say: it can fail part-way, after some refs are gone.
@@ -276,6 +276,9 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   elif [[ "${RECLAIM_ERROR,,}" == *"not allowed for user"* ]]; then RECLAIM_RESULT=needs_auth
   else RECLAIM_RESULT=failed
   fi
+  # Only for a first pass that succeeded and removed something, so the flag in reclaim-last.json
+  # and the sentence reclaim_outcome_lines prints for it always agree.
+  if [[ -n "$skip2" && $rc -eq 0 && "$RECLAIM_RESULT" == removed ]]; then RECLAIM_SKIPPED=1; fi
   reclaim_record "$via" "$RECLAIM_DIGEST"
   return 0
 }
