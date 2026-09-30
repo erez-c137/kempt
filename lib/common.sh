@@ -485,7 +485,8 @@ error_line_of() {  # stdin: output → one line, empty when there was none
 
 # The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
 # line, from error_line_of) when there is one, and partial: true when flatpak failed after the
-# removal began (refs is then what went, or null when that is unknown); or {} when there is none or
+# removal began (refs is then what went, or null when that is unknown), and in_use (["id//branch"])
+# when flatpak removed extensions it said an app uses; or {} when there is none or
 # the file is damaged. result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object
   local out
@@ -496,14 +497,15 @@ reclaim_last_read() {  # → one JSON object
 
 # Best-effort, like every write after a system change: a lost outcome costs a sentence in the
 # popup, never the removal's own exit status.
-reclaim_last_write() {  # via result refs-json-or-null bytes-or-empty digest [error-line] [partial(1|"")]
+reclaim_last_write() {  # via result refs-json-or-null bytes-or-empty digest [error-line] [partial(1|"")] [in-use-json]
   kempt_init_dirs 2>/dev/null || return 0
   jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --slurpfile refs <(printf '%s\n' "$3") \
-         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" --arg partial "${7:-}" \
+         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" --arg partial "${7:-}" --arg in_use "${8:-}" \
     '{at:$at, via:$via, result:$result, refs:$refs[0],
       bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
      + (if $error == "" then {} else {error: $error} end)
-     + (if $partial == "" then {} else {partial: true} end)' 2>/dev/null \
+     + (if $partial == "" then {} else {partial: true} end)
+     + (if $in_use == "" then {} else {in_use: ($in_use | fromjson)} end)' 2>/dev/null \
     | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
   return 0
 }

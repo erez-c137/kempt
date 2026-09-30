@@ -100,8 +100,8 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # The removal. The refs are appended by name, the set the person agreed to and nothing else.
 # `--unused` would make flatpak work its own list out at removal time, and a runtime another tool
 # deployed a moment ago (before its app) would be on it. Named, the removed set is a subset of the
-# agreed one, and flatpak refuses to remove a runtime an installed app needs (not an extension:
-# see reclaim_remove). --no-related because
+# agreed one, and flatpak refuses to remove a runtime an installed app needs (not an extension,
+# which is why reclaim_remove removes the extensions in a second pass). --no-related because
 # without it flatpak also removes the autodelete related refs of what it removes, even one another
 # installed runtime still uses (a codecs extension shared by two platforms); the listing already
 # names the unused extensions itself. --noninteractive answers yes and turns off interaction for the
@@ -116,9 +116,12 @@ KEMPT_RECLAIM_DU_TIMEOUT=30
 # does not answer is a no, not a removal that waits forever holding the update lock.
 # shellcheck disable=SC2034  # read by bin/kempt
 KEMPT_RECLAIM_PKCHECK_TIMEOUT="${KEMPT_RECLAIM_PKCHECK_TIMEOUT:-10}"
-# The removal itself, run by bin/kempt under the update lock.
+# The removal itself, run by bin/kempt under the update lock: both of its passes together. When
+# extensions follow, the first pass leaves the second at least a minute of it.
 # shellcheck disable=SC2034  # read by bin/kempt
 KEMPT_RECLAIM_UNINSTALL_TIMEOUT=600
+# shellcheck disable=SC2034  # read by bin/kempt
+KEMPT_RECLAIM_SECOND_PASS_MIN=60
 
 # Whether there is a flatpak to reclaim anything from: the command a removal would run resolves.
 # Absent flatpak means no listing and no reclaim block in state.json at all.

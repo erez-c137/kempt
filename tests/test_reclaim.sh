@@ -88,6 +88,7 @@ cat > "$STUBS/unused" <<'STUB'
 #!/usr/bin/env bash
 echo run >> "$STUBS/unused.calls"
 [[ -n "${UNUSED_FAIL:-}" || -e "$STUBS/unused.fail" ]] && { echo "flatpak did not answer" >&2; exit 1; }
+[[ -e "$STUBS/unused.fail-once" ]] && { rm -f "$STUBS/unused.fail-once"; echo "flatpak did not answer" >&2; exit 1; }
 cat "$LISTING"
 STUB
 cat > "$STUBS/du" <<'STUB'
@@ -152,6 +153,9 @@ check() { "$KEMPT" check 2>/dev/null; }
 state_reclaim() { jq -c '.reclaim' "$KEMPT_STATE_DIR/state.json"; }
 ALL5="$(jq -c '[.unused[].ref]' "$UNUSED_FX")"
 REFS5="$(jq -r '[.unused[].ref] | join(" ")' "$UNUSED_FX")"
+# The same five in the removal's two passes: the runtimes, then their extensions.
+P1="runtime/org.freedesktop.Platform/x86_64/24.08 runtime/org.kde.Platform/x86_64/5.15-23.08"
+P2="runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra runtime/org.freedesktop.Platform.Locale/x86_64/24.08"
 
 # --- the reclaim block: first sighting --------------------------------------------------------------
 out="$(check)"
@@ -575,7 +579,8 @@ reset_calls
 hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"
 rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc" "0" "the set on offer, allowed: removed, exit 0"
-assert_eq "$(calls uninstall)" "$REFS5" "flatpak is given the refs on offer by name"
+# The stand-in's removal empties the list, so there are no extensions left for a second pass.
+assert_eq "$(calls uninstall)" "$P1" "flatpak is given the refs on offer by name"
 assert_contains "$out" "Uninstalling..." "flatpak's own output is shown"
 assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
 assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
@@ -658,7 +663,8 @@ assert_eq "$(grep -c 'reclaim failed rc=2' "$EVENTS_FILE")|$(grep 'reclaim faile
 restore_offer
 rm -f "$STUBS/timeout.calls"
 rc=0; out="$(TIMEOUT_EXPIRE=uninstall PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_contains "$(cat "$STUBS/timeout.calls" 2>/dev/null)" "600 uninstall" "the removal is given 600 seconds"
+assert_contains "$(cat "$STUBS/timeout.calls" 2>/dev/null)" "540 uninstall" \
+  "the removal is given 600 seconds, less the minute its extensions get"
 assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|failed" "...and one that runs out of time is a failure: exit 1"
 assert_contains "$(tail -n 3 "$EVENTS_FILE")" "failed rc=124" "...logged with its exit code"
 assert_contains "$out" "Flatpak could not remove them (exit code 124). See: kempt log" \
@@ -771,7 +777,7 @@ assert_eq "$(( $(jq -c '[.unused[].ref]' "$BIG/before.json" | wc -c) > 131072 ))
 big_out="$(
   trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
   export KEMPT_STATE_DIR="$BIG" KEMPT_FLATPAK_UNINSTALL_CMD=true
-  eval "$(sed -n '/^reclaim_remove() {/,/^}/p' "$KEMPT")"
+  eval "$(sed -n '/^reclaim_remove() {/,/^}/p; /^reclaim_extensions_in() {/,/^}/p; /^reclaim_uninstall() {/,/^}/p; /^reclaim_in_use_of() {/,/^}/p' "$KEMPT")"
   flatpak_unused_list() {
     local n; n=$(( $(cat "$BIG/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$BIG/calls"
     if (( n <= 2 )); then cat "$BIG/before.json"; else jq -c '.unused = []' "$BIG/before.json"; fi
@@ -799,8 +805,146 @@ STUB
 chmod +x "$TESTTMP/fpbin/flatpak"
 rc=0; out="$(env -u KEMPT_FLATPAK_UNINSTALL_CMD PATH="$TESTTMP/fpbin:$PATH" \
   "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related --noninteractive $REFS5" \
+assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related --noninteractive $P1" \
   "the removal names the refs on offer and passes --no-related, so it takes those refs and no related ref besides"
+restore_offer
+
+# --- two passes: the extensions after the runtimes -------------------------------------------------
+# flatpak refuses to remove a runtime an installed app needs, but only asks "Really remove?" for an
+# extension one uses, and --noninteractive answers yes. So the runtimes go first, the list is taken
+# again, and only the agreed extensions still unused go after them: an app installed in the
+# meantime makes its runtime used, and that runtime's extensions drop off the list.
+# The stand-in removes the refs it is named, from unused and used alike. HOOK_<n> is sourced on the
+# n-th call first: it may change the listing, print, and name refs in `refuse`, which stay and
+# make flatpak fail with its "needed for" error.
+cat > "$STUBS/uninstall-byname" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUBS/uninstall.calls"
+echo "${LANGUAGE-unset}|${LC_MESSAGES-unset}|${LC_ALL-unset}" > "$STUBS/uninstall.locale"
+n="$(wc -l < "$STUBS/uninstall.calls")"; refuse=""; rc=0
+hook="HOOK_$n"; [[ -n "${!hook:-}" ]] && source "${!hook}"
+gone=(); for r in "$@"; do [[ " $refuse " == *" $r "* ]] || gone+=("$r"); done
+jq --args '$ARGS.positional as $g | (.unused, .used) |= map(select(.ref as $r | $g | index($r) | not))' \
+  "${gone[@]}" < "$LISTING" > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
+for r in $refuse; do echo "error: Failed to uninstall $r: Can't remove $r, it is needed for: app/org.example.App/x86_64/stable"; rc=1; done
+echo "Uninstalling..."
+exit $rc
+STUB
+chmod +x "$STUBS/uninstall-byname"
+byname() { KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-byname" reclaim "$@"; }
+
+# Which refs are extensions: an unused ref whose id is another installed ref's id and a dot more.
+cls="$(
+  trap - EXIT
+  eval "$(sed -n '/^reclaim_extensions_in() {/,/^}/p' "$KEMPT")"
+  reclaim_extensions_in "$(jq -cn '{installation: "/x", used: [
+      {ref: "app/org.mozilla.firefox/x86_64/stable"}, {ref: "runtime/org.freedesktop.Platform/x86_64/25.08"}],
+    unused: [{ref: "runtime/org.freedesktop.Platform.Locale/x86_64/24.08"},
+             {ref: "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08"},
+             {ref: "runtime/org.mozilla.firefox.Locale/x86_64/stable"},
+             {ref: "runtime/org.kde.Platform/x86_64/5.15-23.08"},
+             {ref: "runtime/org.kde.Platform.Locale/x86_64/5.15-23.08"},
+             {ref: "runtime/org.freedesktop.PlatformX/x86_64/1"}]}')" 2>/dev/null | tr '\n' ' '
+)" || true
+assert_eq "$cls" "runtime/org.freedesktop.Platform.Locale/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.mozilla.firefox.Locale/x86_64/stable runtime/org.kde.Platform.Locale/x86_64/5.15-23.08 " \
+  "an extension is a ref whose id extends another installed id: a runtime's Locale and GL, an app's Locale, an unused runtime's Locale"
+assert_not_contains "$cls" "org.freedesktop.PlatformX" "...by a dot, not by any longer name"
+
+restore_offer
+rc=0; out="$(byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "0|$P1"$'\n'"$P2" "the runtimes are removed first, then their extensions, in two calls"
+assert_json_eq "$(jq -c '{result, refs, bytes}' "$RECLAIM_LAST_FILE")" \
+  "{\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000}" "...and the outcome counts both"
+assert_eq "$(jq -r 'has("partial"), has("in_use")' "$RECLAIM_LAST_FILE" | tr '\n' ' ')" "false false " "...as one whole removal"
+# LC_ALL is C.UTF-8 already; LANGUAGE would still translate flatpak's lines under it.
+assert_eq "$(cat "$STUBS/uninstall.locale")" "C|C|C.UTF-8" "flatpak runs with its messages in English, in UTF-8"
+
+# Both passes share the removal's ten minutes: the first leaves a minute for the second, and the
+# second gets what the first did not use.
+restore_offer; rm -f "$STUBS/timeout.calls"
+rc=0; out="$(PATH="$TESTTMP/tbin:$PATH" byname -y --expect="$DIGEST5")" || rc=$?
+t1="$(grep ' uninstall-byname$' "$STUBS/timeout.calls" | sed -n 1p | cut -d' ' -f1)"
+t2="$(grep ' uninstall-byname$' "$STUBS/timeout.calls" | sed -n 2p | cut -d' ' -f1)"
+assert_eq "$rc|$t1|$(( t2 >= 590 && t2 <= 600 ))" "0|540|1" "the runtimes get 540 s and the extensions what is left of 600"
+restore_offer; rm -f "$STUBS/timeout.calls"
+rc=0; out="$(TIMEOUT_EXPIRE=uninstall-byname PATH="$TESTTMP/tbin:$PATH" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(grep -c ' uninstall-byname$' "$STUBS/timeout.calls")|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|1|failed" \
+  "the runtimes running out of time stops the removal: no second pass"
+
+# An app installed just before the removal: flatpak refuses its runtime, and its extensions, which
+# are now used, are not removed after it.
+cat > "$TESTTMP/hook-app" <<'HOOK'
+jq '.used += [.unused[] | select(.ref | test("freedesktop"))] | .unused |= map(select(.ref | test("freedesktop") | not))
+    | .used += [{ref: "app/org.example.App/x86_64/stable", commit: .used[0].commit, deploy_dir: "/var/lib/flatpak/app/org.example.App"}]' \
+  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
+refuse="runtime/org.freedesktop.Platform/x86_64/24.08"
+HOOK
+restore_offer
+rc=0; out="$(HOOK_1="$TESTTMP/hook-app" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "1|$P1" "an app that starts using a runtime and its extensions: only the runtimes are tried"
+assert_eq "$(jq -c '[.result, .partial, .refs, .bytes]' "$RECLAIM_LAST_FILE")" \
+  '["removed",true,["runtime/org.kde.Platform/x86_64/5.15-23.08"],900000000]' "...so its extensions stay, and the removal is partial"
+assert_contains "$out" "Flatpak could not remove all of them: error: Failed to uninstall runtime/org.freedesktop.Platform/x86_64/24.08" \
+  "...with flatpak's refusal as the reason"
+
+# flatpak refusing one runtime does not stop the extensions nothing uses.
+cat > "$TESTTMP/hook-kde" <<'HOOK'
+jq '.used += [.unused[] | select(.ref | test("kde"))] | .unused |= map(select(.ref | test("kde") | not))' \
+  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
+refuse="runtime/org.kde.Platform/x86_64/5.15-23.08"
+HOOK
+restore_offer
+rc=0; out="$(HOOK_1="$TESTTMP/hook-kde" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "1|$P1"$'\n'"$P2" "a refused runtime: the extensions still unused go after it"
+assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .error]' "$RECLAIM_LAST_FILE")" \
+  '["removed",true,4,1075000000,"error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Can'"'"'t remove runtime/org.kde.Platform/x86_64/5.15-23.08, it is needed for: app/org.example.App/x86_64/stable"]' \
+  "...partial, with the first pass's error kept"
+
+# The list between the passes cannot be read: no second pass, and what went is still counted.
+printf 'touch "$STUBS/unused.fail-once"\n' > "$TESTTMP/hook-blind-once"
+restore_offer
+rc=0; out="$(HOOK_1="$TESTTMP/hook-blind-once" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "1|$P1" "a list that fails between the passes: no second pass"
+assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,2,1500000000]' \
+  "...the runtimes that went counted, the removal partial"
+assert_contains "$out" "Flatpak could not remove all of them: Flatpak did not answer when asked what is unused" "...and why"
+printf 'touch "$STUBS/unused.fail"\n' > "$TESTTMP/hook-blind"
+restore_offer
+rc=0; out="$(HOOK_1="$TESTTMP/hook-blind" byname -y --expect="$DIGEST5")" || rc=$?
+rm -f "$STUBS/unused.fail"
+assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs]' "$RECLAIM_LAST_FILE")" \
+  "1|$P1|[\"removed\",true,[\"runtime/org.freedesktop.Platform/x86_64/24.08\",\"runtime/org.kde.Platform/x86_64/5.15-23.08\"]]" \
+  "...and when no list can be read after it either, flatpak's word for the first pass"
+
+# The race that is left: an app installed in the moment before the second pass. flatpak says so in
+# an Info line and removes the extension anyway. Kempt records it and says the next update puts
+# it back. A refused one is not counted, nor a runtime.
+cat > "$TESTTMP/hook-info" <<'HOOK'
+printf 'Info: applications using the extension \033[1morg.freedesktop.Platform.Locale\033[22m branch \033[1m24.08\033[22m:\n   org.example.App\n'
+printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   org.example.App\n'
+printf 'Info: applications using the runtime org.freedesktop.Platform.GL.default branch 24.08:\n   org.example.App\n'
+refuse="runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra"
+HOOK
+restore_offer
+rc=0; out="$(HOOK_2="$TESTTMP/hook-info" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.Locale//24.08"]' \
+  "an extension flatpak says an app uses, and removed, is recorded as in use"
+assert_contains "$out" "Flatpak also removed 1 extension an app uses. The next update puts it back." "...and said"
+assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "in use: org.freedesktop.Platform.Locale//24.08" "...and logged"
+HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
+restore_offer
+rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
+assert_contains "$out" "Flatpak also removed 2 extensions that apps use. The next update puts them back." "...two in the plural"
+
+# A set of extensions only, and one with none: one call each.
+jq '.unused |= map(select(.ref | test("[.](GL[.]default|Locale)/")))' "$UNUSED_FX" > "$TESTTMP/ext-only.json"
+cp "$TESTTMP/ext-only.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
+rc=0; out="$(byname -y)" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "0|$P2" "a set of extensions only is one call"
+jq '.unused |= map(select(.ref | test("kde")))' "$UNUSED_FX" > "$TESTTMP/no-ext.json"
+cp "$TESTTMP/no-ext.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
+rc=0; out="$(byname -y)" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "0|runtime/org.kde.Platform/x86_64/5.15-23.08" "a set with no extension is one call"
 restore_offer
 
 # Refusals that come before anything is listed.

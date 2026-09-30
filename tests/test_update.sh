@@ -2263,7 +2263,7 @@ cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
 # --- reclaim=automatic: unused runtimes removed after a successful run ------------------------------
 # The listing, du and removal stand-ins of test_reclaim.sh, reduced: the removal logs its arguments
-# and empties the listing, the way a real one changes the next answer. It also drops the removed
+# and takes the refs it is named off the listing, the way a real one changes the next answer. It also drops the removed
 # runtimes from the snapshot, so a removal that ran before the fp-after snapshot shows up in it.
 RC="$TESTTMP/rc"; mkdir -p "$RC"
 export RC_LISTING="$RC/listing.json" RC_DU="$RC/du.tsv" RC
@@ -2286,10 +2286,11 @@ if [[ -n "${UNINSTALL_PARTIAL:-}" ]]; then   # every ref but the KDE runtime goe
   echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08"; exit 1
 fi
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
-jq -r '.unused[].ref | split("/") | "\(.[1])\t\(.[3])"' "$RC_LISTING" \
+printf '%s\n' "$@" | awk -F/ '{ print $2 "\t" $4 }' \
   | awk -F'\t' 'NR == FNR { gone[$1 FS $2] = 1; next } !(($1 FS $2) in gone)' - "$WORLD/fp-snap-rt.tsv" > "$RC/snap.left"
 mv "$RC/snap.left" "$WORLD/fp-snap-rt.tsv"
-jq '.unused = []' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
+jq --args '.unused |= map(select(.ref as $r | $ARGS.positional | index($r) | not))' "$@" < "$RC_LISTING" > "$RC_LISTING.new" \
+  && mv "$RC_LISTING.new" "$RC_LISTING"
 echo "Uninstalling..."
 STUB
 printf '#!/usr/bin/env bash\nexit "${PKCHECK_RC:-0}"\n' > "$RC/pkcheck"
@@ -2331,8 +2332,9 @@ assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" "...and its hist
 rc_offer
 rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=background 2>/dev/null)" || true
 RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
-assert_eq "$(rc_calls)" "UNINSTALL $(jq -r '[.unused[].ref] | join(" ")' "$FIXTURES/flatpak-unused.json")" \
-  "reclaim=automatic: the run removes the refs on offer by name"
+assert_eq "$(rc_calls)" "UNINSTALL runtime/org.freedesktop.Platform/x86_64/24.08 runtime/org.kde.Platform/x86_64/5.15-23.08
+UNINSTALL runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra runtime/org.freedesktop.Platform.Locale/x86_64/24.08" \
+  "reclaim=automatic: the run removes the refs on offer by name, the runtimes before their extensions"
 assert_json_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" \
   "{\"refs\":$(jq -c '[.unused[].ref]' "$FIXTURES/flatpak-unused.json"),\"bytes\":1975000000,\"status\":\"removed\"}" \
   "...recorded in the run's own history entry"
