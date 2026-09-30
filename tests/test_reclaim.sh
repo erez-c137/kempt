@@ -737,12 +737,13 @@ jq '.unused = []' "$UNUSED_FX" > "$AFTER"
 
 # A runtime an app starts needing between the last look and the removal is only named, never
 # forced: flatpak refuses to remove a runtime an installed app uses, and it stays. Like flatpak, the
-# stand-in removes the refs in the order named and stops at the first it refuses.
+# stand-in removes the refs in flatpak's order (see uninstall-byname) and stops at the first refused.
 cat > "$STUBS/uninstall-used" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$STUBS/uninstall.calls"
 keep="runtime/org.kde.Platform/x86_64/5.15-23.08"
-for r in "$@"; do
+readarray -t sorted < <(for r in "$@"; do printf '%s\t%s\n' "${r#*/}" "$r"; done | LC_ALL=C sort | cut -f2)
+for r in "${sorted[@]}"; do
   if [[ "$r" == "$keep" ]]; then
     jq --arg k "$keep" '.used += [.unused[] | select(.ref == $k)] | .unused |= map(select(.ref != $k))' "$LISTING" \
       > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
@@ -867,9 +868,11 @@ restore_offer
 # again, and only the agreed extensions still unused go after them: an app installed in the
 # meantime makes its runtime used, and that runtime's extensions drop off the list.
 # The stand-in removes the refs it is named, from unused and used alike. HOOK_<n> is sourced on the
-# n-th call first: it may change the listing, print, and name refs in `refuse`. Like flatpak
-# (app/flatpak-cli-transaction.c), it removes the refs in the order named and stops at the first
-# refused one, which stays with every ref after it, and fails with its "needed for" error.
+# n-th call first: it may change the listing, print, and name refs in `refuse`. Like flatpak, it
+# removes the refs in its own order, not the order named: refs with no dependency between them run
+# sorted by the ref without its kind, byte by byte (sort_ops, common/flatpak-transaction.c). It
+# stops at the first refused one, which stays with every ref after it, and fails with its "needed
+# for" error (--noninteractive's app/flatpak-quiet-transaction.c ends at the first fatal error).
 cat > "$STUBS/uninstall-byname" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$STUBS/uninstall.calls"
@@ -877,7 +880,8 @@ echo "${LANGUAGE-unset}|${LC_MESSAGES-unset}|${LC_ALL-unset}" > "$STUBS/uninstal
 n="$(wc -l < "$STUBS/uninstall.calls")"; refuse=""; rc=0
 hook="HOOK_$n"; [[ -n "${!hook:-}" ]] && source "${!hook}"
 gone=() stop=""
-for r in "$@"; do [[ " $refuse " == *" $r "* ]] && { stop="$r"; break; }; gone+=("$r"); done
+readarray -t sorted < <(for r in "$@"; do printf '%s\t%s\n' "${r#*/}" "$r"; done | LC_ALL=C sort | cut -f2)
+for r in "${sorted[@]}"; do [[ " $refuse " == *" $r "* ]] && { stop="$r"; break; }; gone+=("$r"); done
 jq --args '$ARGS.positional as $g | (.unused, .used) |= map(select(.ref as $r | $g | index($r) | not))' \
   "${gone[@]}" < "$LISTING" > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
 echo "Uninstalling..."
@@ -964,6 +968,16 @@ assert_eq "$rc|$(calls uninstall)" "1|$P1"$'\n'"$P2" "a refused runtime: the ext
 assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .error]' "$RECLAIM_LAST_FILE")" \
   '["removed",true,4,1075000000,"error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Can'"'"'t remove runtime/org.kde.Platform/x86_64/5.15-23.08, it is needed for: app/org.example.App/x86_64/stable"]' \
   "...partial, with the first pass's error kept"
+
+# flatpak's order, not Kempt's: named after the refused runtime, a runtime that sorts before it
+# still goes. Here the listing, and so the call, names the KDE runtime first.
+jq '.unused |= reverse' "$UNUSED_FX" > "$TESTTMP/reversed.json"
+cp "$TESTTMP/reversed.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
+rc=0; out="$(HOOK_1="$TESTTMP/hook-kde" byname -y)" || rc=$?
+assert_eq "$rc|$(calls uninstall | head -n 1)" "1|runtime/org.kde.Platform/x86_64/5.15-23.08 runtime/org.freedesktop.Platform/x86_64/24.08" \
+  "premise: the refused runtime is named first"
+assert_eq "$(jq -c '[.result, .partial, (.refs | index("runtime/org.freedesktop.Platform/x86_64/24.08") != null), (.refs | length)]' "$RECLAIM_LAST_FILE")" \
+  '["removed",true,true,4]' "...and the runtime named after it, which flatpak takes first, is counted as gone"
 
 # The list between the passes cannot be read: no second pass, and what went is still counted.
 printf 'touch "$STUBS/unused.fail-once"\n' > "$TESTTMP/hook-blind-once"
