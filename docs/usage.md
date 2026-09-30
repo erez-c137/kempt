@@ -391,7 +391,7 @@ is left alone. The hour starts at the first check that lists the runtime. If no 
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
 `--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
 whole list. It never asks for a password. When removing needs an administrator, nothing is
-removed: your account is not an administrator (not in the `wheel` group), or you are logged in
+removed: your account is not an administrator (on Fedora, an administrator is a member of the `wheel` group), or you are logged in
 over the network rather than at the desktop. Run `kempt reclaim` from an administrator's desktop
 session instead.
 
