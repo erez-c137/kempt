@@ -152,7 +152,7 @@ reclaim_authorized() {
 reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   local via="$1" expected="$2" before="${3:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
-  RECLAIM_PARTIAL="" RECLAIM_IN_USE=""
+  RECLAIM_PARTIAL="" RECLAIM_IN_USE="" RECLAIM_SKIPPED=""
   local listing sizes_tsv="" after mid rc=0 prc out_file="" saved_trap="" prev_cmd=""
   local pass1=() pass2=() tried=() skip2="" ran2="" t0 used limit mark=0
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
@@ -222,7 +222,9 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
     fi
   fi
   RECLAIM_RC=$rc
-  [[ -z "$skip2" || -n "$RECLAIM_ERROR" ]] || RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"
+  # The list between the passes failed and no pass failed: the extensions were never tried, and
+  # nothing was refused. RECLAIM_SKIPPED says so to the outcome sentences and reclaim-last.json.
+  if [[ -n "$skip2" && -z "$RECLAIM_ERROR" ]]; then RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST" RECLAIM_SKIPPED=1; fi
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak's status alone
   # does not say: it can fail part-way, after some refs are gone.
@@ -411,7 +413,7 @@ reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are t
 # state.json) and the event log. Both best-effort. A failure carries its error line in both.
 reclaim_record() {  # via digest
   reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2" "${RECLAIM_ERROR:-}" \
-    "${RECLAIM_PARTIAL:-}" "${RECLAIM_IN_USE:-}"
+    "${RECLAIM_PARTIAL:-}" "${RECLAIM_IN_USE:-}" "${RECLAIM_SKIPPED:-}"
   local n in_use=""
   n="$(jq -r 'length' <<<"$RECLAIM_GONE" 2>/dev/null)" || n="?"
   [[ -z "${RECLAIM_IN_USE:-}" ]] || in_use="$(jq -r 'join(" ")' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || in_use=""
@@ -2471,11 +2473,10 @@ reclaim_outcome_lines() {  # [update]
         local n; n="$(jq -r 'length' <<<"$RECLAIM_GONE")"
         if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
       fi
-      # flatpak stopped part-way: what went is said above, and it was not everything agreed to.
-      # RECLAIM_ERROR is the no-list sentence here only when the list between the passes failed and
-      # every pass flatpak ran succeeded: the extensions were never tried, nothing was refused.
+      # flatpak stopped part-way: what went is said above, and it was not everything agreed to. Or
+      # the extensions were never tried, because the list between the passes failed (skipped).
       if [[ -n "$RECLAIM_PARTIAL" ]]; then
-        if [[ "$RECLAIM_ERROR" == "$KEMPT_RECLAIM_NO_LIST" ]]; then
+        if [[ -n "${RECLAIM_SKIPPED:-}" ]]; then
           echo "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." >&2
         elif [[ -n "$RECLAIM_ERROR" ]]; then
           echo "Flatpak could not remove all of them: $RECLAIM_ERROR" >&2

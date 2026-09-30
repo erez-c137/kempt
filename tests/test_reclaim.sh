@@ -968,6 +968,7 @@ assert_eq "$rc|$(calls uninstall)" "1|$P1"$'\n'"$P2" "a refused runtime: the ext
 assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .error]' "$RECLAIM_LAST_FILE")" \
   '["removed",true,4,1075000000,"error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Can'"'"'t remove runtime/org.kde.Platform/x86_64/5.15-23.08, it is needed for: app/org.example.App/x86_64/stable"]' \
   "...partial, with the first pass's error kept"
+assert_eq "$(jq -r 'has("skipped")' "$RECLAIM_LAST_FILE")" "false" "...and no second pass skipped"
 
 # flatpak's order, not Kempt's: named after the refused runtime, a runtime that sorts before it
 # still goes. Here the listing, and so the call, names the KDE runtime first.
@@ -984,8 +985,8 @@ printf 'touch "$STUBS/unused.fail-once"\n' > "$TESTTMP/hook-blind-once"
 restore_offer
 rc=0; out="$(HOOK_1="$TESTTMP/hook-blind-once" byname -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc|$(calls uninstall)" "1|$P1" "a list that fails between the passes: no second pass"
-assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,2,1500000000]' \
-  "...the runtimes that went counted, the removal partial"
+assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .skipped]' "$RECLAIM_LAST_FILE")" '["removed",true,2,1500000000,true]' \
+  "...the runtimes that went counted, the removal partial, the second pass recorded as skipped"
 assert_contains "$out" "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." \
   "...said as extensions left in place, not as a refusal"
 assert_not_contains "$out" "could not remove" "...never as Flatpak refusing"

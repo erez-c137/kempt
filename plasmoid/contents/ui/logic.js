@@ -371,6 +371,9 @@ var COPY = {
     // Flatpak stopped part-way. The first is filled with the size of what did go.
     reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
     reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
+    // The list between the two passes failed, so the extensions were never tried and nothing was
+    // refused (reclaim.last.skipped). The CLI's sentence, after the Freed one when there is a size.
+    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again.",
     // Flatpak failed and Kempt could not read what is left afterwards.
     reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
@@ -1598,9 +1601,13 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
     if (rc === 1 && fresh !== null && fresh.partial === true) {
         if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
         if (fresh.result === "removed") {
-            if (typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0) {
-                return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
+            var sized = typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0;
+            if (fresh.skipped === true) {
+                var skipped = sized ? fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) + " " + COPY.reclaimSkipped
+                                    : COPY.reclaimSkipped;
+                return { ok: false, text: withInUse(skipped) };
             }
+            if (sized) return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
             return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };
         }
     }
