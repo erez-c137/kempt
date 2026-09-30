@@ -16,8 +16,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as `check shared`.
 - **`kempt reclaim` frees the space old Flatpak runtimes take.** Runtimes are the shared parts
   Flatpak apps run on. Kempt lists the ones no app uses, with their size, and removes them when
-  you agree. An app you install during the removal keeps what it needs. In the rare case it does
-  not, Kempt says how to put it back.
+  you agree. An app you install during the removal keeps its runtime, and Kempt says so if one
+  of its extensions went.
 - **Kempt waits an hour and never asks for a password.** It removes a runtime only once it has
   been unused for an hour. When removing needs an administrator, it says so and removes nothing.
 - **The new `reclaim` setting can remove them after each update.** It is `ask` (the default),
