@@ -27,9 +27,12 @@ assert_eq "$(printf '%s' "$long" | LC_ALL=C.UTF-8 wc -m)|$(printf '%s' "$long" |
 # Run against a stand-in for PyGObject (tests/fixtures/fake-gi) that serves the fixture's refs, so
 # this needs python3 and nothing else: no libflatpak, no system installation, no network.
 if command -v python3 >/dev/null 2>&1; then
-  export FAKE_FLATPAK_JSON="$UNUSED_FX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls"
+  # The fixture's installation moved to a directory with a repo in it, as a real one has.
+  HFX="$TESTTMP/helper-fx.json"; mkdir -p "$TESTTMP/inst/repo"
+  jq --arg p "$TESTTMP/inst" '.installation = $p' "$UNUSED_FX" > "$HFX"
+  export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls"
   hout="$(PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
-  assert_json_eq "$hout" "$(cat "$UNUSED_FX")" \
+  assert_json_eq "$hout" "$(cat "$HFX")" \
     "the helper prints the installation, the unused refs with their end-of-life reason, and the rest as used"
   assert_eq "$(jq -r '.unused[4].eol' <<<"$hout" 2>/dev/null)" \
     "We strongly recommend moving to the latest stable version of the Platform and SDK" \
@@ -45,6 +48,12 @@ if command -v python3 >/dev/null 2>&1; then
   rc=0; PYTHONPATH="$TESTTMP/no-such-dir" PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 -S "$HELPER" \
     >/dev/null 2>"$TESTTMP/herr" || rc=$?
   assert_eq "$rc" "3" "no PyGObject at all is exit 3"
+  # flatpak installed, nothing ever installed with it: no repo yet, and nothing to list.
+  jq --arg p "$TESTTMP/no-repo" '.installation = $p' "$UNUSED_FX" > "$TESTTMP/norepo-fx.json"
+  rc=0; hout="$(FAKE_FLATPAK_JSON="$TESTTMP/norepo-fx.json" \
+    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" 2>/dev/null)" || rc=$?
+  assert_eq "$rc|$(jq -c '[.unused, .used]' <<<"$hout" 2>/dev/null)" "0|[[],[]]" \
+    "a system installation with no repository yet lists nothing, and is not a failure"
   assert_exit 2 "the helper takes no arguments" -- env PYTHONPATH="$FIXTURES/fake-gi" "$HELPER" --user
   unset FAKE_FLATPAK_JSON FAKE_FLATPAK_CALLS
 else

@@ -19,6 +19,7 @@
 # System installation ONLY, and only the default one, matching backends/flatpak.sh. Never
 # Installation.new_user(): it creates ~/.local/share/flatpak/repo as a side effect.
 import json
+import os
 import sys
 
 
@@ -43,9 +44,15 @@ def main():
         return 3
     try:
         inst = Flatpak.Installation.new_system(None)
+        path = inst.get_path().get_path()
+        # flatpak creates the repository with the first remote or install. Without it nothing is
+        # installed, and the listing calls would fail opening it: an empty answer, not an error.
+        if not os.path.isdir(os.path.join(path, "repo")):
+            json.dump({"installation": path, "unused": [], "used": []}, sys.stdout)
+            sys.stdout.write("\n")
+            return 0
         unused = inst.list_unused_refs(None, None)
         installed = inst.list_installed_refs(None)
-        path = inst.get_path().get_path()
     except Exception as e:  # GLib.Error, and anything else the bindings raise
         print("flatpak did not answer: %s" % e, file=sys.stderr)
         return 1
