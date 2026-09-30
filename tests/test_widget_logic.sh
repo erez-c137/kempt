@@ -2260,10 +2260,10 @@ assert_eq "$(js "L.reclaimOutcomeOf(0, 'Removed 2 runtimes.\n', '', Object.assig
   "Removed 2 runtimes." "...with no size, the CLI's count"
 # Flatpak removed extensions an app had just started using (reclaim.last.in_use): said after it.
 assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:['org.freedesktop.Platform.Locale//24.08']}), $RC_PRESS).text")" \
-  "Freed ~1.5 GB. One of them was an extension an app had just started using. Run flatpak update to put it back." \
+  "Freed ~1.5 GB. An extension an app had just started using was removed too. Run flatpak update to put it back." \
   "a removal that took an extension an app had just started using says so, and how to put it back"
 assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null,in_use:['a//1','b//2']}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized') 2 of them were extensions that apps had just started using. Run flatpak update to put them back." \
+  "$(js 'L.COPY.reclaimPartialUnsized') 2 extensions that apps had just started using were removed too. Run flatpak update to put them back." \
   "...in the plural, after a partial removal too"
 assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:[],at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
   "Freed about 1.5 GB." "...and says nothing of it for an empty list or an older record"

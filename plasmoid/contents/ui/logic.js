@@ -366,8 +366,8 @@ var COPY = {
     reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
     // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
     // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines).
-    reclaimInUseOne: "One of them was an extension an app had just started using. Run flatpak update to put it back.",
-    reclaimInUseMore: "%1 of them were extensions that apps had just started using. Run flatpak update to put them back.",
+    reclaimInUseOne: "An extension an app had just started using was removed too. Run flatpak update to put it back.",
+    reclaimInUseMore: "%1 extensions that apps had just started using were removed too. Run flatpak update to put them back.",
     // Flatpak stopped part-way. The first is filled with the size of what did go.
     reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
     reclaimPartialUnsized: "Flatpak removed some of them, but not all.",

@@ -2491,9 +2491,9 @@ reclaim_outcome_lines() {  # [update]
       if [[ -n "${RECLAIM_IN_USE:-}" ]]; then
         local k; k="$(jq -r 'length' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || k="?"
         if [[ "$k" == 1 ]]; then
-          echo "One of them was an extension an app had just started using. Run flatpak update to put it back." >&2
+          echo "An extension an app had just started using was removed too. Run flatpak update to put it back." >&2
         else
-          echo "$k of them were extensions that apps had just started using. Run flatpak update to put them back." >&2
+          echo "$k extensions that apps had just started using were removed too. Run flatpak update to put them back." >&2
         fi
       fi ;;
     nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;

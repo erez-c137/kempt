@@ -2375,7 +2375,7 @@ lout="$(push_history_back; UNINSTALL_INFO=1 KEMPT_ASSUME_TTY=1 "$KEMPT" update -
 RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(jq -c '.backends.flatpak.reclaimed.in_use' "$RH")" '["org.freedesktop.Platform.Locale//24.08"]' \
   "an extension removed while an app uses it is named in the run's entry"
-assert_contains "$lout" "One of them was an extension an app had just started using. Run flatpak update to put it back." \
+assert_contains "$lout" "An extension an app had just started using was removed too. Run flatpak update to put it back." \
   "...and said on the terminal"
 
 # An app that starts needing a runtime while du measures must stop the removal: after a run that
