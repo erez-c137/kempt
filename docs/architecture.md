@@ -489,8 +489,9 @@ Optional keys on that entry:
 - `eol` on a live run's flatpak backend: one `{id, branch, kind, apps, reason}` per end-of-life
   ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far.
 - `reclaimed` on the flatpak backend, when `reclaim=automatic` tried a removal after the run:
-  `{refs, bytes, status}`, plus `partial` as in `reclaim.last`, where `status` is a `reclaim.last.result` value. `kempt summary` and the
-  last-run line show it only when `status` is `removed`.
+  `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`, where `status` is a
+  `reclaim.last.result` value. `kempt summary` and the last-run line show it only when `status`
+  is `removed`.
 
 Rules at this boundary:
 

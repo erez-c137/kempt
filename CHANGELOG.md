@@ -15,15 +15,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for its turn. The widget uses it for the checks nobody asked for. `kempt log` shows such a check
   as `check shared`.
 - **`kempt reclaim` frees the space old Flatpak runtimes take.** Runtimes are the shared parts
-  Flatpak apps run on, and one often stays behind after its last app is gone. Kempt lists the
-  runtimes no installed app uses, says about how much space they take, and removes them when you
-  agree. It removes only the runtimes it showed you, named one by one. An app you install while it
-  works keeps the runtime and extensions it uses. If any of them became
-  unused less than an hour ago, it removes none and asks you to try again later. The first time,
-  it checks and asks you to come back in an hour. It
-  never asks for a password: when removing them needs an administrator, it says so and removes
-  nothing. If Flatpak stops part-way, it says how much was freed. Scripts read the list as
-  `reclaim` in `state.json`.
+  Flatpak apps run on. Kempt lists the ones no app uses, with their size, and removes them when
+  you agree. An app you install during the removal keeps what it needs. In the rare case it does
+  not, Kempt says how to put it back.
 - **The new `reclaim` setting can remove them after each update.** It is `ask` (the default),
   `automatic` or `off`. `automatic` acts as `ask` on an image-based Fedora such as Kinoite, and
   when more than one person may use the machine: more than one login account, work or school

@@ -285,8 +285,12 @@ A runtime is removed only after it has been unused for an hour, counted from the
 listed it. With no check on record,
 .B kempt reclaim
 runs one first and says to try again in an hour.
-Runtimes go first, then the extensions still unused after a fresh listing, so an app installed
-meanwhile keeps what it uses. To keep one,
+Kempt removes runtimes first, then checks again and removes only the extensions still unused,
+so an app you install during the removal keeps what it needs.
+If Flatpak still removes an extension an app has just started using, Kempt says so; run
+.B "flatpak update"
+to put it back.
+To keep one,
 pin it with
 .BR "flatpak pin" .
 Runs as the user and refuses to run as root. Exits 5 with nothing removed when it may not remove

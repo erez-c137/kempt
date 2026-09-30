@@ -388,9 +388,9 @@ Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on
 nothing else. An extension another installed runtime still uses stays. The size is an estimate.
 Kempt removes the runtimes first and their extensions after them, such as translations
 (`.Locale`) and graphics drivers (`.GL`). Flatpak keeps a runtime an app needs, so an app you
-install meanwhile keeps its runtime. Kempt then lists again and removes only the extensions still
-unused, so that app keeps those too. If Flatpak removes one an app has only just started using,
-`kempt reclaim` says so, and the next update puts it back.
+install while Kempt removes them keeps its runtime. Kempt then lists again and removes only the
+extensions still unused, so that app keeps those too. If Flatpak removes one an app has only just
+started using, Kempt says so. Run `flatpak update` to put it back.
 Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
 is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
@@ -551,7 +551,7 @@ The wording is fixed, so you can search it:
 | `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
 | `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. `, in use: <id>//<branch>` names extensions Flatpak removed although an app uses them. The next update puts them back. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. `, in use: <id>//<branch>` names extensions Flatpak removed although an app uses them. Run `flatpak update` to put them back. |
 | `reclaim found nothing to remove` | Nothing was unused when the removal after an update ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | Removing them needed an administrator (see [reclaim](#reclaim)), so nothing was removed. |
