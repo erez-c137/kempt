@@ -421,12 +421,13 @@ reclaim_after_run() {  # log_file
   reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
   # The outcome in kempt reclaim's words: always into the log after flatpak's lines, and under the
   # heading on a live terminal, where flatpak's own lines are not shown.
-  reclaim_outcome_lines >>"$1" 2>&1 || true
-  [[ "${KEMPT_LIVE_OUTPUT:-}" != "1" ]] || reclaim_outcome_lines || true
+  reclaim_outcome_lines update >>"$1" 2>&1 || true
+  [[ "${KEMPT_LIVE_OUTPUT:-}" != "1" ]] || reclaim_outcome_lines update || true
   RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    --arg p "${RECLAIM_PARTIAL:-}" \
+    --arg p "${RECLAIM_PARTIAL:-}" --arg u "${RECLAIM_IN_USE:-}" \
     '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}
-     + (if $p == "" then {} else {partial: true} end)' 2>/dev/null)" \
+     + (if $p == "" then {} else {partial: true} end)
+     + (if $u == "" then {} else {in_use: ($u | fromjson)} end)' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
 }
@@ -2432,9 +2433,10 @@ cmd_unstage() {
 
 # What a removal came to, in words: success on stdout, anything else on stderr. Returns the exit
 # code `kempt reclaim` gives it. Reads only the RECLAIM_* globals reclaim_remove set, so the
-# automatic step after an update says the same sentences (reclaim_after_run).
-reclaim_outcome_lines() {
-  local rc=0
+# automatic step after an update says the same sentences (reclaim_after_run). With "update", the
+# refusals are worded for a run where nothing was listed to the person first.
+reclaim_outcome_lines() {  # [update]
+  local rc=0 ctx="${1:-}"
   case "$RECLAIM_RESULT" in
     removed)
       if [[ -n "$RECLAIM_BYTES" && "$RECLAIM_BYTES" != 0 ]]; then
@@ -2444,8 +2446,12 @@ reclaim_outcome_lines() {
         if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
       fi
       # flatpak stopped part-way: what went is said above, and it was not everything agreed to.
+      # RECLAIM_ERROR is the no-list sentence here only when the list between the passes failed and
+      # every pass flatpak ran succeeded: the extensions were never tried, nothing was refused.
       if [[ -n "$RECLAIM_PARTIAL" ]]; then
-        if [[ -n "$RECLAIM_ERROR" ]]; then
+        if [[ "$RECLAIM_ERROR" == "$KEMPT_RECLAIM_NO_LIST" ]]; then
+          echo "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." >&2
+        elif [[ -n "$RECLAIM_ERROR" ]]; then
           echo "Flatpak could not remove all of them: $RECLAIM_ERROR" >&2
         else
           echo "Flatpak could not remove all of them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
@@ -2453,24 +2459,37 @@ reclaim_outcome_lines() {
         rc=1
       fi
       # The race the second pass leaves (reclaim_remove): flatpak removed an extension an app had
-      # just started using. The app's next update installs it again.
+      # just started using. `flatpak update` installs it again; the next Kempt update may not (an
+      # app held back, or a theme installed by hand).
       if [[ -n "${RECLAIM_IN_USE:-}" ]]; then
         local k; k="$(jq -r 'length' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || k="?"
         if [[ "$k" == 1 ]]; then
-          echo "Flatpak also removed 1 extension an app uses. The next update puts it back." >&2
+          echo "One of them was an extension an app had just started using. Run flatpak update to put it back." >&2
         else
-          echo "Flatpak also removed $k extensions that apps use. The next update puts them back." >&2
+          echo "$k of them were extensions that apps had just started using. Run flatpak update to put them back." >&2
         fi
       fi ;;
     nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
     changed)
-      if [[ "$RECLAIM_WHY" == unstable ]]; then
+      if [[ "$ctx" == update ]]; then
+        if [[ "$RECLAIM_WHY" == unstable ]]; then
+          echo "Nothing was removed. Some runtimes became unused less than an hour ago." >&2
+        else
+          echo "Nothing was removed. The unused runtimes changed since the last check." >&2
+        fi
+      elif [[ "$RECLAIM_WHY" == unstable ]]; then
         echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
       else
         echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
       fi
       rc=6 ;;
-    needs_auth) echo "Removing these needs an administrator. Nothing was removed." >&2; rc=5 ;;
+    needs_auth)
+      if [[ "$ctx" == update ]]; then
+        echo "Removing the unused runtimes needs an administrator. Nothing was removed." >&2
+      else
+        echo "Removing these needs an administrator. Nothing was removed." >&2
+      fi
+      rc=5 ;;
     # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
     # With RECLAIM_PARTIAL set here, flatpak failed and the list afterwards could not be read, so
     # some runtimes may be gone: never "nothing was removed".

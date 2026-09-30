@@ -2289,6 +2289,9 @@ if [[ -n "${UNINSTALL_PARTIAL:-}" && " $* " == *" runtime/org.kde.Platform/x86_6
   echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08"; exit 1
 fi
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
+# flatpak's line for an extension an app uses, which it removes anyway
+[[ -n "${UNINSTALL_INFO:-}" && " $* " == *".Locale/"* ]] \
+  && printf 'Info: applications using the extension org.freedesktop.Platform.Locale branch 24.08:\n   org.example.App\n'
 printf '%s\n' "$@" | awk -F/ '{ print $2 "\t" $4 }' \
   | awk -F'\t' 'NR == FNR { gone[$1 FS $2] = 1; next } !(($1 FS $2) in gone)' - "$WORLD/fp-snap-rt.tsv" > "$RC/snap.left"
 mv "$RC/snap.left" "$WORLD/fp-snap-rt.tsv"
@@ -2361,6 +2364,15 @@ rc_offer
 lout="$(push_history_back; UNINSTALL_RC=1 KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal </dev/null 2>&1)" || true
 assert_contains "$lout" "== Unused Flatpak runtimes =="$'\n'"Flatpak could not remove them (exit code 1). See: kempt log" \
   "...and a removal that failed says so there too"
+# An extension flatpak removed although an app had just started using it: in the run's entry, and
+# said on the terminal with how to put it back.
+rc_offer
+lout="$(push_history_back; UNINSTALL_INFO=1 KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal </dev/null 2>&1)" || true
+RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
+assert_eq "$(jq -c '.backends.flatpak.reclaimed.in_use' "$RH")" '["org.freedesktop.Platform.Locale//24.08"]' \
+  "an extension removed while an app uses it is named in the run's entry"
+assert_contains "$lout" "One of them was an extension an app had just started using. Run flatpak update to put it back." \
+  "...and said on the terminal"
 
 # An app that starts needing a runtime while du measures must stop the removal: after a run that
 # updated a runtime the size cache misses, and a full du can take many seconds. So du comes before
@@ -2371,6 +2383,8 @@ rm -f "$KEMPT_STATE_DIR/reclaim-sizes.json"
 DU_SWAP="$RC/now-used.json" rc_update
 assert_eq "$(rc_calls)|$(jq -r '.backends.flatpak.reclaimed.status' "$RH")" "(none)|changed" \
   "a runtime that became used while du ran is not removed"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Nothing was removed. The unused runtimes changed since the last check." \
+  "...said for an update, where nothing was shown to agree to"
 
 # A runtime the run's before-snapshot does not have was installed during the run: not removed.
 rc_offer
@@ -2380,13 +2394,27 @@ rc_update
 assert_eq "$(rc_calls)" "(none)" "a ref missing from the before-snapshot stops the removal"
 assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "changed|ok" \
   "...recorded as changed, and the run still ok"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Nothing was removed. The unused runtimes changed since the last check." \
+  "...in the update's words"
 cp "$RC/snap.full" "$WORLD/fp-snap-rt.tsv"
+
+# A ref on offer that, by the record, became unused less than an hour ago.
+rc_offer
+jq --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.reclaim.refs[0].since = $t' "$KEMPT_STATE_DIR/state.json" > "$RC/st" \
+  && mv "$RC/st" "$KEMPT_STATE_DIR/state.json"
+rc_update
+assert_eq "$(rc_calls)|$(jq -r '.backends.flatpak.reclaimed.status' "$RH")" "(none)|changed" \
+  "a ref unused for less than an hour stops the removal after an update"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Nothing was removed. Some runtimes became unused less than an hour ago." \
+  "...said for an update"
 
 rc_offer
 PKCHECK_RC=1 rc_update
 assert_eq "$(rc_calls)" "(none)" "polkit would ask: nothing removed"
 assert_eq "$(jq -r '.backends.flatpak.reclaimed.status' "$RH")|$(jq -r .status "$RH")" "needs_auth|ok" \
   "...recorded as needs_auth, and the run still ok"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Removing the unused runtimes needs an administrator. Nothing was removed." \
+  "...said for an update"
 assert_not_contains "$(cat "$WORLD/notifications")" "freed" "...and the notification claims nothing"
 assert_eq "$(jq -r '.reclaim.status' "$KEMPT_STATE_DIR/state.json")" "needs_auth" "state carries needs_auth for this set"
 rc_update

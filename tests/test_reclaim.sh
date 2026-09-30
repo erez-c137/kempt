@@ -972,7 +972,9 @@ rc=0; out="$(HOOK_1="$TESTTMP/hook-blind-once" byname -y --expect="$DIGEST5")" |
 assert_eq "$rc|$(calls uninstall)" "1|$P1" "a list that fails between the passes: no second pass"
 assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,2,1500000000]' \
   "...the runtimes that went counted, the removal partial"
-assert_contains "$out" "Flatpak could not remove all of them: Flatpak did not answer when asked what is unused" "...and why"
+assert_contains "$out" "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." \
+  "...said as extensions left in place, not as a refusal"
+assert_not_contains "$out" "could not remove" "...never as Flatpak refusing"
 printf 'touch "$STUBS/unused.fail"\n' > "$TESTTMP/hook-blind"
 restore_offer
 rc=0; out="$(HOOK_1="$TESTTMP/hook-blind" byname -y --expect="$DIGEST5")" || rc=$?
@@ -982,8 +984,8 @@ assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs]' "$RECLAIM
   "...and when no list can be read after it either, flatpak's word for the first pass"
 
 # The race that is left: an app installed in the moment before the second pass. flatpak says so in
-# an Info line and removes the extension anyway. Kempt records it and says the next update puts it
-# back. One flatpak never removed (refused, the last named) is not counted, nor a runtime.
+# an Info line and removes the extension anyway. Kempt records it and says how to put it back. One
+# flatpak never removed (refused, the last named) is not counted, nor a runtime.
 cat > "$TESTTMP/hook-info" <<'HOOK'
 printf 'Info: applications using the extension \033[1morg.freedesktop.Platform.Locale\033[22m branch \033[1m24.08\033[22m:\n   org.example.App\n'
 printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   org.example.App\n'
@@ -994,12 +996,12 @@ restore_offer
 rc=0; out="$(HOOK_2="$TESTTMP/hook-info" byname -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
   "an extension flatpak says an app uses, and removed, is recorded as in use"
-assert_contains "$out" "Flatpak also removed 1 extension an app uses. The next update puts it back." "...and said"
+assert_contains "$out" "One of them was an extension an app had just started using. Run flatpak update to put it back." "...and said"
 assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "in use: org.freedesktop.Platform.GL.default//24.08extra" "...and logged"
 HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
 restore_offer
 rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
-assert_contains "$out" "Flatpak also removed 2 extensions that apps use. The next update puts them back." "...two in the plural"
+assert_contains "$out" "2 of them were extensions that apps had just started using. Run flatpak update to put them back." "...two in the plural"
 
 # A theme left behind by a runtime that goes: flatpak's metadata marks it an extension, so it waits
 # for the second pass though its id does not start with the runtime's.
