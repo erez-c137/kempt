@@ -1018,12 +1018,12 @@ restore_offer
 rc=0; out="$(HOOK_2="$TESTTMP/hook-info" byname -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
   "an extension flatpak says an app uses, and removed, is recorded as in use"
-assert_contains "$out" "An extension an app had just started using was removed too. Run flatpak update to put it back." "...and said"
+assert_contains "$out" "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." "...and said"
 assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "in use: org.freedesktop.Platform.GL.default//24.08extra" "...and logged"
 HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
 restore_offer
 rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
-assert_contains "$out" "2 extensions that apps had just started using were removed too. Run flatpak update to put them back." "...two in the plural"
+assert_contains "$out" "Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." "...two in the plural"
 # flatpak names every installed app whose extension points match, also for an extension it lists
 # as unused because it is pruned (an old GL driver). An app already installed at the listing taken
 # before the pass is no race: the extension is not in use by anything new.
