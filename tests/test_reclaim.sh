@@ -561,6 +561,16 @@ assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")|$(calls uninstall)" "6|ch
   "an offer whose runtimes all became used during the removal's own look: exit 6, changed"
 assert_contains "$out" "What Flatpak can remove changed since this was shown." "...never that nothing unused was found"
 restore_offer
+# The permission question's time limit is a seam for the tests; anything but 1 to 10 seconds is 10.
+rm -f "$STUBS/timeout.calls"
+rc=0; out="$(KEMPT_RECLAIM_PKCHECK_TIMEOUT=abc PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(grep ' pkcheck$' "$STUBS/timeout.calls" | head -1)" "0|10 pkcheck" \
+  "a pkcheck time limit that is not a number is 10 s, not a refusal"
+restore_offer; rm -f "$STUBS/timeout.calls"
+rc=0; out="$(KEMPT_RECLAIM_PKCHECK_TIMEOUT=999 PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(grep ' pkcheck$' "$STUBS/timeout.calls" | head -1)" "0|10 pkcheck" \
+  "...and one past the widget's wait is 10 s too"
+restore_offer
 
 # A set that grew: one more unused ref than was shown means the removal would take it too, unseen.
 jq '.unused += [{"ref":"runtime/org.gnome.Platform/x86_64/46","commit":"'"$(printf 'g%.0s' {1..64} | tr g a)"'",

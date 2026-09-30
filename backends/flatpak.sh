@@ -113,9 +113,13 @@ KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --
 KEMPT_RECLAIM_LIST_TIMEOUT=15
 KEMPT_RECLAIM_DU_TIMEOUT=30
 # The permission question before a removal. pkcheck asks polkit over the system bus; a polkit that
-# does not answer is a no, not a removal that waits forever holding the update lock.
+# does not answer is a no, not a removal that waits forever holding the update lock. The variable is
+# a seam for the tests. Anything but 1 to 10 seconds is 10: a word would make timeout fail (exit
+# 125, read as "needs an administrator"), and more than 10 would outlast the widget's wait, which
+# is sized on 10 (RECLAIM_TIMEOUT_MS in plasmoid/contents/ui/logic.js).
 # shellcheck disable=SC2034  # read by bin/kempt
 KEMPT_RECLAIM_PKCHECK_TIMEOUT="${KEMPT_RECLAIM_PKCHECK_TIMEOUT:-10}"
+[[ "$KEMPT_RECLAIM_PKCHECK_TIMEOUT" =~ ^([1-9]|10)$ ]] || KEMPT_RECLAIM_PKCHECK_TIMEOUT=10
 # The removal itself, run by bin/kempt under the update lock: both of its passes together. When
 # extensions follow, the first pass leaves the second at least a minute of it.
 # shellcheck disable=SC2034  # read by bin/kempt
