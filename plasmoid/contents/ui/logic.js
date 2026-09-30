@@ -372,8 +372,9 @@ var COPY = {
     reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
     reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
     // The list between the two passes failed, so the extensions were never tried and nothing was
-    // refused (reclaim.last.skipped). The CLI's sentence, after the Freed one when there is a size.
-    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again.",
+    // refused (reclaim.last.skipped). Said after what went. The leftover refs keep their since, so
+    // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
+    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more.",
     // Flatpak failed and Kempt could not read what is left afterwards.
     reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
@@ -1603,9 +1604,17 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         if (fresh.result === "removed") {
             var sized = typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0;
             if (fresh.skipped === true) {
-                var skipped = sized ? fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) + " " + COPY.reclaimSkipped
-                                    : COPY.reclaimSkipped;
-                return { ok: false, text: withInUse(skipped) };
+                // What went first, as the CLI prints it: the size, or its "Removed N runtimes." count.
+                var first = COPY.reclaimPartialUnsized;
+                if (sized) {
+                    first = fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes));
+                } else {
+                    var outLines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+                    var outTail = "";
+                    for (var j = outLines.length - 1; j >= 0 && outTail === ""; j--) outTail = outLines[j].trim();
+                    if (/^Removed [0-9]+ runtimes?\.$/.test(outTail)) first = outTail;
+                }
+                return { ok: false, text: withInUse(first + " " + COPY.reclaimSkipped) };
             }
             if (sized) return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
             return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };

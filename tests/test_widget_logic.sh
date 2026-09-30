@@ -2298,13 +2298,18 @@ assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could 
 assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
   "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
 # The list between the passes failed (reclaim.last.skipped): the extensions were left in place and
-# nothing was refused, in the CLI's words.
+# nothing was refused. What went comes first, as the CLI prints it.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', '', Object.assign($RC_LAST,{partial:true,skipped:true,error:'Flatpak did not answer when asked what is unused'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again."}' \
+  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more."}' \
   "a second pass skipped for a failed list says the extensions were left in place, not that Flatpak refused"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimSkipped')" "...and with no size, that alone"
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped')" "...the CLI's sentence"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
+  "Removed 2 runtimes. $(js 'L.COPY.reclaimSkipped')" "...with no size, the CLI's count first"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimPartialUnsized') $(js 'L.COPY.reclaimSkipped')" "...and with no count either, that some went"
+assert_not_contains "$(js 'L.COPY.reclaimSkipped')" "kempt" "...never sending the person to the terminal"
+assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "...and the 100 MB it names is the offer's floor"
+assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped' | sed 's/\. .*/./')" \
+  "...the reason in the CLI's words"
 # Flatpak failed and what is left could not be read: never "Nothing was removed".
 RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \

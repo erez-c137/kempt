@@ -2458,7 +2458,7 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
     "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
     "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
-    "reclaimSkipped",       # -> reclaimOutcomeOf -> actionMessage, alone or after reclaimFreed
+    "reclaimSkipped",       # -> reclaimOutcomeOf -> actionMessage, after what went
     "reclaimInUseOne",      # -> reclaimOutcomeOf, after the Freed or partial sentence
     "reclaimInUseMore",     # -> reclaimOutcomeOf, after the Freed or partial sentence (a count)
     "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
