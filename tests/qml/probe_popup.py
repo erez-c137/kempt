@@ -2195,6 +2195,38 @@ p.check("...with that run's own log reachable from the row",
         lev("lastRunView.itemAtIndex(0).contextualActions[0].text"), ev("Logic.COPY.showLog"))
 p.check("...and the packages it installed under it",
         lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
+p.check("...with no second line for a run that went well and took nothing an app uses",
+        lev("lastRunView.itemAtIndex(0).subtitle"), "")
+
+# A background run whose automatic removal took an extension an app uses: the row says so, once.
+inuse = json.loads(json.dumps(LAST_RUN))
+inuse["backends"]["flatpak"]["reclaimed"] = {"refs": ["runtime/x/x86_64/1"], "bytes": 1000000,
+                                             "status": "removed", "in_use": ["a//1"]}
+open(RUNJSON, "w").write(json.dumps(inuse))
+ev('root.reclaimInUseSeen = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
+ev("root.loadLastRun()")
+settle()
+p.pump(50)
+p.check("a run whose removal took an extension an app uses says so under the Last update row",
+        lev("lastRunView.itemAtIndex(0).subtitle"), ev("Logic.COPY.reclaimInUseOne"))
+ev('root.actionMessage = "Could not change the hold on bash."')
+p.pump(50)
+p.check("premise: a failed press's report hides the row", lev("lastRunView.visible"), False)
+ev("root.popupClosed()")
+p.check("...so closing the popup then does not count the sentence as seen",
+        ev("root.reclaimInUseSeen"), "")
+ev('root.actionMessage = ""')
+p.pump(50)
+p.check("premise: the row is back, with the sentence", lev("lastRunView.visible"), True)
+ev("root.popupClosed()")
+p.check("...and closing the popup over it marks that run seen", ev("root.reclaimInUseSeen"),
+        inuse["timestamp"])
+p.pump(50)
+p.check("...after which the row says it no more", lev("lastRunView.itemAtIndex(0).subtitle"), "")
+ev('root.reclaimInUseSeen = ""')
+open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+ev("root.loadLastRun()")
+settle()
 
 ev("root.lastRun = null")
 p.pump(50)
@@ -2459,8 +2491,9 @@ _ASSEMBLED_IN_LOGIC = {
     "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
     "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
     "reclaimSkipped",       # -> reclaimOutcomeOf -> actionMessage, after what went
-    "reclaimInUseOne",      # -> reclaimOutcomeOf, after the Freed or partial sentence
-    "reclaimInUseMore",     # -> reclaimOutcomeOf, after the Freed or partial sentence (a count)
+    "reclaimInUseOne",      # -> reclaimOutcomeOf, after the Freed or partial sentence; and a run's
+                            #    removal: postRunLine and the Last update row (lastRunSubtitle)
+    "reclaimInUseMore",     # -> the same places, with a count
     "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
     "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
     "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)

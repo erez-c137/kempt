@@ -2374,6 +2374,63 @@ assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Upda
   "...and a reclaim that did not remove anything is not mentioned: it never fails the run"
 assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_FAILED)).reclaimedCount")" "0" "...and counts nothing"
 
+# --- ...and extensions that removal took from an app, once per run --------------------------------
+RC_INUSE1="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["org.freedesktop.Platform.Locale\/\/24.08"]/')"
+RC_INUSE2="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["a\/\/1","b\/\/2"]/')"
+RC_NOW="Date.parse('2026-09-29T11:00:00+03:00')"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_INUSE2)).reclaimedInUse")" "2" "the run's entry says how many extensions went that an app uses"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedInUse")" "0" "...and none when it does not say"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE1)))")" \
+  "Updated 1 package · ~1.5 GB freed $(js 'L.COPY.reclaimInUseOne')" \
+  "the line after the run says an extension an app uses went, and how to put it back"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE2)))")" \
+  "Updated 1 package · ~1.5 GB freed Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
+  "...in the plural"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '')")" "$(js 'L.COPY.reclaimInUseOne')" \
+  "the Last update row says it too, for a run the popup did not watch"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE2)), '')")" \
+  "$(js "L.COPY.reclaimInUseMore.replace('%1', '2')")" "...in the plural"
+assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_INUSE1)), $RC_NOW)")" \
+  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...under a title that stays as it was"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-29T10:00:00+03:00')")" "" \
+  "...and not again once the popup has shown it for that run"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-28T10:00:00+03:00')")" \
+  "$(js 'L.COPY.reclaimInUseOne')" "...while an earlier run's showing does not silence this one"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_RUN)), '')")" "" \
+  "a removal that took nothing an app uses adds nothing to the row"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
+  "...or to the line after the run"
+RC_INUSE_FAILED="$(printf '%s' "$RC_INUSE1" | sed 's/status:"ok"/status:"failed",error:"dnf failed"/')"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_FAILED)), '')")" "Update failed: dnf failed" \
+  "a failed run's row still says why it failed, and nothing else"
+assert_eq "$(js "L.lastRunSubtitle(null, '')")" "" "...and no run, no line"
+# Install on Next Restart: Flatpak still updates live, so its removal can take an extension too.
+RC_INUSE_OFF="$(printf '%s' "$RC_INUSE1" | sed 's/surface:"popup"/surface:"offline"/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF)))")" \
+  "$(js 'L.COPY.stagedUnknownCount') $(js 'L.COPY.reclaimInUseOne')" "a staging run's line says it too"
+RC_INUSE_OFF_HELD="$(printf '%s' "$RC_INUSE_OFF" | sed 's/status:"ok"/status:"ok",staged_nothing:"held"/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF_HELD)))")" \
+  "$(js 'L.COPY.stagedNothingHeld') $(js 'L.COPY.reclaimInUseOne')" "...and one that staged nothing"
+# An entry with no stamp has no row and could never be marked seen: it says nothing of it.
+RC_INUSE_NOWHEN="$(printf '%s' "$RC_INUSE1" | sed 's/timestamp:"2026-09-29T10:00:00+03:00",//')"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)), '')")" "" \
+  "an entry with no timestamp does not show the sentence under the row"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)))")" "Updated 1 package · ~1.5 GB freed" \
+  "...or in the line after the run"
+# Marked seen only when it was on screen as the popup closed.
+RC_R1="L.lastRunOf(JSON.stringify($RC_INUSE1))"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, false, '')")" "true" \
+  "on screen: under the Last update row, with no report over it"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, L.postRunLine($RC_R1))")" "true" \
+  "...or in the post-run line that hides the row"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, 'Could not start the update (exit 2).')")" "false" \
+  "not on screen: a failed press's report hides the row"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', true, false, '')")" "false" "...nor while the updating pane replaces it"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '2026-09-29T10:00:00+03:00', false, false, '')")" "false" \
+  "...nor once already seen"
+assert_eq "$(js "L.reclaimInUseOnScreen(L.lastRunOf(JSON.stringify($RC_RUN)), '', false, false, '')")" "false" \
+  "...nor for a run without it"
+
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
 # and it was the fifth thing competing for a popup that fits two. The dateline it explains is one
