@@ -68,7 +68,8 @@ update with `reclaim=automatic`, run `flatpak uninstall --system --no-related --
 with the refs you were shown, by name. Nothing else is named, and `--no-related` stops Flatpak
 adding related refs. Kempt lists the runtimes again just before, and removes nothing unless the
 list is still exactly that set. Flatpak refuses to remove a runtime an installed app uses, and
-Kempt never passes `--force-remove`.
+Kempt never passes `--force-remove`. Flatpak removes an extension an app uses, so Kempt removes
+extensions in a second pass, after listing again, and only those still unused.
 
 Flatpak does the removal through its own system helper, which asks polkit for
 `org.freedesktop.Flatpak.runtime-uninstall`. This gives you nothing you did not already have.

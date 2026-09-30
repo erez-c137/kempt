@@ -284,7 +284,13 @@ It never asks for a password: when removing needs an administrator, nothing is r
 A runtime is removed only after it has been unused for an hour, counted from the first check that
 listed it. With no check on record,
 .B kempt reclaim
-runs one first and says to try again in an hour. To keep one,
+runs one first and says to try again in an hour.
+Kempt removes runtimes first, then checks again and removes only the extensions still unused.
+An app you install during the removal keeps its runtime.
+If Flatpak removes one of its extensions, Kempt says so; run
+.B "flatpak update"
+to put it back.
+To keep one,
 pin it with
 .BR "flatpak pin" .
 Runs as the user and refuses to run as root. Exits 5 with nothing removed when it may not remove

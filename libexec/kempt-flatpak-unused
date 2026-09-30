@@ -9,10 +9,21 @@
 #
 # JSON on stdout:
 #   {"installation": path,
-#    "unused": [{"ref", "commit", "deploy_dir", "eol"}],   eol is the reason string or null
+#    "unused": [{"ref", "commit", "deploy_dir", "eol", "extension"}],
 #    "used":   [{"ref", "commit", "deploy_dir"}]}          every other installed ref
-# The used refs are there for the size estimate: a file an unused ref shares with a used one is
-# not freed, and du can only tell the two apart when it sees both sets of directories.
+# eol is the reason string or null. The used refs are there for the size estimate: a file an unused
+# ref shares with a used one is not freed, and du can only tell the two apart when it sees both sets
+# of directories.
+#
+# extension is true when the unused ref is an extension, which flatpak removes even while an app
+# uses it (kempt removes those in a second pass, bin/kempt reclaim_remove). Read from flatpak's own
+# metadata, not the id: org.gtk.Gtk3theme.* or org.kde.KStyle.* do not start with their runtime's
+# id. It is an extension when its own metadata has an [ExtensionOf] group with a ref key
+# (build-finish writes one), or when its id is an extension point some installed runtime or app
+# declares ([Extension P]), or lies under one (P.something: subdirectories, as
+# org.freedesktop.Platform.GL.default under org.freedesktop.Platform.GL). The field is left out when the ref's own metadata cannot be read
+# and no declaration matches; the CLI then falls back to the id. Cost: one read of each installed
+# ref's small metadata file, no network and no writes.
 #
 # Exit 0 with the JSON, or non-zero with a one-line reason on stderr. Takes no arguments.
 #
@@ -31,6 +42,38 @@ def ref_entry(ref):
     }
 
 
+def metadata_groups(ref, GLib):
+    """The group names of an installed ref's metadata keyfile, or None when it cannot be read.
+    [ExtensionOf] is left out unless it has a ref key: flatpak counts the group only with one
+    (common/flatpak-dir.c, add_metadata_to_deploy_data)."""
+    try:
+        kf = GLib.KeyFile()
+        kf.load_from_bytes(ref.load_metadata(None), GLib.KeyFileFlags.NONE)
+        groups = kf.get_groups()
+    except Exception:  # GLib.Error: a missing or unparsable metadata file
+        return None
+    # PyGObject returns (groups, length)
+    if isinstance(groups, tuple):
+        groups = groups[0]
+    groups = list(groups or [])
+    if "ExtensionOf" in groups:
+        try:
+            has_ref = bool(kf.get_string("ExtensionOf", "ref"))
+        except Exception:  # GLib.Error: no such key
+            has_ref = False
+        if not has_ref:
+            groups.remove("ExtensionOf")
+    return groups
+
+
+def is_extension(ref_id, own_groups, points):
+    if own_groups is not None and "ExtensionOf" in own_groups:
+        return True
+    if any(ref_id == p or ref_id.startswith(p + ".") for p in points):
+        return True
+    return False if own_groups is not None else None
+
+
 def main():
     if len(sys.argv) != 1:
         print("usage: kempt-flatpak-unused", file=sys.stderr)
@@ -38,7 +81,7 @@ def main():
     try:
         import gi
         gi.require_version("Flatpak", "1.0")
-        from gi.repository import Flatpak
+        from gi.repository import Flatpak, GLib
     except (ImportError, ValueError) as e:
         print("cannot load libflatpak from Python: %s" % e, file=sys.stderr)
         return 3
@@ -56,11 +99,19 @@ def main():
     except Exception as e:  # GLib.Error, and anything else the bindings raise
         print("flatpak did not answer: %s" % e, file=sys.stderr)
         return 1
+    groups = {r.format_ref(): metadata_groups(r, GLib) for r in installed}
+    points = set()
+    for g in groups.values():
+        points.update(n[len("Extension "):] for n in (g or []) if n.startswith("Extension "))
     unused_names = set()
     out_unused = []
     for ref in unused:
         entry = ref_entry(ref)
         entry["eol"] = ref.get_eol() or None
+        own = groups[entry["ref"]] if entry["ref"] in groups else metadata_groups(ref, GLib)
+        ext = is_extension(ref.get_name(), own, points)
+        if ext is not None:
+            entry["extension"] = ext
         unused_names.add(entry["ref"])
         out_unused.append(entry)
     out_used = [ref_entry(r) for r in installed if r.format_ref() not in unused_names]

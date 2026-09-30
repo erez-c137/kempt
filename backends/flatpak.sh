@@ -100,8 +100,8 @@ KEMPT_DU_CMD="${KEMPT_DU_CMD:-du}"
 # The removal. The refs are appended by name, the set the person agreed to and nothing else.
 # `--unused` would make flatpak work its own list out at removal time, and a runtime another tool
 # deployed a moment ago (before its app) would be on it. Named, the removed set is a subset of the
-# agreed one, and flatpak refuses to remove a runtime an installed app needs (not an extension:
-# see reclaim_remove). --no-related because
+# agreed one, and flatpak refuses to remove a runtime an installed app needs (not an extension,
+# which is why reclaim_remove removes the extensions in a second pass). --no-related because
 # without it flatpak also removes the autodelete related refs of what it removes, even one another
 # installed runtime still uses (a codecs extension shared by two platforms); the listing already
 # names the unused extensions itself. --noninteractive answers yes and turns off interaction for the
@@ -113,12 +113,19 @@ KEMPT_FLATPAK_UNINSTALL_CMD="${KEMPT_FLATPAK_UNINSTALL_CMD:-flatpak uninstall --
 KEMPT_RECLAIM_LIST_TIMEOUT=15
 KEMPT_RECLAIM_DU_TIMEOUT=30
 # The permission question before a removal. pkcheck asks polkit over the system bus; a polkit that
-# does not answer is a no, not a removal that waits forever holding the update lock.
+# does not answer is a no, not a removal that waits forever holding the update lock. The variable is
+# a seam for the tests. Anything but 1 to 10 seconds is 10: a word would make timeout fail (exit
+# 125, read as "needs an administrator"), and more than 10 would outlast the widget's wait, which
+# is sized on 10 (RECLAIM_TIMEOUT_MS in plasmoid/contents/ui/logic.js).
 # shellcheck disable=SC2034  # read by bin/kempt
 KEMPT_RECLAIM_PKCHECK_TIMEOUT="${KEMPT_RECLAIM_PKCHECK_TIMEOUT:-10}"
-# The removal itself, run by bin/kempt under the update lock.
+[[ "$KEMPT_RECLAIM_PKCHECK_TIMEOUT" =~ ^([1-9]|10)$ ]] || KEMPT_RECLAIM_PKCHECK_TIMEOUT=10
+# The removal itself, run by bin/kempt under the update lock: both of its passes together. When
+# extensions follow, the first pass leaves the second at least a minute of it.
 # shellcheck disable=SC2034  # read by bin/kempt
 KEMPT_RECLAIM_UNINSTALL_TIMEOUT=600
+# shellcheck disable=SC2034  # read by bin/kempt
+KEMPT_RECLAIM_SECOND_PASS_MIN=60
 
 # Whether there is a flatpak to reclaim anything from: the command a removal would run resolves.
 # Absent flatpak means no listing and no reclaim block in state.json at all.
@@ -126,7 +133,9 @@ flatpak_present() { command -v "${KEMPT_FLATPAK_UNINSTALL_CMD%% *}" >/dev/null 2
 
 # The helper's answer, checked for shape before anything reads it: every ref is kind/id/arch/branch
 # with a hex commit and an absolute deploy directory. One bad entry rejects the whole answer, since
-# its deploy directories are handed to du and its refs end up in state.json.
+# its deploy directories are handed to du and its refs end up in state.json. An unused ref's
+# `extension` is kept only as true or false; anything else is left out, and the removal then falls
+# back to the id (bin/kempt reclaim_extensions_in).
 flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when the helper did not answer
   local out
   # Unquoted: a seam may carry its own arguments (as dnf_history_json).
@@ -141,7 +150,8 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
            and (.unused | type == "array") and (.used | type == "array")
            and all(.unused[]; okref and ((.eol == null) or (.eol | type == "string")))
            and all(.used[]; okref))
-    | {installation, unused: [.unused[] | {ref, commit, deploy_dir, eol}],
+    | {installation, unused: [.unused[] | {ref, commit, deploy_dir, eol}
+                                + (if (.extension | type) == "boolean" then {extension} else {} end)],
        used: [.used[] | {ref, commit, deploy_dir}]}' <<<"$out" 2>/dev/null
 }
 

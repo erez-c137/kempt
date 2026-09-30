@@ -364,9 +364,17 @@ var COPY = {
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
     reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
+    // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
+    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines).
+    reclaimInUseOne: "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back.",
+    reclaimInUseMore: "Flatpak also removed %1 extensions that apps installed during the removal use. Run flatpak update to put them back.",
     // Flatpak stopped part-way. The first is filled with the size of what did go.
     reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
     reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
+    // The list between the two passes failed, so the extensions were never tried and nothing was
+    // refused (reclaim.last.skipped). Said after what went. The leftover refs keep their since, so
+    // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
+    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more.",
     // Flatpak failed and Kempt could not read what is left afterwards.
     reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
@@ -1001,10 +1009,11 @@ var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
 // backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_PKCHECK_TIMEOUT (10 s),
-// KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s), four listings of
-// KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the after-list),
-// two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing check: KEMPT_CHECK_LOCK_WAIT (60 s)
-// and the widget's own check allowance (120 s). 910 s in all, plus most of a minute of margin.
+// KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
+// KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
+// the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
+// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the widget's own check allowance (120 s). 925 s in all,
+// plus over half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
 var RECLAIM_TIMEOUT_MS = 960000;
 
@@ -1568,15 +1577,21 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         var at = stampMs(last.at);
         if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
     }
+    // This press removed extensions an app had just started using: said after what was freed.
+    var inUse = fresh !== null && fresh.result === "removed" ? arrayOf(fresh.in_use).length : 0;
+    var withInUse = function (text) {
+        if (inUse === 0) return text;
+        return text + " " + (inUse === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(inUse)));
+    };
     if (rc === 0) {
         if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
                 && isFinite(fresh.bytes) && fresh.bytes > 0) {
-            return { ok: true, text: fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) };
+            return { ok: true, text: withInUse(fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes))) };
         }
         var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
         var tail = "";
         for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-        return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
+        return { ok: true, text: withInUse(tail !== "" ? tail : COPY.reclaimNothing) };
     }
     // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
     if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
@@ -1587,10 +1602,22 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
     if (rc === 1 && fresh !== null && fresh.partial === true) {
         if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
         if (fresh.result === "removed") {
-            if (typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0) {
-                return { ok: false, text: fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes)) };
+            var sized = typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0;
+            if (fresh.skipped === true) {
+                // What went first, as the CLI prints it: the size, or its "Removed N runtimes." count.
+                var first = COPY.reclaimPartialUnsized;
+                if (sized) {
+                    first = fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes));
+                } else {
+                    var outLines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+                    var outTail = "";
+                    for (var j = outLines.length - 1; j >= 0 && outTail === ""; j--) outTail = outLines[j].trim();
+                    if (/^Removed [0-9]+ runtimes?\.$/.test(outTail)) first = outTail;
+                }
+                return { ok: false, text: withInUse(first + " " + COPY.reclaimSkipped) };
             }
-            return { ok: false, text: COPY.reclaimPartialUnsized };
+            if (sized) return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
+            return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };
         }
     }
     // A failed uninstall whose record says nothing is gone.

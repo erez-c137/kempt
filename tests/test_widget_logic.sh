@@ -2258,6 +2258,19 @@ assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{at
   "Freed about 1.5 GB." "...a last record older than the press is not this press: the CLI's own last line is"
 assert_eq "$(js "L.reclaimOutcomeOf(0, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{bytes:null}), $RC_PRESS).text")" \
   "Removed 2 runtimes." "...with no size, the CLI's count"
+# Flatpak removed extensions an app had just started using (reclaim.last.in_use): said after it.
+assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:['org.freedesktop.Platform.Locale//24.08']}), $RC_PRESS).text")" \
+  "Freed ~1.5 GB. Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." \
+  "a removal that took an extension an app had just started using says so, and how to put it back"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null,in_use:['a//1','b//2']}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimPartialUnsized') Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
+  "...in the plural, after a partial removal too"
+assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:[],at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
+  "Freed about 1.5 GB." "...and says nothing of it for an empty list or an older record"
+# The same sentences as the terminal's.
+assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseOne')" "...the singular in the CLI's words"
+# shellcheck disable=SC2016  # the CLI's source spells the count $k
+assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseMore' | sed 's/%1/$k/')" "...and the plural"
 assert_eq "$(js "L.reclaimOutcomeOf(0, 'Nothing to remove. Every installed Flatpak runtime is in use.\n', '', null, $RC_PRESS).text")" \
   "Nothing to remove. Every installed Flatpak runtime is in use." "...and nothing unused at all, as the CLI says it"
 assert_eq "$(js "L.reclaimOutcomeOf(0, '', '', null, $RC_PRESS).text")" "$(js 'L.COPY.reclaimNothing')" \
@@ -2284,6 +2297,19 @@ assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could 
   "a partial removal says what it freed and that flatpak could not remove all of them"
 assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
   "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
+# The list between the passes failed (reclaim.last.skipped): the extensions were left in place and
+# nothing was refused. What went comes first, as the CLI prints it.
+assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', '', Object.assign($RC_LAST,{partial:true,skipped:true,error:'Flatpak did not answer when asked what is unused'}), $RC_PRESS))")" \
+  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more."}' \
+  "a second pass skipped for a failed list says the extensions were left in place, not that Flatpak refused"
+assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
+  "Removed 2 runtimes. $(js 'L.COPY.reclaimSkipped')" "...with no size, the CLI's count first"
+assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
+  "$(js 'L.COPY.reclaimPartialUnsized') $(js 'L.COPY.reclaimSkipped')" "...and with no count either, that some went"
+assert_not_contains "$(js 'L.COPY.reclaimSkipped')" "kempt" "...never sending the person to the terminal"
+assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "...and the 100 MB it names is the offer's floor"
+assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped' | sed 's/\. .*/./')" \
+  "...the reason in the CLI's words"
 # Flatpak failed and what is left could not be read: never "Nothing was removed".
 RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
@@ -2307,8 +2333,8 @@ assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" ".
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
 # `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
-# worst case is the permission question, the uninstall, four listings, two du runs, and the closing check: the check lock
-# wait, then the check itself, bounded here by the widget's own check allowance.
+# worst case is the permission question, the uninstall (both passes share its limit), five listings, two du runs, and
+# the closing check: the check lock wait, then the check itself, bounded here by the widget's own check allowance.
 _fp="$REPO_ROOT/backends/flatpak.sh"
 _un="$(sed -n 's/^KEMPT_RECLAIM_UNINSTALL_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
@@ -2319,7 +2345,7 @@ _ck="$(sed -n 's/.*executor\.run(kemptCmd + (auto ? " check --coalesce" : " chec
 assert_eq "$([[ -n "$_pk" && -n "$_un" && -n "$_ls" && -n "$_du" && -n "$_lw" && -n "$_ck" ]] && echo read)" "read" \
   "premise: the engine's reclaim timeouts, the check lock wait and the check allowance are readable"
 assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance covers the check's own listing and du"
-assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_pk + $_un + 4 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
+assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_pk + $_un + 5 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \

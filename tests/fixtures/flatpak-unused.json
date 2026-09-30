@@ -5,31 +5,36 @@
    "ref": "runtime/org.freedesktop.Platform/x86_64/24.08",
    "commit": "66a5e89b10ea2031d447604a6cea0b6b13edf4aebc56ab7f27be91996eab26cc",
    "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform/x86_64/24.08/66a5e89b10ea2031d447604a6cea0b6b13edf4aebc56ab7f27be91996eab26cc",
-   "eol": null
+   "eol": null,
+   "extension": false
   },
   {
    "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",
    "commit": "2decc27918c94d6d09d5a1fbc0dc0e6664e6eecb5336532595907f8f122d985b",
    "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.GL.default/x86_64/24.08/2decc27918c94d6d09d5a1fbc0dc0e6664e6eecb5336532595907f8f122d985b",
-   "eol": null
+   "eol": null,
+   "extension": true
   },
   {
    "ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra",
    "commit": "4c9172449a848fff770e47c440041ebb7b10122fc309f501db5b6a53b7272351",
    "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra/4c9172449a848fff770e47c440041ebb7b10122fc309f501db5b6a53b7272351",
-   "eol": null
+   "eol": null,
+   "extension": true
   },
   {
    "ref": "runtime/org.freedesktop.Platform.Locale/x86_64/24.08",
    "commit": "24edbed19948feeac336059cc057773ab16c4719ccb4b5f7a838ac7e0319fe0a",
    "deploy_dir": "/var/lib/flatpak/runtime/org.freedesktop.Platform.Locale/x86_64/24.08/24edbed19948feeac336059cc057773ab16c4719ccb4b5f7a838ac7e0319fe0a",
-   "eol": null
+   "eol": null,
+   "extension": true
   },
   {
    "ref": "runtime/org.kde.Platform/x86_64/5.15-23.08",
    "commit": "880f9bb6c08df31c30c3e4347fab521b580ffec7a9c612fc2970558ab443f44a",
    "deploy_dir": "/var/lib/flatpak/runtime/org.kde.Platform/x86_64/5.15-23.08/880f9bb6c08df31c30c3e4347fab521b580ffec7a9c612fc2970558ab443f44a",
-   "eol": "We strongly recommend moving to the latest stable version of the Platform and SDK"
+   "eol": "We strongly recommend moving to the latest stable version of the Platform and SDK",
+   "extension": false
   }
  ],
  "used": [

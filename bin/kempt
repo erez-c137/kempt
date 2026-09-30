@@ -129,21 +129,32 @@ reclaim_authorized() {
 #   RECLAIM_PARTIAL 1 when flatpak failed after the removal began: some refs may be gone, not all
 #   RECLAIM_BYTES   their cached sizes added up, or empty when unknown
 #   RECLAIM_ERROR   why it failed: flatpak's error line (error_line_of), or empty
+#   RECLAIM_IN_USE  JSON array of id//branch: extensions flatpak said an app uses and removed anyway,
+#                   or empty when there were none
 #
 # The refs are removed by name, so what goes is always part of the set the person agreed to. The
 # list is taken again first, and the removal goes ahead only when ALL of it is that set (the digest)
-# and all of it has been unused for the settle time. A runtime that an app started needing after
-# that last look stays: flatpak refuses to remove a runtime an installed app uses, and no
-# --force-remove is passed. An extension is not protected the same way: flatpak 1.18 prints that
-# an app uses it and removes it anyway (seen on a VM, a Locale extension). Only an app installed
-# in the moment between the last look and the removal meets that, and `flatpak update` puts the
-# extension back. The slow steps (polkit, du) come first; the last look, and its
-# comparison, is the only thing between the list and the removal.
+# and all of it has been unused for the settle time. The slow steps (polkit, du) come first; the
+# last look, and its comparison, is the only thing between the list and the removal.
+# Then two passes. A runtime that an app started needing after that last look stays: flatpak
+# refuses to remove a runtime an installed app uses, and no --force-remove is passed. An extension
+# is not protected the same way: flatpak prints that an app uses it and removes it anyway (seen on a
+# VM, a Locale extension; a GL extension works the same, and an app without it may not start). So
+# the first pass removes everything that is not an extension (reclaim_extensions_in), the list is
+# taken once more, and the second removes only the agreed extensions still unused: an app installed
+# meanwhile made its runtime used, and that runtime's extensions are off the list. What is left is
+# an app installed in the moment before the second pass; flatpak's Info line for it is read back
+# into RECLAIM_IN_USE, and `flatpak update` puts the extension back.
+# A first pass that ran out of time ends the removal. One that failed otherwise (flatpak refused a
+# runtime now needed) still goes on to the extensions nothing uses; the outcome is partial either
+# way. RECLAIM_RC and RECLAIM_ERROR are the first failing pass's: that is the pass whose reason says
+# what went wrong (a refused runtime), and a second pass failing too usually fails for the same one.
 reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   local via="$1" expected="$2" before="${3:-}"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
-  RECLAIM_PARTIAL=""
-  local listing sizes_tsv="" after rc=0 out_file="" refs=() saved_trap="" prev_cmd=""
+  RECLAIM_PARTIAL="" RECLAIM_IN_USE="" RECLAIM_SKIPPED=""
+  local listing sizes_tsv="" after mid rc=0 prc out_file="" saved_trap="" prev_cmd=""
+  local pass1=() pass2=() tried=() skip2="" ran2="" t0 used limit mark=0
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
@@ -157,19 +168,13 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
   reclaim_compare "$listing" "$expected" "$before" || return 0
-  readarray -t refs < <(jq -r '.unused[].ref' <<<"$listing")
-  # The seam's --noninteractive makes flatpak's transaction non-interactive, so polkit never raises a
-  # dialog for it: the pkcheck above is the whole permission decision.
-  # </dev/null so no prompt waits on a terminal. 9>&- keeps check.lock's descriptor out of flatpak
-  # and tee, so a check never waits on them. The update lock (fd 8) is inherited on purpose: if
-  # kempt is killed mid-removal, flatpak keeps the lock and no update starts until flatpak exits.
-  # Ten minutes at most: this holds the update lock, and a removal that hangs (a stuck system
-  # helper) must not keep every later run out. Time running out is exit 124, recorded as a failure
-  # like any other.
+  readarray -t pass2 < <(reclaim_extensions_in "$listing")
+  readarray -t pass1 < <(jq -r --args '.unused[].ref | select(. as $r | $ARGS.positional | index($r) | not)' \
+                           "${pass2[@]}" <<<"$listing")
   # A copy of flatpak's output goes to a file, so its error line can be kept after it has scrolled
-  # past (or, for the widget, gone nowhere). rc is flatpak's own, whatever tee does. The file is in
-  # Kempt's state dir, and the caller's EXIT trap is extended to remove it if kempt dies meanwhile.
-  # A kill no trap sees leaves it to kempt_init_dirs' sweep.
+  # past (or, for the widget, gone nowhere), and its Info lines read back. The file is in Kempt's
+  # state dir, and the caller's EXIT trap is extended to remove it if kempt dies meanwhile. A kill
+  # no trap sees leaves it to kempt_init_dirs' sweep.
   out_file="$(mktemp "$KEMPT_STATE_DIR/reclaim-out.XXXXXX" 2>/dev/null)" || out_file=""
   if [[ -n "$out_file" ]]; then
     saved_trap="$(trap -p EXIT)"
@@ -177,21 +182,49 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
     # shellcheck disable=SC2064  # the path is fixed now, on purpose
     trap "rm -f -- $(printf '%q' "$out_file"); ${prev_cmd:-:}" EXIT
   fi
-  # shellcheck disable=SC2086  # the seam carries its own arguments
-  if timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD "${refs[@]}" </dev/null 2>&1 9>&- \
-       | tee "${out_file:-/dev/null}" 9>&-; then
-    rc=0
-  else
-    rc=${PIPESTATUS[0]}
+  # Ten minutes for both passes together: this holds the update lock, and a removal that hangs (a
+  # stuck system helper) must not keep every later run out. With extensions to follow, the first
+  # pass leaves them KEMPT_RECLAIM_SECOND_PASS_MIN; the second gets whatever the first did not use.
+  # Time running out is exit 124, recorded as a failure like any other.
+  limit="$KEMPT_RECLAIM_UNINSTALL_TIMEOUT"
+  if [[ ${#pass1[@]} -gt 0 ]]; then
+    [[ ${#pass2[@]} -eq 0 ]] || limit=$(( limit - KEMPT_RECLAIM_SECOND_PASS_MIN ))
+    t0="${EPOCHREALTIME/[.,]/}"
+    prc=0; reclaim_uninstall "$limit" "$out_file" "${pass1[@]}" || prc=$?
+    tried+=("${pass1[@]}")
+    if [[ $prc -ne 0 ]]; then
+      rc=$prc
+      [[ -z "$out_file" ]] || RECLAIM_ERROR="$(error_line_of <"$out_file" 2>/dev/null)" || RECLAIM_ERROR=""
+    fi
+    if [[ $prc -eq 124 ]]; then
+      pass2=()
+    elif [[ ${#pass2[@]} -gt 0 ]]; then
+      if mid="$(flatpak_unused_list 2>/dev/null)"; then
+        readarray -t pass2 < <(jq -r --args '.unused[].ref | select(. as $r | $ARGS.positional | index($r))' \
+                                 "${pass2[@]}" <<<"$mid")
+      else
+        pass2=() skip2=1
+      fi
+      used=$(( (${EPOCHREALTIME/[.,]/} - t0 + 999999) / 1000000 ))
+      limit=$(( KEMPT_RECLAIM_UNINSTALL_TIMEOUT - used ))
+      [[ $limit -ge $KEMPT_RECLAIM_SECOND_PASS_MIN ]] || limit=$KEMPT_RECLAIM_SECOND_PASS_MIN
+    fi
+  fi
+  if [[ ${#pass2[@]} -gt 0 ]]; then
+    [[ -z "$out_file" ]] || mark="$(stat -c %s "$out_file" 2>/dev/null)" || mark=0
+    ran2=1
+    prc=0; reclaim_uninstall "$limit" "$out_file" "${pass2[@]}" || prc=$?
+    tried+=("${pass2[@]}")
+    if [[ $prc -ne 0 && $rc -eq 0 ]]; then
+      rc=$prc
+      [[ -z "$out_file" ]] \
+        || RECLAIM_ERROR="$(tail -c +$(( mark + 1 )) "$out_file" | error_line_of 2>/dev/null)" || RECLAIM_ERROR=""
+    fi
   fi
   RECLAIM_RC=$rc
-  if [[ $rc -ne 0 && -n "$out_file" ]]; then
-    RECLAIM_ERROR="$(error_line_of <"$out_file" 2>/dev/null)" || RECLAIM_ERROR=""
-  fi
-  if [[ -n "$out_file" ]]; then
-    rm -f -- "$out_file" || true
-    if [[ -n "$saved_trap" ]]; then eval "$saved_trap"; else trap - EXIT; fi
-  fi
+  # The list between the passes failed after the first pass succeeded: the extensions were never
+  # tried, and nothing was refused. RECLAIM_SKIPPED is set below, once the result is known.
+  [[ -z "$skip2" || $rc -ne 0 ]] || RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"
   # What is really gone: every ref installed before the removal that is not installed after it,
   # used ones included, so a removal that took more than the list says so. flatpak's status alone
   # does not say: it can fail part-way, after some refs are gone.
@@ -202,13 +235,30 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
        | [$b[0].unused[].ref, $b[0].used[].ref] | map(select(. as $r | $left | index($r) | not))' 2>/dev/null)" \
       || RECLAIM_GONE='[]'
   elif [[ $rc -eq 0 ]]; then
-    # flatpak removed every named ref and cannot be asked again: take its word for the list
-    RECLAIM_GONE="$(jq -c '[.unused[].ref]' <<<"$listing" 2>/dev/null)" || RECLAIM_GONE='[]'
+    # flatpak removed every ref it was named and cannot be asked again: take its word for those
+    RECLAIM_GONE="$(printf '%s\n' "${tried[@]}" | jq -R -s -c 'split("\n") | map(select(. != ""))' 2>/dev/null)" \
+      || RECLAIM_GONE='[]'
   else
     # flatpak failed and cannot be asked what is left: anything from none to all may be gone
     RECLAIM_GONE=null
   fi
   [[ "$RECLAIM_GONE" == \[* || "$RECLAIM_GONE" == null ]] || RECLAIM_GONE='[]'
+  # Each pass's Info lines are read against the listing taken just before it: an app named there
+  # that was already installed does not make the extension in use (reclaim_in_use_new).
+  if [[ -n "$out_file" && "$RECLAIM_GONE" != null && "$RECLAIM_GONE" != '[]' ]]; then
+    RECLAIM_IN_USE="$( { if [[ -z "$ran2" ]]; then reclaim_in_use_new "$listing" <"$out_file"
+                         else head -c "$mark" "$out_file" | reclaim_in_use_new "$listing"
+                              tail -c +$(( mark + 1 )) "$out_file" | reclaim_in_use_new "${mid:-$listing}"
+                         fi; } \
+      | jq -R -s -c --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") '
+          [$g[0][] | split("/") | select(length == 4) | "\(.[1])//\(.[3])"] as $gone
+          | split("\n") | map(select(. != "" and (. as $e | $gone | index($e)))) | unique
+          | select(length > 0)' 2>/dev/null)" || RECLAIM_IN_USE=""
+  fi
+  if [[ -n "$out_file" ]]; then
+    rm -f -- "$out_file" || true
+    if [[ -n "$saved_trap" ]]; then eval "$saved_trap"; else trap - EXIT; fi
+  fi
   if [[ -n "$sizes_tsv" && "$RECLAIM_GONE" != null ]]; then
     RECLAIM_BYTES="$(jq -R -n -r --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") \
       '[inputs | split("\t") | select(length == 2) | select(.[0] as $r | $g[0] | index($r)) | (.[1] | tonumber)] | add // 0' \
@@ -216,17 +266,96 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   fi
   # polkit can still refuse flatpak's system helper after pkcheck said yes (a rule that changed in
   # between). That is the same answer as the gate's no, so it is needs_auth too.
-  # A failure after some refs went is still `removed`, with partial set and flatpak's error kept.
+  # A failure after some refs went is still `removed`, with partial set and flatpak's error kept;
+  # so is a removal whose extensions were never tried because the list between the passes failed.
   if [[ "$RECLAIM_GONE" == null ]]; then RECLAIM_RESULT=failed RECLAIM_PARTIAL=1
   elif [[ "$RECLAIM_GONE" != '[]' ]]; then
     RECLAIM_RESULT=removed
-    [[ $rc -eq 0 ]] || RECLAIM_PARTIAL=1
-  elif [[ $rc -eq 0 ]]; then RECLAIM_RESULT=nothing
+    [[ $rc -eq 0 && -z "$skip2" ]] || RECLAIM_PARTIAL=1
+  elif [[ $rc -eq 0 && -z "$skip2" ]]; then RECLAIM_RESULT=nothing
   elif [[ "${RECLAIM_ERROR,,}" == *"not allowed for user"* ]]; then RECLAIM_RESULT=needs_auth
   else RECLAIM_RESULT=failed
   fi
+  # Only for a first pass that succeeded and removed something, so the flag in reclaim-last.json
+  # and the sentence reclaim_outcome_lines prints for it always agree.
+  if [[ -n "$skip2" && $rc -eq 0 && "$RECLAIM_RESULT" == removed ]]; then RECLAIM_SKIPPED=1; fi
   reclaim_record "$via" "$RECLAIM_DIGEST"
   return 0
+}
+
+# The unused refs that are extensions, one per line. flatpak protects a runtime an app needs, not
+# these (reclaim_remove). The helper says which, from flatpak's metadata (its `extension` field,
+# libexec/kempt-flatpak-unused). A ref without that field, from an older helper, falls back to its
+# id: another installed ref's id (runtime or app, used or unused) followed by a dot and more, as
+# org.freedesktop.Platform.GL.default is of org.freedesktop.Platform. That misses a theme
+# (org.gtk.Gtk3theme.*), whose id does not start with its runtime's.
+reclaim_extensions_in() {  # listing JSON → refs
+  jq -r '([.unused[], .used[] | .ref | split("/")[1] | {key: ., value: true}] | from_entries) as $have
+         | .unused[]
+         | select(if has("extension") then .extension == true
+                  else .ref | split("/")[1] | split(".") as $p
+                       | [range(1; $p | length) as $i | $have[$p[:$i] | join(".")] // false] | any
+                  end)
+         | .ref' \
+    <<<"$1" 2>/dev/null
+}
+
+# One `flatpak uninstall` of the named refs, within $1 seconds. Its output goes to stdout and is
+# appended to $2 (no copy when $2 is empty). Returns flatpak's own exit code, whatever tee does.
+# </dev/null so no prompt waits on a terminal. 9>&- keeps check.lock's descriptor out of flatpak and
+# tee, so a check never waits on them. The update lock (fd 8) is inherited on purpose: if kempt is
+# killed mid-removal, flatpak keeps the lock and no update starts until flatpak exits. The seam's
+# --noninteractive makes flatpak's transaction non-interactive, so polkit never raises a dialog for
+# it: the pkcheck in reclaim_remove is the whole permission decision.
+# Messages in English, for the Info lines reclaim_in_use_of reads: lib/common.sh already sets
+# LC_ALL=C.UTF-8, but gettext still follows LANGUAGE under any locale but plain C. LC_MESSAGES
+# says the same for a caller without LC_ALL. Not LC_ALL=C: ref names and paths stay UTF-8.
+reclaim_uninstall() {  # seconds out-file refs... → flatpak's exit code
+  local secs="$1" out="${2:-/dev/null}"; shift 2
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  if LC_MESSAGES=C LANGUAGE=C timeout "$secs" $KEMPT_FLATPAK_UNINSTALL_CMD "$@" </dev/null 2>&1 9>&- \
+       | tee -a "$out" 9>&-; then
+    return 0
+  else
+    return "${PIPESTATUS[0]}"
+  fi
+}
+
+# The extensions flatpak said an app uses, from its saved output, as "id//branch<TAB>app ids" lines
+# (the app ids space-separated). flatpak prints "Info: applications using the extension ID branch
+# BRANCH:" and then the app ids, indented and comma-separated, on the next line (1.16 and 1.18,
+# app/flatpak-builtins-uninstall.c), in bold on a terminal. It removes the extension anyway under
+# --noninteractive. Indented lines after the first are read as more ids, in case the list wraps.
+reclaim_in_use_of() {  # stdin: flatpak's output
+  LC_ALL=C sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r$//' \
+    | LC_ALL=C awk '
+        function flush() { if (ext != "") { sub(/^ +/, "", apps); print ext "\t" apps }; ext = "" }
+        ext != "" && /^[ \t]/ { l = $0; gsub(/[, \t]+/, " ", l); sub(/^ /, "", l); apps = apps " " l; next }
+        { flush() }
+        match($0, /^Info: applications using the extension [A-Za-z0-9._-]+ branch [A-Za-z0-9._-]+:[ \t]*$/) {
+          n = split($0, w, /[ \t]+/); b = w[8]; sub(/:$/, "", b); ext = w[6] "//" b; apps = "" }
+        END { flush() }'
+}
+
+# The extensions in flatpak's Info lines that an app new since the listing uses, as id//branch
+# lines. flatpak names every installed app whose extension points match, even for an extension it
+# lists as unused because it is pruned (an old GL driver with autoprune-unless), so an app that was
+# already installed when the listing was taken is no sign of a race. A listing jq cannot read
+# names no app as installed before, so every extension an Info line names counts: the warning errs
+# toward being said.
+reclaim_in_use_new() {  # listing-json; stdin: flatpak's output
+  local info
+  info="$(reclaim_in_use_of)" || info=""
+  [[ -n "$info" ]] || return 0
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$1"; then
+    cut -f1 <<<"$info"
+    return 0
+  fi
+  jq -R -r --slurpfile l <(printf '%s\n' "$1") '
+      [$l[0].unused[]?, $l[0].used[]? | .ref | split("/") | select(.[0] == "app") | .[1]] as $had
+      | split("\t") | select(length == 2)
+      | select(.[1] | split(" ") | map(select(. != "")) | any(. as $a | $had | index($a) | not))
+      | .[0]' <<<"$info" 2>/dev/null || cut -f1 <<<"$info"
 }
 
 # One look at the list against what was agreed to. Non-zero when the removal must stop, with the
@@ -238,8 +367,14 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
   if ! classified="$(reclaim_classify "$1" 2>/dev/null)"; then
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$2"; return 1
   fi
+  # Nothing unused any more. After an update that is simply nothing to do. For kempt reclaim, the
+  # set the person agreed to went back into use since they were shown it: changed, as cmd_reclaim
+  # says when it sees the same first, never "nothing unused was found" (a success in the widget).
   if [[ "$(jq -r 'length' <<<"$classified" 2>/dev/null)" == 0 ]]; then
-    RECLAIM_RESULT=nothing; reclaim_record "$via" "$2"; return 1
+    if [[ "$via" != update && -n "$2" ]]; then RECLAIM_RESULT=changed RECLAIM_WHY=digest
+    else RECLAIM_RESULT=nothing
+    fi
+    reclaim_record "$via" "$2"; return 1
   fi
   RECLAIM_DIGEST="$(jq -r '.[] | "\(.ref)\t\(.commit)"' <<<"$classified" 2>/dev/null | reclaim_digest)" \
     || RECLAIM_DIGEST=""
@@ -290,11 +425,12 @@ reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are t
 # state.json) and the event log. Both best-effort. A failure carries its error line in both.
 reclaim_record() {  # via digest
   reclaim_last_write "$1" "$RECLAIM_RESULT" "$RECLAIM_GONE" "$RECLAIM_BYTES" "$2" "${RECLAIM_ERROR:-}" \
-    "${RECLAIM_PARTIAL:-}"
-  local n
+    "${RECLAIM_PARTIAL:-}" "${RECLAIM_IN_USE:-}" "${RECLAIM_SKIPPED:-}"
+  local n in_use=""
   n="$(jq -r 'length' <<<"$RECLAIM_GONE" 2>/dev/null)" || n="?"
+  [[ -z "${RECLAIM_IN_USE:-}" ]] || in_use="$(jq -r 'join(" ")' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || in_use=""
   case "$RECLAIM_RESULT" in
-    removed)    log_event "reclaim removed $n runtimes (${RECLAIM_BYTES:-?} bytes) rc=${RECLAIM_RC:-0}${RECLAIM_PARTIAL:+, not all of them}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
+    removed)    log_event "reclaim removed $n runtimes (${RECLAIM_BYTES:-?} bytes) rc=${RECLAIM_RC:-0}${RECLAIM_PARTIAL:+, not all of them}${in_use:+, in use: $in_use}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
     nothing)    log_event "reclaim found nothing to remove" ;;
     changed)    log_event "reclaim changed ($RECLAIM_WHY), nothing removed" ;;
     needs_auth) log_event "reclaim needs authorization, nothing removed" ;;
@@ -308,7 +444,8 @@ reclaim_record() {  # via digest
 # fails or needs an administrator is recorded once (reclaim-last.json, then status in state.json)
 # and this step skips while the same set is on offer, so it is never a failure on every run.
 # Sets RECLAIM_RUN_JSON to {refs, bytes, status} for the history entry, or empty when nothing was
-# attempted. Output goes to the run log. Never fails: the run is over.
+# attempted. flatpak's output goes to the run log only; the outcome sentence to the log, and to the
+# terminal too when the output is live. Never fails: the run is over.
 reclaim_after_run() {  # log_file
   RECLAIM_RUN_JSON=""
   reclaim_as_root && return 0
@@ -322,10 +459,15 @@ reclaim_after_run() {  # log_file
   [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
   run_heading "$1" "Unused Flatpak runtimes"
   reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
+  # The outcome in kempt reclaim's words: always into the log after flatpak's lines, and under the
+  # heading on a live terminal, where flatpak's own lines are not shown.
+  reclaim_outcome_lines update >>"$1" 2>&1 || true
+  [[ "${KEMPT_LIVE_OUTPUT:-}" != "1" ]] || reclaim_outcome_lines update || true
   RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    --arg p "${RECLAIM_PARTIAL:-}" \
+    --arg p "${RECLAIM_PARTIAL:-}" --arg u "${RECLAIM_IN_USE:-}" \
     '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}
-     + (if $p == "" then {} else {partial: true} end)' 2>/dev/null)" \
+     + (if $p == "" then {} else {partial: true} end)
+     + (if $u == "" then {} else {in_use: ($u | fromjson)} end)' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
 }
@@ -2329,6 +2471,80 @@ cmd_unstage() {
   cmd_check >/dev/null 2>&1 || true
 }
 
+# What a removal came to, in words: success on stdout, anything else on stderr. Returns the exit
+# code `kempt reclaim` gives it. Reads only the RECLAIM_* globals reclaim_remove set, so the
+# automatic step after an update says the same sentences (reclaim_after_run). With "update", the
+# refusals are worded for a run where nothing was listed to the person first.
+reclaim_outcome_lines() {  # [update]
+  local rc=0 ctx="${1:-}"
+  case "$RECLAIM_RESULT" in
+    removed)
+      if [[ -n "$RECLAIM_BYTES" && "$RECLAIM_BYTES" != 0 ]]; then
+        echo "Freed about $(human_bytes "$RECLAIM_BYTES")."
+      else
+        local n; n="$(jq -r 'length' <<<"$RECLAIM_GONE")"
+        if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
+      fi
+      # flatpak stopped part-way: what went is said above, and it was not everything agreed to. Or
+      # the extensions were never tried, because the list between the passes failed (skipped).
+      if [[ -n "$RECLAIM_PARTIAL" ]]; then
+        if [[ -n "${RECLAIM_SKIPPED:-}" ]]; then
+          echo "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." >&2
+        elif [[ -n "$RECLAIM_ERROR" ]]; then
+          echo "Flatpak could not remove all of them: $RECLAIM_ERROR" >&2
+        else
+          echo "Flatpak could not remove all of them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
+        fi
+        rc=1
+      fi
+      # The race the second pass leaves (reclaim_remove): flatpak removed an extension an app had
+      # just started using. `flatpak update` installs it again; the next Kempt update may not (an
+      # app held back, or a theme installed by hand).
+      if [[ -n "${RECLAIM_IN_USE:-}" ]]; then
+        local k; k="$(jq -r 'length' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || k="?"
+        if [[ "$k" == 1 ]]; then
+          echo "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." >&2
+        else
+          echo "Flatpak also removed $k extensions that apps installed during the removal use. Run flatpak update to put them back." >&2
+        fi
+      fi ;;
+    nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
+    changed)
+      if [[ "$ctx" == update ]]; then
+        if [[ "$RECLAIM_WHY" == unstable ]]; then
+          echo "Nothing was removed. Some runtimes became unused less than an hour ago." >&2
+        else
+          echo "Nothing was removed. The unused runtimes changed since the last check." >&2
+        fi
+      elif [[ "$RECLAIM_WHY" == unstable ]]; then
+        echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
+      else
+        echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
+      fi
+      rc=6 ;;
+    needs_auth)
+      if [[ "$ctx" == update ]]; then
+        echo "Removing the unused runtimes needs an administrator. Nothing was removed." >&2
+      else
+        echo "Removing these needs an administrator. Nothing was removed." >&2
+      fi
+      rc=5 ;;
+    # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
+    # With RECLAIM_PARTIAL set here, flatpak failed and the list afterwards could not be read, so
+    # some runtimes may be gone: never "nothing was removed".
+    *) if [[ -n "$RECLAIM_PARTIAL" ]]; then
+         echo "Flatpak stopped with an error${RECLAIM_ERROR:+: $RECLAIM_ERROR}" >&2
+         echo "Kempt could not check what was removed, so the removal may be partial. Check again with: kempt reclaim --list" >&2
+       elif [[ -n "$RECLAIM_ERROR" ]]; then
+         echo "Flatpak could not remove them: $RECLAIM_ERROR" >&2
+       else
+         echo "Flatpak could not remove them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
+       fi
+       rc=1 ;;
+  esac
+  return $rc
+}
+
 # Whether state.json holds a list of unused refs from a check that could read one, so each ref's
 # since is on record.
 reclaim_on_record() {
@@ -2379,6 +2595,12 @@ cmd_reclaim() {
       release_lock
     fi
   fi
+  # reclaim=off refuses any removal before anything is listed; --list still shows what could go.
+  if [[ -z "$list" && "$(reclaim_mode)" == off ]]; then
+    echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
+    log_event "reclaim refused (reclaim=off)"
+    exit 5
+  fi
   local listing classified sizes_tsv bytes="" digest
   if ! listing="$(flatpak_unused_list 2>/dev/null)" \
      || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
@@ -2389,18 +2611,19 @@ cmd_reclaim() {
   if [[ "$(jq -r 'length' <<<"$classified")" == 0 ]]; then
     # An offer was acted on (the widget's button, a script with the digest), and every runtime on
     # it is in use again: the set changed, as below. The check rewrites state.json, so the widget
-    # stops offering what is gone instead of offering it until the next scheduled check.
-    if [[ -n "$expect" ]]; then
+    # stops offering what is gone instead of offering it until the next scheduled check. That check
+    # needs the update lock: with an update holding it, this is busy (exit 3), like any removal
+    # then, and that update's own closing check clears the offer. Not for --list, which only lists.
+    if [[ -n "$expect" && -z "$list" ]]; then
+      acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
       echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
       local via_e=cli
       [[ "${KEMPT_VIA:-}" == widget ]] && via_e=widget
       reclaim_last_write "$via_e" changed '[]' "" "$expect"
       log_event "reclaim changed (digest), nothing removed"
-      if acquire_lock; then
-        cmd_check >/dev/null 2>&1 || true
-        { flock -u 9; exec 9>&-; } 2>/dev/null || true
-        release_lock
-      fi
+      cmd_check >/dev/null 2>&1 || true
+      { flock -u 9; exec 9>&-; } 2>/dev/null || true
+      release_lock
       exit 6
     fi
     echo "Nothing to remove. Every installed Flatpak runtime is in use."
@@ -2420,11 +2643,6 @@ cmd_reclaim() {
     return 0
   fi
 
-  if [[ "$(reclaim_mode)" == off ]]; then
-    echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
-    log_event "reclaim refused (reclaim=off)"
-    exit 5
-  fi
   # Said before any question: agreeing to a set that is not yet removable would only end in a refusal.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
     if [[ -n "$first" ]]; then
@@ -2458,45 +2676,7 @@ cmd_reclaim() {
   [[ "${KEMPT_VIA:-}" == widget ]] && via=widget
   reclaim_remove "$via" "$expect"
   local rc=0
-  case "$RECLAIM_RESULT" in
-    removed)
-      if [[ -n "$RECLAIM_BYTES" && "$RECLAIM_BYTES" != 0 ]]; then
-        echo "Freed about $(human_bytes "$RECLAIM_BYTES")."
-      else
-        local n; n="$(jq -r 'length' <<<"$RECLAIM_GONE")"
-        if [[ "$n" == 1 ]]; then echo "Removed 1 runtime."; else echo "Removed $n runtimes."; fi
-      fi
-      # flatpak stopped part-way: what went is said above, and it was not everything agreed to.
-      if [[ -n "$RECLAIM_PARTIAL" ]]; then
-        if [[ -n "$RECLAIM_ERROR" ]]; then
-          echo "Flatpak could not remove all of them: $RECLAIM_ERROR" >&2
-        else
-          echo "Flatpak could not remove all of them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
-        fi
-        rc=1
-      fi ;;
-    nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
-    changed)
-      if [[ "$RECLAIM_WHY" == unstable ]]; then
-        echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
-      else
-        echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
-      fi
-      rc=6 ;;
-    needs_auth) echo "Removing these needs an administrator. Nothing was removed." >&2; rc=5 ;;
-    # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
-    # With RECLAIM_PARTIAL set here, flatpak failed and the list afterwards could not be read, so
-    # some runtimes may be gone: never "nothing was removed".
-    *) if [[ -n "$RECLAIM_PARTIAL" ]]; then
-         echo "Flatpak stopped with an error${RECLAIM_ERROR:+: $RECLAIM_ERROR}" >&2
-         echo "Kempt could not check what was removed, so the removal may be partial. Check again with: kempt reclaim --list" >&2
-       elif [[ -n "$RECLAIM_ERROR" ]]; then
-         echo "Flatpak could not remove them: $RECLAIM_ERROR" >&2
-       else
-         echo "Flatpak could not remove them (exit code ${RECLAIM_RC:-unknown}). See: kempt log" >&2
-       fi
-       rc=1 ;;
-  esac
+  reclaim_outcome_lines || rc=$?
   # state.json is the widget's only channel: the offer disappears when this rewrites it. Still
   # under the update lock, then check.lock, the order cmd_update takes them in.
   cmd_check >/dev/null 2>&1 || true
