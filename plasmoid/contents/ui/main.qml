@@ -988,9 +988,12 @@ PlasmoidItem {
     // ...and it went away. One event, one line at a time: the transient post-run line has been
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
+        // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
+        // under the Last update row. Asked BEFORE the post-run line clears.
+        if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
+                                       vm.messageSlots.indexOf("report") >= 0, reportText))
+            reclaimInUseSeen = lastRun.when;
         postRunLine = "";
-        // The in-use sentence was on screen, in the post-run line or under the Last update row.
-        if (lastRun !== null && lastRun.reclaimedInUse > 0) reclaimInUseSeen = lastRun.when;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";

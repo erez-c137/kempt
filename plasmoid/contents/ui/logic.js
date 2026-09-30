@@ -1476,9 +1476,10 @@ function reclaimInUseSentence(n) {
 }
 
 // reclaimInUseTailOf(run) -> "" or " " + that sentence for the run's automatic removal. A failed
-// run removed nothing (reclaim runs only after a successful one), so it never carries this.
+// run removed nothing (reclaim runs only after a successful one), so it never carries this. Nor
+// does an entry with no readable stamp: it has no Last update row and could never be marked seen.
 function reclaimInUseTailOf(run) {
-    if (!run || run.failed) return "";
+    if (!run || run.failed || !isRenderableStamp(run.when)) return "";
     var s = reclaimInUseSentence(run.reclaimedInUse);
     return s === "" ? "" : " " + s;
 }
@@ -1510,10 +1511,12 @@ function postRunLine(run) {
     // writes "offline (applied on reboot)" and its counts are real changes.
     // ...unless the run staged nothing, which is a successful `offline` run too and was described
     // in the same words as one that staged sixty packages.
+    // Flatpak still updates live on a staging run, so its automatic removal can report in_use too.
     if (run.surface === "offline" && run.stagedNothing !== null) {
-        return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
+        return (run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending)
+            + reclaimInUseTailOf(run);
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount;
+    if (run.surface === "offline") return COPY.stagedUnknownCount + reclaimInUseTailOf(run);
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run) + reclaimInUseTailOf(run);
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
@@ -1696,7 +1699,20 @@ function lastRunSubtitle(run, seenWhen) {
     if (!run) return "";
     if (run.failed) return postRunLine(run);
     if (typeof seenWhen === "string" && seenWhen !== "" && seenWhen === run.when) return "";
-    return reclaimInUseSentence(run.reclaimedInUse);
+    return reclaimInUseTailOf(run).trim();
+}
+
+// reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) -> is the in-use sentence
+// on screen right now? main.qml asks as the popup closes, and marks the run seen only on yes.
+// The updating pane replaces the main one. Otherwise the report slot, when shown, hides the Last
+// update row (FullRepresentation.qml), so the sentence is seen only if the report carries it: the
+// post-run line does, a failed press or a finished action does not.
+function reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) {
+    if (!run || updating === true) return false;
+    var tail = reclaimInUseTailOf(run);
+    if (tail === "") return false;
+    if (reportShown === true) return String(reportText === undefined || reportText === null ? "" : reportText).indexOf(tail.trim()) >= 0;
+    return lastRunSubtitle(run, seenWhen) !== "";
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2273,6 +2289,7 @@ if (typeof module !== "undefined" && module.exports) {
         discardStagedMessage: discardStagedMessage,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,
+        reclaimInUseOnScreen: reclaimInUseOnScreen,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         rowsOf: rowsOf,

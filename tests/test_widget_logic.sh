@@ -2404,6 +2404,32 @@ RC_INUSE_FAILED="$(printf '%s' "$RC_INUSE1" | sed 's/status:"ok"/status:"failed"
 assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_FAILED)), '')")" "Update failed: dnf failed" \
   "a failed run's row still says why it failed, and nothing else"
 assert_eq "$(js "L.lastRunSubtitle(null, '')")" "" "...and no run, no line"
+# Install on Next Restart: Flatpak still updates live, so its removal can take an extension too.
+RC_INUSE_OFF="$(printf '%s' "$RC_INUSE1" | sed 's/surface:"popup"/surface:"offline"/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF)))")" \
+  "$(js 'L.COPY.stagedUnknownCount') $(js 'L.COPY.reclaimInUseOne')" "a staging run's line says it too"
+RC_INUSE_OFF_HELD="$(printf '%s' "$RC_INUSE_OFF" | sed 's/status:"ok"/status:"ok",staged_nothing:"held"/')"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF_HELD)))")" \
+  "$(js 'L.COPY.stagedNothingHeld') $(js 'L.COPY.reclaimInUseOne')" "...and one that staged nothing"
+# An entry with no stamp has no row and could never be marked seen: it says nothing of it.
+RC_INUSE_NOWHEN="$(printf '%s' "$RC_INUSE1" | sed 's/timestamp:"2026-09-29T10:00:00+03:00",//')"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)), '')")" "" \
+  "an entry with no timestamp does not show the sentence under the row"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)))")" "Updated 1 package · ~1.5 GB freed" \
+  "...or in the line after the run"
+# Marked seen only when it was on screen as the popup closed.
+RC_R1="L.lastRunOf(JSON.stringify($RC_INUSE1))"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, false, '')")" "true" \
+  "on screen: under the Last update row, with no report over it"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, L.postRunLine($RC_R1))")" "true" \
+  "...or in the post-run line that hides the row"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, 'Could not start the update (exit 2).')")" "false" \
+  "not on screen: a failed press's report hides the row"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', true, false, '')")" "false" "...nor while the updating pane replaces it"
+assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '2026-09-29T10:00:00+03:00', false, false, '')")" "false" \
+  "...nor once already seen"
+assert_eq "$(js "L.reclaimInUseOnScreen(L.lastRunOf(JSON.stringify($RC_RUN)), '', false, false, '')")" "false" \
+  "...nor for a run without it"
 
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
