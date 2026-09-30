@@ -2374,6 +2374,37 @@ assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Upda
   "...and a reclaim that did not remove anything is not mentioned: it never fails the run"
 assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_FAILED)).reclaimedCount")" "0" "...and counts nothing"
 
+# --- ...and extensions that removal took from an app, once per run --------------------------------
+RC_INUSE1="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["org.freedesktop.Platform.Locale\/\/24.08"]/')"
+RC_INUSE2="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["a\/\/1","b\/\/2"]/')"
+RC_NOW="Date.parse('2026-09-29T11:00:00+03:00')"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_INUSE2)).reclaimedInUse")" "2" "the run's entry says how many extensions went that an app uses"
+assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedInUse")" "0" "...and none when it does not say"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE1)))")" \
+  "Updated 1 package · ~1.5 GB freed $(js 'L.COPY.reclaimInUseOne')" \
+  "the line after the run says an extension an app uses went, and how to put it back"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE2)))")" \
+  "Updated 1 package · ~1.5 GB freed Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
+  "...in the plural"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '')")" "$(js 'L.COPY.reclaimInUseOne')" \
+  "the Last update row says it too, for a run the popup did not watch"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE2)), '')")" \
+  "$(js "L.COPY.reclaimInUseMore.replace('%1', '2')")" "...in the plural"
+assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_INUSE1)), $RC_NOW)")" \
+  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...under a title that stays as it was"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-29T10:00:00+03:00')")" "" \
+  "...and not again once the popup has shown it for that run"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-28T10:00:00+03:00')")" \
+  "$(js 'L.COPY.reclaimInUseOne')" "...while an earlier run's showing does not silence this one"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_RUN)), '')")" "" \
+  "a removal that took nothing an app uses adds nothing to the row"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
+  "...or to the line after the run"
+RC_INUSE_FAILED="$(printf '%s' "$RC_INUSE1" | sed 's/status:"ok"/status:"failed",error:"dnf failed"/')"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_FAILED)), '')")" "Update failed: dnf failed" \
+  "a failed run's row still says why it failed, and nothing else"
+assert_eq "$(js "L.lastRunSubtitle(null, '')")" "" "...and no run, no line"
+
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
 # and it was the fifth thing competing for a popup that fits two. The dateline it explains is one

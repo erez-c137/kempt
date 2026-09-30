@@ -127,6 +127,11 @@ PlasmoidItem {
     // run at all, never as a fabricated empty one claiming a run that changed no packages.
     property var lastRun: null
 
+    // The timestamp of the run whose "Flatpak also removed an extension" sentence the popup was
+    // closed over (Logic.lastRunSubtitle). Once per run: a later run is a new entry and speaks
+    // again. Not persisted, like restartDismissed.
+    property string reclaimInUseSeen: ""
+
     // The transient line about a run WE started - "Updated 4 packages in 2s", or why it failed.
     // One event, one line at a time: while this is on screen the persistent Last update row is
     // hidden, and it clears when the popup closes or a check starts.
@@ -984,6 +989,8 @@ PlasmoidItem {
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
         postRunLine = "";
+        // The in-use sentence was on screen, in the post-run line or under the Last update row.
+        if (lastRun !== null && lastRun.reclaimedInUse > 0) reclaimInUseSeen = lastRun.when;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";

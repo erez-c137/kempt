@@ -997,13 +997,14 @@ PlasmaExtras.Representation {
                 index: 0
                 icon: "documentinfo"
                 title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs)
-                // Only a failure earns a second line here, and it is logic.js's own sentence about
-                // that run rather than a new one written in QML. Deliberately NOT the entry's
+                // Only a failure earns a second line here, or extensions the run's automatic removal
+                // took from an app (once per run, see Logic.lastRunSubtitle), and it is logic.js's
+                // own sentence about that run rather than a new one written in QML. NOT the entry's
                 // reboot_needed: that is a fact about the moment the run ended, and the state
                 // file's live answer is what the restart message above is bound to. Repeating the
                 // history entry here would go on claiming a restart after the user had done it.
-                subtitle: (popup.plasmoidItem.lastRun && popup.plasmoidItem.lastRun.failed)
-                          ? Logic.postRunLine(popup.plasmoidItem.lastRun) : ""
+                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun,
+                                                popup.plasmoidItem.reclaimInUseSeen)
                 subtitleCanWrap: true
                 customExpandedViewContent: lastRunPackages
                 contextualActions: [

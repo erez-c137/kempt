@@ -365,7 +365,8 @@ var COPY = {
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
     reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
     // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
-    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines).
+    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines). Also
+    // after a run whose automatic removal did the same (its entry's reclaimed.in_use).
     reclaimInUseOne: "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back.",
     reclaimInUseMore: "Flatpak also removed %1 extensions that apps installed during the removal use. Run flatpak update to put them back.",
     // Flatpak stopped part-way. The first is filled with the size of what did go.
@@ -1418,9 +1419,11 @@ function lastRunOf(text) {
     // counts: a failed or refused one never fails the run and is reported through the state.
     var reclaimed = backends.flatpak && typeof backends.flatpak === "object"
         ? backends.flatpak.reclaimed : null;
-    var reclaimedCount = 0, reclaimedBytes = null;
+    var reclaimedCount = 0, reclaimedBytes = null, reclaimedInUse = 0;
     if (reclaimed && typeof reclaimed === "object" && reclaimed.status === "removed") {
         reclaimedCount = arrayOf(reclaimed.refs).length;
+        // Extensions Flatpak took although an app installed during the removal uses them.
+        reclaimedInUse = arrayOf(reclaimed.in_use).length;
         if (typeof reclaimed.bytes === "number" && isFinite(reclaimed.bytes) && reclaimed.bytes > 0) {
             reclaimedBytes = reclaimed.bytes;
         }
@@ -1460,8 +1463,24 @@ function lastRunOf(text) {
         stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
             ? entry.staged_nothing : null,
         reclaimedCount: reclaimedCount,
-        reclaimedBytes: reclaimedBytes
+        reclaimedBytes: reclaimedBytes,
+        reclaimedInUse: reclaimedInUse
     };
+}
+
+// reclaimInUseSentence(n) -> "" or the sentence about n extensions Flatpak removed although an app
+// installed during the removal uses them. One spelling for Free Up Space and for a run's removal.
+function reclaimInUseSentence(n) {
+    if (!(n > 0)) return "";
+    return n === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(n));
+}
+
+// reclaimInUseTailOf(run) -> "" or " " + that sentence for the run's automatic removal. A failed
+// run removed nothing (reclaim runs only after a successful one), so it never carries this.
+function reclaimInUseTailOf(run) {
+    if (!run || run.failed) return "";
+    var s = reclaimInUseSentence(run.reclaimedInUse);
+    return s === "" ? "" : " " + s;
 }
 
 // reclaimedTailOf(run) -> "" or the clause the run lines append: " · ~1.5 GB freed".
@@ -1496,14 +1515,15 @@ function postRunLine(run) {
     }
     if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run);
+    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run) + reclaimInUseTailOf(run);
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
     var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run);
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run)
+        + reclaimInUseTailOf(run);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -1580,8 +1600,7 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
     // This press removed extensions an app had just started using: said after what was freed.
     var inUse = fresh !== null && fresh.result === "removed" ? arrayOf(fresh.in_use).length : 0;
     var withInUse = function (text) {
-        if (inUse === 0) return text;
-        return text + " " + (inUse === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(inUse)));
+        return inUse === 0 ? text : text + " " + reclaimInUseSentence(inUse);
     };
     if (rc === 0) {
         if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
@@ -1665,6 +1684,19 @@ function lastRunText(run, nowMs) {
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
     return "Last update " + relativeTime(run.when, nowMs) + DOT + what + reclaimedTailOf(run);
+}
+
+// lastRunSubtitle(run, seenWhen) -> the Last update row's second line, or "".
+// A failed run: why, as postRunLine says it. Otherwise the in-use sentence when the run's automatic
+// removal took extensions an app uses, and only until the popup has shown it once: `seenWhen` is
+// the timestamp of the run whose sentence the popup was closed over (main.qml's reclaimInUseSeen,
+// session-only like restartDismissed). The next run replaces the entry, and its flatpak update puts
+// the extensions back, so the sentence does not outlive its run either way.
+function lastRunSubtitle(run, seenWhen) {
+    if (!run) return "";
+    if (run.failed) return postRunLine(run);
+    if (typeof seenWhen === "string" && seenWhen !== "" && seenWhen === run.when) return "";
+    return reclaimInUseSentence(run.reclaimedInUse);
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2240,6 +2272,7 @@ if (typeof module !== "undefined" && module.exports) {
         runStartMessage: runStartMessage,
         discardStagedMessage: discardStagedMessage,
         lastRunText: lastRunText,
+        lastRunSubtitle: lastRunSubtitle,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         rowsOf: rowsOf,
