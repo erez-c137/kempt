@@ -2281,8 +2281,11 @@ STUB
 cat > "$RC/uninstall" <<'STUB'
 #!/usr/bin/env bash
 echo "UNINSTALL $*" >> "$RC/calls"
-if [[ -n "${UNINSTALL_PARTIAL:-}" ]]; then   # every ref but the KDE runtime goes, then flatpak fails
-  jq '.unused = [.unused[] | select(.ref | test("kde"))]' "$RC_LISTING" > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
+if [[ -n "${UNINSTALL_PARTIAL:-}" && " $* " == *" runtime/org.kde.Platform/x86_64/5.15-23.08 "* ]]; then
+  # flatpak refuses the KDE runtime: the refs named before it go, it and those after it stay
+  before=(); for r in "$@"; do [[ "$r" == runtime/org.kde.Platform/x86_64/5.15-23.08 ]] && break; before+=("$r"); done
+  jq --args '.unused |= map(select(.ref as $r | $ARGS.positional | index($r) | not))' "${before[@]}" < "$RC_LISTING" \
+    > "$RC_LISTING.new" && mv "$RC_LISTING.new" "$RC_LISTING"
   echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08"; exit 1
 fi
 [[ -n "${UNINSTALL_RC:-}" ]] && exit "$UNINSTALL_RC"
