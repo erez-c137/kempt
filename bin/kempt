@@ -154,7 +154,7 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
   RECLAIM_PARTIAL="" RECLAIM_IN_USE=""
   local listing sizes_tsv="" after mid rc=0 prc out_file="" saved_trap="" prev_cmd=""
-  local pass1=() pass2=() tried=() skip2="" t0 used limit mark=0
+  local pass1=() pass2=() tried=() skip2="" ran2="" t0 used limit mark=0
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
@@ -212,6 +212,7 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   fi
   if [[ ${#pass2[@]} -gt 0 ]]; then
     [[ -z "$out_file" ]] || mark="$(stat -c %s "$out_file" 2>/dev/null)" || mark=0
+    ran2=1
     prc=0; reclaim_uninstall "$limit" "$out_file" "${pass2[@]}" || prc=$?
     tried+=("${pass2[@]}")
     if [[ $prc -ne 0 && $rc -eq 0 ]]; then
@@ -240,8 +241,13 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
     RECLAIM_GONE=null
   fi
   [[ "$RECLAIM_GONE" == \[* || "$RECLAIM_GONE" == null ]] || RECLAIM_GONE='[]'
+  # Each pass's Info lines are read against the listing taken just before it: an app named there
+  # that was already installed does not make the extension in use (reclaim_in_use_new).
   if [[ -n "$out_file" && "$RECLAIM_GONE" != null && "$RECLAIM_GONE" != '[]' ]]; then
-    RECLAIM_IN_USE="$(reclaim_in_use_of <"$out_file" \
+    RECLAIM_IN_USE="$( { if [[ -z "$ran2" ]]; then reclaim_in_use_new "$listing" <"$out_file"
+                         else head -c "$mark" "$out_file" | reclaim_in_use_new "$listing"
+                              tail -c +$(( mark + 1 )) "$out_file" | reclaim_in_use_new "${mid:-$listing}"
+                         fi; } \
       | jq -R -s -c --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") '
           [$g[0][] | split("/") | select(length == 4) | "\(.[1])//\(.[3])"] as $gone
           | split("\n") | map(select(. != "" and (. as $e | $gone | index($e)))) | unique
@@ -310,12 +316,32 @@ reclaim_uninstall() {  # seconds out-file refs... → flatpak's exit code
   fi
 }
 
-# The extensions flatpak said an app uses, as id//branch lines, from its saved output. flatpak
-# prints "Info: applications using the extension ID branch BRANCH:" (1.16 and 1.18,
-# app/flatpak-builtins-uninstall.c), in bold on a terminal, and removes it under --noninteractive.
+# The extensions flatpak said an app uses, from its saved output, as "id//branch<TAB>app ids" lines
+# (the app ids space-separated). flatpak prints "Info: applications using the extension ID branch
+# BRANCH:" and then the app ids, indented and comma-separated, on the next line (1.16 and 1.18,
+# app/flatpak-builtins-uninstall.c), in bold on a terminal. It removes the extension anyway under
+# --noninteractive. Indented lines after the first are read as more ids, in case the list wraps.
 reclaim_in_use_of() {  # stdin: flatpak's output
   LC_ALL=C sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r$//' \
-    | LC_ALL=C sed -n 's/^Info: applications using the extension \([A-Za-z0-9._-][A-Za-z0-9._-]*\) branch \([A-Za-z0-9._-][A-Za-z0-9._-]*\):[[:space:]]*$/\1\/\/\2/p'
+    | LC_ALL=C awk '
+        function flush() { if (ext != "") { sub(/^ +/, "", apps); print ext "\t" apps }; ext = "" }
+        ext != "" && /^[ \t]/ { l = $0; gsub(/[, \t]+/, " ", l); sub(/^ /, "", l); apps = apps " " l; next }
+        { flush() }
+        match($0, /^Info: applications using the extension [A-Za-z0-9._-]+ branch [A-Za-z0-9._-]+:[ \t]*$/) {
+          n = split($0, w, /[ \t]+/); b = w[8]; sub(/:$/, "", b); ext = w[6] "//" b; apps = "" }
+        END { flush() }'
+}
+
+# The extensions in flatpak's Info lines that an app new since the listing uses, as id//branch
+# lines. flatpak names every installed app whose extension points match, even for an extension it
+# lists as unused because it is pruned (an old GL driver with autoprune-unless), so an app that was
+# already installed when the listing was taken is no sign of a race.
+reclaim_in_use_new() {  # listing-json; stdin: flatpak's output
+  reclaim_in_use_of | jq -R -r --slurpfile l <(printf '%s\n' "$1") '
+      [$l[0].unused[]?, $l[0].used[]? | .ref | split("/") | select(.[0] == "app") | .[1]] as $had
+      | split("\t") | select(length == 2)
+      | select(.[1] | split(" ") | map(select(. != "")) | any(. as $a | $had | index($a) | not))
+      | .[0]' 2>/dev/null
 }
 
 # One look at the list against what was agreed to. Non-zero when the removal must stop, with the

@@ -829,7 +829,7 @@ assert_eq "$(( $(jq -c '[.unused[].ref]' "$BIG/before.json" | wc -c) > 131072 ))
 big_out="$(
   trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
   export KEMPT_STATE_DIR="$BIG" KEMPT_FLATPAK_UNINSTALL_CMD=true
-  eval "$(sed -n '/^reclaim_remove() {/,/^}/p; /^reclaim_extensions_in() {/,/^}/p; /^reclaim_uninstall() {/,/^}/p; /^reclaim_in_use_of() {/,/^}/p' "$KEMPT")"
+  eval "$(sed -n '/^reclaim_remove() {/,/^}/p; /^reclaim_extensions_in() {/,/^}/p; /^reclaim_uninstall() {/,/^}/p; /^reclaim_in_use_of() {/,/^}/p; /^reclaim_in_use_new() {/,/^}/p' "$KEMPT")"
   flatpak_unused_list() {
     local n; n=$(( $(cat "$BIG/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$BIG/calls"
     if (( n <= 2 )); then cat "$BIG/before.json"; else jq -c '.unused = []' "$BIG/before.json"; fi
@@ -1002,6 +1002,36 @@ HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
 restore_offer
 rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
 assert_contains "$out" "2 of them were extensions that apps had just started using. Run flatpak update to put them back." "...two in the plural"
+# flatpak names every installed app whose extension points match, also for an extension it lists
+# as unused because it is pruned (an old GL driver). An app already installed at the listing taken
+# before the pass is no race: the extension is not in use by anything new.
+cat > "$TESTTMP/hook-pruned" <<'HOOK'
+printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote\n'
+HOOK
+restore_offer
+rc=0; out="$(HOOK_2="$TESTTMP/hook-pruned" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(jq -r 'has("in_use")' "$RECLAIM_LAST_FILE")" "0|false" \
+  "an extension whose named apps were all installed before the pass is not recorded as in use"
+assert_not_contains "$out" "started using" "...nor said"
+# Any one new app among those named is the race. The list may run over more than one line.
+cat > "$TESTTMP/hook-mixed" <<'HOOK'
+printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote,\n   org.example.App\n'
+HOOK
+restore_offer
+rc=0; out="$(HOOK_2="$TESTTMP/hook-mixed" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
+  "...but one new app among them makes it in use, also on a wrapped line"
+# The first pass's lines are read against the listing before it, not the one between the passes:
+# an app installed during the first pass is new to it.
+cat > "$TESTTMP/hook-p1" <<'HOOK'
+jq '.used += [{ref: "app/org.example.App/x86_64/stable", commit: .used[0].commit, deploy_dir: "/var/lib/flatpak/app/org.example.App"}]' \
+  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
+printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08:\n   org.example.App\n'
+HOOK
+restore_offer
+rc=0; out="$(HOOK_1="$TESTTMP/hook-p1" byname -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08"]' \
+  "an Info line in the first pass counts an app installed during it as new"
 
 # A theme left behind by a runtime that goes: flatpak's metadata marks it an extension, so it waits
 # for the second pass though its id does not start with the runtime's.

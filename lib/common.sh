@@ -486,8 +486,8 @@ error_line_of() {  # stdin: output → one line, empty when there was none
 # The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
 # line, from error_line_of) when there is one, and partial: true when flatpak failed after the
 # removal began (refs is then what went, or null when that is unknown), and in_use (["id//branch"])
-# when flatpak removed extensions it said an app uses; or {} when there is none or
-# the file is damaged. result is removed | nothing | changed | needs_auth | failed.
+# when flatpak removed extensions it said an app installed since the last listing uses; or {} when
+# there is none or the file is damaged. result is removed | nothing | changed | needs_auth | failed.
 reclaim_last_read() {  # → one JSON object
   local out
   out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
