@@ -444,9 +444,10 @@ KCM.SimpleKCM {
             text: !page.flatpakPresent ? i18n("Flatpak is not installed.")
                 : !includeFlatpak.checked ? i18n("Only applies when Flatpak apps are included in updates.")
                 : !page.flatpakKnown ? i18n("Only applies when Flatpak is installed.")
-                // The engine acts as ask when more than one person may use the machine: Flatpak
-                // cannot see the other accounts' own apps. Said here, where the choice is made.
-                : page.reclaimKey === "automatic" ? i18n("On a computer with more than one account, Kempt still asks first.")
+                // The engine acts as ask on an image-based system, and when more than one person may
+                // use the machine (Flatpak cannot see the other accounts' own apps). Said here, where
+                // the choice is made.
+                : page.reclaimKey === "automatic" ? i18n("Kempt still asks first on an image-based Fedora, or when more than one person may use this computer.")
                 : ""
             visible: text !== ""
             wrapMode: Text.WordWrap

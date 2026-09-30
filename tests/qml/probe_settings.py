@@ -627,7 +627,7 @@ p.check("...and with flatpak installed and included, the group is usable",
         ev6("reclaimRepeater.itemAt(0).enabled"), True)
 p.check("...and with Remove after updates chosen, it says a shared computer is still asked first",
         [ev6("reclaimNote.visible"), ev6("reclaimNote.text")],
-        [True, "On a computer with more than one account, Kempt still asks first."])
+        [True, "Kempt still asks first on an image-based Fedora, or when more than one person may use this computer."])
 p.check("...under the label the plan gives it",
         ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
 p.check("...with its three choices in words",
