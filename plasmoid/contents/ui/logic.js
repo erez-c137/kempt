@@ -364,6 +364,10 @@ var COPY = {
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
     reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
     reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
+    // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
+    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines).
+    reclaimInUseOne: "One of them was an extension an app had just started using. Run flatpak update to put it back.",
+    reclaimInUseMore: "%1 of them were extensions that apps had just started using. Run flatpak update to put them back.",
     // Flatpak stopped part-way. The first is filled with the size of what did go.
     reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
     reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
@@ -1569,15 +1573,21 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         var at = stampMs(last.at);
         if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
     }
+    // This press removed extensions an app had just started using: said after what was freed.
+    var inUse = fresh !== null && fresh.result === "removed" ? arrayOf(fresh.in_use).length : 0;
+    var withInUse = function (text) {
+        if (inUse === 0) return text;
+        return text + " " + (inUse === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(inUse)));
+    };
     if (rc === 0) {
         if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
                 && isFinite(fresh.bytes) && fresh.bytes > 0) {
-            return { ok: true, text: fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes)) };
+            return { ok: true, text: withInUse(fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes))) };
         }
         var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
         var tail = "";
         for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-        return { ok: true, text: tail !== "" ? tail : COPY.reclaimNothing };
+        return { ok: true, text: withInUse(tail !== "" ? tail : COPY.reclaimNothing) };
     }
     // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
     if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
@@ -1589,9 +1599,9 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
         if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
         if (fresh.result === "removed") {
             if (typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0) {
-                return { ok: false, text: fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes)) };
+                return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
             }
-            return { ok: false, text: COPY.reclaimPartialUnsized };
+            return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };
         }
     }
     // A failed uninstall whose record says nothing is gone.
