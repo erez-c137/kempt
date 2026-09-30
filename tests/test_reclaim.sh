@@ -542,6 +542,24 @@ assert_eq "$(state_reclaim | jq -r '.digest')" "" "...and the offer is gone from
 rc=0; out="$(reclaim -y)" || rc=$?
 assert_eq "$rc" "0" "the same, with no offer named: nothing to remove, exit 0"
 assert_contains "$out" "Nothing to remove." "...said as such"
+# ...where --list only lists, reclaim=off refuses as it always does, and an update holding the lock
+# is busy (exit 3): an exit 6 there would repeat on every press, with no check to clear the offer.
+jq '.used += .unused | .unused = []' "$UNUSED_FX" > "$TESTTMP/all-used.json"
+cp "$TESTTMP/all-used.json" "$LISTING"; rm -f "$RECLAIM_LAST_FILE"
+rc=0; out="$(reclaim --list --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$([[ -e "$RECLAIM_LAST_FILE" ]] && echo recorded || echo none)" "0|none" "...--list with the offer named: lists, exit 0, records nothing"
+config_set reclaim off
+rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
+config_set reclaim ask
+assert_eq "$rc" "5" "...reclaim=off: exit 5"
+rc=0; out="$(flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
+assert_eq "$rc|$out" "3|another kempt update is running" "...an update running: exit 3, as busy"
+restore_offer
+# Every runtime used again between that first look and the look under the lock: the same answer.
+rc=0; out="$(PKCHECK_SWAP="$TESTTMP/all-used.json" reclaim -y --expect="$DIGEST5")" || rc=$?
+assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")|$(calls uninstall)" "6|changed|(none)" \
+  "an offer whose runtimes all became used during the removal's own look: exit 6, changed"
+assert_contains "$out" "What Flatpak can remove changed since this was shown." "...never that nothing unused was found"
 restore_offer
 
 # A set that grew: one more unused ref than was shown means the removal would take it too, unseen.

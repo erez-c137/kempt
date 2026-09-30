@@ -2400,6 +2400,13 @@ UNINSTALL_PARTIAL=1 rc_update
 assert_eq "$(jq -c '.backends.flatpak.reclaimed | [.status, .partial, (.refs | length)]' "$RH")|$(jq -r .status "$RH")" \
   '["removed",true,4]|ok' "a removal flatpak stopped part-way is recorded as partial in the run's entry, and the run stays ok"
 
+# Every runtime on offer in use again by the time the run ends: nothing to do, not a changed set.
+rc_offer
+jq '.used += .unused | .unused = []' "$FIXTURES/flatpak-unused.json" > "$RC_LISTING"
+rc_update
+assert_eq "$(rc_calls)|$(jq -r '.backends.flatpak.reclaimed.status' "$RH")" "(none)|nothing" \
+  "an offer all in use again after a run is nothing to remove"
+
 # A run that failed removes nothing.
 rc_offer
 printf '#!/usr/bin/env bash\necho "FLATPAK $@" >> "%s/apply-calls"\nexit 1\n' "$WORLD" > "$TESTTMP/fp-update-stub"

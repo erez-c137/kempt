@@ -322,8 +322,14 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
   if ! classified="$(reclaim_classify "$1" 2>/dev/null)"; then
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$2"; return 1
   fi
+  # Nothing unused any more. After an update that is simply nothing to do. For kempt reclaim, the
+  # set the person agreed to went back into use since they were shown it: changed, as cmd_reclaim
+  # says when it sees the same first, never "nothing unused was found" (a success in the widget).
   if [[ "$(jq -r 'length' <<<"$classified" 2>/dev/null)" == 0 ]]; then
-    RECLAIM_RESULT=nothing; reclaim_record "$via" "$2"; return 1
+    if [[ "$via" != update && -n "$2" ]]; then RECLAIM_RESULT=changed RECLAIM_WHY=digest
+    else RECLAIM_RESULT=nothing
+    fi
+    reclaim_record "$via" "$2"; return 1
   fi
   RECLAIM_DIGEST="$(jq -r '.[] | "\(.ref)\t\(.commit)"' <<<"$classified" 2>/dev/null | reclaim_digest)" \
     || RECLAIM_DIGEST=""
@@ -2526,6 +2532,12 @@ cmd_reclaim() {
       release_lock
     fi
   fi
+  # reclaim=off refuses any removal before anything is listed; --list still shows what could go.
+  if [[ -z "$list" && "$(reclaim_mode)" == off ]]; then
+    echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
+    log_event "reclaim refused (reclaim=off)"
+    exit 5
+  fi
   local listing classified sizes_tsv bytes="" digest
   if ! listing="$(flatpak_unused_list 2>/dev/null)" \
      || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
@@ -2536,18 +2548,19 @@ cmd_reclaim() {
   if [[ "$(jq -r 'length' <<<"$classified")" == 0 ]]; then
     # An offer was acted on (the widget's button, a script with the digest), and every runtime on
     # it is in use again: the set changed, as below. The check rewrites state.json, so the widget
-    # stops offering what is gone instead of offering it until the next scheduled check.
-    if [[ -n "$expect" ]]; then
+    # stops offering what is gone instead of offering it until the next scheduled check. That check
+    # needs the update lock: with an update holding it, this is busy (exit 3), like any removal
+    # then, and that update's own closing check clears the offer. Not for --list, which only lists.
+    if [[ -n "$expect" && -z "$list" ]]; then
+      acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
       echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
       local via_e=cli
       [[ "${KEMPT_VIA:-}" == widget ]] && via_e=widget
       reclaim_last_write "$via_e" changed '[]' "" "$expect"
       log_event "reclaim changed (digest), nothing removed"
-      if acquire_lock; then
-        cmd_check >/dev/null 2>&1 || true
-        { flock -u 9; exec 9>&-; } 2>/dev/null || true
-        release_lock
-      fi
+      cmd_check >/dev/null 2>&1 || true
+      { flock -u 9; exec 9>&-; } 2>/dev/null || true
+      release_lock
       exit 6
     fi
     echo "Nothing to remove. Every installed Flatpak runtime is in use."
@@ -2567,11 +2580,6 @@ cmd_reclaim() {
     return 0
   fi
 
-  if [[ "$(reclaim_mode)" == off ]]; then
-    echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
-    log_event "reclaim refused (reclaim=off)"
-    exit 5
-  fi
   # Said before any question: agreeing to a set that is not yet removable would only end in a refusal.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
     if [[ -n "$first" ]]; then
