@@ -492,9 +492,12 @@ Optional keys on that entry:
   `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`, where `status` is a
   `reclaim.last.result` value. `kempt summary` and the last-run line show it only when `status`
   is `removed`. A non-empty `in_use` adds `COPY.reclaimInUseOne` or `reclaimInUseMore` to the
-  post-run line and under the Last update row. The row shows it until the popup closes over it
-  once, and a later run's entry replaces it (`Logic.lastRunSubtitle`, `main.qml`'s
-  `reclaimInUseSeen`, not kept across a plasmashell restart).
+  post-run line, a staging run's included, and under the Last update row. An entry with no
+  readable `timestamp` shows neither. The popup marks the run seen when it closes with the
+  sentence on screen (`Logic.reclaimInUseOnScreen`): in the post-run line, or under a Last update
+  row that no report or updating pane hides. After that the row stops showing it, and a later
+  run's entry replaces it anyway (`Logic.lastRunSubtitle`, `main.qml`'s `reclaimInUseSeen`, not
+  kept across a plasmashell restart).
 
 Rules at this boundary:
 
