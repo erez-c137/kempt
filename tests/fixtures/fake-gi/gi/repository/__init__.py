@@ -33,6 +33,21 @@ class _Ref:
     def get_eol(self):
         return self._d.get("eol")
 
+    def get_name(self):
+        return self._d["ref"].split("/")[1]
+
+    def load_metadata(self, cancellable):
+        # From $FAKE_FLATPAK_METADATA, a JSON object of ref -> metadata keyfile text. A ref not in it
+        # has no metadata file, which the real call reports as an error.
+        path = os.environ.get("FAKE_FLATPAK_METADATA")
+        table = {}
+        if path:
+            with open(path) as f:
+                table = json.load(f)
+        if self._d["ref"] not in table:
+            raise RuntimeError("No such file: metadata")
+        return _Bytes(table[self._d["ref"]].encode())
+
 
 class _Installation:
     def __init__(self):
@@ -64,3 +79,41 @@ class _Installation:
 
 class Flatpak:
     Installation = _Installation
+
+
+class _Bytes:
+    def __init__(self, data):
+        self._data = data
+
+    def get_data(self):
+        return self._data
+
+
+class _KeyFile:
+    """Only what the helper uses: load_from_bytes and get_groups, which PyGObject returns as
+    (groups, length)."""
+
+    def __init__(self):
+        self._groups = []
+
+    def load_from_bytes(self, data, flags):
+        for line in data.get_data().decode().splitlines():
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                self._groups.append(line[1:-1])
+            elif line and not line.startswith("#") and "=" not in line:
+                raise RuntimeError("Key file contains line that is not a key-value pair")
+        return True
+
+    def get_groups(self):
+        return (list(self._groups), len(self._groups))
+
+
+class _KeyFileFlags:
+    NONE = 0
+
+
+class GLib:
+    Bytes = _Bytes
+    KeyFile = _KeyFile
+    KeyFileFlags = _KeyFileFlags

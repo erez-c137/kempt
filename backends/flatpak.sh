@@ -133,7 +133,9 @@ flatpak_present() { command -v "${KEMPT_FLATPAK_UNINSTALL_CMD%% *}" >/dev/null 2
 
 # The helper's answer, checked for shape before anything reads it: every ref is kind/id/arch/branch
 # with a hex commit and an absolute deploy directory. One bad entry rejects the whole answer, since
-# its deploy directories are handed to du and its refs end up in state.json.
+# its deploy directories are handed to du and its refs end up in state.json. An unused ref's
+# `extension` is kept only as true or false; anything else is left out, and the removal then falls
+# back to the id (bin/kempt reclaim_extensions_in).
 flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when the helper did not answer
   local out
   # Unquoted: a seam may carry its own arguments (as dnf_history_json).
@@ -148,7 +150,8 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
            and (.unused | type == "array") and (.used | type == "array")
            and all(.unused[]; okref and ((.eol == null) or (.eol | type == "string")))
            and all(.used[]; okref))
-    | {installation, unused: [.unused[] | {ref, commit, deploy_dir, eol}],
+    | {installation, unused: [.unused[] | {ref, commit, deploy_dir, eol}
+                                + (if (.extension | type) == "boolean" then {extension} else {} end)],
        used: [.used[] | {ref, commit, deploy_dir}]}' <<<"$out" 2>/dev/null
 }
 

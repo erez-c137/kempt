@@ -30,7 +30,7 @@ if command -v python3 >/dev/null 2>&1; then
   # The fixture's installation moved to a directory with a repo in it, as a real one has.
   HFX="$TESTTMP/helper-fx.json"; mkdir -p "$TESTTMP/inst/repo"
   jq --arg p "$TESTTMP/inst" '.installation = $p' "$UNUSED_FX" > "$HFX"
-  export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls"
+  export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls" FAKE_FLATPAK_METADATA="$FIXTURES/flatpak-metadata.json"
   hout="$(PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
   assert_json_eq "$hout" "$(cat "$HFX")" \
     "the helper prints the installation, the unused refs with their end-of-life reason, and the rest as used"
@@ -38,6 +38,23 @@ if command -v python3 >/dev/null 2>&1; then
     "We strongly recommend moving to the latest stable version of the Platform and SDK" \
     "...an end-of-life runtime carries flatpak's reason"
   assert_eq "$(jq -r '.unused[0].eol' <<<"$hout" 2>/dev/null)" "null" "...and a supported one carries null"
+  # Extensions from flatpak's metadata: GL.default 24.08 has its own [ExtensionOf], the Locale is a
+  # point the 24.08 runtime declares, GL.default 24.08extra lies under one (subdirectories).
+  assert_eq "$(jq -c '[.unused[] | .extension]' <<<"$hout" 2>/dev/null)" "[false,true,true,true,false]" \
+    "...and each unused ref says whether it is an extension, from flatpak's metadata"
+  # A theme's id does not start with its runtime's: only the runtime's [Extension org.gtk.Gtk3theme]
+  # says what it is. A ref whose metadata cannot be read carries no answer, for the CLI to fall back.
+  jq '.unused += [{ref: "runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22", commit: "c1", deploy_dir: "/d/theme", eol: null},
+                  {ref: "runtime/org.example.Orphan/x86_64/1", commit: "c2", deploy_dir: "/d/orphan", eol: null}]' \
+    "$HFX" > "$TESTTMP/theme-fx.json"
+  jq '. + {"runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22": "[Runtime]\nname=org.gtk.Gtk3theme.Adwaita-dark\n"}' \
+    "$FIXTURES/flatpak-metadata.json" > "$TESTTMP/theme-md.json"
+  hout="$(FAKE_FLATPAK_JSON="$TESTTMP/theme-fx.json" FAKE_FLATPAK_METADATA="$TESTTMP/theme-md.json" FAKE_FLATPAK_CALLS="" \
+    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
+  assert_eq "$(jq -c '.unused[5:] | map(.extension)' <<<"$hout" 2>/dev/null)" "[true,null]" \
+    "...a Gtk3theme is an extension though its id does not start with its runtime's"
+  assert_eq "$(jq -c '.unused[6] | has("extension")' <<<"$hout" 2>/dev/null)" "false" \
+    "...and a ref with unreadable metadata carries no extension field"
   # new_user() creates ~/.local/share/flatpak/repo as a side effect, so the helper must never call it.
   assert_eq "$(cat "$TESTTMP/fake-calls")" "new_system" "the helper opens the system installation and nothing else"
   rc=0; FAKE_FLATPAK_FAIL="boom" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 \
@@ -55,7 +72,7 @@ if command -v python3 >/dev/null 2>&1; then
   assert_eq "$rc|$(jq -c '[.unused, .used]' <<<"$hout" 2>/dev/null)" "0|[[],[]]" \
     "a system installation with no repository yet lists nothing, and is not a failure"
   assert_exit 2 "the helper takes no arguments" -- env PYTHONPATH="$FIXTURES/fake-gi" "$HELPER" --user
-  unset FAKE_FLATPAK_JSON FAKE_FLATPAK_CALLS
+  unset FAKE_FLATPAK_JSON FAKE_FLATPAK_CALLS FAKE_FLATPAK_METADATA
 else
   skip "python3 not installed: the listing helper was not run"
 fi
@@ -861,7 +878,18 @@ STUB
 chmod +x "$STUBS/uninstall-byname"
 byname() { KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-byname" reclaim "$@"; }
 
-# Which refs are extensions: an unused ref whose id is another installed ref's id and a dot more.
+# Which refs are extensions: the helper's `extension` field, from flatpak's metadata. Without it
+# (an older helper), an unused ref whose id is another installed ref's id and a dot more.
+cls="$(
+  trap - EXIT
+  eval "$(sed -n '/^reclaim_extensions_in() {/,/^}/p' "$KEMPT")"
+  reclaim_extensions_in "$(jq -cn '{installation: "/x", used: [{ref: "runtime/org.kde.Platform/x86_64/5.15-24.08"}],
+    unused: [{ref: "runtime/org.gtk.Gtk3theme.Breeze/x86_64/3.22", extension: true},
+             {ref: "runtime/org.kde.Platform.Locale/x86_64/5.15-24.08", extension: false},
+             {ref: "runtime/org.kde.KStyle.Adwaita/x86_64/5.15-24.08"}]}')" 2>/dev/null | tr '\n' ' '
+)" || true
+assert_eq "$cls" "runtime/org.gtk.Gtk3theme.Breeze/x86_64/3.22 " \
+  "an extension is what the helper's metadata says, even a theme whose id does not start with its runtime's"
 cls="$(
   trap - EXIT
   eval "$(sed -n '/^reclaim_extensions_in() {/,/^}/p' "$KEMPT")"
@@ -875,7 +903,7 @@ cls="$(
              {ref: "runtime/org.freedesktop.PlatformX/x86_64/1"}]}')" 2>/dev/null | tr '\n' ' '
 )" || true
 assert_eq "$cls" "runtime/org.freedesktop.Platform.Locale/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.mozilla.firefox.Locale/x86_64/stable runtime/org.kde.Platform.Locale/x86_64/5.15-23.08 " \
-  "an extension is a ref whose id extends another installed id: a runtime's Locale and GL, an app's Locale, an unused runtime's Locale"
+  "...and without the field, a ref whose id extends another installed id: a runtime's Locale and GL, an app's Locale, an unused runtime's Locale"
 assert_not_contains "$cls" "org.freedesktop.PlatformX" "...by a dot, not by any longer name"
 
 restore_offer
@@ -963,6 +991,17 @@ HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
 restore_offer
 rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
 assert_contains "$out" "Flatpak also removed 2 extensions that apps use. The next update puts them back." "...two in the plural"
+
+# A theme left behind by a runtime that goes: flatpak's metadata marks it an extension, so it waits
+# for the second pass though its id does not start with the runtime's.
+THEME="runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22"
+jq --arg t "$THEME" '.unused += [{ref: $t, commit: "7777777777777777777777777777777777777777777777777777777777777777",
+    deploy_dir: "/var/lib/flatpak/runtime/org.gtk.Gtk3theme.Adwaita-dark", eol: null, extension: true}]' \
+  "$UNUSED_FX" > "$TESTTMP/theme.json"
+printf '/var/lib/flatpak/runtime/org.gtk.Gtk3theme.Adwaita-dark\t1000000\n' >> "$DU_TABLE"
+cp "$TESTTMP/theme.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
+rc=0; out="$(byname -y)" || rc=$?
+assert_eq "$rc|$(calls uninstall)" "0|$P1"$'\n'"$P2 $THEME" "a Gtk3theme leftover goes in the second pass, with the extensions"
 
 # A set of extensions only, and one with none: one call each.
 jq '.unused |= map(select(.ref | test("[.](GL[.]default|Locale)/")))' "$UNUSED_FX" > "$TESTTMP/ext-only.json"

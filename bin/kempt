@@ -272,15 +272,20 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   return 0
 }
 
-# The unused refs that are extensions, one per line: a ref whose id is another installed ref's id
-# (runtime or app, used or unused) followed by a dot and more, as org.freedesktop.Platform.GL.default
-# is of org.freedesktop.Platform, or org.mozilla.firefox.Locale of the app. flatpak protects a
-# runtime an app needs, not these (reclaim_remove).
+# The unused refs that are extensions, one per line. flatpak protects a runtime an app needs, not
+# these (reclaim_remove). The helper says which, from flatpak's metadata (its `extension` field,
+# libexec/kempt-flatpak-unused). A ref without that field, from an older helper, falls back to its
+# id: another installed ref's id (runtime or app, used or unused) followed by a dot and more, as
+# org.freedesktop.Platform.GL.default is of org.freedesktop.Platform. That misses a theme
+# (org.gtk.Gtk3theme.*), whose id does not start with its runtime's.
 reclaim_extensions_in() {  # listing JSON → refs
   jq -r '([.unused[], .used[] | .ref | split("/")[1] | {key: ., value: true}] | from_entries) as $have
-         | .unused[].ref
-         | select(split("/")[1] | split(".") as $p
-                  | [range(1; $p | length) as $i | $have[$p[:$i] | join(".")] // false] | any)' \
+         | .unused[]
+         | select(if has("extension") then .extension == true
+                  else .ref | split("/")[1] | split(".") as $p
+                       | [range(1; $p | length) as $i | $have[$p[:$i] | join(".")] // false] | any
+                  end)
+         | .ref' \
     <<<"$1" 2>/dev/null
 }
 
