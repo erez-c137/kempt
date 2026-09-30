@@ -55,6 +55,13 @@ if command -v python3 >/dev/null 2>&1; then
     "...a Gtk3theme is an extension though its id does not start with its runtime's"
   assert_eq "$(jq -c '.unused[6] | has("extension")' <<<"$hout" 2>/dev/null)" "false" \
     "...and a ref with unreadable metadata carries no extension field"
+  # flatpak counts [ExtensionOf] only with its ref key: without it, the ref is not an extension.
+  jq '. + {"runtime/org.example.Orphan/x86_64/1": "[Runtime]\nname=org.example.Orphan\n\n[ExtensionOf]\nprivileged=true\n"}' \
+    "$TESTTMP/theme-md.json" > "$TESTTMP/noref-md.json"
+  hout="$(FAKE_FLATPAK_JSON="$TESTTMP/theme-fx.json" FAKE_FLATPAK_METADATA="$TESTTMP/noref-md.json" FAKE_FLATPAK_CALLS="" \
+    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
+  assert_eq "$(jq -c '.unused[6].extension' <<<"$hout" 2>/dev/null)" "false" \
+    "...and an [ExtensionOf] group with no ref key does not make a ref an extension"
   # new_user() creates ~/.local/share/flatpak/repo as a side effect, so the helper must never call it.
   assert_eq "$(cat "$TESTTMP/fake-calls")" "new_system" "the helper opens the system installation and nothing else"
   rc=0; FAKE_FLATPAK_FAIL="boom" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 \

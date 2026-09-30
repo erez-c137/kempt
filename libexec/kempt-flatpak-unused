@@ -18,10 +18,10 @@
 # extension is true when the unused ref is an extension, which flatpak removes even while an app
 # uses it (kempt removes those in a second pass, bin/kempt reclaim_remove). Read from flatpak's own
 # metadata, not the id: org.gtk.Gtk3theme.* or org.kde.KStyle.* do not start with their runtime's
-# id. It is an extension when its own metadata has an [ExtensionOf] group (build-finish writes one),
-# or when its id is an extension point some installed runtime or app declares ([Extension P]), or
-# lies under one (P.something: subdirectories, as org.freedesktop.Platform.GL.default under
-# org.freedesktop.Platform.GL). The field is left out when the ref's own metadata cannot be read
+# id. It is an extension when its own metadata has an [ExtensionOf] group with a ref key
+# (build-finish writes one), or when its id is an extension point some installed runtime or app
+# declares ([Extension P]), or lies under one (P.something: subdirectories, as
+# org.freedesktop.Platform.GL.default under org.freedesktop.Platform.GL). The field is left out when the ref's own metadata cannot be read
 # and no declaration matches; the CLI then falls back to the id. Cost: one read of each installed
 # ref's small metadata file, no network and no writes.
 #
@@ -43,7 +43,9 @@ def ref_entry(ref):
 
 
 def metadata_groups(ref, GLib):
-    """The group names of an installed ref's metadata keyfile, or None when it cannot be read."""
+    """The group names of an installed ref's metadata keyfile, or None when it cannot be read.
+    [ExtensionOf] is left out unless it has a ref key: flatpak counts the group only with one
+    (common/flatpak-dir.c, add_metadata_to_deploy_data)."""
     try:
         kf = GLib.KeyFile()
         kf.load_from_bytes(ref.load_metadata(None), GLib.KeyFileFlags.NONE)
@@ -53,7 +55,15 @@ def metadata_groups(ref, GLib):
     # PyGObject returns (groups, length)
     if isinstance(groups, tuple):
         groups = groups[0]
-    return list(groups or [])
+    groups = list(groups or [])
+    if "ExtensionOf" in groups:
+        try:
+            has_ref = bool(kf.get_string("ExtensionOf", "ref"))
+        except Exception:  # GLib.Error: no such key
+            has_ref = False
+        if not has_ref:
+            groups.remove("ExtensionOf")
+    return groups
 
 
 def is_extension(ref_id, own_groups, points):

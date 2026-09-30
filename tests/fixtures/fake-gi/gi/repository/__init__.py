@@ -90,23 +90,34 @@ class _Bytes:
 
 
 class _KeyFile:
-    """Only what the helper uses: load_from_bytes and get_groups, which PyGObject returns as
-    (groups, length)."""
+    """Only what the helper uses: load_from_bytes, get_groups, which PyGObject returns as
+    (groups, length), and get_string, which raises for a missing group or key."""
 
     def __init__(self):
         self._groups = []
+        self._keys = {}
 
     def load_from_bytes(self, data, flags):
         for line in data.get_data().decode().splitlines():
             line = line.strip()
             if line.startswith("[") and line.endswith("]"):
                 self._groups.append(line[1:-1])
+                self._keys.setdefault(line[1:-1], {})
             elif line and not line.startswith("#") and "=" not in line:
                 raise RuntimeError("Key file contains line that is not a key-value pair")
+            elif line and not line.startswith("#") and self._groups:
+                k, v = line.split("=", 1)
+                self._keys[self._groups[-1]][k.strip()] = v.strip()
         return True
 
     def get_groups(self):
         return (list(self._groups), len(self._groups))
+
+    def get_string(self, group, key):
+        try:
+            return self._keys[group][key]
+        except KeyError:
+            raise RuntimeError("Key file does not have key") from None
 
 
 class _KeyFileFlags:
