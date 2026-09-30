@@ -2343,7 +2343,21 @@ assert_eq "$(jq -r '.status' "$RH")|$(jq -c '.backends.flatpak.removed' "$RH")" 
 assert_contains "$(cat "$WORLD/notifications")" "~2.0 GB freed" "the notification says what was freed"
 assert_contains "$rsum" "Removed 5 unused Flatpak runtimes, freeing about 2.0 GB." "...and so does the summary"
 assert_contains "$(cat "$(jq -r .log "$RH")")" "== Unused Flatpak runtimes ==" "the run log has the removal under its own heading"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Uninstalling..."$'\n'"Freed about 2.0 GB." "...with flatpak's lines, then the outcome in kempt reclaim's words"
+assert_not_contains "$rsum" "Freed about" "...and off the terminal when the output is not live"
 assert_eq "$(jq -c '.reclaim.refs' "$KEMPT_STATE_DIR/state.json")" "[]" "the closing check publishes nothing left to offer"
+
+# A terminal update shows the outcome under the heading, and flatpak's own lines stay in the log.
+rc_offer
+lout="$(push_history_back; KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal </dev/null 2>&1)" || true
+RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
+assert_contains "$lout" "== Unused Flatpak runtimes =="$'\n'"Freed about 2.0 GB." "a terminal update says what the removal freed, under its heading"
+assert_not_contains "$lout" "Uninstalling..." "...without flatpak's own lines"
+assert_contains "$(cat "$(jq -r .log "$RH")")" "Freed about 2.0 GB." "...which the run log still has"
+rc_offer
+lout="$(push_history_back; UNINSTALL_RC=1 KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal </dev/null 2>&1)" || true
+assert_contains "$lout" "== Unused Flatpak runtimes =="$'\n'"Flatpak could not remove them (exit code 1). See: kempt log" \
+  "...and a removal that failed says so there too"
 
 # An app that starts needing a runtime while du measures must stop the removal: after a run that
 # updated a runtime the size cache misses, and a full du can take many seconds. So du comes before

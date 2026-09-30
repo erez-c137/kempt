@@ -393,7 +393,8 @@ reclaim_record() {  # via digest
 # fails or needs an administrator is recorded once (reclaim-last.json, then status in state.json)
 # and this step skips while the same set is on offer, so it is never a failure on every run.
 # Sets RECLAIM_RUN_JSON to {refs, bytes, status} for the history entry, or empty when nothing was
-# attempted. Output goes to the run log. Never fails: the run is over.
+# attempted. flatpak's output goes to the run log only; the outcome sentence to the log, and to the
+# terminal too when the output is live. Never fails: the run is over.
 reclaim_after_run() {  # log_file
   RECLAIM_RUN_JSON=""
   reclaim_as_root && return 0
@@ -407,6 +408,10 @@ reclaim_after_run() {  # log_file
   [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
   run_heading "$1" "Unused Flatpak runtimes"
   reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
+  # The outcome in kempt reclaim's words: always into the log after flatpak's lines, and under the
+  # heading on a live terminal, where flatpak's own lines are not shown.
+  reclaim_outcome_lines >>"$1" 2>&1 || true
+  [[ "${KEMPT_LIVE_OUTPUT:-}" != "1" ]] || reclaim_outcome_lines || true
   RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
     --arg p "${RECLAIM_PARTIAL:-}" \
     '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}
