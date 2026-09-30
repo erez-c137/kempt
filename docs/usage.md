@@ -389,8 +389,8 @@ nothing else. An extension another installed runtime still uses stays. The size 
 Kempt removes the runtimes first and their extensions after them, such as translations
 (`.Locale`) and graphics drivers (`.GL`). Flatpak keeps the runtime an app runs on, so an app
 you install while Kempt removes them keeps its runtime. Kempt then lists again and removes only the
-extensions still unused, so that app keeps those too. If Flatpak removes one an app has only just
-started using, Kempt says so. Run `flatpak update` to put it back.
+extensions still unused, so that app keeps those too. If Flatpak removes one of that app's
+extensions, Kempt says so. Run `flatpak update` to put it back.
 Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
 is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
