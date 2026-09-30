@@ -284,7 +284,9 @@ It never asks for a password: when removing needs an administrator, nothing is r
 A runtime is removed only after it has been unused for an hour, counted from the first check that
 listed it. With no check on record,
 .B kempt reclaim
-runs one first and says to try again in an hour. To keep one,
+runs one first and says to try again in an hour.
+Runtimes go first, then the extensions still unused after a fresh listing, so an app installed
+meanwhile keeps what it uses. To keep one,
 pin it with
 .BR "flatpak pin" .
 Runs as the user and refuses to run as root. Exits 5 with nothing removed when it may not remove

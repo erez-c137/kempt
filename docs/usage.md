@@ -386,6 +386,11 @@ Remove them? [y/N]
 
 Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on that list and
 nothing else. An extension another installed runtime still uses stays. The size is an estimate.
+Kempt removes the runtimes first and their extensions after them, such as translations
+(`.Locale`) and graphics drivers (`.GL`). Flatpak keeps a runtime an app needs, so an app you
+install meanwhile keeps its runtime. Kempt then lists again and removes only the extensions still
+unused, so that app keeps those too. If Flatpak removes one an app has only just started using,
+`kempt reclaim` says so, and the next update puts it back.
 Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
 is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
 `kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
@@ -409,7 +414,8 @@ terminal to ask at, it also exits 5. It exits 6 if the list changed since it was
 of it became unused less than an hour ago, which includes a first use with no check on record. Another update running exits 3. If Flatpak fails to
 list or remove the runtimes, it exits 1. A removal writes an event line and no
 history entry. With `reclaim=automatic` (see [configuration](configuration.md#keys)), a
-successful update removes the offered set for you and its summary says how much was freed.
+successful update removes the offered set for you and its summary says how much was freed. In a
+terminal, the update also prints the outcome under the **Unused Flatpak runtimes** heading.
 
 ## summary and history
 
@@ -545,8 +551,8 @@ The wording is fixed, so you can search it:
 | `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
 | `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. |
-| `reclaim found nothing to remove` | Nothing was unused when the removal ran. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. `, in use: <id>//<branch>` names extensions Flatpak removed although an app uses them. The next update puts them back. |
+| `reclaim found nothing to remove` | Nothing was unused when the removal after an update ran. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
 | `reclaim needs authorization, nothing removed` | Removing them needed an administrator (see [reclaim](#reclaim)), so nothing was removed. |
 | `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
