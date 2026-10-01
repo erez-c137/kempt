@@ -106,7 +106,8 @@ Old metadata shows up in three places. The popup's footer says `metadata N days 
 hours, `kempt doctor` has a row for it, and a skipped refresh goes into the event log once a day.
 
 **`--refresh`** fetches now, ignoring the 3-hour interval. On battery or a metered connection it
-still skips the fetch, and the event log records it.
+still skips the fetch, and the event log records it. The widget's **Check for Updates** passes it.
+Each half of the fetch, dnf and Flatpak, gives up after 2 minutes.
 
 **`--coalesce`** is for checks nobody asked for by hand. Only one check runs at a time, so a check
 may wait for another to finish. With `--coalesce`, if that other check succeeded and finished after
@@ -114,8 +115,8 @@ this one was asked for, its state is the answer. It is printed as is, nothing is
 written, and the event log says `check shared`. "After" means a later second: `last_check` has
 whole seconds, so a check stamped in the same second runs a check of its own. `--refresh` turns
 `--coalesce` off. The widget passes it for its timer, its file watcher, the popup opening and its
-startup check, so two widgets on two panels cost one check instead of two. Refresh, Check again,
-Check for Updates and a hold always run a check of their own.
+startup check, so two widgets on two panels cost one check instead of two. Check for Updates,
+Check again and a hold always run a check of their own.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's
 record of a stage that has gone.
@@ -951,10 +952,13 @@ The header reads one of:
 
 The header count is never capped.
 
-The **Check for Updates** button (a circular arrow) checks now. After a failed check, its tooltip
-also gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or run
-is in progress it is greyed out, with a spinner beside it. It is also in the icon's right-click menu
-and the tray's **More actions** menu. Inside the system tray, the tray's own heading has this
+The **Check for Updates** button (a circular arrow) fetches fresh package lists, then checks. The
+fetch can take a minute or more. On battery or a metered connection it checks without fetching.
+When the lists were not fetched, the footer says how old they are, such as `metadata 3 hours old`.
+After a failed check, its tooltip also gives the reason, such as
+`dnf check failed: repo 'updates' unavailable`. While a check or run is in progress it is greyed
+out, with a spinner beside it. It is also in the icon's right-click menu and the tray's
+**More actions** menu. Inside the system tray, the tray's own heading has this
 button and the gear, so the popup hides its copies.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu.
@@ -1098,6 +1102,7 @@ package list and **Show Log**. It takes at most a third of the popup and scrolls
 `Checked 4 min ago` counts up while the popup is open. Hover it for the full time. It can add:
 
 - ` · last check failed`, with the reason in the **Check for Updates** tooltip
+- ` · metadata 2 days old`, after 24 hours, or sooner when **Check for Updates** could not fetch
 - ` · 1 held`
 - ` · ~140 MB`, the estimated download, when known and there is something to update
 - ` · restart pending`, when a restart is owed and its message is not showing
