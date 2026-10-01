@@ -876,6 +876,8 @@ PlasmaExtras.Representation {
                                 // always did.
                                 branch: modelData.branch || ""
                                 holdable: modelData.holdable !== false
+                                forYouOnly: modelData.forYouOnly === true
+                                bothScopes: modelData.bothScopes === true
                                 // Which row is pending, never "a hold is running". The pressed row
                                 // keeps its button live and focused; the others stand down.
                                 pending: popup.plasmoidItem.pendingHold !== null

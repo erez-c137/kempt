@@ -1182,4 +1182,44 @@ assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
 assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
 assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
+
+# --- per-user Flatpak apps -------------------------------------------------------------------------
+# Apps installed with --user are outside every --system listing, so a box with only those said
+# "Everything is up to date" over pending updates. They are counted, sized and marked in the state.
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true
+sys_state="$(KEMPT_SKIP_REFRESH=1 "$KEMPT" check)"
+printf 'com.brave.Browser\t1.80\t219.2\xc2\xa0MB\nnet.mkiol.SpeechNote\t4.9.0\t1.1\xc2\xa0GB\n' > "$TESTTMP/u-remote.tsv"
+printf 'com.brave.Browser\t1.79\nnet.mkiol.SpeechNote\t4.8.0\n' > "$TESTTMP/u-list.tsv"
+mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
+u_state="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
+  KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" \
+  "$KEMPT" check)"
+n_sys_fp="$(jq .backends.flatpak.actionable <<<"$sys_state")"
+assert_eq "$(jq .backends.flatpak.actionable <<<"$u_state")" "$((n_sys_fp + 2))" \
+  "per-user apps with updates are counted beside the system ones"
+assert_eq "$(jq .actionable <<<"$u_state")" "$(( $(jq .actionable <<<"$sys_state") + 2 ))" "...and in the badge number"
+assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.scope == "user") | .name] | sort' <<<"$u_state")" \
+  '["com.brave.Browser","net.mkiol.SpeechNote"]' "...each marked scope user"
+assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.name == "net.mkiol.SpeechNote") | [(.scope // "system"), .size_bytes]] | sort' <<<"$u_state")" \
+  '[["system",1200000000],["user",1100000000]]' "the same id installed both ways is two items, each with its own size"
+assert_eq "$(jq '[.backends.flatpak.items[] | select(has("scope"))] | length' <<<"$sys_state")" "0" \
+  "with no per-user installation no item carries a scope, so the state is what it was"
+assert_eq "$(jq -r .schema <<<"$u_state")" "1" "...and the field leaves the schema at 1"
+assert_eq "$(jq -c .backends.flatpak.scopes <<<"$u_state")|$(jq -c .backends.flatpak.scopes <<<"$sys_state")" \
+  '{"system":"ok","user":"ok"}|null' "each installation's outcome is in the state, only when there is a per-user one"
+# One bad per-user remote: the system answer stands, the check is not stale, and the state says
+# which installation failed.
+bad_user="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
+  KEMPT_FLATPAK_USER_REMOTE_CMD=false KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check)"
+assert_eq "$(jq -r .status <<<"$bad_user")" "ok" "a failing per-user query does not make the check stale"
+assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_user")" "$n_sys_fp" "...the system apps are still counted"
+assert_eq "$(jq -c .backends.flatpak.scopes <<<"$bad_user")" '{"system":"ok","user":"failed"}' "...and the state says the per-user side failed"
+# A per-user directory flatpak cannot use (no repo config) is no installation at all.
+rm "$TESTTMP/ufp/repo/config"
+empty_repo="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_REMOTE_CMD=false \
+  KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" check)"
+assert_eq "$(jq -r .status <<<"$empty_repo")|$(jq -c .backends.flatpak.scopes <<<"$empty_repo")" "ok|null" \
+  "an empty per-user repo directory changes nothing"
 finish

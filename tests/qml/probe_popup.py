@@ -2381,6 +2381,29 @@ p.check("...and that line IS shown, because the update is real",
 p.check("...and it reaches a screen reader as the sentence it already is",
         row(RT_SAMEVER, "(%s).Accessible.name" % version_line), "2024-05-30 (new build)")
 
+# One id installed both ways, the per-user copy held. "For you only" marks the per-user row and
+# nothing else, both rows keep their padlock, and the padlock says a hold covers both copies.
+SYS_COPY = {"kind": "item", "name": "net.mkiol.SpeechNote", "from": "4.8.4", "to": "4.8.5",
+            "held": False, "backend": "flatpak", "forYouOnly": False, "bothScopes": True}
+USER_COPY = {"kind": "item", "name": "net.mkiol.SpeechNote", "from": "4.8.0", "to": "4.9.0",
+             "held": True, "backend": "flatpak", "forYouOnly": True, "bothScopes": True}
+for_you = labelled('o.objectName === "forYouOnly"')
+held_word = labelled('String(o.text) === "Held"')
+copy_pin = labelled('String(o.text).indexOf("SpeechNote") >= 0 && o.animateClick !== undefined')
+p.check("a per-user copy is marked For you only",
+        row(USER_COPY, "(%s).visible" % for_you), True)
+p.check("...and the system copy of the same id is not",
+        row(SYS_COPY, "(%s).visible" % for_you), False)
+p.check("...both keep their padlock, the held one included",
+        [row(SYS_COPY, "(%s).visible" % copy_pin), row(USER_COPY, "(%s).visible" % copy_pin)],
+        [True, True])
+p.check("...and the two state words elide like the name line rather than clip at a narrow width",
+        row(USER_COPY, "(%s).elide === Text.ElideRight && (%s).elide === Text.ElideRight"
+            % (for_you, held_word)), True)
+p.check("...and the padlock says the hold covers both copies",
+        row(SYS_COPY, "(%s).Accessible.description" % copy_pin),
+        "Kempt skips both copies, the system one and the one for you only, until you stop holding it.")
+
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
 # every assertion above passing.

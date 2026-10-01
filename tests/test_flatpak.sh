@@ -453,4 +453,162 @@ assert_eq "$(jq -c '.[2] | [.kind, .apps]' <<<"$eol_json")" '["app",["org.old.Ap
 assert_exit 1 "a failed app lookup fails the notes, not silently empties them" \
   bash -c 'source "$1/lib/common.sh"; source "$1/backends/flatpak.sh"
            echo "Info: org.x.Y is end-of-life, with reason: z" | KEMPT_FLATPAK_APP_RUNTIME_CMD=false flatpak_eol_notices' _ "$REPO_ROOT"
+
+# --- the per-user installation ---------------------------------------------------------------------
+# Apps installed with `flatpak install --user` are invisible to every --system command, so a box
+# with only per-user apps said "Everything is up to date" over pending updates. Each user twin is
+# its system command with --user in place of --system: anything else and the badge would count a
+# different set from the one the run updates.
+_fp_user_defaults="$(
+  trap - EXIT
+  unset KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_LIST_CMD \
+        KEMPT_FLATPAK_REMOTE_RUNTIME_CMD KEMPT_FLATPAK_LIST_RUNTIME_CMD KEMPT_FLATPAK_SNAP_CMD \
+        KEMPT_FLATPAK_SNAP_RUNTIME_CMD KEMPT_FLATPAK_UPDATE_CMD KEMPT_FLATPAK_APP_RUNTIME_CMD \
+        KEMPT_FLATPAK_INFO_CMD
+  for n in REMOTE_CMD REFRESH_CMD LIST_CMD REMOTE_RUNTIME_CMD LIST_RUNTIME_CMD SNAP_CMD \
+           SNAP_RUNTIME_CMD UPDATE_CMD APP_RUNTIME_CMD INFO_CMD; do unset "KEMPT_FLATPAK_USER_$n"; done
+  source "$REPO_ROOT/lib/common.sh"
+  source "$REPO_ROOT/backends/flatpak.sh"
+  for n in REMOTE_CMD REFRESH_CMD LIST_CMD REMOTE_RUNTIME_CMD LIST_RUNTIME_CMD SNAP_CMD \
+           SNAP_RUNTIME_CMD UPDATE_CMD APP_RUNTIME_CMD INFO_CMD; do
+    s="KEMPT_FLATPAK_$n"; u="KEMPT_FLATPAK_USER_$n"
+    [[ " ${!s} " == *" --system "* && "${!s/ --system/ --user}" == "${!u}" ]] && echo "ok $n" || echo "BAD $n: ${!u}"
+  done
+)"
+assert_eq "$(grep -c '^ok ' <<<"$_fp_user_defaults")" "10" \
+  "every per-user command is its system twin with --user in place of --system"
+assert_eq "$(grep '^BAD' <<<"$_fp_user_defaults" || true)" "" "...with none that differ"
+
+# Fixtures: one per-user app with an update (com.brave.Browser), one per-user app also installed
+# system-wide (net.mkiol.SpeechNote, on its own version) and one per-user runtime.
+UFP="$TESTTMP/ufp"
+printf 'com.brave.Browser\t1.80\t219.2\xc2\xa0MB\nnet.mkiol.SpeechNote\t4.9.0\t1.1\xc2\xa0GB\n' > "$TESTTMP/u-remote.tsv"
+printf 'com.brave.Browser\t1.79\nnet.mkiol.SpeechNote\t4.8.0\n' > "$TESTTMP/u-list.tsv"
+printf 'org.mozilla.Locale\tstable\t\t5.8\xc2\xa0MB\n' > "$TESTTMP/u-remote-rt.tsv"
+printf 'org.mozilla.Locale\tstable\t\n' > "$TESTTMP/u-list-rt.tsv"
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+export KEMPT_FLATPAK_LIST_CMD="cat $FIXTURES/flatpak-list.tsv"
+export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD="true" KEMPT_FLATPAK_LIST_RUNTIME_CMD="true"
+# Every user command records that it ran, so "nothing asked" is a fact and not an empty output.
+cat > "$TESTTMP/u-rec" <<STUB
+#!/usr/bin/env bash
+echo "USER \$*" >> "$TESTTMP/u-calls"
+exit 0
+STUB
+chmod +x "$TESTTMP/u-rec"
+for n in REMOTE_CMD LIST_CMD REMOTE_RUNTIME_CMD LIST_RUNTIME_CMD SNAP_CMD SNAP_RUNTIME_CMD \
+         REFRESH_CMD UPDATE_CMD APP_RUNTIME_CMD INFO_CMD; do
+  export "KEMPT_FLATPAK_USER_$n=$TESTTMP/u-rec $n"
+done
+: > "$TESTTMP/u-calls"
+
+# No per-user installation: the system answer alone, and not one --user command run.
+sys_only="$(flatpak_check)"
+assert_eq "$(flatpak_scopes)" "system" "no per-user installation: only the system one is asked"
+assert_eq "$(jq -c '[.[] | select(has("scope"))] | length' <<<"$sys_only")" "0" \
+  "...and no item carries a scope, so the state is what it always was"
+flatpak_snapshot >/dev/null; flatpak_refresh || true; flatpak_id_is_runtime org.x || true
+assert_eq "$(cat "$TESTTMP/u-calls")" "" "...and no --user command runs at all, which would create the installation"
+
+# A bare repo directory is not an installation: flatpak fails on one, so it is never asked.
+mkdir -p "$UFP/repo"
+export KEMPT_FLATPAK_USER_DIR="$UFP"
+assert_eq "$(flatpak_scopes)" "system" "an empty per-user repo directory is not an installation"
+assert_eq "$(cat "$TESTTMP/u-calls")" "" "...so no --user command runs"
+
+# Per-user only: no system apps pending, three items in the user installation.
+: > "$UFP/repo/config"
+# Never as root: sudo -E and pkexec keep the person's HOME, and flatpak would write root-owned files
+# into their installation.
+assert_eq "$(SUDO_UID=1000 flatpak_scopes)" "system" "under sudo the per-user installation is left alone"
+assert_eq "$(PKEXEC_UID=1000 flatpak_scopes)" "system" "...and under pkexec"
+export KEMPT_FLATPAK_REMOTE_CMD="true"
+export KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv"
+export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="cat $TESTTMP/u-remote-rt.tsv"
+export KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="cat $TESTTMP/u-list-rt.tsv"
+assert_eq "$(flatpak_scopes | paste -sd, -)" "system,user" "a per-user installation is asked after the system one"
+u_only="$(flatpak_check)"
+assert_eq "$(jq 'length' <<<"$u_only")" "3" "per-user only: its two apps and one runtime are counted"
+assert_eq "$(jq -c '[.[] | .scope] | unique' <<<"$u_only")" '["user"]' "...each marked scope user"
+assert_eq "$(jq -c '.[] | select(.name == "com.brave.Browser") | [.from, .to]' <<<"$u_only")" '["1.79","1.80"]' \
+  "...with versions from the per-user installed list"
+assert_eq "$(jq -c '.[] | select(.kind == "runtime") | [.name, .branch, .scope]' <<<"$u_only")" \
+  '["org.mozilla.Locale","stable","user"]' "...and a per-user runtime itemized like a system one"
+
+# Both installations, with one id in each: two items that can be told apart, each with its own size.
+export KEMPT_FLATPAK_REMOTE_CMD="cat $FIXTURES/flatpak-remote-ls-sizes.tsv"
+both_sz="$TESTTMP/both-sz.tsv"
+both="$(flatpak_check "$both_sz")"
+assert_eq "$(jq '[.[] | select(.name == "net.mkiol.SpeechNote")] | length' <<<"$both")" "2" \
+  "the same id installed both ways is two items"
+assert_eq "$(jq -c '[.[] | select(.name == "net.mkiol.SpeechNote") | .scope // "system"] | sort' <<<"$both")" \
+  '["system","user"]' "...one of them marked scope user"
+assert_eq "$(awk -F'\t' '$1 == "user:net.mkiol.SpeechNote" {print $2}' "$both_sz")" "1100000000" \
+  "a per-user size row is keyed user:<id>"
+both_priced="$(attach_sizes "$both_sz" <<<"$(mark_held flatpak <<<"$both")")"
+assert_eq "$(jq -c '[.[] | select(.name == "net.mkiol.SpeechNote") | [(.scope // "system"), .size_bytes]] | sort' <<<"$both_priced")" \
+  '[["system",1200000000],["user",1100000000]]' "...so each copy of the id takes its own size"
+assert_eq "$(jq -r '.[] | select(.name == "org.mozilla.Locale") | .size_bytes' <<<"$both_priced")" "5800000" \
+  "...and a per-user runtime is priced by id and branch"
+
+# Holds are by id, so one hold covers the id in both installations.
+held_both="$(bash -c 'source "$1/lib/common.sh"; HOLDS_FILE="$2"
+  printf "flatpak:net.mkiol.SpeechNote\n" > "$HOLDS_FILE"; mark_held flatpak' _ "$REPO_ROOT" "$TESTTMP/u-holds" <<<"$both")"
+assert_eq "$(jq -c '[.[] | select(.name == "net.mkiol.SpeechNote") | .held]' <<<"$held_both")" '[true,true]' \
+  "a hold on an id holds it in both installations"
+
+# A per-user arm that fails drops only the per-user items: the system answer stands, and the
+# outcome of each installation is written for the state.
+u_fail="$(KEMPT_FLATPAK_USER_REMOTE_CMD=false flatpak_check "$TESTTMP/uf-sz.tsv" "$TESTTMP/uf-scopes" 2>/dev/null)"
+assert_eq "$?" "0" "a failing per-user query does not fail the check"
+assert_eq "$(jq -c '[.[] | select(.scope == "user")] | length' <<<"$u_fail")|$(jq -c '[.[] | select(.scope == null and .name == "net.mkiol.SpeechNote")] | length' <<<"$u_fail")" \
+  "0|1" "...it keeps the system items and drops the per-user ones"
+assert_eq "$(cat "$TESTTMP/uf-scopes")" "system ok
+user failed" "...and records each installation's outcome"
+assert_eq "$(grep -c '^user:' "$TESTTMP/uf-sz.tsv" || true)" "0" "...with no per-user size rows"
+flatpak_check >/dev/null "" "$TESTTMP/ok-scopes"
+assert_eq "$(cat "$TESTTMP/ok-scopes")" "system ok
+user ok" "both answering: both recorded ok"
+
+# The snapshot: per-user rows keyed user:<id>, so the id in both installations is two rows.
+export KEMPT_FLATPAK_SNAP_CMD="cat $FIXTURES/flatpak-list.tsv" KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"
+export KEMPT_FLATPAK_USER_SNAP_CMD="cat $TESTTMP/u-list.tsv" KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="cat $TESTTMP/u-list-rt.tsv"
+u_snap="$(flatpak_snapshot)"
+assert_eq "$(cut -f1 <<<"$u_snap" | paste -sd, -)" \
+  "net.mkiol.SpeechNote,org.gimp.GIMP,user:com.brave.Browser,user:net.mkiol.SpeechNote,user:org.mozilla.Locale/stable" \
+  "the snapshot keeps the two installations apart, per-user rows keyed user:"
+assert_eq "$(flatpak_snapshot user | cut -f1 | paste -sd, -)" \
+  "user:com.brave.Browser,user:net.mkiol.SpeechNote,user:org.mozilla.Locale/stable" "...and can be asked for one installation"
+printf '%s\n' "$u_snap" > "$TESTTMP/u-b.tsv"
+sed 's/^user:net.mkiol.SpeechNote\t4.8.0/user:net.mkiol.SpeechNote\t4.9.0/' "$TESTTMP/u-b.tsv" > "$TESTTMP/u-a.tsv"
+u_rep="$(tsv_diff_updates "$TESTTMP/u-b.tsv" "$TESTTMP/u-a.tsv" | flatpak_report_scopes)"
+assert_eq "$(jq -c '.updated' <<<"$u_rep")" '[{"name":"net.mkiol.SpeechNote","from":"4.8.0","to":"4.9.0","scope":"user"}]' \
+  "the run report names the per-user copy by its id, marked scope user, and leaves the system copy alone"
+
+# The refresh covers both installations' summary caches, and a per-user failure is a failure.
+: > "$TESTTMP/u-calls"
+export KEMPT_FLATPAK_REFRESH_CMD="true"
+assert_exit 0 "the refresh runs for both installations" flatpak_refresh
+assert_eq "$(cat "$TESTTMP/u-calls")" "USER REFRESH_CMD" "...the per-user one through its own command"
+export KEMPT_FLATPAK_USER_REFRESH_CMD="false"
+assert_exit 1 "...and a per-user refresh that fails fails the step" flatpak_refresh
+
+# The apply arm: --user picks the per-user command and nothing else changes.
+: > "$TESTTMP/u-calls"
+assert_exit 0 "flatpak_apply --user updates the per-user installation" flatpak_apply --user -y
+assert_eq "$(cat "$TESTTMP/u-calls")" "USER UPDATE_CMD --noninteractive -y" "...with the same flags as the system run"
+: > "$TESTTMP/u-calls"
+flatpak_apply --user -y com.brave.Browser
+assert_eq "$(cat "$TESTTMP/u-calls")" "USER UPDATE_CMD --noninteractive -y com.brave.Browser" "...and per app, for holds"
+
+# hold refuses a runtime from either installation, and the end-of-life notes name per-user apps.
+export KEMPT_FLATPAK_LIST_RUNTIME_CMD="true"
+assert_exit 0 "a per-user runtime id is recognised as a runtime" flatpak_id_is_runtime org.mozilla.Locale
+printf 'org.mozilla.thunderbird\tThunderbird\torg.gnome.Platform/x86_64/46\n' > "$TESTTMP/u-eol-apps.tsv"
+export KEMPT_FLATPAK_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_INFO_CMD="true"
+u_eol="$(printf 'Info: org.gnome.Platform//46 is end-of-life, with reason: Old\n' \
+  | KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="cat $TESTTMP/u-eol-apps.tsv" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true" \
+    flatpak_eol_notices)"
+assert_eq "$(jq -c '.[0].apps' <<<"$u_eol")" '["Thunderbird"]' "an end-of-life note names the per-user app behind it"
+export KEMPT_FLATPAK_USER_DIR="$TESTTMP/no-user-flatpak"
 finish

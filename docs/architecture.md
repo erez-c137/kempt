@@ -208,6 +208,8 @@ cope with that.
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package with several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order. Readers that show one version take the last. |
 | `backends.<name>.items[].kind` | string, optional | Only `flatpak` writes it, and only as `"runtime"`. Absent means the backend's ordinary item: a Flatpak app or a dnf package. Additive. |
+| `backends.<name>.items[].scope` | string, optional | Only `flatpak` writes it, and only as `"user"`: the item is in the per-user installation. Absent means the system installation. The same id can be installed both ways, so two items can share a `name` and differ here. Holds still apply by id, to both. Additive. |
+| `backends.flatpak.scopes` | object, optional | Present only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. A per-user failure leaves the system items and the check's `status` alone and drops only the per-user items, so the badge undercounts rather than the backend going stale. Additive. |
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every item with `kind: "runtime"`. **A runtime's identity is its `name` and `branch` together.** The same runtime can be installed on two branches that update independently, so two items can share a `name`. Anything that keys items by name (a lookup, a size join, a diff) must key on the pair where this is present. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
@@ -380,6 +382,9 @@ laptop offline can still answer "what is pending?".
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
 | `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes**, that is what a run is |
 
+Each flatpak command has a `--user` twin for apps installed with `flatpak install --user`, run only
+when that installation exists, with the same answer in this table.
+
 Both fetches run from `maybe_refresh_metadata` in `lib/common.sh`: at most once every three
 hours, only on mains power and an unmetered connection, and never failing the check that follows.
 One `$LAST_REFRESH_FILE` stamps both, written when either succeeded. `kempt check --refresh`
@@ -486,6 +491,10 @@ Optional keys on that entry:
   that transaction, and absent when dnf5's history did not name one.
 - `staged_nothing`, on a staging run that staged nothing: `"held"` or `"nothing_pending"`. The
   widget treats any other value as an ordinary stage.
+- `scope: "user"` on a flatpak `updated`, `added` or `removed` item from the per-user
+  installation, as in the state.
+- `scopes` on a live run's flatpak backend, only when a per-user installation exists:
+  `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome.
 - `eol` on a live run's flatpak backend: one `{id, branch, kind, apps, reason}` per end-of-life
   ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far.
 - `reclaimed` on the flatpak backend, when `reclaim=automatic` tried a removal after the run:
@@ -742,6 +751,10 @@ destructive paths without running them.
 | `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups, run only when `flatpak update` printed an end-of-life notice. A failure loses the note, not the run. `tests/lib.sh` pins both at `true` |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. `tests/lib.sh` points it at a missing path, so no test fetches from flathub |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. `tests/lib.sh` points it at a missing path, so the suite cannot update the host |
+| `KEMPT_FLATPAK_USER_DIR` | `$FLATPAK_USER_DIR`, else `$XDG_DATA_HOME/flatpak`, else `~/.local/share/flatpak` | The per-user installation. Kempt asks it anything only when `repo/config` exists: any `--user` command creates the directory, and flatpak fails on a bare `repo`. Skipped when running as root, under `sudo` or under `pkexec`, so a root run leaves its files alone. A per-user read that fails drops only the per-user side of the check or the run. `tests/lib.sh` points it at a missing path |
+| `KEMPT_FLATPAK_USER_SKIP` | (empty) | Set by `kempt update` when the per-user set could not be read before the run, so the rest of the run leaves that installation alone. Any value has the same effect |
+| `KEMPT_FLATPAK_USER_REMOTE_CMD`, `KEMPT_FLATPAK_USER_LIST_CMD`, `KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_SNAP_CMD`, `KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_INFO_CMD` | each system command above with `--user` in place of `--system` | The per-user queries, run as the user. `tests/lib.sh` pins them at `true` |
+| `KEMPT_FLATPAK_USER_REFRESH_CMD`, `KEMPT_FLATPAK_USER_UPDATE_CMD` | the user remote query minus `--cached`, `flatpak update --user` | The per-user fetch and apply, run as the user. The apply runs after the system one. `tests/lib.sh` points both at missing paths |
 | `KEMPT_FLATPAK_UNUSED_CMD` | `libexec/kempt-flatpak-unused` in `KEMPT_ROOT` | Lists unused Flatpak refs as JSON, run as the user. `tests/lib.sh` points it at a missing path |
 | `KEMPT_DU_CMD` | `du` | Sizes the unused runtimes in one `du -sb` call, used directories first, so files an unused runtime shares with a used one are not counted. `tests/lib.sh` points it at a missing path |
 | `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --system --no-related --noninteractive` | The removal, run as the user, with the refs on offer appended by name, once per pass. Its first word is also how Kempt tells whether Flatpak is installed. `tests/lib.sh` points it at a missing path, which turns the whole feature off in every test that does not stub it |
@@ -788,8 +801,10 @@ the user's side and can only stop `install.sh` from running privileged commands.
   for `needs-restarting`). The text parsers stay for Fedora 43 and go when it reaches end of life.
   The parser tells the two formats apart by content, so a helper and a CLI of different versions
   still agree.
-- **Flatpak is system scope only.** Every flatpak command in `backends/flatpak.sh` names
-  `--system`, so check, refresh and apply agree.
+- **Flatpak covers both installations.** Every flatpak command in `backends/flatpak.sh` names
+  `--system` or `--user`, and each system command has a user twin, so check, refresh and apply
+  agree. Per-user rows are keyed `user:<id>` in the snapshot and size lists; a Flatpak id cannot
+  hold a colon. Reclaim stays system only.
 - **Flatpak needs no Kempt polkit action.** flatpak's own policy grants `app-update` and
   `runtime-update` to an active local session. The exceptions are in
   [security.md](security.md#accepted-limitations).

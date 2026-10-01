@@ -63,6 +63,12 @@ These rules hold for every value:
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
+The release also fixes one problem:
+
+- **Per-user Flatpak apps** were missed, so Kempt said everything was up to date while they had
+  updates. Kempt now checks and updates them with the system ones and marks them **For you only**.
+  It is on for everyone, so counts rise for people with per-user apps.
+
 ## Then: 0.1.8, easier from the first update
 
 0.1.8 is for people trying Kempt for the first time. A few things still assume you are at home in
@@ -193,8 +199,6 @@ package stays ready for review at every release.
   package list one click away.
 - **Update later.** "Tonight" or "only on Wi-Fi", for people who now close the popup to put an
   update off. Automatic staging may make it unnecessary.
-- **Per-user Flatpak apps.** Kempt handles the system installation only, so per-user apps are
-  neither counted nor updated. It would be off for existing installs, so their counts do not jump.
 - **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 - **A restart reminder that stays dismissed.** Closing it now hides it until Plasma restarts. To
   remember it longer, Kempt would store the dismissal against the boot ID, as offline staging

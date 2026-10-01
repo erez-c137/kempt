@@ -93,6 +93,11 @@ var COPY = {
     // versionlock into a padlock, and this is where that is answered.
     holdConsequence: "Kempt skips it on every update until you stop holding it.",
     heldConsequence: "Kempt offers its update again.",
+    // ...and the two for an app installed both ways: a hold is by id, so it covers both copies.
+    holdConsequenceBoth: "Kempt skips both copies, the system one and the one for you only, until you stop holding it.",
+    heldConsequenceBoth: "Kempt offers the update again for both copies, the system one and the one for you only.",
+    // A per-user Flatpak app, as a word on its row beside "Held".
+    forYouOnlyToken: "For you only",
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
@@ -1276,10 +1281,11 @@ function checkArgs(automatic, refresh) {
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
 // CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
-// (120 s) and dnf's makecache, which runs as root where that timeout cannot stop it: dnf5's own
-// network timeouts bound it, and 120 s more is the allowance. Plus 30 s: 120 + 240 + 30 = 390 s.
+// (120 s) once per installation, system and per-user, and dnf's makecache, which runs as root
+// where that timeout cannot stop it: dnf5's own network timeouts bound it, and 120 s more is the
+// allowance. Plus 30 s: 120 + 240 + 120 + 30 = 510 s.
 var CHECK_BODY_MS = 120000;
-var CHECK_TIMEOUT_MS = 390000;
+var CHECK_TIMEOUT_MS = 510000;
 
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK
@@ -1335,6 +1341,16 @@ function collectItems(state) {
         // The backend's own group, then one group per `kind` its items carry, in the order the
         // kinds are first seen - so the CLI decides the order here too, exactly as it does for rows.
         var pending = [], byKind = {}, kindOrder = [], k;
+        // Which ids are installed both ways. A hold is by id, so it covers both copies, and the
+        // padlock on either row says so.
+        var scopesOf = {};
+        for (j = 0; j < items.length; j++) {
+            var it = items[j] || {};
+            if (it.name === undefined || it.name === null) continue;
+            var sk = String(it.name);
+            if (!scopesOf[sk]) scopesOf[sk] = {};
+            scopesOf[sk][it.scope === "user" ? "user" : "system"] = true;
+        }
         for (j = 0; j < items.length; j++) {
             var item = items[j] || {};
             var itemKind = (item.kind === undefined || item.kind === null) ? "" : String(item.kind);
@@ -1351,7 +1367,12 @@ function collectItems(state) {
                 // Whether this row gets a padlock. Runtimes do not: `kempt hold` refuses them,
                 // because apps share a runtime and holding one breaks the next app that needs it.
                 // A padlock that reports a refusal every time is worse than no padlock.
-                holdable: itemKind !== "runtime"
+                holdable: itemKind !== "runtime",
+                // Installed with `flatpak install --user`, so it is this person's alone. The row
+                // says so, which also tells apart one id installed both ways.
+                forYouOnly: item.scope === "user",
+                bothScopes: !!(item.name !== undefined && item.name !== null
+                               && scopesOf[String(item.name)].user && scopesOf[String(item.name)].system)
             };
             if (row.held) { heldItems.push(row); heldTotal++; }
             else {
@@ -1407,7 +1428,9 @@ function rowOf(item, kind) {
              held: item.held, backend: item.backend,
              branch: item.branch || "",
              // Absent means holdable, so a row built by an older caller keeps its padlock.
-             holdable: item.holdable !== false };
+             holdable: item.holdable !== false,
+             forYouOnly: item.forYouOnly === true,
+             bothScopes: item.bothScopes === true };
 }
 
 // --- the last run --------------------------------------------------------------------------------

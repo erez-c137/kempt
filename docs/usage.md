@@ -197,8 +197,10 @@ What happens, in order:
 4. **dnf**, through the root helper, with `-y` when `auto_accept` is on and one `--exclude=` per
    dnf hold. If another program holds the package lock (PackageKit, Discover), Kempt tries 3
    times, 10 seconds apart, and names the likely holder.
-5. **Flatpak**, unless turned off. With Flatpak holds, each pending app that is not held is
-   updated on its own.
+5. **Flatpak**, unless turned off: the system apps, then any installed with
+   `flatpak install --user`, as you. With Flatpak holds, each pending app that is not held is
+   updated on its own, and a hold covers the app in both. If one of the two fails, the other still
+   runs, and the summary says which failed.
 6. **Report.** Kempt compares the snapshots, writes a history entry and a log, prints the
    summary, and sends a notification when the run was not in a terminal.
 
@@ -374,7 +376,8 @@ kempt reclaim [--list] [-y] [--expect=DIGEST]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
-and each can take hundreds of megabytes.
+and each can take hundreds of megabytes. Only system runtimes are removed. Kempt leaves the ones
+installed with `flatpak install --user` alone.
 
 ```
 No installed app uses these Flatpak runtimes:

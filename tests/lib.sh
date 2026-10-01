@@ -143,6 +143,17 @@ sandbox() {  # fresh dirs per test file; call first
   # an end-of-life notice would read the apps and runtimes of the machine running the suite.
   export KEMPT_FLATPAK_APP_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_INFO_CMD="true"
+  # The per-user installation, absent by default: a directory that does not exist switches the whole
+  # arm off, so no file sees per-user apps unless it creates "$KEMPT_FLATPAK_USER_DIR/repo". The
+  # lookups are pinned at `true` and the two commands that change or fetch are poisoned, for the
+  # reasons given for their system twins above.
+  export KEMPT_FLATPAK_USER_DIR="$TESTTMP/no-user-flatpak"
+  export KEMPT_FLATPAK_USER_REMOTE_CMD="true" KEMPT_FLATPAK_USER_LIST_CMD="true"
+  export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true"
+  export KEMPT_FLATPAK_USER_SNAP_CMD="true" KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="true"
+  export KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_INFO_CMD="true"
+  export KEMPT_FLATPAK_USER_REFRESH_CMD="$TESTTMP/UNSTUBBED-flatpak-user-refresh"
+  export KEMPT_FLATPAK_USER_UPDATE_CMD="$TESTTMP/UNSTUBBED-flatpak-user-update"
   # Fedora 43's dnf5, which prints text. A dozen files stub dnf5 with its text output, and without
   # the pin the dnf5 on the machine running the suite would decide which format they are read as.
   # The JSON path is tested where it is set explicitly (test_dnf.sh, test_helpers.sh).

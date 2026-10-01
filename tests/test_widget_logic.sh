@@ -845,6 +845,20 @@ RT_NEW='{schema:1,status:"ok",actionable:1,held_total:0,backends:{flatpak:{enabl
 assert_eq "$(js "L.viewModel($RT_NEW,false).sections.map(function (s) { return s.title; })")" \
   '["flatpak extension"]' "an unknown kind gets a section rather than being dropped"
 
+# --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
+UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
+  {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
+  {name:"net.mkiol.SpeechNote",from:"4.8.0",to:"4.9.0",held:false,scope:"user"}]}}}'
+assert_eq "$(js "L.viewModel($UFP,false).sections[0].items.map(function (i) { return i.forYouOnly; })")" \
+  '[false,true]' "a per-user app's row is marked for you only, the system copy beside it is not"
+assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.forYouOnly; })")" \
+  '[false,true]' "...and the flat model the list draws carries the mark"
+assert_eq "$(js "L.viewModel($UFP,false).badgeText")" "2" "...and both copies are counted"
+assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.bothScopes; })")" \
+  '[true,true]' "both rows know the id is installed both ways, so the padlock can say a hold covers both"
+assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind === 'item' && r.bothScopes; }).length")" "0" \
+  "...and rows of an id installed once do not"
+
 # --- and the state files that predate all of it -------------------------------------------------
 # Every captured fixture was written before runtimes were counted, so none of them carries `kind` or
 # `branch` anywhere. That is what proves both keys additive from the absence side: the popup these
@@ -3017,11 +3031,12 @@ assert_eq "$(js 'L.checkArgs()')" " check" "...and any other press neither"
 assert_eq "$(js 'L.checkArgs(true, true)')" " check --refresh" "...a fetch wins, as the CLI drops --coalesce for it"
 # Every check may fetch (an automatic one does once the 3-hour interval is up), so every check gets
 # the ceiling. It must outlast the refresh step, or the widget kills it partway and leaves a root
-# dnf5 running: the Flatpak arm's KEMPT_REFRESH_TIMEOUT, read from the code, and the same again for
-# dnf5, whose makecache that timeout cannot stop, on top of the check without its fetch.
+# dnf5 running: the Flatpak arm's KEMPT_REFRESH_TIMEOUT, read from the code, once for each of the
+# two installations, and the same again for dnf5, whose makecache that timeout cannot stop, on top
+# of the check without its fetch.
 cli_refresh_s="$(sed -n 's/^KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
-assert_eq "$(js "L.CHECK_TIMEOUT_MS > L.CHECK_BODY_MS + 2 * ${cli_refresh_s:-999} * 1000")" "true" \
-  "every check waits longer than both refresh arms (${cli_refresh_s:-?} s each) and the check itself"
+assert_eq "$(js "L.CHECK_TIMEOUT_MS > L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000")" "true" \
+  "every check waits longer than the three refresh arms (${cli_refresh_s:-?} s each) and the check itself"
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
   grep -qF 'Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \

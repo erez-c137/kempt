@@ -384,6 +384,15 @@ assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || ec
   "a disabled backend is information, not a failure"
 "$KEMPT" config set include_flatpak true
 
+# Apps installed with --user: one line saying how many, and never a failure.
+assert_contains "$("$KEMPT" doctor 2>&1)" "per-user Flatpak apps: none" "no per-user installation: doctor says none"
+mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
+assert_contains "$(KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD="cat $FIXTURES/flatpak-list.tsv" "$KEMPT" doctor 2>&1)" \
+  "per-user Flatpak apps: 2, checked and updated with the system ones" "a per-user installation: doctor counts its apps"
+assert_exit 0 "a per-user list that fails is information, not a failure" \
+  env KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" doctor
+assert_contains "$(cat "$TESTTMP/last_output")" "per-user Flatpak apps: the list failed" "...said as such"
+
 # --- the listing behind reclaim ------------------------------------------------------------------
 # The listing helper needs PyGObject and the Flatpak typelib in flatpak-libs, and the flatpak
 # command pulls in neither. Without them every check reports the listing failed and nothing says
