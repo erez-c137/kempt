@@ -625,6 +625,12 @@ cmd_check() {
      && merged="$(jq '. + {surface_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # true or absent: the widget's one offer to turn off Discover's notifier, while it starts with
+  # the session and nobody has answered.
+  if discover_offer_pending \
+     && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
   # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
@@ -3059,46 +3065,23 @@ doctor_reclaim_row() {
 # metered link, so a box can go a week on one fetch with every surface looking freshly checked.
 # info and never FAIL - old metadata is what the battery and metering rules are FOR, so it is a
 # fact to put in front of the reader, not a fault to count against the install.
-# The other updater in the same session. plasma-discover-notifier checks on ITS own schedule from
+# The other updater in the same session. plasma-discover-notifier checks on its own schedule from
 # PackageKit's separate cache, so its count and Kempt's can differ and both be right, and
-# PackageKit's background work takes the dnf5 lock, which makes a Kempt run fail until it lets go.
-# The checkout installer offers to turn it off (install.sh, notifier_optout). Nobody who installed
-# the PACKAGE was ever asked, and nothing ever told them it was there - this row is the telling.
-#
-# info, never FAIL: running both is a legitimate choice, and Kempt does not touch anybody's
-# autostart. Silent when there is no entry at all, because a line about software that is not
-# installed is noise in a report people paste into bug threads.
-#
-# Resolution follows the XDG autostart spec, which is also what the installer's opt-out relies on:
-# a user entry SHADOWS the system one of the same name (it is not merged with it), `Hidden=true`
-# means the entry is to be ignored entirely, and OnlyShowIn/NotShowIn decide whether it starts in
-# THIS desktop. Anything that does not start in a Plasma session is not a second updater, so it is
-# not reported at all.
-KEMPT_DISCOVER_NOTIFIER=org.kde.discover.notifier.desktop
+# PackageKit's background work takes the dnf5 lock, which makes a Kempt run wait until it lets go.
+# info, never FAIL: running both is a legitimate choice. Silent when it is not installed, or when
+# its entry does not start in Plasma (lib/common.sh, discover_entry_starts).
 doctor_other_updater_row() {
-  local sys_dir user_dir sys user entry
-  sys_dir="${KEMPT_XDG_AUTOSTART_DIR:-/etc/xdg/autostart}"
-  user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
-  sys="$sys_dir/$KEMPT_DISCOVER_NOTIFIER"; user="$user_dir/$KEMPT_DISCOVER_NOTIFIER"
-  if [[ -f "$user" ]]; then entry="$user"; elif [[ -f "$sys" ]]; then entry="$sys"; else return 0; fi
-
-  # Hidden first: it is the opt-out, and it wins over everything else in the file.
-  if grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$entry"; then
-    doctor_ok "Discover's update notifier: turned off for this user ($entry)"
+  discover_installed || return 0
+  local entry
+  entry="$(discover_effective_entry)"
+  if discover_entry_starts "$entry"; then
+    doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's, and its background work can make a Kempt run wait. To turn it off: kempt discover-notifier off, or Turn Off Discover's Notifier in the widget"
     return 0
   fi
-  # A desktop list that excludes Plasma means it never starts here. Both keys are semicolon
-  # separated lists; KDE is the entry Plasma matches on.
-  # `|| true` on both: grep exits 1 when the key is absent, which is the COMMON case, and an
-  # assignment carries that status straight into errexit - the report used to stop dead here,
-  # mid-row, on every entry that named no desktop list.
-  local only not
-  only="$(grep -iE '^[[:space:]]*OnlyShowIn[[:space:]]*=' "$entry" | head -1 || true)"
-  not="$(grep -iE '^[[:space:]]*NotShowIn[[:space:]]*=' "$entry" | head -1 || true)"
-  if [[ -n "$only" && "${only,,}" != *kde* ]]; then return 0; fi
-  if [[ -n "$not" && "${not,,}" == *kde* ]]; then return 0; fi
-
-  doctor_info "Discover's update notifier also starts with your session ($entry) - it checks on its own schedule from PackageKit's cache, so its count can differ from Kempt's, and PackageKit's background work holds the dnf5 lock, which makes a Kempt run wait or fail until it lets go. Keeping both is a choice, not a fault. To stop it starting: System Settings > Autostart, or run: mkdir -p $user_dir && sed '/^Hidden=/d' $sys > $user && echo Hidden=true >> $user"
+  # Off by Kempt's entry, by the person's own, or by a desktop list that leaves Plasma out.
+  if grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$entry"; then
+    doctor_ok "Discover's update notifier: turned off for this user ($entry)"
+  fi
 }
 
 doctor_metadata_row() {
@@ -3427,6 +3410,18 @@ cmd_doctor() {
   return 1
 }
 
+# Turns Discover's update notifier off or on for this user, or says where it stands. The work is
+# in lib/common.sh, shared with install.sh's question.
+cmd_discover_notifier() {
+  case "${1:-}" in
+    off|on) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+            if [[ $1 == off ]]; then discover_notifier_off; else discover_notifier_on; fi ;;
+    status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
+            discover_notifier_status "${2:-}" ;;
+    *) echo "usage: kempt discover-notifier off | on | status [--json]" >&2; exit 2 ;;
+  esac
+}
+
 # Where the passwordless rule lives. polkit reads FOUR rules directories (polkit(8)); Kempt uses the
 # ADMINISTRATOR's one, because the other three belong to packages and to the runtime.
 RULES_DST_FIXED=/etc/polkit-1/rules.d/49-kempt.rules
@@ -3536,6 +3531,9 @@ usage: kempt <command>
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
   config get|set        read/write settings
+  discover-notifier off | on | status [--json]
+                        turn Discover's own update notifier off or back on for this user, or
+                        say whether it is installed, on and running
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
   help | --help | -h    print this list
@@ -3571,6 +3569,7 @@ case "${1:-help}" in
   holds)   shift; cmd_holds "$@" ;;
   unstage) shift; cmd_unstage "$@" ;;
   reclaim) shift; cmd_reclaim "$@" ;;
+  discover-notifier) shift; cmd_discover_notifier "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;

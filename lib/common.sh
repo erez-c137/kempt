@@ -387,6 +387,198 @@ surface_offer_pending() {  # → 0 when the popup should offer the popup default
   return 1
 }
 
+# --- Discover's update notifier ---------------------------------------------------------------
+# plasma-discover-notifier checks for updates on its own schedule, from PackageKit's cache, so its
+# count can differ from Kempt's. `kempt discover-notifier` turns it off for this user with an XDG
+# autostart entry in ~/.config/autostart: a user entry shadows the system one of the same name, and
+# Hidden=true means it never starts. No root is needed for any of it.
+KEMPT_XDG_AUTOSTART_DIR="${KEMPT_XDG_AUTOSTART_DIR:-/etc/xdg/autostart}"
+KEMPT_DISCOVER_PGREP="${KEMPT_DISCOVER_PGREP:-pgrep}"
+KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-pkill}"
+# What turning it back on starts it with. kstart --application launches the package's own
+# application entry the way Plasma launches an app, in its own systemd scope. Without kstart, the
+# binary itself, detached.
+KEMPT_DISCOVER_START="${KEMPT_DISCOVER_START:-kstart}"
+KEMPT_DISCOVER_BIN="${KEMPT_DISCOVER_BIN:-/usr/libexec/DiscoverNotifier}"
+DISCOVER_ENTRY=org.kde.discover.notifier.desktop
+DISCOVER_APP=org.kde.discover.notifier
+# The line that marks the user entry as Kempt's, so `on` removes only a file Kempt wrote.
+DISCOVER_MARK="X-Kempt-Override=true"
+# The process, matched on its command line: the name is longer than the 15 characters pgrep sees.
+DISCOVER_PATTERN='(^|/)DiscoverNotifier( |$)'
+# Exists once the person has answered the widget's offer either way, or used the command.
+DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
+
+discover_sys_entry()  { printf '%s\n' "$KEMPT_XDG_AUTOSTART_DIR/$DISCOVER_ENTRY"; }
+discover_user_entry() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$DISCOVER_ENTRY"; }
+# The person's own entry, kept while Kempt's replaces it, and put back by `on`. Beside the entry,
+# where the person looks for it. Autostart reads only *.desktop files, so this one never starts.
+discover_backup() { printf '%s.before-kempt\n' "$(discover_user_entry)"; }
+
+discover_installed() { [[ -f "$(discover_sys_entry)" ]]; }
+
+# Whether an autostart entry starts in a Plasma session, by the XDG autostart rules: Hidden=true
+# wins over everything, then OnlyShowIn and NotShowIn, whose lists Plasma matches as KDE.
+discover_entry_starts() {  # file → 0 when it starts in Plasma
+  local f="$1" only not
+  grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$f" && return 1
+  # `|| true`: grep exits 1 for an absent key, the common case, and errexit would stop here.
+  only="$(grep -iE '^[[:space:]]*OnlyShowIn[[:space:]]*=' "$f" | head -1 || true)"
+  not="$(grep -iE '^[[:space:]]*NotShowIn[[:space:]]*=' "$f" | head -1 || true)"
+  [[ -n "$only" && "${only,,}" != *kde* ]] && return 1
+  [[ -n "$not" && "${not,,}" == *kde* ]] && return 1
+  return 0
+}
+
+# The entry that decides: the user's when there is one, else the system's. Empty when neither.
+discover_effective_entry() {
+  local user sys
+  user="$(discover_user_entry)"; sys="$(discover_sys_entry)"
+  if [[ -f "$user" ]]; then printf '%s\n' "$user"
+  elif [[ -f "$sys" ]]; then printf '%s\n' "$sys"
+  fi
+}
+
+discover_enabled() {
+  discover_installed || return 1
+  discover_entry_starts "$(discover_effective_entry)"
+}
+
+discover_running() {
+  "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1
+}
+
+# Whether the user entry is one Kempt wrote. Before the mark, install.sh wrote a copy of the system
+# entry plus Hidden=true, or a three-line entry when there was none to copy. Both count as Kempt's.
+discover_entry_is_kempts() {
+  local user sys body
+  user="$(discover_user_entry)"; sys="$(discover_sys_entry)"
+  [[ -f "$user" ]] || return 1
+  grep -qx "$DISCOVER_MARK" "$user" && return 0
+  body="$(grep -v '^Hidden=' "$user" || true)"
+  [[ "$body" == $'[Desktop Entry]\nType=Application\nName=Discover Notifier' ]] && return 0
+  [[ -f "$sys" && "$body" == "$(grep -v '^Hidden=' "$sys" || true)" ]]
+}
+
+# The offer, as state.json carries it: while the notifier starts with the session and nobody has
+# answered yet.
+discover_offer_pending() {
+  [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
+}
+
+discover_mark_answered() {
+  { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_ANSWERED_FILE"; } 2>/dev/null || true
+}
+
+# Writes Kempt's entry from a seed: the seed's keys, with Hidden=true and the mark placed in the
+# [Desktop Entry] group. Appending would put them in whatever group comes last.
+discover_write_entry() {  # seed
+  local seed="$1" user tmp
+  user="$(discover_user_entry)"
+  mkdir -p "$(dirname "$user")" || return 1
+  tmp="$(mktemp "$user.XXXXXX")" || return 1
+  if awk -v mark="$DISCOVER_MARK" '
+       function put() { print "Hidden=true"; print mark; done = 1 }
+       /^\[Desktop Entry\][[:space:]]*$/ { print; group = 1; put(); next }
+       /^\[/ { group = 0 }
+       group && (/^Hidden[[:space:]]*=/ || $0 == mark) { next }
+       { print }
+       END { if (!done) { print "[Desktop Entry]"; put() } }
+     ' "$seed" > "$tmp" && mv -f "$tmp" "$user"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+# Starts the notifier for this session, detached so it outlives the command and the widget.
+discover_start() {
+  if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
+    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1
+  elif [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
+    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+discover_notifier_off() {
+  local user backup seed
+  if ! discover_installed; then
+    echo "Discover's update notifier is not installed. Nothing changed."
+    return 0
+  fi
+  user="$(discover_user_entry)"; backup="$(discover_backup)"
+  seed="$(discover_sys_entry)"
+  if [[ -f "$user" ]]; then
+    seed="$user"
+    # The person's own entry is kept once, as it was. A second `off` finds Kempt's entry instead.
+    if ! discover_entry_is_kempts && [[ ! -e "$backup" ]]; then
+      cp -p "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
+    fi
+  fi
+  discover_write_entry "$seed" || { echo "could not write $user" >&2; return 1; }
+  discover_mark_answered
+  log_event "discover-notifier off"
+  echo "Discover's update notifier is off, and stays off when you log in again."
+  if "$KEMPT_DISCOVER_PKILL" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1; then
+    echo "Stopped the one that was running."
+  fi
+  return 0
+}
+
+discover_notifier_on() {
+  local user backup
+  if ! discover_installed; then
+    echo "Discover's update notifier is not installed. Nothing changed."
+    return 0
+  fi
+  user="$(discover_user_entry)"; backup="$(discover_backup)"
+  if discover_entry_is_kempts; then
+    if [[ -e "$backup" ]]; then
+      mv -f "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
+    else
+      rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
+    fi
+    log_event "discover-notifier on"
+  fi
+  discover_mark_answered
+  if ! discover_enabled; then
+    echo "Your own autostart entry keeps Discover's update notifier off: $user" >&2
+    return 1
+  fi
+  echo "Discover's update notifier is on."
+  discover_running && return 0
+  if discover_start; then
+    echo "Started it for this session."
+  else
+    echo "It starts when you log in again."
+  fi
+  return 0
+}
+
+discover_notifier_status() {  # [--json]
+  local installed=false enabled=false running=false by_kempt=false
+  discover_installed && installed=true
+  discover_enabled && enabled=true
+  discover_running && running=true
+  discover_entry_is_kempts && by_kempt=true
+  if [[ "${1:-}" == --json ]]; then
+    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s}\n' \
+      "$installed" "$enabled" "$running" "$by_kempt"
+    return 0
+  fi
+  if [[ $installed == false ]]; then
+    echo "Discover's update notifier: not installed"
+    return 0
+  fi
+  if [[ $enabled == true ]]; then echo "Discover's update notifier: on"
+  elif [[ $by_kempt == true ]]; then echo "Discover's update notifier: off (turned off by Kempt)"
+  else echo "Discover's update notifier: off (by $(discover_effective_entry))"
+  fi
+  if [[ $running == true ]]; then echo "running: yes"; else echo "running: no"; fi
+}
+
 # The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
 # reads as `ask`: a typo must never turn into removing things without asking, and it must not
 # silently hide space the person could free either. Case-folded like is_true, because the file is

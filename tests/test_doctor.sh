@@ -1109,9 +1109,8 @@ export KEMPT_OFFLINE_LINK="$NO_LINK"
 
 # --- another updater in the same session -------------------------------------------------------
 # Discover's notifier checks on its own schedule and PackageKit's background work takes the dnf5
-# lock, which makes a Kempt run fail until it lets go. The checkout installer offers to turn it off;
-# nobody who installed the PACKAGE was ever asked, or ever told it was there. This row is the
-# telling. info and never FAIL: running both is a valid choice, and Kempt does not touch it.
+# lock, which makes a Kempt run wait until it lets go. This row tells, and names the command and
+# the widget button that turn it off. info and never FAIL: running both is a valid choice.
 NOTIFIER=org.kde.discover.notifier.desktop
 SYS_AUTOSTART="$TESTTMP/xdg-autostart"; mkdir -p "$SYS_AUTOSTART"
 USER_AUTOSTART="$XDG_CONFIG_HOME/autostart"; mkdir -p "$USER_AUTOSTART"
@@ -1136,6 +1135,10 @@ assert_eq "$(doctor_with_autostart | grep -c "^info  Discover" || true)" "1" \
   "an enabled notifier is reported as info, not as a problem"
 assert_contains "$(doctor_with_autostart)" "$NOTIFIER" \
   "...and the row names the file, so it can be found"
+assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "kempt discover-notifier off" \
+  "...and the command that turns it off"
+assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "Turn Off Discover's Notifier" \
+  "...and the widget's button for the same"
 assert_exit 0 "...and it never makes the checkup fail" \
   env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor
 

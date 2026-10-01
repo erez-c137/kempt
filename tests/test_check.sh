@@ -1149,4 +1149,22 @@ assert_eq "$(jq -c '.surface_offer' "$STATE_FILE")" "true" "...and the state fil
 "$KEMPT" config set surface terminal
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "...until a surface is chosen"
+
+# --- discover_offer: the widget's one offer to turn off Discover's notifier --------------------------
+assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "with no Discover notifier installed, nothing is offered"
+export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/xdg-autostart"; mkdir -p "$KEMPT_XDG_AUTOSTART_DIR"
+printf '[Desktop Entry]\nType=Application\nExec=/usr/libexec/DiscoverNotifier\nOnlyShowIn=KDE\n' \
+  > "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '.discover_offer' <<<"$out")" "true" "a notifier that starts with the session is offered"
+assert_eq "$(jq -c '.discover_offer' "$STATE_FILE")" "true" "...and the state file says so"
+"$KEMPT" discover-notifier on >/dev/null
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "...until the person answers, Keep It included"
+rm -f "$KEMPT_STATE_DIR/discover-offer-answered"
+"$KEMPT" discover-notifier off >/dev/null
+rm -f "$KEMPT_STATE_DIR/discover-offer-answered"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "a notifier that is off is not offered"
+export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
 finish
