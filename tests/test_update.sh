@@ -2450,4 +2450,83 @@ assert_eq "$(jq -r .status "$RH")|$(rc_calls)" "failed|(none)" "a failed run rem
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 "$KEMPT" config set reclaim ask >/dev/null
 
+# --- per-user Flatpak apps ---------------------------------------------------------------------------
+# Apps installed with --user are outside the system installation, so a run that updated only that
+# left them behind while saying all was well. The per-user installation is updated after the system
+# one, as the person, with the same holds, retries and reporting. Its stand-in writes a line of its
+# own and moves its own snapshot, the way a real update changes the next listing.
+mkdir -p "$TESTTMP/ufp/repo"
+printf 'com.brave.Browser\t1.79\nnet.mkiol.SpeechNote\t4.8.0\n' > "$TESTTMP/u-before.tsv"
+printf 'com.brave.Browser\t1.80\nnet.mkiol.SpeechNote\t4.9.0\n' > "$TESTTMP/u-after.tsv"
+printf 'com.brave.Browser\t1.80\t219.2\xc2\xa0MB\nnet.mkiol.SpeechNote\t4.9.0\t1.1\xc2\xa0GB\n' > "$TESTTMP/u-remote.tsv"
+cat > "$TESTTMP/fp-user-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK-USER \$@" >> "$WORLD/apply-calls"
+[[ -n "\${USER_FP_RC:-}" ]] && exit "\$USER_FP_RC"
+cp "$TESTTMP/u-after.tsv" "$WORLD/u-fp.tsv"
+exit 0
+STUB
+chmod +x "$TESTTMP/fp-user-stub"
+export KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_UPDATE_CMD="$TESTTMP/fp-user-stub" \
+       KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" \
+       KEMPT_FLATPAK_USER_LIST_CMD="cat $WORLD/u-fp.tsv" KEMPT_FLATPAK_USER_SNAP_CMD="cat $WORLD/u-fp.tsv"
+for h in $(grep '^flatpak:' "$KEMPT_CONFIG_DIR/holds" 2>/dev/null || true); do "$KEMPT" unhold "$h" >/dev/null; done
+uf_update() { cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
+              UF_OUT="$("$KEMPT" update --surface=background 2>/dev/null)" || true
+              UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
+
+uf_update
+assert_eq "$(grep '^FLATPAK' "$WORLD/apply-calls")" "FLATPAK --noninteractive -y
+FLATPAK-USER --noninteractive -y" "the per-user installation is updated after the system one, with the same flags"
+assert_eq "$(jq -r .status "$UH")" "ok" "...in a run that succeeded"
+assert_eq "$(jq -c .backends.flatpak.scopes "$UH")" '{"system":"ok","user":"ok"}' "...recording each installation's outcome"
+assert_eq "$(jq -c '[.backends.flatpak.updated[] | select(.scope == "user") | .name] | sort' "$UH")" \
+  '["com.brave.Browser","net.mkiol.SpeechNote"]' "the per-user apps it updated are in the history, marked scope user"
+assert_contains "$(grep 'com.brave.Browser' <<<"$UF_OUT")" "(for you only)" "...and the summary says they are for you only"
+assert_contains "$(cat "$(jq -r .log "$UH")")" "== Apps for you only (flatpak) ==" "the log has them under their own heading"
+
+# A per-user failure does not undo or hide the system update, and is named as the per-user one.
+USER_FP_RC=1 uf_update
+assert_eq "$(grep -c '^FLATPAK ' "$WORLD/apply-calls")|$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" "1|1" \
+  "a per-user update that fails still follows a system update that ran"
+assert_eq "$(jq -r .status "$UH")|$(jq -c .backends.flatpak.scopes "$UH")" 'failed|{"system":"ok","user":"failed"}' \
+  "...and the run is failed, with the system installation recorded ok"
+assert_contains "$(cat "$(jq -r .log "$UH")")" "warning: updating apps for you only failed" "...said in the log"
+assert_contains "$UF_OUT" "[failed: apps for you only]" "...and the summary names which half failed"
+
+# ...and the other way round: a system failure does not stop the per-user update.
+printf '#!/usr/bin/env bash\necho "FLATPAK $@" >> "%s/apply-calls"\nexit 1\n' "$WORLD" > "$TESTTMP/fp-update-stub"
+uf_update
+assert_eq "$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" "1" "a system update that fails does not stop the per-user one"
+assert_eq "$(jq -c .backends.flatpak.scopes "$UH")" '{"system":"failed","user":"ok"}' "...and each outcome is recorded"
+assert_contains "$UF_OUT" "[failed: system apps]" "...and the summary names the system half"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+
+# Holds are by id: a hold on a per-user app skips it, and the rest of that installation still moves.
+"$KEMPT" hold flatpak:com.brave.Browser >/dev/null
+uf_update
+assert_eq "$(grep '^FLATPAK-USER' "$WORLD/apply-calls")" "FLATPAK-USER --noninteractive -y net.mkiol.SpeechNote" \
+  "a hold on a per-user app → per-app update of the rest of the per-user installation"
+assert_contains "$(jq -c '.backends.flatpak.skipped_held' "$UH")" "com.brave.Browser" "...recorded as skipped"
+"$KEMPT" unhold flatpak:com.brave.Browser >/dev/null
+# ...and a hold on an id installed both ways holds both copies.
+"$KEMPT" hold flatpak:net.mkiol.SpeechNote >/dev/null
+uf_update
+assert_eq "$(grep '^FLATPAK-USER' "$WORLD/apply-calls")" "FLATPAK-USER --noninteractive -y com.brave.Browser" \
+  "a hold on an id installed both ways skips the per-user copy"
+assert_not_contains "$(grep '^FLATPAK ' "$WORLD/apply-calls")" "net.mkiol.SpeechNote" "...and the system copy"
+"$KEMPT" unhold flatpak:net.mkiol.SpeechNote >/dev/null
+
+# Reclaim stays with the system installation: with per-user apps present it removes exactly the
+# system runtimes it removed without them, through the system command, and nothing per-user.
+"$KEMPT" config set reclaim automatic >/dev/null
+rc_offer
+cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"
+rc_update
+assert_eq "$(rc_calls)" "UNINSTALL runtime/org.freedesktop.Platform/x86_64/24.08 runtime/org.kde.Platform/x86_64/5.15-23.08
+UNINSTALL runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra runtime/org.freedesktop.Platform.Locale/x86_64/24.08" \
+  "with a per-user installation, reclaim removes the same system runtimes and nothing else"
+"$KEMPT" config set reclaim ask >/dev/null
+export KEMPT_FLATPAK_USER_DIR="$TESTTMP/no-user-flatpak"
+
 finish

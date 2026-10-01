@@ -916,12 +916,15 @@ recommend_offline_if_risky() {
 
 # The flatpak half of a run. dnf has already run by now, so a flatpak failure is REPORTED and
 # never fatal: crashing loses the history entry and notification for a system that already changed.
-# Reads: include_fp, yflag, log. Writes: fp_status, fp_eol, and status (which only ever moves to
-# "failed").
+# The system installation first, then the per-user one when there is one. Each is updated on its
+# own, so a failure in one never stops the other, and each failure gets its own log line.
+# Reads: include_fp, yflag, log. Writes: fp_status, fp_scopes, fp_eol, and status (which only
+# ever moves to "failed").
 apply_flatpak_updates() {
   # NOT `local`: this is the caller's variable (see the header). A `local` would shadow it, leave
   # cmd_update's copy unset, and take the run down on the history entry under `set -u`.
   fp_status="skipped"
+  fp_scopes='null'
   fp_eol='[]'
   if is_true "$include_fp"; then
     fp_status="ok"
@@ -930,42 +933,29 @@ apply_flatpak_updates() {
     # and nothing dnf printed.
     local fp_from=0
     [[ -f "$log" ]] && fp_from="$(stat -c %s "$log" 2>/dev/null || echo 0)"
-    local held_fp ids=()
+    local held_fp scope scope_status scope_list outcomes=""
     held_fp="$(holds_for flatpak)"
-    if [[ -n "$held_fp" ]]; then
-      # holds exist → per-app updates of every pending, non-held, INSTALLED app. That pre-filter
-      # is the ONLY installed check there is (flatpak errors out on an id it does not have), so an
-      # empty installed set means no ids pass and the run reports flatpak failed.
-      local installed_fp id pending_fp
-      installed_fp="$(flatpak_snapshot | cut -f1)" \
-        || { installed_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
-      # ONE capture, read twice below: the apps to name individually, and whether any runtime is
-      # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
-      # answer that cannot have changed in between.
-      # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
-      # and still reported flatpak `ok`. Failed, like the installed lookup above.
-      pending_fp="$(flatpak_check 2>/dev/null)" \
-        || { pending_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
-      while IFS= read -r id; do
-        [[ -n "$id" ]] || continue
-        grep -qxF "$id" <<<"$held_fp" && continue
-        grep -qxF "$id" <<<"$installed_fp" || continue
-        ids+=("$id")
-      done < <(jq -r '.[] | select(.kind != "runtime") | .name' <<<"$pending_fp" 2>/dev/null)
-      if [[ ${#ids[@]} -gt 0 ]]; then
-        apply_with_retry "$log" flatpak_apply "${yflag[@]}" "${ids[@]}" || { fp_status="failed"; status="failed"; }
+    scope_list="$(flatpak_scopes)"
+    for scope in $scope_list; do
+      if [[ "$scope" == user ]]; then run_heading "$log" "Apps for you only (flatpak)"; fi
+      scope_status=ok
+      apply_flatpak_scope "$scope" || scope_status=failed
+      outcomes+="$scope $scope_status"$'\n'
+      if [[ "$scope_status" == failed ]]; then
+        fp_status="failed"; status="failed"
+        if [[ "$scope" == user ]]; then
+          log_warn "$log" "warning: updating apps for you only failed"
+        elif [[ "$scope_list" == *user* ]]; then
+          log_warn "$log" "warning: updating system apps failed"
+        fi
       fi
-      # ...and the runtimes, which the per-app loop above cannot cover. A hold is per app, so a run
-      # with holds names the surviving apps one ref at a time - and a ref updates the runtimes that
-      # app DEPENDS on, never the ones it does not. Runtimes cannot be held, so the whole set goes
-      # in one command, which is what the no-holds branch below already does for everything.
-      # Only when one is actually pending, and that condition is the whole point: "every pending app
-      # is held" must still mean flatpak is not run at all, rather than run on a set that is empty.
-      if jq -e 'any(.[]; .kind == "runtime")' <<<"$pending_fp" >/dev/null 2>&1; then
-        apply_with_retry "$log" flatpak_apply "${yflag[@]}" --runtime || { fp_status="failed"; status="failed"; }
-      fi
-    else
-      apply_with_retry "$log" flatpak_apply "${yflag[@]}" || { fp_status="failed"; status="failed"; }
+    done
+    # Each installation's outcome, recorded only when there is a per-user one, so a run without it
+    # writes the entry it always did. A jq that fails costs the detail, never the run.
+    if [[ "$scope_list" == *user* ]]; then
+      fp_scopes="$(jq -cRn '[inputs | select(length > 0) | split(" ") | {(.[0]): .[1]}] | add' \
+                   <<<"$outcomes" 2>/dev/null)" || fp_scopes='null'
+      [[ -n "$fp_scopes" ]] || fp_scopes='null'
     fi
     # The update is over by now, so nothing here may fail the run: a lookup that fails, or prints
     # something that is not a JSON array, means no notes and nothing else.
@@ -975,6 +965,49 @@ apply_flatpak_updates() {
       fp_eol="$eol"
     fi
   fi
+}
+
+# One installation's update, with the holds applied by id in both. Non-zero when any part failed.
+# Reads: held_fp, yflag, log.
+apply_flatpak_scope() {  # system|user
+  local scope="$1" rc=0 sflag=()
+  [[ "$scope" == user ]] && sflag=(--user)
+  if [[ -n "$held_fp" ]]; then
+    # holds exist → per-app updates of every pending, non-held, INSTALLED app. That pre-filter
+    # is the ONLY installed check there is (flatpak errors out on an id it does not have), so an
+    # empty installed set means no ids pass and the run reports flatpak failed.
+    local installed_fp id pending_fp ids=()
+    installed_fp="$(flatpak_snapshot "$scope" | cut -f1 | sed "s/^$KEMPT_FLATPAK_USER_KEY//")" \
+      || { installed_fp=""; rc=1; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
+    # ONE capture, read twice below: the apps to name individually, and whether any runtime is
+    # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
+    # answer that cannot have changed in between.
+    # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
+    # and still reported flatpak `ok`. Failed, like the installed lookup above.
+    pending_fp="$(flatpak_check_scope "$scope" 2>/dev/null)" \
+      || { pending_fp=""; rc=1; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      grep -qxF "$id" <<<"$held_fp" && continue
+      grep -qxF "$id" <<<"$installed_fp" || continue
+      ids+=("$id")
+    done < <(jq -r '.[] | select(.kind != "runtime") | .name' <<<"$pending_fp" 2>/dev/null)
+    if [[ ${#ids[@]} -gt 0 ]]; then
+      apply_with_retry "$log" flatpak_apply "${sflag[@]}" "${yflag[@]}" "${ids[@]}" || rc=1
+    fi
+    # ...and the runtimes, which the per-app loop above cannot cover. A hold is per app, so a run
+    # with holds names the surviving apps one ref at a time - and a ref updates the runtimes that
+    # app DEPENDS on, never the ones it does not. Runtimes cannot be held, so the whole set goes
+    # in one command, which is what the no-holds branch below already does for everything.
+    # Only when one is actually pending, and that condition is the whole point: "every pending app
+    # is held" must still mean flatpak is not run at all, rather than run on a set that is empty.
+    if jq -e 'any(.[]; .kind == "runtime")' <<<"$pending_fp" >/dev/null 2>&1; then
+      apply_with_retry "$log" flatpak_apply "${sflag[@]}" "${yflag[@]}" --runtime || rc=1
+    fi
+  else
+    apply_with_retry "$log" flatpak_apply "${sflag[@]}" "${yflag[@]}" || rc=1
+  fi
+  return $rc
 }
 
 # The offline marker: what Kempt records about a stage it has just made, and all any later reader
@@ -1494,7 +1527,7 @@ cmd_update() {
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
   # updates both, so the check asks about both and the summary reports both.
-  local fp_status=skipped fp_eol='[]'   # apply_flatpak_updates writes these; see its header
+  local fp_status=skipped fp_scopes=null fp_eol='[]'   # apply_flatpak_updates writes these; see its header
   local RECLAIM_RUN_JSON=""              # reclaim_after_run writes this
   apply_flatpak_updates
   # snapshots (after) + reports
@@ -1540,7 +1573,7 @@ cmd_update() {
   fi
   if is_true "$include_fp"; then
     if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
-      fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv")" \
+      fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv" | flatpak_report_scopes)" \
         || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed - summary incomplete"; }
       # Only here: after the snapshot the report is built from, and only on a run that worked.
       [[ "$status" == ok ]] && { reclaim_after_run "$log" || true; }
@@ -1619,14 +1652,15 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") '
+        --argjson fp_eol "$fp_eol" --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") '
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}
-                      + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)) }}
+                      + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)
+                      + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
     || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
