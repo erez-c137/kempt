@@ -118,6 +118,15 @@ PlasmoidItem {
     // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
     property bool reclaimRunning: false
 
+    // Check Installation: `kempt doctor`, run here and reported in its own message. Running while
+    // it waits its turn on the executor too, so the busy line shows from the press.
+    property bool doctorRunning: false
+    property string doctorSummary: ""
+    property bool doctorFailed: false
+    property string doctorReport: ""
+    // The report on screen tells the person to run doctor, so it carries the button.
+    readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
+
     // Update Now pressed with a session-critical set waiting and no terminal to ask in: the risky
     // message turns into a choice between staging and installing now. Closed by either answer, by
     // a run starting and by the popup closing.
@@ -257,7 +266,9 @@ PlasmoidItem {
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
                                                 // message cap has to see them.
-                                                reportShown: reportText.length > 0 })
+                                                reportShown: reportText.length > 0,
+                                                doctorShown: doctorRunning
+                                                             || doctorSummary.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -856,6 +867,32 @@ PlasmoidItem {
         });
     }
 
+    // Check Installation. Doctor reads files and asks for no password, so it runs without a
+    // terminal. A second press while one is waiting does nothing: the button stays live so it can
+    // keep the keyboard.
+    function runDoctor() {
+        if (doctorRunning) return;
+        doctorRunning = true;
+        doctorSummary = "";
+        doctorFailed = false;
+        doctorReport = "";
+        executor.run(kemptCmd + " doctor", Logic.DOCTOR_TIMEOUT_MS, function(stdout, stderr, rc) {
+            var said = Logic.doctorOutcomeOf(rc, stdout, stderr);
+            root.doctorReport = said.report;
+            root.doctorFailed = said.failed;
+            root.doctorSummary = said.summary;
+            root.doctorRunning = false;
+        });
+    }
+
+    // Closing the result. Nothing is stored: the next press runs doctor again.
+    function dismissDoctor() {
+        if (doctorRunning) return;
+        doctorSummary = "";
+        doctorFailed = false;
+        doctorReport = "";
+    }
+
     // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
     function dismissReclaim() {
         reclaimDismissed = vm.reclaimDigest;
@@ -1063,6 +1100,8 @@ PlasmoidItem {
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";
+        // ...and so is a Check Installation result, which has had its moment.
+        dismissDoctor();
     }
 
     // `expanded` is the engine's own property and the only honest source for this. It is also why

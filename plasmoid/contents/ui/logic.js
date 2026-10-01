@@ -267,14 +267,14 @@ var COPY = {
     // makes a banner disappear and nothing else, and a message that only vanished is
     // indistinguishable from a button that did nothing at all.
     stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
-    stagedDiscardRefused: "Nothing was discarded. Run kempt doctor in a terminal to see why.",
+    stagedDiscardRefused: "Nothing was discarded. Check Installation runs kempt doctor to see why.",
     stagedDiscardBusy:
         "An update is running, so nothing was discarded. Try again when it has finished.",
     // The status is in this one because it is the only evidence left: a failure the CLI could not
     // describe leaves the reader with nothing else to quote.
     stagedDiscardFailed:
         "The staged update could not be discarded (exit %1). "
-        + "Run kempt doctor in a terminal to see why.",
+        + "Check Installation runs kempt doctor to see why.",
     // ...and the click-time re-verify's refusal, the same sentence stagedChanged is for the
     // rebuild: a press with no effect must never be indistinguishable from a broken button.
     // main.qml assigns it.
@@ -314,13 +314,26 @@ var COPY = {
     // without the execute bit, a noexec mount, a missing interpreter - and the widget cannot tell
     // which from an exit code, so it names none of them and hands over the one command that can.
     engineUnrunnable: "Kempt's engine is installed but will not run, so nothing can check for updates.",
-    engineUnrunnableFix: "Run kempt doctor in a terminal - it reports what is wrong, and if it cannot start either, the error it prints names the reason.",
+    engineUnrunnableFix: "Check Installation runs kempt doctor, which reports what is wrong. If it cannot start either, its error names the reason.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
     // remedy is two commands and the repair one is a single command, and a button offering to copy
     // "Commands" that copies one is the kind of small wrongness that makes a person check.
     engineCopyCommands: "Copy Commands",
     engineCopyCommand: "Copy Command",
+
+    // Check Installation: `kempt doctor`, run by the widget so a message that names it can offer a
+    // button. Doctor reads files and needs no password. The result goes in its own message, and
+    // the full report opens under it. doctorOutcomeOf picks the sentence.
+    doctorAction: "Check Installation",
+    doctorRunning: "Checking Kempt's installation…",
+    doctorPassed: "Kempt checked its installation and found no problems.",
+    doctorFoundOne: "Kempt found a problem with its installation: %1",
+    doctorFoundMore: "Kempt found %1 problems with its installation. The first: %2",
+    doctorCouldNotRun: "Kempt could not check its installation: %1",
+    doctorCouldNotRunCode: "Kempt could not check its installation (exit %1).",
+    doctorTimedOut: "Kempt stopped waiting for the installation check. Try again in a minute.",
+    doctorShowReport: "Show Full Report",
 
     // A Fedora release upgrade somebody has staged outside Kempt. dnf5 keeps ONE stored
     // transaction for that and for an ordinary offline update alike, so staging updates for a
@@ -1004,16 +1017,19 @@ var MESSAGE_CAP = 2;
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
-                     "kernel", "surfaceOffer", "reclaim"];
+// `doctor` is the result of Check Installation, pressed on the report or in the placeholder, so it
+// sits under the report it answers.
+var MESSAGE_ORDER = ["riskyChoice", "report", "doctor", "imageBased", "releaseUpgrade", "staged",
+                     "restart", "kernel", "surfaceOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
-// an engine that answered. Anything displaced shows NOTHING - it does not shuffle into the next
-// slot mid-glance and it does not stack below the fold.
+// an engine that answered. The one exception is the result of its own Check Installation button.
+// Anything displaced shows NOTHING - it does not shuffle into the next slot mid-glance and it does
+// not stack below the fold.
 function messageStack(wants) {
     var w = (wants && typeof wants === "object") ? wants : {};
-    if (w.engineFault) return ["engineFault"];
+    if (w.engineFault) return w.doctor ? ["engineFault", "doctor"] : ["engineFault"];
     var out = [], i;
     for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
         if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
@@ -1605,6 +1621,50 @@ function discardStagedMessage(rc, stdout, stderr) {
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
 }
 
+// --- Check Installation (`kempt doctor`) --------------------------------------------------------
+// How long the widget waits for doctor. It reads files and takes well under a second; its slowest
+// row is the unused-runtime listing, capped at KEMPT_RECLAIM_LIST_TIMEOUT (15 s).
+var DOCTOR_TIMEOUT_MS = 60000;
+
+// mentionsDoctor(text) -> does this message tell the person to run `kempt doctor`? The CLI's own
+// refusals end "See: kempt doctor", and so do the copy table's fallbacks. Each one gets the button.
+function mentionsDoctor(text) {
+    return typeof text === "string" && /\bkempt doctor\b/.test(text);
+}
+
+// doctorOutcomeOf(rc, stdout, stderr) -> {failed, summary, report}: what the popup says after
+// Check Installation. Doctor prints one row per check, "FAIL  <text>" for each problem, and exits
+// 1 when there is one. The summary quotes the first problem; the report is everything it printed.
+// A doctor that printed no rows did not run, and stderr says why: on a box whose engine will not
+// start, that is the shell's own reason.
+function doctorOutcomeOf(rc, stdout, stderr) {
+    var out = typeof stdout === "string" ? stdout : "";
+    var err = typeof stderr === "string" ? stderr : "";
+    var report = [out.replace(/\s+$/, ""), err.replace(/\s+$/, "")]
+        .filter(function (t) { return t !== ""; }).join("\n");
+    var fails = [];
+    out.split("\n").forEach(function (line) {
+        var m = /^FAIL\s+(.*\S)\s*$/.exec(line);
+        if (m) fails.push(m[1]);
+    });
+    if (fails.length === 1) {
+        return { failed: true, summary: fill(COPY.doctorFoundOne, "%1", fails[0]), report: report };
+    }
+    if (fails.length > 1) {
+        return { failed: true, report: report,
+                 summary: fill(fill(COPY.doctorFoundMore, "%1", String(fails.length)), "%2", fails[0]) };
+    }
+    if (rc === 0 && /^(ok|info) /m.test(out)) {
+        return { failed: false, summary: COPY.doctorPassed, report: report };
+    }
+    // The Executor's own kill: it answers 124 and names its timeout on stderr.
+    if (rc === 124) return { failed: true, summary: COPY.doctorTimedOut, report: report };
+    var why = firstLineOf(err) || firstLineOf(out);
+    return { failed: true, report: report,
+             summary: why !== "" ? fill(COPY.doctorCouldNotRun, "%1", why)
+                                 : fill(COPY.doctorCouldNotRunCode, "%1", String(rc)) };
+}
+
 // reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
 // Free Up Space (`kempt reclaim -y --expect=<digest>`). `last` is the state's
 // reclaim.last as read after the run, and only counts when it is at least as new as the press
@@ -2015,6 +2075,8 @@ function viewModel(state, updating, cliError, opts) {
         engineFaultCopyText = COPY.engineUnrunnableCopy;
         engineFaultActionLabel = COPY.engineCopyCommand;
     }
+    // Check Installation only where kempt is there to run. A missing engine has no doctor.
+    var engineFaultOffersDoctor = engineFault === "unrunnable";
 
     // Read only out of a state this build can read, like every optional key: a schema-1 reader
     // tolerates the key being absent (every file written before this existed) and being the wrong
@@ -2104,6 +2166,8 @@ function viewModel(state, updating, cliError, opts) {
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         report: opts.reportShown === true,
+        // Check Installation's result, or its busy line: main.qml's own state, like the report.
+        doctor: opts.doctorShown === true && !updating,
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
@@ -2194,6 +2258,7 @@ function viewModel(state, updating, cliError, opts) {
         engineFaultMessage: engineFaultMessage,
         engineFaultCopyText: engineFaultCopyText,
         engineFaultActionLabel: engineFaultActionLabel,
+        engineFaultOffersDoctor: engineFaultOffersDoctor,
         emptyStateText: emptyStateText,
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
@@ -2328,6 +2393,9 @@ if (typeof module !== "undefined" && module.exports) {
         runFinishedSince: runFinishedSince,
         runStartMessage: runStartMessage,
         discardStagedMessage: discardStagedMessage,
+        DOCTOR_TIMEOUT_MS: DOCTOR_TIMEOUT_MS,
+        mentionsDoctor: mentionsDoctor,
+        doctorOutcomeOf: doctorOutcomeOf,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,
         reclaimInUseOnScreen: reclaimInUseOnScreen,

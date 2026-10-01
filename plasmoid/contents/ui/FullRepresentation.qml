@@ -218,6 +218,13 @@ PlasmaExtras.Representation {
     // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
     // they are shown as they are, never read as markup. InlineMessage has no textFormat of its
     // own; its label is the one child of contentItem that has one.
+    // The clipboard, through the invisible TextEdit in the engine message. Every Copy button uses it.
+    function copyToClipboard(text) {
+        engineCopyClip.text = text;
+        engineCopyClip.selectAll();
+        engineCopyClip.copy();
+    }
+
     function plainTextMessage(message) {
         var kids = message.contentItem ? message.contentItem.children : [];
         for (var i = 0; i < kids.length; i++) {
@@ -479,14 +486,19 @@ PlasmaExtras.Representation {
             Accessible.name: text
             visible: popup.shows("engineFault")
             actions: [
+                // Runs the command the message names, for an engine that is there and will not
+                // start. Its error is the answer, and it shows in the message below this one.
+                Kirigami.Action {
+                    text: i18n("Check Installation")
+                    icon.name: "tools-report-bug"
+                    enabled: popup.vm.engineFaultOffersDoctor
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.runDoctor()
+                },
                 Kirigami.Action {
                     text: popup.vm.engineFaultActionLabel
                     icon.name: "edit-copy"
-                    onTriggered: source => {
-                        engineCopyClip.text = popup.vm.engineFaultCopyText;
-                        engineCopyClip.selectAll();
-                        engineCopyClip.copy();
-                    }
+                    onTriggered: source => popup.copyToClipboard(popup.vm.engineFaultCopyText)
                 }
             ]
             // The clipboard, reached the only way pure QML can: an invisible TextEdit whose copy()
@@ -810,8 +822,91 @@ PlasmaExtras.Representation {
                              && popup.plasmoidItem.lastRun.logPath.length > 0
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
+                },
+                // A report that says "See: kempt doctor" gets the button, and the command stays
+                // in its text and one press from the clipboard.
+                Kirigami.Action {
+                    text: i18n("Check Installation")
+                    icon.name: "tools-report-bug"
+                    enabled: popup.plasmoidItem.reportOffersDoctor
+                    visible: enabled
+                    onTriggered: source => popup.plasmoidItem.runDoctor()
+                },
+                Kirigami.Action {
+                    text: i18n("Copy Command")
+                    icon.name: "edit-copy"
+                    enabled: popup.plasmoidItem.reportOffersDoctor
+                    visible: enabled
+                    onTriggered: source => popup.copyToClipboard(Logic.COPY.engineUnrunnableCopy)
                 }
             ]
+        }
+
+        // What Check Installation found: a busy line while `kempt doctor` waits or runs, then the
+        // first problem in doctor's own words, or that there were none. Show Full Report opens
+        // everything it printed under the message, where it can be selected and copied.
+        Kirigami.InlineMessage {
+            id: doctorMessage
+            Component.onCompleted: popup.plainTextMessage(doctorMessage)
+            Layout.fillWidth: true
+            readonly property bool running: popup.plasmoidItem.doctorRunning
+            type: running ? Kirigami.MessageType.Information
+                  : (popup.plasmoidItem.doctorFailed ? Kirigami.MessageType.Error
+                                                     : Kirigami.MessageType.Positive)
+            text: running ? i18n("Checking Kempt's installation…") : popup.plasmoidItem.doctorSummary
+            visible: popup.shows("doctor")
+            showCloseButton: !running
+            property bool showingReport: false
+            Accessible.name: text
+            // Polite: the answer to the person's own press.
+            property string spoken: ""
+            onTextChanged: popup.speakMessage(doctorMessage, false)
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Show Full Report")
+                    icon.name: "view-list-details"
+                    checkable: true
+                    checked: doctorMessage.showingReport
+                    enabled: !doctorMessage.running && popup.plasmoidItem.doctorReport.length > 0
+                    visible: enabled
+                    onTriggered: source => doctorMessage.showingReport = !doctorMessage.showingReport
+                },
+                Kirigami.Action {
+                    text: i18n("Copy Command")
+                    icon.name: "edit-copy"
+                    onTriggered: source => popup.copyToClipboard(Logic.COPY.engineUnrunnableCopy)
+                }
+            ]
+            // A new check starts with the report folded away.
+            onRunningChanged: if (running) showingReport = false
+            // The close button breaks the visibility binding, as on the restart message: turn it
+            // into a dismissal and put the binding back.
+            onVisibleChanged: {
+                if (visible) { popup.speakMessage(doctorMessage, false); return; }
+                doctorMessage.spoken = "";
+                if (!popup.closedByButton(doctorMessage, "doctor")) return;
+                popup.plasmoidItem.dismissDoctor();
+                visible = Qt.binding(function () { return popup.shows("doctor"); });
+            }
+        }
+
+        // The full report, at most a third of the popup tall, so the list keeps its room.
+        PlasmaComponents.ScrollView {
+            id: doctorReportView
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(doctorReportText.implicitHeight,
+                                             Math.round(popup.height / 3))
+            visible: doctorMessage.visible && doctorMessage.showingReport
+                     && popup.plasmoidItem.doctorReport.length > 0
+            PlasmaComponents.TextArea {
+                id: doctorReportText
+                readOnly: true
+                textFormat: TextEdit.PlainText
+                wrapMode: TextEdit.Wrap
+                font.family: "monospace"
+                text: popup.plasmoidItem.doctorReport
+                Accessible.name: i18n("Show Full Report")
+            }
         }
 
         // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
@@ -1018,8 +1113,20 @@ PlasmaExtras.Representation {
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.remedyCommand.length > 0
-                             ? i18n("Run `%1` in a terminal to find out why.", popup.vm.remedyCommand)
+                             ? i18n("Check Installation runs `%1` to find out why.", popup.vm.remedyCommand)
                              : ""
+                helpfulAction: doctorPlaceholderAction
+            }
+
+            // The placeholder's button. Enabled whenever the explanation names the command, so it
+            // stays on screen and keeps the keyboard while doctor runs; runDoctor ignores a second
+            // press. The two measuring copies below carry it too, so they measure its height.
+            Kirigami.Action {
+                id: doctorPlaceholderAction
+                text: i18n("Check Installation")
+                icon.name: "tools-report-bug"
+                enabled: popup.vm.remedyCommand.length > 0
+                onTriggered: source => popup.plasmoidItem.runDoctor()
             }
 
             // Two copies of the placeholder, never shown, to measure it with and without the
@@ -1033,6 +1140,7 @@ PlasmaExtras.Representation {
                 iconName: "update-none"
                 text: placeholder.text
                 explanation: placeholder.explanation
+                helpfulAction: doctorPlaceholderAction
             }
             PlasmaExtras.PlaceholderMessage {
                 id: placeholderWords
@@ -1040,6 +1148,7 @@ PlasmaExtras.Representation {
                 width: placeholder.width
                 text: placeholder.text
                 explanation: placeholder.explanation
+                helpfulAction: doctorPlaceholderAction
             }
         }
 
