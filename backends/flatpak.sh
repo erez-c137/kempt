@@ -332,7 +332,8 @@ flatpak_check() {  # [sizes_out_path] [scopes_out_path] → items JSON; non-zero
   local scope all="" part sz="" szall="" rc outcomes=""
   # The system installation failing fails the backend, like the runtime arm inside one. The
   # per-user one failing drops only its own items: a bad per-user remote must not take the system
-  # answer down with it. Each outcome goes to $2 when there is a per-user installation.
+  # answer down with it. Each outcome goes to $2 when there is a per-user installation, and cmd_check
+  # puts the previous per-user items back when it reads "user failed" there.
   [[ -n "${1:-}" ]] && sz="$(mktemp)"
   for scope in $(flatpak_scopes); do
     rc=0; part="$(flatpak_check_scope "$scope" "$sz")" || rc=$?

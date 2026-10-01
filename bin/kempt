@@ -546,6 +546,17 @@ cmd_check() {
       serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
+    # A per-user listing that failed keeps the previous check's per-user items, as a stale backend
+    # keeps all of its own: pending updates must not vanish because a listing failed. They carry
+    # their own sizes, and attach_sizes leaves an item it has no row for as it is. Through stdin,
+    # never --argjson, for the argv cap assemble_state names.
+    local fp_kept
+    if grep -qx 'user failed' "$fp_scopes_f" 2>/dev/null \
+       && fp_kept="$({ printf '%s\n' "$fp_items"; state_prev_items flatpak; } \
+                     | jq -c -s '.[0] + [.[1][] | select(.scope == "user")]' 2>/dev/null)" \
+       && [[ "$fp_kept" == \[* ]]; then
+      fp_items="$fp_kept"
+    fi
   else
     fp_enabled=false; fp_items='[]'
   fi
@@ -1604,7 +1615,18 @@ cmd_update() {
       if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-after.tsv"; then
         fp_before="$SNAP_DIR/fp-before-system.tsv"
         { grep -v "^$KEMPT_FLATPAK_USER_KEY" "$SNAP_DIR/fp-before.tsv" || true; } > "$fp_before"
-        log_warn "$log" "warning: the apps for you only could not be listed after the run - summary incomplete"
+        log_warn "$log" "warning: the apps for you only could not be listed after the run, so the summary leaves them out"
+        # The per-user apps that did update are missing from the summary, so the run does not say
+        # all went well. The jq only changes the recorded outcome: one that fails keeps the old one.
+        # Only a run that was otherwise fine takes this reason: an earlier failure keeps its own.
+        [[ "$status" == ok ]] \
+          && reason_override="${reason_override:-the apps for you only could not be listed after the run, so the summary leaves them out}"
+        fp_status="failed"; status="failed"
+        local fp_scopes_after
+        if fp_scopes_after="$(jq -cS '(. // {}) + {user: "failed"}' <<<"$fp_scopes" 2>/dev/null)" \
+           && [[ -n "$fp_scopes_after" ]]; then
+          fp_scopes="$fp_scopes_after"
+        fi
       else
         fp_after_ok=false
       fi
@@ -1795,6 +1817,9 @@ cmd_update() {
   # nothing, so a person watching is told what the pause is.
   CHECK_WROTE_STATE=""
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
+  # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
+  # per-user installation again, so a listing that still fails is recorded there as failed.
+  [[ "$fp_user_unreadable" == true ]] && unset KEMPT_FLATPAK_USER_SKIP
   cmd_check >/dev/null 2>&1 || true
   # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
   # run a second one. Set only by that wrapper. Only after a check that wrote state: one that lost
@@ -3077,7 +3102,7 @@ doctor_tool_rows() {
     fi
     case "$fp_user_n" in
       0) doctor_info "per-user Flatpak apps: none" ;;
-      \?) doctor_info "per-user Flatpak apps: the list failed, so the next check may report Flatpak stale" ;;
+      \?) doctor_info "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" ;;
       1) doctor_info "per-user Flatpak apps: 1, checked and updated with the system ones" ;;
       *) doctor_info "per-user Flatpak apps: $fp_user_n, checked and updated with the system ones" ;;
     esac

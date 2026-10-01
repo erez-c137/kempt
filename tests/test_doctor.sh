@@ -391,7 +391,8 @@ assert_contains "$(KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST
   "per-user Flatpak apps: 2, checked and updated with the system ones" "a per-user installation: doctor counts its apps"
 assert_exit 0 "a per-user list that fails is information, not a failure" \
   env KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" "per-user Flatpak apps: the list failed" "...said as such"
+assert_contains "$(cat "$TESTTMP/last_output")" "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" \
+  "...said as such, with what checks and updates then do"
 
 # --- the listing behind reclaim ------------------------------------------------------------------
 # The listing helper needs PyGObject and the Flatpak typelib in flatpak-libs, and the flatpak

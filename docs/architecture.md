@@ -209,7 +209,7 @@ cope with that.
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). A package with several versions (installonly sets, multilib twins) carries them comma-joined in **ascending** order. Readers that show one version take the last. |
 | `backends.<name>.items[].kind` | string, optional | Only `flatpak` writes it, and only as `"runtime"`. Absent means the backend's ordinary item: a Flatpak app or a dnf package. Additive. |
 | `backends.<name>.items[].scope` | string, optional | Only `flatpak` writes it, and only as `"user"`: the item is in the per-user installation. Absent means the system installation. The same id can be installed both ways, so two items can share a `name` and differ here. Holds still apply by id, to both. Additive. |
-| `backends.flatpak.scopes` | object, optional | Present only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. A per-user failure leaves the system items and the check's `status` alone and drops only the per-user items, so the badge undercounts rather than the backend going stale. Additive. |
+| `backends.flatpak.scopes` | object, optional | Present only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. A per-user failure leaves the system items and the check's `status` alone and keeps the previous check's per-user items. The widget then says the apps for you only could not be checked. Additive. |
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every item with `kind: "runtime"`. **A runtime's identity is its `name` and `branch` together.** The same runtime can be installed on two branches that update independently, so two items can share a `name`. Anything that keys items by name (a lookup, a size join, a diff) must key on the pair where this is present. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
@@ -494,7 +494,8 @@ Optional keys on that entry:
 - `scope: "user"` on a flatpak `updated`, `added` or `removed` item from the per-user
   installation, as in the state.
 - `scopes` on a live run's flatpak backend, only when a per-user installation exists:
-  `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome.
+  `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome. A per-user
+  set that cannot be listed before or after the run records `user` as failed and fails the run.
 - `eol` on a live run's flatpak backend: one `{id, branch, kind, apps, reason}` per end-of-life
   ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far.
 - `reclaimed` on the flatpak backend, when `reclaim=automatic` tried a removal after the run:

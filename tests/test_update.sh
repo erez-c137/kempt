@@ -2535,6 +2535,31 @@ assert_eq "$(jq -r .status "$UH")|$(jq -c .backends.flatpak.scopes "$UH")" 'fail
 assert_contains "$(cat "$(jq -r .log "$UH")")" "the apps for you only could not be listed" "...said in the log"
 assert_eq "$(jq -c '[.backends.flatpak.removed[] | select(.scope == "user")] | length' "$UH")" "0" \
   "...and no per-user app is reported removed"
+# The skip covers the run only. The check after it asks the per-user installation again, so its
+# pending apps stay listed rather than the state saying everything is up to date.
+assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.scope == "user") | .name] | sort' "$KEMPT_STATE_DIR/state.json")" \
+  '["com.brave.Browser","net.mkiol.SpeechNote"]' "the check after a run that skipped the per-user apps still lists them"
+assert_eq "$(jq -c .backends.flatpak.scopes "$KEMPT_STATE_DIR/state.json")" '{"system":"ok","user":"ok"}' \
+  "...and records that it asked both installations"
+
+# A per-user set that can be listed before the run and not after it: the per-user apps that did
+# update are missing from the summary, so the run is failed and names the per-user side.
+printf '#!/usr/bin/env bash\ncmp -s "%s/u-fp.tsv" "%s/u-after.tsv" && exit 1\ncat "%s/u-fp.tsv"\n' \
+  "$WORLD" "$TESTTMP" "$WORLD" > "$TESTTMP/u-snap-after-fails"
+chmod +x "$TESTTMP/u-snap-after-fails"
+KEMPT_FLATPAK_USER_SNAP_CMD="$TESTTMP/u-snap-after-fails" uf_update
+assert_eq "$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" "1" "a per-user set unreadable after the run: the per-user apps were still updated"
+assert_eq "$(jq -r .status "$UH")|$(jq -r .backends.flatpak.status "$UH")|$(jq -c .backends.flatpak.scopes "$UH")" \
+  'failed|failed|{"system":"ok","user":"failed"}' "...and the run is failed on the per-user side"
+assert_contains "$(jq -r .error "$UH")" "apps for you only could not be listed after the run" "...with that as the reason"
+assert_contains "$UF_OUT" "[failed: apps for you only]" "...and the summary names the per-user half"
+# A run that had already failed keeps its own reason: the per-user listing must not mask it.
+KEMPT_FLATPAK_UPDATE_CMD=false KEMPT_FLATPAK_USER_SNAP_CMD="$TESTTMP/u-snap-after-fails" uf_update
+assert_eq "$(jq -r .status "$UH")" "failed" "a failed system Flatpak update with an unreadable per-user set after it fails the run"
+assert_not_contains "$(jq -r .error "$UH")" "apps for you only could not be listed" \
+  "...and the reason is the earlier failure, not the per-user listing"
+assert_eq "$(jq -c '[.backends.flatpak.removed[] | select(.scope == "user")] | length' "$UH")" "0" \
+  "...and no per-user app is reported removed"
 
 # A bare repo directory, which flatpak fails on, is no installation: the run is the system one.
 rm "$TESTTMP/ufp/repo/config"

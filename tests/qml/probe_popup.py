@@ -1750,6 +1750,18 @@ p.check("...and Update Now is GONE rather than greyed out - a dead primary butto
 p.check("...while the footer still dates the counts",
         str(lev("footerLabel.text")).startswith("Checked "), True)
 
+# The per-user apps could not be listed: the same empty list must not claim everything is up to date.
+_uf = json.load(open(UPTODATE))
+_uf["backends"]["flatpak"]["scopes"] = {"system": "ok", "user": "failed"}
+_uf_path = os.path.join(p.sandbox, "state-user-unchecked.json")
+open(_uf_path, "w").write(json.dumps(_uf))
+state(_uf_path)
+p.check("per-user apps not listed: the placeholder says so instead of everything is up to date",
+        lev("placeholder.text"), "Apps installed for you only could not be checked.")
+p.check("...and the footer names it beside the date",
+        "apps for you only not checked" in str(lev("footerLabel.text")), True)
+state(UPTODATE)
+
 # Held is the one state where "everything is up to date" would be a lie by omission: nothing is
 # actionable, but there ARE pending updates and the Held group is on screen saying so.
 state(fixture("state-held-only.json"))
@@ -2538,6 +2550,8 @@ _ASSEMBLED_IN_LOGIC = {
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText
     "lastCheckFailed",      # -> vm.footerText, beside the date it explains
+    "userAppsUnchecked",    # -> vm.emptyStateText, in place of everythingUpToDate
+    "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
     "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing

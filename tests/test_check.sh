@@ -1214,8 +1214,18 @@ assert_eq "$(jq -c .backends.flatpak.scopes <<<"$u_state")|$(jq -c .backends.fla
 bad_user="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
   KEMPT_FLATPAK_USER_REMOTE_CMD=false KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check)"
 assert_eq "$(jq -r .status <<<"$bad_user")" "ok" "a failing per-user query does not make the check stale"
-assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_user")" "$n_sys_fp" "...the system apps are still counted"
 assert_eq "$(jq -c .backends.flatpak.scopes <<<"$bad_user")" '{"system":"ok","user":"failed"}' "...and the state says the per-user side failed"
+# The per-user updates the last check found stay pending: a listing that failed is no answer.
+assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_user")" "$((n_sys_fp + 2))" \
+  "the system apps are counted and the last check's per-user apps are kept"
+assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.scope == "user") | [.name, .size_bytes]] | sort' <<<"$bad_user")" \
+  '[["com.brave.Browser",219200000],["net.mkiol.SpeechNote",1100000000]]' "...with the sizes they had"
+# With no per-user items in the previous state there is nothing to keep, and only the system apps count.
+KEMPT_SKIP_REFRESH=1 "$KEMPT" check >/dev/null
+bad_first="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
+  KEMPT_FLATPAK_USER_REMOTE_CMD=false KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check)"
+assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_first")|$(jq -c .backends.flatpak.scopes <<<"$bad_first")" \
+  "$n_sys_fp|"'{"system":"ok","user":"failed"}' "a first per-user failure counts the system apps alone"
 # A per-user directory flatpak cannot use (no repo config) is no installation at all.
 rm "$TESTTMP/ufp/repo/config"
 empty_repo="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_REMOTE_CMD=false \

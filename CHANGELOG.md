@@ -43,8 +43,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or a metered connection it skips the fetch, and the footer says how old the lists are.
 - **Per-user Flatpak apps are checked and updated.** Kempt said everything was up to date while
   per-user Flatpak apps had updates. It now counts, sizes and updates apps you installed with
-  `flatpak install --user`, after the system ones. The popup marks them **For you only**. This is
-  on for everyone, so counts rise if you have per-user apps.
+  `flatpak install --user`, after the system ones. The popup marks them **For you only**, and says
+  when they could not be checked. This is on for everyone, so counts rise if you have per-user apps.
 - **Kempt checks once, not twice, when you have more than one panel.** Each panel's system tray
   runs its own copy of the Kempt widget. With a second monitor, or a virtual display for remote
   desktop access, every automatic check ran twice, one behind the other. A check
