@@ -1090,6 +1090,16 @@ grep -q '20 session-critical packages pending (the Linux kernel, KDE framework l
   && echo "ok: notification summarises by family, capped at 4" || { echo "FAIL: family summary - got: $(cat "$WORLD/notifications")"; _fail=1; }
 grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked into the notification"; _fail=1; } \
   || echo "ok: no wall of package names in a notification"
+# --risky-ok: the popup asked first and the person chose Install Now, so the advice is not sent
+# again. The run itself goes ahead exactly as before.
+: > "$WORLD/notifications"; : > "$WORLD/apply-calls"
+"$KEMPT" update --surface=popup --risky-ok >/dev/null 2>&1
+assert_eq "$(grep -c 'session-critical' "$WORLD/notifications")" "0" \
+  "after Install Now in the popup, no session-critical notification"
+assert_eq "$(grep -c 'APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "...and the update still runs, live"
+# A terminal still asks, whatever the popup heard.
+ask="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal --risky-ok <<<"a" 2>/dev/null)"
+assert_contains "$ask" "Heads up:" "--risky-ok does not skip the terminal's own question"
 printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\nbash.x86_64   5.3.10-1.fc44   updates\n' > "$TESTTMP/risky-check.txt"
 
 # The lock is NOT held while a human deliberates: the recommendation runs before acquire_lock, so

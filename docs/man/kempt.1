@@ -14,9 +14,13 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .RB [ \-\-no\-flatpak ]
 .RB [ \-\-surface=\c
 .IR surface ]
+.RB [ \-\-risky\-ok ]
 .br
 .B kempt run
 .RB [ \-\-print\-command ]
+.RB [ \-\-surface=\c
+.IR surface ]
+.RB [ \-\-risky\-ok ]
 .br
 .B kempt summary
 .RI [ N ]
@@ -103,7 +107,8 @@ written. The event log says
 turns it off.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
-.IR surface ]
+.IR surface "] [" \c
+.BR \-\-risky\-ok ]
 Run the update now. Options come from the configuration file;
 .B \-\-no\-flatpak
 excludes Flatpak apps for this run and
@@ -114,7 +119,10 @@ An unrecognized surface falls back to
 .BR terminal .
 Held items are excluded, listed and counted. When session\-critical packages are pending, an interactive
 terminal run first offers to update live, stage the transaction offline, or abort; anything
-other than an explicit yes aborts, having changed nothing.
+other than an explicit yes aborts, having changed nothing. A run outside the terminal sends a
+notification instead, which
+.B \-\-risky\-ok
+leaves out: the widget passes it after the person chooses Install Now.
 .IP
 The
 .B offline
@@ -142,13 +150,17 @@ and support for those images is planned. On the
 surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
 for both kinds, so staging would cancel the upgrade.
 .TP
-.BR run " [" \-\-print\-command ]
+.BR run " [" \-\-print\-command "] [" \-\-surface= \c
+.IR surface "] [" \c
+.BR \-\-risky\-ok ]
 Launch
 .B kempt update
 according to the configured surface and return immediately. This is what the widget's Update Now
 button calls.
 .B \-\-print\-command
 prints the command that would be launched, without launching it.
+.B \-\-risky\-ok
+is passed on to an update outside the terminal; a terminal run still asks.
 A successful launch says nothing about the update's outcome: poll the state file or the history.
 .TP
 .BR summary " [" \c

@@ -9,7 +9,8 @@ check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh 
                       finished while this one waited (the widget's automatic checks)
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--print-command] launch update per configured surface (what the widget calls;
-                      --surface=X for one run on another surface)
+                      --surface=X for one run on another surface; --risky-ok when the person
+                      already chose to install session-critical updates now)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
@@ -136,7 +137,7 @@ record of a stage that has gone.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|popup|background|offline]
+kempt update [--no-flatpak] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Options come from the config file, and the flags override
@@ -188,7 +189,8 @@ What happens, in order:
    Up to eight families are listed, with `... and N more` below them. `s` stages the update for
    the next restart, `u` updates now and `a` aborts. **Enter, Ctrl-D or a second unknown answer
    all abort**, with exit 0 and nothing changed. A run that cannot ask sends a notification naming
-   the families and carries on. `kempt check` publishes the same list as `risky_pending`.
+   the families and carries on. `--risky-ok` leaves that notification out: the popup passes it
+   after you choose **Install Now**. `kempt check` publishes the same list as `risky_pending`.
 2. **Lock.** A second update at the same time exits 3. The prompt comes before the lock, so an
    unanswered prompt blocks nothing.
 3. **Snapshots** of the installed packages. If one cannot be read, the run exits 5 having changed
@@ -304,7 +306,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|popup|background|offline]
+kempt run [--print-command] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. This is what **Update Now**
@@ -330,6 +332,9 @@ detached: kempt update (surface=background)
 Next Restart** calls `kempt run --surface=offline`. An unknown surface is refused with exit code 2.
 With `auto_accept=false`, a stage opens in a terminal so dnf5 can ask first, and any other surface
 becomes a live update in a terminal.
+
+`--risky-ok` passes `--risky-ok` on to an update outside the terminal. The popup adds it when you
+choose **Install Now** for session-critical updates. A terminal run still asks.
 
 Exit codes:
 
