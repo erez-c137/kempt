@@ -1013,7 +1013,7 @@ var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
 // KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
 // the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
-// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the widget's own check allowance (120 s). 925 s in all,
+// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 120 s). 925 s in all,
 // plus over half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
 var RECLAIM_TIMEOUT_MS = 960000;
@@ -1231,18 +1231,55 @@ function relativeTime(iso, nowMs) {
 // 24 hours is the floor because under it there is nothing to report: that is the ordinary state of
 // a plugged-in machine, and a line on every popup would be noise that teaches people to skip the
 // footer. The clock is an ARGUMENT, like relativeTime's, so a test can assert each boundary.
+// `floorMs` lowers that floor. The footer passes 60000 after a Check for Updates whose refresh did
+// not land (battery, metered, offline), so the person can tell the list may be old.
 var METADATA_STALE_MS = 86400000;
-function metadataAgeText(iso, nowMs) {
+function metadataAgeText(iso, nowMs, floorMs) {
     if (typeof nowMs !== "number" || !isFinite(nowMs)) return "";
     var at = stampMs(iso);
     // Unreadable or absent says nothing at all, the same silence relativeTime falls back to: an
     // age nobody could work out is not an age to put a number on.
     if (!isFinite(at)) return "";
     var age = nowMs - at;
-    if (age < METADATA_STALE_MS) return "";
-    var days = Math.floor(age / METADATA_STALE_MS);
-    return "metadata " + days + (days === 1 ? " day old" : " days old");
+    var floor = (typeof floorMs === "number" && isFinite(floorMs) && floorMs >= 60000)
+        ? floorMs : METADATA_STALE_MS;
+    if (age < floor) return "";
+    if (age >= METADATA_STALE_MS) {
+        var days = Math.floor(age / METADATA_STALE_MS);
+        return "metadata " + days + (days === 1 ? " day old" : " days old");
+    }
+    var hours = Math.floor(age / 3600000);
+    if (hours >= 1) return "metadata " + hours + (hours === 1 ? " hour old" : " hours old");
+    return "metadata " + Math.floor(age / 60000) + " min old";
 }
+
+// refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
+// answered without fresh metadata: the refresh was skipped (battery, metered) or failed (offline).
+// metadata_refreshed has whole seconds, so `askedMs` is floored to its second. No stamp, no claim.
+function refreshMissed(state, askedMs) {
+    var asked = Number(askedMs);
+    if (!state || typeof state !== "object" || !isFinite(asked) || asked <= 0) return false;
+    var at = stampMs(state.metadata_refreshed);
+    return isFinite(at) && at < Math.floor(asked / 1000) * 1000;
+}
+
+// --- the check command ------------------------------------------------------------------------
+// checkArgs(automatic, refresh) -> what doCheck appends to `kempt`. Check for Updates fetches fresh
+// metadata (`--refresh`). The checks nobody asked for coalesce and keep the CLI's 3-hour interval.
+// Any other press (a hold, Check again) runs a check of its own from the cache.
+function checkArgs(automatic, refresh) {
+    if (refresh === true) return " check --refresh";
+    return automatic === true ? " check --coalesce" : " check";
+}
+
+// How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
+// because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
+// a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
+// CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
+// (120 s) and dnf's makecache, which runs as root where that timeout cannot stop it: dnf5's own
+// network timeouts bound it, and 120 s more is the allowance. Plus 30 s: 120 + 240 + 30 = 390 s.
+var CHECK_BODY_MS = 120000;
+var CHECK_TIMEOUT_MS = 390000;
 
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK
@@ -2112,7 +2149,8 @@ function viewModel(state, updating, cliError, opts) {
         // ...and how old the metadata behind those counts is, which the dateline above cannot say.
         // The two are different clocks: the check ran four minutes ago, the metadata it answered
         // from may be a week old, and only this line can tell the person that.
-        var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs);
+        var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs,
+                                      refreshMissed(state, opts.refreshAskedMs) ? 60000 : undefined);
         if (metaAge !== "") footerParts.push(metaAge);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
@@ -2270,6 +2308,10 @@ if (typeof module !== "undefined" && module.exports) {
         formatDownload: formatDownload,
         relativeTime: relativeTime,
         shouldRefreshOnOpen: shouldRefreshOnOpen,
+        refreshMissed: refreshMissed,
+        checkArgs: checkArgs,
+        CHECK_BODY_MS: CHECK_BODY_MS,
+        CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,
         riskyMessageOf: riskyMessageOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,

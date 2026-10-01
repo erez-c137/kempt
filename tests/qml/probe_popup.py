@@ -791,6 +791,7 @@ ev("checkAction.trigger()")
 settle()
 p.check("...and triggering it runs the same check the Refresh button does",
         p.call_count("check") - before_check, 1)
+p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1], "check --refresh")
 
 # --- the pins that keep the drivable seams honest ---------------------------------------------------
 # Everything above drives popupOpened()/popupClosed() directly, because writing `expanded` from a
@@ -1816,6 +1817,7 @@ lev("refreshButton.clicked()")
 settle()
 p.check("the refresh icon runs the same check the menu entry does",
         p.call_count("check") - before_check, 1)
+p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1], "check --refresh")
 ev("root.checking = true")
 p.pump(50)
 p.check("a check in flight puts the spinner beside the control that started it",

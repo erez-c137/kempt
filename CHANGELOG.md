@@ -38,6 +38,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Check for Updates no longer says "Everything is up to date" while dnf lists updates.** It
+  answered from package lists up to three hours old. It now fetches fresh lists first. On battery
+  or a metered connection it skips the fetch, and the footer says how old the lists are.
 - **Kempt checks once, not twice, when you have more than one panel.** Each panel's system tray
   runs its own copy of the Kempt widget. With a second monitor, or a virtual display for remote
   desktop access, every automatic check ran twice, one behind the other. A check
