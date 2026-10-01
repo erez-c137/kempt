@@ -3100,7 +3100,7 @@ doctor_tool_rows() {
     fi
     case "$fp_user_n" in
       0) doctor_info "per-user Flatpak apps: none" ;;
-      \?) doctor_info "per-user Flatpak apps: the list failed, so the next check may report Flatpak stale" ;;
+      \?) doctor_info "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" ;;
       1) doctor_info "per-user Flatpak apps: 1, checked and updated with the system ones" ;;
       *) doctor_info "per-user Flatpak apps: $fp_user_n, checked and updated with the system ones" ;;
     esac
