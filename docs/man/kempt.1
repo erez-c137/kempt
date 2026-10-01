@@ -106,8 +106,8 @@ written. The event log says
 .B \-\-refresh
 turns it off.
 .B \-\-strict
-exits 1 when a backend failed, after printing and writing the state, for scripts that need a
-current answer.
+exits 1 when the answer is not current, for scripts: a backend failed, or another check held the
+lock and the previous state was served. The state is printed either way.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface ]
@@ -474,12 +474,16 @@ Widgets. Six sizes are installed under this one name.
 .SH EXIT STATUS
 .TP
 .B 0
-Success, including declining at the session\-critical recommendation prompt.
+Success, including declining at the session\-critical recommendation prompt, and a
+.B check
+without
+.B \-\-strict
+whose backend failed.
 .TP
 .B 1
 The run itself failed (a backend returned non\-zero),
 .B "check \-\-strict"
-had a backend fail,
+had a backend fail or served the previous state,
 .B doctor
 found at least one problem, or a writer could not take the writers' lock.
 .BR "config set" ,

@@ -237,6 +237,23 @@ assert_eq "$(jq -r '[.[].timestamp] | join(" ")' "$TESTTMP/hj.json")" \
   "2026-08-24T14:00:00+03:00 2026-08-24T13:00:00+03:00 2026-08-24T12:00:00+03:00" "...newest first"
 assert_eq "$(jq -S '.[0]' "$TESTTMP/hj.json")" "$("$KEMPT" summary --json | jq -S .)" \
   "...and its first element is the entry summary --json prints"
+# An entry pruned while the command runs (a run's kempt_init_dirs keeps the newest 50) costs only
+# that entry. The jq stand-in deletes the oldest entry right after it is first read.
+oldest_entry="$(ls -1 "$HIST_DIR"/*.json | LC_ALL=C sort | awk 'NR==1')"
+mkdir -p "$TESTTMP/jq-prunes"
+real_jq="$(command -v jq)"
+cat > "$TESTTMP/jq-prunes/jq" <<STUB
+#!/usr/bin/env bash
+"$real_jq" "\$@"; rc=\$?
+[[ "\${!#}" == "$oldest_entry" ]] && mv -f "$oldest_entry" "$TESTTMP/pruned.json"
+exit \$rc
+STUB
+chmod +x "$TESTTMP/jq-prunes/jq"
+prc=0
+PATH="$TESTTMP/jq-prunes:$PATH" "$KEMPT" history --json > "$TESTTMP/hj-pruned.json" 2>/dev/null || prc=$?
+mv -f "$TESTTMP/pruned.json" "$oldest_entry" 2>/dev/null || true
+assert_eq "$prc" "0" "history --json exits 0 when an entry is pruned while it runs"
+assert_eq "$(jq -r 'type' "$TESTTMP/hj-pruned.json" 2>/dev/null)" "array" "...and still prints one JSON array"
 
 # --- summary --json: the last run as data ------------------------------------------------------
 # The popup needs what the last run did, and re-deriving it from the human text would be a second,

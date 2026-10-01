@@ -30,7 +30,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt doctor` says whether Kempt can list unused Flatpak runtimes.** When a package it needs
   is missing, the row fails and names the packages to install.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
-  could not answer, after saving the state as usual. Without it, a failed check still exits 0.
+  could not answer, or when another check held the lock and the previous state was served.
+  Without it, both still exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
 
@@ -39,9 +40,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **With Flatpak installed, Kempt also needs `flatpak-libs` and `python3-gobject-base`.** dnf
   installs them with the update. They let Kempt ask Flatpak which runtimes are unused. A machine
   without Flatpak gets neither.
-- **`kempt update` exits 7 when another program had the package lock.** After three tries, a
-  lock held by PackageKit, Discover or dnf-automatic now exits 7 instead of 1, for dnf and Flatpak
-  alike. A script can wait and try again.
+- **`kempt update` exits 7, not 1, when another program had the package lock.** This applies
+  when another program (PackageKit, Discover, dnf-automatic or another `flatpak`) still holds the
+  dnf or Flatpak lock after three tries. A script can wait and try again.
 - **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
   Flatpak's lock through all three tries, the summary, notification and history say so and say to
   try again, in place of Flatpak's raw error line.

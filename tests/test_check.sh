@@ -874,7 +874,13 @@ for _ in $(seq 1 200); do
 done
 KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check > "$TESTTMP/served.json" 2>"$TESTTMP/served.err"
 served_rc=$?
+# --strict over the same wait: the previous state is still printed, and the exit says it is old.
+strict_served_rc=0
+KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check --strict > "$TESTTMP/strict-served.json" 2>/dev/null || strict_served_rc=$?
 kill "$lock_holder" 2>/dev/null; wait "$lock_holder" 2>/dev/null || true
+assert_eq "$strict_served_rc" "1" "check --strict that cannot take the lock exits 1"
+assert_eq "$(jq -r '.marker' "$TESTTMP/strict-served.json" 2>/dev/null)" "FIRST" \
+  "...and still prints the previous state"
 assert_eq "$served_rc" "0" "a check that cannot take the lock still exits 0"
 grep -q 'serving previous state' "$TESTTMP/served.err" \
   && echo "ok: ...and says on stderr that the answer is the previous one" \
@@ -1075,6 +1081,11 @@ assert_eq "$(jq -s length "$TESTTMP/race.json" 2>/dev/null)" "1" "...as exactly 
 assert_eq "$(jq -r .marker "$STATE_FILE")" "WRITTEN" "...and leaves state.json as that check wrote it"
 assert_eq "$(events_matching ' check ok ')" "$ok_before" "...and is not logged as a check"
 assert_eq "$(tail -n 1 "$EVENTS_FILE" | cut -d' ' -f3-4)" "check shared" "...but as a shared one"
+
+race_check fresh --coalesce --strict
+assert_eq "$race_rc" "0" "a coalesced check --strict exits 0 over an ok state"
+race_check stale --coalesce --strict
+assert_eq "$race_rc" "0" "a --coalesce --strict check does not adopt a stale state, and its own check answers"
 
 race_check fresh
 assert_eq "$(dnf_queries)" "1" "without --coalesce the same race still runs its own check"

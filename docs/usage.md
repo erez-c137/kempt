@@ -38,8 +38,8 @@ Every command uses the same codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
+| 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` without `--strict` whose backend failed (the failure is recorded in the state). |
+| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail or served the previous state, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
@@ -121,8 +121,9 @@ whole seconds, so a check stamped in the same second runs a check of its own. `-
 startup check, so two widgets on two panels cost one check instead of two. Refresh, Check again,
 Check for Updates and a hold always run a check of their own.
 
-**`--strict`** exits 1 when a backend failed, after printing and saving the state as usual. Use it
-in scripts that need to know the answer is current. Without it, a failed backend still exits 0.
+**`--strict`** exits 1 when the answer is not current, after printing it as usual: a backend
+failed, or another check held the lock and the previous state was served. Use it in scripts. Without
+it, both exit 0.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's
 record of a stage that has gone.
@@ -133,10 +134,13 @@ record of a stage that has gone.
   `"stale"`, `error` holds the message, and the previous item lists are kept. When a root helper is missing,
   `error` says `root helper not installed - run ./install.sh (see: kempt doctor)`.
 - **The state file is missing or corrupt:** exit 0, and the check starts from an empty list.
-- **The new state cannot be saved:** the state is printed first, then the command exits non-zero.
-- **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0.
+- **The new state cannot be saved:** the state is printed first, then the command exits 1.
+  With `--strict`, read `status` to tell the two apart: `"stale"` means a backend failed, and
+  anything else means the state could not be saved.
+- **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0, or 1
+  with `--strict`.
 - **With `--coalesce`, another check answered while this one waited:** that state is printed,
-  exit 0, and `state.json` is not rewritten.
+  exit 0, and `state.json` is not rewritten. Only a state whose `status` is `"ok"` is taken.
 
 **Empty output with exit 0 means "no data, keep what you had".** It never means zero updates.
 
