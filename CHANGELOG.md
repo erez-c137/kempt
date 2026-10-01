@@ -29,6 +29,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Unused Flatpak runtimes** offers **Ask me first**, **Remove after updates** and **Never**.
 - **`kempt doctor` says whether Kempt can list unused Flatpak runtimes.** When a package it needs
   is missing, the row fails and names the packages to install.
+- **The widget checks its own installation.** Where it used to say to run `kempt doctor` in a
+  terminal, it now offers **Check Installation**. The widget runs doctor itself, then quotes the
+  first problem found or says there were none. **Show Full Report** shows the whole report, and
+  **Copy Command** copies `kempt doctor`.
 
 ### Changed
 
