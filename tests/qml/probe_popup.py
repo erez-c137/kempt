@@ -2548,6 +2548,8 @@ _ASSEMBLED_IN_LOGIC = {
     "restartPending",       # -> vm.footerText
     "noSuccessfulCheckYet",  # -> vm.footerText
     "lastCheckFailed",      # -> vm.footerText, beside the date it explains
+    "userAppsUnchecked",    # -> vm.emptyStateText, in place of everythingUpToDate
+    "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
     "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
