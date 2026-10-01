@@ -32,12 +32,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Updates run in the popup by default.** A new install no longer opens a terminal window. An
+- **Updates run in the widget by default.** A new install no longer opens a terminal window. An
   install that already had the terminal keeps it: the first `kempt` command after the upgrade
   writes `surface=terminal` to the config file. A config file that names a surface is never
   changed.
-- **The widget offers the popup once to an install that kept the terminal.** It offers **Use the
-  Popup** and **Keep the Terminal**. Either answer is saved as the `surface` setting.
+- **The widget offers itself once to an install that kept the terminal.** It offers **Use This
+  Widget** and **Keep the Terminal Window**. Either answer is saved as the `surface` setting.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has the keyboard, or **Install Now**. Before, it started
   them straight away. `auto_accept=false` still sends every run to the terminal.

@@ -994,10 +994,10 @@ lower in this list are left out. If that hides the restart message, the footer s
    is to install them on the next restart.` It is hidden while an update is staged.
    After **Update Now**, when updates run outside a terminal, the same message asks first. It
    moves to the top and adds **Install Now**. **Install on Next Restart** has the keyboard.
-8. **"Updates can now run here in the popup, without opening a terminal window."** It shows once,
-   on an install that kept the terminal when it upgraded to 0.1.8. **Use the Popup** switches **Run
-   updates in** to **In this widget**. **Keep the Terminal** keeps it and hides the message for
-   good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
+8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
+   install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches **Run
+   updates in** to **In this widget**. **Keep the Terminal Window** keeps it and hides the message
+   for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
 9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
    `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
    lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
