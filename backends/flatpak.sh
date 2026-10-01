@@ -344,6 +344,7 @@ flatpak_snapshot() {
 # and anything it leaves behind would hold that lock open after it is gone.
 # KEMPT_REFRESH_TIMEOUT bounds it like the dnf arm, so a stalled remote cannot hold the check lock
 # forever, and the widget can wait longer than both arms together (REFRESH_CHECK_TIMEOUT_MS).
+# shellcheck disable=SC2086  # the seam carries its own arguments
 flatpak_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1 9>&-; }
 
 # The backend's apply step, called from cmd_update through apply_with_retry. Argument shape is the
