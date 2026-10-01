@@ -640,6 +640,65 @@ for t in true TRUE True 1 yes YES false FALSE 0 no nonsense; do
   assert_eq "$(js "L.isTrue(\"$t\")")" "$cli" "isTrue agrees with the CLI's is_true about '$t'"
 done
 
+# --- the default surface: the popup, in step with the CLI -----------------------------------------
+assert_eq "$(js 'L.DEFAULT_SURFACE')" "popup" "a config with no surface runs updates in the popup"
+assert_eq "$(js 'L.DEFAULT_SURFACE')" "$(bash -c 'source "$1/lib/common.sh"; kempt_default surface' _ "$REPO_ROOT")" \
+  "...the same default the CLI's kempt_default gives"
+assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "...while a value nobody recognises still means terminal"
+
+# --- the risky choice: Update Now asks before installing kernel or desktop parts live -------------
+risky_vm() {  # surface [extra opts] → JS for the risky fixture's view model on that run surface
+  local o="${2:-}"; [[ -n "$o" ]] || o='{}'
+  printf 'L.viewModel(S("risky-heavy"), false, "", Object.assign({surface: "%s"}, %s))' "$1" "$o"
+}
+assert_eq "$(js "$(risky_vm popup).updateAsksFirst")" "true" "a risky set on the popup surface asks before Update Now runs"
+assert_eq "$(js "$(risky_vm background).updateAsksFirst")" "true" "...and on the background surface"
+assert_eq "$(js "$(risky_vm terminal).updateAsksFirst")" "false" "a terminal asks for itself, so the popup does not"
+assert_eq "$(js "$(risky_vm offline).updateAsksFirst")" "false" "the offline surface already installs on the next restart"
+assert_eq "$(js 'L.viewModel(S("live"), false, "", {surface: "popup"}).updateAsksFirst')" "false" \
+  "nothing risky pending: Update Now runs at once"
+assert_eq "$(js 'L.viewModel(Object.assign(S("risky-heavy"), {release_upgrade: {from:"44", to:"45", state:"armed"}}), false, "", {surface: "popup"}).updateAsksFirst')" \
+  "false" "with no route to the next restart there is nothing to choose, so it runs as before"
+assert_eq "$(js 'L.viewModel(Object.assign(S("risky-heavy"), {offline_staged: {staged_at:"2026-09-02T10:31:00+03:00", count:3, armed:true}}), false, "", {surface: "popup"}).updateAsksFirst')" \
+  "false" "...and nothing is asked over an update already staged"
+# The choice, once open, takes the first slot: it answers the press just made. It is the risky
+# message itself, so the plain one is not drawn as well.
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').messageSlots")" '["riskyChoice"]' \
+  "an open choice is the risky message, drawn once"
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true, reportShown: true}').messageSlots[0]")" "riskyChoice" \
+  "...ahead of the report of the last thing that happened"
+assert_eq "$(js "$(risky_vm popup).messageSlots")" '["kernel"]' "closed, it is the plain recommendation"
+assert_eq "$(js "$(risky_vm terminal '{riskyChoiceOpen: true}').messageSlots")" '["kernel"]' \
+  "a stale open flag on a terminal box opens nothing"
+assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", riskyChoiceOpen: true}).messageSlots.indexOf("riskyChoice")')" \
+  "-1" "...and nothing is asked over a run already under way"
+# The recommendation is the question: the same sentence, not a second wording of it.
+assert_eq "$(js "$(risky_vm popup).riskyMessage")" "$(js 'L.COPY.kernelRestart')" \
+  "the choice asks in the risky message's own words"
+assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Install Now"
+
+# --- the one offer of the popup default ---------------------------------------------------------
+offer_vm() {  # extra opts → JS for a state carrying surface_offer, on a box that updates in the terminal
+  local o="${1:-}"; [[ -n "$o" ]] || o='{}'
+  printf 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), false, "", Object.assign({surface: "terminal", configuredSurface: "terminal", autoAccept: true}, %s))' "$o"
+}
+assert_eq "$(js "$(offer_vm).messageSlots")" '["surfaceOffer"]' "an install the migration kept on the terminal is offered the popup"
+assert_eq "$(js 'L.viewModel(S("live"), false, "", {surface: "terminal", configuredSurface: "terminal"}).messageSlots')" '[]' \
+  "no surface_offer in the state, no offer"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: "true"}), false, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
+  "...and only a real true counts"
+assert_eq "$(js "$(offer_vm '{surfaceOfferAnswered: true}').messageSlots")" '[]' "answered in this session, it is gone at once"
+assert_eq "$(js "$(offer_vm '{configuredSurface: "popup", surface: "popup"}').messageSlots")" '[]' \
+  "a surface chosen in Settings answers it before the next check does"
+assert_eq "$(js "$(offer_vm '{autoAccept: false}').messageSlots")" '[]' \
+  "with confirmation on the popup cannot run updates, so it is not offered"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), true, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
+  "...nor during a run"
+assert_eq "$(js 'L.messageStack({kernel: true, surfaceOffer: true, reclaim: true})')" '["kernel","surfaceOffer"]' \
+  "it waits below the risky advice and above the reclaim offer"
+assert_eq "$(js '[L.COPY.surfaceOfferUse, L.COPY.surfaceOfferKeep].join("|")')" "Use the Popup|Keep the Terminal" \
+  "its two answers"
+
 # --- effectiveSurfaceOf: what a run will ACTUALLY do, not what is merely stored ----------------
 # cmd_run resolves the stored surface and then overrides it: with confirmation on, only a terminal
 # can ask the question. A popup that trusted the stored value alone would open an in-widget log
@@ -2684,7 +2743,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

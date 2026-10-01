@@ -79,7 +79,9 @@ PlasmoidItem {
     property string actionMessage: ""
     // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
     // says what a run will really do, which is why the popup binds to effectiveSurface below.
-    property string surface: "terminal"
+    // The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
+    // the first config read answers.
+    property string surface: Logic.DEFAULT_SURFACE
     property bool autoAccept: true
     // What `kempt run` would actually launch: with confirmation on, only a terminal can ask the
     // question, so everything else collapses to terminal (bin/kempt, cmd_run).
@@ -115,6 +117,15 @@ PlasmoidItem {
     property string reclaimDismissed: ""
     // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
     property bool reclaimRunning: false
+
+    // Update Now pressed with a session-critical set waiting and no terminal to ask in: the risky
+    // message turns into a choice between staging and installing now. Closed by either answer, by
+    // a run starting and by the popup closing.
+    property bool riskyChoiceOpen: false
+
+    // The one-time offer to update in the popup was answered in this session. The CLI forgets the
+    // offer when the surface is set; this hides it at once rather than at the next check.
+    property bool surfaceOfferAnswered: false
 
     // Our own report of a restart prompt that could not be opened; empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message, which is where the
@@ -223,6 +234,13 @@ PlasmoidItem {
                                                 // is not, and the message and the button have to
                                                 // follow that rather than guess.
                                                 surface: effectiveSurface,
+                                                // The setting as written, for the one-time offer
+                                                // to update in the popup: it is made only to a
+                                                // box that asked for the terminal itself.
+                                                configuredSurface: surface,
+                                                autoAccept: autoAccept,
+                                                riskyChoiceOpen: riskyChoiceOpen,
+                                                surfaceOfferAnswered: surfaceOfferAnswered,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
@@ -573,12 +591,22 @@ PlasmoidItem {
     // timeout - the update itself is detached and never occupies the executor. A 40-minute dnf
     // transaction on this queue would block every check and every pin behind it, and the kill
     // timer would only disconnect the reader anyway: the child would keep running, unwatched.
-    function startUpdate() {
+    //
+    // installNow is the risky choice's Install Now. Without it, a session-critical set on a surface
+    // that cannot ask opens that choice instead of running: only the terminal asks for itself.
+    // --risky-ok tells the CLI the person has already chosen, so it does not notify them again.
+    function startUpdate(installNow) {
         // actionPending too: a stage still waiting its turn on the executor is a run on its way.
         if (updating || runRequested || actionPending) return;
+        if (installNow !== true && vm.updateAsksFirst) {
+            riskyChoiceOpen = true;
+            return;
+        }
+        riskyChoiceOpen = false;
         runRequested = true;
         actionMessage = "";
-        executor.run(kemptCmd + " run", 15000, function(stdout, stderr, rc) {
+        executor.run(kemptCmd + " run" + (installNow === true ? " --risky-ok" : ""), 15000,
+                     function(stdout, stderr, rc) {
             root.runRequested = false;
             if (rc === 0) {
                 // The surface the CLI just launched, remembered for the pane. Read here rather
@@ -599,6 +627,7 @@ PlasmoidItem {
     // updating pane for a stage that never began.
     function stageOffline() {
         if (updating || runRequested || actionPending) return;
+        riskyChoiceOpen = false;
         actionPending = true;
         actionMessage = "";
         launchStage();
@@ -817,6 +846,20 @@ PlasmoidItem {
         reclaimDismissed = vm.reclaimDigest;
     }
 
+    // The one-time offer's answer, either way, written as the setting itself: setting the surface
+    // is also what tells the CLI the offer is answered. Only the two names the buttons carry.
+    function useSurface(value) {
+        if (value !== "popup" && value !== "terminal") return;
+        surfaceOfferAnswered = true;
+        executor.run(kemptCmd + " config set surface " + value, 10000, function(stdout, stderr, rc) {
+            if (rc !== 0) {
+                root.actionMessage = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+                return;
+            }
+            root.readSurface();
+        });
+    }
+
     // Show Log, through the desktop's own handler so the user gets whatever they have chosen for a
     // text file. The path came out of the CLI's JSON and is going back onto a command line, which
     // puts it in the same class as a package name: through Logic.shellQuote, no exceptions.
@@ -994,6 +1037,8 @@ PlasmoidItem {
                                        vm.messageSlots.indexOf("report") >= 0, reportText))
             reclaimInUseSeen = lastRun.when;
         postRunLine = "";
+        // A choice left open is a question nobody answered: next time, Update Now asks again.
+        riskyChoiceOpen = false;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";

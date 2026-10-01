@@ -117,6 +117,29 @@ PlasmaExtras.Representation {
         else popup.forceActiveFocus(Qt.TabFocusReason);
     }
 
+    // The button an InlineMessage drew for one of its actions. Kirigami builds them inside its own
+    // tool bar and names none of them, so the only handle is the action each one carries.
+    function buttonFor(item, action) {
+        if (!item) return null;
+        const kids = item.children || [];
+        for (let i = 0; i < kids.length; i++) {
+            const kid = kids[i];
+            if (kid.action === action && kid.visible) return kid;
+            const found = popup.buttonFor(kid, action);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    // The risky choice opens on the recommended answer, so Enter stages rather than installs.
+    // Later, not now: the message's buttons are laid out after the visibility change that shows them.
+    function focusRiskyChoice() {
+        Qt.callLater(function () {
+            const button = popup.buttonFor(riskyMessage, riskyStageAction);
+            if (button && popup.canTakeFocus(button)) button.forceActiveFocus(Qt.TabFocusReason);
+        });
+    }
+
     // --- what the popup says out loud ---------------------------------------------------------
     // ONE function, and every announcement in this file goes through it:
     //   * `Accessible.announce` reaches an accessibility bridge and nothing else, so there is no
@@ -676,9 +699,14 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Information
             text: popup.vm.riskyMessage
             Accessible.name: text
-            visible: popup.shows("kernel")
+            // The same words become a question after Update Now on a surface that cannot ask for
+            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now.
+            readonly property bool asking: popup.shows("riskyChoice")
+            visible: popup.shows("kernel") || asking
+            onAskingChanged: if (asking) popup.focusRiskyChoice()
             actions: [
                 Kirigami.Action {
+                    id: riskyStageAction
                     // Named for what it does to the user rather than for the dnf5 flag behind it.
                     text: i18n("Install on Next Restart")
                     // ...and drawn as what it does: this INSTALLS software, at a moment of the
@@ -693,6 +721,41 @@ PlasmaExtras.Representation {
                     visible: popup.vm.offlineStageOffered
                     enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.stageOffline()
+                },
+                Kirigami.Action {
+                    id: riskyInstallNowAction
+                    // Only as the answer to Update Now. Runs what Update Now would have run, and
+                    // tells the CLI the person chose it, so no notification repeats the question.
+                    text: i18n("Install Now")
+                    icon.name: "run-build-install"
+                    visible: riskyMessage.asking
+                    enabled: visible && !popup.plasmoidItem.runRequested
+                             && !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.startUpdate(true)
+                }
+            ]
+        }
+
+        // The one-time offer to update here instead of in a terminal window, made to a box that had
+        // the terminal before the popup became the default (bin/kempt, surface_migrate). Either
+        // answer is written as the setting, which is what ends the offer.
+        Kirigami.InlineMessage {
+            id: surfaceOfferMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: i18n("Updates can now run here in the popup, without opening a terminal window.")
+            Accessible.name: text
+            visible: popup.shows("surfaceOffer")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Use the Popup")
+                    icon.name: "dialog-ok"
+                    onTriggered: source => popup.plasmoidItem.useSurface("popup")
+                },
+                Kirigami.Action {
+                    text: i18n("Keep the Terminal")
+                    icon.name: "utilities-terminal"
+                    onTriggered: source => popup.plasmoidItem.useSurface("terminal")
                 }
             ]
         }
