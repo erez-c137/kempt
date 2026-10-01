@@ -155,7 +155,7 @@ The installer does four things, in this order:
 3. **Installs the panel widget and its icons** with `kpackagetool6`, with no authentication. If
    you decline the dialog in step 2, this step is skipped, because the widget cannot work without
    the root helpers.
-4. **Offers to disable Discover's notifier** (see below).
+4. **Offers to turn off Discover's notifier** (see below).
 
 The CLI, its library, the backends and the passwordless rules template all run from the checkout.
 Moving or deleting the checkout breaks `kempt`. Only the root-owned files and the widget are
@@ -173,7 +173,7 @@ copies.
 | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6`) |
 | `~/.local/share/icons/hicolor/{scalable,64x64,48x48,32x32,22x22,16x16}/apps/kempt.svg` | you | `install.sh`, so the icon resolves by name in Add Widgets |
 | (no file) an `org.kde.KIconLoader.iconChanged` signal on your session bus | - | `install.sh`, so a running Plasma finds the new icon |
-| `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you accept the notifier opt-out |
+| `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you turn Discover's notifier off |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
 
 The widget is a copy, so re-run `./install.sh` after changing anything under `plasmoid/`.
@@ -241,23 +241,28 @@ and the widget are not, so `kempt check` will not work yet. Re-run `./install.sh
 ### The Discover-notifier opt-out
 
 Fedora's `plasma-discover-notifier` duplicates Kempt's notifications. Its background PackageKit
-work also takes the dnf5 lock at random moments, which makes Kempt runs fail. The installer asks:
+work also takes the dnf5 lock at random moments, which makes Kempt runs fail. When the notifier is
+installed, the installer asks:
 
 ```
-Disable plasma-discover-notifier for this user? [Y/n]
+Turn off Discover's update notifier for this user? [Y/n]
 ```
 
-Yes writes a user-level autostart override at
+Yes runs `kempt discover-notifier off`. It writes a user-level autostart override at
 `~/.config/autostart/org.kde.discover.notifier.desktop`, a copy of the system entry with
-`Hidden=true`, and stops any running `DiscoverNotifier`. Nothing system-wide changes. To undo it,
-delete the file and log back in:
+`Hidden=true`, and stops any running `DiscoverNotifier`. If you already had your own file there,
+Kempt keeps it next to the new one, ending in `.before-kempt`. Nothing system-wide changes. To undo
+it:
 
 ```bash
-rm ~/.config/autostart/org.kde.discover.notifier.desktop
+kempt discover-notifier on
 ```
 
+That puts your own file back, or removes Kempt's, and starts the notifier again.
+
 `n` or `no` leaves the notifier alone. With no terminal to read an answer from, the installer
-leaves the notifier enabled and says so.
+leaves the notifier on and says so. Either way, `kempt discover-notifier off` turns it off later.
+See [usage.md](usage.md#discover-notifier).
 
 ## Verify the install
 
@@ -373,9 +378,9 @@ These stay:
 - `~/.config/kempt/` and `~/.local/state/kempt/`: your settings, holds and update history.
 - `~/.config/autostart/org.kde.discover.notifier.desktop`: your choice about Discover's notifier.
 
-To remove those too:
+To turn Discover's notifier back on, run `kempt discover-notifier on` before you uninstall. To
+remove your settings and history too:
 
 ```bash
 rm -rf ~/.config/kempt ~/.local/state/kempt
-rm -f ~/.config/autostart/org.kde.discover.notifier.desktop
 ```

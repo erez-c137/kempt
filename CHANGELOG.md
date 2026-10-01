@@ -27,6 +27,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget offers to free the space too.** When unused Flatpak runtimes take 100 MB or more,
   the popup says how much and offers **Free Up Space**. **Show What** lists them. In Settings,
   **Unused Flatpak runtimes** offers **Ask me first**, **Remove after updates** and **Never**.
+- **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
+  differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
+  widget asks once, with **Turn Off Discover's Notifier** and **Keep It**. Settings can turn it back
+  on. `./install.sh` and `kempt doctor` use the same command.
 - **`kempt doctor` says whether Kempt can list unused Flatpak runtimes.** When a package it needs
   is missing, the row fails and names the packages to install.
 
