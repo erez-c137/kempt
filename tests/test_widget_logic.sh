@@ -1677,6 +1677,8 @@ assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).emptyStateText")" "App
   "...and an empty list does not say everything is up to date"
 assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).iconState")" "uptodate" "...and the icon raises no alarm"
 assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).tooltipSub")" "apps for you only not checked" "...and the tooltip says it too"
+assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).headerText")" "Up to date · apps for you only not checked" \
+  "...and the header does not say a bare up to date"
 UF_KEPT='{schema:1,status:"ok",actionable:1,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{flatpak:{items:[{name:"com.brave.Browser",from:"1.79",to:"1.80",held:false,scope:"user"}],scopes:{system:"ok",user:"failed"}}}}'
 assert_eq "$(js "L.viewModel($UF_KEPT,false,\"\",{nowMs:$NOW}).footerText.indexOf(\"apps for you only not checked\") >= 0")" "true" \
   "...and the footer still says it over the per-user rows the last check found"

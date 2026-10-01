@@ -1844,6 +1844,13 @@ function viewModel(state, updating, cliError, opts) {
     var badgeText = "";
     if (usable && actionable > 0) badgeText = actionable > BADGE_MAX ? BADGE_MAX + "+" : String(actionable);
 
+    // The per-user apps could not be listed, so the check answered for the system ones only. The
+    // CLI keeps the last check's per-user rows, and this says they are not today's answer.
+    var fpBackend = usable && state.backends && typeof state.backends === "object"
+        ? state.backends.flatpak : null;
+    var userUnchecked = !!(fpBackend && typeof fpBackend === "object" && fpBackend.scopes
+        && typeof fpBackend.scopes === "object" && fpBackend.scopes.user === "failed");
+
     var countPhrase = "";
     if (usable) {
         // "Up to date" over rows with waiting versions in them is a lie by omission, which is what
@@ -1851,7 +1858,8 @@ function viewModel(state, updating, cliError, opts) {
         // what the badge and the button are about; the header is the sentence, and the sentence
         // owes the held count.
         countPhrase = actionable === 0
-            ? (heldTotal > 0 ? COPY.upToDate + DOT + heldTotal + " " + COPY.held : COPY.upToDate)
+            ? (heldTotal > 0 ? COPY.upToDate + DOT + heldTotal + " " + COPY.held
+                : userUnchecked ? COPY.upToDate + DOT + COPY.userAppsUncheckedShort : COPY.upToDate)
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 
@@ -1983,12 +1991,6 @@ function viewModel(state, updating, cliError, opts) {
     var staleReason = stale
         ? (typeof state.error === "string" && state.error !== "" ? state.error : "the last check failed")
         : "";
-    // The per-user apps could not be listed, so the check answered for the system ones only. The
-    // CLI keeps the last check's per-user rows, and this says they are not today's answer.
-    var fpBackend = usable && state.backends && typeof state.backends === "object"
-        ? state.backends.flatpak : null;
-    var userUnchecked = !!(fpBackend && typeof fpBackend === "object" && fpBackend.scopes
-        && typeof fpBackend.scopes === "object" && fpBackend.scopes.user === "failed");
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
     var problemText = "";

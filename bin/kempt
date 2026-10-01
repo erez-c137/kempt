@@ -1618,8 +1618,10 @@ cmd_update() {
         log_warn "$log" "warning: the apps for you only could not be listed after the run, so the summary leaves them out"
         # The per-user apps that did update are missing from the summary, so the run does not say
         # all went well. The jq only changes the recorded outcome: one that fails keeps the old one.
+        # Only a run that was otherwise fine takes this reason: an earlier failure keeps its own.
+        [[ "$status" == ok ]] \
+          && reason_override="${reason_override:-the apps for you only could not be listed after the run, so the summary leaves them out}"
         fp_status="failed"; status="failed"
-        reason_override="${reason_override:-the apps for you only could not be listed after the run, so the summary leaves them out}"
         local fp_scopes_after
         if fp_scopes_after="$(jq -cS '(. // {}) + {user: "failed"}' <<<"$fp_scopes" 2>/dev/null)" \
            && [[ -n "$fp_scopes_after" ]]; then
