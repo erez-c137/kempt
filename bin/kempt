@@ -3415,6 +3415,9 @@ cmd_doctor() {
 cmd_discover_notifier() {
   case "${1:-}" in
     off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+            # The widget and Settings run these on separate queues: one at a time, so two offs
+            # cannot both find no kept copy and overwrite each other's.
+            writer_lock || exit 1
             "discover_notifier_$1" ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;

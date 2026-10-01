@@ -412,17 +412,17 @@ DISCOVER_PATTERN="^${KEMPT_DISCOVER_BIN}( |\$)"
 KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
+# The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
+DISCOVER_WRITTEN_FILE="$KEMPT_STATE_DIR/discover-entry-written"
 
 discover_sys_entry()  { printf '%s\n' "$KEMPT_XDG_AUTOSTART_DIR/$DISCOVER_ENTRY"; }
 discover_user_entry() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$DISCOVER_ENTRY"; }
 # The person's own entry, kept while Kempt's replaces it, and put back by `on`. Beside the entry,
 # where the person looks for it. Autostart reads only *.desktop files, so this one never starts.
 discover_backup() { printf '%s.before-kempt\n' "$(discover_user_entry)"; }
-# Where an entry from the earlier installer goes when Kempt replaces or removes it. It may hold a
-# person's own keys, so it is kept, never deleted, and never put back: it hides the notifier.
-discover_legacy_backup() {
-  local base n=1
-  base="$(discover_user_entry).kempt-legacy"
+# A free name beside the entry for a file Kempt moves aside: base, else base.1, base.2 ...
+discover_free_name() {  # base
+  local base="$1" n=1
   [[ -e "$base" || -L "$base" ]] || { printf '%s\n' "$base"; return; }
   while [[ -e "$base.$n" || -L "$base.$n" ]]; do n=$((n + 1)); done
   printf '%s\n' "$base.$n"
@@ -461,32 +461,42 @@ discover_running() {
   "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1
 }
 
-# Whose the user entry is:
-#   kempt   carries Kempt's mark, or is the three-line entry the earlier installer wrote when there
-#           was no system entry to copy. `on` removes it.
-#   legacy  the earlier installer's other form: a file whose last line is the one Hidden=true it
-#           appended, after removing every other Hidden= line, with Discover's Exec. It may be the
-#           person's own file the installer changed, so it is moved aside, never deleted.
-#   own     anything else, a symlink included. Backed up before Kempt writes, and put back by `on`.
-#   none    no user entry.
+# Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
+#   kempt     exactly what Kempt last wrote, or exactly the three-line entry install.sh wrote before
+#             0.1.8 when there was no system entry to copy. `on` removes it.
+#   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
+#   own       anything else, a symlink included.
+#   none      no user entry.
+#   notfile   a directory or anything else that is not a file or a symlink.
+#   dangling  a symlink to nothing.
 discover_entry_kind() {
   local user
   user="$(discover_user_entry)"
-  if [[ -L "$user" ]]; then echo own; return; fi
-  [[ -f "$user" ]] || { echo none; return; }
-  if grep -qx "$DISCOVER_MARK" "$user" \
-     || [[ "$(cat "$user")" == $'[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true' ]]; then
+  if [[ -L "$user" ]]; then
+    if [[ -e "$user" ]]; then echo own; else echo dangling; fi
+  elif [[ ! -e "$user" ]]; then echo none
+  elif [[ ! -f "$user" ]]; then echo notfile
+  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && cmp -s "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
+  elif cmp -s "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
     echo kempt
-  elif [[ "$(tail -n 1 "$user")" == Hidden=true && "$(grep -c '^Hidden=' "$user")" == 1 ]] \
-       && [[ "$(head -n 1 "$user")" == "[Desktop Entry]" ]] \
-       && grep -q '^Exec=.*DiscoverNotifier' "$user"; then
-    echo legacy
-  else
-    echo own
+  elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
+  else echo own
   fi
 }
 
-discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|legacy) return 0 ;; esac; return 1; }
+discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }
+
+# Refuses an entry path Kempt cannot read or replace safely. → 0 when it is fine.
+discover_entry_usable() {  # kind
+  local user
+  user="$(discover_user_entry)"
+  case "$1" in
+    notfile)  echo "$user is not a file, so nothing changed." >&2; return 1 ;;
+    dangling) echo "$user is a symlink to $(readlink "$user"), which does not exist, so nothing changed." >&2
+              return 1 ;;
+  esac
+  return 0
+}
 
 # The offer, as state.json carries it: while the notifier starts with the session and nobody has
 # answered yet.
@@ -512,7 +522,9 @@ discover_write_entry() {  # seed
        group && (/^Hidden[[:space:]]*=/ || $0 == mark) { next }
        { print }
        END { if (!done) { print "[Desktop Entry]"; put() } }
-     ' "$seed" > "$tmp" && mv -f "$tmp" "$user"; then
+     ' "$seed" > "$tmp" \
+     && mkdir -p "$KEMPT_STATE_DIR" && cp "$tmp" "$DISCOVER_WRITTEN_FILE" \
+     && mv -f "$tmp" "$user"; then
     return 0
   fi
   rm -f "$tmp"
@@ -542,6 +554,12 @@ discover_start() {
   return 1
 }
 
+discover_stop_running() {
+  if "$KEMPT_DISCOVER_PKILL" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1; then
+    echo "Stopped the one that was running."
+  fi
+}
+
 discover_notifier_off() {
   local user backup kind seed moved=""
   if ! discover_installed; then
@@ -550,57 +568,65 @@ discover_notifier_off() {
   fi
   user="$(discover_user_entry)"; backup="$(discover_backup)"
   kind="$(discover_entry_kind)"
+  discover_entry_usable "$kind" || return 1
+  # An entry that already keeps it off, whoever wrote it, is left exactly as it is.
+  if ! discover_enabled; then
+    discover_mark_answered
+    echo "Discover's update notifier is already off. Nothing changed."
+    discover_stop_running
+    return 0
+  fi
   seed="$(discover_sys_entry)"
-  case "$kind" in
-    kempt) seed="$user" ;;
-    own)
-      # One copy of the person's own entry, never overwritten: a second one would lose the first.
-      if [[ -e "$backup" || -L "$backup" ]]; then
-        echo "A copy of your earlier autostart entry is already kept at $backup, so nothing changed. Move it away, then try again." >&2
-        return 1
-      fi
-      # mv, not cp: a symlink stays a symlink, and every attribute comes back with it.
-      mv "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
-      moved="$backup"; seed="$backup" ;;
-    legacy)
-      moved="$(discover_legacy_backup)"
-      mv "$user" "$moved" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
-      seed="$moved" ;;
-  esac
+  if [[ $kind != none ]]; then
+    # One copy of the person's own entry, never overwritten: a second one would lose the first.
+    if [[ -e "$backup" || -L "$backup" ]]; then
+      echo "A copy of your earlier autostart entry is already kept at $backup, so nothing changed. Move it away, then try again." >&2
+      return 1
+    fi
+    # mv, not cp: a symlink stays a symlink, and every attribute comes back with it.
+    mv "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
+    moved="$backup"; seed="$backup"
+  fi
   if ! discover_write_entry "$seed"; then
     [[ -n "$moved" ]] && mv "$moved" "$user"
-    echo "could not write $user" >&2
+    echo "could not write $user, so nothing changed" >&2
     return 1
   fi
   discover_mark_answered
   log_event "discover-notifier off"
   echo "Discover's update notifier is off, and stays off when you log in again."
-  if "$KEMPT_DISCOVER_PKILL" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1; then
-    echo "Stopped the one that was running."
-  fi
+  [[ -n "$moved" ]] && echo "Your earlier entry is kept at $moved"
+  discover_stop_running
   return 0
 }
 
 discover_notifier_on() {
-  local user backup kind
+  local user backup kind aside
   if ! discover_installed; then
     echo "Discover's update notifier is not installed. Nothing changed."
     return 0
   fi
   user="$(discover_user_entry)"; backup="$(discover_backup)"
   kind="$(discover_entry_kind)"
+  discover_entry_usable "$kind" || return 1
   case "$kind" in
-    kempt|legacy)
-      if [[ $kind == legacy ]]; then
-        mv "$user" "$(discover_legacy_backup)" || { echo "could not move $user aside" >&2; return 1; }
-      fi
-      if [[ -e "$backup" || -L "$backup" ]]; then
-        mv -f "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
-      elif [[ $kind == kempt ]]; then
-        rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
-      fi
+    kempt)
+      rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
+      log_event "discover-notifier on" ;;
+    edited)
+      aside="$(discover_free_name "$user.kempt-edited")"
+      mv "$user" "$aside" || { echo "could not move $user aside, so nothing changed" >&2; return 1; }
+      echo "Kempt's entry had changed since Kempt wrote it. Your version is kept at $aside"
       log_event "discover-notifier on" ;;
   esac
+  if [[ -e "$backup" || -L "$backup" ]]; then
+    if [[ -e "$user" || -L "$user" ]]; then
+      echo "Your earlier entry is still kept at $backup"
+    else
+      mv "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
+      echo "Your earlier entry is back at $user"
+    fi
+  fi
   discover_mark_answered
   if ! discover_enabled; then
     echo "Your own autostart entry keeps Discover's update notifier off: $user" >&2

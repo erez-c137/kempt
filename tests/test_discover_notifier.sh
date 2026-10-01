@@ -182,50 +182,98 @@ assert_eq "$rc" "1" "on over the person's own hiding entry fails"
 assert_contains "$out" "Your own autostart entry" "...and says their own entry keeps it off"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and leaves that entry alone"
 
-# The entry install.sh wrote before the mark: a copy of the system entry, every Hidden= line
-# removed and one Hidden=true appended. Recognised by that shape, not by the system entry's bytes,
-# which change with every plasma-discover update. It may hold the person's own keys, so it is
-# moved aside, never deleted.
+# The entry install.sh wrote before 0.1.8: a copy of the system entry plus Hidden=true. Nothing
+# tells it apart from a copy the person hid themselves, so it is the person's: already off, it is
+# left exactly as it is.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
 { cat "$SYS/$ENTRY"; echo Hidden=true; } > "$USER_ENTRY"
 legacy="$(cat "$USER_ENTRY")"
-printf 'Name[xx]=a new translation\n' >> "$SYS/$ENTRY"
-assert_eq "$(discover_entry_kind)" "legacy" "an entry from the earlier installer is recognised after a package update"
-assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":true,"enabled":false,"running":false,"by_kempt":true}' "...and status says Kempt turned it off"
-rc=0; "$KEMPT" discover-notifier on >/dev/null || rc=$?
-assert_eq "$rc" "0" "on turns it back on"
-assert_eq "$(is "$USER_ENTRY")" "no" "...moving that entry out of the way"
-assert_eq "$(cat "$USER_ENTRY.kempt-legacy")" "$legacy" "...into a copy, not the bin"
-assert_eq "$(is "$BACKUP")" "no" "...and never into the copy on would restore"
-# off over one: the same copy, then Kempt's own marked entry.
+assert_eq "$(discover_entry_kind)" "own" "a copy of the system entry plus Hidden=true is the person's"
+rc=0; out="$("$KEMPT" discover-notifier off)" || rc=$?
+assert_eq "$rc" "0" "off over an entry that already hides it succeeds"
+assert_contains "$out" "already off. Nothing changed." "...and says it is already off"
+assert_eq "$(cat "$USER_ENTRY")" "$legacy" "...leaving the entry as it was"
+assert_eq "$(ls -A "$(dirname "$USER_ENTRY")" | wc -l)" "1" "...with nothing moved or added beside it"
+assert_eq "$(is "$KEMPT_STATE_DIR/discover-offer-answered")" "yes" "...and answers the offer"
+# The same shape with a key of the person's own, as System Settings can write: never parked.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
-{ cat "$SYS/$ENTRY"; echo Hidden=true; } > "$USER_ENTRY"
+{ cat "$SYS/$ENTRY"; echo X-Own=1; echo Hidden=true; } > "$USER_ENTRY"
+own="$(cat "$USER_ENTRY")"
 "$KEMPT" discover-notifier off >/dev/null
-assert_eq "$(is "$USER_ENTRY.kempt-legacy")" "yes" "off keeps the earlier installer's entry too"
-assert_eq "$(grep -c '^X-Kempt-Override=true$' "$USER_ENTRY")" "1" "...and writes a marked one"
-"$KEMPT" discover-notifier on >/dev/null
-assert_eq "$(is "$USER_ENTRY")" "no" "...which on then removes"
-# The three-line entry it wrote when there was no system entry: Kempt's, removed.
+assert_eq "$(cat "$USER_ENTRY")" "$own" "a hidden entry with a key of the person's own survives off"
+rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
+assert_eq "$rc" "1" "...and on says it cannot turn it on"
+assert_contains "$out" "Your own autostart entry keeps" "...because the person's entry keeps it off"
+assert_eq "$(cat "$USER_ENTRY")" "$own" "...and still leaves it as it was"
+# The three-line entry it wrote when there was no system entry, byte for byte: Kempt's, removed.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
 printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n' > "$USER_ENTRY"
-assert_eq "$(discover_entry_kind)" "kempt" "the earlier installer's three-line entry is Kempt's"
+assert_eq "$(discover_entry_kind)" "kempt" "the earlier installer's exact three-line entry is Kempt's"
+"$KEMPT" discover-notifier on >/dev/null
+assert_eq "$(is "$USER_ENTRY")" "no" "...so on removes it"
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nX-Own=1\nHidden=true\n' > "$USER_ENTRY"
+assert_eq "$(discover_entry_kind)" "own" "...but one byte more and it is the person's"
 # A plain copy of the system entry a person made is theirs, and comes back on on.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
 cp "$SYS/$ENTRY" "$USER_ENTRY"
 assert_eq "$(discover_entry_kind)" "own" "a plain copy of the system entry is the person's"
+out="$("$KEMPT" discover-notifier off)"
+assert_contains "$out" "Your earlier entry is kept at $BACKUP" "off says where the person's entry went"
+out="$("$KEMPT" discover-notifier on)"
+assert_contains "$out" "Your earlier entry is back at $USER_ENTRY" "on says it is back"
+assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...and it is, as it was"
+
+# Kempt's entry, edited by the person after off: on keeps the edit, and says where.
+reset; system_entry
 "$KEMPT" discover-notifier off >/dev/null
-"$KEMPT" discover-notifier on >/dev/null
-assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...so off and on put it back, not remove it"
-# Hidden=true added by hand somewhere other than the last line is the person's too.
+assert_eq "$(discover_entry_kind)" "kempt" "the entry off wrote is Kempt's, byte for byte"
+printf 'X-Mine=1\n' >> "$USER_ENTRY"
+edited="$(cat "$USER_ENTRY")"
+assert_eq "$(discover_entry_kind)" "edited" "...and once edited it is not"
+assert_contains "$("$KEMPT" discover-notifier status --json)" '"by_kempt":true' "...though status still says Kempt turned it off"
+rc=0; out="$("$KEMPT" discover-notifier on)" || rc=$?
+assert_eq "$rc" "0" "on over an edited entry turns the notifier on"
+assert_contains "$out" "Your version is kept at $USER_ENTRY.kempt-edited" "...and says where the edit went"
+assert_eq "$(cat "$USER_ENTRY.kempt-edited")" "$edited" "...which holds the edit"
+assert_eq "$(is "$USER_ENTRY")" "no" "...with the entry itself gone"
+
+# Not a file at all: a directory, or a symlink to nothing. Refused, and nothing written.
+reset; system_entry
+mkdir -p "$USER_ENTRY"
+rc=0; out="$("$KEMPT" discover-notifier off 2>&1)" || rc=$?
+assert_eq "$rc" "1" "off with a directory at the entry path refuses"
+assert_contains "$out" "is not a file, so nothing changed" "...and says why"
+assert_eq "$(ls -A "$USER_ENTRY" | wc -l)" "0" "...writing nothing into it"
+assert_eq "$(ls -A "$(dirname "$USER_ENTRY")" | wc -l)" "1" "...or beside it"
+rc=0; "$KEMPT" discover-notifier on >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "1" "on refuses it too"
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
-printf '[Desktop Entry]\nHidden=true\nExec=/usr/libexec/DiscoverNotifier\n' > "$USER_ENTRY"
-assert_eq "$(discover_entry_kind)" "own" "an entry hidden by hand is the person's"
+ln -s "$TESTTMP/gone.desktop" "$USER_ENTRY"
+rc=0; out="$("$KEMPT" discover-notifier off 2>&1)" || rc=$?
+assert_eq "$rc" "1" "off with a symlink to nothing refuses"
+assert_contains "$out" "is a symlink to $TESTTMP/gone.desktop, which does not exist" "...and says so plainly"
+assert_not_contains "$out" "awk" "...with no tool's raw error"
+assert_eq "$(readlink "$USER_ENTRY")" "$TESTTMP/gone.desktop" "...leaving the link as it was"
+assert_eq "$(is "$BACKUP")" "no" "...and keeping no copy of it"
+
+# Two offs at once, as the widget and Settings can: one at a time, and the copy is never lost.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+printf '[Desktop Entry]\nExec=/usr/libexec/DiscoverNotifier\nX-Own=race\n' > "$USER_ENTRY"
+own="$(cat "$USER_ENTRY")"
+"$KEMPT" discover-notifier off > "$TESTTMP/race1" 2>&1 & r1=$!
+"$KEMPT" discover-notifier off > "$TESTTMP/race2" 2>&1 & r2=$!
+rc1=0; wait "$r1" || rc1=$?
+rc2=0; wait "$r2" || rc2=$?
+assert_eq "$rc1 $rc2" "0 0" "two offs at once both succeed"
+assert_eq "$(cat "$BACKUP")" "$own" "...and the person's entry is the copy kept"
+assert_eq "$(cat "$TESTTMP/race1" "$TESTTMP/race2" | grep -c 'already off' || true)" "1" \
+  "...because the second waited and found it already off"
 
 # --- the widget's offer, as state.json carries it ------------------------------------------------------
 reset; system_entry
