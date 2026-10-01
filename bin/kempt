@@ -1615,7 +1615,16 @@ cmd_update() {
       if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-after.tsv"; then
         fp_before="$SNAP_DIR/fp-before-system.tsv"
         { grep -v "^$KEMPT_FLATPAK_USER_KEY" "$SNAP_DIR/fp-before.tsv" || true; } > "$fp_before"
-        log_warn "$log" "warning: the apps for you only could not be listed after the run - summary incomplete"
+        log_warn "$log" "warning: the apps for you only could not be listed after the run, so the summary leaves them out"
+        # The per-user apps that did update are missing from the summary, so the run does not say
+        # all went well. The jq only changes the recorded outcome: one that fails keeps the old one.
+        fp_status="failed"; status="failed"
+        reason_override="${reason_override:-the apps for you only could not be listed after the run, so the summary leaves them out}"
+        local fp_scopes_after
+        if fp_scopes_after="$(jq -cS '(. // {}) + {user: "failed"}' <<<"$fp_scopes" 2>/dev/null)" \
+           && [[ -n "$fp_scopes_after" ]]; then
+          fp_scopes="$fp_scopes_after"
+        fi
       else
         fp_after_ok=false
       fi
