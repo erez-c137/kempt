@@ -49,6 +49,8 @@ RowLayout {
     property bool holdable: true
     // A per-user Flatpak app: installed for this person only, outside the system set.
     property bool forYouOnly: false
+    // ...and the same id is installed for the system as well. A hold covers both copies.
+    property bool bothScopes: false
 
     // What the name line draws. One property, read by the label and by the pin's spellings, so the
     // row cannot name the same thing two ways.
@@ -106,10 +108,15 @@ RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
             // The state as a word. Before the version, so a scan down the list reads one column.
+            // Both state words give way like the name line: at a narrow width a held per-user row
+            // shows an ellipsis rather than a word cut off at the edge.
             PlasmaComponents.Label {
                 visible: row.held
                 text: i18n("Held")
                 font: Kirigami.Theme.smallFont
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                elide: Text.ElideRight
             }
 
             // Same place and size as the Held word, so a per-user app reads as one more state.
@@ -118,6 +125,9 @@ RowLayout {
                 visible: row.forYouOnly
                 text: i18n("For you only")
                 font: Kirigami.Theme.smallFont
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                elide: Text.ElideRight
             }
 
             PlasmaComponents.Label {
@@ -209,8 +219,12 @@ RowLayout {
         // otherwise say the same sentence twice and spend the one slot that can explain what
         // pressing this does. Kempt-only and per package, because a dnf user reads versionlock
         // into a padlock and a kernel is three rows.
-        Accessible.description: row.held ? i18n("Kempt offers its update again.")
-                                         : i18n("Kempt skips it on every update until you stop holding it.")
+        // A hold is by id, so with the app installed both ways it covers both copies, and says so.
+        Accessible.description: row.bothScopes
+            ? (row.held ? i18n("Kempt offers the update again for both copies, the system one and the one for you only.")
+                        : i18n("Kempt skips both copies, the system one and the one for you only, until you stop holding it."))
+            : (row.held ? i18n("Kempt offers its update again.")
+                        : i18n("Kempt skips it on every update until you stop holding it."))
         // A ListView only builds the delegates near its viewport, so the focus chain holds only
         // the rows that happen to exist and Tab walks to the last one and leaves the list
         // (measured: 17 of 24 padlocks reachable). Announcing the focus lets the list scroll this

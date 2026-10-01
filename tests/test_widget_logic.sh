@@ -854,6 +854,10 @@ assert_eq "$(js "L.viewModel($UFP,false).sections[0].items.map(function (i) { re
 assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.forYouOnly; })")" \
   '[false,true]' "...and the flat model the list draws carries the mark"
 assert_eq "$(js "L.viewModel($UFP,false).badgeText")" "2" "...and both copies are counted"
+assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.bothScopes; })")" \
+  '[true,true]' "both rows know the id is installed both ways, so the padlock can say a hold covers both"
+assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind === 'item' && r.bothScopes; }).length")" "0" \
+  "...and rows of an id installed once do not"
 
 # --- and the state files that predate all of it -------------------------------------------------
 # Every captured fixture was written before runtimes were counted, so none of them carries `kind` or

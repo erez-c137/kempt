@@ -93,6 +93,11 @@ var COPY = {
     // versionlock into a padlock, and this is where that is answered.
     holdConsequence: "Kempt skips it on every update until you stop holding it.",
     heldConsequence: "Kempt offers its update again.",
+    // ...and the two for an app installed both ways: a hold is by id, so it covers both copies.
+    holdConsequenceBoth: "Kempt skips both copies, the system one and the one for you only, until you stop holding it.",
+    heldConsequenceBoth: "Kempt offers the update again for both copies, the system one and the one for you only.",
+    // A per-user Flatpak app, as a word on its row beside "Held".
+    forYouOnlyToken: "For you only",
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
@@ -1298,6 +1303,16 @@ function collectItems(state) {
         // The backend's own group, then one group per `kind` its items carry, in the order the
         // kinds are first seen - so the CLI decides the order here too, exactly as it does for rows.
         var pending = [], byKind = {}, kindOrder = [], k;
+        // Which ids are installed both ways. A hold is by id, so it covers both copies, and the
+        // padlock on either row says so.
+        var scopesOf = {};
+        for (j = 0; j < items.length; j++) {
+            var it = items[j] || {};
+            if (it.name === undefined || it.name === null) continue;
+            var sk = String(it.name);
+            if (!scopesOf[sk]) scopesOf[sk] = {};
+            scopesOf[sk][it.scope === "user" ? "user" : "system"] = true;
+        }
         for (j = 0; j < items.length; j++) {
             var item = items[j] || {};
             var itemKind = (item.kind === undefined || item.kind === null) ? "" : String(item.kind);
@@ -1317,7 +1332,9 @@ function collectItems(state) {
                 holdable: itemKind !== "runtime",
                 // Installed with `flatpak install --user`, so it is this person's alone. The row
                 // says so, which also tells apart one id installed both ways.
-                forYouOnly: item.scope === "user"
+                forYouOnly: item.scope === "user",
+                bothScopes: !!(item.name !== undefined && item.name !== null
+                               && scopesOf[String(item.name)].user && scopesOf[String(item.name)].system)
             };
             if (row.held) { heldItems.push(row); heldTotal++; }
             else {
@@ -1374,7 +1391,8 @@ function rowOf(item, kind) {
              branch: item.branch || "",
              // Absent means holdable, so a row built by an older caller keeps its padlock.
              holdable: item.holdable !== false,
-             forYouOnly: item.forYouOnly === true };
+             forYouOnly: item.forYouOnly === true,
+             bothScopes: item.bothScopes === true };
 }
 
 // --- the last run --------------------------------------------------------------------------------
