@@ -1676,6 +1676,24 @@ assert_eq "$(mfoot)" "Checked 4 min ago" \
   "a state with no metadata stamp says nothing about one, rather than guessing an age"
 assert_eq "$(mfoot not-a-date)" "Checked 4 min ago" \
   "...and an unreadable stamp is the same silence, never \"metadata NaN days old\""
+# After a Check for Updates whose fetch did not land (battery, metered, offline), any age from a
+# minute up is said: the person asked for fresh lists and has to be able to tell they did not get
+# them. The press is at 12:02; metadata from before it is the missed fetch.
+mfoot_asked() {  # metadata_refreshed askedMs
+  js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{},metadata_refreshed:\"$1\"},false,\"\",{nowMs:$NOW,refreshAskedMs:$2}).footerText"
+}
+ASKED="$(js 'Date.parse("2026-08-26T12:02:00+03:00")')"
+assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 3 hours old" \
+  "a Check for Updates that got no fetch says how old the metadata is"
+assert_eq "$(mfoot_asked 2026-08-26T11:00:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 1 hour old" \
+  "...one hour reads as one hour"
+assert_eq "$(mfoot_asked 2026-08-26T11:55:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 9 min old" \
+  "...and under an hour, in minutes"
+assert_eq "$(mfoot_asked 2026-08-26T12:02:00+03:00 "$ASKED")" "Checked 4 min ago" \
+  "a fetch stamped in the press's own second is the press's fetch, and says nothing"
+assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 0)" "Checked 4 min ago" \
+  "...and with no press behind the check, the 24-hour floor stands"
+assert_eq "$(js 'L.refreshMissed({}, Date.now())')" "false" "a state with no metadata stamp claims no missed fetch"
 # ...and the same line for a box that HAS checked, repeatedly, and never once succeeded. That is
 # a different fact from never having checked, and the fallback used to claim the wrong one of the
 # two inside the very block that draws the last_success / last_check distinction. It is not a
@@ -2341,7 +2359,7 @@ _ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _du="$(sed -n 's/^KEMPT_RECLAIM_DU_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _pk="$(sed -n 's/^KEMPT_RECLAIM_PKCHECK_TIMEOUT="\${KEMPT_RECLAIM_PKCHECK_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$_fp")"
 _lw="$(sed -n 's/^KEMPT_CHECK_LOCK_WAIT="\${KEMPT_CHECK_LOCK_WAIT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
-_ck="$(sed -n 's/.*executor\.run(kemptCmd + (auto ? " check --coalesce" : " check"), \([0-9]*\).*/\1/p' "$REPO_ROOT/plasmoid/contents/ui/main.qml")"
+_ck="$(sed -n 's/^var CHECK_TIMEOUT_MS = \([0-9]*\);$/\1/p' "$LOGIC")"
 assert_eq "$([[ -n "$_pk" && -n "$_un" && -n "$_ls" && -n "$_du" && -n "$_lw" && -n "$_ck" ]] && echo read)" "read" \
   "premise: the engine's reclaim timeouts, the check lock wait and the check allowance are readable"
 assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance covers the check's own listing and du"
@@ -2970,8 +2988,8 @@ assert_exit 0 "...and every completed check stamps the window it opens" -- \
 # qml_block prints a root-level block (4-space indent) from the line matching $2 to its closing brace.
 qml_block() { awk -v pat="$2" '!f && $0 ~ pat { f = 1 } f { print } f && /^    }$/ { exit }' "$1"; }
 MQ="$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "doCheck adds --coalesce only when asked to" -- \
-  grep -qF 'kemptCmd + (auto ? " check --coalesce" : " check")' "$MQ"
+assert_exit 0 "doCheck builds its command and its timeout from Logic" -- \
+  grep -qF 'executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.checkTimeoutMs(fresh),' "$MQ"
 assert_exit 0 "...and only for a literal true, so a caller that passes nothing is manual" -- \
   grep -qF 'var auto = automatic === true;' "$MQ"
 for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function popupOpened' \
@@ -2980,17 +2998,36 @@ for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function 
 done
 assert_contains "$(qml_block "$MQ" 'function pollWatch')" "root.doCheck(!delta.config);" \
   "the watcher's check coalesces, except for a settings write"
-for site in 'function checkAgain' 'function setHold' 'function discardStaged' 'id: updateGuard' \
-            'id: checkAction'; do
+for site in 'function checkAgain' 'function setHold' 'function discardStaged' 'id: updateGuard'; do
   blk="$(qml_block "$MQ" "$site")"
   assert_contains "$blk" "doCheck()" "the check at '$site' is a person's, and runs its own"
   assert_not_contains "$blk" "doCheck(true)" "...with no --coalesce at '$site'"
 done
+# Check for Updates fetches fresh metadata. Without --refresh the press answered from a cache up to
+# three hours old, and said "up to date" while dnf listed updates.
+assert_contains "$(qml_block "$MQ" 'id: checkAction')" "root.doCheck(false, true)" \
+  "the menu's Check for Updates runs its own check, and fetches"
 assert_contains "$(grep -F 'plasmoidItem.doCheck(' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" \
-  "plasmoidItem.doCheck()" "the popup's Check for Updates button runs its own check"
+  "plasmoidItem.doCheck(false, true)" "the popup's Check for Updates button runs its own check, and fetches"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh) recheckRefresh = true;" \
+  "a Check for Updates folded into a running check is remembered"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \
+  "...and the deferred check it becomes fetches"
+assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "Check for Updates passes --refresh"
+assert_eq "$(js 'L.checkArgs(true, false)')" " check --coalesce" "...an automatic check passes --coalesce"
+assert_eq "$(js 'L.checkArgs()')" " check" "...and any other press neither"
+assert_eq "$(js 'L.checkArgs(true, true)')" " check --refresh" "...a fetch wins, as the CLI drops --coalesce for it"
+# The timeout for a fetching check must outlast the CLI's refresh step, or the widget kills it
+# partway. Two arms of KEMPT_REFRESH_TIMEOUT, read from the code, on top of the plain check's time.
+cli_refresh_s="$(sed -n 's/^KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
+assert_eq "$(js "L.checkTimeoutMs(true) > L.CHECK_TIMEOUT_MS + 2 * ${cli_refresh_s:-999} * 1000")" "true" \
+  "a fetching check waits longer than both refresh arms (${cli_refresh_s:-?} s each) and the plain check"
+assert_eq "$(js 'L.checkTimeoutMs(false)')" "120000" "...and every other check keeps 120 s"
+assert_exit 0 "...both refresh arms are bounded by that one timeout" -- \
+  grep -qF 'flatpak_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT"' "$REPO_ROOT/backends/flatpak.sh"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked = true;" \
   "a person's request folded into a running check is remembered as a person's"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked);" \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \
   "...and the deferred check it becomes does not coalesce"
 
 # --- the settings page's apply path -------------------------------------------------------------

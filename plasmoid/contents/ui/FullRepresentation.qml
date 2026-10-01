@@ -338,7 +338,7 @@ PlasmaExtras.Representation {
                 Keys.onEnterPressed: animateClick()
                 // The same belt Update Now wears: a control that is refusing must not act, however
                 // the press reached it.
-                onClicked: if (enabled) popup.plasmoidItem.doCheck()
+                onClicked: if (enabled) popup.plasmoidItem.doCheck(false, true)
             }
 
             // The spinner, BESIDE Refresh rather than over it. Wrapped in an Item that keeps the

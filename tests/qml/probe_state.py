@@ -288,6 +288,42 @@ p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
 p.check("...while only automatic requests folded together still coalesce",
         p.calls_matching("check"), ["check --coalesce", "check --coalesce"])
 p.check("...leaving nothing remembered as a press", ev("root.recheckAsked"), False)
+
+# --- 6c. Check for Updates fetches fresh metadata, and waits long enough for it ------------------
+# The menu entry and the popup button pass --refresh. Without it the press answered from a cache
+# up to three hours old and said "up to date" while dnf listed updates.
+p.clear_calls()
+ev("checkAction.trigger()")
+p.pump(100)
+p.check("Check for Updates is given the refresh step's time, not the plain check's",
+        ev("executor.current !== null && executor.current.timeoutMs"), 390000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("Check for Updates from the menu asks the CLI to fetch fresh metadata",
+        p.calls_matching("check"), ["check --refresh"])
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+p.check("...while an automatic check keeps the plain check's time",
+        ev("executor.current !== null && executor.current.timeoutMs"), 120000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+# Folded into a running automatic check, the press still gets its fetch, whatever else folded in.
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+ev("root.doCheck(false, true)")
+ev("root.doCheck()")
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("a Check for Updates folded into a running check is answered by a check that fetches",
+        p.calls_matching("check"), ["check --coalesce", "check --refresh"])
+p.check("...leaving no fetch remembered for the next one", ev("root.recheckRefresh"), False)
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...while a hold's or Check again's folded check still answers from the cache",
+        p.calls_matching("check"), ["check --coalesce", "check"])
 open(MODE, "w").write("live")
 
 # The box with no successful check at all: there is no stamp to be old, so every open asks. That
