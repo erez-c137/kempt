@@ -1428,7 +1428,7 @@ assert_eq "$(js "L.discardStagedMessage(1, '', 'The staged update could not be d
   "The staged update could not be discarded. See: kempt doctor" \
   "a failed discard reports the CLI's own line"
 assert_eq "$(js "L.discardStagedMessage(1, '', '')")" \
-  "The staged update could not be discarded (exit 1). Check Installation runs kempt doctor to see why." \
+  "The staged update could not be discarded (exit 1). Press Check Installation to find out why." \
   "...and a silent failure says so with the status, which is the only evidence left"
 assert_eq "$(js "L.discardStagedMessage(1, 'only on stdout', '')")" "only on stdout" \
   "...falling back to stdout, as runStartMessage does, for a CLI that wrote to the wrong stream"
@@ -1437,12 +1437,12 @@ assert_eq "$(js "L.discardStagedMessage(1, 'only on stdout', '')")" "only on std
 assert_eq "$(js "L.discardStagedMessage(124, '', 'timeout after 120000ms')")" "timeout after 120000ms" \
   "a press the executor timed out on reports the timeout rather than nothing"
 assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
-  "The staged update could not be discarded (exit 9). Check Installation runs kempt doctor to see why." \
+  "The staged update could not be discarded (exit 9). Press Check Installation to find out why." \
   "...and an unknown status is a failure with its number in it"
 
 # --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
-# Every widget sentence that sends the person to doctor names the button and keeps the command, so
-# somebody who prefers to type it still can. None of them sends anybody to a terminal any more.
+# Every widget sentence that names kempt doctor names the button too. None of them sends anybody
+# to a terminal any more.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
   '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
@@ -1452,6 +1452,7 @@ assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label
 assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. A Fedora release upgrade (45) is stored. See: kempt doctor")')" \
   "true" "a refusal from the CLI that ends in kempt doctor offers the button"
 assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardRefused)')" "true" "...and so does the widget's own fallback"
+assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardFailed)')" "true" "...both of them, which name the button"
 assert_eq "$(js 'L.mentionsDoctor("Could not change the hold on bash.")')" "false" \
   "a failure that does not mention doctor offers nothing"
 assert_eq "$(js 'L.mentionsDoctor(undefined)')" "false" "...and no text offers nothing"
@@ -1474,9 +1475,6 @@ assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").summary')" \
   "several problems give the count and the first"
 assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").report')" "$(printf '%s' "${doc_two%$'\n'}")" \
   "the full report is everything doctor printed"
-# A FAIL row wins over the exit code: doctor can be killed after printing one.
-assert_eq "$(js 'L.doctorOutcomeOf(124, process.env.doc_one, "timeout after 60000ms").failed')" "true" \
-  "a report with a problem in it is a failure whatever the status"
 # An engine that will not start: the shell answers 126 and says why on stderr.
 assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: line 1: /home/u/.local/bin/kempt: Permission denied\n").summary')" \
   "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt: Permission denied" \
@@ -1487,16 +1485,31 @@ assert_eq "$(js 'L.doctorOutcomeOf(124, "", "timeout after 60000ms").summary')" 
   "the widget's own timeout is a sentence, not a status"
 assert_eq "$(js 'L.doctorOutcomeOf(7, "", "").summary')" "Kempt could not check its installation (exit 7)." \
   "a silent failure gives its status"
-assert_eq "$(js 'L.doctorOutcomeOf(0, "", "").failed')" "true" \
-  "an empty answer under exit 0 is not a clean report"
+assert_eq "$(js 'L.doctorOutcomeOf(0, "", "").summary')" "$(js 'L.COPY.doctorPassed')" \
+  "exit 0 with nothing printed is no problems found, never a status"
+assert_eq "$(js 'L.doctorOutcomeOf(1, "info  kempt 0.1.7 (/usr/share/kempt)\n", "").summary')" \
+  "Kempt could not check its installation (exit 1)." \
+  "a failure with no FAIL row and nothing on stderr gives its status, not doctor's info row"
+# A long problem ends at a word, and the report holds all of it.
+long_fail="FAIL  $(printf 'word%.0s ' {1..60})end"
+export long_fail
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").summary.length <= L.DOCTOR_SUMMARY_MAX')" "true" \
+  "a long problem is cut to the summary's length"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").summary.slice(-5)')" "word…" \
+  "...at a word, marked as cut"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").report === process.env.long_fail')" "true" \
+  "...while the full report keeps every word"
 assert_eq "$(js 'L.DOCTOR_TIMEOUT_MS >= 4 * 15000')" "true" \
   "the wait outlasts doctor's slowest row, the 15-second runtime listing, several times over"
 
 # Where the result goes: under the report it answers, and beside an engine that will not start.
-assert_eq "$(js 'L.messageStack({report:true, doctor:true, staged:true})')" '["report","doctor"]' \
-  "the result sits under the report whose button asked for it"
-assert_eq "$(js 'L.messageStack({doctor:true, staged:true, restart:true})')" '["doctor","staged"]' \
-  "...and first when the button was the placeholder's"
+assert_eq "$(js 'L.messageStack({report:true, doctor:true, staged:true})')" '["report","doctor","staged"]' \
+  "the result sits under the report whose button asked for it, outside the limit of two"
+assert_eq "$(js 'L.messageStack({doctor:true, staged:true, restart:true})')" '["doctor","staged","restart"]' \
+  "...and first when the button was the placeholder's, pushing out neither banner"
+assert_eq "$(js 'L.messageStack({riskyChoice:true, report:true, doctor:true, staged:true})')" \
+  '["riskyChoice","report","doctor"]' \
+  "with the session-critical choice and a report both up, the result still shows"
 assert_eq "$(js 'L.messageStack({engineFault:true, doctor:true, report:true})')" '["engineFault","doctor"]' \
   "the engine message keeps its result beside it"
 assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:"unrunnable", doctorShown:true}).messageSlots')" \
@@ -2724,13 +2737,13 @@ assert_eq "$(js 'L.COPY.stagedDiscardDone')" \
   "The staged update is gone. The next restart installs nothing." \
   "copy: what a discard that worked says when the CLI said nothing"
 assert_eq "$(js 'L.COPY.stagedDiscardRefused')" \
-  "Nothing was discarded. Check Installation runs kempt doctor to see why." \
+  "Nothing was discarded. Press Check Installation to find out why." \
   "copy: ...and a refusal, which changed nothing at all"
 assert_eq "$(js 'L.COPY.stagedDiscardBusy')" \
   "An update is running, so nothing was discarded. Try again when it has finished." \
   "copy: ...and the lock another update holds, with the one thing to do about it"
 assert_eq "$(js 'L.COPY.stagedDiscardFailed')" \
-  "The staged update could not be discarded (exit %1). Check Installation runs kempt doctor to see why." \
+  "The staged update could not be discarded (exit %1). Press Check Installation to find out why." \
   "copy: ...and a failure, carrying the status because it is the only evidence left"
 assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
   "The staged update changed since this was offered. Nothing was discarded; check the banner above." \

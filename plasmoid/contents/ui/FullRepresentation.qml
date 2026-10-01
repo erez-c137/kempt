@@ -823,21 +823,14 @@ PlasmaExtras.Representation {
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
                 },
-                // A report that says "See: kempt doctor" gets the button, and the command stays
-                // in its text and one press from the clipboard.
+                // A report that says to run kempt doctor gets the button. Copy Command is on the
+                // result it opens: three buttons and a close do not fit the narrowest popup.
                 Kirigami.Action {
                     text: i18n("Check Installation")
                     icon.name: "tools-report-bug"
                     enabled: popup.plasmoidItem.reportOffersDoctor
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.runDoctor()
-                },
-                Kirigami.Action {
-                    text: i18n("Copy Command")
-                    icon.name: "edit-copy"
-                    enabled: popup.plasmoidItem.reportOffersDoctor
-                    visible: enabled
-                    onTriggered: source => popup.copyToClipboard(Logic.COPY.engineUnrunnableCopy)
                 }
             ]
         }
@@ -855,7 +848,8 @@ PlasmaExtras.Representation {
                                                      : Kirigami.MessageType.Positive)
             text: running ? i18n("Checking Kempt's installation…") : popup.plasmoidItem.doctorSummary
             visible: popup.shows("doctor")
-            showCloseButton: !running
+            // Closable while it runs too: doctor can wait minutes behind a check or Free Up Space.
+            showCloseButton: true
             property bool showingReport: false
             Accessible.name: text
             // Polite: the answer to the person's own press.
@@ -905,7 +899,7 @@ PlasmaExtras.Representation {
                 wrapMode: TextEdit.Wrap
                 font.family: "monospace"
                 text: popup.plasmoidItem.doctorReport
-                Accessible.name: i18n("Show Full Report")
+                Accessible.name: i18n("Full report")
             }
         }
 
@@ -1204,6 +1198,15 @@ PlasmaExtras.Representation {
                         enabled: !!popup.plasmoidItem.lastRun
                                  && popup.plasmoidItem.lastRun.logPath.length > 0
                         onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
+                    },
+                    // A failed run whose reason says to run kempt doctor: the button that does it.
+                    Kirigami.Action {
+                        text: i18n("Check Installation")
+                        icon.name: "tools-report-bug"
+                        enabled: Logic.mentionsDoctor(Logic.lastRunSubtitle(
+                            popup.plasmoidItem.lastRun, popup.plasmoidItem.reclaimInUseSeen))
+                        visible: enabled
+                        onTriggered: source => popup.plasmoidItem.runDoctor()
                     }
                 ]
             }

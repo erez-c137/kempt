@@ -124,6 +124,9 @@ PlasmoidItem {
     property string doctorSummary: ""
     property bool doctorFailed: false
     property string doctorReport: ""
+    // Which press the result on screen belongs to. Closing bumps it, so a doctor still queued
+    // behind a check or Free Up Space answers nobody when it finally runs.
+    property int doctorRun: 0
     // The report on screen tells the person to run doctor, so it carries the button.
     readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
 
@@ -350,6 +353,9 @@ PlasmoidItem {
         actionDone = "";
         restartError = "";
         holdError = null;
+        // ...and a Check Installation answer, which described the installation before this check.
+        // One still waiting its turn is left alone: it answers a press made since.
+        if (!doctorRunning) dismissDoctor();
         // Asked again while one is running: coalesce, never drop. The running check read its
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
@@ -872,11 +878,15 @@ PlasmoidItem {
     // keep the keyboard.
     function runDoctor() {
         if (doctorRunning) return;
+        doctorRun += 1;
+        var mine = doctorRun;
         doctorRunning = true;
         doctorSummary = "";
         doctorFailed = false;
         doctorReport = "";
         executor.run(kemptCmd + " doctor", Logic.DOCTOR_TIMEOUT_MS, function(stdout, stderr, rc) {
+            // Closed, or put away by a run, while it waited: the answer is to nobody.
+            if (mine !== root.doctorRun) return;
             var said = Logic.doctorOutcomeOf(rc, stdout, stderr);
             root.doctorReport = said.report;
             root.doctorFailed = said.failed;
@@ -885,9 +895,10 @@ PlasmoidItem {
         });
     }
 
-    // Closing the result. Nothing is stored: the next press runs doctor again.
+    // Closing the result, or the busy line. Nothing is stored: the next press runs doctor again.
     function dismissDoctor() {
-        if (doctorRunning) return;
+        doctorRun += 1;
+        doctorRunning = false;
         doctorSummary = "";
         doctorFailed = false;
         doctorReport = "";
@@ -949,6 +960,9 @@ PlasmoidItem {
         runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
         riskyChoiceOpen = false;
+        // A run changes the installation, so whatever doctor said, or is about to say, is about
+        // the one before it. The run's own end must not bring it back.
+        dismissDoctor();
         // Noted BEFORE anything is launched, so the entry the run writes can only be stamped at or
         // after this - see Logic.runFinishedSince for the comparison.
         updateStartedMs = Date.now();

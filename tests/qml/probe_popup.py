@@ -1470,17 +1470,13 @@ p.check("...and the staged banner is still there, because nothing was discarded"
         ev("root.vm.stagedArmed"), True)
 
 # --- Check Installation: `kempt doctor`, run from the report that names it -----------------------
-# The refusal ends "See: kempt doctor", so the report carries the button and the command.
+# The refusal ends "See: kempt doctor", so the report carries the button. Copy Command is on the
+# result instead: Show Log, two more and a close do not fit the narrowest popup.
 p.pump(50)
 p.check("a report that names kempt doctor offers Check Installation",
         [lev("reportMessage.actions[1].text"), lev("reportMessage.actions[1].visible")],
         ["Check Installation", True])
-p.check("...and the command itself, one press from the clipboard",
-        [lev("reportMessage.actions[2].text"), lev("reportMessage.actions[2].visible")],
-        ["Copy Command", True])
-lev("reportMessage.actions[2].trigger()")
-p.pump(50)
-p.check("...which copies the command the report names", lev("engineCopyClip.text"), "kempt doctor")
+p.check("...and nothing more on that row", lev("reportMessage.actions.length"), 2)
 open(DOCTOROUT, "w").write(DOCTOR_ONE)
 open(DOCTORRC, "w").write("1")
 open(DOCTORWAIT, "w").write("1")
@@ -1491,9 +1487,9 @@ p.check("pressed, it says it is checking at once, before doctor answers",
         [lev("doctorMessage.visible"), lev("doctorMessage.text")],
         [True, "Checking Kempt's installation…"])
 p.check("...under the report that asked, which stays", lev("reportMessage.visible"), True)
-p.check("...with no close button and no report yet",
+p.check("...closable while it runs, with no report yet",
         [lev("doctorMessage.showCloseButton"), lev("doctorMessage.actions[0].visible")],
-        [False, False])
+        [True, False])
 p.check("...and the rest of the popup still answers while it waits", lev("refreshButton.enabled"), True)
 lev("reportMessage.actions[1].trigger()")
 p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
@@ -1506,6 +1502,10 @@ p.check("the result quotes the first problem in doctor's own words",
         "Kempt found a problem with its installation: polkit action not installed:"
         " /usr/share/polkit-1/actions/x.policy")
 p.check("...as an error", lev("doctorMessage.type"), lev("Kirigami.MessageType.Error"))
+p.check("...beside the report and the staged banner, which it does not push out",
+        json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["report", "doctor", "staged"])
+p.check("...and on screen together", [lev("reportMessage.visible"), lev("doctorMessage.visible"),
+                                      lev("stagedMessage.visible")], [True, True, True])
 p.check("...and the full report is folded away until asked for",
         [lev("doctorMessage.actions[0].text"), lev("doctorMessage.actions[0].visible"),
          lev("doctorReportView.visible")], ["Show Full Report", True, False])
@@ -1533,7 +1533,43 @@ p.check("...with the report folded again for the new answer", lev("doctorReportV
 ev("root.dismissDoctor()")
 p.pump(50)
 p.check("closed, the result goes", lev("doctorMessage.visible"), False)
+# Closed while doctor still waits or runs: the busy line goes at once, and the late answer is
+# thrown away rather than coming back.
+open(DOCTOROUT, "w").write(DOCTOR_ONE)
+open(DOCTORRC, "w").write("1")
+open(DOCTORWAIT, "w").write("1")
+ev("root.runDoctor()")
+p.pump(50)
+ev("root.dismissDoctor()")
+p.pump(50)
+p.check("closed during a run, the busy line goes at once",
+        [ev("root.doctorRunning"), lev("doctorMessage.visible")], [False, False])
+settle()
+p.pump(50)
+p.check("...and the answer that lands later shows nowhere",
+        [ev("root.doctorSummary"), lev("doctorMessage.visible")], ["", False])
+# A check that starts puts a finished answer away: it described the installation before it.
+open(DOCTORWAIT, "w").write("")
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("premise: an answer is on screen", lev("doctorMessage.visible"), True)
+ev("root.doCheck()")
+settle()
+p.pump(50)
+p.check("a check that starts puts the answer away", lev("doctorMessage.visible"), False)
+# ...and so does a run, whose end does not bring it back.
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+ev("root.enterUpdating()")
+ev("root.leaveUpdating()")
+settle()
+p.pump(50)
+p.check("a run puts the answer away, and its end does not bring it back",
+        [ev("root.doctorSummary"), lev("doctorMessage.visible")], ["", False])
 open(DOCTOROUT, "w").write("")
+open(DOCTORRC, "w").write("0")
 
 # ...and a status with nothing on either stream, which is the case the copy table is FOR.
 open(UNSTAGERC, "w").write("3")
@@ -1837,9 +1873,8 @@ p.check("...saying what failed, in the words main.qml was given",
 p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...with no Show Log on it, because a failed press wrote no log",
         lev("reportMessage.actions[0].visible"), False)
-p.check("...and no Check Installation or command, because it does not name kempt doctor",
-        [lev("reportMessage.actions[1].visible"), lev("reportMessage.actions[2].visible")],
-        [False, False])
+p.check("...and no Check Installation, because it does not name kempt doctor",
+        lev("reportMessage.actions[1].visible"), False)
 # Words from outside (flatpak's error line, the CLI's stderr) are shown as written, never as markup.
 ev('root.actionMessage = "error: <b>x</b> &amp; y"')
 p.pump(50)
