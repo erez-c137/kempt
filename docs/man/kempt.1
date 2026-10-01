@@ -355,8 +355,11 @@ when that copy already exists,
 .B off
 changes nothing and exits 1.
 .B on
-restores that file exactly, or removes the one Kempt wrote, then starts the notifier for the
-session. It exits 1 when an entry of the user's own keeps the notifier off.
+removes the entry Kempt wrote, only while it matches byte for byte (an edited one is moved to
+.IR org.kde.discover.notifier.desktop.kempt\-edited ),
+restores the kept file exactly, then starts the notifier for the session. It exits 1 when an
+entry of the user's own keeps the notifier off. Both exit 1 when the entry path is a directory or
+a symlink to nothing.
 .B keep
 changes nothing and records that the widget's offer was answered.
 .B status

@@ -867,12 +867,15 @@ Kempt's. These commands change it for you alone and never ask for a password.
 
 - `off` writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
   notifier no longer starts when you log in, and stops the one that is running. If you already had
-  your own file there, Kempt moves it next to the new one, ending in `.before-kempt`. A symlink
-  stays a symlink. Kempt keeps one such copy and never overwrites it: when one is already there,
-  `off` changes nothing, says where it is and exits 1.
-- `on` puts your own file back exactly as it was, or removes the one Kempt wrote. Then it starts the
-  notifier for this session, and says so once it is running. If an entry of your own keeps the
-  notifier off, `on` leaves it alone, says so and exits 1.
+  your own file there, Kempt moves it next to the new one, ending in `.before-kempt`, and prints
+  where. A symlink stays a symlink. Kempt keeps one such copy and never overwrites it: when one is
+  already there, `off` changes nothing, says where it is and exits 1. When the notifier is already
+  off, by any entry, `off` changes no file and says so.
+- `on` removes the file Kempt wrote and puts your own back exactly as it was. Kempt removes only
+  what it wrote, byte for byte: if you edited its file, `on` moves your version to a name ending in
+  `.kempt-edited` and prints where. Then it starts the notifier for this session, and says so once
+  it is running. If an entry of your own keeps the notifier off, `on` leaves it alone, says so and
+  exits 1.
 - `keep` changes nothing. It records that you answered the widget's offer, which is what **Keep
   Discover's Notifier** runs.
 - `status` says whether the notifier is installed, on, turned off by Kempt and running. `--json`
@@ -880,12 +883,13 @@ Kempt's. These commands change it for you alone and never ask for a password.
 
 When Discover's notifier is not installed, `off`, `on` and `keep` say so and change nothing.
 
-Kempt before 0.1.8 wrote the same file from `./install.sh` without a mark. Kempt still recognises
-it, and moves it to a copy ending in `.kempt-legacy` rather than delete it, in case it held your own
-settings.
+Kempt before 0.1.8 wrote a copy of the system entry with `Hidden=true` from `./install.sh`.
+Nothing tells that file apart from one you wrote, so Kempt treats it as yours. To turn the notifier
+back on, delete it.
 
-Exit codes: **1** when `off` finds a copy of your own entry already kept, or `on` finds your own
-entry keeps the notifier off. Nothing changed in either case.
+Exit codes: **1** when `off` finds a copy of your own entry already kept, `on` finds your own entry
+keeps the notifier off, or the entry path is a directory or a symlink to nothing. Nothing changed in
+any of these cases. Two of these commands at once take turns, on the writers' lock.
 
 ## The Plasma widget
 
