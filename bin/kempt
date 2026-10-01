@@ -523,8 +523,8 @@ cmd_check() {
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
   # nothing below may change `status`: the check must answer with or without a size.
-  local dnf_sz fp_sz dnf_priced=false fp_priced=false
-  dnf_sz="$(mktemp)"; fp_sz="$(mktemp)"
+  local dnf_sz fp_sz fp_scopes_f dnf_priced=false fp_priced=false
+  dnf_sz="$(mktemp)"; fp_sz="$(mktemp)"; fp_scopes_f="$(mktemp)"
   # -n/[inputs][0]: the corrupt-tolerance idiom above (a multi-doc file joins one last_success per
   # document into one string).
   prev_ls="$(jq -r -n '[inputs][0].last_success? // empty' "$STATE_FILE" 2>/dev/null || true)"
@@ -542,7 +542,7 @@ cmd_check() {
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
   if is_true "$(config_get include_flatpak)"; then
-    if fp_items="$(flatpak_check "$fp_sz" 2>"$errf")"; then fp_priced=true; else
+    if fp_items="$(flatpak_check "$fp_sz" "$fp_scopes_f" 2>"$errf")"; then fp_priced=true; else
       serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
@@ -558,7 +558,13 @@ cmd_check() {
   # After mark_held, because the coverage rule below counts NON-HELD items only.
   [[ "$dnf_priced" == true ]] && dnf_items="$(attach_sizes "$dnf_sz" <<<"$dnf_items")"
   [[ "$fp_priced"  == true ]] && fp_items="$(attach_sizes "$fp_sz"  <<<"$fp_items")"
-  rm -f "$dnf_sz" "$fp_sz"
+  # Each installation's outcome, written by flatpak_check only when there is a per-user one.
+  local fp_scopes=""
+  if [[ -s "$fp_scopes_f" ]]; then
+    fp_scopes="$(jq -cSRn '[inputs | select(length > 0) | split(" ") | {(.[0]): .[1]}] | add' \
+                 < "$fp_scopes_f" 2>/dev/null)" || fp_scopes=""
+  fi
+  rm -f "$dnf_sz" "$fp_sz" "$fp_scopes_f"
   local dnf_bytes fp_bytes=""
   dnf_bytes="$(backend_download_bytes <<<"$dnf_items")"
   # A switched-off backend gets no figure rather than a zero: `download_bytes: 0` would claim
@@ -609,6 +615,14 @@ cmd_check() {
   # Read AFTER maybe_refresh_metadata, so a check that has just fetched publishes the fetch it
   # made rather than the one before it.
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
+  # A per-user installation that failed leaves the system answer standing and says so here, as
+  # the history's `scopes` does, rather than marking the whole backend stale.
+  local scoped
+  if [[ -n "$fp_scopes" ]] \
+     && scoped="$(jq -c --argjson s "$fp_scopes" '.backends.flatpak.scopes = $s' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$scoped" ]]; then
+    state="$scoped"
+  fi
   # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
   # say in the check's status. Guarded at every step (set -e, and this runs inside the check lock):
   # a helper, du or jq that fails leaves the state exactly as assembled, never a failed check.
@@ -936,6 +950,11 @@ apply_flatpak_updates() {
     local held_fp scope scope_status scope_list outcomes=""
     held_fp="$(holds_for flatpak)"
     scope_list="$(flatpak_scopes)"
+    # Found before the run but unreadable: not updated, and reported failed like a failed update.
+    if [[ "${fp_user_unreadable:-false}" == true ]]; then
+      outcomes="user failed"$'\n'; fp_status="failed"; status="failed"
+      log_warn "$log" "warning: the apps for you only could not be listed, so they were not updated"
+    fi
     for scope in $scope_list; do
       if [[ "$scope" == user ]]; then run_heading "$log" "Apps for you only (flatpak)"; fi
       scope_status=ok
@@ -945,15 +964,15 @@ apply_flatpak_updates() {
         fp_status="failed"; status="failed"
         if [[ "$scope" == user ]]; then
           log_warn "$log" "warning: updating apps for you only failed"
-        elif [[ "$scope_list" == *user* ]]; then
+        elif [[ "$scope_list$outcomes" == *user* ]]; then
           log_warn "$log" "warning: updating system apps failed"
         fi
       fi
     done
     # Each installation's outcome, recorded only when there is a per-user one, so a run without it
     # writes the entry it always did. A jq that fails costs the detail, never the run.
-    if [[ "$scope_list" == *user* ]]; then
-      fp_scopes="$(jq -cRn '[inputs | select(length > 0) | split(" ") | {(.[0]): .[1]}] | add' \
+    if [[ "$scope_list$outcomes" == *user* ]]; then
+      fp_scopes="$(jq -cSRn '[inputs | select(length > 0) | split(" ") | {(.[0]): .[1]}] | add' \
                    <<<"$outcomes" 2>/dev/null)" || fp_scopes='null'
       [[ -n "$fp_scopes" ]] || fp_scopes='null'
     fi
@@ -970,22 +989,22 @@ apply_flatpak_updates() {
 # One installation's update, with the holds applied by id in both. Non-zero when any part failed.
 # Reads: held_fp, yflag, log.
 apply_flatpak_scope() {  # system|user
-  local scope="$1" rc=0 sflag=()
-  [[ "$scope" == user ]] && sflag=(--user)
+  local scope="$1" rc=0 sflag=() where="system apps"
+  [[ "$scope" == user ]] && { sflag=(--user); where="apps for you only"; }
   if [[ -n "$held_fp" ]]; then
     # holds exist → per-app updates of every pending, non-held, INSTALLED app. That pre-filter
     # is the ONLY installed check there is (flatpak errors out on an id it does not have), so an
     # empty installed set means no ids pass and the run reports flatpak failed.
     local installed_fp id pending_fp ids=()
     installed_fp="$(flatpak_snapshot "$scope" | cut -f1 | sed "s/^$KEMPT_FLATPAK_USER_KEY//")" \
-      || { installed_fp=""; rc=1; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
+      || { installed_fp=""; rc=1; log_warn "$log" "warning: flatpak installed lookup failed for the $where, so none of them were updated"; }
     # ONE capture, read twice below: the apps to name individually, and whether any runtime is
     # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
     # answer that cannot have changed in between.
     # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
     # and still reported flatpak `ok`. Failed, like the installed lookup above.
     pending_fp="$(flatpak_check_scope "$scope" 2>/dev/null)" \
-      || { pending_fp=""; rc=1; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
+      || { pending_fp=""; rc=1; log_warn "$log" "warning: flatpak update lookup failed for the $where, so none of them were updated"; }
     while IFS= read -r id; do
       [[ -n "$id" ]] || continue
       grep -qxF "$id" <<<"$held_fp" && continue
@@ -1302,9 +1321,15 @@ cmd_update() {
   # BEFORE anything is touched (see preflight_abort).
   dnf_snapshot > "$SNAP_DIR/dnf-before.tsv" \
     || preflight_abort "cannot read the installed package set - aborting before any change"
-  if is_true "$include_fp"; then
-    flatpak_snapshot > "$SNAP_DIR/fp-before.tsv" \
-      || preflight_abort "cannot read the installed flatpak set - aborting before any change"
+  # A per-user installation that cannot be read drops only itself: the run goes on without it and
+  # reports it failed (apply_flatpak_updates). Only the system set can stop the run.
+  local fp_user_unreadable=false
+  if is_true "$include_fp" && ! flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"; then
+    if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-before.tsv"; then
+      KEMPT_FLATPAK_USER_SKIP=1; fp_user_unreadable=true
+    else
+      preflight_abort "cannot read the installed flatpak set - aborting before any change"
+    fi
   fi
 
   # Recorded here and not a line earlier: everything above can still decline to run without
@@ -1572,8 +1597,20 @@ cmd_update() {
     rm -f "$keep_f"
   fi
   if is_true "$include_fp"; then
-    if flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
-      fp_report="$(tsv_diff_updates "$SNAP_DIR/fp-before.tsv" "$SNAP_DIR/fp-after.tsv" | flatpak_report_scopes)" \
+    # A per-user set unreadable only now: the report covers the system apps, and is compared with
+    # the system rows of the before-snapshot, so the per-user apps are not reported removed.
+    local fp_before="$SNAP_DIR/fp-before.tsv" fp_after_ok=true
+    if ! flatpak_snapshot > "$SNAP_DIR/fp-after.tsv"; then
+      if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-after.tsv"; then
+        fp_before="$SNAP_DIR/fp-before-system.tsv"
+        { grep -v "^$KEMPT_FLATPAK_USER_KEY" "$SNAP_DIR/fp-before.tsv" || true; } > "$fp_before"
+        log_warn "$log" "warning: the apps for you only could not be listed after the run - summary incomplete"
+      else
+        fp_after_ok=false
+      fi
+    fi
+    if [[ "$fp_after_ok" == true ]]; then
+      fp_report="$(tsv_diff_updates "$fp_before" "$SNAP_DIR/fp-after.tsv" | flatpak_report_scopes)" \
         || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed - summary incomplete"; }
       # Only here: after the snapshot the report is built from, and only on a run that worked.
       [[ "$status" == ok ]] && { reclaim_after_run "$log" || true; }

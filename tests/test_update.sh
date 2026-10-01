@@ -2455,7 +2455,7 @@ cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 # left them behind while saying all was well. The per-user installation is updated after the system
 # one, as the person, with the same holds, retries and reporting. Its stand-in writes a line of its
 # own and moves its own snapshot, the way a real update changes the next listing.
-mkdir -p "$TESTTMP/ufp/repo"
+mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
 printf 'com.brave.Browser\t1.79\nnet.mkiol.SpeechNote\t4.8.0\n' > "$TESTTMP/u-before.tsv"
 printf 'com.brave.Browser\t1.80\nnet.mkiol.SpeechNote\t4.9.0\n' > "$TESTTMP/u-after.tsv"
 printf 'com.brave.Browser\t1.80\t219.2\xc2\xa0MB\nnet.mkiol.SpeechNote\t4.9.0\t1.1\xc2\xa0GB\n' > "$TESTTMP/u-remote.tsv"
@@ -2516,6 +2516,39 @@ assert_eq "$(grep '^FLATPAK-USER' "$WORLD/apply-calls")" "FLATPAK-USER --noninte
   "a hold on an id installed both ways skips the per-user copy"
 assert_not_contains "$(grep '^FLATPAK ' "$WORLD/apply-calls")" "net.mkiol.SpeechNote" "...and the system copy"
 "$KEMPT" unhold flatpak:net.mkiol.SpeechNote >/dev/null
+
+# With holds, a lookup that fails names the installation it failed in.
+"$KEMPT" hold flatpak:org.gimp.GIMP >/dev/null
+KEMPT_FLATPAK_USER_REMOTE_CMD=false uf_update
+assert_contains "$(cat "$(jq -r .log "$UH")")" "flatpak update lookup failed for the apps for you only" \
+  "a failed per-user lookup is named as the per-user one"
+assert_eq "$(grep -c '^FLATPAK ' "$WORLD/apply-calls")" "1" "...and the system apps are still updated"
+"$KEMPT" unhold flatpak:org.gimp.GIMP >/dev/null
+
+# A per-user installation that cannot be listed drops only itself: dnf and the system apps update,
+# and the run says the per-user side failed. It used to stop the whole run before dnf.
+KEMPT_FLATPAK_USER_SNAP_CMD=false uf_update
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")|$(grep -c '^FLATPAK ' "$WORLD/apply-calls")|$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" \
+  "1|1|0" "an unreadable per-user installation: dnf and the system apps update, the per-user apps do not"
+assert_eq "$(jq -r .status "$UH")|$(jq -c .backends.flatpak.scopes "$UH")" 'failed|{"system":"ok","user":"failed"}' \
+  "...and the run records the per-user side as failed"
+assert_contains "$(cat "$(jq -r .log "$UH")")" "the apps for you only could not be listed" "...said in the log"
+assert_eq "$(jq -c '[.backends.flatpak.removed[] | select(.scope == "user")] | length' "$UH")" "0" \
+  "...and no per-user app is reported removed"
+
+# A bare repo directory, which flatpak fails on, is no installation: the run is the system one.
+rm "$TESTTMP/ufp/repo/config"
+KEMPT_FLATPAK_USER_SNAP_CMD=false KEMPT_FLATPAK_USER_LIST_CMD=false uf_update
+assert_eq "$(jq -r .status "$UH")|$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")|$(jq -c .backends.flatpak.scopes "$UH")" \
+  "ok|0|null" "an empty per-user repo directory changes nothing about the run"
+: > "$TESTTMP/ufp/repo/config"
+
+# Never as root with the person's HOME: flatpak would leave root-owned files in their installation.
+SUDO_UID=1000 uf_update
+assert_eq "$(grep -c '^FLATPAK ' "$WORLD/apply-calls")|$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" "1|0" \
+  "a run under sudo updates the system apps and leaves the per-user installation alone"
+PKEXEC_UID=1000 uf_update
+assert_eq "$(grep -c '^FLATPAK-USER' "$WORLD/apply-calls")" "0" "...and so does one under pkexec"
 
 # Reclaim stays with the system installation: with per-user apps present it removes exactly the
 # system runtimes it removed without them, through the system command, and nothing per-user.

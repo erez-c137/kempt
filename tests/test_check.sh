@@ -1147,7 +1147,7 @@ export KEMPT_FLATPAK_REMOTE_RUNTIME_CMD=true KEMPT_FLATPAK_LIST_RUNTIME_CMD=true
 sys_state="$(KEMPT_SKIP_REFRESH=1 "$KEMPT" check)"
 printf 'com.brave.Browser\t1.80\t219.2\xc2\xa0MB\nnet.mkiol.SpeechNote\t4.9.0\t1.1\xc2\xa0GB\n' > "$TESTTMP/u-remote.tsv"
 printf 'com.brave.Browser\t1.79\nnet.mkiol.SpeechNote\t4.8.0\n' > "$TESTTMP/u-list.tsv"
-mkdir -p "$TESTTMP/ufp/repo"
+mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
 u_state="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
   KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" \
   "$KEMPT" check)"
@@ -1162,4 +1162,19 @@ assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.name == "net.mkiol.Spee
 assert_eq "$(jq '[.backends.flatpak.items[] | select(has("scope"))] | length' <<<"$sys_state")" "0" \
   "with no per-user installation no item carries a scope, so the state is what it was"
 assert_eq "$(jq -r .schema <<<"$u_state")" "1" "...and the field leaves the schema at 1"
+assert_eq "$(jq -c .backends.flatpak.scopes <<<"$u_state")|$(jq -c .backends.flatpak.scopes <<<"$sys_state")" \
+  '{"system":"ok","user":"ok"}|null' "each installation's outcome is in the state, only when there is a per-user one"
+# One bad per-user remote: the system answer stands, the check is not stale, and the state says
+# which installation failed.
+bad_user="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \
+  KEMPT_FLATPAK_USER_REMOTE_CMD=false KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check)"
+assert_eq "$(jq -r .status <<<"$bad_user")" "ok" "a failing per-user query does not make the check stale"
+assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_user")" "$n_sys_fp" "...the system apps are still counted"
+assert_eq "$(jq -c .backends.flatpak.scopes <<<"$bad_user")" '{"system":"ok","user":"failed"}' "...and the state says the per-user side failed"
+# A per-user directory flatpak cannot use (no repo config) is no installation at all.
+rm "$TESTTMP/ufp/repo/config"
+empty_repo="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_REMOTE_CMD=false \
+  KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" check)"
+assert_eq "$(jq -r .status <<<"$empty_repo")|$(jq -c .backends.flatpak.scopes <<<"$empty_repo")" "ok|null" \
+  "an empty per-user repo directory changes nothing"
 finish

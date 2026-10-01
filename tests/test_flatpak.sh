@@ -510,9 +510,18 @@ assert_eq "$(jq -c '[.[] | select(has("scope"))] | length' <<<"$sys_only")" "0" 
 flatpak_snapshot >/dev/null; flatpak_refresh || true; flatpak_id_is_runtime org.x || true
 assert_eq "$(cat "$TESTTMP/u-calls")" "" "...and no --user command runs at all, which would create the installation"
 
-# Per-user only: no system apps pending, three items in the user installation.
+# A bare repo directory is not an installation: flatpak fails on one, so it is never asked.
 mkdir -p "$UFP/repo"
 export KEMPT_FLATPAK_USER_DIR="$UFP"
+assert_eq "$(flatpak_scopes)" "system" "an empty per-user repo directory is not an installation"
+assert_eq "$(cat "$TESTTMP/u-calls")" "" "...so no --user command runs"
+
+# Per-user only: no system apps pending, three items in the user installation.
+: > "$UFP/repo/config"
+# Never as root: sudo -E and pkexec keep the person's HOME, and flatpak would write root-owned files
+# into their installation.
+assert_eq "$(SUDO_UID=1000 flatpak_scopes)" "system" "under sudo the per-user installation is left alone"
+assert_eq "$(PKEXEC_UID=1000 flatpak_scopes)" "system" "...and under pkexec"
 export KEMPT_FLATPAK_REMOTE_CMD="true"
 export KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv"
 export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="cat $TESTTMP/u-remote-rt.tsv"
@@ -548,9 +557,18 @@ held_both="$(bash -c 'source "$1/lib/common.sh"; HOLDS_FILE="$2"
 assert_eq "$(jq -c '[.[] | select(.name == "net.mkiol.SpeechNote") | .held]' <<<"$held_both")" '[true,true]' \
   "a hold on an id holds it in both installations"
 
-# A per-user arm that fails fails the backend, as the system arm does.
-assert_exit 1 "a failing per-user query fails the check" env KEMPT_FLATPAK_USER_REMOTE_CMD=false \
-  bash -c 'source "$1/lib/common.sh"; source "$1/backends/flatpak.sh"; flatpak_check' _ "$REPO_ROOT"
+# A per-user arm that fails drops only the per-user items: the system answer stands, and the
+# outcome of each installation is written for the state.
+u_fail="$(KEMPT_FLATPAK_USER_REMOTE_CMD=false flatpak_check "$TESTTMP/uf-sz.tsv" "$TESTTMP/uf-scopes" 2>/dev/null)"
+assert_eq "$?" "0" "a failing per-user query does not fail the check"
+assert_eq "$(jq -c '[.[] | select(.scope == "user")] | length' <<<"$u_fail")|$(jq -c '[.[] | select(.scope == null and .name == "net.mkiol.SpeechNote")] | length' <<<"$u_fail")" \
+  "0|1" "...it keeps the system items and drops the per-user ones"
+assert_eq "$(cat "$TESTTMP/uf-scopes")" "system ok
+user failed" "...and records each installation's outcome"
+assert_eq "$(grep -c '^user:' "$TESTTMP/uf-sz.tsv" || true)" "0" "...with no per-user size rows"
+flatpak_check >/dev/null "" "$TESTTMP/ok-scopes"
+assert_eq "$(cat "$TESTTMP/ok-scopes")" "system ok
+user ok" "both answering: both recorded ok"
 
 # The snapshot: per-user rows keyed user:<id>, so the id in both installations is two rows.
 export KEMPT_FLATPAK_SNAP_CMD="cat $FIXTURES/flatpak-list.tsv" KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"

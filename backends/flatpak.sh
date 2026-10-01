@@ -103,8 +103,16 @@ KEMPT_FLATPAK_USER_UPDATE_CMD="${KEMPT_FLATPAK_USER_UPDATE_CMD:-flatpak update -
 KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="${KEMPT_FLATPAK_USER_APP_RUNTIME_CMD:-flatpak list --user --app --columns=application,name,runtime}"
 KEMPT_FLATPAK_USER_INFO_CMD="${KEMPT_FLATPAK_USER_INFO_CMD:-flatpak info --user}"
 
-# Whether the person has a per-user installation at all. Nothing is asked of it otherwise.
-flatpak_user_present() { [[ -d "$KEMPT_FLATPAK_USER_DIR/repo" ]]; }
+# Whether the person has a working per-user installation. Nothing is asked of it otherwise.
+# repo/config is what makes the directory an ostree repo: flatpak fails on a bare repo dir.
+flatpak_user_found() { [[ -f "$KEMPT_FLATPAK_USER_DIR/repo/config" ]]; }
+# ...and whether to use it. Never as root: a `sudo -E` or pkexec run keeps the person's HOME, and
+# `flatpak update --user` would leave root-owned files in their installation (as reclaim_as_root).
+# Never once this run found it unreadable either: KEMPT_FLATPAK_USER_SKIP drops the user side only.
+flatpak_user_present() {
+  [[ $EUID -ne 0 && -z "${SUDO_UID:-}" && -z "${PKEXEC_UID:-}" && -z "${KEMPT_FLATPAK_USER_SKIP:-}" ]] \
+    && flatpak_user_found
+}
 
 # The installations to ask, system first: the order the check lists them and the run updates them.
 flatpak_scopes() { echo system; if flatpak_user_present; then echo user; fi; }
@@ -320,14 +328,20 @@ flatpak_parse_sizes() {  # stdin: remote-ls rows → TSV appid<TAB>bytes; unpars
   | sort -t "$(printf '\t')" -k1,1
 }
 
-flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR parser failure
-  local scope all="" part sz="" szall="" rc
-  # Either installation failing fails the backend, like the runtime arm inside one: a check that
-  # answered for half the apps would show "up to date" over the other half.
+flatpak_check() {  # [sizes_out_path] [scopes_out_path] → items JSON; non-zero on command OR parser failure
+  local scope all="" part sz="" szall="" rc outcomes=""
+  # The system installation failing fails the backend, like the runtime arm inside one. The
+  # per-user one failing drops only its own items: a bad per-user remote must not take the system
+  # answer down with it. Each outcome goes to $2 when there is a per-user installation.
   [[ -n "${1:-}" ]] && sz="$(mktemp)"
   for scope in $(flatpak_scopes); do
     rc=0; part="$(flatpak_check_scope "$scope" "$sz")" || rc=$?
+    if [[ $rc -ne 0 && "$scope" == user ]]; then
+      echo "per-user flatpak check failed" >&2
+      outcomes+="user failed"$'\n'; continue
+    fi
     [[ $rc -eq 0 ]] || { rm -f ${sz:+"$sz"}; return $rc; }
+    outcomes+="$scope ok"$'\n'
     all+="$part"$'\n'
     [[ -n "$sz" ]] && szall+="$(cat "$sz")"$'\n'
   done
@@ -335,6 +349,7 @@ flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR par
     printf '%s' "$szall" | awk 'NF' | sort -t "$(printf '\t')" -k1,1 > "$1" || : > "$1"
     rm -f "$sz"
   fi
+  if [[ -n "${2:-}" && "$outcomes" == *user* ]]; then printf '%s' "$outcomes" > "$2" || true; fi
   printf '%s' "$all" | jq -c -s 'add'
 }
 
@@ -519,7 +534,8 @@ flatpak_eol_lookup() {  # APP_RUNTIME_CMD|LIST_RUNTIME_CMD → the rows of every
   local scope cmd out all=""
   for scope in $(flatpak_scopes); do
     cmd="$(flatpak_cmd "$scope" "$1")"
-    out="$($cmd 2>/dev/null)" || return 1
+    # A per-user lookup that fails costs only the per-user apps' names in the notes.
+    out="$($cmd 2>/dev/null)" || { [[ "$scope" == user ]] && continue; return 1; }
     all+="$out"$'\n'
   done
   printf '%s' "$all" | awk 'NF'
