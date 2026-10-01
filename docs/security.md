@@ -238,9 +238,8 @@ manager. **What gets installed** is bounded by these:
   `gpgcheck` off already requires root. Fedora sets `repo_gpgcheck=0`: the **packages** are
   verified, and the repository metadata is unsigned.
 - **Flatpak verifies commits.** System remotes are ostree repositories with signed commits, and
-  their configuration is root-owned too. Per-user remotes live in your home and verify commits
-  the same way. Kempt updates them as you, so a per-user remote reaches nothing outside your
-  account.
+  their configuration is root-owned too. Per-user remotes live in your home, and Kempt updates
+  them as you, so a per-user remote reaches nothing outside your account.
 - **Upgrades still run package scriptlets as root.** An RPM `%post` from any package in the
   transaction runs as root, as it does with `sudo dnf5 upgrade` typed by hand. Kempt adds no
   exposure here and removes none.
@@ -390,7 +389,7 @@ left in place.
   before handing the result to root. Keep the checkout in your own home or workspace, and out of
   anywhere group- or world-writable. Root-owned files are unaffected.
 - **Removing unused runtimes is system scope only.** Per-user runtimes are counted and updated,
-  never removed. Flatpak counts your per-user apps as users of system runtimes, so a system runtime
+  and stay installed. Flatpak counts your per-user apps as users of system runtimes, so a system runtime
   one of them needs is never offered.
 - **Holds apply to Kempt only.** They are Kempt's own exclusion list; a manual
   `sudo dnf5 upgrade` ignores them.

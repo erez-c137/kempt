@@ -49,8 +49,6 @@ machine with one app can end up with two copies of a runtime of a gigabyte or mo
 - **The `reclaim` setting** is `ask` (the default), `automatic` or `off`. `automatic` removes them
   after each update. It acts as `ask` on an image-based system, and when more than one person may
   use the machine. `off` hides them.
-- **Per-user Flatpak apps** were missed, so Kempt said everything was up to date while they had
-  updates. Kempt now checks and updates them with the system ones and marks them "For you only".
 
 These rules hold for every value:
 
@@ -64,6 +62,12 @@ These rules hold for every value:
   removes only those still unused, so one an app has just started using stays.
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
+
+The release also fixes one problem:
+
+- **Per-user Flatpak apps** were missed, so Kempt said everything was up to date while they had
+  updates. Kempt now checks and updates them with the system ones and marks them **For you only**.
+  It is on for everyone, so counts rise for people with per-user apps.
 
 ## Then: 0.1.8, easier from the first update
 
