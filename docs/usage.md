@@ -992,7 +992,13 @@ lower in this list are left out. If that hides the restart message, the footer s
    `kempt update --surface=offline`. Without a kernel, it names what is in the update: `This update
    touches 20 packages the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way
    is to install them on the next restart.` It is hidden while an update is staged.
-8. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
+   After **Update Now**, when updates run outside a terminal, the same message asks first. It
+   moves to the top and adds **Install Now**. **Install on Next Restart** has the keyboard.
+8. **"Updates can now run here in the popup, without opening a terminal window."** It shows once,
+   on an install that kept the terminal when it upgraded to 0.1.8. **Use the Popup** switches **Run
+   updates in** to **In this widget**. **Keep the Terminal** keeps it and hides the message for
+   good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
+9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
    `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
    lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
    saw: if the list changed, nothing is removed and the popup says so. It never asks for a
@@ -1116,6 +1122,10 @@ not counted.
 **Update Now** runs `kempt run`, which updates wherever your settings say. After a press it shows a
 spinner until the CLI answers, so one press starts one run. It is hidden when there is nothing to
 update, and while an update is staged.
+
+When the update includes a kernel, systemd or other desktop packages, and runs outside a terminal,
+**Update Now** asks first. It offers **Install on Next Restart** or **Install Now**. **Install
+Now** runs `kempt run --risky-ok`. In a terminal, the terminal asks instead.
 
 #### While an update runs
 

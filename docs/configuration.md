@@ -12,7 +12,7 @@ place shows up in the other.*
 ```
 include_flatpak=true
 auto_accept=true
-surface=terminal
+surface=popup
 ```
 
 It is created the first time something writes to it. Use `kempt config` to read and write it. The
@@ -34,7 +34,7 @@ panel within 30 seconds.
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `background`, `offline` | `terminal` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. |
+| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. An install from before 0.1.8 keeps `terminal`: see [Upgrading from an older Kempt](#upgrading-from-an-older-kempt). |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
 | `restart_reminder` | boolean | `true` | Whether the popup offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, but the status line still ends `restart pending`. Nothing restarts on its own either way. |
@@ -88,13 +88,32 @@ when it finishes.
 
 | Surface | What it does | Good for |
 | --- | --- | --- |
-| `terminal` (default) | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "press any key to close" prompt. | Watching it happen. The only surface that can answer prompts. |
-| `popup` | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
+| `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "press any key to close" prompt. | Watching it happen. The only surface that can answer prompts. |
+| `popup` (default) | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
 | `background` | Silent detached run, with a desktop notification and the counts when done. | Updating while you work. |
 | `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next reboot, and the first `kempt check` after that reboot records the result. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |
 
 The `terminal` surface needs a terminal emulator, `konsole` by default. Without one, `kempt run`
 exits 4. To use another emulator that supports `-e`, set `KEMPT_TERMINAL`.
+
+Only the terminal can ask before installing kernel, systemd or desktop updates. On the other
+surfaces, **Update Now** asks in the popup first, and offers **Install on Next Restart** or
+**Install Now**.
+
+### Upgrading from an older Kempt
+
+Before 0.1.8 the default was `terminal`. So that an upgrade does not move your updates, the first
+`kempt` command after it writes `surface=terminal` to the config file when both are true:
+
+- Kempt has been used here: `state.json` or a history entry exists.
+- The config file has no `surface` line.
+
+It runs once, and leaves a marker, `surface-migrated`, in the state directory. A config file that
+names a surface is never changed. A new install gets no `surface` line, and so the popup.
+
+When it did write the line, the widget offers the popup once: **Use the Popup** or **Keep the
+Terminal**. Either answer is saved as the `surface` setting, and so is a change in Settings or with
+`kempt config set surface`. Any of these ends the offer.
 
 ### Offline staging
 
@@ -160,6 +179,8 @@ day.
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
+| `~/.local/state/kempt/surface-migrated` | Empty marker: the upgrade step that keeps an older install on the terminal has run |
+| `~/.local/state/kempt/surface-offer` | Empty marker: the widget may offer the popup once. Removed when the `surface` setting is next set |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serialises updates and `check.lock` serialises checks. `writer.lock` serialises `config set`, `hold` and `unhold`, so two at once cannot lose a write to `config` or `holds` |
