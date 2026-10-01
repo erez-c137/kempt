@@ -405,7 +405,11 @@ DISCOVER_APP=org.kde.discover.notifier
 # The line that marks the user entry as Kempt's, so `on` removes only a file Kempt wrote.
 DISCOVER_MARK="X-Kempt-Override=true"
 # The process, matched on its command line: the name is longer than the 15 characters pgrep sees.
-DISCOVER_PATTERN='(^|/)DiscoverNotifier( |$)'
+# Anchored to the binary at the start, so `less /usr/libexec/DiscoverNotifier` is not it.
+DISCOVER_PATTERN="^${KEMPT_DISCOVER_BIN}( |\$)"
+# How long `on` waits for a started notifier to appear, in tenths of a second, before it tries the
+# binary itself and then says it could not start it.
+KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
 
@@ -414,6 +418,15 @@ discover_user_entry() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/autosta
 # The person's own entry, kept while Kempt's replaces it, and put back by `on`. Beside the entry,
 # where the person looks for it. Autostart reads only *.desktop files, so this one never starts.
 discover_backup() { printf '%s.before-kempt\n' "$(discover_user_entry)"; }
+# Where an entry from the earlier installer goes when Kempt replaces or removes it. It may hold a
+# person's own keys, so it is kept, never deleted, and never put back: it hides the notifier.
+discover_legacy_backup() {
+  local base n=1
+  base="$(discover_user_entry).kempt-legacy"
+  [[ -e "$base" || -L "$base" ]] || { printf '%s\n' "$base"; return; }
+  while [[ -e "$base.$n" || -L "$base.$n" ]]; do n=$((n + 1)); done
+  printf '%s\n' "$base.$n"
+}
 
 discover_installed() { [[ -f "$(discover_sys_entry)" ]]; }
 
@@ -448,17 +461,32 @@ discover_running() {
   "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1
 }
 
-# Whether the user entry is one Kempt wrote. Before the mark, install.sh wrote a copy of the system
-# entry plus Hidden=true, or a three-line entry when there was none to copy. Both count as Kempt's.
-discover_entry_is_kempts() {
-  local user sys body
-  user="$(discover_user_entry)"; sys="$(discover_sys_entry)"
-  [[ -f "$user" ]] || return 1
-  grep -qx "$DISCOVER_MARK" "$user" && return 0
-  body="$(grep -v '^Hidden=' "$user" || true)"
-  [[ "$body" == $'[Desktop Entry]\nType=Application\nName=Discover Notifier' ]] && return 0
-  [[ -f "$sys" && "$body" == "$(grep -v '^Hidden=' "$sys" || true)" ]]
+# Whose the user entry is:
+#   kempt   carries Kempt's mark, or is the three-line entry the earlier installer wrote when there
+#           was no system entry to copy. `on` removes it.
+#   legacy  the earlier installer's other form: a file whose last line is the one Hidden=true it
+#           appended, after removing every other Hidden= line, with Discover's Exec. It may be the
+#           person's own file the installer changed, so it is moved aside, never deleted.
+#   own     anything else, a symlink included. Backed up before Kempt writes, and put back by `on`.
+#   none    no user entry.
+discover_entry_kind() {
+  local user
+  user="$(discover_user_entry)"
+  if [[ -L "$user" ]]; then echo own; return; fi
+  [[ -f "$user" ]] || { echo none; return; }
+  if grep -qx "$DISCOVER_MARK" "$user" \
+     || [[ "$(cat "$user")" == $'[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true' ]]; then
+    echo kempt
+  elif [[ "$(tail -n 1 "$user")" == Hidden=true && "$(grep -c '^Hidden=' "$user")" == 1 ]] \
+       && [[ "$(head -n 1 "$user")" == "[Desktop Entry]" ]] \
+       && grep -q '^Exec=.*DiscoverNotifier' "$user"; then
+    echo legacy
+  else
+    echo own
+  fi
 }
+
+discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|legacy) return 0 ;; esac; return 1; }
 
 # The offer, as state.json carries it: while the notifier starts with the session and nobody has
 # answered yet.
@@ -491,33 +519,59 @@ discover_write_entry() {  # seed
   return 1
 }
 
-# Starts the notifier for this session, detached so it outlives the command and the widget.
+discover_wait_running() {
+  local i
+  for ((i = 0; i < KEMPT_DISCOVER_START_POLLS; i++)); do
+    discover_running && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# Starts the notifier for this session, detached so it outlives the command and the widget, and
+# says whether it is running afterwards. setsid -f returns at once, so its status says nothing.
 discover_start() {
   if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
     setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1
-  elif [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
-    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1
-  else
-    return 1
+    discover_wait_running && return 0
   fi
+  if [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
+    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1
+    discover_wait_running && return 0
+  fi
+  return 1
 }
 
 discover_notifier_off() {
-  local user backup seed
+  local user backup kind seed moved=""
   if ! discover_installed; then
     echo "Discover's update notifier is not installed. Nothing changed."
     return 0
   fi
   user="$(discover_user_entry)"; backup="$(discover_backup)"
+  kind="$(discover_entry_kind)"
   seed="$(discover_sys_entry)"
-  if [[ -f "$user" ]]; then
-    seed="$user"
-    # The person's own entry is kept once, as it was. A second `off` finds Kempt's entry instead.
-    if ! discover_entry_is_kempts && [[ ! -e "$backup" ]]; then
-      cp -p "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
-    fi
+  case "$kind" in
+    kempt) seed="$user" ;;
+    own)
+      # One copy of the person's own entry, never overwritten: a second one would lose the first.
+      if [[ -e "$backup" || -L "$backup" ]]; then
+        echo "A copy of your earlier autostart entry is already kept at $backup, so nothing changed. Move it away, then try again." >&2
+        return 1
+      fi
+      # mv, not cp: a symlink stays a symlink, and every attribute comes back with it.
+      mv "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
+      moved="$backup"; seed="$backup" ;;
+    legacy)
+      moved="$(discover_legacy_backup)"
+      mv "$user" "$moved" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
+      seed="$moved" ;;
+  esac
+  if ! discover_write_entry "$seed"; then
+    [[ -n "$moved" ]] && mv "$moved" "$user"
+    echo "could not write $user" >&2
+    return 1
   fi
-  discover_write_entry "$seed" || { echo "could not write $user" >&2; return 1; }
   discover_mark_answered
   log_event "discover-notifier off"
   echo "Discover's update notifier is off, and stays off when you log in again."
@@ -528,20 +582,25 @@ discover_notifier_off() {
 }
 
 discover_notifier_on() {
-  local user backup
+  local user backup kind
   if ! discover_installed; then
     echo "Discover's update notifier is not installed. Nothing changed."
     return 0
   fi
   user="$(discover_user_entry)"; backup="$(discover_backup)"
-  if discover_entry_is_kempts; then
-    if [[ -e "$backup" ]]; then
-      mv -f "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
-    else
-      rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
-    fi
-    log_event "discover-notifier on"
-  fi
+  kind="$(discover_entry_kind)"
+  case "$kind" in
+    kempt|legacy)
+      if [[ $kind == legacy ]]; then
+        mv "$user" "$(discover_legacy_backup)" || { echo "could not move $user aside" >&2; return 1; }
+      fi
+      if [[ -e "$backup" || -L "$backup" ]]; then
+        mv -f "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
+      elif [[ $kind == kempt ]]; then
+        rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
+      fi
+      log_event "discover-notifier on" ;;
+  esac
   discover_mark_answered
   if ! discover_enabled; then
     echo "Your own autostart entry keeps Discover's update notifier off: $user" >&2
@@ -552,9 +611,20 @@ discover_notifier_on() {
   if discover_start; then
     echo "Started it for this session."
   else
-    echo "It starts when you log in again."
+    echo "Could not start it now. It starts when you log in again."
   fi
   return 0
+}
+
+# The widget's Keep Discover's Notifier: records the answer and changes nothing else.
+discover_notifier_keep() {
+  if ! discover_installed; then
+    echo "Discover's update notifier is not installed. Nothing changed."
+    return 0
+  fi
+  discover_mark_answered
+  log_event "discover-notifier keep"
+  echo "Discover's update notifier stays as it is."
 }
 
 discover_notifier_status() {  # [--json]

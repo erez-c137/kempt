@@ -1158,7 +1158,7 @@ printf '[Desktop Entry]\nType=Application\nExec=/usr/libexec/DiscoverNotifier\nO
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c '.discover_offer' <<<"$out")" "true" "a notifier that starts with the session is offered"
 assert_eq "$(jq -c '.discover_offer' "$STATE_FILE")" "true" "...and the state file says so"
-"$KEMPT" discover-notifier on >/dev/null
+"$KEMPT" discover-notifier keep >/dev/null
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "...until the person answers, Keep It included"
 rm -f "$KEMPT_STATE_DIR/discover-offer-answered"

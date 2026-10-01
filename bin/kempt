@@ -3414,11 +3414,11 @@ cmd_doctor() {
 # in lib/common.sh, shared with install.sh's question.
 cmd_discover_notifier() {
   case "${1:-}" in
-    off|on) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-            if [[ $1 == off ]]; then discover_notifier_off; else discover_notifier_on; fi ;;
+    off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+            "discover_notifier_$1" ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;
-    *) echo "usage: kempt discover-notifier off | on | status [--json]" >&2; exit 2 ;;
+    *) echo "usage: kempt discover-notifier off | on | keep | status [--json]" >&2; exit 2 ;;
   esac
 }
 
@@ -3531,9 +3531,10 @@ usage: kempt <command>
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
   config get|set        read/write settings
-  discover-notifier off | on | status [--json]
-                        turn Discover's own update notifier off or back on for this user, or
-                        say whether it is installed, on and running
+  discover-notifier off | on | keep | status [--json]
+                        turn Discover's own update notifier off or back on for this user, keep
+                        it as it is (the widget's answer), or say whether it is installed, on
+                        and running
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
   help | --help | -h    print this list

@@ -23,9 +23,11 @@ stub() {  # name body
 }
 stub pgrep "[[ -e $TESTTMP/running ]]"
 stub pkill "[[ -e $TESTTMP/running ]] && rm -f $TESTTMP/running"
-stub kstart "exit 0"
+# kstart and the binary "start" the notifier by making pgrep find it; a dud starts nothing.
+stub kstart ": > $TESTTMP/running"
+stub dud "exit 0"
 export KEMPT_DISCOVER_PGREP="$TESTTMP/pgrep" KEMPT_DISCOVER_PKILL="$TESTTMP/pkill"
-export KEMPT_DISCOVER_START="$TESTTMP/kstart"
+export KEMPT_DISCOVER_START="$TESTTMP/kstart" KEMPT_DISCOVER_START_POLLS=10
 reset() { rm -rf "${SYS:?}/$ENTRY" "$XDG_CONFIG_HOME/autostart" "$KEMPT_STATE_DIR" "$CALLS" "$TESTTMP/running"; }
 is() { [[ -e "$1" ]] && echo yes || echo no; }
 # kstart is started detached, so its log line can land a moment after the command returns.
@@ -93,15 +95,38 @@ sleep 0.3
 assert_eq "$(grep -c kstart "$CALLS" || true)" "0" "a notifier already running is not started again"
 rm -f "$TESTTMP/running"
 
+assert_contains "$out" "Started it for this session" "...and says so once pgrep finds it"
+rm -f "$TESTTMP/running"
+
 # No kstart: the binary itself, detached. Neither: it starts at the next login.
-stub notifier "exit 0"
+stub notifier ": > $TESTTMP/running"
 rm -f "$CALLS"
 out="$(KEMPT_DISCOVER_START="$TESTTMP/no-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/notifier" "$KEMPT" discover-notifier on)"
 wait_for_call "^notifier" && echo "ok: without kstart, the binary is started" \
   || { echo "FAIL: binary not started - got: $(cat "$CALLS" 2>/dev/null)"; _fail=1; }
+assert_contains "$out" "Started it" "...and found running"
+rm -f "$TESTTMP/running" "$CALLS"
+# kstart that starts nothing: the binary is tried next, and the message waits for pgrep.
+out="$(KEMPT_DISCOVER_START="$TESTTMP/dud" KEMPT_DISCOVER_BIN="$TESTTMP/notifier" "$KEMPT" discover-notifier on)"
+assert_contains "$(cat "$CALLS")" "dud --application" "a kstart that starts nothing is tried first"
+assert_contains "$out" "Started it" "...then the binary, which does"
+rm -f "$TESTTMP/running"
+rc=0; out="$(KEMPT_DISCOVER_START="$TESTTMP/dud" KEMPT_DISCOVER_BIN="$TESTTMP/no-notifier" "$KEMPT" discover-notifier on)" || rc=$?
+assert_eq "$rc" "0" "when nothing starts it, on still succeeds"
+assert_not_contains "$out" "Started it" "...and never claims it started"
+assert_contains "$out" "Could not start it now. It starts when you log in again." "...and says when it will"
 rc=0; out="$(KEMPT_DISCOVER_START="$TESTTMP/no-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/no-notifier" "$KEMPT" discover-notifier on)" || rc=$?
 assert_eq "$rc" "0" "with nothing to start it with, on still succeeds"
 assert_contains "$out" "log in again" "...and says it starts at the next login"
+
+# The kill pattern is the binary at the start of a command line, nothing that merely names it.
+grep -qE "$DISCOVER_PATTERN" <<<"$KEMPT_DISCOVER_BIN --check-delay 20" \
+  && echo "ok: the pattern matches the notifier" || { echo "FAIL: pattern misses the notifier"; _fail=1; }
+grep -qE "$DISCOVER_PATTERN" <<<"$KEMPT_DISCOVER_BIN" \
+  && echo "ok: ...with no arguments too" || { echo "FAIL: pattern misses the bare notifier"; _fail=1; }
+if grep -qE "$DISCOVER_PATTERN" <<<"less $KEMPT_DISCOVER_BIN"; then
+  echo "FAIL: the pattern matches a pager reading the binary"; _fail=1
+else echo "ok: ...and not a command that only names it"; fi
 
 # --- the person's own entry: kept on off, and put back exactly on on ----------------------------------
 reset; system_entry
@@ -120,6 +145,31 @@ assert_eq "$(cat "$USER_ENTRY")" "$own" "on puts the person's own entry back as 
 assert_eq "$(stat -c %a "$USER_ENTRY")" "600" "...with its permissions"
 assert_eq "$(is "$BACKUP")" "no" "...and removes the copy"
 
+# off, then a new entry of the person's own, then off again: the first copy is never overwritten,
+# and the new entry is not lost either. Nothing changes, and it says why.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+printf '[Desktop Entry]\nExec=/usr/libexec/DiscoverNotifier\nX-Own=A\n' > "$USER_ENTRY"
+"$KEMPT" discover-notifier off >/dev/null
+printf '[Desktop Entry]\nExec=/usr/libexec/DiscoverNotifier\nX-Own=B\n' > "$USER_ENTRY"
+rc=0; out="$("$KEMPT" discover-notifier off 2>&1)" || rc=$?
+assert_eq "$rc" "1" "off over a new entry of the person's own, with a copy already kept, refuses"
+assert_contains "$out" "already kept at $BACKUP" "...and names the copy in the way"
+assert_contains "$(cat "$USER_ENTRY")" "X-Own=B" "...leaving the new entry as it is"
+assert_contains "$(cat "$BACKUP")" "X-Own=A" "...and the first copy as it was"
+
+# A symlinked entry: the link itself is kept, and put back as a link to the same file.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")" "$TESTTMP/dotfiles"
+printf '[Desktop Entry]\nExec=/usr/libexec/DiscoverNotifier\nX-Own=link\n' > "$TESTTMP/dotfiles/notifier.desktop"
+ln -s "$TESTTMP/dotfiles/notifier.desktop" "$USER_ENTRY"
+"$KEMPT" discover-notifier off >/dev/null
+assert_eq "$(readlink "$BACKUP")" "$TESTTMP/dotfiles/notifier.desktop" "off keeps the symlink itself"
+assert_eq "$([[ -L "$USER_ENTRY" ]] && echo link || echo file)" "file" "...and writes its own entry beside it"
+assert_eq "$(grep -c '^Hidden=' "$TESTTMP/dotfiles/notifier.desktop" || true)" "0" "...without writing through the link"
+"$KEMPT" discover-notifier on >/dev/null
+assert_eq "$(readlink "$USER_ENTRY")" "$TESTTMP/dotfiles/notifier.desktop" "on puts the same symlink back"
+
 # An entry of the person's own that hides it: on cannot turn it on, and says why.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
@@ -132,20 +182,63 @@ assert_eq "$rc" "1" "on over the person's own hiding entry fails"
 assert_contains "$out" "Your own autostart entry" "...and says their own entry keeps it off"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and leaves that entry alone"
 
-# The entry install.sh wrote before the mark: a copy of the system entry plus Hidden=true.
+# The entry install.sh wrote before the mark: a copy of the system entry, every Hidden= line
+# removed and one Hidden=true appended. Recognised by that shape, not by the system entry's bytes,
+# which change with every plasma-discover update. It may hold the person's own keys, so it is
+# moved aside, never deleted.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"
 { cat "$SYS/$ENTRY"; echo Hidden=true; } > "$USER_ENTRY"
-assert_eq "$(discover_entry_is_kempts && echo yes || echo no)" "yes" "an entry from the earlier installer counts as Kempt's"
+legacy="$(cat "$USER_ENTRY")"
+printf 'Name[xx]=a new translation\n' >> "$SYS/$ENTRY"
+assert_eq "$(discover_entry_kind)" "legacy" "an entry from the earlier installer is recognised after a package update"
+assert_eq "$("$KEMPT" discover-notifier status --json)" \
+  '{"installed":true,"enabled":false,"running":false,"by_kempt":true}' "...and status says Kempt turned it off"
+rc=0; "$KEMPT" discover-notifier on >/dev/null || rc=$?
+assert_eq "$rc" "0" "on turns it back on"
+assert_eq "$(is "$USER_ENTRY")" "no" "...moving that entry out of the way"
+assert_eq "$(cat "$USER_ENTRY.kempt-legacy")" "$legacy" "...into a copy, not the bin"
+assert_eq "$(is "$BACKUP")" "no" "...and never into the copy on would restore"
+# off over one: the same copy, then Kempt's own marked entry.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+{ cat "$SYS/$ENTRY"; echo Hidden=true; } > "$USER_ENTRY"
+"$KEMPT" discover-notifier off >/dev/null
+assert_eq "$(is "$USER_ENTRY.kempt-legacy")" "yes" "off keeps the earlier installer's entry too"
+assert_eq "$(grep -c '^X-Kempt-Override=true$' "$USER_ENTRY")" "1" "...and writes a marked one"
 "$KEMPT" discover-notifier on >/dev/null
-assert_eq "$(is "$USER_ENTRY")" "no" "...so on removes it"
-assert_eq "$(is "$BACKUP")" "no" "...with nothing to put back"
+assert_eq "$(is "$USER_ENTRY")" "no" "...which on then removes"
+# The three-line entry it wrote when there was no system entry: Kempt's, removed.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n' > "$USER_ENTRY"
+assert_eq "$(discover_entry_kind)" "kempt" "the earlier installer's three-line entry is Kempt's"
+# A plain copy of the system entry a person made is theirs, and comes back on on.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+cp "$SYS/$ENTRY" "$USER_ENTRY"
+assert_eq "$(discover_entry_kind)" "own" "a plain copy of the system entry is the person's"
+"$KEMPT" discover-notifier off >/dev/null
+"$KEMPT" discover-notifier on >/dev/null
+assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...so off and on put it back, not remove it"
+# Hidden=true added by hand somewhere other than the last line is the person's too.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+printf '[Desktop Entry]\nHidden=true\nExec=/usr/libexec/DiscoverNotifier\n' > "$USER_ENTRY"
+assert_eq "$(discover_entry_kind)" "own" "an entry hidden by hand is the person's"
 
 # --- the widget's offer, as state.json carries it ------------------------------------------------------
 reset; system_entry
 assert_eq "$(discover_offer_pending && echo yes || echo no)" "yes" "an enabled notifier nobody has answered about is offered"
-"$KEMPT" discover-notifier on >/dev/null
-assert_eq "$(discover_offer_pending && echo yes || echo no)" "no" "Keep It (on) answers the offer"
+mkdir -p "$(dirname "$USER_ENTRY")"; cp "$SYS/$ENTRY" "$USER_ENTRY"; rm -f "$CALLS"
+rc=0; out="$("$KEMPT" discover-notifier keep)" || rc=$?
+assert_eq "$rc" "0" "keep succeeds"
+assert_eq "$(discover_offer_pending && echo yes || echo no)" "no" "keep answers the offer"
+assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...and leaves even a plain copy of the system entry alone"
+assert_eq "$(is "$CALLS")" "no" "...and starts and stops nothing"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "discover-notifier keep" "...and is in kempt log"
+reset
+assert_contains "$("$KEMPT" discover-notifier keep)" "not installed" "keep without the notifier says so"
 reset; system_entry
 "$KEMPT" discover-notifier off >/dev/null
 rm -f "$KEMPT_STATE_DIR/discover-offer-answered"
@@ -157,6 +250,7 @@ assert_eq "$(discover_offer_pending && echo yes || echo no)" "no" "...and neithe
 assert_exit 2 "no verb is a usage error" -- "$KEMPT" discover-notifier
 assert_exit 2 "an unknown verb is a usage error" -- "$KEMPT" discover-notifier pause
 assert_exit 2 "an option off does not take is a usage error" -- "$KEMPT" discover-notifier off --json
-assert_contains "$("$KEMPT" help)" "discover-notifier off | on | status" "the help text lists it"
+assert_exit 2 "keep takes no option" -- "$KEMPT" discover-notifier keep --json
+assert_contains "$("$KEMPT" help)" "discover-notifier off | on | keep | status" "the help text lists it"
 
 finish
