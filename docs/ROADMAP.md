@@ -71,8 +71,8 @@ a terminal. This release fixes the ones we know about. It is small, and planned 
 - **Updating without a terminal.** Today, **Update Now** opens a terminal window. When the update
   includes a new kernel or parts of the desktop, it asks you to type a letter to choose what
   happens. In 0.1.8, new installs update inside the popup. For kernel and desktop updates, the
-  popup asks with two buttons: **Install on Next Restart** (recommended, because those parts are in
-  use while you work) or **Install Now**. If you already use Kempt, you keep the terminal. The
+  popup asks with two buttons: **Install on Next Restart** or **Install Now**. Installing on the
+  next restart is recommended, because those parts are in use while you work. If you already use Kempt, you keep the terminal. The
   popup asks once whether you want to switch.
 - **Fixes you can click.** When something goes wrong, the popup sometimes tells you to run a
   command such as `kempt doctor` in a terminal. In 0.1.8 these messages get a button, so you do
@@ -83,69 +83,86 @@ a terminal. This release fixes the ones we know about. It is small, and planned 
   In 0.1.8 Flatpak gets the same clear message.
 - **One update notifier, not two.** Discover, Plasma's software center, has its own update
   notifier. It counts updates differently, so you can see two icons with two different numbers.
-  It can also keep Kempt waiting while it checks. Today only the install script offers to turn it
-  off. In 0.1.8 the popup offers it, and can turn it back on.
+  It can also keep Kempt waiting while it checks. Today only installing from source offers to turn
+  it off. In 0.1.8 the popup offers it, and can turn it back on.
 - **For scripts.** Three small changes for people who run `kempt` from their own scripts:
   - `kempt check --strict` exits with an error when a check could not finish. Today a failed
     check still looks like success.
   - `kempt update` exits with its own code, 7, when another program is installing, so a script
     can wait and try again.
   - `kempt history --json` gives every past run as JSON. Today only the latest run is available
-    that way.
+    as JSON, through `kempt summary --json`.
 
 After 0.1.8, feedback from new users decides what to improve next.
 
-## 0.2: updates on their own, and more control
+## 0.2: updates that take care of themselves
 
-- **Automatic updates, staged for the next restart.** One question, asked when this arrives:
-  "Install updates automatically the next time you restart?" **Yes** or **No, ask me first**.
-  With yes, Kempt downloads and stages updates on its own, and they install the next time you
-  restart. System packages do not change under the running desktop. Flatpak apps are updated in
-  the same run. The restart stays your choice, and Kempt reminds you when staged updates have
-  waited a few days.
-  - Staging gets its own permission. It can only download packages from repositories you already
-    use and queue them for the restart, so it is designed to be allowed without a password, once
-    its effect on what runs as root is reviewed. Installing now and taking a stage back keep
-    today's rule: they ask for a password unless passwordless updates are on.
-  - It runs only while you are logged in. It waits for mains power and a network that is not
-    marked as metered, for the download as well as the check.
-  - It re-stages when something else changed the system, skips quietly while a release upgrade
-    is waiting, and stays off when more than one person may use the machine.
-- **Safe to restart.** After an update that installs now, Kempt checks that the NVIDIA driver
-  from RPM Fusion is built for the new kernel before it suggests a restart.
-- **A notification when updates arrive**, which can be turned off. Today only the badge changes.
-- **Is it safe?** The system group says how many updates are security fixes, when Fedora's
-  advisory data covers them. Each row can show its advisory and a link to the changelog.
-- **What changed since the last boot**, from the history Kempt already keeps, for when something
-  stops working after an update.
-- **More control.**
-  - `kempt update --security` installs security fixes only.
-  - `kempt update --dry-run` shows the transaction dnf would run, and changes nothing. It needs
-    no password.
-  - The state file says when Kempt could not tell whether a restart is needed, in a new field.
+Today Kempt tells you updates are waiting, but you still start each one yourself. Many people
+would rather not think about it. 0.2 lets Kempt do it for you, safely. It also shows more about
+what an update changes.
+
+- **Automatic updates, installed when you restart.** When 0.2 arrives, Kempt asks one question:
+  "Install updates automatically the next time you restart?" Answer **Yes** or **No, ask me
+  first**. With yes, Kempt downloads system updates in the background and sets them to install
+  during your next restart, before the desktop starts. System packages do not change while you work,
+  which is what makes this safe to do automatically. Flatpak apps update in the same run, as
+  they do today. You still decide when to restart, and Kempt reminds you when updates have waited
+  a few days.
+  - **No password each time.** Today, installing updates asks for your password unless you turned
+    that off. Automatic updates get their own, narrower permission. It can only download packages
+    from repositories you already use and set them up for the restart. Because that is all it can
+    do, it is designed to work without a password, once its effect on what runs as administrator
+    has been checked. Installing right away and cancelling a prepared update keep today's rule:
+    they ask for a password unless you turned passwords off.
+  - **It stays out of your way.** It runs only while you are logged in, on mains power, and on a
+    network that is not marked as metered, for the download as well as the check. It does not drain your battery or use a data plan you
+    have marked as metered.
+  - **It keeps up with changes.** If something else changes the system in the meantime, Kempt
+    prepares the update again. While a Fedora release upgrade is waiting, it does nothing. On a machine
+    that more than one person may use, it stays off.
+- **A safe restart with NVIDIA.** With NVIDIA's driver from RPM Fusion, restarting too soon after
+  a kernel update can leave you without your usual graphics, because the driver is still being
+  built for the new kernel. After an update that installs right away, Kempt checks the driver is
+  ready before it suggests a restart.
+- **A notification when updates arrive.** Today only the badge on the tray icon changes, which is
+  easy to miss. 0.2 can also show a notification. You can turn it off.
+- **Which updates are security fixes.** Today the list shows package names and versions, which
+  does not tell you whether an update matters. 0.2 shows how many system updates fix security
+  problems, where Fedora publishes that information. Each package can link to its advisory and its
+  changelog.
+- **What changed since the last boot.** When something stops working after an update, the first
+  question is what changed. Kempt already keeps a record of every run. 0.2 uses it to show what
+  changed since you last started the computer.
+- **More control from the command line.**
+  - `kempt update --security` installs only security fixes.
+  - `kempt update --dry-run` shows exactly what dnf would do, and changes nothing. It needs no
+    password.
+  - Today the state file says no restart is needed both when none is needed and when Kempt could
+    not tell. A new field tells the two apart.
 
 ## 0.3: a second distribution
 
-Kempt goes deep on Fedora before it goes wide. A second distribution starts once automatic
-updates work well there.
+Kempt runs only on Fedora today. Other distributions are planned, but Fedora comes first: work on
+a second distribution starts once automatic updates work well there.
 
-- **A backend registry.** Today a new backend touches every row of the wiring table in
-  [architecture.md](architecture.md#adding-a-backend-for-your-distro). With a registry, each
-  package manager declares how it is detected, labelled and applied, and when it needs a restart.
-  A new backend becomes one file plus its tests. The state file stays at schema v1.
-- **Offline updates move behind the backend.** Staging an update for the next restart is
-  dnf5-specific and spread through the tool, not kept in the dnf backend. It moves there first,
-  so a distribution without offline updates simply does not offer staging. Flatpak, reclaiming
-  space, holds and history already work the same on any distribution.
-- **openSUSE first ([#3](https://github.com/erez-c137/kempt/issues/3)).** zypper uses the same rpm
-  database, has machine-readable output, and keeps locked packages visible, as Kempt's holds do.
-  Tumbleweed updates with `zypper dup`, so Kempt tells it apart from Leap. openSUSE has no offline
-  updates, so staging is not offered there.
-- **Settings that name backends** (`disable`, `only`), added while there are only two backends.
-- **Arch ([#2](https://github.com/erez-c137/kempt/issues/2)) next, then Debian and Ubuntu
+- **openSUSE first ([#3](https://github.com/erez-c137/kempt/issues/3)).** It is the closest to
+  Fedora. It uses rpm, like Fedora, and its package manager, zypper, gives output Kempt can
+  read reliably. It also keeps locked packages visible, the way Kempt shows holds. Kempt will tell
+  Tumbleweed, which updates with `zypper dup`, apart from Leap. openSUSE has no way to install
+  updates during a restart, so Kempt will not offer that there.
+- **Then Arch ([#2](https://github.com/erez-c137/kempt/issues/2)), then Debian and Ubuntu
   ([#1](https://github.com/erez-c137/kempt/issues/1)).** Several Arch-based distributions ship
-  Plasma by default. apt needs a design decision first: multiarch package names do not fit the
-  current hold syntax.
+  Plasma by default. Debian and Ubuntu need a design decision first: their package names for other
+  architectures, such as `libc6:i386`, do not fit the way Kempt names holds today.
+- **What already works everywhere.** Flatpak updates, freeing disk space, holds and the history
+  of runs work the same on any distribution.
+- **Groundwork, for contributors.** Today, adding a package manager means changes all through the
+  tool ([architecture.md](architecture.md#adding-a-backend-for-your-distro) lists them). In 0.3,
+  each package manager becomes one file that says how to detect it, what to call it, how to apply
+  its updates and when it needs a restart. Installing during a restart moves into the Fedora file,
+  so other distributions simply leave it out. Two settings, `disable` and `only`, choose which
+  package managers Kempt checks. They arrive while there are only two, so they are simple to get
+  right. Scripts that read Kempt's state file keep working unchanged.
 
 ## Before 1.0
 
