@@ -47,6 +47,8 @@ RowLayout {
     // Whether this row gets a padlock at all. Runtimes do not - `kempt hold` refuses them, because
     // apps share a runtime and holding one breaks the next app that needs it.
     property bool holdable: true
+    // A per-user Flatpak app: installed for this person only, outside the system set.
+    property bool forYouOnly: false
 
     // What the name line draws. One property, read by the label and by the pin's spellings, so the
     // row cannot name the same thing two ways.
@@ -107,6 +109,14 @@ RowLayout {
             PlasmaComponents.Label {
                 visible: row.held
                 text: i18n("Held")
+                font: Kirigami.Theme.smallFont
+            }
+
+            // Same place and size as the Held word, so a per-user app reads as one more state.
+            PlasmaComponents.Label {
+                objectName: "forYouOnly"
+                visible: row.forYouOnly
+                text: i18n("For you only")
                 font: Kirigami.Theme.smallFont
             }
 

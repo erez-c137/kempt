@@ -845,6 +845,16 @@ RT_NEW='{schema:1,status:"ok",actionable:1,held_total:0,backends:{flatpak:{enabl
 assert_eq "$(js "L.viewModel($RT_NEW,false).sections.map(function (s) { return s.title; })")" \
   '["flatpak extension"]' "an unknown kind gets a section rather than being dropped"
 
+# --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
+UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
+  {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
+  {name:"net.mkiol.SpeechNote",from:"4.8.0",to:"4.9.0",held:false,scope:"user"}]}}}'
+assert_eq "$(js "L.viewModel($UFP,false).sections[0].items.map(function (i) { return i.forYouOnly; })")" \
+  '[false,true]' "a per-user app's row is marked for you only, the system copy beside it is not"
+assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.forYouOnly; })")" \
+  '[false,true]' "...and the flat model the list draws carries the mark"
+assert_eq "$(js "L.viewModel($UFP,false).badgeText")" "2" "...and both copies are counted"
+
 # --- and the state files that predate all of it -------------------------------------------------
 # Every captured fixture was written before runtimes were counted, so none of them carries `kind` or
 # `branch` anywhere. That is what proves both keys additive from the absence side: the popup these

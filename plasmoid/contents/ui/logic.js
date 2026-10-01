@@ -1314,7 +1314,10 @@ function collectItems(state) {
                 // Whether this row gets a padlock. Runtimes do not: `kempt hold` refuses them,
                 // because apps share a runtime and holding one breaks the next app that needs it.
                 // A padlock that reports a refusal every time is worse than no padlock.
-                holdable: itemKind !== "runtime"
+                holdable: itemKind !== "runtime",
+                // Installed with `flatpak install --user`, so it is this person's alone. The row
+                // says so, which also tells apart one id installed both ways.
+                forYouOnly: item.scope === "user"
             };
             if (row.held) { heldItems.push(row); heldTotal++; }
             else {
@@ -1370,7 +1373,8 @@ function rowOf(item, kind) {
              held: item.held, backend: item.backend,
              branch: item.branch || "",
              // Absent means holdable, so a row built by an older caller keeps its padlock.
-             holdable: item.holdable !== false };
+             holdable: item.holdable !== false,
+             forYouOnly: item.forYouOnly === true };
 }
 
 // --- the last run --------------------------------------------------------------------------------
