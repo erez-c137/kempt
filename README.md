@@ -1,7 +1,7 @@
 # Kempt
 
-Tidy system updates for the Plasma desktop. A tray widget and a command-line tool for dnf and
-Flatpak, built to grow into a universal Linux updater.
+Tidy system updates for Fedora KDE. A tray widget and a command-line tool for dnf and
+Flatpak. Other distributions are planned.
 
 [![CI](https://github.com/erez-c137/kempt/actions/workflows/ci.yml/badge.svg)](https://github.com/erez-c137/kempt/actions/workflows/ci.yml)
 [![COPR build](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/package/kempt/status_image/last_build.png)](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/)
@@ -48,6 +48,9 @@ Kempt checks the same cache the update uses, so the count in the tray matches wh
 (`dnf5 check-update` run as yourself reads your own cache, so its count can differ.) Every update
 ends with a summary: each package's old and new version, how long it took, and whether to restart.
 The widget runs the same commands you can run in a terminal, so the two always agree.
+
+Kempt is a desktop tool. It checks for updates on its own, but installs them only when you say
+so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better fit.
 
 ## Features
 
@@ -113,7 +116,8 @@ not found afterwards, log out and back in. The
 
 ## Contributing
 
-Support for more package managers is the most useful thing to add. Each has an open issue:
+Kempt goes deep on Fedora first (see the [roadmap](docs/ROADMAP.md)). Support for more package
+managers is still welcome. Each has an open issue:
 [apt](https://github.com/erez-c137/kempt/issues/1),
 [pacman](https://github.com/erez-c137/kempt/issues/2) and
 [zypper](https://github.com/erez-c137/kempt/issues/3). A backend is one file with two required

@@ -63,70 +63,61 @@ These rules hold for every value:
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
-## Then: 0.1.8, good defaults for everyone
+## Then: 0.1.8, a better first five minutes
 
-Kempt serves two kinds of people. Some want updates taken care of and never want to see a
-terminal. Others want every detail and full control. Kempt does not split into two modes. It gets
-good defaults, and the detail stays one click away.
+What a newcomer meets first decides whether they stay. This release fixes that, and nothing else
+big, so it can ship soon after 0.1.7.
 
-- **One question the first time.** A new install asks once: **Take care of it for me** or
-  **I'll decide**. The answer sets the defaults below. After that, each setting is its own
-  switch in Settings. An existing install keeps how it works today, and the popup offers the new
-  defaults once.
-- **Kempt stores only the settings you change.** Today it writes every default into the config
-  file, so a later, better default never reaches anyone. A one-time clean-up removes the keys
-  that still hold their default value.
-- **Update Now runs in the popup by default.** When the kernel or the desktop itself has
-  updates, the popup asks with two buttons: **Install on Next Restart** (recommended) or
-  **Install Now**. No terminal opens. The terminal stays a choice in Settings.
-- **The common problems end in a button.** For example **Try Again**, **Show Log** or
-  **Restart**. The command stays next to it, for copying.
-- **Everyday words, details on request.** "System" and "Apps", not "dnf" and "flatpak". With
-  **I'll decide**, the list shows every package and version, as now. With **Take care of it for
-  me**, it starts collapsed to a count, with **Show Details**.
-- **A notification when updates arrive**, which can be turned off. Today only the badge changes.
-- **Living with Discover.** Discover's notifier counts differently and can hold the package lock.
-  The popup offers to turn the notifier off with one click, and to turn it back on the same way.
-  When Discover is busy, Kempt already tries again. If it still cannot start, the popup says
-  Discover is busy rather than that the update failed.
+- **Update Now stays in the popup.** New installs run updates in the popup by default. When the
+  kernel or the desktop itself has updates, the popup asks with two buttons: **Install on Next
+  Restart** (recommended) or **Install Now**. No terminal opens. An existing install keeps the
+  terminal, and the popup offers the new default once. The terminal stays a choice in Settings.
+- **Problems end in a button.** The popup already offers **Show Log**, **Restart** and **Install
+  on Next Restart**. The problems that still end in a command, such as "run kempt doctor", get a
+  button too, with the command beside it for copying.
+- **Busy means busy.** When another program holds the package system, Kempt already tries again.
+  For dnf it then says the system is busy. Flatpak gets the same sentence.
+- **Discover's notifier, one click.** It counts updates differently and can hold the package
+  lock. Today only a checkout install offers to turn it off. The popup offers it to everyone, and
+  turns it back on the same way.
 - **Clearer for scripts.** `kempt check --strict` exits non-zero when a source fails. A package
   lock held by another program gets its own exit code. `kempt history --json` gives every run,
   not only the last.
-- **Clear about scope.** The README says plainly that Kempt is a desktop tool and does not update
-  on its own. Servers are better served by `dnf5-automatic`.
+After 0.1.8, outside users' reports decide what comes next for newcomers.
 
 ## 0.2: updates on their own, and more control
 
-- **Automatic updates, staged for the next restart.** With **Take care of it for me**, Kempt
-  downloads and stages updates on its own, and they install the next time you restart. System
-  packages do not change under the running desktop. Flatpak apps are updated in the same run.
-  The restart stays your choice, and Kempt reminds you when staged updates have waited a few
-  days.
-  - Staging without a password prompt needs a design of its own, and its effect on what runs as
-    root comes first. It runs only while you are logged in, and only with passwordless updates
-    turned on.
-  - It waits for mains power and a network that is not metered, for the download as well as the
-    check.
+- **Automatic updates, staged for the next restart.** One question, asked when this arrives:
+  "Install updates automatically the next time you restart?" **Yes** or **No, ask me first**.
+  With yes, Kempt downloads and stages updates on its own, and they install the next time you
+  restart. System packages do not change under the running desktop. Flatpak apps are updated in
+  the same run. The restart stays your choice, and Kempt reminds you when staged updates have
+  waited a few days.
+  - Staging gets its own permission. It can only download packages from repositories you already
+    use and queue them for the restart, so it is designed to be allowed without a password, once
+    its effect on what runs as root is reviewed. Installing now and taking a stage back keep
+    today's rule: they ask for a password unless passwordless updates are on.
+  - It runs only while you are logged in. It waits for mains power and a network that is not
+    marked as metered, for the download as well as the check.
   - It re-stages when something else changed the system, skips quietly while a release upgrade
     is waiting, and stays off when more than one person may use the machine.
-- **Update later.** "Tonight" or "only on Wi-Fi", for people who now close the popup to put an
-  update off.
+- **Safe to restart.** After an update that installs now, Kempt checks that the NVIDIA driver
+  from RPM Fusion is built for the new kernel before it suggests a restart.
+- **A notification when updates arrive**, which can be turned off. Today only the badge changes.
 - **Is it safe?** The system group says how many updates are security fixes, when Fedora's
   advisory data covers them. Each row can show its advisory and a link to the changelog.
+- **What changed since the last boot**, from the history Kempt already keeps, for when something
+  stops working after an update.
 - **More control.**
   - `kempt update --security` installs security fixes only.
   - `kempt update --dry-run` shows the transaction dnf would run, and changes nothing. It needs
     no password.
-  - Holds accept patterns such as `kernel*`, with a warning when a pattern matches most of the
-    list.
-  - Per-user Flatpak apps can be counted and updated. It is off for existing installs, so their
-    counts do not jump.
   - The state file says when Kempt could not tell whether a restart is needed, in a new field.
 
 ## 0.3: a second distribution
 
-Kempt goes deep on Fedora before it goes wide. A second distribution starts once the new
-defaults and automatic updates work well there.
+Kempt goes deep on Fedora before it goes wide. A second distribution starts once automatic
+updates work well there.
 
 - **A backend registry.** Today a new backend touches every row of the wiring table in
   [architecture.md](architecture.md#adding-a-backend-for-your-distro). With a registry, each
@@ -171,6 +162,13 @@ package stays ready for review at every release.
   `logic.js`, which translators cannot reorder. Both need fixing together: `logic.js` gets a
   translation hook that works in QML and under node, and each built sentence becomes a whole
   `i18np()` sentence. Until then Kempt is English only.
+- **Everyday words.** "System" and "Apps" in the popup, not "dnf" and "flatpak", with the full
+  package list one click away.
+- **Update later.** "Tonight" or "only on Wi-Fi", for people who now close the popup to put an
+  update off. Automatic staging may make it unnecessary.
+- **Per-user Flatpak apps.** Kempt handles the system installation only, so per-user apps are
+  neither counted nor updated. It would be off for existing installs, so their counts do not jump.
+- **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 - **A restart reminder that stays dismissed.** Closing it now hides it until Plasma restarts. To
   remember it longer, Kempt would store the dismissal against the boot ID, as offline staging
   does.
