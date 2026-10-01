@@ -2535,6 +2535,12 @@ assert_eq "$(jq -r .status "$UH")|$(jq -c .backends.flatpak.scopes "$UH")" 'fail
 assert_contains "$(cat "$(jq -r .log "$UH")")" "the apps for you only could not be listed" "...said in the log"
 assert_eq "$(jq -c '[.backends.flatpak.removed[] | select(.scope == "user")] | length' "$UH")" "0" \
   "...and no per-user app is reported removed"
+# The skip covers the run only. The check after it asks the per-user installation again, so its
+# pending apps stay listed rather than the state saying everything is up to date.
+assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.scope == "user") | .name] | sort' "$KEMPT_STATE_DIR/state.json")" \
+  '["com.brave.Browser","net.mkiol.SpeechNote"]' "the check after a run that skipped the per-user apps still lists them"
+assert_eq "$(jq -c .backends.flatpak.scopes "$KEMPT_STATE_DIR/state.json")" '{"system":"ok","user":"ok"}' \
+  "...and records that it asked both installations"
 
 # A bare repo directory, which flatpak fails on, is no installation: the run is the system one.
 rm "$TESTTMP/ufp/repo/config"

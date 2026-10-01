@@ -1795,6 +1795,9 @@ cmd_update() {
   # nothing, so a person watching is told what the pause is.
   CHECK_WROTE_STATE=""
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
+  # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
+  # per-user installation again, so a listing that still fails is recorded there as failed.
+  [[ "$fp_user_unreadable" == true ]] && unset KEMPT_FLATPAK_USER_SKIP
   cmd_check >/dev/null 2>&1 || true
   # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
   # run a second one. Set only by that wrapper. Only after a check that wrote state: one that lost
