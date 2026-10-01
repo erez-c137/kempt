@@ -26,10 +26,10 @@ stub pkill "[[ -e $TESTTMP/running ]] && rm -f $TESTTMP/running"
 stub kstart "exit 0"
 export KEMPT_DISCOVER_PGREP="$TESTTMP/pgrep" KEMPT_DISCOVER_PKILL="$TESTTMP/pkill"
 export KEMPT_DISCOVER_START="$TESTTMP/kstart"
-reset() { rm -rf "$SYS/$ENTRY" "$XDG_CONFIG_HOME/autostart" "$KEMPT_STATE_DIR" "$CALLS" "$TESTTMP/running"; }
+reset() { rm -rf "${SYS:?}/$ENTRY" "$XDG_CONFIG_HOME/autostart" "$KEMPT_STATE_DIR" "$CALLS" "$TESTTMP/running"; }
 is() { [[ -e "$1" ]] && echo yes || echo no; }
 # kstart is started detached, so its log line can land a moment after the command returns.
-wait_for_call() { local i; for i in 1 2 3 4 5 6 7 8 9 10; do grep -qs "$1" "$CALLS" && return 0; sleep 0.1; done; return 1; }
+wait_for_call() { local _; for _ in 1 2 3 4 5 6 7 8 9 10; do grep -qs "$1" "$CALLS" && return 0; sleep 0.1; done; return 1; }
 
 # --- not installed: off and on say so and change nothing ------------------------------------------
 reset

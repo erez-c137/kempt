@@ -197,7 +197,7 @@ main() {
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
       || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
     echo "Kempt uninstalled (config/state in ~/.config/kempt, ~/.local/state/kempt left in place;"
-    echo "  ~/.config/autostart/org.kde.discover.notifier.desktop also stays - delete it to let Discover's notifier run again)"
+    echo "  Discover's update notifier stays as you left it. To turn it back on: $ROOT/bin/kempt discover-notifier on)"
     exit 0
   fi
 
