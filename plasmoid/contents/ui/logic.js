@@ -1013,7 +1013,7 @@ var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
 // KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
 // the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
-// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the widget's own check allowance (120 s). 925 s in all,
+// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 120 s). 925 s in all,
 // plus over half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
 var RECLAIM_TIMEOUT_MS = 960000;
@@ -1272,14 +1272,14 @@ function checkArgs(automatic, refresh) {
     return automatic === true ? " check --coalesce" : " check";
 }
 
-// How long the widget waits for `kempt check` before killing it. A check that fetches also gets the
-// refresh step's worst case: two arms of KEMPT_REFRESH_TIMEOUT (120 s, lib/common.sh), dnf then
-// Flatpak, plus 30 s for the kill to unwind. 120 + 240 + 30 = 390 s. A test ties it to the CLI.
-var CHECK_TIMEOUT_MS = 120000;
-var REFRESH_CHECK_TIMEOUT_MS = 390000;
-function checkTimeoutMs(refresh) {
-    return refresh === true ? REFRESH_CHECK_TIMEOUT_MS : CHECK_TIMEOUT_MS;
-}
+// How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
+// because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
+// a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
+// CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
+// (120 s) and dnf's makecache, which runs as root where that timeout cannot stop it: dnf5's own
+// network timeouts bound it, and 120 s more is the allowance. Plus 30 s: 120 + 240 + 30 = 390 s.
+var CHECK_BODY_MS = 120000;
+var CHECK_TIMEOUT_MS = 390000;
 
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK
@@ -2310,9 +2310,8 @@ if (typeof module !== "undefined" && module.exports) {
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         refreshMissed: refreshMissed,
         checkArgs: checkArgs,
-        checkTimeoutMs: checkTimeoutMs,
+        CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,
-        REFRESH_CHECK_TIMEOUT_MS: REFRESH_CHECK_TIMEOUT_MS,
         riskyMessageOf: riskyMessageOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,

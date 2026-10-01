@@ -295,7 +295,7 @@ p.check("...leaving nothing remembered as a press", ev("root.recheckAsked"), Fal
 p.clear_calls()
 ev("checkAction.trigger()")
 p.pump(100)
-p.check("Check for Updates is given the refresh step's time, not the plain check's",
+p.check("Check for Updates is given the time a fetch needs",
         ev("executor.current !== null && executor.current.timeoutMs"), 390000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.check("Check for Updates from the menu asks the CLI to fetch fresh metadata",
@@ -303,8 +303,10 @@ p.check("Check for Updates from the menu asks the CLI to fetch fresh metadata",
 p.clear_calls()
 ev("root.doCheck(true)")
 p.pump(100)
-p.check("...while an automatic check keeps the plain check's time",
-        ev("executor.current !== null && executor.current.timeoutMs"), 120000)
+# ...and so is an automatic check, which fetches too once the 3-hour interval is up. Killed at
+# 120 s, it left a root dnf5 running with nobody watching it.
+p.check("...and so is an automatic check, which may fetch as well",
+        ev("executor.current !== null && executor.current.timeoutMs"), 390000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 # Folded into a running automatic check, the press still gets its fetch, whatever else folded in.
 p.clear_calls()
@@ -324,6 +326,19 @@ ev("root.doCheck()")
 p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
 p.check("...while a hold's or Check again's folded check still answers from the cache",
         p.calls_matching("check"), ["check --coalesce", "check"])
+# The menu entry stays enabled while a check runs. Pressed during a fetch, it must not queue a
+# second fetch behind the first.
+p.clear_calls()
+ev("root.doCheck(false, true)")
+p.pump(100)
+ev("checkAction.trigger()")
+p.check("a Check for Updates during a running fetch is not remembered as another fetch",
+        ev("root.recheckRefresh"), False)
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...so it costs one fetch, not two",
+        p.call_count("check --refresh"), 1)
+p.check("...and the running check is no longer marked as a fetch once it lands",
+        ev("root.checkingRefresh"), False)
 open(MODE, "w").write("live")
 
 # The box with no successful check at all: there is no stamp to be old, so every open asks. That

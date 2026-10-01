@@ -2359,7 +2359,7 @@ _ls="$(sed -n 's/^KEMPT_RECLAIM_LIST_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _du="$(sed -n 's/^KEMPT_RECLAIM_DU_TIMEOUT=\([0-9]*\)$/\1/p' "$_fp")"
 _pk="$(sed -n 's/^KEMPT_RECLAIM_PKCHECK_TIMEOUT="\${KEMPT_RECLAIM_PKCHECK_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$_fp")"
 _lw="$(sed -n 's/^KEMPT_CHECK_LOCK_WAIT="\${KEMPT_CHECK_LOCK_WAIT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
-_ck="$(sed -n 's/^var CHECK_TIMEOUT_MS = \([0-9]*\);$/\1/p' "$LOGIC")"
+_ck="$(sed -n 's/^var CHECK_BODY_MS = \([0-9]*\);$/\1/p' "$LOGIC")"
 assert_eq "$([[ -n "$_pk" && -n "$_un" && -n "$_ls" && -n "$_du" && -n "$_lw" && -n "$_ck" ]] && echo read)" "read" \
   "premise: the engine's reclaim timeouts, the check lock wait and the check allowance are readable"
 assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance covers the check's own listing and du"
@@ -2989,7 +2989,7 @@ assert_exit 0 "...and every completed check stamps the window it opens" -- \
 qml_block() { awk -v pat="$2" '!f && $0 ~ pat { f = 1 } f { print } f && /^    }$/ { exit }' "$1"; }
 MQ="$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "doCheck builds its command and its timeout from Logic" -- \
-  grep -qF 'executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.checkTimeoutMs(fresh),' "$MQ"
+  grep -qF 'executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...and only for a literal true, so a caller that passes nothing is manual" -- \
   grep -qF 'var auto = automatic === true;' "$MQ"
 for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function popupOpened' \
@@ -3009,22 +3009,27 @@ assert_contains "$(qml_block "$MQ" 'id: checkAction')" "root.doCheck(false, true
   "the menu's Check for Updates runs its own check, and fetches"
 assert_contains "$(grep -F 'plasmoidItem.doCheck(' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" \
   "plasmoidItem.doCheck(false, true)" "the popup's Check for Updates button runs its own check, and fetches"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh) recheckRefresh = true;" \
-  "a Check for Updates folded into a running check is remembered"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \
   "...and the deferred check it becomes fetches"
 assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "Check for Updates passes --refresh"
 assert_eq "$(js 'L.checkArgs(true, false)')" " check --coalesce" "...an automatic check passes --coalesce"
 assert_eq "$(js 'L.checkArgs()')" " check" "...and any other press neither"
 assert_eq "$(js 'L.checkArgs(true, true)')" " check --refresh" "...a fetch wins, as the CLI drops --coalesce for it"
-# The timeout for a fetching check must outlast the CLI's refresh step, or the widget kills it
-# partway. Two arms of KEMPT_REFRESH_TIMEOUT, read from the code, on top of the plain check's time.
+# Every check may fetch (an automatic one does once the 3-hour interval is up), so every check gets
+# the ceiling. It must outlast the refresh step, or the widget kills it partway and leaves a root
+# dnf5 running: the Flatpak arm's KEMPT_REFRESH_TIMEOUT, read from the code, and the same again for
+# dnf5, whose makecache that timeout cannot stop, on top of the check without its fetch.
 cli_refresh_s="$(sed -n 's/^KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
-assert_eq "$(js "L.checkTimeoutMs(true) > L.CHECK_TIMEOUT_MS + 2 * ${cli_refresh_s:-999} * 1000")" "true" \
-  "a fetching check waits longer than both refresh arms (${cli_refresh_s:-?} s each) and the plain check"
-assert_eq "$(js 'L.checkTimeoutMs(false)')" "120000" "...and every other check keeps 120 s"
-assert_exit 0 "...both refresh arms are bounded by that one timeout" -- \
+assert_eq "$(js "L.CHECK_TIMEOUT_MS > L.CHECK_BODY_MS + 2 * ${cli_refresh_s:-999} * 1000")" "true" \
+  "every check waits longer than both refresh arms (${cli_refresh_s:-?} s each) and the check itself"
+assert_exit 0 "...one timeout for every check, fetching or not" -- \
+  grep -qF 'Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
+assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \
   grep -qF 'flatpak_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT"' "$REPO_ROOT/backends/flatpak.sh"
+# The menu entry stays enabled during a check. A press during a running fetch must not queue a
+# second fetch.
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh && !checkingRefresh) recheckRefresh = true;" \
+  "a Check for Updates during a running fetch does not queue another fetch"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked = true;" \
   "a person's request folded into a running check is remembered as a person's"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \

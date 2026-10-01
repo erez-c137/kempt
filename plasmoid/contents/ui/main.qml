@@ -22,6 +22,7 @@ PlasmoidItem {
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
     property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     property bool recheckRefresh: false    // ...and whether any folded request was Check for Updates
+    property bool checkingRefresh: false   // the check in flight is itself a fetch (`--refresh`)
     // When the last Check for Updates whose check has landed was pressed, as Date.now(); 0 until
     // then. The footer compares it with metadata_refreshed to say when that press got no fetch.
     property double refreshAskedMs: 0
@@ -302,8 +303,7 @@ PlasmoidItem {
     //
     // `refresh` is true only for Check for Updates (the button and the menu entry). That check
     // passes `--refresh`, so it fetches fresh metadata instead of answering from a cache up to
-    // three hours old, and it gets the longer Logic.checkTimeoutMs. The CLI still skips the fetch
-    // on battery or a metered connection.
+    // three hours old. The CLI still skips the fetch on battery or a metered connection.
     function doCheck(automatic, refresh) {
         var auto = automatic === true;
         var fresh = refresh === true;
@@ -326,18 +326,21 @@ PlasmoidItem {
         // next interval, which is the exact bug the watcher exists to prevent.
         // The deferred check is automatic only if EVERY request folded into it was: a Refresh
         // pressed during a timer's check must not be answered by somebody else's.
-        // A Check for Updates folded in the same way makes the deferred check fetch.
+        // A Check for Updates folded in the same way makes the deferred check fetch, unless the
+        // running check is already a fetch: the menu entry stays enabled while one runs.
         if (checking) {
             recheckPending = true;
             if (!auto) recheckAsked = true;
-            if (fresh) recheckRefresh = true;
+            if (fresh && !checkingRefresh) recheckRefresh = true;
             return;
         }
         checking = true;
+        checkingRefresh = fresh;
         var askedMs = Date.now();
-        executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.checkTimeoutMs(fresh),
+        executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,
                      function(stdout, stderr, rc) {
             root.checking = false;
+            root.checkingRefresh = false;
             if (fresh) root.refreshAskedMs = askedMs;
             // Stamped for EVERY completed check, whatever it answered: the quiet window below is
             // about the writes a check makes, and it makes those either way.
@@ -1035,7 +1038,7 @@ PlasmoidItem {
 
     // ...and a THIRD, carrying one command: the restart prompt. `dbus-send` returns as soon as KDE
     // has been ASKED to draw its confirmation screen - no lock, milliseconds - but on the shared
-    // queue it sits behind whatever is running, and a `kempt check` is allowed 120 seconds. The
+    // queue it sits behind whatever is running, and a `kempt check` may take minutes. The
     // popup's refresh-on-open makes a check in flight the LIKELY state at the moment somebody
     // reads the restart message and acts on it, and a button that appears to do nothing is
     // indistinguishable from a broken one. Its own instance rather than the tail's: an in-popup
@@ -1061,7 +1064,7 @@ PlasmoidItem {
     // an empty answer arms it again.
     // The post-run check, only when the CLI's own never arrived: a closing check that timed out on
     // the lock writes nothing, and the counts on screen would then stay the pre-run ones until
-    // the next scheduled check. Two minutes is the check's own timeout.
+    // the next scheduled check. Two minutes is a check without a fetch (Logic.CHECK_BODY_MS).
     Timer {
         id: postRunCheck
         interval: 120000
