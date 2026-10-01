@@ -3040,7 +3040,7 @@ assert_eq "$(js "L.CHECK_TIMEOUT_MS > L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
   grep -qF 'Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \
-  grep -qF 'flatpak_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT"' "$REPO_ROOT/backends/flatpak.sh"
+  grep -qF 'timeout "$KEMPT_REFRESH_TIMEOUT" $cmd' "$REPO_ROOT/backends/flatpak.sh"
 # The menu entry stays enabled during a check. A press during a running fetch must not queue a
 # second fetch.
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh && !checkingRefresh) recheckRefresh = true;" \

@@ -296,7 +296,7 @@ p.clear_calls()
 ev("checkAction.trigger()")
 p.pump(100)
 p.check("Check for Updates is given the time a fetch needs",
-        ev("executor.current !== null && executor.current.timeoutMs"), 390000)
+        ev("executor.current !== null && executor.current.timeoutMs"), 510000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.check("Check for Updates from the menu asks the CLI to fetch fresh metadata",
         p.calls_matching("check"), ["check --refresh"])
@@ -306,7 +306,7 @@ p.pump(100)
 # ...and so is an automatic check, which fetches too once the 3-hour interval is up. Killed at
 # 120 s, it left a root dnf5 running with nobody watching it.
 p.check("...and so is an automatic check, which may fetch as well",
-        ev("executor.current !== null && executor.current.timeoutMs"), 390000)
+        ev("executor.current !== null && executor.current.timeoutMs"), 510000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 # Folded into a running automatic check, the press still gets its fetch, whatever else folded in.
 p.clear_calls()
