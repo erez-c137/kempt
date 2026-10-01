@@ -363,21 +363,28 @@ surface_migrate() {
      || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
     used=1
   fi
-  if [[ -n "$used" ]] && ! grep -qs '^surface=' "$CONFIG_FILE"; then
-    config_set surface terminal 2>/dev/null || return 0
-    : > "$SURFACE_OFFER_FILE" 2>/dev/null || true
+  if [[ -n "$used" ]]; then
+    # The check for a surface line and the write are one step under the writers' lock (rc 3: the
+    # config already names one, which is the answer too). Any other failure is tried next run.
+    local rc=0
+    config_set surface terminal if-absent 2>/dev/null || rc=$?
+    [[ $rc -eq 0 || $rc -eq 3 ]] || return 0
+    [[ $rc -eq 0 ]] && { : > "$SURFACE_OFFER_FILE"; } 2>/dev/null
   fi
   { mkdir -p "$KEMPT_STATE_DIR" && : > "$SURFACE_MIGRATED_FILE"; } 2>/dev/null || true
 }
 
 # The offer, as state.json carries it: pending while the marker exists and updates still run in
-# the terminal. A config edited by hand to another surface has answered it too.
+# the terminal. A config edited by hand to another surface has answered it too, so the marker goes
+# then, and editing back to the terminal does not bring the offer back.
 surface_offer_pending() {  # → 0 when the popup should offer the popup default
   [[ -e "$SURFACE_OFFER_FILE" ]] || return 1
   local s
   s="$(config_get surface 2>/dev/null)" || return 1
   s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
-  [[ "${s,,}" == terminal ]]
+  [[ "${s,,}" == terminal ]] && return 0
+  rm -f "$SURFACE_OFFER_FILE" 2>/dev/null
+  return 1
 }
 
 # The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
@@ -624,7 +631,10 @@ config_get() {  # key [default]; explicit default wins, else the kempt_default t
   printf '%s\n' "${v:-${2:-$(kempt_default "$1")}}"
 }
 
-config_set() {  # key value
+config_set() {  # key value [if-absent]
+  # With a third argument, the write happens only when the file has no line for the key, decided
+  # inside the lock: rc 3 means a line was there and nothing was written. surface_migrate needs it,
+  # because a `config set surface` landing between its own check and its write would be overwritten.
   [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
   kempt_init_dirs
@@ -633,6 +643,10 @@ config_set() {  # key value
   # writer that reads between them writes this key straight back out. Held to the rename and no
   # further - see writer_lock.
   writer_lock || return 1
+  if [[ -n "${3:-}" ]] && grep -qs "^$1=" "$CONFIG_FILE"; then
+    writer_unlock
+    return 3
+  fi
   # The outgoing value, read BEFORE anything is written: "(was false)" is what turns the event line
   # "auto_accept=true" into evidence that the click changed something. Same read config_get does,
   # and it shares config_get's one ambiguity - a stored empty value and an absent key are

@@ -89,6 +89,32 @@ fresh; used_before
 "$KEMPT" config get surface >/dev/null
 sed -i 's/^surface=.*/surface=background/' "$KEMPT_CONFIG_DIR/config"
 assert_eq "$(surface_offer_pending && echo yes || echo no)" "no" "a surface set by hand is not offered the popup"
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-offer" ]] && echo yes || echo no)" "no" \
+  "...and the marker goes with it"
+sed -i 's/^surface=.*/surface=terminal/' "$KEMPT_CONFIG_DIR/config"
+assert_eq "$(surface_offer_pending && echo yes || echo no)" "no" \
+  "...so editing back to the terminal does not bring the offer back"
+
+# --- a concurrent config set surface wins ------------------------------------------------------------
+# The check for a surface line and the write are one step under the writers' lock. Here the lock is
+# held while another writer puts surface=popup in, and the migration, waiting on the lock, must
+# find that line rather than write over it.
+fresh; used_before
+mkdir -p "$KEMPT_CONFIG_DIR"; : > "$KEMPT_CONFIG_DIR/config"
+kempt_init_dirs
+exec 6>>"$WRITER_LOCK_FILE"; flock 6
+"$KEMPT" config get surface > "$TESTTMP/race.out" 2>&1 &
+race_pid=$!
+sleep 0.5
+printf 'surface=popup\n' >> "$KEMPT_CONFIG_DIR/config"
+flock -u 6; exec 6>&-
+wait "$race_pid"
+assert_eq "$(cat "$KEMPT_CONFIG_DIR/config")" "surface=popup" \
+  "a surface written while the migration waits for the lock is kept"
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-offer" ]] && echo yes || echo no)" "no" \
+  "...and nothing is offered"
+assert_eq "$(config_set surface terminal if-absent; echo "rc=$?")" "rc=3" \
+  "the if-absent write reports a key that is already there"
 
 # --- what does not run it ---------------------------------------------------------------------------
 fresh; used_before
@@ -97,6 +123,9 @@ fresh; used_before
 assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)" "no" \
   "help and the version change nothing"
 assert_eq "$([[ -e "$KEMPT_CONFIG_DIR/config" ]] && echo yes || echo no)" "no" "...not even the config"
+"$KEMPT" nonsense >/dev/null 2>&1 || true
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)" "no" \
+  "a mistyped command changes nothing either"
 
 # An unreadable config cannot say whether it names a surface, so the migration waits for a run that
 # can read it. Root reads everything, so this case means nothing there.

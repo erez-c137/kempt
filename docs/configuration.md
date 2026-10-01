@@ -97,7 +97,7 @@ The `terminal` surface needs a terminal emulator, `konsole` by default. Without 
 exits 4. To use another emulator that supports `-e`, set `KEMPT_TERMINAL`.
 
 Only the terminal can ask before installing kernel, systemd or desktop updates. On the other
-surfaces, **Update Now** asks in the popup first, and offers **Install on Next Restart** or
+surfaces, **Update Now** asks in the widget first, and offers **Install on Next Restart** or
 **Install Now**.
 
 ### Upgrading from an older Kempt
@@ -109,11 +109,15 @@ Before 0.1.8 the default was `terminal`. So that an upgrade does not move your u
 - The config file has no `surface` line.
 
 It runs once, and leaves a marker, `surface-migrated`, in the state directory. A config file that
-names a surface is never changed. A new install gets no `surface` line, and so the popup.
+names a surface is never changed. A new install gets no `surface` line, and so the widget.
 
-When it did write the line, the widget offers the popup once: **Use the Popup** or **Keep the
-Terminal**. Either answer is saved as the `surface` setting, and so is a change in Settings or with
-`kempt config set surface`. Any of these ends the offer.
+An install that has a config file but has never run a check or an update counts as new. Without
+`state.json` or a history entry, it gets the new default.
+
+When it did write the line, the widget offers to run updates in the widget once: **Use This
+Widget** or **Keep the Terminal Window**. Either answer is saved as the `surface` setting, and so is
+a change in Settings or with `kempt config set surface`. Any of these ends the offer. So does a
+check that finds the config file names another surface, for example after an edit by hand.
 
 ### Offline staging
 
@@ -180,7 +184,7 @@ day.
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
 | `~/.local/state/kempt/surface-migrated` | Empty marker: the upgrade step that keeps an older install on the terminal has run |
-| `~/.local/state/kempt/surface-offer` | Empty marker: the widget may offer the popup once. Removed when the `surface` setting is next set |
+| `~/.local/state/kempt/surface-offer` | Empty marker: the widget may offer to run updates in the widget once. Removed when the `surface` setting is next set, or when a check finds it is not `terminal` |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock` | `flock` files. `lock` serialises updates and `check.lock` serialises checks. `writer.lock` serialises `config set`, `hold` and `unhold`, so two at once cannot lose a write to `config` or `holds` |

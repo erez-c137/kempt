@@ -3550,10 +3550,11 @@ if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
 fi
 
 # Before any command reads the config, so the first `config get surface` of this version already
-# answers what the migration decided. Help and the version change nothing, so they skip it.
+# answers what the migration decided. Only the commands that exist: help, the version and a
+# mistyped command change nothing, so they skip it.
 case "${1:-help}" in
-  help|--help|-h|version|--version|-V) ;;
-  *) surface_migrate ;;
+  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
+  enable-passwordless|disable-passwordless) surface_migrate ;;
 esac
 
 case "${1:-help}" in
