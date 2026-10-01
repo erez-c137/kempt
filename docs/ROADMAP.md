@@ -26,7 +26,8 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 
 - **The first outside users.** Their reports come before everything below.
 - **New screenshots.** The ones in the README, the metainfo and the store listing predate three
-  releases: they show no runtimes section and no way to take back a staged update. The metainfo
+  releases: they show no runtimes section, no way to take back a staged update and no offer to
+  free space. The metainfo
   links them by tag, so new ones reach software centres with the release after they land. They
   will be 16:9, because software centres crop tall images badly.
 - **Removing the dnf5 text parsers when Fedora 43 reaches end of life.** From then on every
@@ -62,7 +63,70 @@ These rules hold for every value:
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
-## 0.2: a second distribution
+## Then: 0.1.8, good defaults for everyone
+
+Kempt serves two kinds of people. Some want updates taken care of and never want to see a
+terminal. Others want every detail and full control. Kempt does not split into two modes. It gets
+good defaults, and the detail stays one click away.
+
+- **One question the first time.** A new install asks once: **Take care of it for me** or
+  **I'll decide**. The answer sets the defaults below. After that, each setting is its own
+  switch in Settings. An existing install keeps how it works today, and the popup offers the new
+  defaults once.
+- **Kempt stores only the settings you change.** Today it writes every default into the config
+  file, so a later, better default never reaches anyone. A one-time clean-up removes the keys
+  that still hold their default value.
+- **Update Now runs in the popup by default.** When the kernel or the desktop itself has
+  updates, the popup asks with two buttons: **Install on Next Restart** (recommended) or
+  **Install Now**. No terminal opens. The terminal stays a choice in Settings.
+- **The common problems end in a button.** For example **Try Again**, **Show Log** or
+  **Restart**. The command stays next to it, for copying.
+- **Everyday words, details on request.** "System" and "Apps", not "dnf" and "flatpak". With
+  **I'll decide**, the list shows every package and version, as now. With **Take care of it for
+  me**, it starts collapsed to a count, with **Show Details**.
+- **A notification when updates arrive**, which can be turned off. Today only the badge changes.
+- **Living with Discover.** Discover's notifier counts differently and can hold the package lock.
+  The popup offers to turn the notifier off with one click, and to turn it back on the same way.
+  When Discover is busy, Kempt already tries again. If it still cannot start, the popup says
+  Discover is busy rather than that the update failed.
+- **Clearer for scripts.** `kempt check --strict` exits non-zero when a source fails. A package
+  lock held by another program gets its own exit code. `kempt history --json` gives every run,
+  not only the last.
+- **Clear about scope.** The README says plainly that Kempt is a desktop tool and does not update
+  on its own. Servers are better served by `dnf5-automatic`.
+
+## 0.2: updates on their own, and more control
+
+- **Automatic updates, staged for the next restart.** With **Take care of it for me**, Kempt
+  downloads and stages updates on its own, and they install the next time you restart. System
+  packages do not change under the running desktop. Flatpak apps are updated in the same run.
+  The restart stays your choice, and Kempt reminds you when staged updates have waited a few
+  days.
+  - Staging without a password prompt needs a design of its own, and its effect on what runs as
+    root comes first. It runs only while you are logged in, and only with passwordless updates
+    turned on.
+  - It waits for mains power and a network that is not metered, for the download as well as the
+    check.
+  - It re-stages when something else changed the system, skips quietly while a release upgrade
+    is waiting, and stays off when more than one person may use the machine.
+- **Update later.** "Tonight" or "only on Wi-Fi", for people who now close the popup to put an
+  update off.
+- **Is it safe?** The system group says how many updates are security fixes, when Fedora's
+  advisory data covers them. Each row can show its advisory and a link to the changelog.
+- **More control.**
+  - `kempt update --security` installs security fixes only.
+  - `kempt update --dry-run` shows the transaction dnf would run, and changes nothing. It needs
+    no password.
+  - Holds accept patterns such as `kernel*`, with a warning when a pattern matches most of the
+    list.
+  - Per-user Flatpak apps can be counted and updated. It is off for existing installs, so their
+    counts do not jump.
+  - The state file says when Kempt could not tell whether a restart is needed, in a new field.
+
+## 0.3: a second distribution
+
+Kempt goes deep on Fedora before it goes wide. A second distribution starts once the new
+defaults and automatic updates work well there.
 
 - **A backend registry.** Today a new backend touches every row of the wiring table in
   [architecture.md](architecture.md#adding-a-backend-for-your-distro). With a registry, each
@@ -107,16 +171,11 @@ package stays ready for review at every release.
   `logic.js`, which translators cannot reorder. Both need fixing together: `logic.js` gets a
   translation hook that works in QML and under node, and each built sentence becomes a whole
   `i18np()` sentence. Until then Kempt is English only.
-- **Update later.** Options such as "later", "tonight" or "only on Wi-Fi", for people who now close
-  the popup to put an update off.
 - **A restart reminder that stays dismissed.** Closing it now hides it until Plasma restarts. To
   remember it longer, Kempt would store the dismissal against the boot ID, as offline staging
   does.
 - **Announcing results to screen readers.** Every control has an accessible name, but
   **Refresh**, **Update Now** and the padlock do not announce what happened.
-- **Per-user Flatpak apps.** Kempt handles the system installation only. Every command in
-  `backends/flatpak.sh` passes `--system`, so per-user apps are neither counted nor updated.
-  Flatpak updates already run as you, so what is left is deciding how the setting works.
 - **Fedora's official repos, after COPR.** Then `dnf install kempt` works with no COPR step. It
   also lets the widget offer a real install button through PackageKit, which can only install from
   repos that are already enabled. Until then, the widget offers **Copy Commands**.
@@ -129,7 +188,7 @@ package stays ready for review at every release.
 ## 2.0
 
 - **Update insights.** Warnings and advice for this machine, built only from sourced data. That
-  means dnf security advisories with severity, and which updates affect your hardware (for example
+  means advisory severity, and which updates affect your hardware (for example
   "mesa: affects your AMD GPU", or an NVIDIA driver rebuild on next boot). It also covers what an
   update does to the running session, and optional Fedora Bodhi feedback.
 - **Standalone tools.** A `tools` backend for programs installed as a single downloaded binary,
@@ -137,7 +196,9 @@ package stays ready for review at every release.
   and supports holds and summaries as for any backend. Anything owned by a project, lockfile,
   language runtime or version manager is reported as owned by that tool and left alone.
 - **Per-version holds** that skip one bad release and clear themselves on the next. Optional
-  `dnf versionlock` support. An **Install on Next Restart** action in the notification.
+  `dnf versionlock` support, so a plain `dnf upgrade` respects a hold too. It changes system-wide
+  settings, so it always asks for a password. An **Install on Next Restart** action in the
+  notification.
 - **Per-backend settings** (`disable`, `only`, `ignore_failures`), in the style of topgrade.
 
 ## Later
