@@ -54,11 +54,6 @@ ICON_LADDER=(
 # Best-effort and never fatal: a box with no session bus still installs fine, it just needs a
 # log-out to see the icon. A seam so the suite never signals the real desktop.
 KEMPT_DBUS_SEND="${KEMPT_DBUS_SEND:-dbus-send}"
-# The system autostart entry the opt-out overrides. A seam so the copy source can be a fixture:
-# with the real path hardcoded, every call re-copies the live system file over the test's own and
-# the "an existing Hidden= is replaced" case can never run.
-KEMPT_AUTOSTART_SRC="${KEMPT_AUTOSTART_SRC:-/etc/xdg/autostart/org.kde.discover.notifier.desktop}"
-
 # Test seam, same shape as libexec/kempt-apply's KEMPT_APPLY_ECHO: with KEMPT_INSTALL_ECHO=1
 # the privileged (and process-killing) commands are PRINTED instead of run, so the real-mode
 # path can be tested without ever touching /usr, /etc or somebody's running desktop.
@@ -69,23 +64,6 @@ run() {
   printf '%s\n' "$*"
   [[ "$KEMPT_INSTALL_ECHO" == fail ]] && return 1
   return 0
-}
-
-# Recommended opt-out: plasma-discover-notifier duplicates Kempt's notifications AND its background
-# PackageKit activity takes the dnf5 lock at random, which makes Kempt runs fail at random. A
-# user-level autostart entry with Hidden=true overrides the system one. Idempotent by construction: re-running the installer must never accumulate lines, and a system entry carrying
-# `Hidden=false` must be REPLACED, not joined - two Hidden= keys make an invalid desktop entry that
-# parsers disagree about.
-notifier_optout() {  # autostart_dir
-  local dir="$1" src="$KEMPT_AUTOSTART_SRC" body
-  local f="$dir/org.kde.discover.notifier.desktop"
-  mkdir -p "$dir"
-  # Seed from the system entry ONLY when there is nothing there yet: re-running the installer
-  # must not overwrite an override the user has since edited by hand.
-  [[ -f "$f" ]] || { [[ -f "$src" ]] && cp "$src" "$f"; } || true
-  [[ -f "$f" ]] || printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\n' > "$f"
-  body="$(grep -v '^Hidden=' "$f")" || true
-  printf '%sHidden=true\n' "${body:+$body$'\n'}" > "$f"
 }
 
 # --- the panel widget -------------------------------------------------------------------------
@@ -269,22 +247,23 @@ main() {
   # declined auth dialog skips it, and the failure message above says so.
   widget_install
 
-  # Recommended: stop Discover's notifier (duplicate nags + it holds the dnf5 lock at random).
-  # An OFFER, never silent, default yes. A failed read means there is nobody to ask
-  # (piped or redirected stdin), and "nobody answered" must leave the notifier exactly as it was.
+  # Recommended: turn off Discover's notifier, which counts updates on its own and can make a Kempt
+  # run wait. Asked, default yes. A failed read means there is nobody to ask (piped or redirected
+  # stdin), and then the notifier stays as it was.
   local ans=""
-  if ! read -rp "Disable plasma-discover-notifier for this user? [Y/n] " ans; then
-    echo "note: nothing to read an answer from - plasma-discover-notifier left ENABLED. Re-run install.sh in a terminal to turn it off (recommended: it duplicates notifications and holds the dnf5 lock)."
+  if ! read -rp "Turn off Discover's update notifier for this user? [Y/n] " ans; then
+    echo "note: nobody to answer, so Discover's update notifier is left on. To turn it off later: kempt discover-notifier off"
     return 0
   fi
   # "no" must mean no: the old `!= "n"` test read the word "no" as consent.
   case "${ans,,}" in
     n|no)
-      echo "plasma-discover-notifier left enabled (run ./install.sh again to change your mind)" ;;
+      echo "Discover's update notifier is left on. To turn it off later: kempt discover-notifier off" ;;
     *)
-      notifier_optout "$HOME/.config/autostart"
-      run pkill -f DiscoverNotifier 2>/dev/null || true
-      echo "DiscoverNotifier disabled for $(id -un) (delete $HOME/.config/autostart/org.kde.discover.notifier.desktop to undo)" ;;
+      # The command the widget's button runs. KEMPT_INSTALL_ECHO stops nothing on the desktop.
+      if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"; fi
+      "$ROOT/bin/kempt" discover-notifier off \
+        || echo "note: Discover's update notifier was not turned off. To try again: kempt discover-notifier off" ;;
   esac
 }
 

@@ -184,73 +184,58 @@ grep -q 're-run ./install.sh --uninstall' <<<"$uout" \
   && echo "ok: ...and says how to finish" || { echo "FAIL: no recovery instruction - got: $uout"; _fail=1; }
 
 # --- the notifier question. "no" must mean no: `!= "n"` used to read the word "no" as consent.
-export KEMPT_AUTOSTART_SRC="$TESTTMP/system-notifier.desktop"
+# Yes runs `kempt discover-notifier off`, the command the widget runs (tests/test_discover_notifier.sh
+# covers the command itself). The sandbox's pgrep and pkill seams find and stop nothing.
+export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/xdg-autostart"; mkdir -p "$KEMPT_XDG_AUTOSTART_DIR"
 printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
-  > "$KEMPT_AUTOSTART_SRC"
+  > "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"
 USER_AUTOSTART="$HOME/.config/autostart/org.kde.discover.notifier.desktop"
 assert_exit 0 "declining with n writes nothing" -- test ! -e "$USER_AUTOSTART"
 nout_no="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"no")"
 assert_exit 0 "declining with the word 'no' writes nothing either" -- test ! -e "$USER_AUTOSTART"
-grep -q 'left enabled' <<<"$nout_no" && echo "ok: and it says the notifier is still enabled" || { echo "FAIL: no-answer message - got: $nout_no"; _fail=1; }
-grep -q 'DiscoverNotifier disabled' <<<"$nout_no" && { echo "FAIL: 'no' disabled the notifier anyway"; _fail=1; } \
-  || echo "ok: 'no' never claims it disabled anything"
+grep -q 'is left on' <<<"$nout_no" && echo "ok: and it says the notifier is still on" || { echo "FAIL: no-answer message - got: $nout_no"; _fail=1; }
+grep -q 'kempt discover-notifier off' <<<"$nout_no" && echo "ok: ...and how to turn it off later" || { echo "FAIL: no command named - got: $nout_no"; _fail=1; }
+grep -q 'notifier is off' <<<"$nout_no" && { echo "FAIL: 'no' turned the notifier off anyway"; _fail=1; } \
+  || echo "ok: 'no' never claims it turned anything off"
 yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
 assert_exit 0 "accepting writes the override" -- test -f "$USER_AUTOSTART"
-assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "the override hides the notifier"
-grep -q 'pkill -f DiscoverNotifier' <<<"$yout" && echo "ok: accepting also stops the running notifier" || { echo "FAIL: pkill not attempted - got: $yout"; _fail=1; }
+assert_eq "$(grep -c '^Hidden=' "$USER_AUTOSTART")" "1" "the override has one Hidden= line"
+assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "...and it hides the notifier"
+assert_eq "$(grep -c '^X-Kempt-Override=true' "$USER_AUTOSTART")" "1" \
+  "...marked as Kempt's, so kempt discover-notifier on can remove it"
+grep -q 'notifier is off' <<<"$yout" && echo "ok: accepting says the notifier is off" || { echo "FAIL: no confirmation - got: $yout"; _fail=1; }
+assert_eq "$(KEMPT_INSTALL_ECHO=1 "$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null; echo "$?")" "0" \
+  "...and the command turns it back on"
+assert_exit 0 "...removing the installer's file" -- test ! -e "$USER_AUTOSTART"
+
+# A person's own entry, there before the installer: kept, and put back by on.
+mkdir -p "$(dirname "$USER_AUTOSTART")"
+printf '[Desktop Entry]\nType=Application\nX-Own=1\n' > "$USER_AUTOSTART"
+KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"" >/dev/null
+assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "an empty answer is yes, over the person's own entry too"
+assert_eq "$(cat "$USER_AUTOSTART.before-kempt")" $'[Desktop Entry]\nType=Application\nX-Own=1' \
+  "...which is kept beside it"
+"$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null
+assert_eq "$(cat "$USER_AUTOSTART")" $'[Desktop Entry]\nType=Application\nX-Own=1' "...and put back by on"
 rm -f "$USER_AUTOSTART"
 
-# ...and neither does having nobody to ask. The spec is explicit that the notifier is never
-# disabled silently, so a piped/redirected stdin must leave it exactly as it was.
+# ...and neither does having nobody to ask. The notifier is never turned off silently, so a
+# piped or redirected stdin must leave it as it was.
 nout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" </dev/null)"
-assert_exit 0 "a non-interactive install never disables the notifier" -- test ! -e "$HOME/.config/autostart/org.kde.discover.notifier.desktop"
-grep -q 'left ENABLED' <<<"$nout" && echo "ok: and it says so" || { echo "FAIL: silent skip - got: $nout"; _fail=1; }
-grep -q 'DiscoverNotifier' <<<"$nout" && { echo "FAIL: pkill reached a non-interactive install"; _fail=1; } \
-  || echo "ok: nothing was killed on the user's desktop"
+assert_exit 0 "a non-interactive install never turns the notifier off" -- test ! -e "$USER_AUTOSTART"
+grep -q 'left on' <<<"$nout" && echo "ok: and it says so" || { echo "FAIL: silent skip - got: $nout"; _fail=1; }
+grep -q 'notifier is off' <<<"$nout" && { echo "FAIL: the notifier was turned off without an answer"; _fail=1; } \
+  || echo "ok: nothing was turned off"
 
-# --- the notifier opt-out itself (sourced: install.sh only runs main when executed) ---
-# KEMPT_AUTOSTART_SRC is the copy source. Seeding the RESULT would prove nothing: the next call
-# re-copies the source over it, so only a fixture SOURCE actually exercises the replace logic.
+# Without Discover installed, yes changes nothing and says so.
+rm -f "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"
+yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
+assert_exit 0 "with no notifier installed, yes writes nothing" -- test ! -e "$USER_AUTOSTART"
+grep -q 'not installed' <<<"$yout" && echo "ok: ...and says it is not installed" || { echo "FAIL: got: $yout"; _fail=1; }
+export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
+
+# Sourced from here on: install.sh only runs main when executed.
 source "$INSTALL"
-AUTOSTART="$TESTTMP/autostart"
-f="$AUTOSTART/org.kde.discover.notifier.desktop"
-
-# No system entry to copy (a box without Discover installed): still a valid, hiding entry.
-KEMPT_AUTOSTART_SRC="$TESTTMP/no-such-autostart.desktop"
-notifier_optout "$AUTOSTART"
-assert_exit 0 "opt-out writes an autostart override" -- test -f "$f"
-assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "the override hides the notifier"
-grep -q '^\[Desktop Entry\]' "$f" && echo "ok: the fallback is a valid desktop entry" || { echo "FAIL: fallback has no desktop entry header"; _fail=1; }
-grep -q '^Type=Application' "$f" && echo "ok: the fallback carries the required Type key" || { echo "FAIL: fallback missing Type"; _fail=1; }
-notifier_optout "$AUTOSTART"
-notifier_optout "$AUTOSTART"
-assert_eq "$(grep -c '^Hidden=' "$f")" "1" "re-running the installer never accumulates Hidden= lines"
-assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and the one line still hides it"
-
-# A system entry that ships Hidden=false must not survive alongside ours: two Hidden= keys is an
-# invalid desktop entry and parsers disagree about which one wins.
-KEMPT_AUTOSTART_SRC="$TESTTMP/system-notifier.desktop"
-printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
-  > "$KEMPT_AUTOSTART_SRC"
-rm -rf "$AUTOSTART"
-notifier_optout "$AUTOSTART"
-assert_eq "$(grep -c '^Hidden=' "$f")" "1" "an existing Hidden= key is replaced, not duplicated"
-assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and what remains is Hidden=true"
-grep -q '^\[Desktop Entry\]' "$f" && echo "ok: the file stays a valid desktop entry" || { echo "FAIL: desktop entry header lost"; _fail=1; }
-grep -q '^Exec=/usr/bin/DiscoverNotifier' "$f" && echo "ok: the system entry's own keys survive" || { echo "FAIL: Exec key lost"; _fail=1; }
-grep -q '^X-KDE-autostart-phase=2' "$f" && echo "ok: even the trailing keys survive" || { echo "FAIL: trailing key lost"; _fail=1; }
-notifier_optout "$AUTOSTART"
-notifier_optout "$AUTOSTART"
-assert_eq "$(grep -c '^Hidden=' "$f")" "1" "re-running against a Hidden=false system entry still leaves one"
-assert_eq "$(grep -c '^Hidden=true' "$f")" "1" "and it is still the hiding one"
-
-# An override the user has since edited by hand must survive a re-install: the system entry is
-# only ever a SEED, copied when there is nothing there yet.
-printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nX-Erez-Custom=1\nHidden=true\n' > "$f"
-notifier_optout "$AUTOSTART"
-grep -q '^X-Erez-Custom=1' "$f" && echo "ok: re-installing preserves the user's own autostart edits" \
-  || { echo "FAIL: the system entry overwrote the user's file"; _fail=1; }
-assert_eq "$(grep -c '^Hidden=' "$f")" "1" "and still exactly one Hidden= line"
 
 # --- the panel widget arm (sourced, with a stub kpackagetool6) ---------------------------------
 # The real kpackagetool6 is never run here: it writes into the user's plasmoids directory and
