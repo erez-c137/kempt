@@ -122,7 +122,7 @@ user or as root.
 | `~/.config/kempt/config` | `key=value` settings, one per line, the only place a setting is stored | Nothing; it is yours |
 | `~/.config/kempt/holds` | One `backend:name` per line | Nothing; it is yours |
 | `~/.local/state/kempt/state.json` | What is pending right now, schema v1, a public interface | Rewritten by every check |
-| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, restart verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
+| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, restart verdict, and the reason when it failed. A public interface (see [History entries](#history-entries)) | Newest 50 kept, on every `kempt_init_dirs` |
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. An update applied on a restart is the exception: dnf5 installed it while Kempt was not running, so the file is Kempt's own record from the snapshot diff, and says so | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
@@ -239,6 +239,18 @@ Two rules for anything that reads this file:
 
 A new backend adds a key under `backends` and stays schema 1. Readers ignore keys they do not
 know, and the totals keep working.
+
+## History entries
+
+Each run's history entry is the second **public interface**. Two commands print it:
+
+- `kempt summary --json` prints the newest entry, or nothing.
+- `kempt history --json` prints every readable entry as one JSON array, newest first, or `[]`.
+
+Both carry every field the run wrote, so the two formats always match. The fields are listed
+in [Where the popup's last-run line comes from](#where-the-popups-last-run-line-comes-from). Fields
+may be added. A field that changes meaning or type is a breaking change. Every field except
+`status` may be absent in an older entry, so a reader must tolerate absence.
 
 ## The offline transaction, end to end
 

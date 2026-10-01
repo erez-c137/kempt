@@ -15,7 +15,8 @@ run [--print-command] launch update per configured surface (what the widget call
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
-history               list past runs
+history [--json]      list past runs, newest first; --json prints them as a JSON array of
+                      history entries
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
@@ -429,7 +430,7 @@ terminal, the update also prints the outcome under the **Unused Flatpak runtimes
 ```
 kempt summary [N]
 kempt summary --json
-kempt history
+kempt history [--json]
 ```
 
 `summary` shows one run as text. `N` counts back from the newest: `1` (the default) is the last
@@ -496,6 +497,15 @@ kempt history
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
 2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
+```
+
+`history --json` prints every run as one JSON array, newest first. Each element is the entry
+`summary --json` prints for that run. With no runs it prints `[]`. A damaged entry is left out and
+named on stderr. It always exits 0. The format is in
+[architecture.md](architecture.md#history-entries).
+
+```bash
+kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)  \(.error)"'
 ```
 
 ## log

@@ -25,6 +25,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt summary \-\-json
 .br
 .B kempt history
+.RB [ \-\-json ]
 .br
 .B kempt log
 .RB [ \-n
@@ -181,6 +182,14 @@ List past runs, newest first: timestamp, surface, status and what the run change
 column counts upgrades, installs and removals in the same words the notifications use
 .RB ( "3 updated, +1 installed" ", " "no package changes" ),
 so a run that only installed or removed packages is never listed as "0 updated".
+.TP
+.B history \-\-json
+Print every run as one JSON array, newest first. Each element is the history entry
+.B "summary \-\-json"
+prints for that run. A damaged entry is left out, with a warning on stderr. With no runs it
+prints
+.B []
+and exits 0.
 .TP
 .BR log " [" \-n " " \c
 .IR N ]

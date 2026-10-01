@@ -1974,12 +1974,33 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   echo "no update runs recorded yet"
 }
 
-cmd_history() {
+cmd_history() {  # [--json] - every run, newest first; --json as one array of history entries
+  local json=false
+  if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   local f row files=()
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
   # shellcheck disable=SC2012   # shell-expanded glob; ls is the existence filter, sort is the order
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
+  if [[ "$json" == true ]]; then
+    # Each element is what `summary --json` prints for that run, behind the same guard: one JSON
+    # object per file. A damaged entry is named on stderr and left out. No runs is `[]`.
+    local good=()
+    for f in "${files[@]}"; do
+      if jq -e -n '[inputs] | length == 1 and (.[0]|type == "object")' "$f" >/dev/null 2>&1; then
+        good+=("$f")
+      else
+        echo "warning: corrupt history entry: $f" >&2
+      fi
+    done
+    if (( ${#good[@]} )); then
+      jq -n '[inputs]' "${good[@]}"
+    else
+      echo '[]'
+    fi
+    return 0
+  fi
   local phrase err
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, nor take the whole
@@ -3518,7 +3539,8 @@ usage: kempt <command>
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
-  history               list past runs
+  history [--json]      list past runs, newest first; --json prints them as a JSON array of
+                        history entries
   log [-n N]            recent events: what Kempt did, when, and from where (default 30)
   doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
@@ -3547,7 +3569,7 @@ case "${1:-help}" in
   update)  shift; cmd_update "$@" ;;
   run)     shift; cmd_run "$@" ;;
   summary) shift; cmd_summary "$@" ;;
-  history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
+  history) shift; cmd_history "$@" ;;
   log)     shift; cmd_log "$@" ;;
   doctor)  shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_doctor ;;
   config)  shift; cmd_config "$@" ;;
