@@ -63,27 +63,28 @@ These rules hold for every value:
 - Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
   and it removes old ones on its own schedule.
 
-## Then: 0.1.8, a better first five minutes
+## Then: 0.1.8, easier from the first update
 
-What a newcomer meets first decides whether they stay. This release fixes that, and nothing else
-big, so it can ship soon after 0.1.7.
+0.1.8 makes Kempt easier for someone who has just installed it. Updates run in the popup, problems
+come with a button, and Kempt works better alongside Discover. It is a small release, planned soon
+after 0.1.7.
 
-- **Update Now stays in the popup.** New installs run updates in the popup by default. When the
-  kernel or the desktop itself has updates, the popup asks with two buttons: **Install on Next
-  Restart** (recommended) or **Install Now**. No terminal opens. An existing install keeps the
-  terminal, and the popup offers the new default once. The terminal stays a choice in Settings.
-- **Problems end in a button.** The popup already offers **Show Log**, **Restart** and **Install
-  on Next Restart**. The problems that still end in a command, such as "run kempt doctor", get a
-  button too, with the command beside it for copying.
-- **Busy means busy.** When another program holds the package system, Kempt already tries again.
-  For dnf it then says the system is busy. Flatpak gets the same sentence.
-- **Discover's notifier, one click.** It counts updates differently and can hold the package
-  lock. Today only a checkout install offers to turn it off. The popup offers it to everyone, and
-  turns it back on the same way.
-- **Clearer for scripts.** `kempt check --strict` exits non-zero when a source fails. A package
-  lock held by another program gets its own exit code. `kempt history --json` gives every run,
-  not only the last.
-After 0.1.8, outside users' reports decide what comes next for newcomers.
+- **Updates in the popup.** On a new install, Update Now runs in the popup instead of opening a
+  terminal. When the kernel or the desktop has updates, the popup asks whether to install them on
+  the next restart (recommended) or now. Existing installs keep the terminal, and the popup offers
+  the switch once. The terminal stays available in Settings.
+- **A button for every fix.** Some problems still end with a command to type, such as "run kempt
+  doctor". These get a button, with the command beside it for copying.
+- **A clear message when Flatpak is busy.** When another program is using Flatpak, Kempt says the
+  system is busy, as it already does for dnf.
+- **Discover's notifier, off in one click.** Discover counts updates differently, and its notifier
+  can hold the package lock. The popup can turn it off, and back on. Today only the install script
+  offers this.
+- **Better for scripts.** `kempt check --strict` exits with an error when a check fails. `kempt
+  update` exits with code 7 when another program holds the package lock. `kempt history --json`
+  lists every run.
+
+After 0.1.8, feedback from new users decides what to improve next.
 
 ## 0.2: updates on their own, and more control
 
