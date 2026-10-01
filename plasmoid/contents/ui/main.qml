@@ -127,6 +127,17 @@ PlasmoidItem {
     // offer when the surface is set; this hides it at once rather than at the next check.
     property bool surfaceOfferAnswered: false
 
+    // Whether the CLI has answered for the surface yet. Until it has, `surface` is only the
+    // default, so the offer waits. The risky question does not: the default is the popup, so in
+    // that window Update Now asks first, which is the safe side. Defaulting to the terminal would
+    // start a session-critical set live on a box set to the popup.
+    property bool surfaceKnown: false
+
+    // A question is about the moment it was asked. A run started elsewhere, or a set that is no
+    // longer risky, ends it, so it cannot come back after that run fails.
+    readonly property bool updateAsksFirst: vm.updateAsksFirst
+    onUpdateAsksFirstChanged: if (!updateAsksFirst) riskyChoiceOpen = false
+
     // Our own report of a restart prompt that could not be opened; empty means nothing to say.
     // Kept apart from actionMessage because it belongs to the restart message, which is where the
     // user pressed. Silence is the worst outcome available: a button that appears to do nothing is
@@ -241,6 +252,7 @@ PlasmoidItem {
                                                 autoAccept: autoAccept,
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 surfaceOfferAnswered: surfaceOfferAnswered,
+                                                surfaceKnown: surfaceKnown,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
@@ -560,7 +572,10 @@ PlasmoidItem {
     function readSurface() {
         executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
-            if (rc === 0 && s !== "") root.surface = s;
+            if (rc === 0 && s !== "") {
+                root.surface = s;
+                root.surfaceKnown = true;
+            }
         });
         executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
@@ -853,10 +868,15 @@ PlasmoidItem {
         surfaceOfferAnswered = true;
         executor.run(kemptCmd + " config set surface " + value, 10000, function(stdout, stderr, rc) {
             if (rc !== 0) {
+                // Not saved, so not answered: the offer comes back with the reason above it.
+                root.surfaceOfferAnswered = false;
                 root.actionMessage = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
                 return;
             }
             root.readSurface();
+            // A check publishes state.json without surface_offer, so the offer stays gone after
+            // this session forgets the answer.
+            root.doCheck();
         });
     }
 
@@ -891,6 +911,7 @@ PlasmoidItem {
         // without a fifth branch for "we do not know".
         runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
+        riskyChoiceOpen = false;
         // Noted BEFORE anything is launched, so the entry the run writes can only be stamped at or
         // after this - see Logic.runFinishedSince for the comparison.
         updateStartedMs = Date.now();

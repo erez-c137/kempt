@@ -60,6 +60,11 @@ RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
 open(AUTO, "w").write("true\n")
 open(RR, "w").write("true\n")
+# What `kempt config get surface` answers, and the status `config set` fails with (empty: it works).
+SURF = os.path.join(p.sandbox, "surface")
+CFGSETRC = os.path.join(p.sandbox, "cfgsetrc")
+open(SURF, "w").write("popup\n")
+open(CFGSETRC, "w").write("")
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 LAST_RUN = json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
@@ -148,6 +153,10 @@ recorder("dbus-send", DBUSRC)
 recorder("xdg-open", XDGRC)
 
 p.stub("""
+# `config set` fails with this status while the file holds one, as a config the user cannot write.
+if [[ "$1" == config && "$2" == set && -s %(CSRC)s ]]; then
+  echo "kempt: could not write the config file" >&2; exit "$(cat %(CSRC)s)"
+fi
 case "$1" in
 %(CFG)s
   check)  cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
@@ -166,9 +175,9 @@ case "$1" in
            if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
            cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
 esac
-""" % {"CFG": harness.config_arm(surface="echo popup", auto_accept="cat %s" % AUTO,
+""" % {"CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
-       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -2160,49 +2169,111 @@ p.check("closing the popup closes an unanswered choice", ev("root.riskyChoiceOpe
 p.check("...and the plain message's Install Now goes with it",
         lev("riskyMessage.actions[1].visible"), False)
 
-# --- the one-time offer to update in the popup -----------------------------------------------------
+# A question is about the moment it was asked: a run started some other way ends it...
+lev("updateButton.clicked()")
+p.pump(100)
+p.check("an open choice...", ev("root.riskyChoiceOpen"), True)
+ev('root.enterUpdating("terminal")')
+p.pump(50)
+p.check("...is closed by a run started elsewhere, so it cannot come back if that run fails",
+        ev("root.riskyChoiceOpen"), False)
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+p.check("...and it does not come back after the run", lev("riskyMessage.asking"), False)
+# ...and so does a set that is no longer session-critical.
+lev("updateButton.clicked()")
+p.pump(100)
+state(fixture("state-live.json"))
+p.check("a check that finds nothing session-critical closes the choice", ev("root.riskyChoiceOpen"), False)
+
+# On the terminal, the terminal asks for itself: Update Now runs at once, with no question here.
+open(SURF, "w").write("terminal\n")
+ev("root.readSurface()")
+settle()
+state(fixture("state-risky-heavy.json"))
+p.check("with the terminal as the setting...", ev("root.effectiveSurface"), "terminal")
+runs_before = p.call_count("run")
+lev("updateButton.clicked()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("...Update Now on a session-critical set runs at once",
+        p.calls_matching("run")[-1:], ["run"])
+p.check("...with no question in the popup", ev("root.riskyChoiceOpen"), False)
+p.check("...exactly once", p.call_count("run") - runs_before, 1)
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+
+# --- the one-time offer to run updates in the widget -----------------------------------------------
 # Made to a box the migration kept on the terminal (state.json surface_offer), and only while the
-# terminal is still the setting. This probe's stub answers popup, so the offer starts hidden.
+# terminal is still the setting. The stub answers terminal from here on, and the stubbed check
+# keeps serving surface_offer, so whatever hides the offer below is the widget's own answer.
 _so = json.loads(open(fixture("state-live.json")).read())
 _so["surface_offer"] = True
 _sopath = os.path.join(p.sandbox, "state-surface-offer.json")
 open(_sopath, "w").write(json.dumps(_so))
 state(_sopath)
-p.check("the offer is not made to a box already updating in the popup",
-        lev("surfaceOfferMessage.visible"), False)
-ev('root.surface = "terminal"')
-p.pump(50)
-p.check("...and is made to one that still has the terminal", lev("surfaceOfferMessage.visible"), True)
+p.check("the offer is made to a box that still has the terminal", lev("surfaceOfferMessage.visible"), True)
 p.check("...in plain words", lev("surfaceOfferMessage.text"), ev("Logic.COPY.surfaceOffer"))
 p.check("...with the two answers",
         [lev("surfaceOfferMessage.actions[0].text"), lev("surfaceOfferMessage.actions[1].text")],
         [ev("Logic.COPY.surfaceOfferUse"), ev("Logic.COPY.surfaceOfferKeep")])
+ev('root.surface = "popup"')
+p.pump(50)
+p.check("...but not to a box already updating in the widget", lev("surfaceOfferMessage.visible"), False)
+ev('root.surface = "terminal"')
 ev("root.autoAccept = false")
 p.pump(50)
-p.check("...but not while confirmation is on, which only a terminal can ask for",
+p.check("...nor while confirmation is on, which only a terminal can ask for",
         lev("surfaceOfferMessage.visible"), False)
 ev("root.autoAccept = true")
+ev("root.surfaceKnown = false")
 p.pump(50)
-p.clear_calls()
-lev("surfaceOfferMessage.actions[0].trigger()")
+p.check("...nor before the widget has read the setting, when its surface is only the default",
+        lev("surfaceOfferMessage.visible"), False)
+ev("root.surfaceKnown = true")
 p.pump(50)
-settle()
-p.check("Use the Popup writes the setting through the CLI",
-        p.calls_matching("config set"), ["config set surface popup"])
-p.check("...and the offer goes at once", lev("surfaceOfferMessage.visible"), False)
-ev("root.surfaceOfferAnswered = false")
-ev('root.surface = "terminal"')
-p.pump(50)
+
+# Keep the Terminal Window: the stub reads back terminal and the check still serves the offer, so
+# only the answered flag can be what hides it.
 p.clear_calls()
 lev("surfaceOfferMessage.actions[1].trigger()")
 p.pump(50)
 settle()
-p.check("Keep the Terminal writes the terminal as the setting, which ends the offer for good",
+p.check("Keep the Terminal Window writes the terminal as the setting, which ends the offer for good",
         p.calls_matching("config set"), ["config set surface terminal"])
-p.check("...and the offer goes at once", lev("surfaceOfferMessage.visible"), False)
+p.check("...reads the setting back", ev("root.surface"), "terminal")
+p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
+p.check("...and the offer stays gone on this session's answer alone",
+        [ev("root.kemptState.surface_offer"), ev("root.surfaceOfferAnswered"),
+         lev("surfaceOfferMessage.visible")], [True, True, False])
+
+# A failed answer is not an answer: the offer comes back, with the CLI's reason.
 ev("root.surfaceOfferAnswered = false")
+ev('root.actionMessage = ""')
+p.pump(50)
+open(CFGSETRC, "w").write("1")
+lev("surfaceOfferMessage.actions[0].trigger()")
+p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
 settle()
-p.check("the popup reads the surface back after an answer", ev("root.surface"), "popup")
+open(CFGSETRC, "w").write("")
+p.check("Use This Widget that could not be saved leaves the offer unanswered",
+        ev("root.surfaceOfferAnswered"), False)
+p.check("...so the offer is back", lev("surfaceOfferMessage.visible"), True)
+p.check("...under the CLI's reason", ev("root.actionMessage"), "kempt: could not write the config file")
+ev('root.actionMessage = ""')
+p.clear_calls()
+lev("surfaceOfferMessage.actions[0].trigger()")
+p.pump(50)
+settle()
+p.check("Use This Widget writes the widget as the setting",
+        p.calls_matching("config set"), ["config set surface popup"])
+p.check("...and the offer goes", lev("surfaceOfferMessage.visible"), False)
+ev("root.surfaceOfferAnswered = false")
+open(SURF, "w").write("popup\n")
+ev("root.readSurface()")
+settle()
 state(fixture("state-live.json"))
 
 # --- the stale explanation --------------------------------------------------------------------------

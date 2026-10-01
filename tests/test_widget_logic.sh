@@ -676,6 +676,8 @@ assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", risk
 assert_eq "$(js "$(risky_vm popup).riskyMessage")" "$(js 'L.COPY.kernelRestart')" \
   "the choice asks in the risky message's own words"
 assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Install Now"
+assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while your desktop is running." \
+  "...with a tooltip, as its sibling has"
 
 # --- the one offer of the popup default ---------------------------------------------------------
 offer_vm() {  # extra opts → JS for a state carrying surface_offer, on a box that updates in the terminal
@@ -696,8 +698,12 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), tr
   "...nor during a run"
 assert_eq "$(js 'L.messageStack({kernel: true, surfaceOffer: true, reclaim: true})')" '["kernel","surfaceOffer"]' \
   "it waits below the risky advice and above the reclaim offer"
-assert_eq "$(js '[L.COPY.surfaceOfferUse, L.COPY.surfaceOfferKeep].join("|")')" "Use the Popup|Keep the Terminal" \
-  "its two answers"
+assert_eq "$(js '[L.COPY.surfaceOfferUse, L.COPY.surfaceOfferKeep].join("|")')" "Use This Widget|Keep the Terminal Window" \
+  "its two answers, in the words Settings uses for the two choices"
+assert_eq "$(js 'L.COPY.surfaceOffer')" "Updates can now run in this widget instead of a terminal window." \
+  "...and its sentence, which does not say popup either"
+assert_eq "$(js "$(offer_vm '{surfaceKnown: false}').messageSlots")" '[]' \
+  "not before the widget has read the setting, when its surface is only the default"
 
 # --- effectiveSurfaceOf: what a run will ACTUALLY do, not what is merely stored ----------------
 # cmd_run resolves the stored surface and then overrides it: with confirmation on, only a terminal

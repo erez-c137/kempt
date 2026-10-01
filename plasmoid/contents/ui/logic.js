@@ -131,12 +131,14 @@ var COPY = {
     // ...and the other answer, offered beside it only after Update Now was pressed on a set the
     // message above calls risky, on a box that would otherwise install it live without asking.
     installNow: "Install Now",
+    installNowTooltip: "Installs the update now, while your desktop is running.",
 
-    // The one offer of the popup default, to an install that kept the terminal when the default
-    // changed. Each button is an answer, so the message has no close button.
-    surfaceOffer: "Updates can now run here in the popup, without opening a terminal window.",
-    surfaceOfferUse: "Use the Popup",
-    surfaceOfferKeep: "Keep the Terminal",
+    // The one offer of the new default, to an install that kept the terminal when the default
+    // changed. Each button is an answer, so the message has no close button. In the words Settings
+    // uses for the two choices: In this widget, Terminal window.
+    surfaceOffer: "Updates can now run in this widget instead of a terminal window.",
+    surfaceOfferUse: "Use This Widget",
+    surfaceOfferKeep: "Keep the Terminal Window",
 
     // Four spellings, because two things vary: whether a kernel is in the set, and whether the
     // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
@@ -1940,6 +1942,8 @@ function viewModel(state, updating, cliError, opts) {
     // cannot run updates, so the offer would change nothing.
     var surfaceOffer = usable && state.surface_offer === true && !updating
         && opts.surfaceOfferAnswered !== true
+        // Not before the widget has read the setting: until then its surface is only the default.
+        && opts.surfaceKnown !== false
         && resolveSurface(typeof opts.configuredSurface === "string" ? opts.configuredSurface : "")
             === "terminal"
         && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
