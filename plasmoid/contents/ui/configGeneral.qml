@@ -696,7 +696,9 @@ KCM.SimpleKCM {
                 : page.discoverSetting.state === "on"
                     ? i18n("Discover also shows update notifications, with its own count.")
                 : page.discoverSetting.state === "off" ? i18n("Discover's notifier is off.")
-                : i18n("Discover's notifier is off in your own autostart settings.")
+                : page.discoverSetting.path
+                    ? i18n("Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.", page.discoverSetting.path)
+                : i18n("Discover's notifier is turned off by a startup file. Delete that file to turn it back on.")
             wrapMode: Text.WordWrap
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }

@@ -935,7 +935,7 @@ p.wait_idle(ev12, "cfgExecutor")
 # ==================================================================================================
 DN_ON = '{"installed":true,"enabled":true,"running":true,"by_kempt":false}'
 DN_KEMPT = '{"installed":true,"enabled":false,"running":false,"by_kempt":true}'
-DN_OWN = '{"installed":true,"enabled":false,"running":false,"by_kempt":false}'
+DN_OWN = '{"installed":true,"enabled":false,"running":false,"by_kempt":false,"entry":"/h/.config/autostart/x.desktop"}'
 DN_NONE = '{"installed":false,"enabled":false,"running":false,"by_kempt":false}'
 
 open(DNSTATUS, "w").write(DN_NONE)
@@ -976,7 +976,7 @@ p.check("...and turned off by Kempt, the row offers to turn it back on",
         ["Discover's notifier is off.", "Turn On Discover's Notifier"])
 p.check("...which is an action, not an unsaved change", ev13("page.unsavedChanges"), False)
 
-open(DNFAIL, "w").write("Your own autostart entry keeps Discover's update notifier off: /x\n")
+open(DNFAIL, "w").write("A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.\n")
 open(DNSTATUS, "w").write(DN_OWN)
 p.clear_calls()
 ev13("discoverButton.clicked()")
@@ -986,10 +986,11 @@ p.check("Turn On runs `kempt discover-notifier on`",
         p.calls_matching("discover-notifier on"), ["discover-notifier on"])
 p.check("...a refusal shows the CLI's reason",
         ev13("page.discoverResult"),
-        "Your own autostart entry keeps Discover's update notifier off: /x")
+        "A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.")
 p.check("...and off by the person's own entry, the row says so with no button",
         [ev13("discoverStatus.text"), ev13("discoverButton.visible")],
-        ["Discover's notifier is off in your own autostart settings.", False])
+        ["Discover's notifier is turned off by a startup file: /h/.config/autostart/x.desktop."
+         " Delete that file to turn it back on.", False])
 open(DNFAIL, "w").write("")
 open(DNSTATUS, "w").write("")
 

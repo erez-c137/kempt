@@ -629,7 +629,7 @@ discover_notifier_on() {
   fi
   discover_mark_answered
   if ! discover_enabled; then
-    echo "Your own autostart entry keeps Discover's update notifier off: $user" >&2
+    echo "A startup file keeps Discover's notifier off: $(discover_effective_entry). Delete it, then run kempt discover-notifier on." >&2
     return 1
   fi
   echo "Discover's update notifier is on."
@@ -660,8 +660,13 @@ discover_notifier_status() {  # [--json]
   discover_running && running=true
   discover_entry_is_kempts && by_kempt=true
   if [[ "${1:-}" == --json ]]; then
-    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s}\n' \
-      "$installed" "$enabled" "$running" "$by_kempt"
+    # Off by a file that is not Kempt's: which one, so Settings can say what to delete.
+    local entry=""
+    if [[ $installed == true && $enabled == false && $by_kempt == false ]]; then
+      entry=",\"entry\":$(jq -Rn --arg p "$(discover_effective_entry)" '$p')"
+    fi
+    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s%s}\n' \
+      "$installed" "$enabled" "$running" "$by_kempt" "$entry"
     return 0
   fi
   if [[ $installed == false ]]; then

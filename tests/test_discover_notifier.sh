@@ -176,10 +176,11 @@ mkdir -p "$(dirname "$USER_ENTRY")"
 printf '[Desktop Entry]\nType=Application\nX-Own=1\nHidden=true\n' > "$USER_ENTRY"
 own="$(cat "$USER_ENTRY")"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":true,"enabled":false,"running":false,"by_kempt":false}' "status: off by the person's own entry"
+  '{"installed":true,"enabled":false,"running":false,"by_kempt":false,"entry":"'"$USER_ENTRY"'"}' "status: off by the person's own entry"
 rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
 assert_eq "$rc" "1" "on over the person's own hiding entry fails"
-assert_contains "$out" "Your own autostart entry" "...and says their own entry keeps it off"
+assert_contains "$out" "A startup file keeps Discover's notifier off: $USER_ENTRY. Delete it, then run kempt discover-notifier on." \
+  "...and says which file keeps it off, and how to undo it"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and leaves that entry alone"
 
 # The entry install.sh wrote before 0.1.8: a copy of the system entry plus Hidden=true. Nothing
@@ -205,7 +206,7 @@ own="$(cat "$USER_ENTRY")"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "a hidden entry with a key of the person's own survives off"
 rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
 assert_eq "$rc" "1" "...and on says it cannot turn it on"
-assert_contains "$out" "Your own autostart entry keeps" "...because the person's entry keeps it off"
+assert_contains "$out" "A startup file keeps Discover's notifier off" "...because the person's entry keeps it off"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and still leaves it as it was"
 # The three-line entry it wrote when there was no system entry, byte for byte: Kempt's, removed.
 reset; system_entry

@@ -731,8 +731,8 @@ assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, al
   "its sentences, which say why"
 assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
-for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn; do
-  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l | tr -d ' ')" \
+for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
+  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
     "$([[ $_lit == discoverOfferOff ]] && echo 2 || echo 1)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
@@ -741,8 +741,13 @@ assert_eq "$(dn '{"installed":true,"enabled":true,"running":true,"by_kempt":fals
   "Settings: on, with Turn Off"
 assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":true}')" '{"state":"off","verb":"on"}' \
   "Settings: off by Kempt, with Turn On"
-assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":false}')" '{"state":"own","verb":""}' \
-  "Settings: off by the person's own entry, with no button, since on cannot undo it"
+assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":false,"entry":"/h/.config/autostart/x.desktop"}')" \
+  '{"state":"own","verb":"","path":"/h/.config/autostart/x.desktop"}' \
+  "Settings: off by the person's own entry, with no button, since on cannot undo it, and the file to delete"
+assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":false}')" '{"state":"own","verb":"","path":""}' \
+  "...with no path when status gives none"
+assert_eq "$(js 'L.COPY.discoverStatusOwn')" "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on." \
+  "...and the line says how to undo it"
 assert_eq "$(dn '{"installed":false,"enabled":false,"running":false,"by_kempt":false}')" 'null' "Settings: not installed, nothing shown"
 assert_eq "$(dn 'not json')" 'null' "...and nothing for an answer that is not JSON"
 

@@ -148,7 +148,8 @@ var COPY = {
     discoverOn: "Turn On Discover's Notifier",
     discoverStatusOn: "Discover also shows update notifications, with its own count.",
     discoverStatusOff: "Discover's notifier is off.",
-    discoverStatusOwn: "Discover's notifier is off in your own autostart settings.",
+    discoverStatusOwn: "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.",
+    discoverStatusOwnNoPath: "Discover's notifier is turned off by a startup file. Delete that file to turn it back on.",
 
     // Four spellings, because two things vary: whether a kernel is in the set, and whether the
     // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
@@ -727,7 +728,7 @@ function discoverSettingOf(stdout) {
     if (!st || typeof st !== "object" || st.installed !== true) return null;
     if (st.enabled === true) return { state: "on", verb: "off" };
     if (st.by_kempt === true) return { state: "off", verb: "on" };
-    return { state: "own", verb: "" };
+    return { state: "own", verb: "", path: typeof st.entry === "string" ? st.entry : "" };
 }
 
 function holdsOf(text) {

@@ -879,7 +879,8 @@ Kempt's. These commands change it for you alone and never ask for a password.
 - `keep` changes nothing. It records that you answered the widget's offer, which is what **Keep
   Discover's Notifier** runs.
 - `status` says whether the notifier is installed, on, turned off by Kempt and running. `--json`
-  prints the same as one object: `installed`, `enabled`, `running` and `by_kempt`.
+  prints the same as one object: `installed`, `enabled`, `running` and `by_kempt`, plus `entry`, the
+  file that keeps it off, when that file is not Kempt's.
 
 When Discover's notifier is not installed, `off`, `on` and `keep` say so and change nothing.
 
@@ -1274,7 +1275,7 @@ the polkit rules directory.
 **Discover** shows only when Discover's update notifier is installed. It says whether the notifier
 is on, with **Turn Off Discover's Notifier**, or turned off by Kempt, with **Turn On Discover's
 Notifier**. The button runs `kempt discover-notifier` at once, without Apply. When an autostart file
-of your own keeps the notifier off, the row says so and has no button.
+of your own keeps the notifier off, the row names that file and says to delete it, and has no button.
 
 **Held** lists your holds, each with a button to stop holding it.
 
