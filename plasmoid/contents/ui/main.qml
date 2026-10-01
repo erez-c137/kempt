@@ -127,6 +127,10 @@ PlasmoidItem {
     // offer when the surface is set; this hides it at once rather than at the next check.
     property bool surfaceOfferAnswered: false
 
+    // The same for the one-time offer to turn off Discover's notifier. Either button runs
+    // `kempt discover-notifier`, which records the answer for the CLI too.
+    property bool discoverOfferAnswered: false
+
     // Whether the CLI has answered for the surface yet. Until it has, `surface` is only the
     // default, so the offer waits. The risky question does not: the default is the popup, so in
     // that window Update Now asks first, which is the safe side. Defaulting to the terminal would
@@ -252,6 +256,7 @@ PlasmoidItem {
                                                 autoAccept: autoAccept,
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 surfaceOfferAnswered: surfaceOfferAnswered,
+                                                discoverOfferAnswered: discoverOfferAnswered,
                                                 surfaceKnown: surfaceKnown,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
@@ -876,6 +881,22 @@ PlasmoidItem {
             root.readSurface();
             // A check publishes state.json without surface_offer, so the offer stays gone after
             // this session forgets the answer.
+            root.doCheck();
+        });
+    }
+
+    // The answer to the Discover offer: "off" turns Discover's notifier off, "on" keeps it. Both
+    // record the answer, so a check then publishes state.json without discover_offer.
+    function setDiscoverNotifier(verb) {
+        if (verb !== "off" && verb !== "on") return;
+        discoverOfferAnswered = true;
+        executor.run(kemptCmd + " discover-notifier " + verb, 15000, function(stdout, stderr, rc) {
+            if (rc !== 0) {
+                // Not done, so not answered: the offer comes back with the reason above it.
+                root.discoverOfferAnswered = false;
+                root.actionMessage = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+                return;
+            }
             root.doCheck();
         });
     }

@@ -64,6 +64,13 @@ def toggle_fail(where, key, on=True):
 
 for k, v in DEFAULTS:
     setval(k, v)
+# `kempt discover-notifier`: status --json answers from DNSTATUS (empty: no answer, which shows
+# nothing), off and on fail with DNFAIL's words when it is non-empty and wait while DNSLOW exists.
+DNSTATUS = os.path.join(p.sandbox, "dnstatus")
+DNFAIL = os.path.join(p.sandbox, "dnfail")
+DNSLOW = os.path.join(p.sandbox, "dnslow")
+open(DNSTATUS, "w").write("")
+open(DNFAIL, "w").write("")
 HOSTILE_HOLD = "dnf:evil; touch " + p.sandbox + "/PWNED"
 open(os.path.join(p.sandbox, "holds"), "w").write(
     "dnf:vim-common\nflatpak:org.gimp.GIMP\n" + HOSTILE_HOLD + "\n")
@@ -83,8 +90,15 @@ case "$1" in
   enable-passwordless)  [[ -e %(PW)s ]] && sleep 3
                         echo "some polkit chatter"; echo "Passwordless updates enabled"; exit 0 ;;
   disable-passwordless) echo "Passwordless updates disabled"; exit 0 ;;
+  discover-notifier)
+    case "$2" in
+      status) cat %(DS)s; exit 0 ;;
+      off|on) [[ -e %(DW)s ]] && sleep 2
+              [[ -s %(DF)s ]] && { cat %(DF)s >&2; exit 1; }
+              exit 0 ;;
+    esac ;;
 esac
-""" % {"FG": FAILGET, "FS": FAILSET, "SS": SLOWSET, "PW": PWSLOW, "V": VALUES, "SB": p.sandbox})
+""" % {"DS": DNSTATUS, "DF": DNFAIL, "DW": DNSLOW, "FG": FAILGET, "FS": FAILSET, "SS": SLOWSET, "PW": PWSLOW, "V": VALUES, "SB": p.sandbox})
 
 # AppletConfiguration.qml's Apply wiring, transcribed. Nothing invented: the connect is the one at
 # its line 197-199, and settingValueChanged() is its line 105 with the two hooks this page does not
@@ -914,5 +928,69 @@ p.check("a read carries the widget stamp", "KEMPT_VIA=widget kempt config get" i
 p.check("...but is dispatched plainly: only writes need to outlive the dialog",
         readcmd.endswith(" & wait $!"), False)
 p.wait_idle(ev12, "cfgExecutor")
+
+# ==================================================================================================
+# Discover's update notifier. A row only when it is installed; its button runs at once, durably,
+# then asks again, so the row shows what the command left behind.
+# ==================================================================================================
+DN_ON = '{"installed":true,"enabled":true,"running":true,"by_kempt":false}'
+DN_KEMPT = '{"installed":true,"enabled":false,"running":false,"by_kempt":true}'
+DN_OWN = '{"installed":true,"enabled":false,"running":false,"by_kempt":false}'
+DN_NONE = '{"installed":false,"enabled":false,"running":false,"by_kempt":false}'
+
+open(DNSTATUS, "w").write(DN_NONE)
+page13, ev13 = build()
+p.wait_idle(ev13, "cfgExecutor")
+p.check("not installed, the page says nothing about Discover",
+        [ev13("discoverStatus.visible"), ev13("discoverButton.visible")], [False, False])
+
+open(DNSTATUS, "w").write(DN_ON)
+p.clear_calls()
+page13, ev13 = build()
+p.wait_idle(ev13, "cfgExecutor")
+p.check("the page asks the CLI for the notifier's state",
+        p.calls_matching("discover-notifier"), ["discover-notifier status --json"])
+p.check("on, it says Discover counts on its own and offers to turn it off",
+        [ev13("discoverStatus.visible"), ev13("discoverStatus.text"),
+         ev13("discoverButton.visible"), ev13("discoverButton.text")],
+        [True, "Discover also shows update notifications, with its own count.",
+         True, "Turn Off Discover's Notifier"])
+
+open(DNSLOW, "w").close()
+p.clear_calls()
+ev13("discoverButton.clicked()")
+cmd13 = ev13("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
+p.check("Turn Off runs `kempt discover-notifier off`, durably, as the widget",
+        ["KEMPT_VIA=widget kempt discover-notifier off" in cmd13, cmd13.endswith(" & wait $!")],
+        [True, True])
+p.check("...and cannot be pressed twice while it runs", ev13("discoverButton.enabled"), False)
+open(DNSTATUS, "w").write(DN_KEMPT)
+p.wait_for(ev13, "page.discoverBusy", False, timeout_ms=8000)
+p.wait_idle(ev13, "cfgExecutor")
+os.remove(DNSLOW)
+p.check("...then asks again",
+        p.calls_matching("discover-notifier"),
+        ["discover-notifier off", "discover-notifier status --json"])
+p.check("...and turned off by Kempt, the row offers to turn it back on",
+        [ev13("discoverStatus.text"), ev13("discoverButton.text")],
+        ["Discover's notifier is off.", "Turn On Discover's Notifier"])
+p.check("...which is an action, not an unsaved change", ev13("page.unsavedChanges"), False)
+
+open(DNFAIL, "w").write("Your own autostart entry keeps Discover's update notifier off: /x\n")
+open(DNSTATUS, "w").write(DN_OWN)
+p.clear_calls()
+ev13("discoverButton.clicked()")
+p.wait_for(ev13, "page.discoverBusy", False, timeout_ms=8000)
+p.wait_idle(ev13, "cfgExecutor")
+p.check("Turn On runs `kempt discover-notifier on`",
+        p.calls_matching("discover-notifier on"), ["discover-notifier on"])
+p.check("...a refusal shows the CLI's reason",
+        ev13("page.discoverResult"),
+        "Your own autostart entry keeps Discover's update notifier off: /x")
+p.check("...and off by the person's own entry, the row says so with no button",
+        [ev13("discoverStatus.text"), ev13("discoverButton.visible")],
+        ["Discover's notifier is off in your own autostart settings.", False])
+open(DNFAIL, "w").write("")
+open(DNSTATUS, "w").write("")
 
 sys.exit(p.done())

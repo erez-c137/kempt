@@ -778,6 +778,31 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // The one-time offer to turn off Discover's own update notifier, which counts updates on
+        // its own schedule. Either answer ends it. Settings can turn the notifier back on.
+        Kirigami.InlineMessage {
+            id: discoverOfferMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: i18n("Discover also shows update notifications, with a different count.")
+            Accessible.name: text
+            visible: popup.shows("discoverOffer")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Turn Off Discover's Notifier")
+                    icon.name: "notifications-disabled"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("off")
+                },
+                Kirigami.Action {
+                    text: i18n("Keep It")
+                    icon.name: "dialog-ok"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("on")
+                }
+            ]
+        }
+
         // ONE slot for the two reports: what the run that just finished did, and what a button
         // press that failed had to say. They are never the same event, and the later one is always
         // the one being asked about - so latest wins, and main.qml decides which that is.

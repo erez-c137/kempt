@@ -140,6 +140,16 @@ var COPY = {
     surfaceOfferUse: "Use This Widget",
     surfaceOfferKeep: "Keep the Terminal Window",
 
+    // The one offer to turn off Discover's own update notifier, while it starts with the session.
+    // Turning it back on is in Settings, under the same name.
+    discoverOffer: "Discover also shows update notifications, with a different count.",
+    discoverOfferOff: "Turn Off Discover's Notifier",
+    discoverOfferKeep: "Keep It",
+    discoverOn: "Turn On Discover's Notifier",
+    discoverStatusOn: "Discover also shows update notifications, with its own count.",
+    discoverStatusOff: "Discover's notifier is off.",
+    discoverStatusOwn: "Discover's notifier is off in your own autostart settings.",
+
     // Four spellings, because two things vary: whether a kernel is in the set, and whether the
     // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
     // against a kernel that is not the running one - and naming it makes the advice credible).
@@ -704,6 +714,22 @@ function checkedAfterRun(state, run, sinceMs) {
 // holdsOf(text) -> [{ id, backend, name }] from `kempt holds` output (raw `backend:name` lines).
 // Split at the FIRST colon, exactly like cmd_hold's ${1%%:*} / ${1#*:}, so a name containing a
 // colon still round-trips to the same hold the CLI would remove.
+// discoverSettingOf(stdout) -> what Settings shows for Discover's notifier, from
+// `kempt discover-notifier status --json`: {state, verb}. state is "on", "off" (by Kempt) or "own"
+// (off by the person's own entry), and picks the sentence: discoverStatusOn, Off or Own. verb is
+// the command the button runs, "off" or "on", or "" for no button. null when there is nothing to
+// show: not installed, or no answer. Turn On is offered only for Kempt's own entry, the one `on`
+// can remove.
+function discoverSettingOf(stdout) {
+    var st;
+    try { st = JSON.parse(String(stdout === undefined || stdout === null ? "" : stdout)); }
+    catch (e) { return null; }
+    if (!st || typeof st !== "object" || st.installed !== true) return null;
+    if (st.enabled === true) return { state: "on", verb: "off" };
+    if (st.by_kempt === true) return { state: "off", verb: "on" };
+    return { state: "own", verb: "" };
+}
+
 function holdsOf(text) {
     var out = [], lines, i, line, cut;
     if (typeof text !== "string") return out;
@@ -1004,8 +1030,10 @@ var MESSAGE_CAP = 2;
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+// `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
+// only one of the two is ever on screen.
 var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
-                     "kernel", "surfaceOffer", "reclaim"];
+                     "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1947,6 +1975,11 @@ function viewModel(state, updating, cliError, opts) {
         && resolveSurface(typeof opts.configuredSurface === "string" ? opts.configuredSurface : "")
             === "terminal"
         && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
+    // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
+    // notifier starts with the session and nobody has answered. One offer at a time: it waits
+    // while the surface offer is showing.
+    var discoverOffer = usable && state.discover_offer === true && !updating
+        && opts.discoverOfferAnswered !== true && !surfaceOffer;
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -2124,6 +2157,7 @@ function viewModel(state, updating, cliError, opts) {
         kernel: riskyMessage !== "" && !riskyChoice,
         riskyChoice: riskyChoice,
         surfaceOffer: surfaceOffer,
+        discoverOffer: discoverOffer,
         reclaim: reclaimShown && !updating
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
@@ -2341,6 +2375,7 @@ if (typeof module !== "undefined" && module.exports) {
         updatingLabelOf: updatingLabelOf,
         SURFACES: SURFACES,
         holdsOf: holdsOf,
+        discoverSettingOf: discoverSettingOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,
         resolveIconSize: resolveIconSize,

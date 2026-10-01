@@ -65,6 +65,9 @@ SURF = os.path.join(p.sandbox, "surface")
 CFGSETRC = os.path.join(p.sandbox, "cfgsetrc")
 open(SURF, "w").write("popup\n")
 open(CFGSETRC, "w").write("")
+# The status `kempt discover-notifier` fails with while this file holds one (empty: it works).
+DNRC = os.path.join(p.sandbox, "discoverrc")
+open(DNRC, "w").write("")
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 LAST_RUN = json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
@@ -166,6 +169,9 @@ case "$1" in
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
+  discover-notifier)
+          [[ -s %(DNRC)s ]] && { echo "could not write /home/you/.config/autostart/org.kde.discover.notifier.desktop" >&2; exit "$(cat %(DNRC)s)"; }
+          exit 0 ;;
   hold|unhold) exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
@@ -177,7 +183,7 @@ case "$1" in
 esac
 """ % {"CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
-       "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -1016,6 +1022,7 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("riskyMessage", "the session-critical warning"),
             ("surfaceOfferMessage", "the offer to update in the popup"),
+            ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
             ("reportMessage", "the report of the last thing that happened")]
 
 def stack(situation, *shown):
@@ -2274,6 +2281,75 @@ ev("root.surfaceOfferAnswered = false")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
 settle()
+state(fixture("state-live.json"))
+
+# --- the one-time offer to turn off Discover's notifier ---------------------------------------------
+# Made while state.json carries discover_offer. The stubbed check keeps serving it, so whatever
+# hides the offer below is the widget's own answer.
+_do = json.loads(open(fixture("state-live.json")).read())
+_do["discover_offer"] = True
+_dopath = os.path.join(p.sandbox, "state-discover-offer.json")
+open(_dopath, "w").write(json.dumps(_do))
+state(_dopath)
+p.check("the offer to turn off Discover's notifier is made", lev("discoverOfferMessage.visible"), True)
+p.check("...in the words on screen", lev("discoverOfferMessage.text"), ev("Logic.COPY.discoverOffer"))
+p.check("...with the two answers",
+        [lev("discoverOfferMessage.actions[0].text"), lev("discoverOfferMessage.actions[1].text")],
+        [ev("Logic.COPY.discoverOfferOff"), ev("Logic.COPY.discoverOfferKeep")])
+
+# One offer at a time: with the surface offer up too, the Discover offer waits for it.
+_both = dict(_do, surface_offer=True)
+_bothpath = os.path.join(p.sandbox, "state-both-offers.json")
+open(_bothpath, "w").write(json.dumps(_both))
+open(SURF, "w").write("terminal\n")
+ev("root.readSurface()")
+settle()
+state(_bothpath)
+p.check("with the surface offer showing, the Discover offer waits",
+        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [True, False])
+ev("root.surfaceOfferAnswered = true")
+p.pump(50)
+p.check("...and comes once the surface offer is answered", lev("discoverOfferMessage.visible"), True)
+ev("root.surfaceOfferAnswered = false")
+open(SURF, "w").write("popup\n")
+ev("root.readSurface()")
+settle()
+state(_dopath)
+
+# Turn Off Discover's Notifier: the command, then a check, and the offer is gone.
+p.clear_calls()
+lev("discoverOfferMessage.actions[0].trigger()")
+p.pump(50)
+settle()
+p.check("Turn Off Discover's Notifier runs kempt discover-notifier off",
+        p.calls_matching("discover-notifier"), ["discover-notifier off"])
+p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
+p.check("...and the offer stays gone on this session's answer alone",
+        [ev("root.kemptState.discover_offer"), lev("discoverOfferMessage.visible")], [True, False])
+
+# A failed answer is not an answer: the offer comes back, with the CLI's reason.
+ev("root.discoverOfferAnswered = false")
+ev('root.actionMessage = ""')
+p.pump(50)
+open(DNRC, "w").write("1")
+lev("discoverOfferMessage.actions[1].trigger()")
+p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
+settle()
+open(DNRC, "w").write("")
+p.check("Keep It that could not be recorded leaves the offer unanswered",
+        ev("root.discoverOfferAnswered"), False)
+p.check("...so the offer is back", lev("discoverOfferMessage.visible"), True)
+p.check("...under the CLI's reason", ev("root.actionMessage"),
+        "could not write /home/you/.config/autostart/org.kde.discover.notifier.desktop")
+ev('root.actionMessage = ""')
+p.clear_calls()
+lev("discoverOfferMessage.actions[1].trigger()")
+p.pump(50)
+settle()
+p.check("Keep It runs kempt discover-notifier on, which keeps it and records the answer",
+        p.calls_matching("discover-notifier"), ["discover-notifier on"])
+p.check("...and the offer goes", lev("discoverOfferMessage.visible"), False)
+ev("root.discoverOfferAnswered = false")
 state(fixture("state-live.json"))
 
 # --- the stale explanation --------------------------------------------------------------------------
