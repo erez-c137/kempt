@@ -977,13 +977,14 @@ lower in this list are left out. If that hides the restart message, the footer s
    `Update failed: <the reason>`. For a button press that failed, it shows what the CLI said.
    **Show Log** is on it when a *run* recorded a log file, which every run does, including installs
    during a restart. If that log could not be saved, there is no button. When the message tells you
-   to run `kempt doctor`, it adds **Check Installation** and **Copy Command**. The message goes when
-   you close the popup or the next check starts.
+   to run `kempt doctor`, it adds **Check Installation**. The message goes when you close the popup
+   or the next check starts.
    **Check Installation** runs `kempt doctor` in the widget. It reads files and never asks for a
    password. A message under the one you pressed says *"Checking Kempt's installation…"*, then
    quotes the first problem doctor found, or says it found none. **Show Full Report** shows
-   everything doctor printed, which you can select and copy. The result goes when you close it or
-   the popup.
+   everything doctor printed, which you can select and copy, and **Copy Command** copies
+   `kempt doctor`. This message shows even when two others are up. It goes when you close it, close
+   the popup, or a check or an update starts. You can close it while doctor is still running.
 3. **This system updates with rpm-ostree**, on an image-based Fedora. It points at Discover or
    `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
 4. **A Fedora release upgrade is stored.** It says whether the upgrade installs on the next restart,
@@ -1108,7 +1109,8 @@ nodejs* or *No longer holding nodejs*. If the hold fails, the reason appears in 
 next press or the next check.
 
 **Last update 18 min ago · 4 packages** shows what the previous run installed. Expand it for the
-package list and **Show Log**. It takes at most a third of the popup and scrolls within that.
+package list and **Show Log**. When a failed run's reason says to run `kempt doctor`, it also has
+**Check Installation**. It takes at most a third of the popup and scrolls within that.
 
 #### Footer
 
