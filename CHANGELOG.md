@@ -37,6 +37,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **With Flatpak installed, Kempt also needs `flatpak-libs` and `python3-gobject-base`.** dnf
   installs them with the update. They let Kempt ask Flatpak which runtimes are unused. A machine
   without Flatpak gets neither.
+- **`kempt update` exits 7 when another program had the package lock.** After three tries, a
+  lock held by PackageKit, Discover or dnf-automatic now exits 7 instead of 1, for dnf and Flatpak
+  alike. A script can wait and try again.
+- **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
+  Flatpak's lock through all three tries, the summary, notification and history say so and say to
+  try again, in place of Flatpak's raw error line.
 
 ### Fixed
 

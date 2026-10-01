@@ -684,16 +684,23 @@ log_warn() {  # log_file message
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
 # boundary: dnf through the root helper (priv_apply), flatpak as the user (flatpak_apply). The run
 # log, the live tee and the retry are the same for both.
-# The predicate matches the lock-held wordings of dnf5, rpm and PackageKit, listed in
+# KEMPT_DNF_LOCK_RE matches the lock-held wordings of dnf5, rpm and PackageKit, listed in
 # tests/fixtures/MANIFEST.md. Package names can contain "lock" (kscreenlocker), so a loose
 # `package.*lock` retries dependency errors. dnf5's "Waiting for a lock" line is left out: dnf5
 # waits and carries on, so it never explains a failure. `can.t` avoids a quote inside quotes.
-# The flatpak wordings carry the path in the MIDDLE (`Unable to lock %s`, `Locking repo %s failed`,
-# `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns rather than literals. `\b`
-# keeps `Unlocking repo failed`, a different error, out of the match.
+# KEMPT_FLATPAK_LOCK_RE: the flatpak wordings carry the path in the MIDDLE (`Unable to lock %s`,
+# `Locking repo %s failed`, `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns
+# rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
+KEMPT_DNF_LOCK_RE='failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock'
+KEMPT_FLATPAK_LOCK_RE='unable to lock|\blocking repo.*failed|opening lock file.*failed'
+KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
+KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and did not release it after three tries - the Flatpak update did not finish; try again in a few minutes"
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
-  local attempt rc before_sz
+  local attempt rc before_sz lock_re="$KEMPT_DNF_LOCK_RE" busy="$KEMPT_BUSY_REASON_DNF"
+  if [[ "$runner" == flatpak_apply ]]; then
+    lock_re="$KEMPT_FLATPAK_LOCK_RE"; busy="$KEMPT_BUSY_REASON_FLATPAK"
+  fi
   for attempt in 1 2 3; do
     rc=0
     # Only THIS attempt's output may decide whether to retry: a fixed `tail -n 20` re-reads the
@@ -708,45 +715,30 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
       "$runner" "$@" >>"$log" 2>&1 || rc=$?
     fi
     [[ $rc -eq 0 ]] && return 0
-    if tail -c +$(( before_sz + 1 )) "$log" \
-       | grep -qiE 'failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock|\blocking repo.*failed|opening lock file.*failed'; then
+    if tail -c +$(( before_sz + 1 )) "$log" | grep -qiE "$lock_re"; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
         log_warn "$log" "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)"
         sleep "$KEMPT_RETRY_DELAY"
       else
         log_warn "$log" "Package system still busy after $attempt attempts - giving up"
-        # Kempt's own sentence for the most likely failure it has. Without this the reason shown
-        # in the summary, the notification and the history entry is whichever of dnf's lines
-        # matched run_failure_reason's keyword list first - dnf's raw text about a lock file,
-        # which reads as a broken installation rather than as "something else is using this right
-        # now, try again".
+        # Kempt's own sentence for the most likely failure it has, in place of dnf's or flatpak's
+        # raw line about a lock file, which reads as a broken installation. Set only here, where
+        # the evidence is: a lock-specific grep against this attempt's output alone.
         #
-        # Set HERE and nowhere else, because here is the only place with the evidence: the grep
-        # above ran against THIS attempt's output alone and against a lock-specific pattern. A
-        # wider match somewhere downstream would eventually label a full disk or a failed scriptlet
-        # as a busy package system, which is worse than the raw text it replaced.
-        #
-        # Two conditions, and both are about not describing the wrong failure.
-        #
-        # The runner must be the PRIVILEGED one. This function also runs flatpak, and flatpak runs
-        # AFTER dnf: a flatpak lock failure claiming the reason would name three dnf tools that
-        # cannot hold a flatpak lock, would say nothing was installed on a run that had just
-        # installed three hundred packages, and - worst - would mask a dnf failure that happened
-        # first, since an ordinary dnf failure sets no reason of its own.
-        #
-        # And nothing may have claimed the reason already: a cleanup that hits the lock after the
-        # failure it is cleaning up must not relabel the run with its own problem.
-        #
-        # NOT `local`: reason_override belongs to cmd_update, which every caller of this runs
-        # inside. "nothing was installed" is safe on both privileged paths that reach here with the
-        # reason unclaimed - a live upgrade that never started, and a stage that never began - and
-        # the arm and rebuild failures overwrite it with their own more specific sentence.
-        if [[ "$runner" == priv_apply && -z "${reason_override:-}" ]]; then
-          reason_override="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
+        # reason_override, run_busy_reason and run_failed_otherwise belong to cmd_update, which
+        # every caller of this runs inside (dynamic scope, so NOT `local`). The reason is claimed
+        # only when nothing failed before it: a cleanup after a failure, or flatpak after a dnf
+        # failure, must not relabel the run. The flatpak sentence makes no claim about dnf, which
+        # ran first and may have installed hundreds of packages.
+        if [[ -z "${reason_override:-}" && "${status:-ok}" == ok ]]; then
+          reason_override="$busy"
+          run_busy_reason="$busy"
         fi
       fi
     else
+      # A failure that is not a lock: the run cannot exit as "busy", whatever reason it reports.
+      run_failed_otherwise=1
       return "$rc"
     fi
   done
@@ -941,14 +933,14 @@ apply_flatpak_updates() {
       # empty installed set means no ids pass and the run reports flatpak failed.
       local installed_fp id pending_fp
       installed_fp="$(flatpak_snapshot | cut -f1)" \
-        || { installed_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
+        || { installed_fp=""; fp_status="failed"; status="failed"; run_failed_otherwise=1; log_warn "$log" "warning: flatpak installed lookup failed - no flatpak apps updated"; }
       # ONE capture, read twice below: the apps to name individually, and whether any runtime is
       # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
       # answer that cannot have changed in between.
       # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
       # and still reported flatpak `ok`. Failed, like the installed lookup above.
       pending_fp="$(flatpak_check 2>/dev/null)" \
-        || { pending_fp=""; fp_status="failed"; status="failed"; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
+        || { pending_fp=""; fp_status="failed"; status="failed"; run_failed_otherwise=1; log_warn "$log" "warning: flatpak update lookup failed - no flatpak apps updated"; }
       while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         grep -qxF "$id" <<<"$held_fp" && continue
@@ -1305,6 +1297,9 @@ cmd_update() {
   # empty stage just excluded.
   local stage_discarded=false
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
+  # run_busy_reason: the busy sentence apply_with_retry claimed, if any. run_failed_otherwise: a
+  #   failure that was not a lock. Together they decide exit 7 at the end.
+  local run_busy_reason="" run_failed_otherwise=""
   local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
     # How many updates this stage carries, asked NOW rather than copied from the last check's
@@ -1572,6 +1567,13 @@ cmd_update() {
   # when the log is four hundred lines of dnf progress.
   local reason=""
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
+  # The exit code. 7 only when the reason given is the busy sentence and nothing else failed, so a
+  # script can wait and try again; any other failure is 1.
+  local run_rc=0
+  if [[ "$status" != "ok" ]]; then
+    run_rc=1
+    [[ -n "$run_busy_reason" && "$reason" == "$run_busy_reason" && -z "$run_failed_otherwise" ]] && run_rc=7
+  fi
 
   # history entry
   local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json" hist_tmp
@@ -1668,8 +1670,8 @@ cmd_update() {
       log_event "run done rc=0 updated=$upd reboot=$([[ "$reboot" == true ]] && echo needed || echo no)"
     fi
   else
-    # rc 1 is what this command exits with on a failed run (the return at the bottom).
-    log_event "run failed rc=1: $reason"
+    # The same rc this command exits with (the return at the bottom).
+    log_event "run failed rc=$run_rc: $reason"
   fi
 
   # tell the human. Both readers take the entry as a FILE, and on the one path where neither the
@@ -1734,7 +1736,7 @@ cmd_update() {
   if [[ -n "${KEMPT_CLOSING_CHECK_MARK:-}" && -n "$CHECK_WROTE_STATE" ]]; then
     : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
   fi
-  [[ "$status" == "ok" ]]
+  return "$run_rc"
 }
 
 # Waits for a launched update window to START, the one thing `kempt run` cannot otherwise see: the
@@ -3500,6 +3502,7 @@ cmd_disable_passwordless() {
 #     by polkit included
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
+#   7 update only: another program held the dnf or Flatpak lock through all three tries
 usage() {
   cat <<'EOF'
 usage: kempt <command>

@@ -44,6 +44,7 @@ Every command uses the same codes:
 | 4 | No terminal emulator, when updates run in a terminal window. |
 | 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything, including when polkit refuses Flatpak itself (see [reclaim](#reclaim)). |
 | 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. Nothing was removed. |
+| 7 | `update` only: another program, such as PackageKit or Discover, held the dnf or Flatpak lock through all three tries. Try again in a few minutes. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
 They take a lock at `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot
@@ -202,12 +203,13 @@ What happens, in order:
    dnf hold. If another program holds the package lock (PackageKit, Discover), Kempt tries 3
    times, 10 seconds apart, and names the likely holder.
 5. **Flatpak**, unless turned off. With Flatpak holds, each pending app that is not held is
-   updated on its own.
+   updated on its own. A busy Flatpak lock gets the same 3 tries.
 6. **Report.** Kempt compares the snapshots, writes a history entry and a log, prints the
    summary, and sends a notification when the run was not in a terminal.
 
-Exit 0 when every backend succeeded, 1 when one failed. The summary marks a failed backend with
-its status in brackets.
+Exit 0 when every backend succeeded, 1 when one failed. Exit 7 when the only failure was a lock
+that another program held through all three tries. The summary marks a failed backend with its
+status in brackets.
 
 Kempt reads dnf5's history before and after the upgrade. When one new transaction matches the
 command it ran, its id goes into the history as `transaction_id`, for `dnf5 history info`. Its

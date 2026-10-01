@@ -1166,7 +1166,11 @@ echo "Failed to obtain rpm transaction lock. Another transaction is in progress.
 STUB
 export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's retries only
-assert_exit 1 "busy rpm lock eventually fails" "$KEMPT" update --no-flatpak
+# Exit 7, not 1: a script can tell "something else has the lock, try later" from a broken run.
+assert_exit 7 "a busy rpm lock exits 7 after the retries" "$KEMPT" update --no-flatpak
+grep -q 'run failed rc=7: another program is using the package system' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log names the same rc and reason" \
+  || { echo "FAIL: the event log does not say rc=7 with the busy reason"; _fail=1; }
 assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
 assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "1" "gives up loudly after the last attempt"
@@ -1933,6 +1937,52 @@ chmod +x "$TESTTMP/fp-update-stub"
 "$KEMPT" update --surface=background >/dev/null 2>&1 || true
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
   "an UNlock failure is not a lock to wait on, and is tried once"
+
+# A Flatpak lock that outlasts the retries gets Kempt's own sentence and exit 7, as dnf's does.
+# The sentence is about Flatpak only: dnf ran first and may have installed everything.
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+echo "FLATPAK \$@" >> "$WORLD/apply-calls"
+echo "error: Locking repo /var/lib/flatpak/repo failed: Resource temporarily unavailable" >&2
+exit 1
+STUB
+chmod +x "$TESTTMP/fp-update-stub"
+: > "$WORLD/notifications"
+push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's lines only
+rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "7" "a busy Flatpak lock exits 7 after the retries"
+fpb_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$(jq -r .status "$fpb_hist")" "failed" "...and the run is recorded as failed"
+assert_eq "$(jq -r .backends.dnf.status "$fpb_hist")" "ok" "...with dnf still ok"
+assert_eq "$(jq -r .error "$fpb_hist")" \
+  "another program is using Flatpak (Discover, PackageKit or another flatpak command) and did not release it after three tries - the Flatpak update did not finish; try again in a few minutes" \
+  "...and the reason is Kempt's busy sentence for Flatpak"
+grep -q 'another program is using Flatpak' "$WORLD/notifications" \
+  && echo "ok: ...and the notification says the same" \
+  || { echo "FAIL: the notification does not carry the Flatpak busy sentence"; _fail=1; }
+grep -q 'run failed rc=7: another program is using Flatpak' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and so does the event log, with rc=7" \
+  || { echo "FAIL: the event log does not say rc=7 with the Flatpak busy reason"; _fail=1; }
+
+# ...but a dnf failure before it keeps its own reason and exit 1. A busy Flatpak lock must not
+# relabel a run whose dnf half failed for another reason.
+cat > "$TESTTMP/apply-stub" <<STUB
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+[[ "\$1" == dnf-upgrade ]] && { echo "Error: No space left on device" >&2; exit 1; }
+exit 0
+STUB
+chmod +x "$TESTTMP/apply-stub"
+push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
+rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "1" "a dnf failure followed by a busy Flatpak lock exits 1"
+fpb2="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+case "$(jq -r .error "$fpb2")" in
+  *"using Flatpak"*) echo "FAIL: the Flatpak lock relabelled a dnf failure"; _fail=1 ;;
+  *"No space left"*) echo "ok: ...and the reason is still dnf's" ;;
+  *) echo "FAIL: unexpected reason: $(jq -r .error "$fpb2")"; _fail=1 ;;
+esac
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
 # --- dnf's side of the same predicate, driven from the tools' own wordings (sources in
