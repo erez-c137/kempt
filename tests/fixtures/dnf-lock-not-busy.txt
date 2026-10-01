@@ -3,3 +3,5 @@ Problem: package kscreenlocker-6.4.5-1.fc44.x86_64 from updates requires libKScr
   - file /usr/libexec/kscreenlocker_greet from install of kscreenlocker-6.4.5-1.fc44.x86_64 conflicts with file from package xscreensaver-lock-extras-6.10-1.fc44.x86_64
 Transaction failed: Rpm transaction failed: unpacking of archive failed on file /usr/libexec/kscreenlocker_greet
 Waiting for a lock on the system repository; another process is currently accessing it. Use the "--skip-file-locks" option to bypass the lock.
+Failed to open lock file "/usr/lib/sysimage/libdnf5/system-repo.lock": Permission denied
+Failed to obtain lock "/usr/lib/sysimage/libdnf5/system-repo.lock": No locks available

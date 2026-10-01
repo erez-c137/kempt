@@ -532,7 +532,11 @@ them:
 real Fedora packages with "lock" in the name (`kscreenlocker`, `xscreensaver-lock-extras`). They
 follow the shape of dnf5's resolver and rpm output, and the versions are made up. The fifth is
 libdnf5's `Waiting for a lock on the system repository` line, as is. dnf5 prints it and then waits
-for the lock, so it never explains a failure.
+for the lock, so it never explains a failure. The last two are libdnf5's `Failed to open lock file
+"{}"` and `Failed to obtain lock "{}"` (libdnf5 5.4.6.0), with a path and an error text filled in.
+libdnf5's lock code returns "busy" quietly on `EACCES` or `EAGAIN` and raises these only for other
+errors, such as a missing directory or a kernel out of locks, so neither means another program
+holds the lock.
 
 ## tests/fixtures/flatpak-unused.json
 **Hand-written in the shape `libexec/kempt-flatpak-unused` prints**, modelled on
