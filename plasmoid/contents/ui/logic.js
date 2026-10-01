@@ -454,6 +454,9 @@ function arrayOf(v) { return isArray(v) ? v : []; }
 
 // The run surfaces the CLI knows, in the order the settings page offers them.
 var SURFACES = ["terminal", "popup", "background", "offline"];
+// What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
+// A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
+var DEFAULT_SURFACE = "popup";
 
 // isTrue(s) -> the same answer lib/common.sh's is_true() gives. The settings page reads booleans
 // back as the TEXT `kempt config get` printed, and the two must not disagree about what "yes"
@@ -2294,6 +2297,7 @@ if (typeof module !== "undefined" && module.exports) {
         firstLineOf: firstLineOf,
         rowsOf: rowsOf,
         isTrue: isTrue,
+        DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
         updatingLabelOf: updatingLabelOf,

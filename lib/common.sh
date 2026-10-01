@@ -99,6 +99,10 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
 RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
 RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
+# The popup default for `surface` (surface_migrate). The first records that the migration ran; the
+# second exists while the popup still owes an install it pinned to the terminal its one offer.
+SURFACE_MIGRATED_FILE="$KEMPT_STATE_DIR/surface-migrated"
+SURFACE_OFFER_FILE="$KEMPT_STATE_DIR/surface-offer"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -316,7 +320,9 @@ config_warn_unknown() {  # key value
 kempt_default() {  # key → default ("" if unknown)
   case "$1" in
     include_flatpak|auto_accept) echo true ;;
-    surface) echo terminal ;;
+    # Twinned with DEFAULT_SURFACE in the widget's logic.js. An install from before this default
+    # keeps the terminal through surface_migrate.
+    surface) echo popup ;;
     refresh_interval_min) echo 60 ;;
     # Panel-icon size for the Plasma widget: auto|small|medium|large. A widget setting kept here so
     # the widget and `kempt config` share one place; the CLI has no icons and never reads it. The
@@ -340,6 +346,38 @@ kempt_default() {  # key → default ("" if unknown)
     reclaim) echo ask ;;
     *) echo "" ;;
   esac
+}
+
+# Runs updates in the popup by default without moving anyone who already uses Kempt. On the first
+# run after that default arrived, an install that has run Kempt before (state.json or a history
+# entry) and whose config names no surface gets surface=terminal, the default it had, and the
+# popup offers the new one once. A config that names a surface is never touched, and a new install
+# gets the default. SURFACE_MIGRATED_FILE says it ran. A write that fails is tried again on the
+# next run, and nothing here may fail the command it runs in front of.
+surface_migrate() {
+  [[ -e "$SURFACE_MIGRATED_FILE" ]] && return 0
+  # An unreadable config cannot say whether it names a surface. Next run.
+  [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]] && return 0
+  local used=""
+  if [[ -e "$STATE_FILE" ]] \
+     || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
+    used=1
+  fi
+  if [[ -n "$used" ]] && ! grep -qs '^surface=' "$CONFIG_FILE"; then
+    config_set surface terminal 2>/dev/null || return 0
+    : > "$SURFACE_OFFER_FILE" 2>/dev/null || true
+  fi
+  { mkdir -p "$KEMPT_STATE_DIR" && : > "$SURFACE_MIGRATED_FILE"; } 2>/dev/null || true
+}
+
+# The offer, as state.json carries it: pending while the marker exists and updates still run in
+# the terminal. A config edited by hand to another surface has answered it too.
+surface_offer_pending() {  # → 0 when the popup should offer the popup default
+  [[ -e "$SURFACE_OFFER_FILE" ]] || return 1
+  local s
+  s="$(config_get surface 2>/dev/null)" || return 1
+  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
+  [[ "${s,,}" == terminal ]]
 }
 
 # The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`

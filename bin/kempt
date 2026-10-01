@@ -619,6 +619,12 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # true or absent, like image_based: the popup's one offer of the popup default, to an install
+  # surface_migrate kept on the terminal.
+  if surface_offer_pending \
+     && merged="$(jq '. + {surface_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
   # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
@@ -2292,7 +2298,9 @@ cmd_config() {
          # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
          # stops a newer widget writing a key it knows and this build does not.
          config_warn_unknown "$2" "$3"
-         config_set "$2" "$3" ;;
+         config_set "$2" "$3"
+         # Choosing how updates run, here or in Settings, answers the popup's one offer.
+         [[ "$2" != surface ]] || rm -f "$SURFACE_OFFER_FILE" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
@@ -3532,6 +3540,13 @@ if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
   usage
   exit 0
 fi
+
+# Before any command reads the config, so the first `config get surface` of this version already
+# answers what the migration decided. Help and the version change nothing, so they skip it.
+case "${1:-help}" in
+  help|--help|-h|version|--version|-V) ;;
+  *) surface_migrate ;;
+esac
 
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;

@@ -73,7 +73,7 @@ n_fp=3
 
 # config defaults come from the kempt_default table, so an unset key answers with the real
 # default instead of an empty string (fresh sandbox: no config file has been written yet)
-assert_eq "$("$KEMPT" config get surface)" "terminal" "unset key falls back to the defaults table"
+assert_eq "$("$KEMPT" config get surface)" "popup" "unset key falls back to the defaults table"
 assert_eq "$("$KEMPT" config get include_flatpak)" "true" "defaults table covers include_flatpak"
 
 state="$("$KEMPT" check)"
@@ -1137,4 +1137,16 @@ assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
 assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
 assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
+
+# --- surface_offer: the popup's one offer of the popup default ---------------------------------------
+# This sandbox has run checks, so it is an install that has run Kempt before. Drop the record that
+# the migration ran and any surface key, and the next run is the first run of the new version.
+assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "a new install is offered nothing"
+rm -f "$SURFACE_MIGRATED_FILE"; sed -i '/^surface=/d' "$CONFIG_FILE"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '.surface_offer' <<<"$out")" "true" "an install the migration kept on the terminal is offered the popup"
+assert_eq "$(jq -c '.surface_offer' "$STATE_FILE")" "true" "...and the state file says so"
+"$KEMPT" config set surface terminal
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "...until a surface is chosen"
 finish

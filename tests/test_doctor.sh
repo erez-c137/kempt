@@ -358,9 +358,10 @@ assert_exit 1 "a missing polkit action fails the checkup" \
 assert_contains "$(cat "$TESTTMP/last_output")" 'polkit action not installed' \
   "the FAIL line names the polkit action"
 
-# The terminal emulator matters only where it is actually used. surface=terminal (the default)
-# means `kempt run` exits 4 every time without it, so that is a failure; a detached surface does
-# not launch one at all, so saying "FAIL" there would be a lie the user cannot act on.
+# The terminal emulator matters only where it is actually used. surface=terminal means `kempt run`
+# exits 4 every time without it, so that is a failure; a detached surface does not launch one at
+# all, so saying "FAIL" there would be a lie the user cannot act on.
+"$KEMPT" config set surface terminal
 assert_exit 1 "a missing terminal emulator fails while surface=terminal" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" "terminal emulator 'kempt-no-such-terminal' not found" \
