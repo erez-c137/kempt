@@ -302,6 +302,25 @@ rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
 assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "0" \
   "...and not on a metered connection either"
 
+# The Flatpak arm has the same bound as the dnf arm. Unbounded, a stalled remote held the check lock
+# for as long as it liked, and the widget killed the check partway through its refresh.
+printf '#!/usr/bin/env bash\nsleep 30\n' > "$TESTTMP/flatpak-refresh-hangs"
+chmod +x "$TESTTMP/flatpak-refresh-hangs"
+rm -f "$LAST_REFRESH_FILE"
+t0=$(date +%s)
+(
+  on_battery() { return 1; }
+  metered_connection() { return 1; }
+  source "$REPO_ROOT/backends/flatpak.sh"
+  KEMPT_REFRESH_TIMEOUT=1 KEMPT_FLATPAK_REFRESH_CMD="$TESTTMP/flatpak-refresh-hangs"
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+elapsed=$(( $(date +%s) - t0 ))
+[[ $elapsed -lt 15 ]] \
+  && echo "ok: a Flatpak refresh that never answers is given up on after KEMPT_REFRESH_TIMEOUT (${elapsed}s)" \
+  || { echo "FAIL: the refresh waited ${elapsed}s for a Flatpak remote that never answered"; _fail=1; }
+assert_exit 0 "...and the dnf arm that did answer still stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
+
 # A skipped refresh is said ONCE A DAY, not once a check. A laptop on battery skips every check it
 # runs - every ten minutes, all day - and a line per skip would be 144 lines saying one thing,
 # which buries the log the one command that reads it exists to serve. The fact worth recording is

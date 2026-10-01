@@ -759,7 +759,7 @@ destructive paths without running them.
 | `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` reads each action's `exec.path`, to compare with the helper path the CLI uses |
 | `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The user's copy of the widget, read by `kempt doctor`. On a checkout install it is the install, and doctor diffs it against `plasmoid/`. On a packaged install its existence is a FAIL, because Plasma prefers a user copy over `/usr/share` |
 | `KEMPT_UI_DIR` | the checkout's `plasmoid/contents/ui` | Which copy of the QML the probes under `tests/qml/` run. The release check points it at the packaged copy under `/usr/share/plasma/plasmoids/`. Read by the test harness only |
-| `KEMPT_REFRESH_TIMEOUT` | `120` | Seconds a metadata refresh may take before the check gives up and reports stale. The long wait is an authentication dialog nobody answers |
+| `KEMPT_REFRESH_TIMEOUT` | `120` | Seconds each half of a metadata refresh (dnf, then Flatpak) may take before the check gives up on it. The long wait is an authentication dialog nobody answers |
 | `KEMPT_CHECK_LOCK_WAIT` | `60` | Seconds a check waits for `check.lock` before serving the previous state instead |
 | `KEMPT_RUN_START_WAIT` | `5` | Seconds `kempt run` waits for the terminal window to start the update before reporting that it did not start (exit 5). A launcher that exits with an error is reported at once |
 | `KEMPT_CLOSING_CHECK_MARK` | unset | Set by the terminal window around `kempt update`. The update creates this file after its closing check, so the window does not check a second time |
