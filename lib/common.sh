@@ -927,7 +927,10 @@ attach_sizes() {  # $1 = sizes TSV; stdin: items JSON (after mark_held) → item
     # identity: a Flatpak runtime installed on two branches is two rows that update independently,
     # and joined by name they would both take whichever of the two size rows landed in the table.
     # An item without one keys by name exactly as before, so nothing that predates the key moves.
-    | def szkey: if (.branch // "") == "" then .name else .name + "/" + .branch end;
+    # A per-user Flatpak item is keyed with the user: prefix its size row carries, so an id installed
+    # in both installations takes its own size (backends/flatpak.sh, KEMPT_FLATPAK_USER_KEY).
+    | def szkey: (if .scope == "user" then "user:" else "" end)
+                 + (if (.branch // "") == "" then .name else .name + "/" + .branch end);
       map(. + (if $sz[szkey] != null then {size_bytes: $sz[szkey]} else {} end))'
 }
 
@@ -2081,13 +2084,15 @@ render_summary() {  # history-json-file → human text
                      | if ($f == "?" and $t == "?") then ""
                        elif ($f == $t) then " " + $t + " (new build)"
                        else " " + $f + " → " + $t end;
-    def lines(b): b.updated | map("  " + (.name | dispname) + vtext(.from; .to)) | join("\n");
+    # A per-user Flatpak item says so, which also tells apart one id installed both ways.
+    def scopetag: if .scope == "user" then " (for you only)" else "" end;
+    def lines(b): b.updated | map("  " + (.name | dispname) + vtext(.from; .to) + scopetag) | join("\n");
     # ...and the packages that ARRIVED or LEFT, by name. The counts line has always said "+2
     # installed" without ever saying what they were, which is least forgivable on the one summary
     # somebody opens afterwards to find out what a restart did to their machine. Same indent as the
     # upgrade lines, with a sign so the three kinds cannot be misread for one another.
-    def addlines(b): b.added | map("  + " + (.name | dispname) + (if (newest(.to)) == "?" then "" else " " + newest(.to) end)) | join("\n");
-    def rmlines(b): b.removed | map("  - " + (.name | dispname) + (if (newest(.from)) == "?" then "" else " " + newest(.from) end)) | join("\n");
+    def addlines(b): b.added | map("  + " + (.name | dispname) + (if (newest(.to)) == "?" then "" else " " + newest(.to) end) + scopetag) | join("\n");
+    def rmlines(b): b.removed | map("  - " + (.name | dispname) + (if (newest(.from)) == "?" then "" else " " + newest(.from) end) + scopetag) | join("\n");
     # The held names, read ONCE and shared by the two lines below, so the list and the count can
     # never disagree about the same run. `?` and `// []` keep an entry written before the field
     # existed rendering, instead of dying on a missing key and printing nothing at all.
@@ -2121,8 +2126,13 @@ render_summary() {  # history-json-file → human text
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
     (if (.backends.dnf.added|length) > 0 then addlines(.backends.dnf) else empty end),
     (if (.backends.dnf.removed|length) > 0 then rmlines(.backends.dnf) else empty end),
+    # `scopes` is there only when apps for you only were updated too. When one of the two
+    # installations failed, the tag names it.
+    def fpfailed: [(.backends.flatpak.scopes? // {}) | to_entries[] | select(.value == "failed") | .key]
+                  | if length == 1 then (if .[0] == "user" then ": apps for you only" else ": system apps" end)
+                    else "" end;
     "Apps (flatpak): " + counts(.backends.flatpak)
-      + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + "]" else "" end),
+      + (if .backends.flatpak.status != "ok" then " [" + .backends.flatpak.status + fpfailed + "]" else "" end),
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),

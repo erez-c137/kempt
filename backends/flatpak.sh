@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # flatpak backend. Same contract as dnf.sh. Requires lib/common.sh sourced first.
 
-# v1 is SYSTEM-scope flatpaks only, and --system is a contract all four commands below keep, so the
-# apps the badge counts are exactly the apps the run acts on. Nothing outside this file enforces it:
-# the update no longer crosses the privilege boundary (see KEMPT_FLATPAK_UPDATE_CMD).
+# Two installations, each asked with its own flag so the badge counts exactly what the run acts on:
+# the system one (--system, the commands below) and the person's own (--user, the KEMPT_FLATPAK_USER_*
+# twins further down). Both run as the person. Reclaiming unused runtimes stays system-only.
 #
 # --cached is the network boundary, and the whole reason there are two commands below. Without it
 # this query fetches flathub's summary index on EVERY check, so with the network away it fails
@@ -83,6 +83,44 @@ KEMPT_FLATPAK_APP_RUNTIME_CMD="${KEMPT_FLATPAK_APP_RUNTIME_CMD:-flatpak list --s
 # names only the id, so when two branches of one runtime are installed this is how the note avoids
 # blaming the apps on the branch that is still supported.
 KEMPT_FLATPAK_INFO_CMD="${KEMPT_FLATPAK_INFO_CMD:-flatpak info --system}"
+
+# --- the per-user installation: the same commands with --user ------------------------------------
+# Apps installed with `flatpak install --user` live in the person's home and are invisible to every
+# --system command above. Each twin runs as the person, with no root helper and no polkit action.
+# The whole arm is skipped when the installation directory has no repo: any --user command creates
+# one as a side effect, and a box without per-user apps must not grow one, or a single extra call.
+# FLATPAK_USER_DIR and XDG_DATA_HOME are the two variables flatpak itself reads for this path.
+KEMPT_FLATPAK_USER_DIR="${KEMPT_FLATPAK_USER_DIR:-${FLATPAK_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/flatpak}}"
+KEMPT_FLATPAK_USER_REMOTE_CMD="${KEMPT_FLATPAK_USER_REMOTE_CMD:-flatpak remote-ls --updates --user --app --cached --columns=application,version,download-size}"
+# Fills ~/.local/share/flatpak's own summary cache, which the --cached query above reads.
+KEMPT_FLATPAK_USER_REFRESH_CMD="${KEMPT_FLATPAK_USER_REFRESH_CMD:-flatpak remote-ls --updates --user --app --columns=application,version,download-size}"
+KEMPT_FLATPAK_USER_LIST_CMD="${KEMPT_FLATPAK_USER_LIST_CMD:-flatpak list --user --app --columns=application,version}"
+KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="${KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD:-flatpak remote-ls --updates --user --runtime --cached --columns=application,branch,version,download-size}"
+KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="${KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD:-flatpak list --user --runtime --columns=application,branch,version}"
+KEMPT_FLATPAK_USER_SNAP_CMD="${KEMPT_FLATPAK_USER_SNAP_CMD:-flatpak list --user --app --columns=application,version,active}"
+KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="${KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD:-flatpak list --user --runtime --columns=application,branch,version,active}"
+KEMPT_FLATPAK_USER_UPDATE_CMD="${KEMPT_FLATPAK_USER_UPDATE_CMD:-flatpak update --user}"
+KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="${KEMPT_FLATPAK_USER_APP_RUNTIME_CMD:-flatpak list --user --app --columns=application,name,runtime}"
+KEMPT_FLATPAK_USER_INFO_CMD="${KEMPT_FLATPAK_USER_INFO_CMD:-flatpak info --user}"
+
+# Whether the person has a per-user installation at all. Nothing is asked of it otherwise.
+flatpak_user_present() { [[ -d "$KEMPT_FLATPAK_USER_DIR/repo" ]]; }
+
+# The installations to ask, system first: the order the check lists them and the run updates them.
+flatpak_scopes() { echo system; if flatpak_user_present; then echo user; fi; }
+
+# The command for one installation: KEMPT_FLATPAK_<name> for system, KEMPT_FLATPAK_USER_<name> for
+# user. Printed for the caller to run unquoted, because a seam may carry its own arguments.
+flatpak_cmd() {  # system|user name → the command
+  local v="KEMPT_FLATPAK_$2"
+  [[ "$1" == user ]] && v="KEMPT_FLATPAK_USER_$2"
+  printf '%s\n' "${!v}"
+}
+
+# A per-user row is keyed `user:<key>` wherever rows of both installations meet in one sort or join
+# (the snapshot, the sizes table), so an id installed in both stays two rows. A flatpak id cannot
+# contain a colon, so the prefix cannot collide with a real id.
+KEMPT_FLATPAK_USER_KEY="user:"
 
 # --- reclaiming disk space: the refs nothing installed uses ---------------------------------------
 # The list comes from libflatpak's list_unused_refs(), through a small Python helper, because it is
@@ -245,8 +283,13 @@ flatpak_runtimes_never_held() {  # stdin: items JSON (after mark_held) → the s
 # Whether an installed RUNTIME answers to this id, which is what cmd_hold refuses on. Asked of the
 # installed set and not of a pending list: a runtime is just as unholdable when nothing is pending
 # for it. Every id is checked, so a box with no flatpak at all answers "no" and the hold proceeds.
-flatpak_id_is_runtime() {  # id → 0 when a runtime with that id is installed
-  $KEMPT_FLATPAK_LIST_RUNTIME_CMD 2>/dev/null | cut -f1 | grep -qxF "$1"
+flatpak_id_is_runtime() {  # id → 0 when a runtime with that id is installed, in either installation
+  local scope cmd
+  for scope in $(flatpak_scopes); do
+    cmd="$(flatpak_cmd "$scope" LIST_RUNTIME_CMD)"
+    $cmd 2>/dev/null | cut -f1 | grep -qxF "$1" && return 0
+  done
+  return 1
 }
 
 # Bytes, out of the same rows flatpak_check already fetched. The value flatpak prints is a HUMAN
@@ -278,28 +321,54 @@ flatpak_parse_sizes() {  # stdin: remote-ls rows → TSV appid<TAB>bytes; unpars
 }
 
 flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR parser failure
-  local out rout lookup rlookup prc=0 items ritems
-  out="$($KEMPT_FLATPAK_REMOTE_CMD)" || return 1
+  local scope all="" part sz="" szall="" rc
+  # Either installation failing fails the backend, like the runtime arm inside one: a check that
+  # answered for half the apps would show "up to date" over the other half.
+  [[ -n "${1:-}" ]] && sz="$(mktemp)"
+  for scope in $(flatpak_scopes); do
+    rc=0; part="$(flatpak_check_scope "$scope" "$sz")" || rc=$?
+    [[ $rc -eq 0 ]] || { rm -f ${sz:+"$sz"}; return $rc; }
+    all+="$part"$'\n'
+    [[ -n "$sz" ]] && szall+="$(cat "$sz")"$'\n'
+  done
+  if [[ -n "$sz" ]]; then
+    printf '%s' "$szall" | awk 'NF' | sort -t "$(printf '\t')" -k1,1 > "$1" || : > "$1"
+    rm -f "$sz"
+  fi
+  printf '%s' "$all" | jq -c -s 'add'
+}
+
+# One installation's pending items. Per-user items carry `scope: "user"`, and their size rows the
+# user: prefix that attach_sizes looks them up by. System items carry no scope key at all, so a box
+# without per-user apps writes the same state it always did.
+flatpak_check_scope() {  # system|user [sizes_out_path] → items JSON
+  local scope="$1" out rout lookup rlookup prc=0 items ritems prefix=""
+  local remote_cmd rremote_cmd list_cmd rlist_cmd
+  remote_cmd="$(flatpak_cmd "$scope" REMOTE_CMD)"; rremote_cmd="$(flatpak_cmd "$scope" REMOTE_RUNTIME_CMD)"
+  list_cmd="$(flatpak_cmd "$scope" LIST_CMD)"; rlist_cmd="$(flatpak_cmd "$scope" LIST_RUNTIME_CMD)"
+  [[ "$scope" == user ]] && prefix="$KEMPT_FLATPAK_USER_KEY"
+  out="$($remote_cmd)" || return 1
   # The runtime arm fails the whole backend exactly as the app arm does. A check that quietly
   # answered for half the transaction would be the original bug wearing a different hat.
-  rout="$($KEMPT_FLATPAK_REMOTE_RUNTIME_CMD | flatpak_runtime_rows)" || return 1
+  rout="$($rremote_cmd | flatpak_runtime_rows)" || return 1
   # Sizes come out of the rows already in hand: a second remote-ls would re-fetch bytes that
   # arrived with the first copy, and the cached query is not free (~1.6s here).
   # An `if`, not `[[ ... ]] && ...`: the && form evaluates to rc 1 whenever no path was passed,
   # and this function's status is read by cmd_check to decide whether the backend answered.
   # Both arms are priced into ONE file, re-sorted because attach_sizes reads it as a lookup table
   # and the two streams interleave: a runtime's row is keyed `id/branch`, an app's by its bare id.
-  if [[ -n "${1:-}" ]]; then
+  if [[ -n "${2:-}" ]]; then
     { flatpak_parse_sizes <<<"$out"; flatpak_parse_sizes <<<"$rout"; } \
-      | sort -t "$(printf '\t')" -k1,1 > "$1" || : > "$1"
+      | awk -v p="$prefix" 'NF { print p $0 }' \
+      | sort -t "$(printf '\t')" -k1,1 > "$2" || : > "$2"
   fi
   # The lookup guard and the capture-before-cleanup below are dnf_check's, for its reasons: an
   # unguarded lookup failure joins against an empty file and reports every app as from="?", and
   # rm's exit 0 masks a parser failure as a successful "nothing pending" check.
-  lookup="$(mktemp)"; $KEMPT_FLATPAK_LIST_CMD | sort_name_version | collapse_versions > "$lookup" \
+  lookup="$(mktemp)"; $list_cmd | sort_name_version | collapse_versions > "$lookup" \
     || { rm -f "$lookup"; return 1; }
   rlookup="$(mktemp)"
-  $KEMPT_FLATPAK_LIST_RUNTIME_CMD | flatpak_runtime_rows | sort_name_version | collapse_versions > "$rlookup" \
+  $rlist_cmd | flatpak_runtime_rows | sort_name_version | collapse_versions > "$rlookup" \
     || { rm -f "$lookup" "$rlookup"; return 1; }
   items="$(flatpak_parse_remote_ls "$lookup" <<<"$out")" || prc=$?
   ritems="$(flatpak_parse_remote_ls_runtime "$rlookup" <<<"$rout")" || prc=$?
@@ -307,7 +376,8 @@ flatpak_check() {  # [sizes_out_path] → items JSON; non-zero on command OR par
   [[ $prc -eq 0 ]] || return $prc
   # Through stdin, never --argjson: the pending set has no bound and Linux caps a single argv entry
   # at 128 KiB, which is the failure assemble_state's own comment records reaching on a real box.
-  printf '%s\n%s\n' "$items" "$ritems" | jq -c -s 'add'
+  printf '%s\n%s\n' "$items" "$ritems" \
+    | jq -c -s --arg scope "$scope" 'add | if $scope == "user" then map(. + {scope: "user"}) else . end'
 }
 
 # Same one-row-per-name, ascending-version contract as dnf - see sort_name_version. Apps keep their
@@ -327,13 +397,26 @@ flatpak_snapshot_app_rows() {  # stdin: id<TAB>version<TAB>commit → id<TAB>ver
   }'
 }
 
-flatpak_snapshot() {
-  local apps rts
-  apps="$($KEMPT_FLATPAK_SNAP_CMD | flatpak_snapshot_app_rows)" || return 1
-  rts="$($KEMPT_FLATPAK_SNAP_RUNTIME_CMD | flatpak_runtime_rows)" || return 1
+flatpak_snapshot() {  # [system|user] → snapshot TSV of that installation, or of both
+  local scope apps rts snap_cmd rsnap_cmd prefix all=""
+  for scope in ${1:-$(flatpak_scopes)}; do
+    snap_cmd="$(flatpak_cmd "$scope" SNAP_CMD)"; rsnap_cmd="$(flatpak_cmd "$scope" SNAP_RUNTIME_CMD)"
+    prefix=""; [[ "$scope" == user ]] && prefix="$KEMPT_FLATPAK_USER_KEY"
+    apps="$($snap_cmd | flatpak_snapshot_app_rows)" || return 1
+    rts="$($rsnap_cmd | flatpak_runtime_rows)" || return 1
+    all+="$(printf '%s\n%s\n' "$apps" "$rts" | awk -v p="$prefix" 'NF { print p $0 }')"$'\n'
+  done
   # awk 'NF' drops the blank line an empty capture leaves behind, which would otherwise reach
   # collapse_versions as a row with no name at all.
-  printf '%s\n%s\n' "$apps" "$rts" | awk 'NF' | sort_name_version | collapse_versions
+  printf '%s' "$all" | awk 'NF' | sort_name_version | collapse_versions
+}
+
+# A run report from the snapshot diff, with the user: key unfolded: the name goes back to the id
+# and the item gains `scope: "user"`, the same field the check writes.
+flatpak_report_scopes() {  # stdin: report JSON → the same report, per-user items marked
+  jq -c --arg p "$KEMPT_FLATPAK_USER_KEY" '
+    map_values(map(if (.name | startswith($p))
+                   then .name = (.name | ltrimstr($p)) | . + {scope: "user"} else . end))'
 }
 
 # The backend's network step, called only from maybe_refresh_metadata so that one gate - interval,
@@ -342,7 +425,16 @@ flatpak_snapshot() {
 # prints is flatpak_check's job, so letting it out would contaminate the caller's capture.
 # 9>&- for the reason priv_refresh gives: this runs inside the check lock and talks to the network,
 # and anything it leaves behind would hold that lock open after it is gone.
-flatpak_refresh() { $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1 9>&-; }
+# Each installation keeps its own summary cache, so each is refreshed. Both are tried; either
+# failing fails the step.
+flatpak_refresh() {
+  local scope cmd rc=0
+  for scope in $(flatpak_scopes); do
+    cmd="$(flatpak_cmd "$scope" REFRESH_CMD)"
+    $cmd >/dev/null 2>&1 9>&- || rc=1
+  done
+  return $rc
+}
 
 # The backend's apply step, called from cmd_update through apply_with_retry. Argument shape is the
 # one the hold logic produces: an optional -y, then the app ids left standing after the held ones
@@ -356,11 +448,14 @@ flatpak_refresh() { $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1 9>&-; }
 # the two branches deliberately do not agree: the single-command form passes flatpak's own status
 # through, where it is worth something in a log, while the loop flattens to 1 because "which of
 # these three apps failed" is not a thing one number can say.
-flatpak_apply() {  # [-y] [--runtime] [app-id...] → 0, or non-zero (per-app when ids are given)
-  local a id rc=0
+flatpak_apply() {  # [--user] [-y] [--runtime] [app-id...] → 0, or non-zero (per-app when ids are given)
+  local a id rc=0 update_cmd="$KEMPT_FLATPAK_UPDATE_CMD"
   local assume=() ids=() kinds=()
   for a in "$@"; do
     case "$a" in
+      # The per-user installation, through its own command. Option-shaped like --runtime, and for
+      # the same reason it is matched ahead of the id validation.
+      --user) update_cmd="$KEMPT_FLATPAK_USER_UPDATE_CMD" ;;
       # Auto-accept, mapped rather than hardcoded: a user who turned auto_accept off must still
       # get flatpak's own prompt on the terminal surface instead of a silent unattended upgrade.
       -y) assume=(--noninteractive -y) ;;
@@ -381,12 +476,12 @@ flatpak_apply() {  # [-y] [--runtime] [app-id...] → 0, or non-zero (per-app wh
     esac
   done
   if [[ ${#ids[@]} -eq 0 ]]; then
-    $KEMPT_FLATPAK_UPDATE_CMD "${assume[@]}" "${kinds[@]}" || rc=$?
+    $update_cmd "${assume[@]}" "${kinds[@]}" || rc=$?
   else
     # Per-app is what makes holds possible: a held app is simply not in the list. One failure
     # fails the call, and the loop still finishes - the other apps have no reason to be skipped.
     for id in "${ids[@]}"; do
-      $KEMPT_FLATPAK_UPDATE_CMD "${assume[@]}" "$id" || rc=1
+      $update_cmd "${assume[@]}" "$id" || rc=1
     done
   fi
   return $rc
@@ -410,7 +505,24 @@ flatpak_eol_ids() {  # stdin: flatpak output → id<TAB>branch-or-`-`<TAB>reason
 }
 
 flatpak_ref_is_eol() {  # id branch → 0 when flatpak info reports that installed ref end-of-life
-  $KEMPT_FLATPAK_INFO_CMD "$1//$2" 2>/dev/null </dev/null | grep -qE '^[[:space:]]*End-of-life:'
+  local scope cmd
+  for scope in $(flatpak_scopes); do
+    cmd="$(flatpak_cmd "$scope" INFO_CMD)"
+    $cmd "$1//$2" 2>/dev/null </dev/null | grep -qE '^[[:space:]]*End-of-life:' && return 0
+  done
+  return 1
+}
+
+# One lookup across both installations, for the notes below: a notice names an id, never the
+# installation, so the apps behind it may be in either.
+flatpak_eol_lookup() {  # APP_RUNTIME_CMD|LIST_RUNTIME_CMD → the rows of every installation
+  local scope cmd out all=""
+  for scope in $(flatpak_scopes); do
+    cmd="$(flatpak_cmd "$scope" "$1")"
+    out="$($cmd 2>/dev/null)" || return 1
+    all+="$out"$'\n'
+  done
+  printf '%s' "$all" | awk 'NF'
 }
 
 # One entry per end-of-life ref: {id, branch, kind, apps, reason}. kind is "app" when the ref is an
@@ -421,8 +533,8 @@ flatpak_eol_notices() {  # stdin: flatpak output → JSON array
   local ids app_rows rt_rows id branch reason name b branches entries=""
   ids="$(flatpak_eol_ids)"
   [[ -n "$ids" ]] || { echo '[]'; return 0; }
-  app_rows="$($KEMPT_FLATPAK_APP_RUNTIME_CMD 2>/dev/null)" || return 1
-  rt_rows="$($KEMPT_FLATPAK_LIST_RUNTIME_CMD 2>/dev/null)" || return 1
+  app_rows="$(flatpak_eol_lookup APP_RUNTIME_CMD)" || return 1
+  rt_rows="$(flatpak_eol_lookup LIST_RUNTIME_CMD)" || return 1
   while IFS=$'\t' read -r id branch reason; do
     [[ -n "$id" ]] || continue
     [[ "$branch" == "-" ]] && branch=""
