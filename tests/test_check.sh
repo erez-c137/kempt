@@ -113,6 +113,15 @@ assert_eq "$(jq -r .last_success <<<"$state4")" "$(jq -r .last_success <<<"$stat
 assert_eq "$(jq -r '.last_success != null' <<<"$state4")" "true" "preserved last_success is non-null"
 assert_eq "$(jq -r '.error | startswith("dnf check failed")' <<<"$state4")" "true" "stale error names the failing backend"
 
+# --strict: the same failed check exits 1 for a script, and still prints and writes the state.
+# Without it the exit code stays 0, as the widget expects.
+assert_exit 0 "a failed check without --strict exits 0" "$KEMPT" check
+rm -f "$KEMPT_STATE_DIR/state.json"
+rc=0; strict_out="$("$KEMPT" check --strict 2>/dev/null)" || rc=$?
+assert_eq "$rc" "1" "check --strict exits 1 when a backend failed"
+assert_eq "$(jq -r .status <<<"$strict_out")" "stale" "...and still prints the state"
+assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json" 2>/dev/null)" "stale" "...and still writes it"
+
 # unhold rejects unknown backends exactly like hold does (a typo must never silently no-op)
 assert_exit 2 "unhold validates backend" "$KEMPT" unhold apt:foo
 
@@ -144,6 +153,7 @@ case "\$1" in
 esac
 STUB
 chmod +x "$TESTTMP/refresh-stub"
+assert_exit 0 "check --strict exits 0 when every backend answered" "$KEMPT" check --strict
 rm -f "$TESTTMP"/conc-rc.*
 for i in 1 2 3 4 5 6 7 8 9 10; do
   ( rc=0; "$KEMPT" check >/dev/null 2>&1 || rc=$?; printf '%s\n' "$rc" > "$TESTTMP/conc-rc.$i" ) &

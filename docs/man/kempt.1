@@ -9,6 +9,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt check
 .RB [ \-\-refresh ]
 .RB [ \-\-coalesce ]
+.RB [ \-\-strict ]
 .br
 .B kempt update
 .RB [ \-\-no\-flatpak ]
@@ -81,9 +82,11 @@ grants a system app update to an active local session without a password, so a r
 but Flatpak updates in it never raises an authentication dialog.
 .SH COMMANDS
 .TP
-.BR check " [" \-\-refresh "] [" \-\-coalesce ]
+.BR check " [" \-\-refresh "] [" \-\-coalesce "] [" \-\-strict ]
 Query every enabled backend, write the state file and print it as JSON.
-Backend failures do not fail the command: the state is marked
+Backend failures do not fail the command unless
+.B \-\-strict
+is given: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
 means "no data, keep the last known state", never "zero updates". After a restart, this command
@@ -101,6 +104,9 @@ written. The event log says
 .BR "check shared" .
 .B \-\-refresh
 turns it off.
+.B \-\-strict
+exits 1 when a backend failed, after printing and writing the state, for scripts that need a
+current answer.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface ]
@@ -460,6 +466,8 @@ Success, including declining at the session\-critical recommendation prompt.
 .TP
 .B 1
 The run itself failed (a backend returned non\-zero),
+.B "check \-\-strict"
+had a backend fail,
 .B doctor
 found at least one problem, or a writer could not take the writers' lock.
 .BR "config set" ,

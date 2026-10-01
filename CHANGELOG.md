@@ -29,6 +29,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Unused Flatpak runtimes** offers **Ask me first**, **Remove after updates** and **Never**.
 - **`kempt doctor` says whether Kempt can list unused Flatpak runtimes.** When a package it needs
   is missing, the row fails and names the packages to install.
+- **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
+  could not answer, after saving the state as usual. Without it, a failed check still exits 0.
 
 ### Changed
 
