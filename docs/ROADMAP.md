@@ -65,24 +65,33 @@ These rules hold for every value:
 
 ## Then: 0.1.8, easier from the first update
 
-0.1.8 makes Kempt easier for someone who has just installed it. Updates run in the popup, problems
-come with a button, and Kempt works better alongside Discover. It is a small release, planned soon
-after 0.1.7.
+0.1.8 is for people trying Kempt for the first time. A few things still assume you are at home in
+a terminal. This release fixes the ones we know about. It is small, and planned soon after 0.1.7.
 
-- **Updates in the popup.** On a new install, Update Now runs in the popup instead of opening a
-  terminal. When the kernel or the desktop has updates, the popup asks whether to install them on
-  the next restart (recommended) or now. Existing installs keep the terminal, and the popup offers
-  the switch once. The terminal stays available in Settings.
-- **A button for every fix.** Some problems still end with a command to type, such as "run kempt
-  doctor". These get a button, with the command beside it for copying.
-- **A clear message when Flatpak is busy.** When another program is using Flatpak, Kempt says the
-  system is busy, as it already does for dnf.
-- **Discover's notifier, off in one click.** Discover counts updates differently, and its notifier
-  can hold the package lock. The popup can turn it off, and back on. Today only the install script
-  offers this.
-- **Better for scripts.** `kempt check --strict` exits with an error when a check fails. `kempt
-  update` exits with code 7 when another program holds the package lock. `kempt history --json`
-  lists every run.
+- **Updating without a terminal.** Today, **Update Now** opens a terminal window. When the update
+  includes a new kernel or parts of the desktop, it asks you to type a letter to choose what
+  happens. In 0.1.8, new installs update inside the popup. For kernel and desktop updates, the
+  popup asks with two buttons: **Install on Next Restart** (recommended, because those parts are in
+  use while you work) or **Install Now**. If you already use Kempt, you keep the terminal. The
+  popup asks once whether you want to switch.
+- **Fixes you can click.** When something goes wrong, the popup sometimes tells you to run a
+  command such as `kempt doctor` in a terminal. In 0.1.8 these messages get a button, so you do
+  not need to open a terminal. The command stays visible for anyone who prefers to type it.
+- **A clear message when another updater is busy.** Only one program can install software at a
+  time. When Discover or another tool is installing, Kempt waits and tries again. If it still
+  cannot get in, system packages get a clear "busy" message, but Flatpak shows its own raw error.
+  In 0.1.8 Flatpak gets the same clear message.
+- **One update notifier, not two.** Discover, Plasma's software center, has its own update
+  notifier. It counts updates differently, so you can see two icons with two different numbers.
+  It can also keep Kempt waiting while it checks. Today only the install script offers to turn it
+  off. In 0.1.8 the popup offers it, and can turn it back on.
+- **For scripts.** Three small changes for people who run `kempt` from their own scripts:
+  - `kempt check --strict` exits with an error when a check could not finish. Today a failed
+    check still looks like success.
+  - `kempt update` exits with its own code, 7, when another program is installing, so a script
+    can wait and try again.
+  - `kempt history --json` gives every past run as JSON. Today only the latest run is available
+    that way.
 
 After 0.1.8, feedback from new users decides what to improve next.
 
