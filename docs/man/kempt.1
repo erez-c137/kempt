@@ -63,7 +63,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt disable\-passwordless
 .br
 .B kempt discover\-notifier
-.BR off " | " on " | " status
+.BR off " | " on " | " keep " | " status
 .RB [ \-\-json ]
 .br
 .B kempt help
@@ -342,18 +342,23 @@ without a prompt.
 .B disable\-passwordless
 Remove that rule.
 .TP
-.BR "discover\-notifier off" " | " on " | " status " [" \-\-json ]
+.BR "discover\-notifier off" " | " on " | " keep " | " status " [" \-\-json ]
 Turn Discover's own update notifier off or back on for this user, without root.
 .B off
 writes
 .I ~/.config/autostart/org.kde.discover.notifier.desktop
 with
 .B Hidden=true
-and stops the running notifier. A file of the user's own there is kept as
-.IR org.kde.discover.notifier.desktop.before\-kempt .
+and stops the running notifier. A file of the user's own there is moved to
+.IR org.kde.discover.notifier.desktop.before\-kempt ;
+when that copy already exists,
+.B off
+changes nothing and exits 1.
 .B on
 restores that file exactly, or removes the one Kempt wrote, then starts the notifier for the
 session. It exits 1 when an entry of the user's own keeps the notifier off.
+.B keep
+changes nothing and records that the widget's offer was answered.
 .B status
 reports whether the notifier is installed, on, turned off by Kempt and running;
 .B \-\-json

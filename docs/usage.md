@@ -26,9 +26,10 @@ reclaim [--list] [-y] [--expect=DIGEST]
                       remove the Flatpak runtimes no installed app uses (--list only shows them)
 config get|set        read/write settings
 enable-passwordless | disable-passwordless
-discover-notifier off | on | status [--json]
-                      turn Discover's own update notifier off or back on for this user, or
-                      say whether it is installed, on and running
+discover-notifier off | on | keep | status [--json]
+                      turn Discover's own update notifier off or back on for this user, keep
+                      it as it is (the widget's answer), or say whether it is installed, on
+                      and running
 --version | version | -V   print the version and exit
 help | --help | -h    print this list
 ```
@@ -566,7 +567,7 @@ The wording is fixed, so you can search it:
 | `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
-| `discover-notifier off` / `discover-notifier on` | Discover's update notifier was turned off, or back on, for this user. |
+| `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's update notifier was turned off, or back on, for this user, or kept as it was when the widget's offer was answered. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600. Past 2500 lines it is trimmed to the
 last 2000.
@@ -857,6 +858,7 @@ succeeds. What the rule grants is in [security.md](security.md#passwordless-mode
 ```
 kempt discover-notifier off
 kempt discover-notifier on
+kempt discover-notifier keep
 kempt discover-notifier status [--json]
 ```
 
@@ -865,14 +867,25 @@ Kempt's. These commands change it for you alone and never ask for a password.
 
 - `off` writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
   notifier no longer starts when you log in, and stops the one that is running. If you already had
-  your own file there, Kempt keeps a copy next to it, ending in `.before-kempt`.
+  your own file there, Kempt moves it next to the new one, ending in `.before-kempt`. A symlink
+  stays a symlink. Kempt keeps one such copy and never overwrites it: when one is already there,
+  `off` changes nothing, says where it is and exits 1.
 - `on` puts your own file back exactly as it was, or removes the one Kempt wrote. Then it starts the
-  notifier for this session. If an entry of your own keeps the notifier off, `on` leaves it alone,
-  says so and exits 1.
+  notifier for this session, and says so once it is running. If an entry of your own keeps the
+  notifier off, `on` leaves it alone, says so and exits 1.
+- `keep` changes nothing. It records that you answered the widget's offer, which is what **Keep
+  Discover's Notifier** runs.
 - `status` says whether the notifier is installed, on, turned off by Kempt and running. `--json`
   prints the same as one object: `installed`, `enabled`, `running` and `by_kempt`.
 
-When Discover's notifier is not installed, `off` and `on` say so and change nothing.
+When Discover's notifier is not installed, `off`, `on` and `keep` say so and change nothing.
+
+Kempt before 0.1.8 wrote the same file from `./install.sh` without a mark. Kempt still recognises
+it, and moves it to a copy ending in `.kempt-legacy` rather than delete it, in case it held your own
+settings.
+
+Exit codes: **1** when `off` finds a copy of your own entry already kept, or `on` finds your own
+entry keeps the notifier off. Nothing changed in either case.
 
 ## The Plasma widget
 
@@ -1025,10 +1038,12 @@ lower in this list are left out. If that hides the restart message, the footer s
    install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches **Run
    updates in** to **In this widget**. **Keep the Terminal Window** keeps it and hides the message
    for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
-9. **"Discover also shows update notifications, with a different count."** It shows once, while
-   Discover's notifier is installed and starts with your session, and never together with message 8.
-   **Turn Off Discover's Notifier** runs `kempt discover-notifier off`. **Keep It** leaves it on.
-   Either answer hides the message for good. Settings can turn the notifier back on.
+9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
+   from Kempt's, and its checks can make an update wait."** It shows once, while Discover's notifier
+   is installed and starts with your session, and never together with message 8. **Turn Off
+   Discover's Notifier** runs `kempt discover-notifier off`. **Keep Discover's Notifier** changes
+   nothing. Either answer hides the message for good, after a restart too. Settings can turn the
+   notifier back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
    `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
    lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
