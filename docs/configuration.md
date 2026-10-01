@@ -157,7 +157,8 @@ day.
 | `~/.local/state/kempt/logs/<timestamp>.log` | Full raw output of that run |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, mode 0600 (`kempt log`) |
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
-| `~/.local/state/kempt/last_refresh` | Timestamp of the last metadata refresh, for the 3-hour interval and `metadata_refreshed` |
+| `~/.local/state/kempt/last_refresh` | Timestamp of the last metadata refresh, for the 3-hour interval |
+| `~/.local/state/kempt/last_refresh_dnf` | Timestamp of the last dnf metadata refresh that succeeded, for `metadata_refreshed` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |

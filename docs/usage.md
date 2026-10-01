@@ -91,7 +91,7 @@ A few fields worth knowing:
 - **`download_bytes`** is the estimated download, per item (`size_bytes`), per backend and in
   total. The widget shows the total next to **Update Now**. A total appears only when every
   non-held item has a size. A missing total means "unknown", which is different from zero.
-- **`metadata_refreshed`** is when package metadata was last fetched. It differs from
+- **`metadata_refreshed`** is when dnf metadata was last fetched. It differs from
   `last_check`, because a check answers from the local cache.
 
 The full schema is in [architecture.md](architecture.md#state-json-schema-v1).

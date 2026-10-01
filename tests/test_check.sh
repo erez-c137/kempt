@@ -321,6 +321,32 @@ elapsed=$(( $(date +%s) - t0 ))
   || { echo "FAIL: the refresh waited ${elapsed}s for a Flatpak remote that never answered"; _fail=1; }
 assert_exit 0 "...and the dnf arm that did answer still stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
 
+# metadata_refreshed dates dnf's metadata. A Flatpak fetch beside a failed dnf fetch moves the
+# rate-limit stamp, and must not move this date, or the footer says nothing about old dnf lists.
+touch -d '2 days ago' "$LAST_REFRESH_DNF_FILE"
+old_meta="$(metadata_refreshed_iso)"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 1; }
+  source "$REPO_ROOT/backends/flatpak.sh"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails"
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+assert_eq "$(( $(date +%s) - $(stat -c %Y "$LAST_REFRESH_FILE") < 60 ))" "1" \
+  "a Flatpak fetch beside a failed dnf fetch still stamps the rate limit"
+assert_eq "$(metadata_refreshed_iso)" "$old_meta" "...but metadata_refreshed keeps dnf's own, older date"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 1; }
+  source "$REPO_ROOT/backends/flatpak.sh"
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+assert_eq "$(( $(date +%s) - $(date -d "$(metadata_refreshed_iso)" +%s) < 60 ))" "1" \
+  "...and a dnf fetch that succeeds moves it"
+rm -f "$LAST_REFRESH_DNF_FILE"
+assert_eq "$(metadata_refreshed_iso)" "$(date -Is -r "$LAST_REFRESH_FILE")" \
+  "a box with no dnf stamp yet falls back to the shared one"
+
 # A skipped refresh is said ONCE A DAY, not once a check. A laptop on battery skips every check it
 # runs - every ten minutes, all day - and a line per skip would be 144 lines saying one thing,
 # which buries the log the one command that reads it exists to serve. The fact worth recording is

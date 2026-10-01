@@ -82,6 +82,9 @@ LAST_REFRESH_FILE="$KEMPT_STATE_DIR/last_refresh"
 # $LAST_REFRESH_FILE: that one rate-limits the fetch, and folding the two together would let an
 # announcement postpone a refresh, or a refresh silence the announcement.
 REFRESH_SKIP_FILE="$KEMPT_STATE_DIR/last_refresh_skip"
+# When the dnf half of a refresh last succeeded. $LAST_REFRESH_FILE is touched when EITHER half
+# does, so it would date dnf's metadata by a Flatpak fetch. metadata_refreshed reads this one.
+LAST_REFRESH_DNF_FILE="$KEMPT_STATE_DIR/last_refresh_dnf"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
@@ -1042,16 +1045,24 @@ write_state() {
 # nothing has ever been fetched on this box - a different thing from "old", and every surface that
 # renders it says the two differently.
 metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
-  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
-  date -Is -r "$LAST_REFRESH_FILE" 2>/dev/null || true
+  local f; f="$(metadata_stamp_file)"
+  [[ -f "$f" ]] || return 0
+  date -Is -r "$f" 2>/dev/null || true
+}
+
+# The dnf stamp, or the shared one on a box that has not fetched dnf metadata since the dnf stamp
+# was added. A dnf failure beside a Flatpak success then leaves the date where it was.
+metadata_stamp_file() {
+  if [[ -f "$LAST_REFRESH_DNF_FILE" ]]; then printf '%s\n' "$LAST_REFRESH_DNF_FILE"
+  else printf '%s\n' "$LAST_REFRESH_FILE"; fi
 }
 
 # ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
 # when there is no stamp, so a caller cannot mistake "never fetched" for "fetched today".
 metadata_age_days() {  # → whole days, or nothing
-  local at now
-  [[ -f "$LAST_REFRESH_FILE" ]] || return 0
-  at="$(stat -c %Y "$LAST_REFRESH_FILE" 2>/dev/null)" || return 0
+  local at now f; f="$(metadata_stamp_file)"
+  [[ -f "$f" ]] || return 0
+  at="$(stat -c %Y "$f" 2>/dev/null)" || return 0
   now="$(date +%s)"
   # A stamp in the future is today, not a negative age - the same reading the interval gate gives
   # its own stamp, and "refreshed -1 days ago" is worse than a rounding error.
@@ -1106,6 +1117,7 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # best-effort step, and the consequence a user can act on is reported by the next check.
   if priv_refresh refresh >/dev/null 2>&1; then
     ok=1
+    touch "$LAST_REFRESH_DNF_FILE" || true
     log_event "refresh ok"
   else
     log_event "refresh failed"
