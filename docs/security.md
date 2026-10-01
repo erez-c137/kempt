@@ -61,7 +61,8 @@ leaves the root-owned `/var/lib/flatpak/appstream` cache alone.
 **Applying Flatpak updates also runs as you.** `flatpak update --system` asks polkit for
 `org.freedesktop.Flatpak.app-update` and `runtime-update`. Flatpak's own policy answers `yes` for
 an active local session, with no password. Two cases can still ask for authentication; see
-[Accepted limitations](#accepted-limitations).
+[Accepted limitations](#accepted-limitations). Apps installed with `flatpak install --user` live in
+your home, so `flatpak update --user` needs no polkit at all. Kempt runs it after the system one.
 
 **Removing unused Flatpak runtimes runs as you too.** `kempt reclaim`, and the removal after an
 update with `reclaim=automatic`, run `flatpak uninstall --system --no-related --noninteractive`
@@ -237,8 +238,9 @@ manager. **What gets installed** is bounded by these:
   `gpgcheck` off already requires root. Fedora sets `repo_gpgcheck=0`: the **packages** are
   verified, and the repository metadata is unsigned.
 - **Flatpak verifies commits.** System remotes are ostree repositories with signed commits, and
-  their configuration is root-owned too. Kempt updates only `--system` scope, so a per-user remote
-  is outside what Kempt acts on.
+  their configuration is root-owned too. Per-user remotes live in your home and verify commits
+  the same way. Kempt updates them as you, so a per-user remote reaches nothing outside your
+  account.
 - **Upgrades still run package scriptlets as root.** An RPM `%post` from any package in the
   transaction runs as root, as it does with `sudo dnf5 upgrade` typed by hand. Kempt adds no
   exposure here and removes none.
@@ -387,7 +389,9 @@ left in place.
   user runs. That includes the passwordless rules template, which `enable-passwordless` renders
   before handing the result to root. Keep the checkout in your own home or workspace, and out of
   anywhere group- or world-writable. Root-owned files are unaffected.
-- **Flatpak is system scope only** in v1, so a per-user app is neither counted nor updated.
+- **Removing unused runtimes is system scope only.** Per-user runtimes are counted and updated,
+  never removed. Flatpak counts your per-user apps as users of system runtimes, so a system runtime
+  one of them needs is never offered.
 - **Holds apply to Kempt only.** They are Kempt's own exclusion list; a manual
   `sudo dnf5 upgrade` ignores them.
 - **`install.sh` runs one `pkexec /usr/bin/bash -c`.** Every repo path is passed as a positional argument,

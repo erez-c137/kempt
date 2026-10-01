@@ -49,6 +49,8 @@ machine with one app can end up with two copies of a runtime of a gigabyte or mo
 - **The `reclaim` setting** is `ask` (the default), `automatic` or `off`. `automatic` removes them
   after each update. It acts as `ask` on an image-based system, and when more than one person may
   use the machine. `off` hides them.
+- **Per-user Flatpak apps** were missed, so Kempt said everything was up to date while they had
+  updates. Kempt now checks and updates them with the system ones and marks them "For you only".
 
 These rules hold for every value:
 
@@ -193,8 +195,6 @@ package stays ready for review at every release.
   package list one click away.
 - **Update later.** "Tonight" or "only on Wi-Fi", for people who now close the popup to put an
   update off. Automatic staging may make it unnecessary.
-- **Per-user Flatpak apps.** Kempt handles the system installation only, so per-user apps are
-  neither counted nor updated. It would be off for existing installs, so their counts do not jump.
 - **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 - **A restart reminder that stays dismissed.** Closing it now hides it until Plasma restarts. To
   remember it longer, Kempt would store the dismissal against the boot ID, as offline staging
