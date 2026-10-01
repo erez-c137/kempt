@@ -342,8 +342,8 @@ flatpak_snapshot() {
 # prints is flatpak_check's job, so letting it out would contaminate the caller's capture.
 # 9>&- for the reason priv_refresh gives: this runs inside the check lock and talks to the network,
 # and anything it leaves behind would hold that lock open after it is gone.
-# KEMPT_REFRESH_TIMEOUT bounds it like the dnf arm, so a stalled remote cannot hold the check lock
-# forever, and the widget can wait longer than both arms together (REFRESH_CHECK_TIMEOUT_MS).
+# KEMPT_REFRESH_TIMEOUT bounds it, so a stalled remote cannot hold the check lock forever. It runs
+# as this user, so the timeout can stop it. The widget's CHECK_TIMEOUT_MS allows for it.
 # shellcheck disable=SC2086  # the seam carries its own arguments
 flatpak_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" $KEMPT_FLATPAK_REFRESH_CMD >/dev/null 2>&1 9>&-; }
 

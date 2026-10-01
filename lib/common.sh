@@ -628,9 +628,10 @@ config_set() {  # key value
 # serves stale state while saying nothing. harvest_offline runs inside that lock too.
 # fd 8, the UPDATE lock, is left inherited on purpose - see acquire_lock.
 # How long each arm of a metadata refresh (dnf, then Flatpak) may take before the check gives up on
-# it. The widget's timeout for a manual check is sized on two of these. The dnf wait that
-# actually happens is a polkit dialog nobody is at: a background check cannot answer one, so it
-# sits here for the full two minutes. A seam only so the suite can reach that branch - hardcoded,
+# it. It holds for Flatpak and for a polkit dialog nobody answers, which a background check sits on
+# for the full two minutes. It does NOT bound dnf5 itself: once pkexec has started the helper,
+# dnf5 runs as root, SIGTERM from this user gets EPERM, and `timeout` waits for it. dnf5's own
+# network timeouts bound that part. The widget's CHECK_TIMEOUT_MS allows for both. A seam only so the suite can reach that branch - hardcoded,
 # no test could drive it without waiting two minutes, and it had none.
 KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
 priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }

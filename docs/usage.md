@@ -107,7 +107,7 @@ hours, `kempt doctor` has a row for it, and a skipped refresh goes into the even
 
 **`--refresh`** fetches now, ignoring the 3-hour interval. On battery or a metered connection it
 still skips the fetch, and the event log records it. The widget's **Check for Updates** passes it.
-Each half of the fetch, dnf and Flatpak, gives up after 2 minutes.
+The Flatpak fetch gives up after 2 minutes, and dnf after its own network timeouts.
 
 **`--coalesce`** is for checks nobody asked for by hand. Only one check runs at a time, so a check
 may wait for another to finish. With `--coalesce`, if that other check succeeded and finished after
