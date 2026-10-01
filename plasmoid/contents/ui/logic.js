@@ -161,6 +161,10 @@ var COPY = {
     // What the footer gains while the counts above it are stale: three words on the line that
     // DATES those counts. The CLI's reason goes in the tooltip of the button that tries again.
     lastCheckFailed: "last check failed",
+    // ...and while the per-user apps could not be listed. The rest of the check stands, so this is
+    // a footer fact like the one above. The sentence replaces "Everything is up to date".
+    userAppsUnchecked: "Apps installed for you only could not be checked.",
+    userAppsUncheckedShort: "apps for you only not checked",
     // "No SUCCESSFUL check", not "not checked": the footer dates the counts by last_success, so
     // its fallback has to be about last_success. A box whose every check since install has failed
     // HAS checked - and that box is the one most likely to be reading this line.
@@ -1979,6 +1983,12 @@ function viewModel(state, updating, cliError, opts) {
     var staleReason = stale
         ? (typeof state.error === "string" && state.error !== "" ? state.error : "the last check failed")
         : "";
+    // The per-user apps could not be listed, so the check answered for the system ones only. The
+    // CLI keeps the last check's per-user rows, and this says they are not today's answer.
+    var fpBackend = usable && state.backends && typeof state.backends === "object"
+        ? state.backends.flatpak : null;
+    var userUnchecked = !!(fpBackend && typeof fpBackend === "object" && fpBackend.scopes
+        && typeof fpBackend.scopes === "object" && fpBackend.scopes.user === "failed");
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
     var problemText = "";
@@ -2032,6 +2042,7 @@ function viewModel(state, updating, cliError, opts) {
             subParts.push(staleReason);
             subParts.push("last successful check: " + lastSuccessText);
         }
+        if (userUnchecked) subParts.push(COPY.userAppsUncheckedShort);
         // A pending restart is the one fact needing an action from the person; without this line
         // it could only be found by opening the popup. Last, because it is about the machine
         // rather than about the counts above it.
@@ -2049,7 +2060,8 @@ function viewModel(state, updating, cliError, opts) {
     else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
-        emptyStateText = stale ? "No updates in the last known state." : COPY.everythingUpToDate;
+        emptyStateText = stale ? "No updates in the last known state."
+            : (userUnchecked ? COPY.userAppsUnchecked : COPY.everythingUpToDate);
     }
 
     // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
@@ -2131,6 +2143,7 @@ function viewModel(state, updating, cliError, opts) {
         // ...and the staleness, beside the date it explains. Not an alarm - the counts above are
         // still the best known truth - with the CLI's reason one hover away on the retry button.
         if (stale) footerParts.push(COPY.lastCheckFailed);
+        if (userUnchecked) footerParts.push(COPY.userAppsUncheckedShort);
         // ...and how old the metadata behind those counts is, which the dateline above cannot say.
         // The two are different clocks: the check ran four minutes ago, the metadata it answered
         // from may be a week old, and only this line can tell the person that.

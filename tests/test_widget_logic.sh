@@ -1667,6 +1667,24 @@ assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,b
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerText")" "No successful check yet" \
   "...and so does a popup with no state at all"
 
+# --- the per-user apps could not be listed ---------------------------------------------------------
+# The check still answers for the system apps, so this is a footer fact and never an alarm. Over an
+# empty list it replaces "Everything is up to date", which would be a claim about apps nobody saw.
+UF='{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{flatpak:{items:[],scopes:{system:"ok",user:"failed"}}}}'
+assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).footerText")" "Checked 4 min ago · apps for you only not checked" \
+  "a per-user listing that failed is named on the footer"
+assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).emptyStateText")" "Apps installed for you only could not be checked." \
+  "...and an empty list does not say everything is up to date"
+assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).iconState")" "uptodate" "...and the icon raises no alarm"
+assert_eq "$(js "L.viewModel($UF,false,\"\",{nowMs:$NOW}).tooltipSub")" "apps for you only not checked" "...and the tooltip says it too"
+UF_KEPT='{schema:1,status:"ok",actionable:1,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{flatpak:{items:[{name:"com.brave.Browser",from:"1.79",to:"1.80",held:false,scope:"user"}],scopes:{system:"ok",user:"failed"}}}}'
+assert_eq "$(js "L.viewModel($UF_KEPT,false,\"\",{nowMs:$NOW}).footerText.indexOf(\"apps for you only not checked\") >= 0")" "true" \
+  "...and the footer still says it over the per-user rows the last check found"
+assert_eq "$(js "L.viewModel(Object.assign({}, $UF, {backends:{flatpak:{items:[],scopes:{system:\"ok\",user:\"ok\"}}}}),false,\"\",{nowMs:$NOW}).footerText + \"|\" + L.viewModel(Object.assign({}, $UF, {backends:{flatpak:{items:[],scopes:{system:\"ok\",user:\"ok\"}}}}),false,\"\",{nowMs:$NOW}).emptyStateText")" \
+  "Checked 4 min ago|Everything is up to date" "a per-user listing that worked adds nothing"
+assert_eq "$(js "L.viewModel(Object.assign({}, $UF, {backends:{flatpak:{items:[],scopes:\"failed\"}}}),false,\"\",{nowMs:$NOW}).footerText")" \
+  "Checked 4 min ago" "...and a scopes value of the wrong shape is ignored"
+
 # --- the age of the metadata behind the counts --------------------------------------------------
 # "Checked 4 min ago" dates the CHECK. The check answers from a cache refreshed at most every three
 # hours and skipped entirely on battery and on a metered link, so those counts can be days old with
