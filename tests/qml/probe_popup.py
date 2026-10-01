@@ -2755,6 +2755,7 @@ _SUBSTITUTED_IN_QML = {
     "skipInstalling",       # -> ...on a row whose package is not installed yet
     "stopSkipping",         # -> ...and its way out
     "versionRange",         # -> the version line's accessible name
+    "discoverStatusOwn",    # -> the settings page's Discover row, with the startup file's path
 }
 
 _ASSEMBLED_IN_LOGIC = {
