@@ -1006,6 +1006,7 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("riskyMessage", "the session-critical warning"),
+            ("surfaceOfferMessage", "the offer to update in the popup"),
             ("reportMessage", "the report of the last thing that happened")]
 
 def stack(situation, *shown):
@@ -2103,6 +2104,106 @@ p.check("...and the pending rows are still listed, because they are what dnf can
 state(fixture("state-risky-heavy.json"))
 p.check("an ordinary Fedora gets Update Now back", lev("updateButton.visible"), True)
 ev('root.postRunLine = ""')
+
+# --- Update Now on a session-critical set, where nothing can ask -----------------------------------
+# This probe's surface is popup. Only a terminal asks the risky question for itself, so here
+# Update Now must not start a run: the risky message becomes a choice, with staging first.
+ev('root.actionMessage = ""')
+runs_before = p.call_count("run")
+lev("updateButton.clicked()")
+p.pump(100)
+settle()
+p.check("Update Now on a session-critical set in the popup starts nothing",
+        p.call_count("run") - runs_before, 0)
+p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
+p.check("...in the message that already carries the recommendation",
+        [lev("riskyMessage.visible"), lev("riskyMessage.asking")], [True, True])
+p.check("...offering Install on Next Restart first",
+        [lev("riskyMessage.actions[0].text"), lev("riskyMessage.actions[0].visible")],
+        [ev("Logic.COPY.installOnNextRestart"), True])
+p.check("...and Install Now beside it",
+        [lev("riskyMessage.actions[1].text"), lev("riskyMessage.actions[1].visible")],
+        [ev("Logic.COPY.installNow"), True])
+
+# Install Now: what Update Now would have run, plus the flag that says the person chose it.
+lev("riskyMessage.actions[1].trigger()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Install Now runs the update, saying the person already chose to install now",
+        p.calls_matching("run")[-1:], ["run --risky-ok"])
+p.check("...and the choice closes", ev("root.riskyChoiceOpen"), False)
+p.check("...leaving the plain message for after the run", lev("riskyMessage.asking"), False)
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+
+# Install on Next Restart from the choice stages, as it does from the plain message.
+lev("updateButton.clicked()")
+p.pump(100)
+p.check("a second Update Now asks again", ev("root.riskyChoiceOpen"), True)
+stages_before = len(p.calls_matching("run --surface=offline"))
+lev("riskyMessage.actions[0].trigger()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Install on Next Restart in the choice stages the update",
+        len(p.calls_matching("run --surface=offline")) - stages_before, 1)
+p.check("...and closes the choice", ev("root.riskyChoiceOpen"), False)
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+
+# A choice left open is not carried over to the next time the popup opens.
+lev("updateButton.clicked()")
+p.pump(100)
+ev("root.popupClosed()")
+p.check("closing the popup closes an unanswered choice", ev("root.riskyChoiceOpen"), False)
+p.check("...and the plain message's Install Now goes with it",
+        lev("riskyMessage.actions[1].visible"), False)
+
+# --- the one-time offer to update in the popup -----------------------------------------------------
+# Made to a box the migration kept on the terminal (state.json surface_offer), and only while the
+# terminal is still the setting. This probe's stub answers popup, so the offer starts hidden.
+_so = json.loads(open(fixture("state-live.json")).read())
+_so["surface_offer"] = True
+_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
+open(_sopath, "w").write(json.dumps(_so))
+state(_sopath)
+p.check("the offer is not made to a box already updating in the popup",
+        lev("surfaceOfferMessage.visible"), False)
+ev('root.surface = "terminal"')
+p.pump(50)
+p.check("...and is made to one that still has the terminal", lev("surfaceOfferMessage.visible"), True)
+p.check("...in plain words", lev("surfaceOfferMessage.text"), ev("Logic.COPY.surfaceOffer"))
+p.check("...with the two answers",
+        [lev("surfaceOfferMessage.actions[0].text"), lev("surfaceOfferMessage.actions[1].text")],
+        [ev("Logic.COPY.surfaceOfferUse"), ev("Logic.COPY.surfaceOfferKeep")])
+ev("root.autoAccept = false")
+p.pump(50)
+p.check("...but not while confirmation is on, which only a terminal can ask for",
+        lev("surfaceOfferMessage.visible"), False)
+ev("root.autoAccept = true")
+p.pump(50)
+p.clear_calls()
+lev("surfaceOfferMessage.actions[0].trigger()")
+p.pump(50)
+settle()
+p.check("Use the Popup writes the setting through the CLI",
+        p.calls_matching("config set"), ["config set surface popup"])
+p.check("...and the offer goes at once", lev("surfaceOfferMessage.visible"), False)
+ev("root.surfaceOfferAnswered = false")
+ev('root.surface = "terminal"')
+p.pump(50)
+p.clear_calls()
+lev("surfaceOfferMessage.actions[1].trigger()")
+p.pump(50)
+settle()
+p.check("Keep the Terminal writes the terminal as the setting, which ends the offer for good",
+        p.calls_matching("config set"), ["config set surface terminal"])
+p.check("...and the offer goes at once", lev("surfaceOfferMessage.visible"), False)
+ev("root.surfaceOfferAnswered = false")
+settle()
+p.check("the popup reads the surface back after an answer", ev("root.surface"), "popup")
+state(fixture("state-live.json"))
 
 # --- the stale explanation --------------------------------------------------------------------------
 state(fixture("state-stale.json"))

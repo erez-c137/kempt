@@ -343,4 +343,19 @@ lev("popup.focusPrimary()")
 p.pump(50)
 p.check("with nothing to run, it is Refresh", focused(), "refreshButton")
 
+# Update Now on a session-critical set, on the popup surface: no run, a choice, and the keyboard on
+# the recommended answer so Enter stages rather than installs. Here and not in probe_popup, because
+# Kirigami lays out a message's buttons only in a real window.
+state(fixture("state-risky-heavy.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
+lev("popup.focusPrimary()")
+p.pump(50)
+lev("updateButton.clicked()")
+p.pump(200)
+p.check("Update Now on a session-critical set opens the choice", ev("root.riskyChoiceOpen"), True)
+p.check("...with the keyboard on Install on Next Restart", focused(),
+        "elsewhere:" + str(ev("Logic.COPY.installOnNextRestart")))
+p.check("...visibly", lev("popup.Window.activeFocusItem.visualFocus"), True)
+
 sys.exit(p.done())
