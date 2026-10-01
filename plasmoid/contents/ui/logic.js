@@ -142,9 +142,9 @@ var COPY = {
 
     // The one offer to turn off Discover's own update notifier, while it starts with the session.
     // Turning it back on is in Settings, under the same name.
-    discoverOffer: "Discover also shows update notifications, with a different count.",
+    discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait.",
     discoverOfferOff: "Turn Off Discover's Notifier",
-    discoverOfferKeep: "Keep It",
+    discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
     discoverStatusOn: "Discover also shows update notifications, with its own count.",
     discoverStatusOff: "Discover's notifier is off.",
@@ -1977,9 +1977,13 @@ function viewModel(state, updating, cliError, opts) {
         && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
     // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
     // notifier starts with the session and nobody has answered. One offer at a time: it waits
-    // while the surface offer is showing.
+    // while the surface offer is showing, and while the surface offer is still undecided because
+    // the setting is unread, or it would show and then give way under the pointer. It also waits
+    // for the widget to read the CLI's answered marker, which a state.json from before the answer
+    // does not reflect.
     var discoverOffer = usable && state.discover_offer === true && !updating
-        && opts.discoverOfferAnswered !== true && !surfaceOffer;
+        && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false
+        && !surfaceOffer && !(state.surface_offer === true && opts.surfaceKnown === false);
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed

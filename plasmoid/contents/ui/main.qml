@@ -130,6 +130,9 @@ PlasmoidItem {
     // The same for the one-time offer to turn off Discover's notifier. Either button runs
     // `kempt discover-notifier`, which records the answer for the CLI too.
     property bool discoverOfferAnswered: false
+    // Whether the CLI's answered marker has been looked for. The answer outlives a plasmashell
+    // restart there, even when the check after it never rewrote state.json.
+    property bool discoverAnswerKnown: false
 
     // Whether the CLI has answered for the surface yet. Until it has, `surface` is only the
     // default, so the offer waits. The risky question does not: the default is the popup, so in
@@ -257,6 +260,7 @@ PlasmoidItem {
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 surfaceOfferAnswered: surfaceOfferAnswered,
                                                 discoverOfferAnswered: discoverOfferAnswered,
+                                                discoverAnswerKnown: discoverAnswerKnown,
                                                 surfaceKnown: surfaceKnown,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
@@ -885,10 +889,11 @@ PlasmoidItem {
         });
     }
 
-    // The answer to the Discover offer: "off" turns Discover's notifier off, "on" keeps it. Both
-    // record the answer, so a check then publishes state.json without discover_offer.
+    // The answer to the Discover offer: "off" turns Discover's notifier off, "keep" changes
+    // nothing. Both record the answer in the CLI's marker, so a check then publishes state.json
+    // without discover_offer, and readDiscoverAnswered finds it after a restart either way.
     function setDiscoverNotifier(verb) {
-        if (verb !== "off" && verb !== "on") return;
+        if (verb !== "off" && verb !== "keep") return;
         discoverOfferAnswered = true;
         executor.run(kemptCmd + " discover-notifier " + verb, 15000, function(stdout, stderr, rc) {
             if (rc !== 0) {
@@ -1277,7 +1282,18 @@ PlasmoidItem {
         }
     }
 
+    // The CLI's record that the Discover offer was answered. stateDir is NOT shellQuote'd - see
+    // findLog(). Any answer, found or not, ends the wait.
+    function readDiscoverAnswered() {
+        executor.run("test -e \"" + stateDir + "/discover-offer-answered\"", 10000,
+                     function(stdout, stderr, rc) {
+            if (rc === 0) root.discoverOfferAnswered = true;
+            root.discoverAnswerKnown = true;
+        });
+    }
+
     Component.onCompleted: {
+        readDiscoverAnswered();
         readInterval();
         readSurface();
         readIconSize();

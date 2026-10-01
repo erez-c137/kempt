@@ -719,12 +719,18 @@ assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, di
   '["surfaceOffer"]' "one offer at a time: it waits while the surface offer shows"
 assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surface: \"terminal\", configuredSurface: \"terminal\", autoAccept: true, surfaceOfferAnswered: true}).messageSlots")" \
   '["discoverOffer"]' "...and comes once the surface offer is answered"
+assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
+  '[]' "...and waits while the surface offer is undecided, so the two never swap under the pointer"
+assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
+  '["discoverOffer"]' "...a wait only a pending surface offer causes"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {discoverAnswerKnown: false}).messageSlots')" '[]' \
+  "it waits until the widget has looked for the CLI's answered marker"
 assert_eq "$(js 'L.messageStack({kernel: true, discoverOffer: true, reclaim: true})')" '["kernel","discoverOffer"]' \
   "it waits below the risky advice and above the reclaim offer"
-assert_eq "$(js 'L.COPY.discoverOffer')" "Discover also shows update notifications, with a different count." \
-  "its sentence"
+assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait." \
+  "its sentences, which say why"
 assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
-  "Turn Off Discover's Notifier|Keep It|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
+  "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
 for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l | tr -d ' ')" \
     "$([[ $_lit == discoverOfferOff ]] && echo 2 || echo 1)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"

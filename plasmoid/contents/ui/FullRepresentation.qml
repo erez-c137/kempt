@@ -784,7 +784,7 @@ PlasmaExtras.Representation {
             id: discoverOfferMessage
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
-            text: i18n("Discover also shows update notifications, with a different count.")
+            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait.")
             Accessible.name: text
             visible: popup.shows("discoverOffer")
             actions: [
@@ -795,10 +795,10 @@ PlasmaExtras.Representation {
                     onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("off")
                 },
                 Kirigami.Action {
-                    text: i18n("Keep It")
+                    text: i18n("Keep Discover's Notifier")
                     icon.name: "dialog-ok"
                     enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("on")
+                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("keep")
                 }
             ]
         }

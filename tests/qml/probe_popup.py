@@ -2311,6 +2311,13 @@ ev("root.surfaceOfferAnswered = true")
 p.pump(50)
 p.check("...and comes once the surface offer is answered", lev("discoverOfferMessage.visible"), True)
 ev("root.surfaceOfferAnswered = false")
+# Right after a plasmashell restart the surface setting is unread, so the surface offer is
+# undecided. The Discover offer waits rather than show and then give way under the pointer.
+ev("root.surfaceKnown = false")
+p.pump(50)
+p.check("with the surface offer undecided, neither offer shows yet",
+        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [False, False])
+ev("root.surfaceKnown = true")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
 settle()
@@ -2336,7 +2343,7 @@ lev("discoverOfferMessage.actions[1].trigger()")
 p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
 settle()
 open(DNRC, "w").write("")
-p.check("Keep It that could not be recorded leaves the offer unanswered",
+p.check("Keep Discover's Notifier that could not be recorded leaves the offer unanswered",
         ev("root.discoverOfferAnswered"), False)
 p.check("...so the offer is back", lev("discoverOfferMessage.visible"), True)
 p.check("...under the CLI's reason", ev("root.actionMessage"),
@@ -2346,10 +2353,34 @@ p.clear_calls()
 lev("discoverOfferMessage.actions[1].trigger()")
 p.pump(50)
 settle()
-p.check("Keep It runs kempt discover-notifier on, which keeps it and records the answer",
-        p.calls_matching("discover-notifier"), ["discover-notifier on"])
+p.check("Keep Discover's Notifier runs kempt discover-notifier keep, which only records the answer",
+        p.calls_matching("discover-notifier"), ["discover-notifier keep"])
 p.check("...and the offer goes", lev("discoverOfferMessage.visible"), False)
 ev("root.discoverOfferAnswered = false")
+
+# After a plasmashell restart the answer in memory is gone, and state.json may still carry the
+# offer when the check after the answer never ran. The CLI's marker answers instead, and the offer
+# waits until the widget has looked for it.
+_marker_dir = os.path.join(p.home, ".local", "state", "kempt")
+os.makedirs(_marker_dir, exist_ok=True)
+_marker = os.path.join(_marker_dir, "discover-offer-answered")
+ev("root.discoverAnswerKnown = false")
+p.pump(50)
+p.check("until the widget has looked for the answered marker, the offer waits",
+        lev("discoverOfferMessage.visible"), False)
+open(_marker, "w").close()
+ev("root.readDiscoverAnswered()")
+p.wait_for(ev, "root.discoverAnswerKnown", True, timeout_ms=8000)
+settle()
+p.check("an answer the CLI recorded keeps the offer gone after a restart",
+        [ev("root.discoverOfferAnswered"), lev("discoverOfferMessage.visible")], [True, False])
+os.remove(_marker)
+ev("root.discoverOfferAnswered = false")
+ev("root.discoverAnswerKnown = false")
+ev("root.readDiscoverAnswered()")
+p.wait_for(ev, "root.discoverAnswerKnown", True, timeout_ms=8000)
+settle()
+p.check("...and with no marker, the offer is made", lev("discoverOfferMessage.visible"), True)
 state(fixture("state-live.json"))
 
 # --- the stale explanation --------------------------------------------------------------------------
