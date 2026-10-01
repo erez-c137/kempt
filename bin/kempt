@@ -546,6 +546,17 @@ cmd_check() {
       serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
     fi
+    # A per-user listing that failed keeps the previous check's per-user items, as a stale backend
+    # keeps all of its own: pending updates must not vanish because a listing failed. They carry
+    # their own sizes, and attach_sizes leaves an item it has no row for as it is. Through stdin,
+    # never --argjson, for the argv cap assemble_state names.
+    local fp_kept
+    if grep -qx 'user failed' "$fp_scopes_f" 2>/dev/null \
+       && fp_kept="$({ printf '%s\n' "$fp_items"; state_prev_items flatpak; } \
+                     | jq -c -s '.[0] + [.[1][] | select(.scope == "user")]' 2>/dev/null)" \
+       && [[ "$fp_kept" == \[* ]]; then
+      fp_items="$fp_kept"
+    fi
   else
     fp_enabled=false; fp_items='[]'
   fi
