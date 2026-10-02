@@ -11,7 +11,7 @@ Version:        0.1.7
 # suffix would have sorted ABOVE it, leaving a scratch build pinned on the machine with dnf
 # reporting nothing to do.
 Release:        %{?kempt_local:0.%{kempt_local}.}1%{?dist}
-Summary:        One-click system updates for Fedora, with holds and offline staging
+Summary:        System updates for Fedora, with holds and offline staging
 
 # Every original file is MIT. The one CC0-1.0 file in the tree is the AppStream metainfo, whose
 # metadata_license is CC0-1.0 by freedesktop convention - and since the widget moved to its own
