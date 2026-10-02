@@ -343,4 +343,29 @@ lev("popup.focusPrimary()")
 p.pump(50)
 p.check("with nothing to run, it is Refresh", focused(), "refreshButton")
 
+# Update Now on a session-critical set, on the popup surface: no run, a choice, and the keyboard on
+# the recommended answer so Enter stages rather than installs. Here and not in probe_popup, because
+# Kirigami lays out a message's buttons only in a real window.
+state(fixture("state-risky-heavy.json"))
+ev('root.postRunLine = ""')
+p.pump(120)
+lev("popup.focusPrimary()")
+p.pump(50)
+lev("updateButton.clicked()")
+p.pump(200)
+p.check("Update Now on a session-critical set opens the choice", ev("root.riskyChoiceOpen"), True)
+p.check("...with the keyboard on Install on Next Restart", focused(),
+        "elsewhere:" + str(ev("Logic.COPY.installOnNextRestart")))
+p.check("...visibly", lev("popup.Window.activeFocusItem.visualFocus"), True)
+# ...and Enter there stages. QQC2 activates on Space only, and the message's buttons are Kirigami's.
+stages_before = p.call_count("run --surface=offline")
+press(Qt.Key_Return)
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Return on the focused Install on Next Restart stages the update",
+        p.call_count("run --surface=offline") - stages_before, 1)
+p.check("...and runs nothing live", p.calls_matching("run")[-1:], ["run --surface=offline"])
+ev("root.leaveUpdating()")
+settle()
+
 sys.exit(p.done())

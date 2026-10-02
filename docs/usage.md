@@ -11,7 +11,8 @@ check [--refresh] [--coalesce] [--strict]
                       exits 1 when a backend failed
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--print-command] launch update per configured surface (what the widget calls;
-                      --surface=X for one run on another surface)
+                      --surface=X for one run on another surface; --risky-ok when the person
+                      already chose to install session-critical updates now)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
@@ -148,7 +149,7 @@ record of a stage that has gone.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|popup|background|offline]
+kempt update [--no-flatpak] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Options come from the config file, and the flags override
@@ -200,7 +201,8 @@ What happens, in order:
    Up to eight families are listed, with `... and N more` below them. `s` stages the update for
    the next restart, `u` updates now and `a` aborts. **Enter, Ctrl-D or a second unknown answer
    all abort**, with exit 0 and nothing changed. A run that cannot ask sends a notification naming
-   the families and carries on. `kempt check` publishes the same list as `risky_pending`.
+   the families and carries on. `--risky-ok` leaves that notification out: the popup passes it
+   after you choose **Install Now**. `kempt check` publishes the same list as `risky_pending`.
 2. **Lock.** A second update at the same time exits 3. The prompt comes before the lock, so an
    unanswered prompt blocks nothing.
 3. **Snapshots** of the installed packages. If one cannot be read, the run exits 5 having changed
@@ -319,7 +321,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|popup|background|offline]
+kempt run [--print-command] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. This is what **Update Now**
@@ -345,6 +347,9 @@ detached: kempt update (surface=background)
 Next Restart** calls `kempt run --surface=offline`. An unknown surface is refused with exit code 2.
 With `auto_accept=false`, a stage opens in a terminal so dnf5 can ask first, and any other surface
 becomes a live update in a terminal.
+
+`--risky-ok` passes `--risky-ok` on to an update outside the terminal. The popup adds it when you
+choose **Install Now** for session-critical updates. A terminal run still asks.
 
 Exit codes:
 
@@ -1015,7 +1020,13 @@ lower in this list are left out. If that hides the restart message, the footer s
    `kempt update --surface=offline`. Without a kernel, it names what is in the update: `This update
    touches 20 packages the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way
    is to install them on the next restart.` It is hidden while an update is staged.
-8. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
+   After **Update Now**, when updates run outside a terminal, the same message asks first. It
+   moves to the top and adds **Install Now**. **Install on Next Restart** has the keyboard.
+8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
+   install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches **Run
+   updates in** to **In this widget**. **Keep the Terminal Window** keeps it and hides the message
+   for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
+9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
    `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
    lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
    saw: if the list changed, nothing is removed and the popup says so. It never asks for a
@@ -1140,6 +1151,10 @@ not counted.
 **Update Now** runs `kempt run`, which updates wherever your settings say. After a press it shows a
 spinner until the CLI answers, so one press starts one run. It is hidden when there is nothing to
 update, and while an update is staged.
+
+When the update includes a kernel, systemd or other desktop packages, and runs outside a terminal,
+**Update Now** asks first. It offers **Install on Next Restart** or **Install Now**. **Install
+Now** runs `kempt run --risky-ok`. In a terminal, the terminal asks instead.
 
 #### While an update runs
 

@@ -120,11 +120,11 @@ is "the version it reports is the released one" "$(su - alice -c 'kempt --versio
 su - alice -c "kempt holds" >/dev/null 2>&1 && ok "holds runs on a box that has never held anything" || bad "holds failed"
 su - alice -c "kempt summary --json" >/dev/null 2>&1 && ok "summary --json runs with no history" || bad "summary --json failed"
 su - alice -c "kempt history" >/dev/null 2>&1 && ok "history runs with no history" || bad "history failed"
-is "the default surface is the documented one" "$(su - alice -c 'kempt config get surface')" "terminal"
+is "the default surface is the documented one" "$(su - alice -c 'kempt config get surface')" "popup"
 su - alice -c "kempt config set surface background" >/dev/null 2>&1 \
   && is "...and a setting round-trips" "$(su - alice -c 'kempt config get surface')" "background" \
   || bad "config set failed"
-su - alice -c "kempt config set surface terminal" >/dev/null 2>&1
+su - alice -c "kempt config set surface popup" >/dev/null 2>&1
 su - alice -c "kempt hold dnf:zsh" >/dev/null 2>&1 && is "a hold is recorded" "$(su - alice -c 'kempt holds')" "dnf:zsh" || bad "hold failed"
 su - alice -c "kempt unhold dnf:zsh" >/dev/null 2>&1 && is "...and released" "$(su - alice -c 'kempt holds')" "" || bad "unhold failed"
 su - alice -c "kempt nonsense" >/dev/null 2>&1; is "an unknown command exits 2" "$?" "2"
@@ -163,6 +163,9 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   if [[ "$prev" == "$VER" ]]; then
     echo "  note: the repository already publishes $VER, so this upgrades $VER to $VER"
   fi
+  # Somebody who has used Kempt and never chose a surface: a state file and no config. When the
+  # default was the terminal, that meant the terminal, and the upgrade must keep it so.
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt && echo "{}" > ~/.local/state/kempt/state.json'
   dnf -y -q --setopt=tsflags= upgrade "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1 \
     || dnf -y -q --setopt=tsflags= --allowerasing install "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1
   is "the CLI ends on this build" "$(rpm -q --qf '%{VERSION}' kempt)" "$VER"
@@ -173,6 +176,8 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   [[ -f "$PDIR/metadata.json" ]] && ok "...and the widget is still where Plasma looks" \
     || bad "the upgrade left no widget behind"
   is "...at this version" "$(jq -r '.KPlugin.Version' $PDIR/metadata.json)" "$VER"
+  is "an install that used the terminal keeps it across the upgrade" \
+     "$(su - alice -c 'kempt config get surface')" "terminal"
 else
   echo "note: the COPR repository could not be reached, so the upgrade path was NOT checked"
 fi

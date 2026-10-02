@@ -656,6 +656,12 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # true or absent, like image_based: the popup's one offer of the popup default, to an install
+  # surface_migrate kept on the terminal.
+  if surface_offer_pending \
+     && merged="$(jq '. + {surface_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
   # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
@@ -811,7 +817,8 @@ preflight_abort() {  # message
 
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
-# Reads: surface. Writes: surface - answering "s" at the prompt switches this run to offline.
+# Reads: surface, risky_ok. Writes: surface - answering "s" at the prompt switches this run to
+# offline.
 recommend_offline_if_risky() {
   # Recommends, never blocks; an offline run IS the recommendation, so it is
   # never nagged.
@@ -941,7 +948,9 @@ recommend_offline_if_risky() {
                       if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
                     done | paste -sd, - | sed 's/,/, /g')"
         (( fam_n > 4 )) && fam_disp="$fam_disp, ..."
-        notify "Kempt" "$rcount session-critical packages pending ($fam_disp)$tail_advice"
+        # --risky-ok: the popup already asked, and the person chose Install Now over this advice.
+        [[ -n "$risky_ok" ]] \
+          || notify "Kempt" "$rcount session-critical packages pending ($fam_disp)$tail_advice"
       fi
     fi
   fi
@@ -1262,10 +1271,11 @@ reconcile_stage_after_live_run() {
 }
 
 cmd_update() {
-  local a h surface include_fp=""
+  local a h surface include_fp="" risky_ok=""
   surface="$(config_get surface)"
   for a in "$@"; do case "$a" in
     --no-flatpak) include_fp=false ;;
+    --risky-ok) risky_ok=1 ;;
     --surface=*) surface="${a#--surface=}" ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -1882,10 +1892,13 @@ wait_for_window() {  # pid token seconds
 # cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
 # can never answer a prompt.
 cmd_run() {
-  local dry="" surface auto a named="" named_set=""
+  local dry="" surface auto a named="" named_set="" risky_arg=""
   # An unrecognised argument must never fall through to a real launch.
   for a in "$@"; do case "$a" in
     --print-command) dry=1 ;;
+    # The popup asked about session-critical updates and the person chose Install Now. Passed on
+    # to a detached update only: a terminal run asks its own question whatever the popup heard.
+    --risky-ok) risky_arg=" --risky-ok" ;;
     # The old spelling, accepted for one release and advertised nowhere - it is deliberately absent
     # from the usage text above and from the man page. The flag prints the LAUNCHER and never a
     # transaction, so "dry run" promised a preview of the update itself, which is the one thing
@@ -2006,10 +2019,10 @@ cmd_run() {
       exit 5
     fi
   else
-    if [[ -n "$dry" ]]; then echo "detached: kempt update (surface=$surface)"; return 0; fi
+    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$surface)"; return 0; fi
     local self_q surface_q
     printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
-    setsid bash -c "$self_q update --surface=$surface_q" >/dev/null 2>&1 &
+    setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
   fi
 }
 
@@ -2426,7 +2439,9 @@ cmd_config() {
          # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
          # stops a newer widget writing a key it knows and this build does not.
          config_warn_unknown "$2" "$3"
-         config_set "$2" "$3" ;;
+         config_set "$2" "$3"
+         # Choosing how updates run, here or in Settings, answers the popup's one offer.
+         [[ "$2" != surface ]] || rm -f "$SURFACE_OFFER_FILE" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
@@ -3660,7 +3675,8 @@ usage: kempt <command>
                         exits 1 when a backend failed
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--print-command] launch update per configured surface (what the widget calls;
-                        --surface=X for one run on another surface)
+                        --surface=X for one run on another surface; --risky-ok when the person
+                        already chose to install session-critical updates now)
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
@@ -3688,6 +3704,14 @@ if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
   usage
   exit 0
 fi
+
+# Before any command reads the config, so the first `config get surface` of this version already
+# answers what the migration decided. Only the commands that exist: help, the version and a
+# mistyped command change nothing, so they skip it.
+case "${1:-help}" in
+  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
+  enable-passwordless|disable-passwordless) surface_migrate ;;
+esac
 
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;

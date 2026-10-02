@@ -93,6 +93,23 @@ PlasmaExtras.Representation {
         event.accepted = true;
     }
 
+    // Return on a message's own button. Our buttons each carry Keys.onReturnPressed, because QQC2
+    // activates on Space only; the message buttons are Kirigami's, built inside its tool bar where
+    // no handler of ours can go. So their Return travels up to here, and is pressed only for a
+    // focused, enabled button that carries an action, which is what those buttons are. The risky
+    // choice puts the keyboard on Install on Next Restart, and Enter there must stage.
+    function pressFocusedAction(event) {
+        const it = popup.Window.activeFocusItem;
+        if (it && it !== popup && it.action && it.enabled && typeof it.animateClick === "function") {
+            it.animateClick();
+            event.accepted = true;
+        } else {
+            event.accepted = false;
+        }
+    }
+    Keys.onReturnPressed: event => popup.pressFocusedAction(event)
+    Keys.onEnterPressed: event => popup.pressFocusedAction(event)
+
     // Both halves, and `enabled` is the half that is easy to forget: an open that coincides with a
     // check in flight would otherwise put the keyboard on a Refresh button that is refusing to be
     // pressed, and a disabled QQC2 control does not accept focus - so forceActiveFocus is ignored
@@ -115,6 +132,29 @@ PlasmaExtras.Representation {
         else if (canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
         else if (canTakeFocus(configureButton)) configureButton.forceActiveFocus(Qt.TabFocusReason);
         else popup.forceActiveFocus(Qt.TabFocusReason);
+    }
+
+    // The button an InlineMessage drew for one of its actions. Kirigami builds them inside its own
+    // tool bar and names none of them, so the only handle is the action each one carries.
+    function buttonFor(item, action) {
+        if (!item) return null;
+        const kids = item.children || [];
+        for (let i = 0; i < kids.length; i++) {
+            const kid = kids[i];
+            if (kid.action === action && kid.visible) return kid;
+            const found = popup.buttonFor(kid, action);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    // The risky choice opens on the recommended answer, so Enter stages rather than installs.
+    // Later, not now: the message's buttons are laid out after the visibility change that shows them.
+    function focusRiskyChoice() {
+        Qt.callLater(function () {
+            const button = popup.buttonFor(riskyMessage, riskyStageAction);
+            if (button && popup.canTakeFocus(button)) button.forceActiveFocus(Qt.TabFocusReason);
+        });
     }
 
     // --- what the popup says out loud ---------------------------------------------------------
@@ -676,9 +716,14 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Information
             text: popup.vm.riskyMessage
             Accessible.name: text
-            visible: popup.shows("kernel")
+            // The same words become a question after Update Now on a surface that cannot ask for
+            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now.
+            readonly property bool asking: popup.shows("riskyChoice")
+            visible: popup.shows("kernel") || asking
+            onAskingChanged: if (asking) popup.focusRiskyChoice()
             actions: [
                 Kirigami.Action {
+                    id: riskyStageAction
                     // Named for what it does to the user rather than for the dnf5 flag behind it.
                     text: i18n("Install on Next Restart")
                     // ...and drawn as what it does: this INSTALLS software, at a moment of the
@@ -693,6 +738,42 @@ PlasmaExtras.Representation {
                     visible: popup.vm.offlineStageOffered
                     enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.stageOffline()
+                },
+                Kirigami.Action {
+                    id: riskyInstallNowAction
+                    // Only as the answer to Update Now. Runs what Update Now would have run, and
+                    // tells the CLI the person chose it, so no notification repeats the question.
+                    text: i18n("Install Now")
+                    tooltip: i18n("Installs the update now, while your desktop is running.")
+                    icon.name: "run-build-install"
+                    visible: riskyMessage.asking
+                    enabled: visible && !popup.plasmoidItem.runRequested
+                             && !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.startUpdate(true)
+                }
+            ]
+        }
+
+        // The one-time offer to update here instead of in a terminal window, made to a box that had
+        // the terminal before the popup became the default (bin/kempt, surface_migrate). Either
+        // answer is written as the setting, which is what ends the offer.
+        Kirigami.InlineMessage {
+            id: surfaceOfferMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: i18n("Updates can now run in this widget instead of a terminal window.")
+            Accessible.name: text
+            visible: popup.shows("surfaceOffer")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Use This Widget")
+                    icon.name: "dialog-ok"
+                    onTriggered: source => popup.plasmoidItem.useSurface("popup")
+                },
+                Kirigami.Action {
+                    text: i18n("Keep the Terminal Window")
+                    icon.name: "utilities-terminal"
+                    onTriggered: source => popup.plasmoidItem.useSurface("terminal")
                 }
             ]
         }

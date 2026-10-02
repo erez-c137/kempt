@@ -133,6 +133,17 @@ var COPY = {
     installOnNextRestart: "Install on Next Restart",
     installOnNextRestartTooltip:
         "Applies the update during a restart, so nothing changes underneath your running desktop.",
+    // ...and the other answer, offered beside it only after Update Now was pressed on a set the
+    // message above calls risky, on a box that would otherwise install it live without asking.
+    installNow: "Install Now",
+    installNowTooltip: "Installs the update now, while your desktop is running.",
+
+    // The one offer of the new default, to an install that kept the terminal when the default
+    // changed. Each button is an answer, so the message has no close button. In the words Settings
+    // uses for the two choices: In this widget, Terminal window.
+    surfaceOffer: "Updates can now run in this widget instead of a terminal window.",
+    surfaceOfferUse: "Use This Widget",
+    surfaceOfferKeep: "Keep the Terminal Window",
 
     // Four spellings, because two things vary: whether a kernel is in the set, and whether the
     // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
@@ -463,6 +474,9 @@ function arrayOf(v) { return isArray(v) ? v : []; }
 
 // The run surfaces the CLI knows, in the order the settings page offers them.
 var SURFACES = ["terminal", "popup", "background", "offline"];
+// What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
+// A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
+var DEFAULT_SURFACE = "popup";
 
 // isTrue(s) -> the same answer lib/common.sh's is_true() gives. The settings page reads booleans
 // back as the TEXT `kempt config get` printed, and the two must not disagree about what "yes"
@@ -996,8 +1010,11 @@ var MESSAGE_CAP = 2;
 // `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
 // the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-var MESSAGE_ORDER = ["report", "imageBased", "releaseUpgrade", "staged", "restart", "kernel",
-                     "reclaim"];
+// `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
+// comes first because it answers the Update Now press just made, and nothing runs until it is
+// answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
+                     "kernel", "surfaceOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1996,6 +2013,24 @@ function viewModel(state, updating, cliError, opts) {
     // option: it took the warning off the screen while the live button stayed on it.
     var riskyMessage = (staged || riskyIsMoot) ? ""
         : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
+    // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
+    // that would install it live with nobody asked. A terminal asks for itself, and the offline
+    // surface already is the next restart.
+    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute
+        && (runSurface === "popup" || runSurface === "background");
+    var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
+
+    // The one offer of the popup default. The CLI publishes surface_offer only while updates run
+    // in the terminal; the configured surface is checked again here because a choice made in
+    // Settings reaches this file before the next check does. With confirmation on, the popup
+    // cannot run updates, so the offer would change nothing.
+    var surfaceOffer = usable && state.surface_offer === true && !updating
+        && opts.surfaceOfferAnswered !== true
+        // Not before the widget has read the setting: until then its surface is only the default.
+        && opts.surfaceKnown !== false
+        && resolveSurface(typeof opts.configuredSurface === "string" ? opts.configuredSurface : "")
+            === "terminal"
+        && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -2170,7 +2205,11 @@ function viewModel(state, updating, cliError, opts) {
         // without the advice. Dropping it entirely took the warning off the screen while the live
         // button stayed on it, which is the wrong half to lose. On an image-based box there is no
         // live button either, and riskyIsMoot silences it outright.
-        kernel: riskyMessage !== "",
+        // ...and while the choice is open the same message is in the first slot instead, so it is
+        // never drawn twice.
+        kernel: riskyMessage !== "" && !riskyChoice,
+        riskyChoice: riskyChoice,
+        surfaceOffer: surfaceOffer,
         reclaim: reclaimShown && !updating
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
@@ -2250,6 +2289,8 @@ function viewModel(state, updating, cliError, opts) {
         riskySummary: riskySummaryOf(
             usable && isArray(state.risky_pending) ? state.risky_pending : []),
         riskyMessage: riskyMessage,
+        // Update Now opens the risky choice instead of running (main.qml, startUpdate).
+        updateAsksFirst: updateAsksFirst,
         stagedMessage: stagedMessage,
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
@@ -2387,6 +2428,7 @@ if (typeof module !== "undefined" && module.exports) {
         firstLineOf: firstLineOf,
         rowsOf: rowsOf,
         isTrue: isTrue,
+        DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
         updatingLabelOf: updatingLabelOf,

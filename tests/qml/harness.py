@@ -36,7 +36,7 @@ FIXTURES = os.path.join(REPO, "tests", "fixtures")
 CONFIG_DEFAULTS = {
     "include_flatpak": "true",
     "auto_accept": "true",
-    "surface": "terminal",
+    "surface": "popup",
     "refresh_interval_min": "60",
     "widget_icon_size": "auto",
     "restart_reminder": "true",

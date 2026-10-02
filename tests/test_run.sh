@@ -19,11 +19,16 @@ assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt 
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=background)" "background plan"
 "$KEMPT" config set surface popup
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=popup)" "popup plan"
+# --risky-ok, after Install Now in the popup, reaches the detached update and nothing else.
+assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=popup)" \
+  "Install Now passes --risky-ok on to a detached update"
 "$KEMPT" config set surface offline
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "offline plan"
 # auto_accept=false forces terminal regardless of surface
 "$KEMPT" config set auto_accept false
 assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt update" "no-auto-accept forces terminal"
+assert_eq "$("$KEMPT" run --print-command --risky-ok)" "terminal: $KEMPT_TERMINAL -e kempt update" \
+  "...and a terminal run gets no --risky-ok, so it still asks"
 
 # A mistyped flag must never be read as "go ahead and launch": this command's normal outcome is a
 # real update, so an unrecognised argument has to stop before anything spawns.
