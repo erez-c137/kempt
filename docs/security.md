@@ -212,7 +212,8 @@ It cannot stage over, arm or discard a stored Fedora release upgrade, because al
 verbs refuse while one is stored. It can still run a live upgrade, which may leave that release
 upgrade out of date (see
 [above](#the-helper-refuses-to-touch-a-stored-fedora-release-upgrade)). It cannot install a
-package of its choosing, pass an arbitrary flag or run an arbitrary command. That bound is smaller than sudo, but it is more than nothing.
+package of its choosing, pass an arbitrary flag or run an arbitrary command. That bound is
+smaller than sudo, but it is more than nothing.
 
 Updating Flatpak apps is outside that bound, because the helper has no Flatpak verb. Flatpak's own
 policy grants it to an active local session with no password, with or without Kempt.

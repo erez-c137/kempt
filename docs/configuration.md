@@ -93,7 +93,7 @@ The `reclaim` key decides what happens to Flatpak runtimes no installed app uses
 
 An unrecognised value means `ask`. `automatic` also acts as `ask` on an image-based system, and
 when more than one person may use the machine, because Flatpak cannot see other users' own apps.
-Kempt assumes that when any of these is true:
+Kempt treats the machine as shared when any of these is true:
 
 - There is a second login account.
 - Accounts come from a network directory such as LDAP or Active Directory. SSSD and Samba count
