@@ -28,7 +28,10 @@
   <developer id="io.github.erez_c137">
     <name>Erez</name>
   </developer>
-  <!-- appstreamcli fetches these URLs and the screenshots, but not a release's details URL. -->
+  <!--
+    appstreamcli fetches these URLs and the screenshots, but not a release's details URL.
+    A double hyphen ends an XML comment, so write command flags here without one.
+  -->
   <url type="homepage">https://github.com/erez-c137/kempt</url>
   <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
   <url type="help">https://github.com/erez-c137/kempt/blob/main/docs/widget.md</url>
