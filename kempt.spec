@@ -24,7 +24,8 @@ Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildArch:      noarch
 
 # Everything here is bash, QML and SVG. No compiler, no build step. Build-time tools are the two
-# metainfo validators plus what the check-stage test suite needs (bash, jq, coreutils, flock).
+# metainfo validators plus what the check-stage test suite needs (bash, jq, coreutils, flock,
+# python3).
 #
 # No .desktop file, deliberately: a Plasma applet is not a menu-launched application.
 # plasmashell discovers the widget through plasmoid/metadata.json and it is added from Add
@@ -43,7 +44,8 @@ BuildRequires:  libappstream-glib
 # runtime too, so they are also Requires below - the build root does not inherit those).
 BuildRequires:  jq
 BuildRequires:  util-linux-core
-# The compile check of the Flatpak listing helper below, and its tests in the suite.
+# The compile check of the Flatpak listing helper below, its tests in the suite, and the suite's
+# prose check of the docs (tools/prose-check.py).
 BuildRequires:  python3
 
 # No Requires on bash: rpm generates /usr/bin/bash from the shebangs, and every supported Fedora
@@ -215,9 +217,9 @@ bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kemp
 # compile() rather than py_compile, which would leave a __pycache__ in the tree.
 python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 # The bash half of the test suite, in full, against the pristine copy - the suite asserts
-# the tree as shipped, not the tree as packaged. It needs only bash, jq and coreutils by
-# design - every impure command goes through an environment seam - and the node/PySide6
-# halves skip loudly without failing when those tools are absent (they test the widget,
+# the tree as shipped, not the tree as packaged. It needs bash, jq, coreutils and python3, the
+# last for the docs' prose check. Every impure command goes through an environment seam. The
+# node/PySide6 halves skip loudly without failing when those tools are absent (they test the widget,
 # which a build root cannot display anyway). A build root that cannot pass the suite must
 # not ship.
 (cd ../%{name}-pristine && tests/run_tests.sh)

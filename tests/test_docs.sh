@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
-# Two documentation defects that a reader sees and a diff does not.
+# Documentation defects that a reader sees and a diff does not, and the limits that keep the docs
+# short.
 #
-# Both are silent by construction, which is why they get a test rather than a convention. A
-# Markdown table broken by a blank line still renders - just without the rows below the break, as
-# literal pipe-laden text - and a seam missing from the environment-seams table is a variable that
-# works perfectly and is documented nowhere. Both shipped on main: the 2026-09-05 documentation
-# review found a broken table in docs/architecture.md and another in docs/usage.md, each dropping
-# that week's own rows out of the rendered page, and three live seams absent from a table sitting
-# under a sentence that claims to list every one of them.
+# A Markdown table broken by a blank line still renders, but the rows below the break show as
+# literal text full of pipes. A seam missing from the environment-seams table works and is
+# documented nowhere. Neither shows in a diff, so each gets a test instead of a convention.
 #
-# Nothing here needs jq, a package manager or a desktop: it reads the tree it is standing in.
+# Nothing here needs jq, a package manager or a desktop: it reads the tree it is standing in. The
+# word budgets and the prose check need python3.
 source "$(dirname "$0")/lib.sh"; sandbox
 
 # --- a table split in two by a blank line --------------------------------------------------------
 # The rule is exactly the rendering rule: a blank line ENDS a table, so a row, a blank line and
 # another row is one table that renders and one block of text that does not.
-# Every .md in the tree, with no exclusions. The working papers that used to need one are not
-# published any more - they live with the project's private notes, outside this repository.
+# Every .md in the tree, with no exclusions.
 broken=""
 while IFS= read -r f; do
   hits="$(awk '
@@ -128,6 +125,61 @@ if grep -qE '[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/tests/release/release-check.sh"
   echo "FAIL: the release check hardcodes a version, which is how the last one went stale"; _fail=1
 else
   echo "ok: ...and hardcodes no version of its own"
+fi
+
+# --- every doc stays inside its word budget and passes the prose check ---------------------------
+# A change to a doc leaves it no longer (AGENTS.md, "Writing"). Each budget was set about 5% above
+# the doc's size, rounded up. tools/prose-check.py counts the words, and it skips code blocks,
+# tables, headings and blockquotes, so an example or a table row costs nothing. Raise a budget only
+# when the reader gains something new, and say why in the commit.
+declare -A WORD_BUDGET=(
+  [README.md]=820
+  [AGENTS.md]=420
+  [CONTRIBUTING.md]=1700
+  [SECURITY.md]=420
+  [tests/README.md]=310
+  [docs/architecture.md]=4700
+  [docs/configuration.md]=1150
+  [docs/install.md]=1550
+  [docs/RELEASING.md]=840
+  [docs/ROADMAP.md]=2400
+  [docs/security.md]=3600
+  # docs/usage.md is being rewritten on another branch. Set its budget again when that lands.
+  [docs/usage.md]=7250
+)
+# A new doc needs a row, so it cannot grow outside the table.
+unbudgeted=""
+for f in "$REPO_ROOT"/docs/*.md; do
+  rel="${f#"$REPO_ROOT"/}"
+  if [[ -z "${WORD_BUDGET[$rel]+set}" ]]; then unbudgeted+="$rel "; fi
+done
+assert_eq "${unbudgeted% }" "" "every docs/*.md has a word budget in tests/test_docs.sh"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "FAIL: python3 is missing, so the word budgets and the prose check cannot run"; _fail=1
+else
+  while IFS= read -r rel; do
+    # The first line reads "FILE: N words, M per sentence, PASS" or "..., FAIL, ...".
+    out="$(python3 "$REPO_ROOT/tools/prose-check.py" "$REPO_ROOT/$rel")" || true
+    head="${out%%$'\n'*}"
+    words="$(sed -nE 's/^.*: ([0-9]+) words, .*$/\1/p' <<<"$head")"
+    budget="${WORD_BUDGET[$rel]}"
+    if [[ -z "$words" ]]; then
+      echo "FAIL: tools/prose-check.py could not read $rel"; _fail=1
+    elif (( words > budget )); then
+      echo "FAIL: $rel is $words words, its budget is $budget: cut it, or raise the budget in this table and say why in the commit"
+      _fail=1
+    else
+      echo "ok: $rel is $words words, inside its budget of $budget"
+    fi
+    if [[ "$head" == *", PASS" ]]; then
+      echo "ok: $rel passes tools/prose-check.py"
+    else
+      echo "FAIL: $rel fails tools/prose-check.py. Run python3 tools/prose-check.py --show $rel"
+      printf '%s\n' "$out" | sed 1d
+      _fail=1
+    fi
+  done < <(printf '%s\n' "${!WORD_BUDGET[@]}" | sort)
 fi
 
 # --- the public tree does not talk about how it was made ------------------------------------------

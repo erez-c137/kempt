@@ -52,16 +52,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The suite needs bash 4+, jq, util-linux flock and GNU coreutils, and nothing else: every
-      # impure command reaches the system through an environment seam that tests/lib.sh stubs, so
+      # The suite needs bash 4+, jq, util-linux flock, GNU coreutils and python3, and nothing else:
+      # every impure command reaches the system through an environment seam that tests/lib.sh stubs, so
       # dnf5, flatpak, rpm, pkexec and notify-send are never invoked and need not exist. Verified
       # on the dev box by running the whole suite under a stripped PATH containing only
       # bash/jq/flock/coreutils/sed/gawk/grep/findutils (diffutils only for the tests' own file
       # comparisons; the shipped code compares with coreutils alone), with dnf, dnf5, flatpak, rpm,
-      # pkexec, notify-send, systemctl, apt, python3 and perl all unreachable: ALL PASS.
+      # pkexec, notify-send, systemctl, apt, python3 and perl all unreachable: ALL PASS. The one
+      # exception is the prose check in tests/test_docs.sh, which needs python3.
       - name: Check the runner has what the suite needs
         run: |
-          for t in bash jq flock date sort join comm paste awk sed grep cmp find; do
+          for t in bash jq flock date sort join comm paste awk sed grep cmp find python3; do
             command -v "$t" >/dev/null || { echo "missing prerequisite: $t" >&2; exit 1; }
           done
           bash --version | head -1
