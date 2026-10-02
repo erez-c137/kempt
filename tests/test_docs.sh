@@ -131,7 +131,8 @@ fi
 # A change to a doc leaves it no longer (AGENTS.md, "Writing"). Each budget was set about 5% above
 # the doc's size, rounded up. tools/prose-check.py counts the words, and it skips code blocks,
 # tables, headings and blockquotes, so an example or a table row costs nothing. Raise a budget only
-# when the reader gains something new, and say why in the commit.
+# when the reader gains something new, and say why in the commit. The man page has its own budget
+# below, counted with wc -w once the roff macros are stripped, so it needs no groff.
 declare -A WORD_BUDGET=(
   [README.md]=820
   [AGENTS.md]=420
@@ -139,7 +140,7 @@ declare -A WORD_BUDGET=(
   [SECURITY.md]=420
   [tests/README.md]=310
   [docs/architecture.md]=4500
-  [docs/configuration.md]=1150
+  [docs/configuration.md]=1100
   [docs/install.md]=1500
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=1750
@@ -180,6 +181,15 @@ else
       _fail=1
     fi
   done < <(printf '%s\n' "${!WORD_BUDGET[@]}" | sort)
+fi
+
+MAN_BUDGET=2300
+man_words="$(sed -E 's/^\.[A-Za-z]+ ?//; s/\\f[BIRP]//g; s/\\[-c]//g' "$REPO_ROOT/docs/man/kempt.1" | wc -w)"
+if (( man_words > MAN_BUDGET )); then
+  echo "FAIL: docs/man/kempt.1 is $man_words words, its budget is $MAN_BUDGET: cut it, or raise MAN_BUDGET in this file and say why in the commit"
+  _fail=1
+else
+  echo "ok: docs/man/kempt.1 is $man_words words, inside its budget of $MAN_BUDGET"
 fi
 
 # --- the public tree does not talk about how it was made ------------------------------------------
