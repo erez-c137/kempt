@@ -22,8 +22,10 @@ assert_eq "$(KEMPT_DNF5_VERSION=5.10.0.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)"
   "dnf5 --cacheonly check-update --quiet --json" "...compared as versions, so 5.10 is newer than 5.4"
 assert_eq "$(KEMPT_DNF5_VERSION=5.3.9.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
   "dnf5 --cacheonly check-update --quiet" "...and text before it"
-assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "dnf5 makecache --refresh" \
-  "refresh helper: refresh builds exact command"
+# The time limit is inside the helper, as root: the CLI's `timeout` wraps pkexec and cannot signal a
+# root dnf5. The exact string pins the fixed path, the fixed 120 s and the 10 s kill-after.
+assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "/usr/bin/timeout -k 10 120 dnf5 makecache --refresh" \
+  "refresh helper: refresh builds exact command, bounded as root"
 assert_exit 2 "apply: no verb"          bash "$AH"
 assert_exit 2 "apply: bad verb"         bash "$AH" rm-rf
 assert_exit 2 "apply: injection via exclude" bash "$AH" dnf-upgrade '--exclude=foo;rm -rf /'

@@ -29,6 +29,10 @@ case "$1" in
   # Text exits 100 when updates are pending; JSON exits 0 either way.
   check)   if dnf5_json; then run dnf5 --cacheonly check-update --quiet --json
            else run dnf5 --cacheonly check-update --quiet; fi ;;
-  refresh) run dnf5 makecache --refresh ;;
+  # The time limit lives here, as root: the CLI's own `timeout` wraps pkexec and cannot signal a
+  # root dnf5. 120 s is the CLI's KEMPT_REFRESH_TIMEOUT, so the widget's 510 s ceiling holds; -k 10
+  # sends SIGKILL if dnf5 ignores SIGTERM. Fixed here, never taken from the caller. timeout exits
+  # 124 (or 137 after the kill), which the CLI records as a failed refresh like any other.
+  refresh) run /usr/bin/timeout -k 10 120 dnf5 makecache --refresh ;;
   *) echo "usage: kempt-refresh check|refresh" >&2; exit 2 ;;
 esac
