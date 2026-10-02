@@ -24,6 +24,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
   widget asks once, with **Turn Off Discover's Notifier** and **Keep Discover's Notifier**.
   Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command.
+- **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
+  that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 
 ### Changed
 
