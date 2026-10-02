@@ -268,6 +268,18 @@ assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...and it is, as it was
 reset; system_entry
 "$KEMPT" discover-notifier off >/dev/null
 assert_eq "$(discover_entry_kind)" "kempt" "the entry off wrote is Kempt's, byte for byte"
+# Without cmp, as on a minimal Fedora with no diffutils: still Kempt's, in every form it knows.
+mkdir -p "$TESTTMP/nocmp"; printf '#!/usr/bin/env bash\nexit 2\n' > "$TESTTMP/nocmp/cmp"; chmod +x "$TESTTMP/nocmp/cmp"
+assert_eq "$(PATH="$TESTTMP/nocmp:$PATH" discover_entry_kind)" "kempt" "with cmp missing, the entry off wrote is still Kempt's"
+assert_contains "$(PATH="$TESTTMP/nocmp:$PATH" "$KEMPT" discover-notifier status --json)" '"by_kempt":true' "...and status says so"
+rm -f "$KEMPT_STATE_DIR/discover-entry-written" "$USER_ENTRY"; optout_017 "$SYS/$ENTRY"
+assert_eq "$(PATH="$TESTTMP/nocmp:$PATH" discover_entry_kind)" "kempt" "...and so is the file install.sh 0.1.7 wrote"
+printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n' > "$USER_ENTRY"
+assert_eq "$(PATH="$TESTTMP/nocmp:$PATH" discover_entry_kind)" "kempt" "...and the earlier three-line entry"
+rc=0; PATH="$TESTTMP/nocmp:$PATH" "$KEMPT" discover-notifier on >/dev/null 2>&1 || rc=$?
+assert_eq "$rc|$(is "$USER_ENTRY")" "0|no" "...so on removes it with cmp missing"
+reset; system_entry
+"$KEMPT" discover-notifier off >/dev/null
 printf 'X-Mine=1\n' >> "$USER_ENTRY"
 edited="$(cat "$USER_ENTRY")"
 assert_eq "$(discover_entry_kind)" "edited" "...and once edited it is not"

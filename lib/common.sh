@@ -475,6 +475,8 @@ discover_running() {
 #   none      no user entry.
 #   notfile   a directory or anything else that is not a file or a symlink.
 #   dangling  a symlink to nothing.
+# Compared with same_content, never cmp: cmp is diffutils, which a minimal Fedora does not have,
+# and a missing cmp would class Kempt's own file as the person's, so `on` would refuse.
 discover_entry_kind() {
   local user
   user="$(discover_user_entry)"
@@ -482,10 +484,10 @@ discover_entry_kind() {
     if [[ -e "$user" ]]; then echo own; else echo dangling; fi
   elif [[ ! -e "$user" ]]; then echo none
   elif [[ ! -f "$user" ]]; then echo notfile
-  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && cmp -s "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
-  elif cmp -s "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
+  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && same_content "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
+  elif same_content "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
     echo kempt
-  elif [[ -r "$(discover_sys_entry)" ]] && cmp -s "$user" <(discover_legacy_entry); then
+  elif [[ -r "$(discover_sys_entry)" ]] && same_content "$user" <(discover_legacy_entry); then
     echo kempt
   elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
   else echo own
