@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.6
+Version:        0.1.7
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -268,6 +268,13 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Fri Oct 02 2026 Erez <erez.c137@protonmail.com> - 0.1.7-1
+- kempt reclaim frees the space unused Flatpak runtimes take, and the widget
+  offers it when there is 100 MB or more to free.
+- Check for Updates fetches fresh package lists before it answers.
+- Per-user Flatpak apps are checked and updated.
+- Fetching package lists stops after two minutes if a mirror stalls.
+
 * Sat Sep 26 2026 Erez <erez.c137@protonmail.com> - 0.1.6-1
 - On Fedora 44 and later, the pending list and the restart check come from
   dnf5's JSON output.

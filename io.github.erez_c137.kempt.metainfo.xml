@@ -53,15 +53,15 @@
     -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
-      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>After staging: the updates install on the next restart, or can be discarded</caption>
-      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-staged.png</image>
+      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-staged.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>
-      <image type="source" width="845" height="940">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-settings.png</image>
+      <image type="source" width="845" height="940">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -70,6 +70,17 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.1.7" date="2026-10-02" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.7</url>
+      <description>
+        <p>
+          Kempt can free the space old Flatpak runtimes take. It lists the ones no app uses, with
+          their size, and removes them when you agree. Check for Updates now fetches fresh package
+          lists before it answers, and per-user Flatpak apps are checked and updated with the
+          system ones.
+        </p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-09-26" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.6</url>
       <description>

@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-02
+
 ### Added
 
 - **`kempt run --surface=<surface>`** runs one update on a surface other than the configured one.
@@ -979,7 +981,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/erez-c137/kempt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/erez-c137/kempt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/erez-c137/kempt/compare/v0.1.3...v0.1.4

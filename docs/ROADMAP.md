@@ -21,55 +21,19 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   own dnf transaction. `kempt doctor` says when Discover's notifier also starts at login.
 - **0.1.6:** on Fedora 44 and later, Kempt reads dnf5's JSON output. The panel tooltip names
   what is pending, and an update runs one check afterwards instead of four.
+- **0.1.7:** `kempt reclaim` frees the space unused Flatpak runtimes take, and the widget offers
+  it. Check for Updates fetches fresh package lists first, and per-user Flatpak apps are checked
+  and updated.
 
 ## Now
 
 - **The first outside users.** Their reports come before everything below.
-- **New screenshots.** The ones in the README, the metainfo and the store listing predate three
-  releases: they show no runtimes section, no way to take back a staged update and no offer to
-  free space. The metainfo
-  links them by tag, so new ones reach software centres with the release after they land. They
-  will be 16:9, because software centres crop tall images badly.
 - **Removing the dnf5 text parsers when Fedora 43 reaches end of life.** From then on every
   supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 
-## Next: 0.1.7, reclaiming disk space
-
-Built and on `main`, waiting for its release. [CHANGELOG.md](../CHANGELOG.md) lists it under
-Unreleased.
-
-Updating a Flatpak runtime installs the new version beside the old one, and the old one stays. A
-machine with one app can end up with two copies of a runtime of a gigabyte or more.
-
-- **`kempt reclaim`** lists the runtimes no installed app uses, estimates the space they take, and
-  removes them when you agree.
-- **The widget** offers the same when there is 100 MB or more to free.
-- **The `reclaim` setting** is `ask` (the default), `automatic` or `off`. `automatic` removes them
-  after each update. It acts as `ask` on an image-based system, and when more than one person may
-  use the machine. `off` hides them.
-
-These rules hold for every value:
-
-- Kempt removes only what Flatpak itself calls unused, and only the list you were shown. If the
-  list changed, nothing is removed.
-- A runtime is offered once it has been unused for an hour, so one another tool is installing is
-  left alone.
-- Kempt never asks for a password. When removing needs an administrator, it says so and removes
-  nothing.
-- Extensions, such as a graphics driver or a translation, go last. Kempt lists again first and
-  removes only those still unused, so one an app has just started using stays.
-- Old kernels stay. dnf keeps the last few so you can boot the previous one if the new one fails,
-  and it removes old ones on its own schedule.
-
-The release also fixes one problem:
-
-- **Per-user Flatpak apps** were missed, so Kempt said everything was up to date while they had
-  updates. Kempt now checks and updates them with the system ones and marks them **For you only**.
-  It is on for everyone, so counts rise for people with per-user apps.
-
-## Then: 0.1.8, easier from the first update
+## Next: 0.1.8, easier from the first update
 
 0.1.8 is for people trying Kempt for the first time. A few things still assume you are at home in
 a terminal. This release fixes the ones we know about. It is small, and planned soon after 0.1.7.
