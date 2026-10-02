@@ -56,7 +56,8 @@ ICON_LADDER=(
 KEMPT_DBUS_SEND="${KEMPT_DBUS_SEND:-dbus-send}"
 # Test seam, same shape as libexec/kempt-apply's KEMPT_APPLY_ECHO: with KEMPT_INSTALL_ECHO=1
 # the privileged (and process-killing) commands are PRINTED instead of run, so the real-mode
-# path can be tested without ever touching /usr, /etc or somebody's running desktop.
+# path can be tested without ever touching /usr, /etc or somebody's running desktop. The notifier
+# question's command is printed too, unless KEMPT_INSTALL_CONFIG_HOME names a directory to run it in.
 # KEMPT_INSTALL_ECHO=fail additionally makes them REPORT failure - the only way to test what the
 # installer says when someone dismisses the auth dialog.
 run() {
@@ -263,8 +264,17 @@ main() {
     n|no)
       echo "Discover's update notifier is left on. To turn it off later: kempt discover-notifier off" ;;
     *)
-      # The command the widget's button runs. KEMPT_INSTALL_ECHO stops nothing on the desktop.
-      if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"; fi
+      # The command the widget's button runs. KEMPT_INSTALL_ECHO never touches the real desktop: it
+      # stops nothing, and it writes only inside KEMPT_INSTALL_CONFIG_HOME, the directory a test
+      # names. Without one, the command is printed like the privileged ones.
+      if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then
+        export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"
+        if [[ -z "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then
+          printf '%s\n' "$ROOT/bin/kempt discover-notifier off"
+          return 0
+        fi
+        export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
+      fi
       "$ROOT/bin/kempt" discover-notifier off \
         || echo "note: Discover's update notifier was not turned off. To try again: kempt discover-notifier off" ;;
   esac

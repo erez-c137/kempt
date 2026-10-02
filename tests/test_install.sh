@@ -190,6 +190,13 @@ export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/xdg-autostart"; mkdir -p "$KEMPT_XDG_AU
 printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
   > "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"
 USER_AUTOSTART="$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+# Test mode on a real desktop: without a directory named for it, yes prints the command and writes
+# nothing, wherever XDG_CONFIG_HOME points.
+yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
+assert_contains "$yout" "$REPO_ROOT/bin/kempt discover-notifier off" "test mode with no directory named prints the command"
+assert_exit 0 "...and writes no autostart entry" -- test ! -e "$USER_AUTOSTART"
+assert_exit 0 "...and records no answer" -- test ! -e "$KEMPT_STATE_DIR/discover-offer-answered"
+export KEMPT_INSTALL_CONFIG_HOME="$XDG_CONFIG_HOME"
 assert_exit 0 "declining with n writes nothing" -- test ! -e "$USER_AUTOSTART"
 nout_no="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"no")"
 assert_exit 0 "declining with the word 'no' writes nothing either" -- test ! -e "$USER_AUTOSTART"

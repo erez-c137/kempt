@@ -865,7 +865,8 @@ missing path, unless the row says otherwise.
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |
 | `KEMPT_DBUS_SEND` | `dbus-send` | The `org.kde.KIconLoader.iconChanged` signal `install.sh` sends so plasmashell reloads icons. Best effort. `tests/lib.sh` points it at `true` |
-| `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them. `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run |
+| `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them. `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run. The notifier question's `kempt discover-notifier off` is printed too |
+| `KEMPT_INSTALL_CONFIG_HOME` | (unset) | With `KEMPT_INSTALL_ECHO`, the `XDG_CONFIG_HOME` the notifier question's command runs in. Without it, that command is printed |
 
 `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` and `KEMPT_DNF5_VERSION` are for tests only. They cannot reach a real
 privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on the
