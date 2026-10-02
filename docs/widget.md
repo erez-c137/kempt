@@ -155,7 +155,7 @@ an update starts.
 banner is usually green, and has its own **Restart…** when the restart message is not showing one:
 
 ```
- (=) 61 updates are staged - they install on the next restart   [Restart…]
+ (=) 61 updates are staged and install on the next restart   [Restart…]
 ```
 
 If you hold a package that is already in the staged update, the banner turns into a warning,

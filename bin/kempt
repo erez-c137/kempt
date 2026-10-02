@@ -704,7 +704,7 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   s="${s,,}"
   case "$s" in
     terminal|popup|background|offline) printf '%s\n' "$s" ;;
-    *) echo "warning: unknown surface '$1' - using terminal" >&2; printf 'terminal\n' ;;
+    *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
   esac
 }
 
@@ -772,10 +772,10 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
     if tail -c +$(( before_sz + 1 )) "$log" | grep -qiE "$lock_re"; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
-        log_warn "$log" "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)"
+        log_warn "$log" "Package system busy (PackageKit/Discover?). Retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)"
         sleep "$KEMPT_RETRY_DELAY"
       else
-        log_warn "$log" "Package system still busy after $attempt attempts - giving up"
+        log_warn "$log" "Package system still busy after $attempt attempts. Giving up"
         # Kempt's own sentence for the most likely failure it has, in place of dnf's or flatpak's
         # raw line about a lock file, which reads as a broken installation. Set only here, where
         # the evidence is: a lock-specific grep against this attempt's output alone.
@@ -947,7 +947,7 @@ recommend_offline_if_risky() {
         local fam_n; fam_n="$(wc -l <<<"$fams")"
         # The tail names the offline surface only when it is available: recommending it while a
         # release upgrade is stored points at a run that aborts in pre-flight.
-        local tail_advice=" - consider the Offline surface"
+        local tail_advice=". Consider Install on Next Restart in the widget, or: kempt update --surface=offline"
         [[ "$relup_blocks" == true ]] && tail_advice=""
         # The same vocabulary the terminal listing and the popup use: family_label, or the bare
         # family when Kempt ships no label for it. A notification calling mesa "mesa" while the
@@ -1209,7 +1209,7 @@ reconcile_stage_after_live_run() {
     if [[ -z "$mpre" || ! -f "$mpre" ]]; then
       # Leave the marker alone: harvest_offline handles a dead pointer on its own (it clears the
       # marker), and guessing here could throw away a real staged transaction.
-      echo "warning: unreadable offline marker - staged-update baseline not rebased" >&2
+      echo "warning: unreadable offline marker, so the staged-update baseline was not rebased" >&2
     elif same_content "$mpre" "$SNAP_DIR/dnf-before.tsv"; then
       # STILL PENDING: staging writes no rpm changes of its own, so a baseline that still matches
       # the world this run started from means no restart has applied it yet.
@@ -1219,7 +1219,7 @@ reconcile_stage_after_live_run() {
       local moved=0
       same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv" || moved=$?
       if [[ $moved -eq 2 ]]; then
-        log_warn "$log" "warning: could not compare this run's package snapshots - the staged update was left as it was"
+        log_warn "$log" "warning: could not compare this run's package snapshots, so the staged update was left as it was"
       fi
       if [[ $moved -eq 1 ]]; then
         # SUPERSEDED. The staged transaction carries the rpmdb cookie it was built against and
@@ -1253,12 +1253,12 @@ reconcile_stage_after_live_run() {
           log_event "offline stage dropped (superseded by live update)"
         elif [[ $sup_clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, like the failure below: doctor reads it against what is stored.
-          log_warn "$log" "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason) - see: kempt doctor"
+          log_warn "$log" "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           # Keep the marker: the stage may still be there, and `kempt doctor` reads the two
           # together and says which of them is wrong. Kept DEMOTED, though: the stage can no
           # longer install, and a marker still marked armed goes on telling the widget it will.
-          log_warn "$log" "warning: this update superseded the staged transaction, but it could not be discarded - run: sudo dnf5 offline clean"
+          log_warn "$log" "warning: this update superseded the staged transaction, but it could not be discarded. Run: sudo dnf5 offline clean"
           local sup_marker
           if sup_marker="$(offline_marker_read)" && [[ -n "$sup_marker" ]]; then
             jq -c '. + {armed: false}' <<<"$sup_marker" | write_offline_marker \
@@ -1271,7 +1271,7 @@ reconcile_stage_after_live_run() {
         # staged transaction and nothing else. atomic_write, not cp: the widget's timer can read
         # this baseline at any moment, and a half-copied one would diff as a real transaction.
         atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
-          || echo "warning: could not rebase the staged-update baseline - the next check may report this run as the staged one" >&2
+          || echo "warning: could not rebase the staged-update baseline. The next check may report this run as the staged one" >&2
       fi
     fi
     # ALREADY APPLIED (baselines differ): a restart ran the stage and no check has harvested it.
@@ -1312,7 +1312,7 @@ cmd_update() {
   # preflight_abort, so this is the same contract as any other refusal that changed nothing: exit
   # 5, and a notification for the surfaces where nobody is reading stderr.
   if on_ostree; then
-    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it - support for these images is planned. For now use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
+    preflight_abort "this system updates with rpm-ostree, not dnf, so Kempt cannot update it. Support for these images is planned. For now use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
   fi
 
   # ...and the same treatment for a stage that would destroy a Fedora release upgrade. dnf5 keeps
@@ -1341,10 +1341,10 @@ cmd_update() {
       # Refused in all three states - staging cancels a stored transaction whatever state it is in -
       # and the remedy named is the one that applies to the state it is actually in.
       case "$(offline_release_upgrade_state)" in
-        armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart - staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
-        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer armed, so no restart installs it - staging updates would cancel it. Re-arm it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
-        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish (dnf5 says \"$(offline_system_status)\") - staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
-        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started - staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart. Staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
+        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Staging updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish (dnf5 says \"$(offline_system_status)\"). Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
+        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
       esac
     fi
   fi
@@ -1359,7 +1359,7 @@ cmd_update() {
   # snapshots (before). Without one we can never say what changed, so a failure stops the run
   # BEFORE anything is touched (see preflight_abort).
   dnf_snapshot > "$SNAP_DIR/dnf-before.tsv" \
-    || preflight_abort "cannot read the installed package set - aborting before any change"
+    || preflight_abort "cannot read the installed package set, so nothing was changed"
   # A per-user installation that cannot be read drops only itself: the run goes on without it and
   # reports it failed (apply_flatpak_updates). Only the system set can stop the run.
   local fp_user_unreadable=false
@@ -1367,7 +1367,7 @@ cmd_update() {
     if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-before.tsv"; then
       KEMPT_FLATPAK_USER_SKIP=1; fp_user_unreadable=true
     else
-      preflight_abort "cannot read the installed flatpak set - aborting before any change"
+      preflight_abort "cannot read the installed flatpak set, so nothing was changed"
     fi
   fi
 
@@ -1465,7 +1465,7 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it - see: kempt doctor"
+      reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
@@ -1504,34 +1504,34 @@ cmd_update() {
           log_event "offline stage discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
-          reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason) - see: kempt doctor"
+          reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           dnf_status="failed"; status="failed"
-          reason_override="nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included - run: sudo dnf5 offline clean"
+          reason_override="nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included. Run: sudo dnf5 offline clean"
         fi
       elif { apply_with_retry "$log" priv_apply dnf-offline-arm || arm_rc=$?; [[ $arm_rc -eq $KEMPT_APPLY_REFUSED ]]; }; then
         # Refused as root: what is stored now is not the transaction this run built (a release
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="staged but not armed, because $(apply_refusal_reason) - see: kempt doctor"
+        reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
-        reason_override="staged but could not arm the restart install"
+        reason_override="the updates were staged, but could not be set to install on the next restart"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
         apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
-          log_warn "$log" "warning: the stage that failed to arm was left in place because $(apply_refusal_reason) - see: kempt doctor"
-          notify_tail=" - the stored transaction was left in place; see: kempt doctor"
+          log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
+          notify_tail=". The stored transaction was left in place. See: kempt doctor"
         elif [[ $clean_rc -ne 0 ]]; then
-          log_warn "$log" "warning: could not discard the stage that failed to arm - run: sudo dnf5 offline clean"
+          log_warn "$log" "warning: could not discard the staged update that could not be set to install. Run: sudo dnf5 offline clean"
           # Escalated past stderr because this is state (d): the toml and the boot symlink
           # now disagree and only root can settle it. The reason stays the ARM - the step
           # that failed - so the command travels on the notification instead.
-          notify_tail=" - the staged update could not be removed; run: sudo dnf5 offline clean"
+          notify_tail=". The staged update could not be removed. Run: sudo dnf5 offline clean"
         fi
       elif [[ "$had_stage" == true ]]; then
         # A rebuild that worked. `offline staged N` below reports the new transaction; this line
@@ -1552,7 +1552,7 @@ cmd_update() {
           # BOTH halves of armed, never the status alone: any live dnf5 transaction removes
           # /system-update and leaves the toml at `ready`, and that stage installs on no restart.
           # It is stale, and takes the clean below like any other leftover.
-          reason_override="could not rebuild the staged update - the previous one is unchanged and still installs on the next restart"
+          reason_override="could not rebuild the staged update. The previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
@@ -1564,9 +1564,9 @@ cmd_update() {
           fi
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, as in the branch below, so doctor can compare it with what is stored.
-          reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason) - see: kempt doctor"
+          reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
         else
-          reason_override="the previous staged update was discarded and could not be rebuilt, and could not be cleaned up - run: sudo dnf5 offline clean"
+          reason_override="the previous staged update was discarded and could not be rebuilt or cleaned up. Run: sudo dnf5 offline clean"
           # Marker KEPT here, deliberately - state (d) again. doctor reads it against the toml
           # and FAILs on that row, the boot-symlink row FAILs beside it, and both name the command
           # that fixes it. Clearing it downgrades the first to a benign "staged outside Kempt".
@@ -1611,10 +1611,10 @@ cmd_update() {
   local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
   if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
-      || { dnf_report="$empty_report"; snapshots_ok=false; log_warn "$log" "warning: dnf report diff failed - summary incomplete, see snapshots in $SNAP_DIR"; }
+      || { dnf_report="$empty_report"; snapshots_ok=false; log_warn "$log" "warning: dnf report diff failed, so the summary is incomplete. See the snapshots in $SNAP_DIR"; }
   else
     snapshots_ok=false
-    log_warn "$log" "warning: dnf snapshot after the run failed - summary incomplete, the update itself is unaffected"
+    log_warn "$log" "warning: dnf snapshot after the run failed, so the summary is incomplete. The update itself is unaffected"
   fi
   # Exact attribution, when dnf5's history named the transaction: the report keeps only what that
   # transaction touched, so a package something else moved between the two snapshots is not reported
@@ -1665,11 +1665,11 @@ cmd_update() {
     fi
     if [[ "$fp_after_ok" == true ]]; then
       fp_report="$(tsv_diff_updates "$fp_before" "$SNAP_DIR/fp-after.tsv" | flatpak_report_scopes)" \
-        || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed - summary incomplete"; }
+        || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed, so the summary is incomplete"; }
       # Only here: after the snapshot the report is built from, and only on a run that worked.
       [[ "$status" == ok ]] && { reclaim_after_run "$log" || true; }
     else
-      log_warn "$log" "warning: flatpak snapshot after the run failed - summary incomplete"
+      log_warn "$log" "warning: flatpak snapshot after the run failed, so the summary is incomplete"
     fi
   fi
   # ONE reboot mechanism, owned by the backend: dnf_reboot_needed carries the verdict rule and the
@@ -1784,7 +1784,7 @@ cmd_update() {
   else
     # "the run itself", not "the update": on the offline surface nothing has been installed - a
     # transaction was staged, and it installs on the next restart. This line is printed on both.
-    log_warn "$log" "warning: this run is not in the history - the run itself finished"
+    log_warn "$log" "warning: the run finished, but it could not be added to the history"
     log_event "history entry not written (state directory unwritable?)"
     rm -f "$hist"
     hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
@@ -1827,17 +1827,17 @@ cmd_update() {
       local discarded_tail=""
       [[ "$stage_discarded" == true ]] && discarded_tail=". The update staged earlier was removed"
       if [[ -n "$held_dnf" ]]; then
-        notify "Kempt" "Nothing to stage - every pending update is held$discarded_tail"
+        notify "Kempt" "Nothing to stage, because every pending update is held$discarded_tail"
       else
-        notify "Kempt" "Nothing to stage - no updates are pending$discarded_tail"
+        notify "Kempt" "Nothing to stage, because no updates are pending$discarded_tail"
       fi
     elif [[ "$surface" == "offline" && "$status" == "ok" && -n "$stage_untracked" ]]; then
       # The stage is REAL: it is downloaded, armed, and the next restart installs it. What failed is
       # Kempt's record of it, so the promise is kept and the limit stated in the same breath - this
       # is the one notification that has to carry both, because every later surface will be silent.
-      notify "Kempt" "Updates staged - they install on the next restart, but Kempt could not record it ($stage_untracked), so it will not report the result afterwards"
+      notify "Kempt" "Updates are staged and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
-      notify "Kempt" "Updates staged - they install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
+      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
     elif [[ "$status" == "ok" ]]; then
       # The space an automatic removal freed, when it freed some: the one moment it is news.
       local freed_tail=""
@@ -1848,7 +1848,7 @@ cmd_update() {
       notify "Kempt" "${phrase:-Update finished}$freed_tail$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
     else
       # The same reason the summary and the event line carry: "see the log" is not an answer.
-      notify "Kempt" "Update FAILED${reason:+ ($reason)} - see $log$notify_tail"
+      notify "Kempt" "Update FAILED${reason:+ ($reason)}. See $log$notify_tail"
     fi
   fi
   # The copy the summary was rendered from, when it could not be installed into the history.
@@ -1936,7 +1936,7 @@ cmd_run() {
       named="${named,,}"
       case "$named" in
         terminal|popup|background|offline) ;;
-        *) echo "unknown surface: ${a#--surface=} (use terminal, popup, background or offline)" >&2; exit 2 ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use terminal, popup, background or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -2079,7 +2079,7 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   i=$(( n - 1 ))
   if (( i >= ${#files[@]} )); then   # N past the end → oldest, and SAY so
     i=$(( ${#files[@]} - 1 ))
-    echo "note: only ${#files[@]} run(s) recorded - showing the oldest" >&2
+    echo "note: only ${#files[@]} run(s) recorded, so this is the oldest" >&2
   fi
   # --json answers about ONE run - the newest - and deliberately never walks back to the one
   # underneath, though the human branch below does: the widget asks what the run that just
@@ -2208,7 +2208,7 @@ reconcile_detour_stage() {  # marker-json toml-status
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
   jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
-    || echo "warning: could not record that the staged update was announced - the next check may repeat it" >&2
+    || echo "warning: could not record that the staged update was announced. The next check may repeat it" >&2
 }
 
 # Before the restart: the transaction dnf5 holds is no longer the stage this marker records.
@@ -2230,7 +2230,7 @@ reconcile_replaced_stage() {
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
       marker="$updated"
     else
-      echo "warning: could not record that the staged update was replaced - the next check may repeat it" >&2
+      echo "warning: could not record that the staged update was replaced. The next check may repeat it" >&2
     fi
   fi
   stage_unlock
@@ -2269,7 +2269,7 @@ harvest_offline() {
   now_snap="$(mktemp)"
   # never take the check down with it - a failed harvest must still leave a working check
   dnf_snapshot > "$now_snap" \
-    || { rm -f "$now_snap"; echo "warning: offline harvest skipped (snapshot failed)" >&2
+    || { rm -f "$now_snap"; echo "warning: the restart's result was not recorded (snapshot failed)" >&2
          log_event "harvest skipped snapshot failed"; return 0; }
   # The package set did not move across a reboot. With the transaction still there that is the
   # honest "not applied yet" (the offline-update screen can be declined); with it GONE there is
@@ -2315,7 +2315,7 @@ harvest_offline() {
   fi
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
-    || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: offline harvest diff failed - summary incomplete" >&2; }
+    || { report='{"updated":[],"added":[],"removed":[]}'; echo "warning: the restart's result could not be compared, so the summary is incomplete" >&2; }
   # WHICH transaction ran, when dnf5's history can say (offline_history_attribution). Three outcomes,
   # and the third is the harvest as it was before identity existed:
   #   applied      the report keeps only what that history entry touched, so a package another tool
@@ -2443,7 +2443,7 @@ harvest_offline() {
     notify "Kempt" "The update Kempt staged did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
   elif [[ -n "$harvested" ]]; then
     log_event "harvest applied ($harvested)"
-    notify "Kempt" "Staged updates were applied on reboot - $harvested"
+    notify "Kempt" "Staged updates were applied on reboot: $harvested"
   else
     log_event "harvest applied (the result could not be recorded)"
     notify "Kempt" "Staged updates were applied on reboot"
@@ -2897,9 +2897,9 @@ doctor_staged_conflict_row() {
     phrase="$(printf '%s' "$names" | names_phrase)"
     # The verb moves with the noun, as in the staged count line and the hold warning.
     if [[ "$total" == 1 ]]; then
-      doctor_info "staged update: it installs $phrase on the next restart despite the hold - the hold was recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
+      doctor_info "staged update: it installs $phrase on the next restart despite the hold. The hold was recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
     else
-      doctor_info "staged update: it installs $phrase on the next restart despite the holds - the holds were recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
+      doctor_info "staged update: it installs $phrase on the next restart despite the holds. The holds were recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
     fi
     return 0
   fi
@@ -2907,7 +2907,7 @@ doctor_staged_conflict_row() {
   # what the resolver added) or from nowhere, so the generic line is the honest one.
   [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]] || return 0
   [[ -n "$(holds_for dnf)" ]] || return 0
-  doctor_info "staged update: it may still install held packages on the next restart - Kempt cannot read what this transaction contains, and a hold recorded after it was staged cannot change it. $KEMPT_STAGED_RECIPE"
+  doctor_info "staged update: it may still install held packages on the next restart. Kempt cannot read what this transaction contains, and a hold recorded after it was staged cannot change it. $KEMPT_STAGED_RECIPE"
 }
 
 # What Kempt staged against what dnf5 has stored right now - the LIVE record, never anything
@@ -2948,7 +2948,7 @@ doctor_staged_drift_row() {  # marker json
   [[ -n "$plus" ]] && clauses+=("$(printf '%s\n' "$plus" | sed 's/^/+/' | names_phrase) in dnf5's record only")
   [[ -n "$minus" ]] && clauses+=("$(printf '%s\n' "$minus" | sed 's/^/-/' | names_phrase) in Kempt's only")
   local diff; diff="$(printf '%s, ' "${clauses[@]}")"
-  doctor_fail "staged update is not the one Kempt built: dnf5's record differs from what Kempt staged (${diff%, }) - the transaction was replaced after Kempt staged it, so the next restart installs a set no Kempt surface describes. Rebuild it with: kempt update --surface=offline, or remove it with: sudo dnf5 offline clean"
+  doctor_fail "staged update is not the one Kempt built: dnf5's record differs from what Kempt staged (${diff%, }). The transaction was replaced after Kempt staged it, so the next restart installs a set Kempt does not show. Rebuild it with: kempt update --surface=offline, or remove it with: sudo dnf5 offline clean"
 }
 
 # The `exec.path` annotation the installed policy pins for one action id - the only half of that
@@ -2978,12 +2978,12 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 doctor_exec_path() {  # label action_id helper_seam annotated_path
   local label="$1" action="$2" seam="$3" annotated="$4" pinned
   if [[ "$seam" != "$annotated" ]]; then
-    doctor_info "polkit exec.path ($label): not compared - the helper seam points elsewhere ($seam)"
+    doctor_info "polkit exec.path ($label): not compared, because an environment variable points the helper elsewhere ($seam)"
     return 0
   fi
   # Missing or unreadable is already a FAIL above; one problem must not be counted twice.
   if [[ ! -r "$KEMPT_POLICY_FILE" ]]; then
-    doctor_info "polkit exec.path ($label): not compared - $KEMPT_POLICY_FILE is not readable"
+    doctor_info "polkit exec.path ($label): not compared, because $KEMPT_POLICY_FILE is not readable"
     return 0
   fi
   pinned="$(policy_exec_path "$action" "$KEMPT_POLICY_FILE")"
@@ -2993,7 +2993,7 @@ doctor_exec_path() {  # label action_id helper_seam annotated_path
     doctor_ok "polkit exec.path ($label): $pinned"
   else
     # Both paths and both remedies: which one is wrong depends on the install the reader meant.
-    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated - pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
+    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated. pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
   fi
 }
 
@@ -3007,7 +3007,7 @@ doctor_widget_engine() {
   w="$(PATH="$KEMPT_WIDGET_PATH"; command -v kempt 2>/dev/null || true)"
   if [[ -z "$w" ]]; then
     # info, not FAIL: main.qml turns rc 127 into engineMissing, a message in the panel already.
-    doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH) - the panel reports the engine as missing"
+    doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH), so the panel reports the engine as missing"
     return 0
   fi
   # Resolved, because ~/.local/bin/kempt is a symlink on every checkout install: the question is
@@ -3016,19 +3016,19 @@ doctor_widget_engine() {
   if [[ "$w" == "$SELF" ]]; then
     doctor_ok "widget engine: $w"
   else
-    doctor_fail "widget engine: the widget would run $w; this report describes $SELF - remove the one you do not want, or point the ~/.local/bin/kempt symlink at the install you mean"
+    doctor_fail "widget engine: the widget would run $w; this report describes $SELF. Remove the one you do not want, or point the ~/.local/bin/kempt symlink at the install you mean"
   fi
 }
 
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path - run ./install.sh"
+    doctor_fail "root helper ($label) not installed: $path. Run ./install.sh"
     return 0
   fi
   if [[ "$path" != "$annotated" ]]; then
     # Not the path polkit execs, so its ownership says nothing about what root would run.
-    doctor_info "root helper ($label): $path (seam override, ownership not checked)"
+    doctor_info "root helper ($label): $path (set by an environment variable, ownership not checked)"
     return 0
   fi
   # stat can fail on an unreachable path, and a helper we cannot INSPECT is not a broken one.
@@ -3037,7 +3037,7 @@ doctor_helper() {  # label seam_path annotated_path
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
-    doctor_fail "root helper ($label) is $own, expected root:root 755: $path - re-run ./install.sh"
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. Run ./install.sh again"
   fi
   # The directory, too: whoever can write to it can rename the helper away and put their own file
   # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
@@ -3045,7 +3045,7 @@ doctor_helper() {  # label seam_path annotated_path
   dir="$(dirname "$path")"
   down="$(stat -L -c '%U:%G %a' "$dir" 2>/dev/null)" || return 0
   if [[ "${down%%:*}" != root ]] || (( 8#${down##* } & 8#022 )); then
-    doctor_fail "root helper directory ($label) is $down, expected root-owned and not group- or world-writable: $dir - fix it with: sudo chown root:root $dir && sudo chmod 755 $dir"
+    doctor_fail "root helper directory ($label) is $down, expected root-owned and not group- or world-writable: $dir. Fix it with: sudo chown root:root $dir && sudo chmod 755 $dir"
   fi
 }
 
@@ -3067,13 +3067,13 @@ doctor_install_files() {  # label src dst [src dst ...]
   done
   # One label covers several files (the helpers are two) because the fix is one command.
   if [[ $nosrc -eq 1 ]]; then
-    doctor_info "$label: not compared - the checkout has no copy to compare against"
+    doctor_info "$label: not compared, because the checkout has no copy to compare against"
   elif [[ $missing -eq 1 ]]; then
     # info, not FAIL: a missing installed copy is already a FAIL above, and one problem must not
     # be counted twice.
-    doctor_info "$label: not installed - run ./install.sh"
+    doctor_info "$label: not installed. Run ./install.sh"
   elif [[ $differ -eq 1 ]]; then
-    doctor_fail "$label: DIFFER from checkout - run ./install.sh"
+    doctor_fail "$label: DIFFER from checkout. Run ./install.sh"
   else
     doctor_ok "$label: match checkout"
   fi
@@ -3082,19 +3082,19 @@ doctor_install_files() {  # label src dst [src dst ...]
 doctor_install_dir() {  # label src dst
   local label="$1" src="$2" dst="$3"
   if [[ ! -d "$src" ]]; then
-    doctor_info "$label: not compared - the checkout has no copy to compare against"
+    doctor_info "$label: not compared, because the checkout has no copy to compare against"
   elif [[ ! -d "$dst" ]]; then
     # The widget is optional: a box with no kpackagetool6 gets a working CLI and no plasmoid.
     doctor_info "$label: not installed (the CLI works without it)"
   elif ! command -v diff >/dev/null; then
-    doctor_info "$label: not compared - diff is not installed"
+    doctor_info "$label: not compared, because diff is not installed"
   elif diff -rq "$src" "$dst" >/dev/null 2>&1; then
     doctor_ok "$label: match checkout"
   else
     # `plasmashell --replace` as well as the installer: kpackagetool6 upgrades the package in
     # place and Plasma keeps the QML it already loaded, so a re-install alone changes nothing the
     # user can see.
-    doctor_fail "$label: DIFFER from checkout - run ./install.sh, then plasmashell --replace"
+    doctor_fail "$label: DIFFER from checkout. Run ./install.sh, then plasmashell --replace"
   fi
 }
 
@@ -3112,7 +3112,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE - run ./install.sh"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. Run ./install.sh"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
@@ -3130,7 +3130,7 @@ doctor_privileged_rows() {
 # FAIL and not info: "everything is fine" is precisely the sentence that must not be printed here.
 doctor_image_based_row() {
   on_ostree || return 0
-  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it - support for these images is planned. The dnf checks below describe a tool that is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
+  doctor_fail "this system updates with rpm-ostree, not dnf ($KEMPT_OSTREE_MARKER exists), so Kempt cannot update it. Support for these images is planned. The dnf checks below describe a tool that is not what installs updates on this machine. Use Discover, or: rpm-ostree upgrade (bootc upgrade on a bootc image)"
 }
 
 doctor_tool_rows() {
@@ -3148,9 +3148,9 @@ doctor_tool_rows() {
   if command -v "$KEMPT_TERMINAL" >/dev/null; then
     doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
   elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found - 'kempt run' exits 4 on this surface; install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
+    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
   else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found - not needed for surface=$surface"
+    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$surface"
   fi
 
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
@@ -3159,9 +3159,9 @@ doctor_tool_rows() {
   if command -v "$fp_cmd" >/dev/null; then
     doctor_ok "flatpak: $(command -v "$fp_cmd")"
   elif is_true "$(config_get include_flatpak)"; then
-    doctor_fail "flatpak command '$fp_cmd' not found - include_flatpak=true, so every check reports the flatpak backend stale; install flatpak or run: kempt config set include_flatpak false"
+    doctor_fail "flatpak command '$fp_cmd' not found. With include_flatpak=true, every check reports Flatpak stale. Install flatpak or run: kempt config set include_flatpak false"
   else
-    doctor_info "flatpak command '$fp_cmd' not found - include_flatpak=false, so it is not needed"
+    doctor_info "flatpak command '$fp_cmd' not found. Kempt does not need it while include_flatpak=false"
   fi
   # Apps installed with `flatpak install --user`. Listed only when that installation exists,
   # because any --user command creates one.
@@ -3189,7 +3189,7 @@ doctor_tool_rows() {
   if command -v "$dnf_cmd" >/dev/null; then
     doctor_ok "dnf: $(command -v "$dnf_cmd")"
   else
-    doctor_info "dnf command '$dnf_cmd' not found - updates still work (they go through the root helper), but reboot_needed answers false on every check whether or not a restart is owed; install dnf5, or point KEMPT_DNF_CMD at the right command"
+    doctor_info "dnf command '$dnf_cmd' not found. Updates still work (they go through the root helper), but reboot_needed answers false on every check whether or not a restart is owed; install dnf5, or point KEMPT_DNF_CMD at the right command"
   fi
 }
 
@@ -3251,7 +3251,7 @@ doctor_metadata_row() {
   local iso days
   iso="$(metadata_refreshed_iso)"
   if [[ -z "$iso" ]]; then
-    doctor_info "package metadata: never refreshed on this box - the next check on mains power and an unmetered connection fetches it"
+    doctor_info "package metadata: never refreshed on this box. The next check on mains power and an unmetered connection fetches it"
     return 0
   fi
   days="$(metadata_age_days)"
@@ -3260,7 +3260,7 @@ doctor_metadata_row() {
   else
     local word=days
     if [[ "$days" == 1 ]]; then word=day; fi
-    doctor_info "package metadata is $days $word old ($iso) - checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. Force one with: kempt check --refresh"
+    doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. Force one with: kempt check --refresh"
   fi
 }
 
@@ -3271,7 +3271,7 @@ doctor_config_row() {
   if [[ ! -e "$CONFIG_FILE" ]]; then
     doctor_ok "config file: none yet, built-in defaults apply ($CONFIG_FILE)"
   elif [[ ! -r "$CONFIG_FILE" ]]; then
-    doctor_fail "config file is not readable: $CONFIG_FILE - every command silently falls back to defaults"
+    doctor_fail "config file is not readable: $CONFIG_FILE. Every command silently falls back to defaults"
   else
     # `|| [[ -n "$line" ]]`: a final line with no trailing newline is still a line.
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -3310,7 +3310,7 @@ doctor_state_dir_row() {
       doctor_ok "state dir writable: $KEMPT_STATE_DIR (created on first use)"
     fi
   else
-    doctor_fail "state dir not writable: $KEMPT_STATE_DIR - no state, history or logs can be written"
+    doctor_fail "state dir not writable: $KEMPT_STATE_DIR. No state, history or logs can be written"
   fi
 }
 
@@ -3352,7 +3352,7 @@ doctor_offline_rows() {
   local dr_relup_owns=false
   if [[ -f "$OFFLINE_MARKER" ]] && offline_release_upgrade >/dev/null; then
     dr_marker=""; dr_relup_owns=true
-    doctor_info "staged update: Kempt has a marker for a transaction that is no longer stored - a Fedora release upgrade replaced it, and the next check or run clears the marker ($OFFLINE_MARKER)"
+    doctor_info "staged update: Kempt has a marker for a transaction that is no longer stored. A Fedora release upgrade replaced it, and the next check or run clears the marker ($OFFLINE_MARKER)"
   fi
   # A FLAG rather than an empty marker, because the chain below has a branch for a marker that is
   # on disk and would not parse - and blanking the variable dropped straight into it, so a perfectly
@@ -3379,13 +3379,13 @@ doctor_offline_rows() {
       *)
         # Not `ready` means not armed, and no restart applies it. FAIL rather than info: a real
         # defect with an exact remedy, spelled out because the remedy needs root.
-        doctor_fail "staged update can never install: the transaction was downloaded but never armed (status \"$dr_toml\"), so no restart applies it - clear it with: sudo dnf5 offline clean" ;;
+        doctor_fail "staged update can never install: the transaction was downloaded but never set to install (status \"$dr_toml\"), so no restart applies it. Clear it with: sudo dnf5 offline clean" ;;
     esac
   elif [[ "$dr_relup_owns" == false && -f "$OFFLINE_MARKER" ]]; then
     # A marker is there and cannot be read. Reported as itself, not through the line below, which
     # would attribute Kempt's own stage to somebody else. info, not FAIL: a torn read is a moment
     # (update and check hold different locks, so a check can arrive mid-write).
-    doctor_info "staged update: the marker cannot be read, so nothing here describes what Kempt staged: $OFFLINE_MARKER (dnf5 says \"$dr_toml\") - a marker that will not parse is skipped rather than cleared, so the next check leaves it where it is"
+    doctor_info "staged update: the marker cannot be read, so nothing here describes what Kempt staged: $OFFLINE_MARKER (dnf5 says \"$dr_toml\"). A marker that will not parse is skipped rather than cleared, so the next check leaves it where it is"
   elif [[ "$dr_toml" != absent ]] || offline_release_upgrade >/dev/null; then
     # `|| offline_release_upgrade` is not redundant: a transaction-state file that is READABLE but
     # carries no `status` key reads as `absent` here, while the two releasever keys are right there
@@ -3403,24 +3403,24 @@ doctor_offline_rows() {
       # happens to be Kempt's own.
       case "$(offline_release_upgrade_state)" in
         armed)
-          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart - Kempt will not stage updates over it, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Kempt will not stage updates over it, because that would cancel it" ;;
         stranded)
           # `ready` with no boot symlink. Its own state, because the other sentences each say
           # something this one disproves: it is not waiting for a restart, and "downloaded but not
           # started" quotes a status word that says the opposite. The FAIL row further down is the
           # one that gives the remedy - two rows repeating the same two commands is one too many.
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was armed, but the restart marker $KEMPT_OFFLINE_LINK is not in place - a restart has already been past it. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not stage updates while it is there, because that would cancel it" ;;
         incomplete)
           # `absent` here is a readable file with no `status` key, not a missing one - a missing one
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.
           local dr_word="status \"$dr_toml\""
           [[ "$dr_toml" == absent ]] && dr_word="no status recorded"
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word) - see what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
         *)
-          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet - begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
       esac
     else
-      doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\") - see: dnf5 offline status"
+      doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\"). See: dnf5 offline status"
     fi
   fi
 
@@ -3433,9 +3433,9 @@ doctor_offline_rows() {
   # either, so a dangling one detours the boot exactly as a live one does.
   if [[ -L "$KEMPT_OFFLINE_LINK" && "$dr_toml" != ready ]]; then
     if [[ "$dr_toml" == absent ]]; then
-      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; remove it with: sudo dnf5 offline clean"
+      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
     else
-      doctor_fail "boot symlink is live over a transaction that is not armed (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK - the next restart detours into the offline updater and installs nothing; clear it with: sudo dnf5 offline clean"
+      doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
   elif [[ "$dr_toml" == ready && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
     # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
@@ -3446,9 +3446,9 @@ doctor_offline_rows() {
     # that always ends in a no - and calling a Fedora release upgrade "staged update" attributes
     # somebody else's transaction to Kempt, which the row two above has just said it is not.
     if offline_release_upgrade >/dev/null; then
-      doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but the restart marker $KEMPT_OFFLINE_LINK is not in place, so a restart has already been past it - re-arm it with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
+      doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but the restart marker $KEMPT_OFFLINE_LINK is not in place, so a restart has already been past it. Set it to install again with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
     else
-      doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` re-arms it - re-stage it with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
+      doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Stage it again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
     fi
   fi
 }
@@ -3481,7 +3481,7 @@ doctor_install_rows() {
   # which kind of install this is - it is the file the fix message would name, and exactly what a
   # packaged tree does not ship.
   if install_is_packaged; then
-    doctor_info "install: packaged - the package manager keeps these files in step"
+    doctor_info "install: packaged, so the package manager keeps these files in step"
     # ...and the one thing a packaged install can be silently wrong about. kpackagetool6 (the KDE
     # Store route) installs into the USER's plasmoid directory, the package into /usr/share, and
     # Plasma PREFERS the user one - so a store install predating the package stays the widget
@@ -3489,12 +3489,12 @@ doctor_install_rows() {
     # Only in this branch: on a checkout that directory IS the install, and the message would tell
     # a developer to delete their own widget. The skew comparison below covers that case.
     if [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
-      doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR - Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+      doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
     elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
       # The panel half is its own package, so a working CLI can sit on a box with no widget and
       # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
       # ...and what going without it means, because the CLI alone is not a quieter widget.
-      doctor_info "panel widget not installed - it is a separate package: sudo dnf install kempt-plasmoid - without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
+      doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
     fi
 
     # The environment can point this process at a different update path than the rows above
@@ -3510,7 +3510,7 @@ doctor_install_rows() {
       [[ " $KEMPT_ENV_OVERRIDES " == *" $seam "* ]] && overridden+=("$seam")
     done
     if [[ ${#overridden[@]} -gt 0 && ! -w "$ROOT" ]]; then
-      doctor_fail "privileged path overridden in the environment: ${overridden[*]} - these are test seams, and while they are set this report describes a path that is not the one 'kempt update' takes. Unset them (look in ~/.config/environment.d and your shell profile) and run this again"
+      doctor_fail "privileged path overridden in the environment: ${overridden[*]}. These are test settings, and while they are set this report describes a path that is not the one 'kempt update' takes. Unset them (look in ~/.config/environment.d and your shell profile) and run this again"
     fi
   else
     doctor_install_files helpers \
@@ -3604,7 +3604,7 @@ RULES_DST="$RULES_DST_FIXED"
 check_rules_dst() {
   [[ -n "${KEMPT_RULES_DST:-}" ]] || return 0
   if [[ -n "$KEMPT_PKEXEC" || $EUID -eq 0 ]]; then
-    echo "invalid rules destination: KEMPT_RULES_DST is a test setting, honoured only without pkexec and not as root - the rule always goes to $RULES_DST_FIXED" >&2
+    echo "invalid rules destination: KEMPT_RULES_DST is a test setting, honoured only without pkexec and not as root. The rule always goes to $RULES_DST_FIXED" >&2
     exit 2
   fi
   if [[ "$KEMPT_RULES_DST" != /* || "$KEMPT_RULES_DST" != *.rules ]]; then
@@ -3634,7 +3634,7 @@ cmd_enable_passwordless() {
   # ~/.local/bin comes first on Fedora.
   if ! printf '%s\n' "$rule" | ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} /usr/bin/install -m 0644 -o root -g root /dev/stdin "$RULES_DST"; then
     log_event "passwordless enable rc=1"
-    echo "could not install $RULES_DST - passwordless NOT enabled" >&2; exit 1
+    echo "could not install $RULES_DST, so passwordless is NOT enabled" >&2; exit 1
   fi
   log_event "passwordless enable rc=0"
   echo "Passwordless updates ENABLED for $(id -un) ($RULES_DST)"
@@ -3683,11 +3683,11 @@ usage: kempt <command>
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules. --coalesce accepts the answer of a check that
                         finished while this one waited (the widget's automatic checks). --strict
-                        exits 1 when a backend failed, the apps for you only could not be
+                        exits 1 when dnf or Flatpak failed, the apps for you only could not be
                         listed, or the previous state was served
   update                run the update now (options from config; --no-flatpak, --surface=X override)
-  run [--print-command] launch update per configured surface (what the widget calls;
-                        --surface=X for one run on another surface; --risky-ok when the person
+  run [--print-command] launch an update where the config says (what the widget calls;
+                        --surface=X runs this one elsewhere; --risky-ok when the person
                         already chose to install session-critical updates now)
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,

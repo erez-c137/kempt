@@ -101,12 +101,12 @@ ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
-info  package metadata: never refreshed on this box - the next check on mains power and an unmetered connection fetches it
+info  package metadata: never refreshed on this box. The next check on mains power and an unmetered connection fetches it
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
 ok    program files intact: /usr/share/kempt
 info  version: kempt 0.1.x
-info  install: packaged - the package manager keeps these files in step
+info  install: packaged, so the package manager keeps these files in step
 ok    widget engine: /usr/share/kempt/bin/kempt
 
 Recent events (kempt log):

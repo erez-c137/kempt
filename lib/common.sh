@@ -311,7 +311,7 @@ config_enum_values() {  # key → accepted values, space separated, or nothing
 config_warn_unknown() {  # key value
   local k="$1" v="$2" vals
   if [[ " $KEMPT_CONFIG_KEYS " != *" $k "* ]]; then
-    echo "warning: unknown setting '$k' - Kempt does not read it. Known settings: ${KEMPT_CONFIG_KEYS// /, }" >&2
+    echo "warning: unknown setting '$k'. Kempt does not read it. Known settings: ${KEMPT_CONFIG_KEYS// /, }" >&2
     return 0
   fi
   vals="$(config_enum_values "$k")"
@@ -920,7 +920,7 @@ config_get() {  # key [default]; explicit default wins, else the kempt_default t
   # so `s.*` would match the first line and print another setting's value.
   [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   if [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]]; then
-    echo "warning: $CONFIG_FILE exists but is unreadable - using default for $1" >&2
+    echo "warning: $CONFIG_FILE exists but is unreadable, so $1 uses its default" >&2
   fi
   local v
   v="$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)"
@@ -1021,7 +1021,7 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
-        printf '%s\n' "root helper not installed - run ./install.sh (see: kempt doctor)"
+        printf '%s\n' "root helper not installed. Run ./install.sh (see: kempt doctor)"
         return 0
       fi
     done
@@ -1046,7 +1046,7 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
 #   a password was needed and nothing could ask for it.
 # Anything else passes through untouched: a truthful raw message beats a friendly wrong one.
 KEMPT_AUTH_CANCELLED='authentication cancelled'
-KEMPT_AUTH_REFUSED='not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)'
+KEMPT_AUTH_REFUSED='not authorized: the password was refused, or this session cannot authorize (over SSH or switched away)'
 KEMPT_AUTH_NO_AGENT='no authentication agent is running to ask for the password'
 # - "Error getting authority" (exit 127): pkexec could not reach polkit on the system bus at all,
 #   so nothing was asked and nothing could have been authorized.
@@ -1098,7 +1098,7 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
   # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
   u="$(id -un)"
   [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || {
-    echo "unexpected username: $u - install the rules file manually; see polkit/49-kempt.rules.in" >&2
+    echo "unexpected username: $u. Install the rules file manually; see polkit/49-kempt.rules.in" >&2
     return 2; }
   text="$(awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl")" || return 2
   # Printable ASCII, tab and newline only, checked before the comment strip below. That strip
@@ -1107,7 +1107,7 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
   # and live code to polkit. Refusing every other control byte and all non-ASCII closes that class
   # instead of listing its members; the shipped template is plain ASCII.
   if LC_ALL=C grep -q $'[^\t -~]' <<<"$text"; then
-    echo "rendered rule contains a control or non-ASCII character - refusing" >&2
+    echo "rendered rule contains a control or non-ASCII character, so Kempt will not install it" >&2
     return 2
   fi
   # Self-check by EXACT MATCH against the rule this function is allowed to produce, never by
@@ -1129,7 +1129,7 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
   expected+=" subject.user == \"$u\" && subject.active && subject.local) {"
   expected+=' return polkit.Result.YES; } });'
   if [[ "$code" != "$expected" ]]; then
-    echo "rendered rule is not the rule this command installs - refusing" >&2
+    echo "rendered rule is not the rule this command installs, so Kempt will not install it" >&2
     return 2
   fi
   printf '%s\n' "$text"
@@ -1384,7 +1384,7 @@ write_state() {
   local doc
   doc="$(cat)"
   jq -e -n '[inputs] | length == 1 and (.[0] | type == "object")' <<<"$doc" >/dev/null 2>&1 || {
-    echo "kempt: not writing $STATE_FILE: the new state is not a single JSON object - keeping the previous one" >&2
+    echo "kempt: not writing $STATE_FILE: the new state is not a single JSON object, so the previous one stays" >&2
     return 1
   }
   printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
@@ -2367,7 +2367,7 @@ hold_generic_warning() {  # name → the sentence
 
 # The mirror, and the quieter one: an update missed rather than a feared one applied.
 unhold_staged_warning() {  # name → the sentence
-  printf 'The staged update was built without %s - the next restart will not install it. Rebuild when ready: kempt update --surface=offline.\n' "$1"
+  printf 'The staged update was built without %s, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline.\n' "$1"
 }
 
 # The ONE definition of "what a run changed" as a phrase, shared because two copies of this
@@ -2479,7 +2479,7 @@ render_summary() {  # history-json-file → human text
     "Kempt - " + .timestamp + " (" + .surface
       + (if (.duration_sec | type) == "number" then ", " + (.duration_sec|tostring) + "s" else "" end) + ") "
       + (if .status == "ok" then "✓"
-         else "FAILED - see " + .log
+         else "FAILED. See " + .log
               + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),
     "System (dnf): " + counts(.backends.dnf)
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),

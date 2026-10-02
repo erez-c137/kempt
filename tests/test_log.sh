@@ -222,7 +222,7 @@ friendly_of() {  # raw stderr (printf format) → what friendly_error makes of i
   printf "$1" > "$f"
   bash -c 'source "$1"; friendly_error "$(stderr_tail "$2")"' _ "$REPO_ROOT/lib/common.sh" "$f"
 }
-REFUSED="not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)"
+REFUSED="not authorized: the password was refused, or this session cannot authorize (over SSH or switched away)"
 assert_eq "$(friendly_of 'Error executing command as another user: Request dismissed\n')" \
   "authentication cancelled" "a closed dialog (exit 126) says the authentication was cancelled"
 assert_eq "$(friendly_of 'Error executing command as another user: Not authorized\n\nThis incident has been reported.\n')" \
@@ -259,7 +259,7 @@ assert_eq "$(grep -c "$FRIENDLY" "$runlog")" "0" \
   "...which is not rewritten: the log is evidence, not a summary"
 failhist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
 assert_eq "$(jq -r '.error' "$failhist")" "$FRIENDLY" "the history entry carries the same sentence"
-assert_eq "$(grep -c "FAILED - see .* ($FRIENDLY)" <<<"$("$KEMPT" summary)")" "1" \
+assert_eq "$(grep -c "FAILED. See .* ($FRIENDLY)" <<<"$("$KEMPT" summary)")" "1" \
   "...so the summary explains the failure instead of pointing at a log file"
 assert_eq "$(grep -c "($FRIENDLY)" <<<"$("$KEMPT" history)")" "1" \
   "...and so does the history listing"

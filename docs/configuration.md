@@ -52,7 +52,7 @@ kempt config set surfce terminal
 ```
 
 ```
-warning: unknown setting 'surfce' - Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex, reclaim
+warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex, reclaim
 ```
 
 ```bash

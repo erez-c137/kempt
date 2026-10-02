@@ -996,7 +996,7 @@ PlasmoidItem {
             // user can still open that file themselves.
             if (rc !== 0) {
                 root.actionMessage = "Could not open " + target
-                    + (Logic.firstLineOf(stderr) !== "" ? " - " + Logic.firstLineOf(stderr) : ".");
+                    + (Logic.firstLineOf(stderr) !== "" ? ": " + Logic.firstLineOf(stderr) : ".");
             }
         });
     }

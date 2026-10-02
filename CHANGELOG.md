@@ -49,6 +49,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   session-critical updates. **Install Now** uses it.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
+- **Messages from the widget and the `kempt` command read as short sentences.** They no longer
+  break a sentence with a dash, and they use the words you see on screen.
 
 ### Fixed
 

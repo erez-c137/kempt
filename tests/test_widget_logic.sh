@@ -101,7 +101,7 @@ assert_eq "$(js 'S("live").actionable')" "10" "...and carries the CLI's own acti
 assert_eq "$(js 'L.viewModel(null,false).iconState')" "unknown" "null state + not updating => unknown"
 assert_eq "$(js 'L.viewModel(null,false).badgeText')" "" "unknown state shows NO badge text"
 assert_eq "$(js 'L.viewModel(null,false).badgeVisible')" "false" "unknown state hides the badge"
-assert_eq "$(js 'L.viewModel(null,false).tooltipSub.indexOf("no data yet") >= 0')" "true" "unknown tooltip says there is no data yet"
+assert_eq "$(js 'L.viewModel(null,false).tooltipSub.indexOf("no data until the first check finishes") >= 0')" "true" "unknown tooltip says there is no data yet"
 assert_eq "$(js 'L.viewModel(null,false).headerText.indexOf("0 update") >= 0')" "false" "unknown state never claims zero updates"
 assert_eq "$(js 'L.viewModel(null,false).lastSuccessText')" "" "unknown state has no last-success text to show"
 
@@ -153,9 +153,9 @@ assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0
 # --- the tooltip names what is pending ------------------------------------------------------------
 # A count says how many, not what. Three names are enough to recognise a kernel or a browser from
 # the panel, and the session-critical ones come first because they are the ones worth a restart.
-assert_eq "$(js 'V("live",false).tooltipSub.split(" - ")[0]')" \
+assert_eq "$(js 'V("live",false).tooltipSub.split(" · ")[0]')" \
   "aajohan-comfortaa-fonts, bash, brandnew and 7 more" "the tooltip names the first three pending"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"),{risky_pending:["curl"]}),false).tooltipSub.split(" - ")[0]')" \
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"),{risky_pending:["curl"]}),false).tooltipSub.split(" · ")[0]')" \
   "curl, aajohan-comfortaa-fonts, bash and 7 more" "...session-critical ones first"
 assert_eq "$(js 'L.pendingNamesOf([{items:[{name:"a"},{name:"b"},{name:"c"}]}],[])')" "a, b and c" \
   "three names and nothing more say no 'and 0 more'"
@@ -241,7 +241,7 @@ assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")"
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
 assert_eq "$(js 'V("stale",false).badgeText')" "10" "stale keeps the LAST KNOWN count on the badge"
-assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more - dnf check failed - last successful check: $ls_stale" \
+assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more · dnf check failed · last successful check: $ls_stale" \
   "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
 assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
   "...and the reason it carries is the CLI's own staleReason, verbatim"
@@ -255,7 +255,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
 # fall in the same minute would let last_check pass for last_success. These two cannot.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2020-01-01T10:30:00+03:00",backends:{}},false).tooltipSub')" \
-  "x - last successful check: 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
+  "x · last successful check: 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
 
 # --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------
 # A repo that flapped is not a broken machine. The panel keeps rendering whatever the last good
@@ -342,7 +342,7 @@ assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").emptyStateText')" 
 # A box that HAS known counts and then loses its helpers: the counts stand, so this stays calm -
 # but the remedy is still offered, because the CLI named it. (The other case, where the helpers
 # were never there and nothing is known, is the error family tested further down.)
-helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed - run ./install.sh (see: kempt doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
+helper_missing='L.viewModel({schema:1,status:"stale",error:"dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)",last_success:"2026-08-20T10:00:00+03:00",actionable:1,held_total:0,backends:{dnf:{enabled:true,items:[{name:"curl",from:"1",to:"2",held:false}]}}},false)'
 assert_eq "$(js "$helper_missing.iconState")" "stale" "a missing root helper stays calm while the counts still stand"
 # ...and calm means QUIET. A "run kempt doctor" line under counts that are perfectly good is the
 # exact noise calm-stale exists to avoid; the CLI's own text below still names doctor itself.
@@ -489,8 +489,8 @@ done
 # The THIRD state, which reads as neither of the others: `ready` with the boot symlink gone. A
 # restart has already been past it. Saying "installs on the next restart" promises something no
 # restart will do; saying "not started yet" quotes a status word that says the opposite.
-assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart has already been past it\") >= 0")" "true" \
-  "a stranded upgrade says a restart has already been past it"
+assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart went by without installing it\") >= 0")" "true" \
+  "a stranded upgrade says a restart went by without installing it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
   "...and never promises the next restart will install it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
@@ -1390,9 +1390,9 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"d
 # rpm set, and no answer at all to what the person just did. Exact match on "offline": the
 # harvest writes "offline (applied on reboot)" and its counts are real changes.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28}"))')" \
-  "Updates are staged - they install on the next restart" "a staging run reports the staging, not the zero rpm delta"
-assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"staged but could not arm the restart install\"}"))')" \
-  "Update failed: staged but could not arm the restart install" "a FAILED staging run is a failure, never a promise"
+  "Updates are staged and install on the next restart" "a staging run reports the staging, not the zero rpm delta"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"the updates were staged, but could not be set to install on the next restart\"}"))')" \
+  "Update failed: the updates were staged, but could not be set to install on the next restart" "a FAILED staging run is a failure, never a promise"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Updated 2 packages in 0s" "the harvest entry is not a staging run - its counts render"
 # ...and the staging run that staged NOTHING, which is `offline` and `ok` exactly like the first
@@ -1401,15 +1401,15 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"off
 # two reasons is said out loud, in the CLI notification's own words, because "Kempt did nothing"
 # reads as a fault where "your holds did what you asked" is the machine working.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":3,\"staged_nothing\":\"held\"}"))')" \
-  "Nothing to stage - every pending update is held" "a run that staged nothing says so, and says the holds did it"
+  "Nothing to stage, because every pending update is held" "a run that staged nothing says so, and says the holds did it"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":3,\"staged_nothing\":\"nothing_pending\"}"))')" \
-  "Nothing to stage - no updates are pending" "...and the other reason is the other sentence, never the same one"
+  "Nothing to stage, because no updates are pending" "...and the other reason is the other sentence, never the same one"
 # The degrade, and the reason the CLI writes this key only when it applies: an entry from a build
 # before the key cannot be told apart from a real stage, so absence has to keep meaning "staged".
 # A value this build does not know is the same position - it learned nothing - and takes the same
 # answer rather than guessing which of the two sentences fits.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28,\"staged_nothing\":\"something-else\"}"))')" \
-  "Updates are staged - they install on the next restart" "a reason this build does not know reads as an ordinary stage, not a guess"
+  "Updates are staged and install on the next restart" "a reason this build does not know reads as an ordinary stage, not a guess"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"authentication cancelled\",\"staged_nothing\":\"held\"}"))')" \
   "Update failed: authentication cancelled" "...and a FAILED run is still reported as failed, whatever else the entry carries"
 
@@ -1729,7 +1729,7 @@ assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",fa
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
 assert_eq "$(js 'V("reboot-needed",false).tooltipSub.indexOf(L.COPY.restartPending) >= 0')" "true" \
   "...and the panel tooltip gains the two words that say so"
-assert_eq "$(js 'V("reboot-needed",false).tooltipSub.replace(/(^| - )restart pending$/, "")')" \
+assert_eq "$(js 'V("reboot-needed",false).tooltipSub.replace(/(^| · )restart pending$/, "")')" \
   "$(js 'V("live",false).tooltipSub')" \
   "...appended, changing nothing else that was already in it"
 # ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
@@ -2030,23 +2030,23 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,bac
 STG=',offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true}'
 STGN=',offline_staged:{staged_at:"x",count:null,armed:true}'
 assert_eq "$(vm '{}' "$STG" 0 'stagedMessage')" \
-  "61 updates are staged - they install on the next restart" \
+  "61 updates are staged and install on the next restart" \
   "a staged transaction says how many updates the restart will install"
 assert_eq "$(vm '{}' "$STGN" 0 'stagedMessage')" \
-  "Updates are staged - they install on the next restart" \
+  "Updates are staged and install on the next restart" \
   "an unknown count drops the number rather than the sentence"
 # ONE update is a whole different sentence, not the plural one with a 1 in it. Same rule the rest
 # of this file already follows for minutes, hours, days, packages and the header's own count.
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:1,armed:true}' 0 'stagedMessage')" \
-  "1 update is staged - it installs on the next restart" \
-  "a single staged update reads as one, verb and pronoun included"
+  "1 update is staged and installs on the next restart" \
+  "a single staged update reads as one, verb included"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:2,armed:true}' 0 'stagedMessage')" \
-  "2 updates are staged - they install on the next restart" \
+  "2 updates are staged and install on the next restart" \
   "...and two is back to the plural"
 # Zero is not a sentence anybody should ever read, but the count comes from another program and
 # the singular branch must not be the one that catches it.
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:0,armed:true}' 0 'stagedMessage')" \
-  "0 updates are staged - they install on the next restart" \
+  "0 updates are staged and install on the next restart" \
   "...and zero takes the plural, not the singular"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",armed:true}' 0 'stagedMessage')" \
   "$(js 'L.COPY.stagedUnknownCount')" "...and a key that never carried a count reads the same"
@@ -2120,7 +2120,7 @@ GENERIC='{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true,holds_confli
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedType')" "positive" \
   "an armed stage with no hold behind it is the Positive banner it always was"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedMessage')" \
-  "61 updates are staged - they install on the next restart" \
+  "61 updates are staged and install on the next restart" \
   "...saying the same sentence, word for word"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRestart')" "true" "...still offering the restart"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRebuild')" "false" "...and offering no rebuild"
@@ -2369,7 +2369,7 @@ assert_eq "$(js "L.stagedVariantOf($CONF1,true).message.indexOf(\"%1\")")" "-1" 
 # The reassuring banner is untouched: it has no conflict, so it has no cost to disclose.
 ARMED_PLAIN='{staged_at:"x",count:61,armed:true}'
 assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
-  "61 updates are staged - they install on the next restart" \
+  "61 updates are staged and install on the next restart" \
   "an ordinary armed stage still says what the restart will do, and nothing about rebuilding"
 
 # --- the message stack, capped at two (panel proposal 6 / decision D5) ---------------------------
@@ -2562,7 +2562,7 @@ assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign
 # The list between the passes failed (reclaim.last.skipped): the extensions were left in place and
 # nothing was refused. What went comes first, as the CLI prints it.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', '', Object.assign($RC_LAST,{partial:true,skipped:true,error:'Flatpak did not answer when asked what is unused'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more."}' \
+  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more."}' \
   "a second pass skipped for a failed list says the extensions were left in place, not that Flatpak refused"
 assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
   "Removed 2 runtimes. $(js 'L.COPY.reclaimSkipped')" "...with no size, the CLI's count first"
@@ -2794,11 +2794,11 @@ assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
 assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
 assert_eq "$(js 'L.COPY.noPackageChanges')" "No package changes" "copy: a run that changed nothing"
 assert_eq "$(js 'L.COPY.updateFailed')" "Update failed" "copy: a run that failed"
-assert_eq "$(js 'L.COPY.stagedOne')" "1 update is staged - it installs on the next restart" \
+assert_eq "$(js 'L.COPY.stagedOne')" "1 update is staged and installs on the next restart" \
   "copy: the staged message for exactly one update"
-assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged - they install on the next restart" \
+assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are staged and install on the next restart" \
   "copy: the staged message when the count is not known"
-assert_eq "$(js 'L.COPY.stagedTail')" "are staged - they install on the next restart" \
+assert_eq "$(js 'L.COPY.stagedTail')" "are staged and install on the next restart" \
   "copy: the tail the counted spelling shares with it"
 # The HEADER while a transaction is armed. Three spellings, the same three the banner has and for
 # the same reasons: the count can be unknown, and one update moves the noun and the verb together.

@@ -219,7 +219,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
 - **state-broken.json** - captured, on a box where `install.sh` has never run: the refresh helper
   path does not exist and `include_flatpak=false` leaves nothing else that can answer. Result:
   `status: "stale"`, `last_success: null`, zero items in either backend, and the CLI's own
-  diagnosis in `error` - "dnf check failed: root helper not installed - run ./install.sh (see:
+  diagnosis in `error` - "dnf check failed: root helper not installed. Run ./install.sh (see:
   kempt doctor)". Recipe: a fresh config/state pair, `KEMPT_REFRESH_HELPER` pointed at a
   nonexistent path, `kempt config set include_flatpak false`, then `kempt check`.
 

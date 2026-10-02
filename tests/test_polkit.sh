@@ -62,7 +62,7 @@ assert_exit 2 "render refuses a rule widened inside the block it is allowed to h
 # ...and the refusal has to be readable by whoever hits it, because the person running
 # enable-passwordless is being told their grant did NOT happen. Checked here, before the next
 # assertion overwrites last_output.
-grep -qF 'refusing' "$TESTTMP/last_output" \
+grep -qF 'will not install' "$TESTTMP/last_output" \
   && echo "ok: ...and says it is refusing rather than naming a 'scope check'" \
   || { echo "FAIL: the refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
 assert_eq "$(render_stdout "$TESTTMP/tmpl-widened")" "" "widened render prints nothing"
@@ -80,7 +80,7 @@ awk '/^polkit.addRule/ { print; printf "    // note\r    if (subject.user == \"@
     "$RULES_IN" > "$TESTTMP/tmpl-cr"
 assert_exit 2 "render refuses code hidden after a carriage return in a comment" -- \
   render_passwordless_rule "$TESTTMP/tmpl-cr"
-grep -qF 'refusing' "$TESTTMP/last_output" \
+grep -qF 'will not install' "$TESTTMP/last_output" \
   && echo "ok: ...and says it is refusing" \
   || { echo "FAIL: the CR refusal does not read as a refusal"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
 assert_eq "$(render_stdout "$TESTTMP/tmpl-cr")" "" "CR-hidden render prints nothing"

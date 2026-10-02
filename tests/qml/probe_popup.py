@@ -1083,10 +1083,10 @@ p.check("...the badge still the true actionable count, which no restart has run 
 p.check("...and Update Now GONE, because the work it would start is already done and waiting",
         lev("updateButton.visible"), False)
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
-        "and not spoken", said(), ["61 updates are staged - they install on the next restart"])
+        "and not spoken", said(), ["61 updates are staged and install on the next restart"])
 p.check("...saying how many updates the restart will install",
         lev("stagedMessage.text"),
-        "61 updates are staged - they install on the next restart")
+        "61 updates are staged and install on the next restart")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...and offering the restart, since no restart message is carrying it",
