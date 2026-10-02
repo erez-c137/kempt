@@ -16,8 +16,8 @@ Two more commands run as root, only when you run them. Each raises its own `pkex
 pkexec's generic authentication, outside Kempt's actions. `kempt enable-passwordless` runs
 `install(1)` to write one polkit rule, and `kempt disable-passwordless` runs `rm -f` on that file.
 Both are fixed to `/etc/polkit-1/rules.d/49-kempt.rules` (see
-[Passwordless mode](#passwordless-mode)). A checkout install also runs one `pkexec /usr/bin/bash -c` from
-`install.sh` (see [Accepted limitations](#accepted-limitations)).
+[Passwordless mode](#passwordless-mode)). A checkout install also runs one
+`pkexec /usr/bin/bash -c` from `install.sh` (see [Accepted limitations](#accepted-limitations)).
 
 The helpers are `/usr/libexec/kempt-{refresh,apply}` from the package and
 `/usr/local/libexec/...` from a checkout install. Each polkit action's `exec.path` pins the path
@@ -70,11 +70,12 @@ your home, so `flatpak update --user` needs no polkit at all. Kempt runs it afte
 
 **Removing unused Flatpak runtimes runs as you too.** `kempt reclaim`, and the removal after an
 update with `reclaim=automatic`, run `flatpak uninstall --system --no-related --noninteractive`
-with the refs you were shown, by name. Nothing else is named, and `--no-related` stops Flatpak
-adding related refs. Kempt lists the runtimes again just before, and removes nothing unless the
-list is still exactly that set. Flatpak refuses to remove a runtime an installed app uses, and
-Kempt never passes `--force-remove`. Flatpak removes an extension an app uses, so Kempt removes
-extensions in a second pass, after listing again, and only those still unused.
+with the refs you were shown, by name. `--no-related` stops Flatpak adding related refs.
+
+Kempt lists the runtimes again just before, and removes nothing unless the list is still that set.
+Flatpak refuses to remove a runtime an installed app uses, and Kempt never passes
+`--force-remove`. Flatpak does remove an extension an app uses. So Kempt removes extensions in a
+second pass, after listing again, and only those still unused.
 
 Flatpak does the removal through its own system helper, which asks polkit for
 `org.freedesktop.Flatpak.runtime-uninstall`. This gives you nothing you did not already have.
@@ -88,8 +89,8 @@ Kempt refuses to remove as root, under `sudo` or under `pkexec`. Flatpak counts 
 own apps as users of a system runtime. As root it would see root's apps instead of yours, and
 could remove a runtime one of yours needs. For the same reason, Flatpak cannot see another
 account's own apps. When more than one person may use the machine, `reclaim=automatic` acts as
-`ask`, so a person always agrees to each removal (see
-[configuration](configuration.md#keys)).
+`ask`, so a person agrees to each removal.
+[configuration.md](configuration.md#unused-flatpak-runtimes) lists the signals.
 
 ## Validate before exec
 
@@ -209,8 +210,9 @@ as you can do these without asking you:
 
 It cannot stage over, arm or discard a stored Fedora release upgrade, because all three offline
 verbs refuse while one is stored. It can still run a live upgrade, which may leave that release
-upgrade out of date (see [above](#the-helper-refuses-to-touch-a-stored-fedora-release-upgrade)). It cannot install a package of its choosing, pass an arbitrary
-flag or run an arbitrary command. That bound is smaller than sudo, but it is more than nothing.
+upgrade out of date (see
+[above](#the-helper-refuses-to-touch-a-stored-fedora-release-upgrade)). It cannot install a
+package of its choosing, pass an arbitrary flag or run an arbitrary command. That bound is smaller than sudo, but it is more than nothing.
 
 Updating Flatpak apps is outside that bound, because the helper has no Flatpak verb. Flatpak's own
 policy grants it to an active local session with no password, with or without Kempt.
@@ -392,22 +394,20 @@ left in place.
   user runs. That includes the passwordless rules template, which `enable-passwordless` renders
   before handing the result to root. Keep the checkout in your own home or workspace, and out of
   anywhere group- or world-writable. Root-owned files are unaffected.
-- **Removing unused runtimes is system scope only.** Per-user runtimes are counted and updated,
-  and stay installed. Flatpak counts your per-user apps as users of system runtimes, so a system runtime
-  one of them needs is never offered.
-- **Holds apply to Kempt only.** They are Kempt's own exclusion list; a manual
-  `sudo dnf5 upgrade` ignores them.
-- **`install.sh` runs one `pkexec /usr/bin/bash -c`.** Every repo path is passed as a positional argument,
-  outside the script text. A checkout path containing a quote cannot break or inject into the root
-  command.
+- **Removing unused runtimes is system scope only.** Runtimes installed for you only are updated,
+  and never removed.
+- **Holds apply to Kempt only.** A manual `sudo dnf5 upgrade` ignores them.
+- **`install.sh` runs one `pkexec /usr/bin/bash -c`.** Every repo path is passed as a positional
+  argument, outside the script text. A checkout path containing a quote cannot break or inject into
+  the root command.
 - **Inside the retention window, an armed offline transaction can be replaced without a prompt.**
   `dnf-offline-stage` is covered by the window, and staging over a transaction replaces it. For a
   few minutes after you authenticate a stage, another process running as you can swap the
-  transaction your next restart will install, with no dialog. The same
-  bound applies. It can stage only what a Kempt run would stage, and the helper refuses to replace
-  a stored Fedora release upgrade. `kempt doctor` compares Kempt's marker with dnf5's stored
-  transaction. When they disagree, it FAILs and lists the differences both ways. That detects a
-  replacement afterwards; it cannot prevent one.
+  transaction your next restart will install, with no dialog. The same bound applies. It can stage
+  only what a Kempt run would stage, and the helper refuses to replace a stored Fedora release
+  upgrade. `kempt doctor` compares Kempt's marker with dnf5's stored transaction. When they
+  disagree, it FAILs and lists the differences both ways. That detects a replacement afterwards,
+  but cannot prevent one.
 - **dnf5 publishes the staged package list to every account on the machine.** The stored
   transaction is `/usr/lib/sysimage/libdnf5/offline/transaction.json`, `root:root` mode 644 in a
   755 directory. It holds the full resolved NEVRA list, so any local user can read which packages
