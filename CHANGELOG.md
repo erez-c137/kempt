@@ -30,7 +30,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dnf or Flatpak lock after three tries. A script can wait and try again.
 - **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
   Flatpak's lock through all three tries, the summary, notification and history say so and say to
-  try again, in place of Flatpak's raw error line.
+  try again, in place of Flatpak's raw error line. Both reasons now read as short sentences.
 - **Updates run in the widget by default.** A new install no longer opens a terminal window. An
   install that already had the terminal keeps it: the first `kempt` command after the upgrade
   writes `surface=terminal` to the config file. A config file that names a surface is never

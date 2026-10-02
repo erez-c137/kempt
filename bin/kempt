@@ -743,8 +743,9 @@ log_warn() {  # log_file message
 # rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
 KEMPT_DNF_LOCK_RE='failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock'
 KEMPT_FLATPAK_LOCK_RE='unable to lock|\blocking repo.*failed|opening lock file.*failed'
-KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
-KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and did not release it after three tries - the Flatpak update did not finish; try again in a few minutes"
+# Lower case at the start like every other reason: it is shown after "Update failed: ".
+KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. Try again in a few minutes."
+KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and was still busy after three tries. The Flatpak update did not finish. Try again in a few minutes."
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
   local attempt rc before_sz lock_re="$KEMPT_DNF_LOCK_RE" busy="$KEMPT_BUSY_REASON_DNF"

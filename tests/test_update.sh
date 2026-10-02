@@ -1182,6 +1182,9 @@ grep -q 'run failed rc=7: another program is using the package system' "$KEMPT_S
   && echo "ok: ...and the event log names the same rc and reason" \
   || { echo "FAIL: the event log does not say rc=7 with the busy reason"; _fail=1; }
 assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
+assert_eq "$(jq -r .error "$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)")" \
+  "another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. Try again in a few minutes." \
+  "...and the reason is Kempt's busy sentence for dnf, in short sentences"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
 assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "1" "gives up loudly after the last attempt"
 
@@ -1202,7 +1205,7 @@ case "$(jq -r .error "$lk_hist")" in
   *) echo "ok: ...not the lock-file line, which reads as a broken installation" ;;
 esac
 case "$(jq -r .error "$lk_hist")" in
-  *"try again"*) echo "ok: ...and it says what to do, because there is something to do" ;;
+  *"Try again"*) echo "ok: ...and it says what to do, because there is something to do" ;;
   *) echo "FAIL: the reason does not say to try again"; _fail=1 ;;
 esac
 grep -q 'using the package system' "$WORLD/notifications" \
@@ -1965,7 +1968,7 @@ fpb_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)
 assert_eq "$(jq -r .status "$fpb_hist")" "failed" "...and the run is recorded as failed"
 assert_eq "$(jq -r .backends.dnf.status "$fpb_hist")" "ok" "...with dnf still ok"
 assert_eq "$(jq -r .error "$fpb_hist")" \
-  "another program is using Flatpak (Discover, PackageKit or another flatpak command) and did not release it after three tries - the Flatpak update did not finish; try again in a few minutes" \
+  "another program is using Flatpak (Discover, PackageKit or another flatpak command) and was still busy after three tries. The Flatpak update did not finish. Try again in a few minutes." \
   "...and the reason is Kempt's busy sentence for Flatpak"
 grep -q 'another program is using Flatpak' "$WORLD/notifications" \
   && echo "ok: ...and the notification says the same" \
