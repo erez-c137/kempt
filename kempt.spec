@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.7
+Version:        0.1.8
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -270,6 +270,15 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Sat Oct 03 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
+- Updates run in the widget by default. Installs that used the terminal keep
+  it, and the widget offers the switch once.
+- Kernel, systemd and desktop updates ask first when run outside a terminal.
+- The widget can check its own installation and turn off Discover's notifier.
+- kempt update exits 7 when another program holds the package lock.
+- New kempt check --strict and kempt history --json for scripts.
+- Ships the widget guide, docs/widget.md.
+
 * Fri Oct 02 2026 Erez <erez.c137@protonmail.com> - 0.1.7-1
 - kempt reclaim frees the space unused Flatpak runtimes take, and the widget
   offers it when there is 100 MB or more to free.

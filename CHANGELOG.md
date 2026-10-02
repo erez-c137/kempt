@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-03
+
 ### Added
 
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
@@ -1066,7 +1068,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/erez-c137/kempt/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/erez-c137/kempt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/erez-c137/kempt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5

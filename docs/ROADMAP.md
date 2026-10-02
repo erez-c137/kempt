@@ -14,6 +14,7 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **0.1.5:** a run reports only its own dnf transaction.
 - **0.1.6:** Kempt reads dnf5's JSON output on Fedora 44 and later.
 - **0.1.7:** `kempt reclaim` frees the space unused Flatpak runtimes take.
+- **0.1.8:** updates run in the widget, with no terminal needed.
 
 ## Now
 
@@ -22,27 +23,6 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
-
-## Next: 0.1.8, easier from the first update
-
-0.1.8 is for people trying Kempt for the first time. It removes the places that assumed you know a
-terminal. Everything below is done on the main branch and waits for the release.
-
-- **Done: updating without a terminal.** New installs update inside the popup. Before kernel and
-  desktop updates, the popup asks: **Install on Next Restart** or **Install Now**. An install that
-  already used the terminal keeps it, and the popup offers the switch once.
-- **Done: fixes you can click.** Where the popup said to run `kempt doctor`, it now offers
-  **Check Installation**.
-- **Done: a clear message when another updater is busy.** A busy Flatpak now gets the same short
-  reason as a busy dnf.
-- **Done: one update notifier.** Discover has its own update notifier, whose count can differ from
-  Kempt's. The popup offers to turn it off, and Settings can turn it back on.
-- **Done: for scripts.**
-  - `kempt check --strict` exits 1 when a check could not finish.
-  - `kempt update` exits 7 when another program holds the package lock, so a script can retry.
-  - `kempt history --json` prints every past run.
-
-After 0.1.8, feedback from new users decides what to improve next.
 
 ## 0.2: updates that take care of themselves
 

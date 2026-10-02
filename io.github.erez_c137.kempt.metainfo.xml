@@ -49,15 +49,15 @@
     <!-- width and height must be the image's real size: the validator compares them. -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
-      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>After staging: the updates install on the next restart, or can be discarded</caption>
-      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-staged.png</image>
+      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-staged.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: where updates run, how often Kempt checks, restart reminders and the password settings</caption>
-      <image type="source" width="845" height="940">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-settings.png</image>
+      <image type="source" width="845" height="940">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -66,6 +66,17 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.1.8" date="2026-10-03" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.8</url>
+      <description>
+        <p>
+          Updates now run inside the widget, with no terminal window. Before kernel and desktop
+          updates, Kempt asks whether to install now or on the next restart. An install that used
+          the terminal keeps it, and the widget offers the switch once. The widget can check its
+          own installation, and it can turn off Discover's update notifier so you see one count.
+        </p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-10-02" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.7</url>
       <description>
