@@ -24,7 +24,7 @@ Using both gives you two Kempt icons, so you probably want to turn one off.
 | Update icon with a count badge | Updates pending | What an update would change now, held packages left out. The tooltip names the first three, session-critical ones such as the kernel first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still counts held packages. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and that check's time. |
-| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem and points at `kempt doctor`. |
+| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The popup offers **Check Installation**. |
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 
@@ -86,7 +86,8 @@ The header reads one of:
 more, then checks. On battery or a metered connection it checks without fetching. After a failed
 check, the footer adds `last check failed` and this button's tooltip gives the reason, such as
 `dnf check failed: repo 'updates' unavailable`. While a check or update runs, it is greyed out with
-a spinner. It is also in the icon's right-click menu and the tray's **More actions** menu.
+a spinner. Its answer is read out to a screen reader, and the panel icon says it while the widget
+is closed. It is also in the icon's right-click menu and the tray's **More actions** menu.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has the arrow and the gear, so the popup hides its copies.
@@ -124,17 +125,19 @@ left out. If that hides the restart message, the footer says `restart pending` i
    the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way is to install them
    on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
    staged. When you press **Update Now** and updates run outside a terminal, it asks first: it
-   moves to the top, adds **Install Now**, and gives **Install on Next Restart** the keyboard focus.
-   In a terminal, the terminal asks instead.
+   moves to the top (below a Check Installation result), says the update has not started, adds
+   **Install Now**, and gives **Install on Next Restart** the keyboard focus. In a terminal, the
+   terminal asks instead. While a Fedora release upgrade is stored, it does not ask, and **Update
+   Now** updates live.
 8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
    install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches
    **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
    hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)).
 9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-   from Kempt's, and its checks can make an update wait."** It shows once, after message 8 is
-   answered, while Discover's notifier starts with your session. **Turn Off Discover's Notifier**
+   from Kempt's, and its checks can make an update wait."** It shows after message 8 when that one
+   is showing, while Discover's notifier starts with your session. **Turn Off Discover's Notifier**
    turns it off for you. **Keep Discover's Notifier** changes nothing. Either answer hides the
-   message for good. Settings can turn the notifier back on.
+   message for good, and the popup shows what was done. Settings can turn the notifier back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 100 MB to free, or an amount Kempt could not measure. **Show What** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
@@ -255,7 +258,7 @@ the changes. Below a megabyte it reads `< 1 MB`.
 **Update Now** installs the updates wherever **Run updates in** says. After a press it shows a
 spinner until Kempt answers, so one press starts one run. It is hidden when there is nothing to
 update, and while an update is staged. When the update includes a kernel or other desktop packages,
-it asks first (message 7 above).
+it asks first (message 7 above), unless a Fedora release upgrade is stored.
 
 ### While an update runs
 
@@ -352,6 +355,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
 | **Turn Off Discover's Notifier**, **Turn On Discover's Notifier**, **Keep Discover's Notifier** | `kempt discover-notifier off`, `on`, `keep` |
+| **Use This Widget**, **Keep the Terminal Window** | `kempt config set surface popup`, `terminal` |
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | Every setting | `kempt config set` |
 
