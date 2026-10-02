@@ -106,7 +106,8 @@ not found afterwards, log out and back in. The
 | Document | What is in it |
 | --- | --- |
 | [docs/install.md](docs/install.md) | Installing from the package or a checkout, passwordless updates, and removing Kempt |
-| [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes, and what the widget shows |
+| [docs/widget.md](docs/widget.md) | What the panel widget shows, and what each message, button and setting does |
+| [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes |
 | [docs/configuration.md](docs/configuration.md) | Every setting with its default, holds, and where Kempt keeps its files |
 | [docs/architecture.md](docs/architecture.md) | How Kempt is built, the state file format, and how to add a package manager |
 | [docs/security.md](docs/security.md) | What runs as root, and what passwordless updates allow |

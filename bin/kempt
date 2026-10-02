@@ -3665,7 +3665,7 @@ cmd_disable_passwordless() {
 #     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
 #     problem, or a writer
 #     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
-#     same table and calls that third case the one that surprises people - keep the two in step.
+#     same table - keep the two in step.
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock

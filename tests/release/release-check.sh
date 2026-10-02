@@ -135,6 +135,7 @@ sec "what the package carries"
 RPMFILE=$(ls /localrepo/kempt-$VER*.noarch.rpm | head -1)
 rpm -qlp "$RPMFILE" | grep -q 'share/man/man1/kempt.1' && ok "the package carries the man page" || bad "no man page in the package"
 rpm -qlp "$RPMFILE" | grep -q 'share/doc/kempt/docs/usage.md' && ok "...and the user guides" || bad "no docs in the package"
+rpm -qlp "$RPMFILE" | grep -q 'share/doc/kempt/docs/widget.md' && ok "...and the widget guide" || bad "no widget guide in the package"
 rpm -qlp "$RPMFILE" | grep -q 'share/doc/kempt/README.md' && ok "...including the README its links start from" || bad "no README in the package"
 rpm -qlp "$RPMFILE" | grep -q 'share/doc/kempt/docs/RELEASING.md' \
   && bad "the maintainer's release procedure is shipping to users" \
