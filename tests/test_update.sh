@@ -1999,6 +1999,34 @@ esac
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
+# --- a session in another language. LC_ALL=C.UTF-8 does not stop gettext following LANGUAGE, so
+# dnf and flatpak would print their lock lines in German, and the run would not see a busy lock.
+# Each stub prints the English line only when LANGUAGE is C or unset, as gettext does.
+cat > "$TESTTMP/apply-stub" <<'STUB'
+#!/usr/bin/env bash
+case "${LANGUAGE-}" in
+  ""|C) echo "Failed to obtain rpm transaction lock. Another transaction is in progress." >&2 ;;
+  *) echo "Fehler beim Sperren der RPM-Transaktion." >&2 ;;
+esac
+exit 1
+STUB
+push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
+rc=0; LANGUAGE=de_DE:de "$KEMPT" update --no-flatpak --surface=background >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "7" "with LANGUAGE=de, a busy rpm lock still exits 7"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+case "\${LANGUAGE-}" in
+  ""|C) echo "error: Unable to lock /var/lib/flatpak/repo/.lock: Resource temporarily unavailable" >&2 ;;
+  *) echo "Fehler: Sperren nicht möglich" >&2 ;;
+esac
+exit 1
+STUB
+push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
+rc=0; LANGUAGE=de_DE:de "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "7" "...and so does a busy Flatpak lock"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+
 # --- dnf's side of the same predicate, driven from the tools' own wordings (sources in
 # tests/fixtures/MANIFEST.md). A busy line is retried. A line that only names a lock, such as a
 # dependency error about kscreenlocker, is tried once and never reported as a busy package system.

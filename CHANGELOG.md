@@ -56,6 +56,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A busy package system is recognised in every language.** In a session set to German or
+  another language, dnf and Flatpak printed their lock messages translated, so Kempt did not retry
+  and reported a plain failure. Their output during a run is now in English.
 - **The widget without its engine says each thing once.** The header says Kempt's engine is not
   installed. The message under it now starts at "Nothing can check for updates yet.", followed by
   the install commands.
