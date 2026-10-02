@@ -147,7 +147,7 @@ left out. If that hides the restart message, the footer says `restart pending` i
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it
 found, or says it found none. **Show Full Report** shows the whole report, which you can select and
 copy. **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even
-when two others are up. It goes when you close it (even mid-check), close the popup, or a check or
+when two others are up. It goes when you close it (even mid-check), close the popup, ask for a check, or when
 an update starts.
 
 ### The staged banner

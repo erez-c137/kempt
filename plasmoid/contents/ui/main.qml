@@ -403,8 +403,10 @@ PlasmoidItem {
             checkFailNote = "";
         }
         // ...and a Check Installation answer, which described the installation before this check.
-        // One still waiting its turn is left alone: it answers a press made since.
-        if (!doctorRunning) dismissDoctor();
+        // Only for a check somebody asked for: the hourly timer or a file change must not take an
+        // answer away while it is being read. One still waiting its turn is left alone: it
+        // answers a press made since.
+        if (!auto && !doctorRunning) dismissDoctor();
         // Asked again while one is running: coalesce, never drop. The running check read its
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
