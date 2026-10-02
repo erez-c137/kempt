@@ -298,7 +298,7 @@ run as root.
 
 | Key | Meaning |
 | --- | --- |
-| `mode` | `ask` or `automatic`: the mode Kempt acts on. It is `ask` whatever the setting on an image-based system, or when more than one person may use the machine ([configuration](configuration.md#keys) lists the signals). |
+| `mode` | `ask` or `automatic`: the mode Kempt acts on. It is `ask` whatever the setting on an image-based system, or when more than one person may use the machine ([configuration](configuration.md#unused-flatpak-runtimes) lists the signals). |
 | `refs[]` | Every unused ref: `ref`, `commit`, `since` (UTC, when first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). |
 | `offerable_bytes` | The estimated size of the offered list. `null` when unknown or nothing is offered yet. |
 | `digest` | Names the offered set, and is what `kempt reclaim --expect` takes. `""` when nothing is offered. |
