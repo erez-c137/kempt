@@ -85,6 +85,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   how old the counts are. So is the age of the lists when the fetch was skipped. It works from the
   button and the menu entry, with the widget open or closed. Checks that run on their own add
   nothing new.
+- **A hold or a setting no longer reports a failure while Kempt is still saving it.** The widget
+  and Settings gave up after 15 seconds, while another `kempt` command can make a write wait 30.
+  They now wait 40 seconds, and a timeout says the change may not have been made.
 
 ## [0.1.7] - 2026-10-02
 
