@@ -425,7 +425,7 @@ KCM.SimpleKCM {
 
         QQC2.Label {
             visible: !autoAccept.checked
-            text: i18n("With confirmation on, updates can only run in a terminal window. The other places have no way to ask you. Your choice below is kept for when you turn confirmation off again.")
+            text: i18n("With confirmation on, updates can only run in a terminal window. The other choices have no way to ask you. Your choice below is kept for when you turn confirmation off again.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20

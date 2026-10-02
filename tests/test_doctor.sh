@@ -870,7 +870,7 @@ KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgr
 # grep over the whole report passed with the info arm deleted entirely - proved by deleting it.
 relup_info="$(grep -E '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" || true)"
 case "$relup_info" in
-  *"restart has already been past it"*) echo "ok: a stranded release upgrade is described as one a restart has already passed" ;;
+  *"restart went by without installing it"*) echo "ok: a stranded release upgrade is described as one a restart has already passed" ;;
   *) echo "FAIL: the info row does not describe the stranded state"; echo "  got: $relup_info"; _fail=1 ;;
 esac
 case "$relup_info" in

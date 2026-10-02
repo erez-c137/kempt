@@ -947,7 +947,7 @@ recommend_offline_if_risky() {
         local fam_n; fam_n="$(wc -l <<<"$fams")"
         # The tail names the offline surface only when it is available: recommending it while a
         # release upgrade is stored points at a run that aborts in pre-flight.
-        local tail_advice=". Consider Install on Next Restart"
+        local tail_advice=". Consider Install on Next Restart in the widget, or: kempt update --surface=offline"
         [[ "$relup_blocks" == true ]] && tail_advice=""
         # The same vocabulary the terminal listing and the popup use: family_label, or the bare
         # family when Kempt ships no label for it. A notification calling mesa "mesa" while the
@@ -1514,10 +1514,10 @@ cmd_update() {
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="staged, but not set to install on the restart, because $(apply_refusal_reason). See: kempt doctor"
+        reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
-        reason_override="staged, but could not set it to install on the restart"
+        reason_override="the updates were staged, but could not be set to install on the next restart"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
@@ -1784,7 +1784,7 @@ cmd_update() {
   else
     # "the run itself", not "the update": on the offline surface nothing has been installed - a
     # transaction was staged, and it installs on the next restart. This line is printed on both.
-    log_warn "$log" "warning: this run is not in the history. The run itself finished"
+    log_warn "$log" "warning: the run finished, but it could not be added to the history"
     log_event "history entry not written (state directory unwritable?)"
     rm -f "$hist"
     hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
@@ -2978,7 +2978,7 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 doctor_exec_path() {  # label action_id helper_seam annotated_path
   local label="$1" action="$2" seam="$3" annotated="$4" pinned
   if [[ "$seam" != "$annotated" ]]; then
-    doctor_info "polkit exec.path ($label): not compared, because a KEMPT_ setting points the helper elsewhere ($seam)"
+    doctor_info "polkit exec.path ($label): not compared, because an environment variable points the helper elsewhere ($seam)"
     return 0
   fi
   # Missing or unreadable is already a FAIL above; one problem must not be counted twice.
@@ -3028,7 +3028,7 @@ doctor_helper() {  # label seam_path annotated_path
   fi
   if [[ "$path" != "$annotated" ]]; then
     # Not the path polkit execs, so its ownership says nothing about what root would run.
-    doctor_info "root helper ($label): $path (set by a KEMPT_ variable, ownership not checked)"
+    doctor_info "root helper ($label): $path (set by an environment variable, ownership not checked)"
     return 0
   fi
   # stat can fail on an unreachable path, and a helper we cannot INSPECT is not a broken one.
@@ -3150,7 +3150,7 @@ doctor_tool_rows() {
   elif [[ "$term_needed" == true ]]; then
     doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
   else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found, and surface=$surface does not need it"
+    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$surface"
   fi
 
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
@@ -3161,7 +3161,7 @@ doctor_tool_rows() {
   elif is_true "$(config_get include_flatpak)"; then
     doctor_fail "flatpak command '$fp_cmd' not found. With include_flatpak=true, every check reports Flatpak stale. Install flatpak or run: kempt config set include_flatpak false"
   else
-    doctor_info "flatpak command '$fp_cmd' not found, and include_flatpak=false does not need it"
+    doctor_info "flatpak command '$fp_cmd' not found. Kempt does not need it while include_flatpak=false"
   fi
   # Apps installed with `flatpak install --user`. Listed only when that installation exists,
   # because any --user command creates one.
@@ -3409,7 +3409,7 @@ doctor_offline_rows() {
           # something this one disproves: it is not waiting for a restart, and "downloaded but not
           # started" quotes a status word that says the opposite. The FAIL row further down is the
           # one that gives the remedy - two rows repeating the same two commands is one too many.
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart has already been past it. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not stage updates while it is there, because that would cancel it" ;;
         incomplete)
           # `absent` here is a readable file with no `status` key, not a missing one - a missing one
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.

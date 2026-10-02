@@ -227,8 +227,8 @@ pending, and the popup stops offering to stage them again. It says:
 ```
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
-discards it and the run fails with `staged, but could not set it to install on the restart`. Staging again
-replaces the previous staged update. If that fails:
+discards it. The run fails with `the updates were staged, but could not be set to install on the
+next restart`. Staging again replaces the previous staged update. If that fails:
 
 - Before anything was replaced, the previous one still installs. The run fails with
   `could not rebuild the staged update. The previous one is unchanged and still installs on the

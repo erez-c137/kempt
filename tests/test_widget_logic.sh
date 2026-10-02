@@ -489,8 +489,8 @@ done
 # The THIRD state, which reads as neither of the others: `ready` with the boot symlink gone. A
 # restart has already been past it. Saying "installs on the next restart" promises something no
 # restart will do; saying "not started yet" quotes a status word that says the opposite.
-assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart has already been past it\") >= 0")" "true" \
-  "a stranded upgrade says a restart has already been past it"
+assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart went by without installing it\") >= 0")" "true" \
+  "a stranded upgrade says a restart went by without installing it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
   "...and never promises the next restart will install it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
@@ -1391,8 +1391,8 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"d
 # harvest writes "offline (applied on reboot)" and its counts are real changes.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28}"))')" \
   "Updates are staged and install on the next restart" "a staging run reports the staging, not the zero rpm delta"
-assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"staged, but could not set it to install on the restart\"}"))')" \
-  "Update failed: staged, but could not set it to install on the restart" "a FAILED staging run is a failure, never a promise"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"the updates were staged, but could not be set to install on the next restart\"}"))')" \
+  "Update failed: the updates were staged, but could not be set to install on the next restart" "a FAILED staging run is a failure, never a promise"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Updated 2 packages in 0s" "the harvest entry is not a staging run - its counts render"
 # ...and the staging run that staged NOTHING, which is `offline` and `ok` exactly like the first

@@ -1107,7 +1107,7 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
   # and live code to polkit. Refusing every other control byte and all non-ASCII closes that class
   # instead of listing its members; the shipped template is plain ASCII.
   if LC_ALL=C grep -q $'[^\t -~]' <<<"$text"; then
-    echo "rendered rule contains a control or non-ASCII character, so Kempt is refusing to install it" >&2
+    echo "rendered rule contains a control or non-ASCII character, so Kempt will not install it" >&2
     return 2
   fi
   # Self-check by EXACT MATCH against the rule this function is allowed to produce, never by
@@ -1129,7 +1129,7 @@ render_passwordless_rule() {  # template_file → the verified rule on stdout, o
   expected+=" subject.user == \"$u\" && subject.active && subject.local) {"
   expected+=' return polkit.Result.YES; } });'
   if [[ "$code" != "$expected" ]]; then
-    echo "rendered rule is not the rule this command installs, so Kempt is refusing to install it" >&2
+    echo "rendered rule is not the rule this command installs, so Kempt will not install it" >&2
     return 2
   fi
   printf '%s\n' "$text"

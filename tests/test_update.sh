@@ -438,9 +438,9 @@ grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
 assert_exit 0 "a stage that was never armed leaves no marker" -- test ! -f "$marker"
 armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
-assert_eq "$(jq -r .error "$armhist")" "staged, but could not set it to install on the restart" \
+assert_eq "$(jq -r .error "$armhist")" "the updates were staged, but could not be set to install on the next restart" \
   "...naming the step that failed, not the first error-shaped line in the log"
-grep -q 'run failed rc=1: staged, but could not set it to install on the restart' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'run failed rc=1: the updates were staged, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
 grep -q 'FAILED' "$WORLD/notifications" \
   && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
@@ -463,7 +463,7 @@ assert_eq "$bothrc" "1" "a failed unwind does not change the verdict"
 grep -q 'could not discard' <<<"$botherr" \
   && echo "ok: a failed unwind warns" || { echo "FAIL: no warning for a failed unwind - got: $botherr"; _fail=1; }
 bothhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$bothhist")" "staged, but could not set it to install on the restart" \
+assert_eq "$(jq -r .error "$bothhist")" "the updates were staged, but could not be set to install on the next restart" \
   "...and the reason stays the arm, not the cleanup that failed after it"
 
 # The run is over the moment the helper returns: a report step that dies afterwards would take the
@@ -506,7 +506,7 @@ grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   && echo "ok: the failure notification carries the command that clears what is left" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 armdbl="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$armdbl")" "staged, but could not set it to install on the restart" \
+assert_eq "$(jq -r .error "$armdbl")" "the updates were staged, but could not be set to install on the next restart" \
   "...while the recorded reason still names the step that failed"
 
 # --- a REBUILD whose STAGE fails, which is the state nothing used to unwind -----------------------
@@ -581,7 +581,7 @@ sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 # --- a stage with nothing in it is not a failed stage --------------------------------------------
 # Hold your only pending update, then stage: `dnf5 upgrade --offline` prints "Nothing to do", exits
 # 0 and stores no transaction, so arming fails with "No offline transaction is stored". Reported as
-# "staged, but could not set it to install on the restart", rc 1, with a FAILED notification - blaming the arm
+# "staged but could not arm the restart install", rc 1, with a FAILED notification - blaming the arm
 # for a transaction that was never built, over the user's own holds doing exactly what they asked.
 # Found by running it on a real machine with one pending update held.
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
@@ -606,7 +606,7 @@ grep -q 'offline stage found nothing to stage (every pending update is held)' "$
 grep -q 'Nothing to stage, because every pending update is held' "$WORLD/notifications" \
   && echo "ok: ...and the user is told their holds did it, not that Kempt failed" \
   || { echo "FAIL: wrong notification"; _fail=1; cat "$WORLD/notifications"; }
-grep -q 'could not arm' "$WORLD/notifications" \
+grep -q 'could not be set to install' "$WORLD/notifications" \
   && { echo "FAIL: an empty transaction was blamed on the arm"; _fail=1; } \
   || echo "ok: ...and the arm is not blamed for a transaction that was never built"
 nhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
@@ -614,7 +614,7 @@ assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a r
 # ...and records WHY nothing was staged, which is the only place a later reader can learn it. The
 # event line and the notification above say it too, but they are spoken once; the popup's post-run
 # line and its last-update row are rendered from this entry, and with only `surface` and `status`
-# to go on both announced "Updates are staged and install on the next restart" over a restart
+# to go on both announced "Updates are staged - they install on the next restart" over a restart
 # that installs nothing. `held` and not just "nothing", because "Kempt did nothing" reads as a
 # fault where "every pending update is held" is the user's own holds working.
 assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \

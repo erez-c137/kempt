@@ -370,7 +370,7 @@ var COPY = {
     // The third state, which reads as neither of the others: it WAS armed, and a restart has
     // already been past it without running it. Nothing further will until somebody arms it again,
     // so "installs on the next restart" and "not started yet" are both false here.
-    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart has already been past it. No restart installs it now.",
+    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart went by without installing it, and no restart will install it now.",
     // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
     // started during a restart and stopped part way. "Downloaded" would say the opposite of the
     // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.

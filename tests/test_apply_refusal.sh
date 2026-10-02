@@ -78,7 +78,7 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-relup" "$KEMPT" update --surface=offline 
 assert_eq "$rc" "1" "a refused arm fails the run"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and is not unwound with a clean, which the helper would refuse too"
 assert_exit 1 "...and writes no marker" -- test -f "$marker"
-assert_eq "$(last_error)" "staged, but not set to install on the restart, because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
+assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
   "...and the reason names what is stored"
 no_clean_advice "...and nothing advises the command that would delete the release upgrade"
 
@@ -116,7 +116,7 @@ dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: a Fedora relea
 rc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-fail-clean-refused" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "an arm failure whose unwind is refused still fails the run"
-assert_eq "$(last_error)" "staged, but could not set it to install on the restart" "...and the reason stays the arm"
+assert_eq "$(last_error)" "the updates were staged, but could not be set to install on the next restart" "...and the reason stays the arm"
 grep -q 'left in place because a Fedora release upgrade (44 -> 45) is stored' "$TESTTMP/err" \
   && echo "ok: ...and the warning says the stored transaction was left in place, and why" \
   || { echo "FAIL: no left-in-place warning"; _fail=1; cat "$TESTTMP/err"; }
