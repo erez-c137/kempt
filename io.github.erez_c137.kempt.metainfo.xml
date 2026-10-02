@@ -52,8 +52,8 @@
       the new 16:9 screenshots.
     -->
     <screenshot type="default">
-      <caption>Kempt in the system tray, with the pending-updates popup open</caption>
-      <image type="source" width="467" height="507">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-tray-popup.png</image>
+      <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
+      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.6/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: run surface, check interval, restart reminders and the password-prompt controls</caption>

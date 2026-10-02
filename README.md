@@ -8,7 +8,7 @@ Flatpak. Other distributions are planned.
 [![KDE Store](https://img.shields.io/badge/KDE%20Store-Kempt-54a3d8)](https://store.kde.org/p/2370353/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Kempt in the system tray, with the popup open: 83 updates pending, staged to install on the next restart](docs/images/kempt-tray-popup.png)
+![Kempt in the system tray, with the widget open: 55 updates available, and a note that the safest way to install a kernel update is on the next restart](docs/images/kempt-tray-popup.png)
 
 *83 updates, staged to install on the next restart. The padlock on each row holds a package back,
 and the footer shows the download size.*
