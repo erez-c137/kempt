@@ -14,6 +14,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Without it, both still exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
+- **The widget checks its own installation.** Where it used to say to run `kempt doctor` in a
+  terminal, it now offers **Check Installation**. The widget runs doctor itself, then quotes the
+  first problem found or says there were none. **Show Full Report** shows the whole report, and
+  **Copy Command** copies `kempt doctor`.
 
 ### Changed
 

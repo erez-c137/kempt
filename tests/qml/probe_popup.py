@@ -88,6 +88,20 @@ RECLAIMST = os.path.join(p.sandbox, "reclaimst")
 for _f in (RECLAIMOUT, RECLAIMERR, RECLAIMST):
     open(_f, "w").write("")
 open(RECLAIMRC, "w").write("0")
+# `kempt doctor`, which Check Installation runs: status, both streams, and a pause in seconds
+# (empty: none) so the busy line can be seen while it waits.
+DOCTORRC = os.path.join(p.sandbox, "doctorrc")
+DOCTOROUT = os.path.join(p.sandbox, "doctorout")
+DOCTORERR = os.path.join(p.sandbox, "doctorerr")
+DOCTORWAIT = os.path.join(p.sandbox, "doctorwait")
+for _f in (DOCTOROUT, DOCTORERR, DOCTORWAIT):
+    open(_f, "w").write("")
+open(DOCTORRC, "w").write("0")
+DOCTOR_ONE = ("info  kempt 0.1.7 (/usr/share/kempt)\nok    jq: /usr/bin/jq\n"
+              "FAIL  polkit action not installed: /usr/share/polkit-1/actions/x.policy\n"
+              "kempt doctor: 1 problem found\n")
+DOCTOR_OK = ("info  kempt 0.1.7 (/usr/share/kempt)\nok    jq: /usr/bin/jq\n"
+             "kempt doctor: all checks passed\n")
 
 
 def now_stamped(entry):
@@ -174,8 +188,11 @@ case "$1" in
   reclaim) src="$(cat %(RST)s)"
            if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
            cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
+  doctor) [[ -s %(DWAIT)s ]] && sleep "$(cat %(DWAIT)s)"
+          cat %(DOUT)s; cat %(DERR)s >&2; exit "$(cat %(DRC)s)" ;;
 esac
-""" % {"CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
+""" % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
+       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
        "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
@@ -1017,7 +1034,8 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("riskyMessage", "the session-critical warning"),
             ("surfaceOfferMessage", "the offer to update in the popup"),
-            ("reportMessage", "the report of the last thing that happened")]
+            ("reportMessage", "the report of the last thing that happened"),
+            ("doctorMessage", "what Check Installation found")]
 
 def stack(situation, *shown):
     """Assert the WHOLE stack for one real state: what is up, and what is not."""
@@ -1452,6 +1470,108 @@ p.check("...as a failure, in red, because the thing that was asked for did not h
 p.check("...and the staged banner is still there, because nothing was discarded",
         ev("root.vm.stagedArmed"), True)
 
+# --- Check Installation: `kempt doctor`, run from the report that names it -----------------------
+# The refusal ends "See: kempt doctor", so the report carries the button. Copy Command is on the
+# result instead: Show Log, two more and a close do not fit the narrowest popup.
+p.pump(50)
+p.check("a report that names kempt doctor offers Check Installation",
+        [lev("reportMessage.actions[1].text"), lev("reportMessage.actions[1].visible")],
+        ["Check Installation", True])
+p.check("...and nothing more on that row", lev("reportMessage.actions.length"), 2)
+open(DOCTOROUT, "w").write(DOCTOR_ONE)
+open(DOCTORRC, "w").write("1")
+open(DOCTORWAIT, "w").write("1")
+p.clear_calls()
+lev("reportMessage.actions[1].trigger()")
+p.pump(50)
+p.check("pressed, it says it is checking at once, before doctor answers",
+        [lev("doctorMessage.visible"), lev("doctorMessage.text")],
+        [True, "Checking Kempt's installation…"])
+p.check("...under the report that asked, which stays", lev("reportMessage.visible"), True)
+p.check("...closable while it runs, with no report yet",
+        [lev("doctorMessage.showCloseButton"), lev("doctorMessage.actions[0].visible")],
+        [True, False])
+p.check("...and the rest of the popup still answers while it waits", lev("refreshButton.enabled"), True)
+lev("reportMessage.actions[1].trigger()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("a second press while it runs does not start a second doctor", p.call_count("doctor"), 1)
+p.check("...and the one it ran is plain `kempt doctor`: no terminal, no password prompt",
+        p.argv("doctor"), ["doctor"])
+p.check("the result quotes the first problem in doctor's own words",
+        lev("doctorMessage.text"),
+        "Kempt found a problem with its installation: polkit action not installed:"
+        " /usr/share/polkit-1/actions/x.policy")
+p.check("...as an error", lev("doctorMessage.type"), lev("Kirigami.MessageType.Error"))
+p.check("...beside the report and the staged banner, which it does not push out",
+        json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["report", "doctor", "staged"])
+p.check("...and on screen together", [lev("reportMessage.visible"), lev("doctorMessage.visible"),
+                                      lev("stagedMessage.visible")], [True, True, True])
+p.check("...and the full report is folded away until asked for",
+        [lev("doctorMessage.actions[0].text"), lev("doctorMessage.actions[0].visible"),
+         lev("doctorReportView.visible")], ["Show Full Report", True, False])
+lev("doctorMessage.actions[0].trigger()")
+p.pump(50)
+p.check("Show Full Report opens everything doctor printed, where it can be selected",
+        [lev("doctorReportView.visible"), lev("doctorReportText.text"),
+         lev("doctorReportText.readOnly")], [True, DOCTOR_ONE.rstrip("\n"), True])
+p.check("...and the button says it is open", lev("doctorMessage.actions[0].checked"), True)
+lev('engineCopyClip.text = ""')
+lev("doctorMessage.actions[1].trigger()")
+p.pump(50)
+p.check("the result keeps the command copyable", lev("engineCopyClip.text"), "kempt doctor")
+# A clean report, pressed again: the report folds and the answer turns positive.
+open(DOCTOROUT, "w").write(DOCTOR_OK)
+open(DOCTORRC, "w").write("0")
+open(DOCTORWAIT, "w").write("")
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("a clean check says there are no problems",
+        [lev("doctorMessage.text"), lev("doctorMessage.type")],
+        [ev("Logic.COPY.doctorPassed"), lev("Kirigami.MessageType.Positive")])
+p.check("...with the report folded again for the new answer", lev("doctorReportView.visible"), False)
+ev("root.dismissDoctor()")
+p.pump(50)
+p.check("closed, the result goes", lev("doctorMessage.visible"), False)
+# Closed while doctor still waits or runs: the busy line goes at once, and the late answer is
+# thrown away rather than coming back.
+open(DOCTOROUT, "w").write(DOCTOR_ONE)
+open(DOCTORRC, "w").write("1")
+open(DOCTORWAIT, "w").write("1")
+ev("root.runDoctor()")
+p.pump(50)
+ev("root.dismissDoctor()")
+p.pump(50)
+p.check("closed during a run, the busy line goes at once",
+        [ev("root.doctorRunning"), lev("doctorMessage.visible")], [False, False])
+settle()
+p.pump(50)
+p.check("...and the answer that lands later shows nowhere",
+        [ev("root.doctorSummary"), lev("doctorMessage.visible")], ["", False])
+# A check that starts puts a finished answer away: it described the installation before it.
+open(DOCTORWAIT, "w").write("")
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("premise: an answer is on screen", lev("doctorMessage.visible"), True)
+ev("root.doCheck()")
+settle()
+p.pump(50)
+p.check("a check that starts puts the answer away", lev("doctorMessage.visible"), False)
+# ...and so does a run, whose end does not bring it back.
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+ev("root.enterUpdating()")
+ev("root.leaveUpdating()")
+settle()
+p.pump(50)
+p.check("a run puts the answer away, and its end does not bring it back",
+        [ev("root.doctorSummary"), lev("doctorMessage.visible")], ["", False])
+open(DOCTOROUT, "w").write("")
+open(DOCTORRC, "w").write("0")
+
 # ...and a status with nothing on either stream, which is the case the copy table is FOR.
 open(UNSTAGERC, "w").write("3")
 open(UNSTAGEERR, "w").write("")
@@ -1695,9 +1815,11 @@ p.check("...while Refresh stays, because it is what brings the widget back",
 # on the clipboard, because an InlineMessage's text cannot be selected and a retyped command
 # fails somewhere the reader then has to debug. Triggered here for real: the payload must be
 # vm's copy text (the "&&" form), never the message's own sentence.
-p.check("...offering exactly one action", lev("engineFaultMessage.actions.length"), 1)
-p.check("...named Copy Commands", lev("engineFaultMessage.actions[0].text"), "Copy Commands")
-lev("engineFaultMessage.actions[0].trigger()")
+_VISIBLE_ACTIONS = ("Array.prototype.filter.call(engineFaultMessage.actions, a => a.visible)"
+                    ".map(a => a.text)")
+p.check("...offering exactly one action, Copy Commands, since there is no doctor to run",
+        json.loads(str(lev("JSON.stringify(" + _VISIBLE_ACTIONS + ")"))), ["Copy Commands"])
+lev("engineFaultMessage.actions[1].trigger()")
 p.pump(80)
 p.check("...whose payload is the chained one-line form",
         lev("engineCopyClip.text"), ev("root.vm.engineFaultCopyText"))
@@ -1714,13 +1836,29 @@ p.check("...saying it is installed rather than absent",
         "installed but will not run" in str(lev("engineFaultMessage.text")), True)
 p.check("...and never offering to install it again",
         "dnf install" in str(lev("engineFaultMessage.text")), False)
-p.check("...still offering exactly one action", lev("engineFaultMessage.actions.length"), 1)
-p.check("...named for the single command it copies",
-        lev("engineFaultMessage.actions[0].text"), "Copy Command")
-lev("engineFaultMessage.actions[0].trigger()")
+p.check("...offering Check Installation, and the command it runs to copy",
+        json.loads(str(lev("JSON.stringify(" + _VISIBLE_ACTIONS + ")"))),
+        ["Check Installation", "Copy Command"])
+lev("engineFaultMessage.actions[1].trigger()")
 p.pump(80)
 p.check("...whose payload is the command that finds the cause",
         lev("engineCopyClip.text"), "kempt doctor")
+# An engine that will not start: doctor will not either, and the shell's reason is the answer.
+open(DOCTORRC, "w").write("126")
+open(DOCTORERR, "w").write("sh: line 1: /home/u/.local/bin/kempt: Permission denied\n")
+p.clear_calls()
+lev("engineFaultMessage.actions[0].trigger()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+stack("after Check Installation on an engine that will not start",
+      "engineFaultMessage", "doctorMessage")
+p.check("...saying why doctor could not start, in the shell's words",
+        lev("doctorMessage.text"),
+        "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt:"
+        " Permission denied")
+ev("root.dismissDoctor()")
+open(DOCTORRC, "w").write("0")
+open(DOCTORERR, "w").write("")
 
 ev('root.engineFault = ""')
 state(fixture("state-live.json"))
@@ -1736,6 +1874,8 @@ p.check("...saying what failed, in the words main.qml was given",
 p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...with no Show Log on it, because a failed press wrote no log",
         lev("reportMessage.actions[0].visible"), False)
+p.check("...and no Check Installation, because it does not name kempt doctor",
+        lev("reportMessage.actions[1].visible"), False)
 # Words from outside (flatpak's error line, the CLI's stderr) are shown as written, never as markup.
 ev('root.actionMessage = "error: <b>x</b> &amp; y"')
 p.pump(50)
@@ -1821,6 +1961,8 @@ def placeholder_fits(label):
 
 state(UPTODATE)
 placeholder_fits("up to date")
+p.check("up to date, the placeholder offers no Check Installation",
+        lev("placeholder.helpfulAction.enabled"), False)
 ev("root.kemptState = null")
 p.pump(50)
 placeholder_fits("no answer yet")
@@ -1828,6 +1970,26 @@ ev('root.cliError = "kempt: command not found"')
 p.pump(50)
 p.check("a CLI that could not be run is an empty state with an explanation",
         lev("placeholder.explanation") != "", True)
+p.check("...that names the button and keeps the command",
+        lev("placeholder.explanation"), "Check Installation runs `kempt doctor` to find out why.")
+p.check("...with Check Installation under it",
+        [lev("placeholder.helpfulAction.text"), lev("placeholder.helpfulAction.enabled")],
+        ["Check Installation", True])
+p.check("...which the two measuring copies carry too, so the fit counts its height",
+        [lev("placeholderFull.helpfulAction === placeholder.helpfulAction"),
+         lev("placeholderWords.helpfulAction === placeholder.helpfulAction")], [True, True])
+open(DOCTOROUT, "w").write(DOCTOR_OK)
+p.clear_calls()
+lev("placeholder.helpfulAction.trigger()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("...and pressing it runs doctor and shows the answer",
+        [p.call_count("doctor"), lev("doctorMessage.visible"), lev("doctorMessage.text")],
+        [1, True, ev("Logic.COPY.doctorPassed")])
+ev("root.popupClosed()")
+p.pump(50)
+p.check("closing the popup puts the result away", lev("doctorMessage.visible"), False)
+open(DOCTOROUT, "w").write("")
 placeholder_fits("could not run the CLI")
 ev('root.cliError = ""')
 p.pump(20)
@@ -2765,6 +2927,12 @@ _ASSEMBLED_IN_LOGIC = {
     "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel
                             #    hover is not where a person learns what kind of Fedora they run
     "imageBasedUse",        # -> vm.imageBasedMessage, joined onto it as its second sentence
+    "doctorPassed",         # -> doctorOutcomeOf -> root.doctorSummary
+    "doctorFoundOne",       # -> doctorOutcomeOf, with doctor's FAIL line in the %1
+    "doctorFoundMore",      # -> doctorOutcomeOf, with the count and the first FAIL line
+    "doctorCouldNotRun",    # -> doctorOutcomeOf, with the first line doctor's stderr gave
+    "doctorCouldNotRunCode",  # -> doctorOutcomeOf, with the status, when it gave none
+    "doctorTimedOut",       # -> doctorOutcomeOf, for the Executor's own kill
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

@@ -39,6 +39,9 @@ CHECKSRC = os.path.join(p.sandbox, "checksrc")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 SLEEP = os.path.join(p.sandbox, "checksleep")
 open(SLEEP, "w").write("0")
+# How long `kempt doctor` takes to answer, so the keyboard can be checked while it runs.
+DOCTORSLEEP = os.path.join(p.sandbox, "doctorsleep")
+open(DOCTORSLEEP, "w").write("0")
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-live.json"))
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
@@ -49,9 +52,12 @@ case "$1" in
   check)  sleep "$(cat %(SLEEP)s)"; cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
+  doctor) sleep "$(cat %(DSLEEP)s)"; echo "ok    jq: /usr/bin/jq"
+          echo "FAIL  state dir not writable: /x"; echo "kempt doctor: 1 problem found"; exit 1 ;;
 esac
 """ % {"CFG": harness.config_arm(),
-       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP})
+       "SRC": CHECKSRC, "ST": STATE_JSON, "RUNJSON": RUNJSON, "SLEEP": SLEEP,
+       "DSLEEP": DOCTORSLEEP})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
@@ -367,5 +373,45 @@ p.check("Return on the focused Install on Next Restart stages the update",
 p.check("...and runs nothing live", p.calls_matching("run")[-1:], ["run --surface=offline"])
 ev("root.leaveUpdating()")
 settle()
+
+# Check Installation on a report that names kempt doctor, from the keyboard. Return presses it, the
+# busy line comes and goes under it, and the keyboard stays on a control that is on screen the
+# whole time: the button stays live while doctor runs, so focus has nowhere to fall.
+state(fixture("state-live.json"))
+ev('root.postRunLine = ""')
+ev('root.actionMessage = "Nothing was discarded. A Fedora release upgrade (45) is stored. See: kempt doctor"')
+p.pump(200)
+lev("popup.buttonFor(reportMessage, reportMessage.actions[1]).forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
+p.check("a report that names kempt doctor puts Check Installation in the keyboard's reach",
+        focused(), "elsewhere:Check Installation")
+open(DOCTORSLEEP, "w").write("1")
+before_doctor = p.call_count("doctor")
+press(Qt.Key_Return)
+p.pump(100)
+p.check("Return on it runs doctor", ev("root.doctorRunning"), True)
+p.check("...and the keyboard stays on the button while it runs",
+        [focused(), lev("popup.Window.activeFocusItem.visible"),
+         lev("popup.Window.activeFocusItem.enabled")],
+        ["elsewhere:Check Installation", True, True])
+press(Qt.Key_Return)
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=10000)
+settle()
+p.pump(150)
+p.check("...a second Return while it runs starts nothing more",
+        p.call_count("doctor") - before_doctor, 1)
+p.check("...and when the answer lands, the keyboard is still on a control that is on screen",
+        [focused() != "nothing", lev("popup.Window.activeFocusItem.visible"),
+         lev("popup.Window.activeFocusItem.enabled")], [True, True, True])
+lev("popup.buttonFor(doctorMessage, doctorMessage.actions[0]).forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
+p.check("the answer's Show Full Report takes the keyboard", focused(), "elsewhere:Show Full Report")
+press(Qt.Key_Return)
+p.pump(150)
+p.check("...and Return on it opens the report", lev("doctorReportView.visible"), True)
+open(DOCTORSLEEP, "w").write("0")
+ev("root.dismissDoctor()")
+ev('root.actionMessage = ""')
+p.pump(100)
 
 sys.exit(p.done())

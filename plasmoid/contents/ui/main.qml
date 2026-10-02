@@ -123,6 +123,18 @@ PlasmoidItem {
     // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
     property bool reclaimRunning: false
 
+    // Check Installation: `kempt doctor`, run here and reported in its own message. Running while
+    // it waits its turn on the executor too, so the busy line shows from the press.
+    property bool doctorRunning: false
+    property string doctorSummary: ""
+    property bool doctorFailed: false
+    property string doctorReport: ""
+    // Which press the result on screen belongs to. Closing bumps it, so a doctor still queued
+    // behind a check or Free Up Space answers nobody when it finally runs.
+    property int doctorRun: 0
+    // The report on screen tells the person to run doctor, so it carries the button.
+    readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
+
     // Update Now pressed with a session-critical set waiting and no terminal to ask in: the risky
     // message turns into a choice between staging and installing now. Closed by either answer, by
     // a run starting and by the popup closing.
@@ -266,7 +278,9 @@ PlasmoidItem {
                                                 reportShown: reportText.length > 0,
                                                 // ...and whether it only repeats the staged message.
                                                 reportRepeatsStaged: reportLatest === "run"
-                                                    && Logic.reportRepeatsStaged(lastRun) })
+                                                    && Logic.reportRepeatsStaged(lastRun),
+                                                doctorShown: doctorRunning
+                                                             || doctorSummary.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -353,6 +367,9 @@ PlasmoidItem {
         actionDone = "";
         restartError = "";
         holdError = null;
+        // ...and a Check Installation answer, which described the installation before this check.
+        // One still waiting its turn is left alone: it answers a press made since.
+        if (!doctorRunning) dismissDoctor();
         // Asked again while one is running: coalesce, never drop. The running check read its
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
@@ -879,6 +896,37 @@ PlasmoidItem {
         });
     }
 
+    // Check Installation. Doctor reads files and asks for no password, so it runs without a
+    // terminal. A second press while one is waiting does nothing: the button stays live so it can
+    // keep the keyboard.
+    function runDoctor() {
+        if (doctorRunning) return;
+        doctorRun += 1;
+        var mine = doctorRun;
+        doctorRunning = true;
+        doctorSummary = "";
+        doctorFailed = false;
+        doctorReport = "";
+        executor.run(kemptCmd + " doctor", Logic.DOCTOR_TIMEOUT_MS, function(stdout, stderr, rc) {
+            // Closed, or put away by a run, while it waited: the answer is to nobody.
+            if (mine !== root.doctorRun) return;
+            var said = Logic.doctorOutcomeOf(rc, stdout, stderr);
+            root.doctorReport = said.report;
+            root.doctorFailed = said.failed;
+            root.doctorSummary = said.summary;
+            root.doctorRunning = false;
+        });
+    }
+
+    // Closing the result, or the busy line. Nothing is stored: the next press runs doctor again.
+    function dismissDoctor() {
+        doctorRun += 1;
+        doctorRunning = false;
+        doctorSummary = "";
+        doctorFailed = false;
+        doctorReport = "";
+    }
+
     // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
     function dismissReclaim() {
         reclaimDismissed = vm.reclaimDigest;
@@ -935,6 +983,9 @@ PlasmoidItem {
         runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
         riskyChoiceOpen = false;
+        // A run changes the installation, so whatever doctor said, or is about to say, is about
+        // the one before it. The run's own end must not bring it back.
+        dismissDoctor();
         // Noted BEFORE anything is launched, so the entry the run writes can only be stamped at or
         // after this - see Logic.runFinishedSince for the comparison.
         updateStartedMs = Date.now();
@@ -1086,6 +1137,8 @@ PlasmoidItem {
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";
+        // ...and so is a Check Installation result, which has had its moment.
+        dismissDoctor();
     }
 
     // `expanded` is the engine's own property and the only honest source for this. It is also why

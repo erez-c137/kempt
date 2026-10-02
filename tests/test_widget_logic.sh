@@ -442,7 +442,7 @@ assert_eq "$(js "$eng.iconState")" "unknown" "...and an absent one still does no
 assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the whole stack"
 # The fix line must not promise more than it can keep: `kempt doctor` is itself a kempt subcommand,
 # so on the box whose kempt cannot start it cannot start either. The sentence says so.
-assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("if it cannot start either") >= 0')" "true" \
+assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If it cannot start either") >= 0')" "true" \
   "the repair line admits doctor may not start, rather than promising it will"
 
 # --- a Fedora release upgrade staged outside Kempt -----------------------------------------------
@@ -1442,7 +1442,7 @@ assert_eq "$(js "L.discardStagedMessage(1, '', 'The staged update could not be d
   "The staged update could not be discarded. See: kempt doctor" \
   "a failed discard reports the CLI's own line"
 assert_eq "$(js "L.discardStagedMessage(1, '', '')")" \
-  "The staged update could not be discarded (exit 1). Run kempt doctor in a terminal to see why." \
+  "The staged update could not be discarded (exit 1). Press Check Installation to find out why." \
   "...and a silent failure says so with the status, which is the only evidence left"
 assert_eq "$(js "L.discardStagedMessage(1, 'only on stdout', '')")" "only on stdout" \
   "...falling back to stdout, as runStartMessage does, for a CLI that wrote to the wrong stream"
@@ -1451,8 +1451,90 @@ assert_eq "$(js "L.discardStagedMessage(1, 'only on stdout', '')")" "only on std
 assert_eq "$(js "L.discardStagedMessage(124, '', 'timeout after 120000ms')")" "timeout after 120000ms" \
   "a press the executor timed out on reports the timeout rather than nothing"
 assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
-  "The staged update could not be discarded (exit 9). Run kempt doctor in a terminal to see why." \
+  "The staged update could not be discarded (exit 9). Press Check Installation to find out why." \
   "...and an unknown status is a failure with its number in it"
+
+# --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
+# Every widget sentence that names kempt doctor names the button too. None of them sends anybody
+# to a terminal any more.
+assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
+  '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
+assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
+  "[]" "...and none of them asks for a terminal"
+assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label"
+# Which messages get the button: any that tells the person to run doctor, the CLI's own included.
+assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. A Fedora release upgrade (45) is stored. See: kempt doctor")')" \
+  "true" "a refusal from the CLI that ends in kempt doctor offers the button"
+assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardRefused)')" "true" "...and so does the widget's own fallback"
+assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardFailed)')" "true" "...both of them, which name the button"
+assert_eq "$(js 'L.mentionsDoctor("Could not change the hold on bash.")')" "false" \
+  "a failure that does not mention doctor offers nothing"
+assert_eq "$(js 'L.mentionsDoctor(undefined)')" "false" "...and no text offers nothing"
+assert_eq "$(js 'L.mentionsDoctor("see kempt doctors")')" "false" "...matching the command as a word"
+
+# The result in one sentence. Doctor's rows are "ok", "info" and "FAIL", padded to six columns.
+doc_ok=$'info  kempt 0.1.7 (/usr/share/kempt)\nok    jq: /usr/bin/jq\n\nRecent events (kempt log):\n  none\n\nkempt doctor: all checks passed\n'
+doc_one=$'info  kempt 0.1.7\nok    jq: /usr/bin/jq\nFAIL  polkit action not installed: /usr/share/polkit-1/actions/x.policy - run ./install.sh\nkempt doctor: 1 problem found\n'
+doc_two=$'FAIL  root helper (refresh) not installed: /usr/libexec/kempt/kempt-refresh - run ./install.sh\nok    jq\nFAIL  state dir not writable: /x\nkempt doctor: 2 problems found\n'
+export doc_ok doc_one doc_two
+assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_ok, "").summary')" "$(js 'L.COPY.doctorPassed')" \
+  "a clean report says no problems were found"
+assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_ok, "").failed')" "false" "...and is not a failure"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_one, "").summary')" \
+  "Kempt found a problem with its installation: polkit action not installed: /usr/share/polkit-1/actions/x.policy - run ./install.sh" \
+  "one problem is quoted in doctor's own words"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_one, "").failed')" "true" "...as a failure"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").summary')" \
+  "Kempt found 2 problems with its installation. The first: root helper (refresh) not installed: /usr/libexec/kempt/kempt-refresh - run ./install.sh" \
+  "several problems give the count and the first"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").report')" "$(printf '%s' "${doc_two%$'\n'}")" \
+  "the full report is everything doctor printed"
+# An engine that will not start: the shell answers 126 and says why on stderr.
+assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: line 1: /home/u/.local/bin/kempt: Permission denied\n").summary')" \
+  "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt: Permission denied" \
+  "a doctor that could not start says the shell's reason"
+assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: x: Permission denied\n").report')" "sh: x: Permission denied" \
+  "...and the report is that reason"
+assert_eq "$(js 'L.doctorOutcomeOf(124, "", "timeout after 60000ms").summary')" "$(js 'L.COPY.doctorTimedOut')" \
+  "the widget's own timeout is a sentence, not a status"
+assert_eq "$(js 'L.doctorOutcomeOf(7, "", "").summary')" "Kempt could not check its installation (exit 7)." \
+  "a silent failure gives its status"
+assert_eq "$(js 'L.doctorOutcomeOf(0, "", "").summary')" "$(js 'L.COPY.doctorPassed')" \
+  "exit 0 with nothing printed is no problems found, never a status"
+assert_eq "$(js 'L.doctorOutcomeOf(1, "info  kempt 0.1.7 (/usr/share/kempt)\n", "").summary')" \
+  "Kempt could not check its installation (exit 1)." \
+  "a failure with no FAIL row and nothing on stderr gives its status, not doctor's info row"
+# A long problem ends at a word, and the report holds all of it.
+long_fail="FAIL  $(printf 'word%.0s ' {1..60})end"
+export long_fail
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").summary.length <= L.DOCTOR_SUMMARY_MAX')" "true" \
+  "a long problem is cut to the summary's length"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").summary.slice(-5)')" "word…" \
+  "...at a word, marked as cut"
+assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.long_fail, "").report === process.env.long_fail')" "true" \
+  "...while the full report keeps every word"
+assert_eq "$(js 'L.DOCTOR_TIMEOUT_MS >= 4 * 15000')" "true" \
+  "the wait outlasts doctor's slowest row, the 15-second runtime listing, several times over"
+
+# Where the result goes: under the report it answers, and beside an engine that will not start.
+assert_eq "$(js 'L.messageStack({report:true, doctor:true, staged:true})')" '["report","doctor","staged"]' \
+  "the result sits under the report whose button asked for it, outside the limit of two"
+assert_eq "$(js 'L.messageStack({doctor:true, staged:true, restart:true})')" '["doctor","staged","restart"]' \
+  "...and first when the button was the placeholder's, pushing out neither banner"
+assert_eq "$(js 'L.messageStack({riskyChoice:true, report:true, doctor:true, staged:true})')" \
+  '["riskyChoice","report","doctor"]' \
+  "with the session-critical choice and a report both up, the result still shows"
+assert_eq "$(js 'L.messageStack({engineFault:true, doctor:true, report:true})')" '["engineFault","doctor"]' \
+  "the engine message keeps its result beside it"
+assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:"unrunnable", doctorShown:true}).messageSlots')" \
+  '["engineFault","doctor"]' "...which the view model passes through"
+assert_eq "$(js 'L.viewModel(S("live"),true,"",{doctorShown:true}).messageSlots.indexOf("doctor")')" "-1" \
+  "a run puts the result away with the rest of the stack"
+assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:"unrunnable"}).engineFaultOffersDoctor')" "true" \
+  "an engine that will not start offers Check Installation"
+assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:"missing"}).engineFaultOffersDoctor')" "false" \
+  "...and a missing one does not, because there is no doctor to run"
+assert_eq "$(js 'V("live",false).engineFaultOffersDoctor')" "false" "...nor does a working one"
 
 # --- lastRunText: the persistent row's title ---------------------------------------------------
 # The separator is U+00B7 with spaces, the same middle dot the footer uses.
@@ -2287,6 +2369,8 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeats
   '["staged","restart"]' "...so the staged message stands alone and the report's slot goes to the next message"
 assert_eq "$(js "L.viewModel(Object.assign({}, $STACK_ALL, {offline_staged:null}),false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf('report')")" \
   "0" "...but with nothing staged on screen, the report still shows"
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeatsStaged:true,doctorShown:true}).messageSlots")" \
+  '["doctor","staged","restart"]' "...and Check Installation's result is never hidden with that report, and takes no slot"
 # The displaced restart is not lost: it moves to the line that always has room. That is what makes
 # dropping it honest rather than merely quiet.
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true}).footerText.indexOf('restart pending') >= 0")" \
@@ -2719,13 +2803,13 @@ assert_eq "$(js 'L.COPY.stagedDiscardDone')" \
   "The staged update is gone. The next restart installs nothing." \
   "copy: what a discard that worked says when the CLI said nothing"
 assert_eq "$(js 'L.COPY.stagedDiscardRefused')" \
-  "Nothing was discarded. Run kempt doctor in a terminal to see why." \
+  "Nothing was discarded. Press Check Installation to find out why." \
   "copy: ...and a refusal, which changed nothing at all"
 assert_eq "$(js 'L.COPY.stagedDiscardBusy')" \
   "An update is running, so nothing was discarded. Try again when it has finished." \
   "copy: ...and the lock another update holds, with the one thing to do about it"
 assert_eq "$(js 'L.COPY.stagedDiscardFailed')" \
-  "The staged update could not be discarded (exit %1). Run kempt doctor in a terminal to see why." \
+  "The staged update could not be discarded (exit %1). Press Check Installation to find out why." \
   "copy: ...and a failure, carrying the status because it is the only evidence left"
 assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
   "The staged update changed since this was offered. Nothing was discarded; check the banner above." \
@@ -2813,7 +2897,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
