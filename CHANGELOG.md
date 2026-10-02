@@ -41,6 +41,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Check for Updates no longer says "Everything is up to date" while dnf lists updates.** It
   answered from package lists up to three hours old. It now fetches fresh lists first. On battery
   or a metered connection it skips the fetch, and the footer says how old the lists are.
+- **Fetching fresh package lists stops after two minutes if a mirror stalls, instead of running on
+  as root.** The check then uses the lists it already has.
 - **Per-user Flatpak apps are checked and updated.** Kempt said everything was up to date while
   per-user Flatpak apps had updates. It now counts, sizes and updates apps you installed with
   `flatpak install --user`, after the system ones. The popup marks them **For you only**, and says
