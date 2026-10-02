@@ -79,7 +79,7 @@ Your settings and state are created on first use, in `~/.config/kempt/` (config,
 enabled by default. The tray shows it the first time Plasma loads the plugin. It may take a
 `plasmashell --replace` or a log-out to appear. Adding it from Add Widgets as well gives you two
 Kempt icons. Both places, and how to turn either off, are in
-[usage.md](usage.md#where-it-lives-the-system-tray-or-the-panel-itself).
+[widget.md](widget.md#where-it-lives-the-system-tray-or-the-panel-itself).
 
 ### Verify it
 

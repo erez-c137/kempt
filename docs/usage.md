@@ -1,62 +1,66 @@
-# Using Kempt
+# Kempt commands
 
-Every command is `kempt <subcommand>`. `kempt help` prints the same list.
+This page lists every `kempt` command with its options, output and exit codes. The panel widget,
+covered in [widget.md](widget.md), runs these same commands, so the two always agree. Which button
+runs which command is in [its table](widget.md#what-each-button-runs).
 
-```
-check [--refresh] [--coalesce] [--strict]
-                      refresh pending-updates state (JSON to stdout). --refresh fetches package
-                      metadata now, ignoring the 3-hour interval but never the battery or
-                      metered-connection rules. --coalesce accepts the answer of a check that
-                      finished while this one waited (the widget's automatic checks). --strict
-                      exits 1 when a backend failed, the apps for you only could not be
-                      listed, or the previous state was served
-update                run the update now (options from config; --no-flatpak, --surface=X override)
-run [--print-command] launch update per configured surface (what the widget calls;
-                      --surface=X for one run on another surface; --risky-ok when the person
-                      already chose to install session-critical updates now)
-summary [N]           human summary of the last (or Nth-last) run
-summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                      or if the newest entry is damaged)
-history [--json]      list past runs, newest first; --json prints them as a JSON array of
-                      history entries
-log [-n N]            recent events: what Kempt did, when, and from where (default 30)
-doctor                check this install: helpers, polkit action, tools, config, state
-hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
-unhold <same>         remove a hold
-holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
-                      arguments, on one line, to reuse by hand
-unstage               discard the staged offline update; the next restart installs nothing
-reclaim [--list] [-y] [--expect=DIGEST]
-                      remove the Flatpak runtimes no installed app uses (--list only shows them)
-config get|set        read/write settings
-enable-passwordless | disable-passwordless
-discover-notifier off | on | keep | status [--json]
-                      turn Discover's own update notifier off or back on for this user, keep
-                      it as it is (the widget's answer), or say whether it is installed, on
-                      and running
---version | version | -V   print the version and exit
-help | --help | -h    print this list
+| Command | What it does |
+| --- | --- |
+| [`kempt check`](#check) | Finds what is pending, saves it and prints it as JSON |
+| [`kempt update`](#update) | Installs the updates now, in this terminal, or stages them for the next restart |
+| [`kempt run`](#run) | Starts an update where your settings say and returns at once |
+| [`kempt unstage`](#unstage) | Discards the update staged for the next restart |
+| [`kempt reclaim`](#reclaim) | Removes the Flatpak runtimes no installed app uses |
+| [`kempt summary`, `kempt history`](#summary-and-history) | Shows one past run, or lists them all |
+| [`kempt log`](#log) | Shows what Kempt did, when, and whether the widget did it |
+| [`kempt doctor`](#doctor) | Checks this install and names anything broken |
+| [`kempt hold`, `unhold`, `holds`](#hold-unhold-holds) | Skips a package in updates, stops skipping it, or lists what is held |
+| [`kempt config`](#config) | Reads or changes a setting |
+| [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
+| [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
+| [`kempt --version`](#--version) | Prints the version |
+| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each |
+
+## A typical day
+
+```bash
+# Morning: what is waiting?
+kempt check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
+
+# Never update this one:
+kempt hold dnf:nvidia-driver
+
+# Kernel or Qt in the list? Stage it, then reboot when convenient:
+kempt update --surface=offline
+
+# After the reboot, a check records the result in history:
+kempt check >/dev/null
+kempt summary
+
+# Or, with nothing risky pending:
+kempt update
 ```
 
 ## Exit codes
 
-Every command uses the same codes:
+Most commands use these codes. Each command's section lists its own cases.
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` without `--strict` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail, could not list the apps for you only, or served the previous state, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
+| 0 | Success. |
+| 1 | Something failed. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
-| 4 | No terminal emulator, when updates run in a terminal window. |
-| 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything, including when polkit refuses Flatpak itself (see [reclaim](#reclaim)). |
-| 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. Nothing was removed. |
-| 7 | `update` only: another program, such as PackageKit or Discover, held the dnf or Flatpak lock through all three tries. Try again in a few minutes. |
+| 4 | No terminal emulator. |
+| 5 | Stopped before changing anything. |
+| 6 | `reclaim` only: the list changed. Nothing was removed. |
+| 7 | `update` only: another program held the package lock. |
 
-`kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
-They take a lock at `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot
-lose a write. The wait is usually milliseconds. If the lock is still held after 30 seconds, the
-command writes nothing, says so on stderr and exits 1. Commands that only read take no lock.
+**The writers' lock.** `kempt config set`, `kempt hold`, `kempt unhold` and `kempt discover-notifier
+off|on|keep` each rewrite a file in your home directory. They take a lock at
+`~/.local/state/kempt/writer.lock` while they do it, so two at once cannot lose a write. After 30
+seconds of waiting the command gives up, writes nothing, says so on stderr and exits 1. Commands
+that only read take no lock.
 
 ## check
 
@@ -65,21 +69,7 @@ kempt check [--refresh] [--coalesce] [--strict]
 ```
 
 Asks every enabled backend what is pending, writes `~/.local/state/kempt/state.json`, and prints
-the same JSON.
-
-```bash
-kempt check | jq '{status, actionable, held_total}'
-```
-
-```json
-{
-  "status": "ok",
-  "actionable": 9,
-  "held_total": 1
-}
-```
-
-A readable pending list:
+the same JSON. A readable pending list:
 
 ```bash
 kempt check | jq -r '.backends.dnf.items[] | "\(.name)  \(.from) -> \(.to)"'
@@ -91,67 +81,49 @@ git-core  2.55.0-1.fc44 -> 2.55.1-1.fc44
 vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 ```
 
-A few fields worth knowing:
+| Option | Effect |
+| --- | --- |
+| `--refresh` | Fetches package metadata now instead of waiting out the 3-hour interval. On battery or a metered connection it still skips the fetch. dnf and Flatpak each give up after 2 minutes. |
+| `--coalesce` | When this check waited for another that then succeeded, stamped a later second (`last_check` has whole seconds) with `status` `"ok"`, that state answers for this one. Nothing is queried or written, and the event log says `check shared`. `--refresh` turns it off. |
+| `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
-- **`from`** is `?` when the update would install a new package. Packages with several versions
-  installed at once, such as `kernel-core`, list them comma-joined, oldest first.
-- **`reboot_needed`** says whether a restart is owed now. It clears once you restart. Treat
-  `true` as "say so" and `false` as "nothing to say", because the check also answers `false` when
-  it could not tell.
+The widget passes `--coalesce` for its timer, its file watcher, the popup opening and its startup
+check, so two widgets cost one check. **Check for Updates**, **Check again** and a hold always run
+a check of their own.
+
+**Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
+refreshes them at most once every 3 hours, which is the only network use, and skips that on battery
+or a metered connection. On a fresh install the first check refreshes before it asks, and a backend
+that cannot reports `stale` until a refresh succeeds. Old metadata shows in the popup footer, in
+`kempt doctor`, and in the event log, which records a skipped refresh once a day.
+
+A check also records a staged update once the restart has installed it, and clears Kempt's record
+of a stage that has gone.
+
+Fields worth knowing:
+
+- **`from`** is `?` for a new package. Packages with several versions installed, such as
+  `kernel-core`, list them comma-joined, oldest first.
+- **`reboot_needed`** says whether a restart is owed now, and clears once you restart. Read `false`
+  as "nothing to say", because it is also `false` when the check could not tell.
 - **`download_bytes`** is the estimated download, per item (`size_bytes`), per backend and in
-  total. The widget shows the total next to **Update Now**. A total appears only when every
-  non-held item has a size. A missing total means "unknown", which is different from zero.
-- **`metadata_refreshed`** is when dnf metadata was last fetched. It differs from
-  `last_check`, because a check answers from the local cache.
+  total. A total appears only when every item that is not held has a size. No total means
+  "unknown", not zero.
+- **`metadata_refreshed`** is when dnf metadata was last fetched, which differs from `last_check`.
 
 The full schema is in [architecture.md](architecture.md#state-json-schema-v1).
 
-**Where the answer comes from.** A check answers from the local dnf and Flatpak caches. Before
-asking, it refreshes them at most once every 3 hours, and skips that on battery or on a metered
-connection. That refresh is the only part of a check that uses the network. On a fresh install
-the cache is empty, so the first check refreshes before it asks. If it cannot, that backend
-reports `stale` until a refresh succeeds.
+When a backend fails (network down, repo unavailable), `status` is `"stale"`, `error` holds the
+message, and the previous item lists are kept. A missing root helper reads
+`root helper not installed - run ./install.sh (see: kempt doctor)`. A missing or corrupt state file
+starts from an empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
+zero updates.
 
-Old metadata shows up in three places. The popup's footer says `metadata N days old` after 24
-hours, `kempt doctor` has a row for it, and a skipped refresh goes into the event log once a day.
-
-**`--refresh`** fetches now, ignoring the 3-hour interval. On battery or a metered connection it
-still skips the fetch, and the event log records it. The widget's **Check for Updates** passes it.
-Each part of the fetch, dnf and Flatpak, gives up after 2 minutes.
-
-**`--coalesce`** is for checks nobody asked for by hand. Only one check runs at a time, so a check
-may wait for another to finish. With `--coalesce`, if that other check succeeded and finished after
-this one was asked for, its state is the answer. It is printed as is, nothing is queried or
-written, and the event log says `check shared`. "After" means a later second: `last_check` has
-whole seconds, so a check stamped in the same second runs a check of its own. `--refresh` turns
-`--coalesce` off. The widget passes it for its timer, its file watcher, the popup opening and its
-startup check, so two widgets on two panels cost one check instead of two. Check for Updates,
-Check again and a hold always run a check of their own.
-
-**`--strict`** exits 1 when the answer is not current. It prints the state as usual first. The
-answer is not current when a backend failed or the apps for you only could not be listed. It is
-also not current when another check held the lock and the previous state was served. Use it in
-scripts. Without it, all three exit 0.
-
-A check also records a staged update once the restart has installed it, and clears Kempt's
-record of a stage that has gone.
-
-### What a script can rely on
-
-- **A backend fails** (network down, repo unavailable): exit 0, or 1 with `--strict`. `status` is
-  `"stale"`, `error` holds the message, and the previous item lists are kept. When a root helper is missing,
-  `error` says `root helper not installed - run ./install.sh (see: kempt doctor)`.
-- **The state file is missing or corrupt:** exit 0, and the check starts from an empty list.
-- **The new state cannot be saved:** the state is printed first, then the command exits 1.
-  With `--strict`, read the state to tell these apart. `status` `"stale"` means a backend failed.
-  `status` `"ok"` with `.backends.flatpak.scopes.user` `"failed"` means the apps for you only
-  could not be listed. Anything else means the state could not be saved.
-- **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0, or 1
-  with `--strict`.
-- **With `--coalesce`, another check answered while this one waited:** that state is printed,
-  exit 0, and `state.json` is not rewritten. Only a state whose `status` is `"ok"` is taken.
-
-**Empty output with exit 0 means "no data, keep what you had".** It never means zero updates.
+| Exit | When |
+| --- | --- |
+| 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
+| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), apps for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
+| 2 | Unknown option. |
 
 ## update
 
@@ -159,9 +131,7 @@ record of a stage that has gone.
 kempt update [--no-flatpak] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
-Runs the update now, in this process. Options come from the config file, and the flags override
-them for this run. An unknown option exits 2. An unknown `--surface=` value logs a warning and
-uses `terminal`.
+Runs the update now, in this process. Flags override the config file for this run.
 
 ```bash
 kempt update                      # everything, per config
@@ -169,22 +139,20 @@ kempt update --no-flatpak         # this run: system packages only
 kempt update --surface=offline    # stage it; applies on the next reboot
 ```
 
-The `--surface=` values match **Run updates in** in the settings:
-
-| Value | Setting |
+| Option | Effect |
 | --- | --- |
-| `terminal` | **Terminal window** |
-| `popup` | **In this widget** |
-| `background` | **In the background** |
-| `offline` | **On next reboot (offline)**, and the popup's **Install on Next Restart** |
+| `--no-flatpak` | Updates system packages only. |
+| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On next reboot (offline)**). An unknown value logs a warning and uses `terminal`. |
+| `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The popup passes it after **Install Now**. |
 
-With `auto_accept=false`, every run uses the terminal with live output, because only a terminal
-can answer dnf's prompt.
+With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
+answer dnf's prompt. `kempt run` then stages in a terminal too, and turns every other `--surface=`
+value into a live update there.
 
 What happens, in order:
 
-1. **Risky-transaction check** (skipped for `offline`). If the update touches packages the
-   running desktop depends on, a terminal run asks first:
+1. **Risky-transaction check** (skipped for `offline`). If the update touches packages the running
+   desktop depends on, a terminal run asks first:
 
    ```
      Heads up: 13 session-critical packages are pending.
@@ -205,105 +173,97 @@ What happens, in order:
      Your choice [s/u/a]:
    ```
 
-   Up to eight families are listed, with `... and N more` below them. `s` stages the update for
-   the next restart, `u` updates now and `a` aborts. **Enter, Ctrl-D or a second unknown answer
-   all abort**, with exit 0 and nothing changed. A run that cannot ask sends a notification naming
-   the families and carries on. `--risky-ok` leaves that notification out: the popup passes it
-   after you choose **Install Now**. `kempt check` publishes the same list as `risky_pending`.
-2. **Lock.** A second update at the same time exits 3. The prompt comes before the lock, so an
-   unanswered prompt blocks nothing.
-3. **Snapshots** of the installed packages. If one cannot be read, the run exits 5 having changed
+   Up to eight families are listed, then `... and N more`. **Enter, Ctrl-D or a second unknown
+   answer abort**, with exit 0 and nothing changed. A run that cannot ask sends a notification naming the
+   families and carries on. `kempt check` publishes the same list as `risky_pending`.
+2. **Lock.** A second update exits 3. The prompt comes first, so an unanswered prompt blocks
    nothing.
+3. **Snapshots** of the installed packages. If the set cannot be read, the run exits 5.
 4. **dnf**, through the root helper, with `-y` when `auto_accept` is on and one `--exclude=` per
-   dnf hold. If another program holds the package lock (PackageKit, Discover), Kempt tries 3
-   times, 10 seconds apart, and names the likely holder.
-5. **Flatpak**, unless turned off: the system apps, then any installed with
-   `flatpak install --user`, as you. With Flatpak holds, each pending app that is not held is
-   updated on its own, and a hold covers the app in both. If one of the two fails, the other still
-   runs, and the summary says which failed. A busy Flatpak lock gets the same 3 tries.
-6. **Report.** Kempt compares the snapshots, writes a history entry and a log, prints the
-   summary, and sends a notification when the run was not in a terminal.
+   dnf hold. If another program holds the package lock, Kempt tries 3 times, 10 seconds apart, and
+   names the likely holder.
+5. **Flatpak**, unless turned off: the system apps, then the apps installed for you only, as you.
+   With Flatpak holds, each pending app that is not held is updated on its own, and a hold covers
+   the app in both places. If one of the two fails, the other still runs. A busy Flatpak lock gets
+   the same 3 tries.
+6. **Report.** Kempt compares the snapshots, writes a history entry and a log, and prints the
+   summary, which marks a failed backend with its status in brackets. A run outside a terminal
+   also sends a notification.
 
-Exit 0 when every backend succeeded, 1 when one failed. Exit 7 when the only failure was a lock
-that another program held through all three tries. The summary marks a failed backend with its
-status in brackets.
+Kempt reads dnf5's history before and after the upgrade. When one new transaction matches its
+command, its id goes into the history entry as `transaction_id` (for `dnf5 history info`), and the
+run reports only that transaction's packages. A system-wide `flatpak update` also updates runtimes,
+which the summary does not list.
 
-Kempt reads dnf5's history before and after the upgrade. When one new transaction matches the
-command it ran, its id goes into the history as `transaction_id`, for `dnf5 history info`. Its
-package list is what the run reports, so packages another tool installed at the same time are
-left out.
+**On an image-based Fedora, `update` stops.** Silverblue, Kinoite, Bazzite and bootc images update
+as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree upgrade`
+(`bootc upgrade` on a bootc image). Support is planned. Kempt detects them by
+`/run/ostree-booted`. `kempt doctor` reports it on its second line, and the widget hides
+**Update Now**.
 
-A system-wide `flatpak update` also updates runtimes. The summary lists apps, so a run can change
-more than it lists.
-
-**On an image-based Fedora, `update` stops.** Silverblue, Kinoite, Bazzite and bootc images
-update as a whole image. Every run exits 5 having changed nothing, and says to use Discover or
-`rpm-ostree upgrade` (`bootc upgrade` on a bootc image). Support for these images is planned.
-Kempt detects them by the file `/run/ostree-booted`. `kempt doctor` reports it on its second line,
-and the widget hides **Update Now**.
+| Exit | When |
+| --- | --- |
+| 0 | Every backend succeeded, or you aborted at the prompt. |
+| 1 | A backend failed. |
+| 2 | Unknown option. |
+| 3 | Another update is running. |
+| 5 | Nothing changed: an image-based Fedora, an installed package set that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
+| 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. |
 
 ### Installing on the next restart
 
-`--surface=offline`, the popup's **Install on Next Restart**, downloads the whole update and
-stores it. Nothing is installed while you work. It then tells the system to install it during the
-next restart. Both steps happen under one password prompt, so **any** restart installs it: the
-popup's **Restart…**, the K menu, or `reboot` a few days later. Kempt never restarts the machine
-itself.
+`--surface=offline`, the popup's **Install on Next Restart**, downloads the whole update, stores it
+and tells the system to install it during the next restart. Nothing is installed while you work.
+Both steps share one password prompt, so **any** restart installs it: the popup's **Restart…**, the
+K menu, or `reboot` days later. Kempt never restarts the machine itself.
 
 A check runs just before staging, and its count is the one the popup and the event log report. If
-that check fails, Kempt stages anyway and uses the previous count.
-
-Flatpak has no restart install, so an offline run still updates Flatpak apps live.
-
-Until the restart, the staged packages still show as pending, and the popup says:
+it fails, Kempt stages anyway with the previous count. Flatpak has no restart install, so an
+offline run still updates Flatpak apps live. Until the restart, the staged packages still show as
+pending, and the popup stops offering to stage them again. It says:
 
 ```
 61 updates are staged - they install on the next restart
 ```
 
-It also stops offering to stage them again.
-
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
 discards it and the run fails with `staged but could not arm the restart install`. Staging again
-replaces the previous staged update, and a failure leaves one of two results:
+replaces the previous staged update. If that fails:
 
-- The download failed before anything was replaced. The previous staged update is still there and
-  still installs. The run fails with `could not rebuild the staged update - the previous one is
-  unchanged and still installs on the next restart`.
-- The previous one was already gone. The run fails with `the previous staged update was discarded
+- Before anything was replaced, the previous one still installs. The run fails with
+  `could not rebuild the staged update - the previous one is unchanged and still installs on the
+  next restart`.
+- After the previous one was gone, the run fails with `the previous staged update was discarded
   and could not be rebuilt`, and Kempt cleans up so the restart installs nothing. If that cleanup
-  fails too, the notification tells you to run `sudo dnf5 offline clean`.
+  fails too, the notification says to run `sudo dnf5 offline clean`.
 
-**When a Fedora release upgrade is stored, `--surface=offline` stops** with exit 5. dnf5 keeps one
-stored transaction, so staging would cancel the release upgrade. The message names the way out for
-the state the upgrade is in: restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`,
-or `sudo dnf5 offline clean`. The risky-transaction prompt then offers only `[u]` and `[a]`. Live
-updates still work.
+**When a Fedora release upgrade is stored, `--surface=offline` stops** with exit 5, because dnf5
+keeps one stored transaction and staging would cancel the upgrade. The message names the way out:
+restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`, or `sudo dnf5 offline clean`.
+Live updates still work, and the risky-transaction prompt offers only `[u]` and `[a]`.
 
-**When the staged update will not install.** If a restart skipped it, or you installed anything
-with dnf yourself while it waited, the next check tells you once:
+**When the staged update will not install.** A restart may have skipped it, or a dnf install of
+your own while it waited removed the restart trigger, though dnf5 still calls it `ready`. The next
+check tells you once:
 
 ```
 Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean.
 ```
 
-Installing with dnf removes the restart trigger while dnf5 still calls the stored update `ready`.
-To fix it, stage again (`kempt update --surface=offline`) or clear it.
-
-**A live update replaces the stage.** A staged update is built against the installed packages. When
-a live `kempt update` changes any rpm, Kempt discards the stage, because it could only fail at boot.
+**A live update replaces the stage.** A staged update is built against the installed packages, so
+when a live `kempt update` changes any rpm, Kempt discards the stage, which could only fail at boot.
 A Flatpak-only run leaves it alone.
 
 **Other tools.** If `dnf-automatic`, GNOME Software or a terminal `dnf5 upgrade` changes packages
-while an update is staged, Kempt leaves the stage in place and records it once. If someone
-replaces the staged update outside Kempt, the next check tells you once. After the restart, Kempt
-finds its transaction in dnf5's history and reports only that. If it did not run, the history entry
-says `restart (staged update did not run)` and so does the notification.
+while an update is staged, Kempt leaves the stage alone and records it once. If something replaces
+the staged update, the next check tells you once. After the restart, Kempt reports only its own
+transaction from dnf5's history. If that did not run, the history entry and the notification say
+`restart (staged update did not run)`.
 
 ### A snapshot before every update
 
-Kempt has no snapshot setting of its own, because dnf5 can already take one. Its actions plugin
-runs a command before each transaction, whether Kempt started it or you ran `dnf5` in a terminal.
+Kempt has no snapshot setting, because dnf5's actions plugin can run a command before every
+transaction, whether Kempt started it or you ran `dnf5` yourself.
 
 ```bash
 sudo dnf install libdnf5-plugin-actions
@@ -331,8 +291,8 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 kempt run [--print-command] [--surface=terminal|popup|background|offline] [--risky-ok]
 ```
 
-Starts `kempt update` where your settings say, then returns at once. This is what **Update Now**
-calls. In a terminal you can run `kempt update` directly.
+Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
+is simpler.
 
 ```bash
 kempt run --print-command
@@ -348,29 +308,23 @@ With `surface=background`:
 detached: kempt update (surface=background)
 ```
 
-`--print-command` shows the launch command only. The old name `--dry-run` still works for now.
+| Option | Effect |
+| --- | --- |
+| `--print-command` | Prints the launch command and starts nothing. `--dry-run` is an older name for it. |
+| `--surface=` | Runs this one update somewhere else, whatever the setting says. |
+| `--risky-ok` | Passed on to an update that runs outside a terminal. A terminal run still asks. |
 
-`--surface=X` runs this one update on another surface, whatever the setting says. **Install on
-Next Restart** calls `kempt run --surface=offline`. An unknown surface is refused with exit code 2.
-With `auto_accept=false`, a stage opens in a terminal so dnf5 can ask first, and any other surface
-becomes a live update in a terminal.
+**Exit 0 means the update started.** `state.json` and `kempt history` have the result. However the
+terminal window closes, even early, it runs a check, which ends the widget's updating state. The
+window's shell exits with the update's status.
 
-`--risky-ok` passes `--risky-ok` on to an update outside the terminal. The popup adds it when you
-choose **Install Now** for session-critical updates. A terminal run still asks.
-
-Exit codes:
-
-- **3**: another update is already running. Nothing is launched.
-- **4**: the terminal emulator is missing. `--print-command` checks this too.
-- **5**: the terminal window never opened, for example over SSH with no display. `run` waits up to
-  five seconds for it. The event log says `run did not start: <reason>`, and a window that opens
-  later starts nothing.
-
-**Exit 0 means the update started.** Read `state.json` or `kempt history` for the result.
-
-When the terminal window closes, it runs a check, whether the update finished, failed, was aborted
-or the window was closed early. That check is what returns the widget from its updating state. The
-exit status is the update's.
+| Exit | When |
+| --- | --- |
+| 0 | The update started. |
+| 2 | Unknown option or `--surface=` value. |
+| 3 | Another update is running. Nothing is launched. |
+| 4 | The terminal emulator is missing. `--print-command` checks this too. |
+| 5 | The terminal window did not open within five seconds, for example over SSH with no display. The event log says `run did not start: <reason>`, and a window that opens later starts nothing. |
 
 ## unstage
 
@@ -378,20 +332,22 @@ exit status is the update's.
 kempt unstage
 ```
 
-Discards the staged update, so the next restart installs nothing. It undoes
-`kempt update --surface=offline`.
+Undoes `kempt update --surface=offline`, so the next restart installs nothing.
 
 ```
 Discarded the staged update. The next restart installs nothing.
 ```
 
-It asks for your password once. With nothing staged, it says so and exits 0 without asking. The
-popup's **Discard Staged Update** runs the same command; see [The popup](#the-popup).
+It asks for your password once, or, with nothing staged, says so without asking. Kempt clears its
+record of the stage only once dnf5 confirms the transaction is gone.
 
-With a Fedora release upgrade stored, it discards nothing and exits 5, because that would cancel
-the upgrade. Another update running exits 3. Kempt clears its own record of the stage only once
-dnf5 confirms the transaction is gone. If the transaction is still there, the command exits 1 and
-keeps the record.
+| Exit | When |
+| --- | --- |
+| 0 | Discarded, or nothing was staged. |
+| 1 | dnf5 still has the transaction. Kempt keeps its record. |
+| 2 | Any argument. |
+| 3 | Another update is running. |
+| 5 | A Fedora release upgrade is stored. Discarding would cancel it, so nothing changes. |
 
 ## reclaim
 
@@ -399,9 +355,9 @@ keeps the record.
 kempt reclaim [--list] [-y] [--expect=DIGEST]
 ```
 
-Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes,
-and each can take hundreds of megabytes. Only system runtimes are removed. Kempt leaves the ones
-installed with `flatpak install --user` alone.
+Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes, and
+each can take hundreds of megabytes. Only system runtimes are removed, never ones installed for you
+only.
 
 ```
 No installed app uses these Flatpak runtimes:
@@ -412,38 +368,42 @@ Removing them frees about 1.5 GB.
 Remove them? [y/N]
 ```
 
-Flatpak itself says which runtimes are unused, and Kempt removes the runtimes on that list and
-nothing else. An extension another installed runtime still uses stays. The size is an estimate.
-Kempt removes the runtimes first and their extensions after them, such as translations
-(`.Locale`) and graphics drivers (`.GL`). Flatpak keeps the runtime an app runs on, so an app
-you install while Kempt removes them keeps its runtime. Kempt then lists again and removes only the
-extensions still unused, so that app keeps those too. If Flatpak removes one of that app's
-extensions, Kempt says so. Run `flatpak update` to put it back.
-Kempt waits until a runtime has been unused for an hour, so a runtime another tool is installing
-is left alone. The hour starts at the first check that lists the runtime. If no check has run yet,
-`kempt reclaim` runs one first and says to try again in an hour. `--list` shows the list and stops. `-y` removes without asking.
-`--expect` takes the `reclaim.digest` from `kempt check` and removes only if that set is still the
-whole list. It never asks for a password. When removing needs an administrator, nothing is
-removed: your account is not an administrator (on Fedora, an administrator is a member of the `wheel` group), or you are logged in
-over the network rather than at the desktop. Run `kempt reclaim` from an administrator's desktop
-session instead.
+| Option | Effect |
+| --- | --- |
+| `--list` | Shows the list and stops. It works with `reclaim=off` too. |
+| `-y`, `--yes` | Removes without asking. |
+| `--expect=DIGEST` | Removes only if the list is still the set with this digest, the `reclaim.digest` from `kempt check` (16 lowercase hex characters). |
 
-To keep a runtime Kempt lists, pin it: `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
-Flatpak never lists a pinned runtime as unused.
+What it removes:
 
-If Flatpak fails part-way, `kempt reclaim` says how much it freed and that Flatpak could not
-remove all of them, and exits 1. If Flatpak fails and the list afterwards cannot be read, Kempt
-cannot tell what went. It says the removal may be partial, and exits 1. Run `kempt reclaim --list`
-to see what is left. If polkit refuses Flatpak's own helper, nothing was removed, and it exits 5.
+- **Only what Flatpak calls unused.** An extension another installed runtime still uses stays. The
+  size is an estimate.
+- **Only after an hour** unused, counted from the first check that lists it, so one another tool is
+  installing is left alone. If no check has run yet, `kempt reclaim` runs one and says to try again
+  in an hour.
+- **Runtimes first, then their extensions**, such as translations (`.Locale`) and graphics drivers
+  (`.GL`). Kempt lists again between the two, so an app you install meanwhile keeps both. If
+  Flatpak removes one of its extensions anyway, Kempt says so, and `flatpak update` puts it back.
+- **Never a pinned runtime.** To keep one Kempt lists, pin it:
+  `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 
-It removes nothing and exits 5 when run as root or with `sudo`, when Flatpak is off or missing,
-when `reclaim=off`, or when removing needs an administrator. Without `-y` and without a
-terminal to ask at, it also exits 5. It exits 6 if the list changed since it was shown, or if part
-of it became unused less than an hour ago, which includes a first use with no check on record. Another update running exits 3. If Flatpak fails to
-list or remove the runtimes, it exits 1. A removal writes an event line and no
-history entry. With `reclaim=automatic` (see [configuration](configuration.md#keys)), a
-successful update removes the offered set for you and its summary says how much was freed. In a
-terminal, the update also prints the outcome under the **Unused Flatpak runtimes** heading.
+It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
+group) logged in at the desktop. Over the network, or from an account that is not an administrator,
+nothing is removed. Run it as yourself, too: as root or with `sudo`, Flatpak cannot see your own
+apps, so Kempt removes nothing.
+
+With `reclaim=automatic` (see [configuration](configuration.md#keys)), a successful update removes
+the offered set, and its summary says how much was freed, under **Unused Flatpak runtimes** in a
+terminal. A removal writes an event line and no history entry.
+
+| Exit | When |
+| --- | --- |
+| 0 | Removed, nothing to remove, or you answered no. |
+| 1 | Flatpak could not list or remove the runtimes. If it stopped part-way, Kempt says how much it freed, or, when the list afterwards could not be read, that the removal may be partial: run `kempt reclaim --list`. |
+| 2 | Unknown option, or a digest that is not 16 lowercase hex characters. |
+| 3 | Another update is running. |
+| 5 | Nothing removed: run as root, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
+| 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
 
 ## summary and history
 
@@ -454,8 +414,7 @@ kempt history [--json]
 ```
 
 `summary` shows one run as text. `N` counts back from the newest: `1` (the default) is the last
-run, `2` the one before. `N` must be a positive whole number, or the command exits 2. If you ask
-for more runs than exist, it shows the oldest and says so on stderr.
+run. Past the oldest, it shows the oldest and says so on stderr.
 
 ```bash
 kempt summary
@@ -472,27 +431,27 @@ Held (skipped): vim-common
 Reboot: needed
 ```
 
-When holds kept packages back, a second line says what they cost:
+Holds that kept packages back add:
 
 ```
 9 pending packages did not move because of holds
 ```
 
-With an update staged, one more line says what the next restart will do:
+An update staged adds:
 
 ```
 Staged: 61 updates install on the next restart
 ```
 
-That line comes from the current state, so `--json` leaves it out. Scripts read `offline_staged`
-from `kempt check`.
+It comes from the current state, so `--json` leaves it out. Scripts read `offline_staged` from
+`kempt check`.
 
-With no runs recorded, `summary` prints `no update runs recorded yet` and exits 0. A damaged entry
-is skipped with a warning, and the one before it is shown.
+With no runs, `summary` prints `no update runs recorded yet`. A damaged entry is skipped with a
+warning, and the one before it is shown.
 
-`--json` prints the newest run's history entry and nothing else. This is what the widget reads. It
-takes no `N`. **If there are no runs, or the newest entry is damaged, it prints nothing and exits
-0.** A damaged entry is named on stderr. No older run is shown in its place.
+`summary --json` prints the newest run's history entry, for the widget. It takes no `N`. **With no
+runs, or a damaged newest entry, it prints nothing**, names the damaged entry on stderr, and shows
+no older run in its place.
 
 ```bash
 kempt summary --json | jq '{timestamp, status, reboot_needed}'
@@ -506,8 +465,8 @@ kempt summary --json | jq '{timestamp, status, reboot_needed}'
 }
 ```
 
-`history` lists past runs, newest first: time, how it ran, status, and what changed. The last
-column uses the same wording as the notifications. A failed run shows its reason in brackets.
+`history` lists past runs, newest first: time, how it ran, status, and what changed, in the
+notifications' wording. A failed run shows its reason in brackets.
 
 ```bash
 kempt history
@@ -519,14 +478,18 @@ kempt history
 2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
 ```
 
-`history --json` prints every run as one JSON array, newest first. Each element is the entry
-`summary --json` prints for that run. With no runs it prints `[]`. A damaged entry is left out and
-named on stderr. It always exits 0. The format is in
+`history --json` prints every run as one JSON array of `summary --json` entries, newest first, or
+`[]`. A damaged entry is left out and named on stderr. The format is in
 [architecture.md](architecture.md#history-entries).
 
 ```bash
 kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)  \(.error)"'
 ```
+
+| Exit | When |
+| --- | --- |
+| 0 | Always, including no runs and damaged entries. |
+| 2 | `N` is not a positive whole number, `--json` with `N`, or an unknown option. |
 
 ## log
 
@@ -535,7 +498,7 @@ kempt log [-n N]
 ```
 
 One line per thing Kempt did, newest last. `-n` sets how many lines to show (default 30). With
-nothing recorded it prints `No events recorded yet.` and exits 0.
+nothing recorded it prints `No events recorded yet.`
 
 ```bash
 kempt log -n 6
@@ -550,73 +513,75 @@ kempt log -n 6
 2026-08-26T21:14:41+03:00 widget check ok actionable=0 held=1
 ```
 
-Each line is `<timestamp> <via> <what happened>`. `via` is `widget` for the Plasma widget and
-`cli` for anything else, such as a terminal, a script or a timer. It tells you whether a change
-came from the widget or from somewhere else.
+Each line is `<timestamp> <via> <what happened>`, where `via` is `widget` or `cli` (a terminal, a
+script or a timer).
 
+| Exit | When |
+| --- | --- |
+| 0 | Always, including an empty log. |
+| 2 | `-n` without a positive whole number, or an unknown option. |
+
+The file is `~/.local/state/kempt/events.log`, mode 0600, trimmed to the last 2000 lines past 2500.
 The wording is fixed, so you can search it:
 
 | Line | Written when |
 | --- | --- |
-| `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when it had no value. |
+| `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when it had none. |
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
-| `check ok actionable=<n> held=<n>` | A check succeeded. The numbers are what the badge shows next. |
+| `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
-| `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>` and asked nothing itself. Not a check: it changes no counts. |
-| `refresh ok` / `refresh failed` | The dnf metadata refresh ran (at most every three hours, on mains power and an unmetered connection). |
-| `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak metadata refresh ran, in the same step. Only while `include_flatpak` is on. Either can fail without stopping the other. |
-| `refresh skipped (<reason>)` | A refresh was skipped on battery or a metered connection. At most once a day. |
+| `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |
+| `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
+| `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
+| `refresh skipped (<reason>)` | Skipped on battery or a metered connection. At most once a day. |
 | `run start surface=<surface>` | A run is about to change the system. |
-| `run did not start: <reason>` | A run stopped before changing anything: an image-based system, a stored Fedora release upgrade, unreadable package lists, or a terminal window that never opened. Exit 5. |
+| `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
-| `run failed rc=<n>: <reason>` | A run failed, with the first log line that names the failure. |
+| `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
-| `offline stage dropped (superseded by live update)` | A live update changed packages, so the staged update was discarded. |
-| `offline stage cannot install (...) - announced` | The staged update can no longer install on a restart. Said once. |
-| `offline stage replaced outside Kempt (<what differs>) - announced` | The staged update is no longer the one Kempt made. Said once. |
-| `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a staged update was removed, or kept because a newer stage arrived during a check. |
-| `harvest applied (<counts>)` | After a restart, the staged update had installed and went into history. |
+| `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
+| `offline stage cannot install (...) - announced` | The staged update can no longer install on a restart. |
+| `offline stage replaced outside Kempt (<what differs>) - announced` | The staged update is no longer the one Kempt made. |
+| `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |
+| `harvest applied (<counts>)` | After a restart, the staged update had installed. |
 | `harvest found the staged transaction did not run (<counts>)` | After a restart, a different transaction had run. The history entry says `restart (staged update did not run)`. |
 | `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two outcomes after a restart. |
-| `harvest deferred: packages moved outside Kempt while the stage is still armed` | Another tool changed packages while an update was staged. Said once. |
+| `harvest deferred: packages moved outside Kempt while the stage is still armed` | Another tool changed packages while an update was staged. |
 | `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
-| `harvest log not written (state directory unwritable?)` | The log for a restart install could not be saved, so the popup shows no **Show Log** for that run. |
+| `harvest log not written (state directory unwritable?)` | The log for a restart install could not be saved, so that run has no **Show Log**. |
 | `unstage discarded the staged update` | `kempt unstage` removed the staged update. |
-| `unstage refused (<what is stored>)` / `unstage refused by the root helper` | `kempt unstage` changed nothing, because a Fedora release upgrade is stored. Exit 5. |
+| `unstage refused (<what is stored>)` / `unstage refused by the root helper` | A Fedora release upgrade is stored, so `kempt unstage` changed nothing. |
 | `unstage found nothing staged` | Nothing was staged. |
-| `unstage cleared a marker with no transaction under it` | The staged update was already gone, so only Kempt's record was removed. |
+| `unstage cleared a marker with no transaction under it` | The stage was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
-| `unstage left a transaction behind (status <status>)` | dnf5 still reports a stored transaction, so Kempt kept its record. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused Flatpak runtimes were removed, by `kempt reclaim` or after an update. When Flatpak stopped part-way, the line ends `, not all of them: <error>`. `, in use: <id>//<branch>` names extensions Flatpak removed although an app uses them. Run `flatpak update` to put them back. |
-| `reclaim found nothing to remove` | Nothing was unused when the removal after an update ran. |
+| `unstage left a transaction behind (status <status>)` | dnf5 still has a stored transaction, so Kempt kept its record. |
+| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused runtimes were removed, by `kempt reclaim` or after an update. `, not all of them: <error>`: Flatpak stopped part-way. `, in use: <id>//<branch>`: extensions an app uses were removed; `flatpak update` puts them back. |
+| `reclaim found nothing to remove` | Nothing was unused after an update. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
-| `reclaim needs authorization, nothing removed` | Removing them needed an administrator (see [reclaim](#reclaim)), so nothing was removed. |
-| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own error line, when it printed one. When the list could not be read, `<n>` is `?`. `, what was removed is unknown` after the exit code means Flatpak failed and the list afterwards could not be read. |
-| `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
+| `reclaim needs authorization, nothing removed` | Removing needed an administrator (see [reclaim](#reclaim)). |
+| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own line, if any. `<n>` is `?` when the list could not be read. `, what was removed is unknown`: Flatpak failed and the list afterwards could not be read. |
+| `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` ran as root, or with `reclaim=off`. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
-| `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's update notifier was turned off, or back on, for this user, or kept as it was when the widget's offer was answered. |
-
-The file is `~/.local/state/kempt/events.log`, mode 0600. Past 2500 lines it is trimmed to the
-last 2000.
+| `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's notifier was turned off or on for this user, or kept when the widget's offer was answered. |
 
 ### Which question, which file
 
 | What you want to know | Where to look |
 | --- | --- |
 | What happened, when, and whether it came from the widget | `kempt log` |
-| What the package manager printed during a run | The run log, `~/.local/state/kempt/logs/<stamp>.log`. `kempt summary` prints its path for a failed run, and each history entry has it in `log`. For an update installed during a restart, the log is Kempt's own record of what changed, and says so at the top. |
+| What the package manager printed during a run | The run log, `~/.local/state/kempt/logs/<stamp>.log`, named by `kempt summary` for a failed run and by each history entry's `log`. For a restart install, it is Kempt's own record of what changed, and says so at the top. |
 | One run in detail: versions, counts, held items, duration | `~/.local/state/kempt/history/<stamp>.json`, listed by `kempt history` |
 | What is pending now | `~/.local/state/kempt/state.json`, written by `kempt check` |
 | Widget errors, such as a settings page that will not load | `journalctl --user -b \| grep -i kempt`, and the error shown on the settings page |
 
-When a run fails at the password prompt, the summary, history, event log and notification give one
-of four reasons. The run log keeps pkexec's own wording.
+A run that fails at the password prompt gives one of four reasons everywhere it reports. The run
+log keeps pkexec's own wording.
 
 | Kempt says | What happened |
 | --- | --- |
 | `authentication cancelled` | The password dialog was closed. |
-| `not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)` | The password was wrong, or the session cannot authorize at all: a remote session, or one that is not the active one. pkexec reports both the same way. |
+| `not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)` | A wrong password, or a remote or inactive session. pkexec reports both the same way. |
 | `no authentication agent is running to ask for the password` | Nothing on the desktop could ask for the password. |
 | `cannot reach polkit (no system bus or polkit service), so nothing can be authorized` | pkexec could not reach polkit, for example in a container or with `polkit.service` stopped. |
 
@@ -626,9 +591,8 @@ of four reasons. The run log keeps pkexec's own wording.
 kempt doctor
 ```
 
-Checks this install and prints one line per check. Exits 0 when everything passes, 1 when anything
-fails. Use it when the widget shows nothing pending and you are unsure why: a missing root helper
-makes `kempt check` report zero updates with exit 0.
+Checks this install, one line per check. Use it when the widget shows nothing pending and you are
+unsure why: a missing root helper makes `kempt check` report zero updates with exit 0.
 
 On a checkout install:
 
@@ -663,81 +627,73 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Lines are `ok`, `info` or `FAIL`. Only `FAIL` changes the exit code, and every check runs, so one
-pass shows every problem. The last five events follow the checks. They are for context and are
-not checks.
+Lines are `ok`, `info` or `FAIL`. Every check runs, so one pass shows every problem. The last five
+events follow.
 
-A packaged install prints `install: packaged` in place of the `helpers:`, `policy:` and `widget:`
-lines, and no commit on the `version:` line. That sample is in
-[install.md](install.md#verify-it).
+| Exit | When |
+| --- | --- |
+| 0 | No line is `FAIL`. |
+| 1 | At least one line is `FAIL`. |
 
-The **Discover's update notifier** row appears only when Discover's notifier is installed. It is
-`ok` when the notifier is turned off for you, and `info` when it starts with your session. The two
-tools can show different counts, and Discover's background work can make a Kempt run wait. The
-line names `kempt discover-notifier off` and the widget's **Turn Off Discover's Notifier**
-button. `./install.sh` offers the same. See [discover-notifier](#discover-notifier).
-
-What each check means when it fails:
+What a `FAIL` means:
 
 | Check | FAIL means |
 | --- | --- |
-| The system uses dnf (second line) | This is an image-based Fedora. Use Discover or `rpm-ostree upgrade`; `kempt update` stops here (exit 5). |
-| Both root helpers exist at the expected paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. Checks stay `stale` and updates cannot run. |
+| The system uses dnf (second line) | An image-based Fedora, where `kempt update` stops (exit 5). Use Discover or `rpm-ostree upgrade`. |
+| Both root helpers exist at the expected paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
 | The polkit action file is installed | Background checks cannot authorize. |
-| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package installed over a checkout install, or the reverse. The line names both fixes. `info` when the policy cannot be read. |
+| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package over a checkout install, or the reverse; the line names both fixes. `info` when the policy cannot be read. |
 | `jq` is present | Always passes when doctor runs; without `jq` every command exits 3. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
 | `flatpak` is present | Every check reports Flatpak stale. `info` when `include_flatpak=false`. |
-| Kempt can list unused Flatpak runtimes | `kempt reclaim` and the widget cannot offer to free space. When `flatpak-libs` or `python3-gobject-base` is missing, the line fails and says to install them. Any other listing error is an info line with Flatpak's reason. Runs only when Flatpak is on and `reclaim` is not `off`. |
+| Kempt can list unused Flatpak runtimes (only when Flatpak is on and `reclaim` is not `off`) | Nothing can offer to free space. It fails when `flatpak-libs` or `python3-gobject-base` is missing, and says to install them. Other listing errors are `info`, with Flatpak's reason. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
 | The checkout still has `lib/`, `backends/` and the passwordless rules template | The checkout is damaged. |
-| The installed helpers, polkit action and widget match the checkout | You pulled without re-running `./install.sh`, so root still runs the old helpers. |
-| The `kempt` the widget runs is this one | A leftover `~/.local/bin/kempt` shadows the installed one for the panel. `info` when the widget finds no `kempt` at all. |
+| `helpers:`, `policy:`, `widget:` match the checkout | `DIFFER`: you pulled without re-running `./install.sh`, so root still runs the old helpers. `git pull` updates only the CLI. The line names the fix. `not installed` is `info`. |
+| `widget engine:` (last on both kinds of install) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
 | `/system-update` is absent, or points at a ready update | The next restart starts the offline updater and installs nothing. Run `sudo dnf5 offline clean`. |
 
+The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
+when the notifier is off for you, and `info` when it starts with your session, naming
+[`kempt discover-notifier off`](#discover-notifier) and the widget's
+**Turn Off Discover's Notifier**. `./install.sh` offers the same.
+
 ### The staged transaction
 
-Doctor compares Kempt's record of a staged update with what dnf5 has stored. It prints nothing here
-when neither exists.
+Doctor compares Kempt's record of a staged update with what dnf5 has stored, and prints nothing
+here when neither exists.
 
 | Line | What it means |
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. |
-| `FAIL  staged update can never install: the transaction was downloaded but never armed ...` | It was never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
+| `FAIL  staged update can never install: the transaction was downloaded but never armed ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
 | `FAIL  staged update can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
-| `info  staged update: the transaction is gone, ...` | Kempt's record outlived the update. The next check clears it. |
+| `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
 | `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was armed, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
-| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says what happened. |
+| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | A release upgrade replaced Kempt's staged update. The next check clears the record. |
 | `FAIL  boot symlink is live over a transaction that is not armed ...` | The next restart starts the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing staged behind it ...` | The same, with nothing stored at all. |
-| `info  staged update: it installs kernel-core on the next restart despite the hold ...` | You held the package after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
-| `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read what the staged update contains and you hold a dnf package. |
+| `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
+| `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
 | `FAIL  staged update is not the one Kempt built ...` | Something replaced it. The line lists up to four differences each way (`+` only in dnf5's, `-` only in Kempt's). |
 | `info  staged update: the marker cannot be read ...` | Kempt's record is damaged. It is left in place. |
 
 ### The install lines
 
-`version:` names the release. In a git checkout it adds the commit and whether the tree is `clean`
-or `dirty`. Quote this line in bug reports.
+`version:` names the release, plus, in a git checkout, the commit and `clean` or `dirty`. Quote it
+in bug reports.
 
-`helpers:`, `policy:` and `widget:` compare the installed copies with the checkout. In a checkout
-install, `git pull` updates the CLI at once, but the root helpers, polkit action and widget change
-only when `./install.sh` runs. `DIFFER` is a `FAIL` and names the fix. `not installed` is `info`.
-
-A packaged install prints `install: packaged` and compares nothing, because the package manager
-keeps those files in step. See [docs/RELEASING.md](RELEASING.md). It fails if a widget copy in your
-home directory shadows the packaged one.
-
-`widget engine:` comes last on both kinds of install. The panel puts `~/.local/bin` first on its
-`PATH`, so it may run a different `kempt` from the one that printed this report. This line names
-the one it runs.
+A packaged install prints `install: packaged` in place of `helpers:`, `policy:` and `widget:`, and
+no commit on `version:`, because the package manager keeps those files in step. Its sample is in
+[install.md](install.md#verify-it), and [RELEASING.md](RELEASING.md) has the details. It fails if a
+widget copy in your home directory shadows the packaged one.
 
 ## hold, unhold, holds
 
@@ -747,9 +703,9 @@ kempt unhold dnf:<package> | flatpak:<app.id>
 kempt holds [--exclude-args]
 ```
 
-A hold means **skip it, but keep telling me about it**. Kempt skips held items in every run. They
-still appear in the state with `"held": true`, count toward `held_total` and not `actionable`, and
-each run lists them as `Held (skipped): ...`.
+A hold means **skip it, but keep telling me about it**. Held items stay in the state with
+`"held": true`, count toward `held_total` rather than `actionable`, and each run lists them as
+`Held (skipped): ...`.
 
 ```bash
 kempt hold dnf:kernel-core
@@ -762,12 +718,18 @@ dnf:kernel-core
 flatpak:org.gimp.GIMP
 ```
 
-The `dnf:` or `flatpak:` prefix is required. Without it the command exits 2 with
-`use dnf:<pkg> or flatpak:<app.id>`. Names are checked when you add them. Adding a hold twice, or
-removing one that is not there, succeeds.
+The `dnf:` or `flatpak:` prefix is required, and names are checked when you add them.
 
-Holds are Kempt's own list. A `sudo dnf5 upgrade` you run yourself ignores them. To pass them on,
-`--exclude-args` prints the dnf holds as one line of dnf5 arguments:
+**Flatpak runtimes cannot be held.** Kempt refuses and writes nothing:
+
+```
+org.kde.Platform is a Flatpak runtime, and runtimes cannot be held: apps share them, so holding one breaks the next app that needs it. Hold the app instead.
+```
+
+A runtime hold already in your holds file is ignored. Remove it with `kempt unhold flatpak:<id>`.
+
+**Holds are Kempt's own list**, which a `sudo dnf5 upgrade` of your own ignores. `--exclude-args`
+prints the dnf holds as one line of dnf5 arguments (an empty line with none):
 
 ```bash
 kempt holds --exclude-args
@@ -781,39 +743,23 @@ kempt holds --exclude-args
 sudo dnf5 upgrade $(kempt holds --exclude-args)
 ```
 
-It prints dnf holds only. With none it prints an empty line and exits 0.
-
-**Flatpak runtimes cannot be held.** Apps share them, so holding one would stop the apps that need
-it. Kempt refuses and writes nothing:
-
-```bash
-kempt hold flatpak:org.kde.Platform
-```
-
-```
-org.kde.Platform is a Flatpak runtime, and runtimes cannot be held: apps share them, so holding one breaks the next app that needs it. Hold the app instead.
-```
-
-Runtime rows in the popup have no padlock. A runtime hold already in your holds file is ignored.
-Remove it with `kempt unhold flatpak:<id>`.
+| Exit | When |
+| --- | --- |
+| 0 | Done, including a hold added twice, one removed that was not there, and a warning about a staged update. |
+| 1 | The writers' lock was busy. |
+| 2 | No `dnf:` or `flatpak:` prefix (`use dnf:<pkg> or flatpak:<app.id>`), an invalid name, a Flatpak runtime, or an unknown option. Nothing was written. |
 
 ### Holding a package that is already staged
 
-A hold applies from the **next** update Kempt builds. dnf5 cannot change an update it has already
-stored, so if one is staged, the next restart still installs the package. The hold is recorded
-anyway, and the command prints a warning on stderr and exits 0:
-
-```bash
-kempt hold dnf:kernel-core
-```
+A hold applies from the **next** update Kempt builds. dnf5 cannot change a stored update, so a
+staged one still installs the package. The hold is recorded anyway, with a warning on stderr:
 
 ```
 The staged update still contains kernel-core and installs it on the next restart.
 When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).
 ```
 
-`kempt update --surface=offline` rebuilds the staged update with your holds. It asks for your
-password. `sudo dnf5 offline clean` removes the staged update, so the next restart installs
+Rebuilding asks for your password. After `sudo dnf5 offline clean`, the next restart installs
 nothing.
 
 If Kempt cannot read what the staged update contains, it warns anyway:
@@ -829,7 +775,8 @@ When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo
 The staged update was built without kernel-core - the next restart will not install it. Rebuild when ready: kempt update --surface=offline.
 ```
 
-Once the restart installs the staged update, the hold works as usual.
+After that restart, the hold works as usual. The widget shows the same warning on its
+[staged banner](widget.md#the-staged-banner).
 
 ## config
 
@@ -838,8 +785,9 @@ kempt config get <key> [default]
 kempt config set <key> <value>
 ```
 
-Reads or writes a setting. The widget uses the same command. `get` returns the built-in default for
-a known key, or your `default` argument if you give one.
+Reads or writes a setting, as the widget's settings do. With no value stored, `get` returns your
+`default` argument, or the built-in default for a known key. Every key is in
+[configuration.md](configuration.md).
 
 ```bash
 kempt config get surface           # terminal
@@ -847,15 +795,20 @@ kempt config set surface offline
 kempt config get refresh_interval_min   # 60
 ```
 
-Keys must match `^[a-z][a-z0-9_]+$` and values must be one line, or `set` exits 2. Every key is
-described in [configuration.md](configuration.md).
-
-`set` warns on stderr about a key it does not know, or a value a key does not accept. It still
-stores it and exits 0, so a newer widget can use keys this version does not know:
+`set` warns on stderr about an unknown key or a value the key does not accept, but stores it, so a
+newer widget can use keys this version does not know:
 
 ```
 warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
 ```
+
+Setting `surface` also answers the widget's one-time offer to run updates in the widget.
+
+| Exit | When |
+| --- | --- |
+| 0 | Read or written, including a warning about an unknown key or value. |
+| 1 | The writers' lock was busy. |
+| 2 | A key that does not match `^[a-z][a-z0-9_]+$`, a value longer than one line, or a missing argument. |
 
 ## --version
 
@@ -865,9 +818,8 @@ kempt version          # the same
 kempt -V               # the same
 ```
 
-The number comes from the `VERSION` file. Without that file it prints `kempt unknown` and keeps
-working. For a bug report, `kempt doctor` is more useful: it opens with the version and where it
-was read from.
+The number comes from the `VERSION` file, or reads `kempt unknown` without it. For a bug report,
+`kempt doctor` is better: it also says where the version was read from.
 
 ## enable-passwordless, disable-passwordless
 
@@ -878,8 +830,15 @@ kempt disable-passwordless
 
 Adds or removes a polkit rule that lets your active local session install updates without a
 password. It covers dnf. Flatpak app updates never ask. Each command asks for your password once,
-to write to `/etc/polkit-1`. Neither takes arguments. Disabling when it was never enabled
-succeeds. What the rule grants is in [security.md](security.md#passwordless-mode).
+to write to `/etc/polkit-1`. Disabling when it was never enabled succeeds.
+What the rule grants is in [security.md](security.md#passwordless-mode).
+
+| Exit | When |
+| --- | --- |
+| 0 | Done, or there was nothing to disable. |
+| 1 | `enable-passwordless` could not install the rule, for example because the password dialog was cancelled. |
+| 2 | Any argument. Also `enable-passwordless` when it cannot build a valid rule for your user name. |
+| other | `disable-passwordless` could not remove the rule, and passes on pkexec's code: 126 when the password dialog was dismissed, 127 when authorization was refused or failed. |
 
 ## discover-notifier
 
@@ -891,458 +850,30 @@ kempt discover-notifier status [--json]
 ```
 
 Discover's update notifier counts updates on its own schedule, so its number can differ from
-Kempt's. These commands change it for you alone and never ask for a password.
-
-- `off` writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
-  notifier no longer starts when you log in, and stops the one that is running. If you already had
-  your own file there, Kempt moves it next to the new one, ending in `.before-kempt`, and prints
-  where. A symlink stays a symlink. Kempt keeps one such copy and never overwrites it: when one is
-  already there, `off` changes nothing, says where it is and exits 1. When the notifier is already
-  off, by any entry, `off` changes no file and says so.
-- `on` removes the file Kempt wrote and puts your own back exactly as it was. Kempt removes only
-  what it wrote, byte for byte: if you edited its file, `on` moves your version to a name ending in
-  `.kempt-edited` and prints where. Then it starts the notifier for this session, and says so once
-  it is running. If an entry of your own keeps the notifier off, `on` leaves it alone, says so and
-  exits 1.
-- `keep` changes nothing. It records that you answered the widget's offer, which is what **Keep
-  Discover's Notifier** runs.
-- `status` says whether the notifier is installed, on, turned off by Kempt and running. `--json`
-  prints the same as one object: `installed`, `enabled`, `running` and `by_kempt`, plus `entry`, the
-  file that keeps it off, when that file is not Kempt's.
-
-When Discover's notifier is not installed, `off`, `on` and `keep` say so and change nothing.
-
-Kempt before 0.1.8 wrote a copy of the system entry with `Hidden=true` from `./install.sh`.
-Nothing tells that file apart from one you wrote, so Kempt treats it as yours. To turn the notifier
-back on, delete it.
-
-Exit codes: **1** in three cases, and nothing changed in any of them:
-
-- `off` finds a copy of your own entry already kept.
-- `on` finds that your own entry keeps the notifier off.
-- The entry path is a directory, or a symlink to nothing.
-
-Two of these commands at once take turns, on the writers' lock.
-
-## The Plasma widget
-
-The widget runs the commands above: `kempt check` for the badge, `kempt run` for **Update Now**,
-`kempt hold` and `kempt unhold` for the padlocks, and `kempt config` for its settings. Whatever
-you do in a terminal shows up in the widget.
-
-### Where it lives: the system tray, or the panel itself
-
-`./install.sh` installs the widget for your user, into `~/.local/share/plasma/plasmoids/`. You
-can use it in either place, or both.
-
-**In the system tray** (the default). Kempt appears in the tray beside the volume and network
-icons. The first time, it may need a plasmashell restart or a new login. To hide it or move it
-behind the arrow:
-
-> Right-click the tray > **Configure System Tray...** > **Entries** > find **Kempt**.
-
-**On the panel.** Use this to place it somewhere specific, or make it larger:
-
-> Right-click the panel > **Add Widgets...** > search for **Kempt** > drag it onto the panel.
-
-Using both gives you two Kempt icons, so you probably want to turn one off.
-
-After changing anything under `plasmoid/` in a checkout, re-run `./install.sh`. The widget is a
-copy and does not follow the checkout.
-
-### What the panel icon means
-
-| Icon | State | What it tells you |
-|---|---|---|
-| Update icon with a count badge | Updates pending | The count is what an update would change now. Held packages are left out. The tooltip names the first three, kernel and other session-critical packages first. |
-| Plain update icon, no badge | Up to date | Nothing to do. The tooltip still shows how many packages are held. |
-| Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and the time of that check. |
-| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem and points at `kempt doctor`. |
-| Spinner | Updating | A run started from the widget is in progress. |
-| Dimmed, no badge | No data yet | The first check has not answered yet. If another check was running, as is common right after login, it asks again a few times about ten seconds apart. |
-
-The badge shows counts up to `999`, then `999+`. On a panel thinner than 22 px, or with **Small**
-chosen, there is no badge. The icon still changes, and the tooltip has the count.
-
-### How big the icon is
-
-By default the icon matches the system tray: 22 px on panels from 22 to 47 px high, which covers
-Plasma's default panel.
-
-**Configure Kempt… > Panel icon size** offers **Automatic**, **Small** (16 px), **Medium** (22 px)
-and **Large** (32 px). Inside the system tray, the tray sets the size. **Large** is never smaller
-than **Automatic**, which reaches 48 or 64 px on very thick or HiDPI panels.
-
-From a terminal:
-
-```bash
-kempt config set widget_icon_size large
-```
-
-Values are `auto`, `small`, `medium` and `large`. The widget treats anything else as **Automatic**.
-
-### The popup
-
-Click the icon. The popup has a **header** that says where you stand, a **content area**, and a
-**footer** with the main button.
-
-With updates pending, a restart owed and a kernel in the update:
-
-```
- 3 updates available                                 [refresh] [gear]   <- header: the count,
- --------------------------------------------------------------------     Refresh, settings
- (!) Restart to apply installed updates          [Restart…]      [x]   <- at most TWO messages,
- (i) This update includes a kernel. The safest way is to                   in priority order
-     install it on the next restart, so nothing changes
-     under the running desktop.
-                                        [Install on Next Restart]
-
- System (dnf)                                                          <- the pending list,
-   nodejs                                                     [🔓]       grouped by backend
-   2:24.19.0-1nodesource → 2:24.20.0-1nodesource
- Apps (flatpak)
-   org.mozilla.firefox                                        [🔓]
-   140 → 141
- Held                                                                  <- held items stay
- Held packages are skipped by Kempt only.                                 visible, out of
-   kernel-core                                                [🔒]       the running
-   Held  6.15.1 → 6.15.3
-
- Last update 18 min ago · 4 packages                            [v]    <- expands to what
- --------------------------------------------------------------------     that run installed
- Checked 4 min ago · 1 held · ~140 MB              [ Update Now ]      <- footer: the dateline,
-                                                                          the cost, and the
-                                                                          one action
-```
-
-#### Header
-
-The header reads one of:
-
-- `3 updates available`
-- `Up to date`, or `Up to date · 2 held` when every pending update is held
-- `23 updates staged for the next restart` while an update is staged
-- `Updating…`
-- `No update data yet`, before the first check answers
-- `Kempt's engine is not installed`, when the widget is installed without the CLI (see
-  [install.md](install.md#installing-from-the-kde-store-first))
-- `Kempt's engine will not run`, when the CLI is there and cannot start
-- `Kempt cannot check for updates`, when running the CLI failed or no check has ever succeeded
-- `Could not read the update state`, when the state file is there and this widget cannot read it,
-  which usually means the widget is older than the CLI
-
-The header count is never capped.
-
-The **Check for Updates** button (a circular arrow) fetches fresh package lists, then checks. The
-fetch can take a minute or more. On battery or a metered connection it checks without fetching.
-When the lists were not fetched, the footer says how old they are, such as `metadata 3 hours old`.
-After a failed check, its tooltip also gives the reason, such as
-`dnf check failed: repo 'updates' unavailable`. While a check or run is in progress it is greyed
-out, with a spinner beside it. It is also in the icon's right-click menu and the tray's
-**More actions** menu. Inside the system tray, the tray's own heading has this
-button and the gear, so the popup hides its copies.
-
-The **gear** opens **Configure Kempt…**, the same as the right-click menu.
-
-#### Messages
-
-Messages appear only when they apply, and **at most two show at once**. When more apply, the ones
-lower in this list are left out. If that hides the restart message, the footer says
-`restart pending` in its place.
-
-1. **The engine is missing or broken.** *"Kempt's engine is not installed"*, with the install
-   commands, or *"Kempt's engine is installed but will not run"*, with **Check Installation**.
-   Either shows alone. See [install.md](install.md#installing-from-the-kde-store-first).
-2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>`. For a button press that failed, it shows what the CLI said.
-   **Show Log** is on it when a *run* recorded a log file, which every run does, including installs
-   during a restart. If that log could not be saved, there is no button. When the message tells you
-   to run `kempt doctor`, it adds **Check Installation**. The message goes when you close the popup
-   or the next check starts.
-   **Check Installation** runs `kempt doctor` in the widget. It reads files and never asks for a
-   password. A message under the one you pressed says *"Checking Kempt's installation…"*, then
-   quotes the first problem doctor found, or says it found none. **Show Full Report** shows
-   everything doctor printed, which you can select and copy, and **Copy Command** copies
-   `kempt doctor`. This message shows even when two others are up. It goes when you close it, close
-   the popup, or a check or an update starts. You can close it while doctor is still running.
-3. **This system updates with rpm-ostree**, on an image-based Fedora. It points at Discover or
-   `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
-4. **A Fedora release upgrade is stored.** It says whether the upgrade installs on the next restart,
-   is downloaded but not started, was skipped by a restart, or did not finish, and what to do.
-5. **What the next restart will install**, when an update is staged. See *The staged banner* below.
-   **Update Now** is hidden while it shows.
-6. **Restart to apply installed updates**, with **Restart…** and a close button. See *About the
-   restart* below.
-7. **"This update includes a kernel. The safest way is to install it on the next restart, so
-   nothing changes under the running desktop."** A second version names the NVIDIA driver when it is
-   in the update. Its button is **Install on Next Restart**, the same as
-   `kempt update --surface=offline`. Without a kernel, it names what is in the update: `This update
-   touches 20 packages the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way
-   is to install them on the next restart.` It is hidden while an update is staged.
-   After **Update Now**, when updates run outside a terminal, the same message asks first. It
-   moves to the top and adds **Install Now**. **Install on Next Restart** has the keyboard.
-8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
-   install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches **Run
-   updates in** to **In this widget**. **Keep the Terminal Window** keeps it and hides the message
-   for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
-9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-   from Kempt's, and its checks can make an update wait."** It shows once, while Discover's notifier
-   is installed and starts with your session. It never shows together with message 8. **Turn Off
-   Discover's Notifier** runs `kempt discover-notifier off`. **Keep Discover's Notifier** changes
-   nothing. Either answer hides the message for good, after a restart too. Settings can turn the
-   notifier back on.
-10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when
-   `kempt reclaim` has at least 100 MB to offer, or an amount it could not measure. **Show What**
-   lists the runtimes, and **Free Up Space** removes them. The button removes only the list you
-   saw: if the list changed, nothing is removed and the popup says so. It never asks for a
-   password: when removing needs an administrator, the popup says so and nothing is removed. With `reclaim=automatic` the message adds *"Kempt removes them after
-   the next update."* and the button reads **Free Up Space Now**. Closing the message hides it
-   until the list changes or Plasma restarts.
-
-A failed check shows in the footer as `last check failed`, with the reason in the **Check for
-Updates** tooltip. A failed hold shows in the row you pressed.
-
-#### The staged banner
-
-Usually the banner is green and says what the next restart will do. It has its own **Restart…**
-button when the restart message is not showing one:
-
-```
- (=) 61 updates are staged - they install on the next restart   [Restart…]
-```
-
-If you hold a package that is already in the staged update, the banner turns into a warning. This
-happens whether you use the padlock or `kempt hold`. dnf5 stored that update before the hold, and
-there is no way to edit a stored one. So the restart would still install the package:
-
-```
- (!) You held kernel-core after the next-restart install was prepared, so it
-     still installs. Rebuild it to skip kernel-core, or stop holding kernel-core
-     to keep the current plan. Rebuilding asks for authorization; if it fails,
-     nothing stays staged.                          [Rebuild Staged Update]
-```
-
-With several held packages it names the first and counts the rest:
-`You held kernel-core and 2 more after the next-restart install was prepared, so they still
-install. Rebuild it to skip them, or stop holding them to keep the current plan.`
-
-The warning has no **Restart…** button, and neither does the restart message while it shows,
-because a restart would install the package you held. **Rebuild Staged Update** runs
-`kempt update --surface=offline` and builds the staged update again with your current holds. Its
-tooltip:
-
-> Builds the staged update again with your current holds. Asks for authorization; if the rebuild
-> fails, the current staged update is removed.
-
-The rebuild asks for authorization, like **Install on Next Restart**. dnf5 deletes the old staged
-update before it builds the new one. So a failed rebuild removes the current staged update, and the
-restart installs nothing. It reuses the packages already downloaded.
-
-If the staged update changed after the banner was drawn, nothing runs and the popup says
-`The staged update changed since this was offered. Nothing was rebuilt; check the banner above.`
-
-When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
-`may`:
-
-```
- (!) You added holds after the next-restart install was prepared, so it may
-     still install held packages. Rebuild it to apply your holds. Rebuilding
-     asks for authorization; if it fails, nothing stays staged.
-                                                    [Rebuild Staged Update]
-```
-
-With nothing held, the banner stays green. Flatpak holds never cause a warning, because only dnf
-updates are staged.
-
-Every staged banner also has **Discard Staged Update**. It runs `kempt unstage`: the next restart
-installs nothing and the banner goes. Its tooltip:
-
-> Removes the update waiting for the next restart, so the restart installs nothing. Asks for
-> authorization, and deletes the packages it downloaded, so staging again downloads them again.
-
-The popup reports the result in the words `kempt unstage` uses. If the staged update changed after
-the banner was drawn, nothing runs and the popup says so. With a Fedora release upgrade stored,
-there is no **Discard Staged Update** button.
-
-For the terminal side, see
-[Holding a package that is already staged](#holding-a-package-that-is-already-staged).
-
-#### The list
-
-Updates are grouped under **System (dnf)**, **Apps (flatpak)**, **Flatpak runtimes** and **Held**.
-Each row shows the package and its old and new versions. Long version lines wrap and long names are
-shortened. A package the update would add shows `new → 1.0-1.fc44`.
-
-Runtimes are listed because `flatpak update` updates them too. A runtime row shows its branch, and
-has no version line when Flatpak publishes none. It has no padlock, because runtimes cannot be held
-(see [hold, unhold, holds](#hold-unhold-holds)).
-
-**The padlock** at the end of a row holds the package, or stops holding it. It runs `kempt hold`
-or `kempt unhold`. The icon shows the current state:
-
-- **🔓 open**: the package will be updated. The button reads *Hold nodejs at
-  2:24.19.0-1nodesource* and *Kempt skips it on every update until you stop holding it.*
-- **🔒 closed**: the package is held. The button reads *Stop holding nodejs* and *Kempt offers its
-  update again.*
-
-A held row says **Held** before its version. Under the **Held** heading: *Held packages are skipped
-by Kempt only.* A `sudo dnf upgrade` in a terminal ignores Kempt's holds. For a package the update
-would add, the padlock reads *Skip installing brandnew*.
-
-When you press a padlock, it turns into a spinner and the other padlocks wait. The row moves to its
-new group after the next check, and keyboard focus follows it. A screen reader hears *Holding
-nodejs* or *No longer holding nodejs*. If the hold fails, the reason appears in that row until your
-next press or the next check.
-
-**Last update 18 min ago · 4 packages** shows what the previous run installed. Expand it for the
-package list and **Show Log**. When a failed run's reason says to run `kempt doctor`, it also has
-**Check Installation**. It takes at most a third of the popup and scrolls within that.
-
-#### Footer
-
-`Checked 4 min ago` counts up while the popup is open. Hover it for the full time. It can add:
-
-- ` · last check failed`, with the reason in the **Check for Updates** tooltip
-- ` · metadata 2 days old`, after 24 hours, or sooner when **Check for Updates** could not fetch
-- ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known and there is something to update
-- ` · restart pending`, when a restart is owed and its message is not showing
-
-Before any check succeeds it reads `No successful check yet`.
-
-The size is an estimate. It leaves out new dependencies and overstates Flatpak, which downloads
-only the changes. Below a megabyte it reads `< 1 MB`. When unknown it is left out. Held items are
-not counted.
-
-**Update Now** runs `kempt run`, which updates wherever your settings say. After a press it shows a
-spinner until the CLI answers, so one press starts one run. It is hidden when there is nothing to
-update, and while an update is staged.
-
-When the update includes a kernel, systemd or other desktop packages, and runs outside a terminal,
-**Update Now** asks first. It offers **Install on Next Restart** or **Install Now**. **Install
-Now** runs `kempt run --risky-ok`. In a terminal, the terminal asks instead.
-
-#### While an update runs
-
-The popup shows where the update is running:
-
-- `Updating in a terminal window…`
-- `Updating in the background…`
-- `Updating…`, with the live log below, for **In this widget**
-- `Preparing the install for the next restart…` when staging
-
-With confirmation on, runs always use a terminal, and **Install on Next Restart** always stages, so
-this can differ from your settings.
-
-If the popup keeps saying it is updating after the run has ended, press **Not updating? Check
-again**. If a run cannot start, the popup shows the CLI's message and its fix. You can close the
-popup while an update runs.
-
-The updating state ends when the run writes a new `state.json`. A terminal run always does this as
-the window closes (see [run](#run)). If a run dies without writing it, the widget gives up after
-three hours and checks again.
-
-#### When the popup checks
-
-**Opening the popup checks** when the last successful check is older than five minutes, or than
-your check interval if that is shorter. If no check has ever succeeded, it checks on every open.
-The counts on screen stay until the answer arrives.
-
-If a check is already running, the popup's request is *remembered* and one more check runs when it
-finishes. Opening the popup many times still adds only one.
-
-The widget also watches the package databases, its state file and the config file every 30
-seconds. A `dnf upgrade` in a terminal, a Discover run or another Kempt run shows up without you
-asking. For a minute after a check, the widget ignores changes that check itself made.
-
-#### When nothing is pending
-
-```
- Up to date                                          [refresh] [gear]
- --------------------------------------------------------------------
- (!) Restart to apply installed updates          [Restart…]      [x]   <- still shown: you can
-                                                                          owe a restart with
-                (icon)                                                    nothing pending
-        Everything is up to date
-
- Last update 18 min ago · 4 packages                            [v]
- --------------------------------------------------------------------
- Checked 4 min ago                                                     <- no Update Now at all
-```
-
-**Update Now** is hidden. If every pending update is held, the **Held** group shows in place of
-`Everything is up to date`.
-
-When a check could not run Kempt at all, the list says so in the same place, with
-**Check Installation** under it.
-
-#### About the restart
-
-**Restart…** opens KDE's restart prompt, which lets your apps save and which you can cancel. Kempt
-never restarts the machine itself. If the prompt cannot open, the message says why.
-
-The updates are already installed, whether or not you restart. Programs that were running, and the
-kernel, keep using the old versions until they restart. A staged update is the other way round: it
-installs during the restart.
-
-The **x** hides the message until you next log in to Plasma. To turn it off for good, see
-**Restart reminders** below.
-
-### Settings
-
-Right-click the widget > **Configure Kempt…**, or press the gear in the popup. Every setting is
-stored through `kempt config`, so a change in a terminal shows up here too.
-
-- **Apply and OK.** Both save. **Apply** keeps the dialog open, **OK** closes it. Closing with
-  unsaved changes asks first.
-- **Changes reach the panel within 30 seconds**, because the widget checks the config file every
-  30 seconds.
-
-**Run updates in** is greyed out when *"Apply updates without asking for confirmation"* is off,
-because only a terminal window can ask. Your choice comes back when you turn confirmation off
-again.
-
-**Restart reminders** is the `restart_reminder` setting, on by default. It controls the restart
-message and its **Restart…** button. With it off, the footer still says `restart pending`. Kempt
-never restarts on its own either way.
-
-```bash
-kempt config set restart_reminder false   # the fact stays, the message goes
-```
-
-**Unused Flatpak runtimes** is the `reclaim` setting: **Ask me first** (the default), **Remove
-after updates** or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are
-left out of updates. See [reclaim](#reclaim).
-
-**Password prompts** has **Allow without password…** and **Require a password…**. They run
-`kempt enable-passwordless` and `kempt disable-passwordless`, each with its own password dialog, and
-show the result under the buttons. The page cannot show which is active, because only root can read
-the polkit rules directory.
-
-**Discover** shows only when Discover's update notifier is installed. It says whether the notifier
-is on, with **Turn Off Discover's Notifier**, or turned off by Kempt, with **Turn On Discover's
-Notifier**. The button runs `kempt discover-notifier` at once, without Apply. When an autostart file
-of your own keeps the notifier off, the row names that file and says to delete it, and has no button.
-
-**Held** lists your holds, each with a button to stop holding it.
-
-## A typical day
-
-```bash
-# Morning: what is waiting?
-kempt check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
-
-# Something you never want updated automatically:
-kempt hold dnf:nvidia-driver
-
-# Kernel and Qt in the list? Stage it instead of rewriting a running desktop:
-kempt update --surface=offline
-# ... reboot when convenient; the transaction applies during boot ...
-
-# After the reboot, the check records the result in history:
-kempt check >/dev/null
-kempt summary
-
-# Or, on an ordinary day with nothing risky pending:
-kempt update
-```
+Kempt's, and its background work can make a Kempt run wait. These commands change it for you alone,
+without a password. When it is not installed, `off`, `on` and `keep` say so and change nothing.
+
+**`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
+notifier stops starting at login, and stops the running one. A file of your own there moves to a
+name ending in `.before-kempt`, and Kempt prints where. A symlink stays a symlink. Kempt keeps one
+such copy and never overwrites it. When the notifier is already off, `off` says so and changes
+nothing.
+
+**`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
+a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so
+once it runs.
+
+**`keep`** changes nothing, and records that you answered the widget's offer.
+
+**`status`** says whether the notifier is installed, on, turned off by Kempt, and running. `--json`
+prints `installed`, `enabled`, `running` and `by_kempt`, plus `entry` when the file keeping it off
+is not Kempt's.
+
+A file that `./install.sh` wrote before 0.1.8 counts as your own. Delete it to turn the notifier
+back on.
+
+| Exit | When |
+| --- | --- |
+| 0 | Done, or nothing needed doing. |
+| 1 | Nothing changed: `off` found a `.before-kempt` copy already there, `on` found a file of your own keeping the notifier off, the path is a directory or a broken symlink, or the writers' lock was busy. |
+| 2 | An unknown subcommand or option. |

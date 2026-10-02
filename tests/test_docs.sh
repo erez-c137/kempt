@@ -144,8 +144,8 @@ declare -A WORD_BUDGET=(
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=2400
   [docs/security.md]=3600
-  # docs/usage.md is being rewritten on another branch. Set its budget again when that lands.
-  [docs/usage.md]=7250
+  [docs/usage.md]=2800
+  [docs/widget.md]=2600
 )
 # A new doc needs a row, so it cannot grow outside the table.
 unbudgeted=""
@@ -226,7 +226,8 @@ assert_eq "$(tr ' ' '\n' <<<"${missing% }" | sort -u | tr '\n' ' ' | sed 's/ $//
 # --- and no email address outside the three places a format requires one -------------------------
 # The RPM %changelog's format is `Name <email>`, a security policy has to say where to send a
 # report, and a code of conduct has to say who to tell. Everywhere else an address is either a
-# leak or a maintenance burden, and both were in this tree.
+# leak or a maintenance burden, and both were in this tree. .claude/ is local tool state, never
+# shipped, and holds other checkouts of this tree.
 mail_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 mail_ok=("$REPO_ROOT/kempt.spec" "$REPO_ROOT/SECURITY.md" "$REPO_ROOT/CODE_OF_CONDUCT.md"
          "$REPO_ROOT/tests/test_docs.sh")
@@ -239,6 +240,7 @@ while IFS= read -r f; do
 done < <(find "$REPO_ROOT" \
            -path "$REPO_ROOT/.git" -prune -o \
            -path "$REPO_ROOT/internal" -prune -o \
+           -path "$REPO_ROOT/.claude" -prune -o \
            -type f -print)
 assert_eq "${addressed% }" "" \
   "no email address outside the spec changelog, SECURITY.md and CODE_OF_CONDUCT.md"

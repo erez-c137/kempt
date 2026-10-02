@@ -3206,7 +3206,7 @@ assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, {w
 assert_eq "$(js "L.checkedAfterRun(null, $ENTRY, $PRESS)")" "false" "no state is not a check"
 # Structural, because the rule is only worth anything where it is applied: main.qml must consult it
 # on the watcher's path, and the config field must stay exempt - the settings page has no other way
-# into that file, and docs/usage.md promises the panel catches up within 30 seconds.
+# into that file, and docs/widget.md promises the panel catches up within 30 seconds.
 assert_exit 0 "the watcher's check is gated on it" -- \
   grep -q 'Logic.watcherCheckDue(root.lastCheckFinished' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "...with a config change exempt, so a settings apply still lands within 30 seconds" -- \
@@ -3558,22 +3558,22 @@ fi
 assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.')" "1" \
   "the ellipsis scan finds three dots in a line it is given"
 
-# --- docs/usage.md has to describe the widget that is here --------------------------------------
+# --- docs/widget.md has to describe the widget that is here -------------------------------------
 # Doc drift is not a documentation problem, it is a truth problem: the popup section is what a
 # person reads INSTEAD of watching the code, so a sentence that was true of an earlier build is
 # just a wrong answer with a nice tone. These tie the paragraphs most likely to drift back to the
 # code that decides them.
-USAGE="$REPO_ROOT/docs/usage.md"
+WIDGET_DOC="$REPO_ROOT/docs/widget.md"
 
 # Every fixed header wording the view model can produce is DERIVED here rather than typed, so a
 # reworded header fails this instead of quietly leaving the page describing the old words. (The
 # count phrases - "3 updates available" - are built around a number and are shown by example.)
 while IFS= read -r hw; do
   [[ -z "$hw" ]] && continue
-  if grep -qF -- "$hw" "$USAGE"; then
-    echo "ok: docs/usage.md names the header wording \"$hw\""
+  if grep -qF -- "$hw" "$WIDGET_DOC"; then
+    echo "ok: docs/widget.md names the header wording \"$hw\""
   else
-    echo "FAIL: docs/usage.md never mentions the header wording \"$hw\""; _fail=1
+    echo "FAIL: docs/widget.md never mentions the header wording \"$hw\""; _fail=1
   fi
 done <<EOF
 $(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).headerText')
@@ -3595,16 +3595,16 @@ assert_eq "$(grep -cF "$(js 'L.COPY.engineMissingInstall')" "$INSTALL_DOC")" "1"
 # The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
 # when one is already in flight - deliberately, because the running check read the system before
 # whatever prompted this request. The page used to say the opposite.
-assert_eq "$(grep -c 'waits for that one rather than starting a second' "$USAGE")" "0" \
-  "usage.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$USAGE")" "1" \
+assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
+  "widget.md no longer claims the popup waits for a running check instead of asking again"
+assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$WIDGET_DOC")" "1" \
   "...it describes the coalescing the code actually does"
 
 # Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
 # harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
-assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$USAGE")" "0" \
-  "usage.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$USAGE")" "1" \
+assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
+  "widget.md no longer promises Show Log on every post-run message"
+assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$WIDGET_DOC")" "1" \
   "...it says when the button is there instead"
 assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
   "...and the QML really does bind both Show Log buttons to a log path being present"
@@ -3616,32 +3616,31 @@ assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/
 # Flattened first, because these sentences are long enough to wrap in a document and a wrapped
 # quote is still a quote. `grep -o | wc -l` rather than `grep -c`, which on a one-line file would
 # count the line and lose the "exactly once" half of the assertion.
-USAGE_FLAT="$TESTTMP/usage-flat.txt"
-tr '\n' ' ' < "$USAGE" | tr -s ' ' > "$USAGE_FLAT"
+WIDGET_FLAT="$TESTTMP/widget-flat.txt"
+tr '\n' ' ' < "$WIDGET_DOC" | tr -s ' ' > "$WIDGET_FLAT"
 for _lit in stagedChanged stagedConflictUnknown; do
-  assert_eq "$(grep -oF "$(js "L.COPY.$_lit")" "$USAGE_FLAT" | wc -l)" "1" \
-    "docs/usage.md quotes COPY.$_lit as the popup really says it"
+  assert_eq "$(grep -oF "$(js "L.COPY.$_lit")" "$WIDGET_FLAT" | wc -l)" "1" \
+    "docs/widget.md quotes COPY.$_lit as the popup really says it"
 done
 # Presence rather than a count for the button's own name: it is a LABEL, and a label belongs both
 # in the prose and in the sketches of the banner it sits on. Counting it would make drawing the
 # widget twice a test failure.
-assert_eq "$(grep -qF "$(js 'L.COPY.stagedRebuildAction')" "$USAGE" && echo yes || echo no)" "yes" \
-  "docs/usage.md calls the action by the name on the button"
-assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$USAGE" && echo yes || echo no)" "yes" \
+assert_eq "$(grep -qF "$(js 'L.COPY.stagedRebuildAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
+  "docs/widget.md calls the action by the name on the button"
+assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
   "...and the other action on that banner by the name on ITS button"
-assert_eq "$(grep -c 'You held kernel-core after the next-restart install was prepared' "$USAGE")" "1" \
+assert_eq "$(grep -c 'You held kernel-core after the next-restart install was prepared' "$WIDGET_DOC")" "1" \
   "...the singular conflict banner too"
-assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart install' "$USAGE")" "1" \
+assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart install' "$WIDGET_DOC")" "1" \
   "...and the plural one"
 # The tooltip is where the authorization and the discard cost are disclosed, so the page must carry
 # both facts where a widget user will read them. Scoped to the popup section rather than the whole
-# page: the CLI's own section already discloses the same two costs for `kempt update
-# --surface=offline`, and a whole-file count would be satisfied by that one and pass with the popup
-# section saying nothing at all.
-POPUP_DOC="$TESTTMP/usage-popup.md"
-awk '/^### The popup$/ { f = 1; next } /^### / { f = 0 } f' "$USAGE" > "$POPUP_DOC"
+# page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
+# could pass with the popup section saying nothing at all.
+POPUP_DOC="$TESTTMP/widget-popup.md"
+awk '/^## The popup$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
 assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
-  "premise: docs/usage.md still has a popup section to read"
+  "premise: docs/widget.md still has a popup section to read"
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
 # that cost was stated; the banner carries it as its own second sentence now, so the page quotes it
 # wherever it quotes a banner.
@@ -3653,8 +3652,8 @@ assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored tra
   "...and that the pin never reaches into a transaction dnf5 has already stored"
 # The measured truth, kept out of the docs as firmly as out of the copy: a replace-stage reuses
 # dnf5's package cache, so nothing anywhere may promise a re-download.
-assert_eq "$(grep -ciE 're-?downloads? the (staged|transaction)' "$USAGE" || true)" "0" \
-  "...and nothing on the page claims a rebuild downloads it all again"
+assert_eq "$(cat "$WIDGET_DOC" "$REPO_ROOT/docs/usage.md" | grep -ciE 're-?downloads? the (staged|transaction)' || true)" "0" \
+  "...and nothing in widget.md or usage.md claims a rebuild downloads it all again"
 
 # The widget stages through `kempt run --surface=offline`, never a detached `kempt update`: only
 # `run` refuses up front (exit 3 while another update holds the lock) where the popup can read it.

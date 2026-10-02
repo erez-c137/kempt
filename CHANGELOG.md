@@ -47,6 +47,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them straight away. `auto_accept=false` still sends every run to the terminal.
 - **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
   session-critical updates. **Install Now** uses it.
+- **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
+  reference: one table of commands, then each command with its options and exit codes.
 
 ### Fixed
 

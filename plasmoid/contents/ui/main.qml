@@ -581,7 +581,7 @@ PlasmoidItem {
             // ...and the check itself, unless this change is still the wake of the last one.
             // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
             // delta.config, because the settings page has no other way in, "changes reach the panel
-            // within 30 seconds" (docs/usage.md) is measured through this line, and
+            // within 30 seconds" (docs/widget.md) is measured through this line, and
             // include_flatpak changes what is pending.
             // The end of a run is NOT checked here. The CLI checks on its way out of every run, so a
             // check from here ran the same check again, and on a real box it queued behind the

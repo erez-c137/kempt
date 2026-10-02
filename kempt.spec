@@ -194,7 +194,7 @@ install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 # - README.md: what Kempt is and where everything else is.
 # - CHANGELOG.md: what each release changed.
 # - SECURITY.md: how to report a vulnerability.
-# - docs/usage.md, configuration.md, install.md and security.md: the user guides.
+# - docs/usage.md, widget.md, configuration.md, install.md and security.md: the user guides.
 # - docs/architecture.md: it holds the state JSON schema, the CLI's public interface, and usage.md
 #   and configuration.md send readers to it.
 # - docs/images: the three screenshots README and configuration.md show.
@@ -205,7 +205,7 @@ install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 # - docs/ROADMAP.md: plans, which an installed copy would keep long after they change.
 # - docs/images/kempt-tray-icon.png: no document shows it.
 # - docs/man: the man page is installed above, where `man kempt` finds it.
-# docs/ stays a directory so README's links keep their paths. 9 of its 16 relative link targets
+# docs/ stays a directory so README's links keep their paths. 11 of its 18 relative link targets
 # resolve on an installed system. The other 7 are the files left out above plus LICENSE, which
 # %%license installs; all of them resolve on the forge.
 # Pruned here and not in %%prep, because the man page above is installed out of docs/ and %%doc

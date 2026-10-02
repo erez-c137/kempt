@@ -235,7 +235,7 @@ p.check("three overlapping requests collapse into exactly one re-check",
 p.check("nothing is left pending afterwards", ev("root.recheckPending"), False)
 p.check("nothing is left in flight afterwards", ev("root.checking"), False)
 
-# ...and the caller that reaches this most often is the popup opening, which docs/usage.md used to
+# ...and the caller that reaches this most often is the popup opening, which the widget docs used to
 # describe as waiting for the running check rather than asking for another. It does ask, and
 # asking is right - the running check read
 # the system BEFORE whatever prompted this open, so treating its answer as good enough would leave
@@ -426,7 +426,7 @@ p.wait_for(ev, "root.checking", True, timeout_ms=4000)
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.check("a watcher tick after the window checks again", p.call_count("check") - before, 1)
 
-# The one exemption, and it is a promise docs/usage.md makes out loud: the settings page writes
+# The one exemption, and it is a promise docs/widget.md makes out loud: the settings page writes
 # with `kempt config set` and this watcher is its ONLY way into main.qml, so "changes reach the
 # panel within 30 seconds" is measured through exactly this line. include_flatpak can change what
 # is pending, so re-reading the settings is not enough on its own.
