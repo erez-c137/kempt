@@ -8,7 +8,8 @@ check [--refresh] [--coalesce] [--strict]
                       metadata now, ignoring the 3-hour interval but never the battery or
                       metered-connection rules. --coalesce accepts the answer of a check that
                       finished while this one waited (the widget's automatic checks). --strict
-                      exits 1 when a backend failed
+                      exits 1 when a backend failed, the apps for you only could not be
+                      listed, or the previous state was served
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--print-command] launch update per configured surface (what the widget calls;
                       --surface=X for one run on another surface; --risky-ok when the person
@@ -44,7 +45,7 @@ Every command uses the same codes:
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` without `--strict` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail or served the previous state, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
+| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail, could not list the apps for you only, or served the previous state, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
@@ -141,8 +142,9 @@ record of a stage that has gone.
   `error` says `root helper not installed - run ./install.sh (see: kempt doctor)`.
 - **The state file is missing or corrupt:** exit 0, and the check starts from an empty list.
 - **The new state cannot be saved:** the state is printed first, then the command exits 1.
-  With `--strict`, read `status` to tell the two apart: `"stale"` means a backend failed, and
-  anything else means the state could not be saved.
+  With `--strict`, read the state to tell these apart. `status` `"stale"` means a backend failed.
+  `status` `"ok"` with `.backends.flatpak.scopes.user` `"failed"` means the apps for you only
+  could not be listed. Anything else means the state could not be saved.
 - **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0, or 1
   with `--strict`.
 - **With `--coalesce`, another check answered while this one waited:** that state is printed,

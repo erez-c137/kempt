@@ -10,8 +10,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
-  could not answer, or when another check held the lock and the previous state was served.
-  Without it, both still exit 0.
+  could not answer, or when another check held the lock and the previous state was served. It also
+  exits 1 when the apps for you only could not be listed. The state then still says `"ok"`, and
+  `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
 - **The widget checks its own installation.** Where it used to say to run `kempt doctor` in a

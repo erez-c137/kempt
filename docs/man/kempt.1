@@ -114,8 +114,16 @@ written. The event log says
 .B \-\-refresh
 turns it off.
 .B \-\-strict
-exits 1 when the answer is not current, for scripts: a backend failed, or another check held the
-lock and the previous state was served. The state is printed either way.
+exits 1 when the answer is not current, for scripts: a backend failed, the apps for you only could
+not be listed, or another check held the lock and the previous state was served. The state is
+printed either way. A per\-user listing that failed leaves
+.B status
+as
+.BR ok ,
+with
+.B .backends.flatpak.scopes.user
+set to
+.BR failed .
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface "] [" \c
@@ -528,7 +536,7 @@ whose backend failed.
 .B 1
 The run itself failed (a backend returned non\-zero),
 .B "check \-\-strict"
-had a backend fail or served the previous state,
+had a backend fail, could not list the apps for you only, or served the previous state,
 .B doctor
 found at least one problem, or a writer could not take the writers' lock.
 .BR "config set" ,

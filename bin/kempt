@@ -483,8 +483,8 @@ cmd_check() {
   # per panel tray) otherwise turn every automatic trigger into two dnf queries back to back, the
   # second queued on the lock behind the first. Never with --refresh: that flag asks for a FETCH,
   # and a state someone else produced from the old metadata does not answer it.
-  # --strict is for scripts: an answer that is not current (a backend failed, or the previous state
-  # was served) exits 1 instead of 0, after the state is printed.
+  # --strict is for scripts: an answer that is not current (a backend failed, the per-user listing
+  # failed, or the previous state was served) exits 1 instead of 0, after the state is printed.
   local force_refresh="" coalesce="" strict=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -3649,9 +3649,9 @@ cmd_disable_passwordless() {
 
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
-#   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail or
-#     served the previous state,
-#     `doctor` found a problem, or a writer
+#   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
+#     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
+#     problem, or a writer
 #     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
 #     same table and calls that third case the one that surprises people - keep the two in step.
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
@@ -3671,7 +3671,8 @@ usage: kempt <command>
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules. --coalesce accepts the answer of a check that
                         finished while this one waited (the widget's automatic checks). --strict
-                        exits 1 when a backend failed
+                        exits 1 when a backend failed, the apps for you only could not be
+                        listed, or the previous state was served
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--print-command] launch update per configured surface (what the widget calls;
                         --surface=X for one run on another surface; --risky-ok when the person
