@@ -352,8 +352,8 @@ kempt_default() {  # key → default ("" if unknown)
 }
 
 # Runs updates in the popup by default without moving anyone who already uses Kempt. On the first
-# run after that default arrived, an install that has run Kempt before (state.json or a history
-# entry) and whose config names no surface gets surface=terminal, the default it had, and the
+# run after that default arrived, an install that has run Kempt before (state.json, a history
+# entry or a non-empty config file) and whose config names no surface gets surface=terminal, the default it had, and the
 # popup offers the new one once. A config that names a surface is never touched, and a new install
 # gets the default. SURFACE_MIGRATED_FILE says it ran. A write that fails is tried again on the
 # next run, and nothing here may fail the command it runs in front of.
@@ -361,8 +361,10 @@ surface_migrate() {
   [[ -e "$SURFACE_MIGRATED_FILE" ]] && return 0
   # An unreadable config cannot say whether it names a surface. Next run.
   [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]] && return 0
+  # A config file with something in it counts too: an install that only ever changed a setting has
+  # no state or history, and this runs before any command of this version can write the file.
   local used=""
-  if [[ -e "$STATE_FILE" ]] \
+  if [[ -e "$STATE_FILE" || -s "$CONFIG_FILE" ]] \
      || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
     used=1
   fi
@@ -465,13 +467,16 @@ discover_running() {
 }
 
 # Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
-#   kempt     exactly what Kempt last wrote, or exactly the three-line entry install.sh wrote before
-#             0.1.8 when there was no system entry to copy. `on` removes it.
+#   kempt     exactly what Kempt last wrote, or exactly what install.sh wrote before 0.1.8: the
+#             three-line entry when there was no system entry to copy, else the system entry as
+#             it is now, put through that installer's edit (discover_legacy_entry). `on` removes it.
 #   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
 #   own       anything else, a symlink included.
 #   none      no user entry.
 #   notfile   a directory or anything else that is not a file or a symlink.
 #   dangling  a symlink to nothing.
+# Compared with same_content, never cmp: cmp is diffutils, which a minimal Fedora does not have,
+# and a missing cmp would class Kempt's own file as the person's, so `on` would refuse.
 discover_entry_kind() {
   local user
   user="$(discover_user_entry)"
@@ -479,12 +484,24 @@ discover_entry_kind() {
     if [[ -e "$user" ]]; then echo own; else echo dangling; fi
   elif [[ ! -e "$user" ]]; then echo none
   elif [[ ! -f "$user" ]]; then echo notfile
-  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && cmp -s "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
-  elif cmp -s "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
+  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && same_content "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
+  elif same_content "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
+    echo kempt
+  elif [[ -r "$(discover_sys_entry)" ]] && same_content "$user" <(discover_legacy_entry); then
     echo kempt
   elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
   else echo own
   fi
+}
+
+# The bytes install.sh 0.1.7 wrote from the system entry, made from the system entry as it is now:
+# every line starting `Hidden=` dropped, the trailing newlines stripped by its $(...), then one
+# `Hidden=true`. Matched only while the system entry is unchanged since then, which is the only
+# case where the file can be told apart from a copy the person hid.
+discover_legacy_entry() {
+  local body
+  body="$(grep -v '^Hidden=' "$(discover_sys_entry)")" || true
+  printf '%sHidden=true\n' "${body:+$body$'\n'}"
 }
 
 discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }
@@ -498,6 +515,15 @@ discover_entry_usable() {  # kind
     dangling) echo "$user is a symlink to $(readlink "$user"), which does not exist, so nothing changed." >&2
               return 1 ;;
   esac
+  # An entry that cannot be read cannot say whether it starts the notifier: grep's rc 2 would read
+  # as "it starts", and off would then fail half way. Either entry, since off copies the system one.
+  local f
+  for f in "$user" "$(discover_sys_entry)"; do
+    if [[ -e "$f" && ! -r "$f" ]]; then
+      echo "Cannot read $f, so nothing changed." >&2
+      return 1
+    fi
+  done
   return 0
 }
 
@@ -545,13 +571,18 @@ discover_wait_running() {
 
 # Starts the notifier for this session, detached so it outlives the command and the widget, and
 # says whether it is running afterwards. setsid -f returns at once, so its status says nothing.
+# Every lock descriptor is closed for the child (6 stage, 7 writers, 8 update, 9 check): bash sets
+# no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd 7
+# open would hold the writers' lock for the whole session and every later `config set`, `hold` or
+# `unhold` would wait 30 s and fail. Closing one that is not open is a no-op.
 discover_start() {
   if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
-    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1
+    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1 \
+      6>&- 7>&- 8>&- 9>&-
     discover_wait_running && return 0
   fi
   if [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
-    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1
+    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1 6>&- 7>&- 8>&- 9>&-
     discover_wait_running && return 0
   fi
   return 1
@@ -636,6 +667,8 @@ discover_notifier_on() {
     return 1
   fi
   echo "Discover's update notifier is on."
+  # The writers' lock stays held until the notifier is up, so a concurrent off cannot slip in
+  # between. discover_start closes it for the child, so the notifier never inherits it.
   discover_running && return 0
   if discover_start; then
     echo "Started it for this session."

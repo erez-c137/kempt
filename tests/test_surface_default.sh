@@ -50,12 +50,27 @@ assert_eq "$(surface_offer_pending && echo yes || echo no)" "yes" "...which is p
 fresh; mkdir -p "$KEMPT_STATE_DIR/history"
 printf '{}\n' > "$KEMPT_STATE_DIR/history/20260901T100000.json"
 assert_eq "$("$KEMPT" config get surface)" "terminal" "a history entry alone is enough to keep the terminal"
+# Only a config file with a setting in it, as an install that never ran an update leaves.
+fresh; mkdir -p "$KEMPT_CONFIG_DIR"; printf 'auto_accept=false\n' > "$KEMPT_CONFIG_DIR/config"
+assert_eq "$("$KEMPT" config get surface)" "terminal" "a config file alone is enough to keep the terminal"
+# ...but an empty one is what a first `config set` creates, and says nothing about an earlier version.
+fresh; mkdir -p "$KEMPT_CONFIG_DIR"; : > "$KEMPT_CONFIG_DIR/config"
+assert_eq "$("$KEMPT" config get surface)" "popup" "an empty config file is a new install"
+# A new install's first command is a setting: the migration runs before it writes, so it stays new.
+fresh
+"$KEMPT" config set auto_accept false >/dev/null
+assert_eq "$("$KEMPT" config get surface)" "popup" "a new install whose first command sets something keeps the popup"
 
-# Every command runs it first, discover-notifier included.
+# Every command runs it first, discover-notifier included...
 fresh; used_before
-KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier status >/dev/null 2>&1 || true
+KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier keep >/dev/null 2>&1 || true
 assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)|$(grep -c '^surface=terminal$' "$KEMPT_CONFIG_DIR/config" 2>/dev/null)" \
   "yes|1" "discover-notifier runs the migration like every other command"
+# ...except its status, which only reads.
+fresh; used_before
+KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier status >/dev/null 2>&1 || true
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)" "no" \
+  "discover-notifier status writes nothing"
 
 # --- it runs once -----------------------------------------------------------------------------------
 fresh; used_before

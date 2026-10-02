@@ -56,7 +56,8 @@ ICON_LADDER=(
 KEMPT_DBUS_SEND="${KEMPT_DBUS_SEND:-dbus-send}"
 # Test seam, same shape as libexec/kempt-apply's KEMPT_APPLY_ECHO: with KEMPT_INSTALL_ECHO=1
 # the privileged (and process-killing) commands are PRINTED instead of run, so the real-mode
-# path can be tested without ever touching /usr, /etc or somebody's running desktop.
+# path can be tested without ever touching /usr, /etc or somebody's running desktop. The notifier
+# question's command is printed too, unless KEMPT_INSTALL_CONFIG_HOME names a directory to run it in.
 # KEMPT_INSTALL_ECHO=fail additionally makes them REPORT failure - the only way to test what the
 # installer says when someone dismisses the auth dialog.
 run() {
@@ -169,6 +170,13 @@ main() {
     esac
   done
 
+  # Test mode with a named directory: every notifier command reads and writes only inside it.
+  if [[ -n "${KEMPT_INSTALL_ECHO:-}" && -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then
+    export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
+    export KEMPT_CONFIG_DIR="$KEMPT_INSTALL_CONFIG_HOME/kempt"
+    export KEMPT_STATE_DIR="$KEMPT_INSTALL_CONFIG_HOME/kempt-state"
+  fi
+
   if [[ -n "$UNINSTALL" ]]; then
     # A staged tree is unprivileged: tear it down with plain rm and no auth prompt. Only a REAL
     # install needs root, and only for the three root-owned files it created.
@@ -196,8 +204,11 @@ main() {
     run pkexec /usr/bin/bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
       || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
-    echo "Kempt uninstalled (config/state in ~/.config/kempt, ~/.local/state/kempt left in place;"
-    echo "  Discover's update notifier stays as you left it. To turn it back on: $ROOT/bin/kempt discover-notifier on)"
+    echo "Kempt uninstalled. Your settings and history in ~/.config/kempt and ~/.local/state/kempt stay."
+    # Named only when Kempt's own file keeps the notifier off, which is the case `on` can undo.
+    if [[ "$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" == *'"enabled":false,'*'"by_kempt":true'* ]]; then
+      echo "Discover's update notifier stays off. To turn it back on: $ROOT/bin/kempt discover-notifier on"
+    fi
     exit 0
   fi
 
@@ -248,9 +259,22 @@ main() {
   widget_install
 
   # Recommended: turn off Discover's notifier, which counts updates on its own and can make a Kempt
-  # run wait. Asked, default yes. A failed read means there is nobody to ask (piped or redirected
-  # stdin), and then the notifier stays as it was.
-  local ans=""
+  # run wait. Asked, default yes, and only while it is on. A failed read means there is nobody to
+  # ask (piped or redirected stdin), and then the notifier stays as it was.
+  # KEMPT_INSTALL_ECHO never touches the real desktop: it stops nothing, and the command writes
+  # its entry, config and state only inside KEMPT_INSTALL_CONFIG_HOME, the directory a test names
+  # (set up at the top of main). Without one, `off` is printed like the privileged commands.
+  local ans="" st="" echo_only=""
+  if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then
+    export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"
+    [[ -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]] || echo_only=1
+  fi
+  # A status that cannot be read is no reason to skip the question.
+  st="$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" || st=""
+  case "$st" in
+    *'"installed":false'*) echo "Discover's update notifier is not installed."; return 0 ;;
+    *'"enabled":false'*) echo "Discover's update notifier is already off."; return 0 ;;
+  esac
   if ! read -rp "Turn off Discover's update notifier for this user? [Y/n] " ans; then
     echo "note: nobody to answer, so Discover's update notifier is left on. To turn it off later: kempt discover-notifier off"
     return 0
@@ -260,8 +284,11 @@ main() {
     n|no)
       echo "Discover's update notifier is left on. To turn it off later: kempt discover-notifier off" ;;
     *)
-      # The command the widget's button runs. KEMPT_INSTALL_ECHO stops nothing on the desktop.
-      if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"; fi
+      # The command the widget's button runs.
+      if [[ -n "$echo_only" ]]; then
+        printf '%s\n' "$ROOT/bin/kempt discover-notifier off"
+        return 0
+      fi
       "$ROOT/bin/kempt" discover-notifier off \
         || echo "note: Discover's update notifier was not turned off. To try again: kempt discover-notifier off" ;;
   esac
