@@ -125,6 +125,7 @@ package stays ready for review at every release.
 - **Everyday words.** "System" and "Apps" in the popup in place of "dnf" and "flatpak", with the
   full package list one click away.
 - **Update later.** "Tonight" or "only on Wi-Fi". Automatic staging may make it unnecessary.
+- **Check for Updates announces its result to screen readers.** Today only a stale state is spoken.
 - **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 - **A restart reminder that stays dismissed.** Closing it hides it until Plasma restarts. Kempt
   would store the dismissal against the boot ID, as offline staging does.

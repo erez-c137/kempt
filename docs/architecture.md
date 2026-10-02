@@ -117,8 +117,9 @@ Kempt's own files live under `~/.config/kempt` and `~/.local/state/kempt`. Both 
 [configuration.md](configuration.md#files-and-retention). Apart from short-lived temp files in
 `$TMPDIR`, Kempt writes outside them in three places:
 
-- `kempt discover-notifier off` writes an autostart entry in `~/.config/autostart`, and keeps any
-  earlier one beside it as `*.before-kempt`.
+- `kempt discover-notifier off` and `on` write to `~/.config/autostart`. `off` writes Kempt's
+  entry and keeps any earlier one as `*.before-kempt`. `on` removes Kempt's entry, moves an edited
+  one aside as `*.kempt-edited`, and puts the earlier one back.
 - `kempt enable-passwordless` writes `/etc/polkit-1/rules.d/49-kempt.rules` as root.
 - `install.sh` installs Kempt itself.
 
@@ -142,10 +143,7 @@ Four files in the state directory are `flock` targets:
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
 | `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold` | Each rewrites a whole config file. It lives in the state directory because the config directory is the user's. |
 
-`kempt check --coalesce` notes the time, then waits for `check.lock`. If `state.json` then holds a
-successful check whose `last_check` is in a later second, that is the answer, and nothing is
-queried. `--refresh` cancels the flag. The widget passes it for automatic checks only, so two
-widget instances do not check twice per trigger.
+[usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
 
 ## State JSON schema v1
 
@@ -606,7 +604,6 @@ The widget never parses the human `kempt summary`. The entry's fields are under
   (`Logic.runFinishedSince`).
 - **Every field tolerates absence**, because entries outlive the build that wrote them. The
   exception is `status`: unreadable counts as failed.
-- **The entry's `reboot_needed` describes that run.** The restart message uses the state file's.
 - **While the post-run line is up, the persistent row is hidden.**
 
 ### Where the widget lives
@@ -870,7 +867,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_DBUS_SEND` | `dbus-send` | The `org.kde.KIconLoader.iconChanged` signal `install.sh` sends so plasmashell reloads icons. Best effort. `tests/lib.sh` points it at `true` |
 | `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them. `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run |
 
-The `*_ECHO` seams and `KEMPT_DNF5_VERSION` are for tests only. They cannot reach a real
+`KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` and `KEMPT_DNF5_VERSION` are for tests only. They cannot reach a real
 privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on the
 user's side and can only stop `install.sh` from running privileged commands.
 

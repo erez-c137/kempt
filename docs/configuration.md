@@ -191,7 +191,7 @@ day.
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
-| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock` | `flock` files, never pruned. `lock` serialises updates and `check.lock` serialises checks. `writer.lock` serialises `config set`, `hold` and `unhold`, so two at once cannot lose a write to `config` or `holds`. `stage.lock` covers a stage until its marker is written |
+| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history
 entry is a full ISO 8601 string with the offset.
@@ -208,7 +208,8 @@ Retention runs automatically whenever the CLI sets up its directories:
 - **The event log:** past 2500 lines, it is cut to the last 2000. This is checked on each write,
   so it happens once every 500 events.
 - **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`
-  in the config and state directories) and run-start tokens from a window that never opened.
+  in the config and state directories), run-start tokens from a window that never opened, and
+  `reclaim-out.*` copies of Flatpak's output left by a removal that was killed.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 
