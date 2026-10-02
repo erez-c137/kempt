@@ -1285,9 +1285,10 @@ function checkArgs(automatic, refresh) {
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
 // CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
-// (120 s) once per installation, system and per-user, and dnf's makecache, which runs as root
-// where that timeout cannot stop it: dnf5's own network timeouts bound it, and 120 s more is the
-// allowance. Plus 30 s: 120 + 240 + 120 + 30 = 510 s.
+// (120 s) once per installation, system and per-user, and dnf's makecache. That one runs as root,
+// where the CLI's timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the
+// same 120 s, plus a 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
+// 120 + 240 + 120 + 30 = 510 s.
 var CHECK_BODY_MS = 120000;
 var CHECK_TIMEOUT_MS = 510000;
 
