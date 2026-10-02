@@ -46,7 +46,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   offers **Install on Next Restart**, which has the keyboard, or **Install Now**. Before, it started
   them straight away. `auto_accept=false` still sends every run to the terminal.
 - **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
-  session-critical updates. **Install Now** uses it.
+  session-critical updates. **Install Now** uses it. With an older engine that does not know the
+  option, Install Now runs plain `kempt run`.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer

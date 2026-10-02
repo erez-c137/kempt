@@ -694,8 +694,20 @@ PlasmoidItem {
         riskyChoiceOpen = false;
         runRequested = true;
         actionMessage = "";
-        executor.run(kemptCmd + " run" + (installNow === true ? " --risky-ok" : ""), 15000,
-                     function(stdout, stderr, rc) {
+        launchRun(installNow === true ? " --risky-ok" : "");
+    }
+
+    // `kempt run`, with the options Update Now or Install Now chose. An engine older than this
+    // widget (0.1.7) has no --risky-ok and refuses it with exit 2 before launching anything, so
+    // that one refusal is asked again once without the option: the person has already chosen,
+    // and the only cost is the notification the option would have left out.
+    function launchRun(options) {
+        executor.run(kemptCmd + " run" + options, 15000, function(stdout, stderr, rc) {
+            if (options !== "" && rc === 2
+                    && String(stderr).indexOf("unknown option: --risky-ok") >= 0) {
+                root.launchRun("");
+                return;
+            }
             root.runRequested = false;
             if (rc === 0) {
                 // The surface the CLI just launched, remembered for the pane. Read here rather

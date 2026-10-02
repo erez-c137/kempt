@@ -62,6 +62,9 @@ open(CHECKRC, "w").write("")
 RR = os.path.join(p.sandbox, "restart_reminder")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
+# Non-empty: `kempt run` answers as a 0.1.7 engine does to an option it does not know.
+OLDRUN = os.path.join(p.sandbox, "oldrun")
+open(OLDRUN, "w").write("")
 open(AUTO, "w").write("true\n")
 open(RR, "w").write("true\n")
 # What `kempt config get surface` answers, and the status `config set` fails with (empty: it works).
@@ -182,7 +185,9 @@ case "$1" in
 %(CFG)s
   check)  [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
           cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
-  run)    rc="$(cat %(RUNRC)s)"
+  run)    # A 0.1.7 engine, while this file holds anything: it has no --risky-ok, and says so.
+          [[ "$2" == --risky-ok && -s %(OLDRUN)s ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
+          rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
@@ -205,7 +210,7 @@ esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
        "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
-       "CHKRC": CHECKRC, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "CHKRC": CHECKRC, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -2534,6 +2539,38 @@ p.check("...leaving the plain message for after the run", lev("riskyMessage.aski
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
+
+# ...on an engine older than this widget, which refuses --risky-ok with exit 2 and launches
+# nothing. The person has chosen, so the run is asked for once more without the option.
+open(OLDRUN, "w").write("old")
+lev("updateButton.clicked()")
+p.pump(100)
+p.clear_calls()
+lev("riskyMessage.actions[1].trigger()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Install Now on an engine without --risky-ok runs plain `kempt run` once after the refusal",
+        p.calls_matching("run"), ["run --risky-ok", "run"])
+p.check("...and says nothing about an unknown option", ev("root.actionMessage"), "")
+ev("root.leaveUpdating()")
+settle()
+ev('root.postRunLine = ""')
+# ...and a plain run that fails after it reports that failure, once, and asks nothing again.
+open(RUNRC, "w").write("4")
+lev("updateButton.clicked()")
+p.pump(100)
+p.clear_calls()
+lev("riskyMessage.actions[1].trigger()")
+p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
+settle()
+p.check("...a plain run that then fails is not asked again",
+        p.calls_matching("run"), ["run --risky-ok", "run"])
+p.check("...and its own failure is what the popup reports",
+        "konsole" in str(ev("root.actionMessage")), True)
+open(RUNRC, "w").write("0")
+open(OLDRUN, "w").write("")
+ev('root.actionMessage = ""')
+ev("root.riskyChoiceOpen = false")
 
 # Install on Next Restart from the choice stages, as it does from the plain message.
 lev("updateButton.clicked()")
