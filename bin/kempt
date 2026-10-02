@@ -738,8 +738,8 @@ log_warn() {  # log_file message
 # `package.*lock` retries dependency errors. dnf5's "Waiting for a lock" line is left out: dnf5
 # waits and carries on, so it never explains a failure. `can.t` avoids a quote inside quotes.
 # KEMPT_FLATPAK_LOCK_RE: the flatpak wordings carry the path in the MIDDLE (`Unable to lock %s`,
-# `Locking repo %s failed`, `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns
-# rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
+# `Locking repo %s failed`, `Opening lock file %s/.lock failed`). So the patterns are joined with
+# `.*` rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
 KEMPT_DNF_LOCK_RE='failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock'
 KEMPT_FLATPAK_LOCK_RE='unable to lock|\blocking repo.*failed|opening lock file.*failed'
 # Lower case at the start like every other reason: it is shown after "Update failed: ".
@@ -826,7 +826,7 @@ preflight_abort() {  # message
 
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
-# Reads: surface, risky_ok. Writes: surface - answering "s" at the prompt switches this run to
+# Reads: surface, risky_ok. Writes: surface. Answering "s" at the prompt switches this run to
 # offline.
 recommend_offline_if_risky() {
   # Recommends, never blocks; an offline run IS the recommendation, so it is
@@ -2122,7 +2122,7 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   echo "no update runs recorded yet"
 }
 
-cmd_history() {  # [--json] - every run, newest first; --json as one array of history entries
+cmd_history() {  # [--json]: every run, newest first; --json as one array of history entries
   local json=false
   if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
@@ -3678,7 +3678,7 @@ cmd_disable_passwordless() {
 #     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
 #     problem, or a writer
 #     (config set / hold / unhold / discover-notifier off|on|keep) could not take the writers' lock. docs/usage.md carries the
-#     same table - keep the two in step.
+#     same table. Keep the two in step.
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock
