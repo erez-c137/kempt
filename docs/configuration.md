@@ -25,8 +25,8 @@ kempt config set surface offline
 
 You can also edit the file by hand. If a key appears twice, the last line wins.
 
-The widget checks the file's timestamp every 30 seconds, so a change made anywhere reaches the
-panel within 30 seconds.
+The widget checks the file every 30 seconds, so a change made anywhere reaches the panel within
+half a minute.
 
 ## Keys
 
@@ -34,11 +34,11 @@ panel within 30 seconds.
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. An install from before 0.1.8 keeps `terminal`: see [Upgrading from an older Kempt](#upgrading-from-an-older-kempt). |
+| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
 | `restart_reminder` | boolean | `true` | Whether the popup offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, but the status line still ends `restart pending`. Nothing restarts on its own either way. |
-| `reclaim` | `ask`, `automatic`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses (see [kempt reclaim](usage.md#reclaim)). `ask` shows them and removes them when you agree. `automatic` removes them after each successful update, once they have been unused for an hour. It acts as `ask` on an image-based system, and when more than one person may use the machine, because Flatpak cannot see the other users' own apps. That means a second login account, accounts from a network directory such as SSSD, LDAP or Active Directory (SSSD and Samba count only when they are set up to use one), or Flatpak data in a second home folder. `off` hides them, and `kempt reclaim` removes nothing. An unrecognised value means `ask`. |
+| `reclaim` | `ask`, `automatic`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
 | `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the offline recommendation and `risky_pending`. |
 
 You can store other keys too. Any key matching `^[a-z][a-z0-9_]+$` is accepted, but nothing reads
@@ -81,6 +81,25 @@ kempt config set auto_accept on    # accepted, and means OFF
 kempt config set auto_accept true  # what you meant
 ```
 
+### Unused Flatpak runtimes
+
+The `reclaim` key decides what happens to Flatpak runtimes no installed app uses.
+[`kempt reclaim`](usage.md#reclaim) has the details of what is removed.
+
+- **`ask`** shows them and removes them when you agree.
+- **`automatic`** removes them after each successful update, once they have been unused for an
+  hour.
+- **`off`** hides them, and `kempt reclaim` removes nothing.
+
+An unrecognised value means `ask`. `automatic` also acts as `ask` on an image-based system, and
+when more than one person may use the machine, because Flatpak cannot see other users' own apps.
+Kempt assumes that when any of these is true:
+
+- There is a second login account.
+- Accounts come from a network directory such as LDAP or Active Directory. SSSD and Samba count
+  only when they are set up to use one.
+- Another home folder has Flatpak data.
+
 ## Run surfaces
 
 All four run the same `kempt update`. The surface decides where the output goes and who is told
@@ -102,22 +121,13 @@ surfaces, **Update Now** asks in the widget first, and offers **Install on Next 
 
 ### Upgrading from an older Kempt
 
-Before 0.1.8 the default was `terminal`. So that an upgrade does not move your updates, the first
-`kempt` command after it writes `surface=terminal` to the config file when both are true:
+Before 0.1.8 the default was `terminal`. An install that has run Kempt before, and whose config
+file names no surface, keeps `terminal`. The first `kempt` command after the upgrade writes
+`surface=terminal`, once. A config file that names a surface is never changed.
 
-- Kempt has been used here: `state.json` or a history entry exists.
-- The config file has no `surface` line.
-
-It runs once, and leaves a marker, `surface-migrated`, in the state directory. A config file that
-names a surface is never changed. A new install gets no `surface` line, and so the widget.
-
-An install that has a config file but has never run a check or an update counts as new. Without
-`state.json` or a history entry, it gets the new default.
-
-When it did write the line, the widget offers to run updates in the widget once: **Use This
-Widget** or **Keep the Terminal Window**. Either answer is saved as the `surface` setting, and so is
-a change in Settings or with `kempt config set surface`. Any of these ends the offer. So does a
-check that finds the config file names another surface, for example after an edit by hand.
+When Kempt wrote that line, the popup offers once to run updates in the widget: **Use This Widget**
+or **Keep the Terminal Window**. Any change to the `surface` setting answers the offer, including
+an edit by hand.
 
 ### Offline staging
 
@@ -185,8 +195,8 @@ day.
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
-| `~/.local/state/kempt/surface-migrated` | Empty marker: the upgrade step that keeps an older install on the terminal has run |
-| `~/.local/state/kempt/surface-offer` | Empty marker: the widget may offer to run updates in the widget once. Removed when the `surface` setting is next set, or when a check finds it is not `terminal` |
+| `~/.local/state/kempt/surface-migrated` | Empty marker: the [upgrade step](#upgrading-from-an-older-kempt) has run |
+| `~/.local/state/kempt/surface-offer` | Empty marker: the widget's one offer is still open |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
@@ -205,11 +215,9 @@ Retention runs automatically whenever the CLI sets up its directories:
 
 - **History:** the newest 50 entries are kept.
 - **Logs:** deleted after 60 days. The history entry outlives its log.
-- **The event log:** past 2500 lines, it is cut to the last 2000. This is checked on each write,
-  so it happens once every 500 events.
-- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`
-  in the config and state directories), run-start tokens from a window that never opened, and
-  `reclaim-out.*` copies of Flatpak's output left by a removal that was killed.
+- **The event log:** past 2500 lines, it is cut to the last 2000.
+- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`),
+  run-start tokens from a window that never opened, and `reclaim-out.*` files from a killed removal.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 
