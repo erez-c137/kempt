@@ -198,13 +198,13 @@ var COPY = {
     updateFailed: "Update failed",
 
     // THREE spellings, because two things vary independently: the count can be unknown (a marker
-    // written before the CLI recorded one), and one update is not the plural with a 1 in it - noun,
-    // verb and pronoun move together ("1 update IS staged - IT installs"). `stagedTail` stays a
+    // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
+    // and verb move together ("1 update IS staged and INSTALLS"). `stagedTail` stays a
     // FRAGMENT for the plural spellings only, so the two say the identical thing about the
     // identical transaction; the tests pin the finished sentences, not the pieces.
-    stagedTail: "are staged - they install on the next restart",
-    stagedOne: "1 update is staged - it installs on the next restart",
-    stagedUnknownCount: "Updates are staged - they install on the next restart",
+    stagedTail: "are staged and install on the next restart",
+    stagedOne: "1 update is staged and installs on the next restart",
+    stagedUnknownCount: "Updates are staged and install on the next restart",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
@@ -212,8 +212,8 @@ var COPY = {
     // panel and the notification that arrives beside it cannot describe the same second
     // differently. Saying WHICH of the two reasons it was is the point: "Kempt did nothing" reads
     // as a fault, and "your holds did what you asked" is the same fact told properly.
-    stagedNothingHeld: "Nothing to stage - every pending update is held",
-    stagedNothingNonePending: "Nothing to stage - no updates are pending",
+    stagedNothingHeld: "Nothing to stage, because every pending update is held",
+    stagedNothingNonePending: "Nothing to stage, because no updates are pending",
     // ...and the past-tense form, for the row that describes a run that has already finished.
     lastRunNothingStaged: "nothing needed staging",
 
@@ -370,7 +370,7 @@ var COPY = {
     // The third state, which reads as neither of the others: it WAS armed, and a restart has
     // already been past it without running it. Nothing further will until somebody arms it again,
     // so "installs on the next restart" and "not started yet" are both false here.
-    releaseUpgradeStranded: "A Fedora %1 upgrade is stored and was armed, but a restart has already been past it, so no restart installs it now.",
+    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart has already been past it. No restart installs it now.",
     // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
     // started during a restart and stopped part way. "Downloaded" would say the opposite of the
     // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
@@ -420,7 +420,7 @@ var COPY = {
     // The list between the two passes failed, so the extensions were never tried and nothing was
     // refused (reclaim.last.skipped). Said after what went. The leftover refs keep their since, so
     // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
-    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. The popup offers them again if they take 100 MB or more.",
+    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more.",
     // Flatpak failed and Kempt could not read what is left afterwards.
     reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
@@ -2237,7 +2237,7 @@ function viewModel(state, updating, cliError, opts) {
     // read and copied; two command lines under a panel hover is noise.
     if (engineFault === "missing") subParts.push(COPY.engineMissing);
     else if (engineFault === "unrunnable") subParts.push(COPY.engineUnrunnable);
-    else if (iconState === "unknown") subParts.push("no data yet - the first check has not finished");
+    else if (iconState === "unknown") subParts.push("no data until the first check finishes");
     else if (iconState === "error") subParts.push(problemText);
     else {
         // What is pending, by name - the count says how many, this says what. Not while a stage
@@ -2394,7 +2394,7 @@ function viewModel(state, updating, cliError, opts) {
         badgeText: badgeText,
         badgeVisible: badgeText !== "",
         tooltipMain: tooltipMain,
-        tooltipSub: subParts.join(" - "),
+        tooltipSub: subParts.join(DOT),
         headerText: headerText,
         sections: counted.sections,
         heldItems: counted.heldItems,
