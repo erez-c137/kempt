@@ -352,8 +352,8 @@ kempt_default() {  # key → default ("" if unknown)
 }
 
 # Runs updates in the popup by default without moving anyone who already uses Kempt. On the first
-# run after that default arrived, an install that has run Kempt before (state.json or a history
-# entry) and whose config names no surface gets surface=terminal, the default it had, and the
+# run after that default arrived, an install that has run Kempt before (state.json, a history
+# entry or a non-empty config file) and whose config names no surface gets surface=terminal, the default it had, and the
 # popup offers the new one once. A config that names a surface is never touched, and a new install
 # gets the default. SURFACE_MIGRATED_FILE says it ran. A write that fails is tried again on the
 # next run, and nothing here may fail the command it runs in front of.
@@ -361,8 +361,10 @@ surface_migrate() {
   [[ -e "$SURFACE_MIGRATED_FILE" ]] && return 0
   # An unreadable config cannot say whether it names a surface. Next run.
   [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]] && return 0
+  # A config file with something in it counts too: an install that only ever changed a setting has
+  # no state or history, and this runs before any command of this version can write the file.
   local used=""
-  if [[ -e "$STATE_FILE" ]] \
+  if [[ -e "$STATE_FILE" || -s "$CONFIG_FILE" ]] \
      || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
     used=1
   fi
