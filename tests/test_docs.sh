@@ -197,8 +197,11 @@ fi
 # (CONTRIBUTING.md, "What never goes in a public file"). This catches the words a search can find.
 #
 # The patterns are assembled from fragments so this file does not match itself, and the scan skips
-# .git, internal/, .claude/ (local tool state, gitignored, never shipped) and every binary (grep -I). No `git ls-files`: the RPM's %check stage runs the
-# suite against a copy of the tree with no .git in it at all.
+# internal/, .git, every other hidden directory but .github/ and every binary (grep -I). Hidden
+# directories hold local editor state, never shipped, like internal/. No `git ls-files`: the RPM's
+# %check stage runs the suite against a copy of the tree with no .git in it at all.
+not_shipped=( \( -path "$REPO_ROOT/internal" -o -path "$REPO_ROOT/.git" -o \( -type d \
+                -path "$REPO_ROOT/*" -name '.*' -not -name .github \) \) -prune -o )
 private_words=("found""er" "hostile ""panel" "UX ""panel" "Task ""W[0-9]" "WP-""[A-Z][0-9]" "\bFab""le\b" "sub""agent")
 private_re="$(printf '%s|' "${private_words[@]}")"; private_re="${private_re%|}"
 leaked=""
@@ -206,10 +209,7 @@ while IFS= read -r f; do
   [[ "$f" == "$REPO_ROOT/tests/test_docs.sh" ]] && continue   # holds the patterns themselves
   grep -qIiE "$private_re" "$f" 2>/dev/null && leaked+="${f#"$REPO_ROOT/"} "
 done < <(find "$REPO_ROOT" \
-           -path "$REPO_ROOT/.git" -prune -o \
-           -path "$REPO_ROOT/internal" -prune -o \
-           -path "$REPO_ROOT/.claude" -prune -o \
-           -type f -print)
+           "${not_shipped[@]}" -type f -print)
 assert_eq "${leaked% }" "" \
   "no public file talks about the project's own review process"
 
@@ -217,9 +217,7 @@ assert_eq "${leaked% }" "" \
 # A comment that cites a notes file sends the reader to a file that is not here. Every .md a public
 # file names must be in the tree. Paths built from a variable are skipped, and so are the files a
 # documented command creates (made_by_commands).
-# .claude/ is local tooling state, never tracked or shipped, so it is pruned with internal/.
-present="$(find "$REPO_ROOT" -path "$REPO_ROOT/.git" -prune -o -path "$REPO_ROOT/internal" -prune \
-             -o -path "$REPO_ROOT/.claude" -prune -o -name '*.md' -type f -printf '%f\n' | sort -u)"
+present="$(find "$REPO_ROOT" "${not_shipped[@]}" -name '*.md' -type f -printf '%f\n' | sort -u)"
 made_by_commands=("notes.md")   # docs/RELEASING.md: gh release create --notes-file notes.md
 missing=""
 while IFS= read -r f; do
@@ -228,16 +226,14 @@ while IFS= read -r f; do
     [[ " ${made_by_commands[*]} " == *" ${ref##*/} "* ]] && continue
     grep -qxF -- "${ref##*/}" <<<"$present" || missing+="${f#"$REPO_ROOT/"}:${ref##*/} "
   done < <(grep -oIE '[$A-Za-z0-9_./{}-]*[A-Za-z0-9_-]\.md\b' "$f" 2>/dev/null | sort -u)
-done < <(find "$REPO_ROOT" -path "$REPO_ROOT/.git" -prune -o -path "$REPO_ROOT/internal" -prune \
-           -o -path "$REPO_ROOT/.claude" -prune -o -type f -print)
+done < <(find "$REPO_ROOT" "${not_shipped[@]}" -type f -print)
 assert_eq "$(tr ' ' '\n' <<<"${missing% }" | sort -u | tr '\n' ' ' | sed 's/ $//')" "" \
   "every .md file a public file names is in the repository"
 
 # --- and no email address outside the three places a format requires one -------------------------
 # The RPM %changelog's format is `Name <email>`, a security policy has to say where to send a
 # report, and a code of conduct has to say who to tell. Everywhere else an address is either a
-# leak or a maintenance burden, and both were in this tree. .claude/ is local tool state, never
-# shipped, and holds other checkouts of this tree.
+# leak or a maintenance burden, and both were in this tree. The scan skips the same paths as above.
 mail_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 mail_ok=("$REPO_ROOT/kempt.spec" "$REPO_ROOT/SECURITY.md" "$REPO_ROOT/CODE_OF_CONDUCT.md"
          "$REPO_ROOT/tests/test_docs.sh")
@@ -248,10 +244,7 @@ while IFS= read -r f; do
   [[ "$skip" == true ]] && continue
   grep -qIE "$mail_re" "$f" 2>/dev/null && addressed+="${f#"$REPO_ROOT/"} "
 done < <(find "$REPO_ROOT" \
-           -path "$REPO_ROOT/.git" -prune -o \
-           -path "$REPO_ROOT/internal" -prune -o \
-           -path "$REPO_ROOT/.claude" -prune -o \
-           -type f -print)
+           "${not_shipped[@]}" -type f -print)
 assert_eq "${addressed% }" "" \
   "no email address outside the spec changelog, SECURITY.md and CODE_OF_CONDUCT.md"
 
