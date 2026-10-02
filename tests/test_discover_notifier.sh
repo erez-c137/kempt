@@ -98,6 +98,18 @@ rm -f "$TESTTMP/running"
 assert_contains "$out" "Started it for this session" "...and says so once pgrep finds it"
 rm -f "$TESTTMP/running"
 
+# The started notifier outlives the command, and must not take the writers' lock with it: a
+# notifier holding it would make every later `config set`, `hold` or `unhold` wait 30 s and fail.
+reset; system_entry
+"$KEMPT" discover-notifier off >/dev/null
+stub lingers ": > $TESTTMP/running; echo \$\$ > $TESTTMP/lingers.pid; exec sleep 60"
+KEMPT_DISCOVER_START="$TESTTMP/lingers" "$KEMPT" discover-notifier on >/dev/null
+wait_for_call "^lingers"
+rc=0; timeout 10 "$KEMPT" config set restart_reminder true >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "config set right after on does not wait for the notifier's lock"
+kill "$(cat "$TESTTMP/lingers.pid")" 2>/dev/null || true
+rm -f "$TESTTMP/running" "$TESTTMP/lingers.pid"
+
 # No kstart: the binary itself, detached. Neither: it starts at the next login.
 stub notifier ": > $TESTTMP/running"
 rm -f "$CALLS"

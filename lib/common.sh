@@ -545,13 +545,18 @@ discover_wait_running() {
 
 # Starts the notifier for this session, detached so it outlives the command and the widget, and
 # says whether it is running afterwards. setsid -f returns at once, so its status says nothing.
+# Every lock descriptor is closed for the child (6 stage, 7 writers, 8 update, 9 check): bash sets
+# no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd 7
+# open would hold the writers' lock for the whole session and every later `config set`, `hold` or
+# `unhold` would wait 30 s and fail. Closing one that is not open is a no-op.
 discover_start() {
   if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
-    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1
+    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1 \
+      6>&- 7>&- 8>&- 9>&-
     discover_wait_running && return 0
   fi
   if [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
-    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1
+    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1 6>&- 7>&- 8>&- 9>&-
     discover_wait_running && return 0
   fi
   return 1
@@ -636,6 +641,9 @@ discover_notifier_on() {
     return 1
   fi
   echo "Discover's update notifier is on."
+  # The files are settled, so the writers' lock cmd_discover_notifier took is released before
+  # anything long-lived starts. Waiting for the notifier to appear needs no lock.
+  writer_unlock
   discover_running && return 0
   if discover_start; then
     echo "Started it for this session."
