@@ -3664,7 +3664,7 @@ cmd_disable_passwordless() {
 #   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
 #     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
 #     problem, or a writer
-#     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
+#     (config set / hold / unhold / discover-notifier off|on|keep) could not take the writers' lock. docs/usage.md carries the
 #     same table - keep the two in step.
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
