@@ -107,7 +107,7 @@ when it finishes.
 
 | Surface | What it does | Good for |
 | --- | --- | --- |
-| `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "press any key to close" prompt. | Watching it happen. The only surface that can answer prompts. |
+| `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "Press any key to close…" prompt. | Watching it happen. The only surface that can answer prompts. |
 | `popup` (default) | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
 | `background` | Silent detached run, with a desktop notification and the counts when done. | Updating while you work. |
 | `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next reboot, and the first `kempt check` after that reboot records the result. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |

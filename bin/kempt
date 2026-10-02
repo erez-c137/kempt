@@ -3698,7 +3698,8 @@ usage: kempt <command>
                         finished while this one waited (the widget's automatic checks). --strict
                         exits 1 when dnf or Flatpak failed, the apps for you only could not be
                         listed, or the previous state was served
-  update                run the update now (options from config; --no-flatpak, --surface=X override)
+  update                run the update now (options from config; --no-flatpak, --surface=X override;
+                        --risky-ok leaves out the session-critical notification)
   run [--print-command] launch an update where the config says (what the widget calls;
                         --surface=X runs this one elsewhere; --risky-ok when the person
                         already chose to install session-critical updates now)
