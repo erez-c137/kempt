@@ -52,7 +52,11 @@ It can run only `dnf5 --cacheonly check-update --quiet` (with `--json` added on 
 later) and `dnf5 makecache --refresh`.
 
 Refresh calls time out after 120 seconds, because nobody is there to answer a dialog during a
-background check. Apply calls have no timeout.
+background check. That limit runs as you, so it cannot stop dnf5 once it runs as root. For that,
+`kempt-refresh` runs `dnf5 makecache --refresh` under `/usr/bin/timeout -k 10 120`, as root: after
+120 seconds dnf5 gets SIGTERM, and SIGKILL 10 seconds later. The numbers are fixed in the helper
+and never come from the caller. A refresh stopped this way counts as failed, and the check goes on
+with the metadata already cached. Apply calls have no timeout.
 
 **The Flatpak metadata refresh runs as you**, with no `pkexec`, polkit action or root helper. It
 fills your own `~/.cache/flatpak/system-cache/summaries/`, which is what the check reads. Kempt
