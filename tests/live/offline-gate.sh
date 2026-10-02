@@ -239,7 +239,7 @@ touch /tmp/gate-fail-arm; : > /tmp/gate-notifications
 [[ "$rc" != 0 ]] && ok "the run fails" || bad "the run did not fail"
 is "transaction unwound" "$(toml_status)" "absent"
 is "no marker written" "$(marker)" ""
-has "notification names the arm" "$(notes)" "could not arm"
+has "notification names the arm" "$(notes)" "could not be set to install"
 rm -f /tmp/gate-fail-arm
 
 section "S8 detour boot: announced once, marker demoted, never cleared"
@@ -268,7 +268,7 @@ is "after a real clean the next check clears the demoted marker" "$(marker)" ""
 section "S9b staging when every pending update is held"
 # `dnf5 upgrade --offline` prints "Nothing to do", exits 0 and stores NOTHING when the transaction
 # would be empty. Arming then fails with "No offline transaction is stored", which Kempt used to
-# report as "staged, but could not set it to install on the restart" - rc 1 and a FAILED notification over
+# report as "staged but could not arm the restart install" - rc 1 and a FAILED notification over
 # the user's own holds doing exactly what they asked. Found on a real machine with one pending
 # update held; this pins it against real dnf5.
 dnf5 -y -q offline clean >/dev/null 2>&1; rm -f "$LINK" "$STATE/offline_staged.json"
@@ -284,7 +284,7 @@ is "...and dnf5 stored no transaction" "$(toml_status)" "absent"
 [[ -z "$(marker)" ]] && ok "...so no marker promises one" || bad "a marker was written for an empty stage" "$(marker)"
 has "the event names the reason" "$(events)" "nothing to stage"
 has "...and so does the notification" "$(notes)" "Nothing to stage"
-hasnt "...which does not blame the arm" "$(notes)" "could not arm"
+hasnt "...which does not blame the arm" "$(notes)" "could not be set to install"
 hasnt "...and does not promise a restart" "$(notes)" "install on the next restart"
 d=$("$K" doctor 2>&1); rc=$?
 is "doctor is clean afterwards" "$rc" "0"

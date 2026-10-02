@@ -941,7 +941,7 @@ rm -f "$lock_state"
 # under check.lock, `kempt update` writes the marker under the update lock, and neither waits for
 # the other. Between the harvest's read and its delete there is a package snapshot and a diff -
 # 0.5 to 1.5 s on a real box - and a stage landing inside that window used to be deleted by it:
-# "Updates are staged and install on the next restart", and a second later the panel shows nothing
+# "Updates staged - they install on the next restart", and a second later the panel shows nothing
 # staged, over a transaction that is armed and will install.
 # Injected at exactly that moment rather than raced: the snapshot seam itself writes the new
 # marker, which is the same interleaving without the flakiness of a real race.
