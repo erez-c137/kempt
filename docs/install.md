@@ -225,8 +225,8 @@ plasmashell --replace
 
 When the widget package is installed, `kempt doctor` FAILs when it finds a user copy and prints
 those two commands. With only `kempt` installed, it notes that the store copy is the widget in use
-and says to install `kempt-plasmoid` first. Removing the copy keeps the widget on your panel: the packaged copy takes its place when
-the shell reloads.
+and says to install `kempt-plasmoid` first. Removing the copy keeps the widget on your panel: the
+packaged copy takes its place when the shell reloads.
 
 If you install the package first, none of this applies.
 

@@ -102,6 +102,11 @@ PlasmoidItem {
     // actionMessage for it, so the next check can take back that report and no other. It is also
     // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
     property string checkFailNote: ""
+    function clearCheckFailNote() {
+        if (checkFailNote === "") return;
+        if (actionMessage === checkFailNote) actionMessage = "";
+        checkFailNote = "";
+    }
     // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
     // says what a run will really do, which is why the popup binds to effectiveSurface below.
     // The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
@@ -381,9 +386,14 @@ PlasmoidItem {
     // `refresh` is true only for Check for Updates (the button and the menu entry). That check
     // passes `--refresh`, so it fetches fresh metadata instead of answering from a cache up to
     // three hours old. The CLI still skips the fetch on battery or a metered connection.
-    function doCheck(automatic, refresh) {
+    //
+    // `fromWatcher` is true for a check the file watcher started: the trace of a write, often one
+    // the widget just made itself (an offer's answer writes the config file). It keeps what the
+    // person is reading, the confirmation of that answer and a Check Installation answer.
+    function doCheck(automatic, refresh, fromWatcher) {
         var auto = automatic === true;
         var fresh = refresh === true;
+        var watched = fromWatcher === true;
         // The last event's reports have had their moment. Cleared BEFORE the coalesce guard: a
         // Refresh pressed while a check runs is still the user asking for the next thing.
         //
@@ -393,20 +403,20 @@ PlasmoidItem {
         // Executor queue is strictly FIFO, which is what makes that a rule rather than a race.
         postRunLine = "";
         // ...and a report of something that worked, on the same rule and in the same breath: it
-        // described the event this check was asked for, and the check is the next event.
-        actionDone = "";
+        // described the event this check was asked for, and the check is the next event. Not for
+        // the watcher's check, which is that event's own echo.
+        if (!watched) actionDone = "";
         restartError = "";
         holdError = null;
-        // ...and the note a failed Check for Updates left, which this check answers.
-        if (checkFailNote !== "") {
-            if (actionMessage === checkFailNote) actionMessage = "";
-            checkFailNote = "";
-        }
+        // ...and the note a failed Check for Updates left, when somebody asks again. A check
+        // nobody asked for (the timer, the refresh on open) keeps it: it clears the note only by
+        // answering with counts that are not stale (below).
+        if (!auto && !watched) clearCheckFailNote();
         // ...and a Check Installation answer, which described the installation before this check.
         // Only for a check somebody asked for: the hourly timer or a file change must not take an
         // answer away while it is being read. One still waiting its turn is left alone: it
         // answers a press made since.
-        if (!auto && !doctorRunning) dismissDoctor();
+        if (!auto && !watched && !doctorRunning) dismissDoctor();
         // Asked again while one is running: coalesce, never drop. The running check read its
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
@@ -439,6 +449,8 @@ PlasmoidItem {
             root.answeringCheck = fresh;
             if (parsed !== null) {
                 root.kemptState = parsed;
+                // Fresh counts answer the failed check's note, whoever asked for them.
+                if (parsed.status !== "stale") root.clearCheckFailNote();
                 // Something answered, so whatever is wrong is inside that answer now, and there IS
                 // an engine. Nothing else clears engineFault: it is what lets the widget come
                 // back on its own after the package is installed, or after it is repaired.
@@ -638,7 +650,7 @@ PlasmoidItem {
             // Automatic, and so coalescing, unless the config moved: include_flatpak changes what
             // is pending, and a check that began before the settings write must not answer for it.
             if (delta.config || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
-                root.doCheck(!delta.config);
+                root.doCheck(!delta.config, false, true);
             }
         });
     }
@@ -878,12 +890,13 @@ PlasmoidItem {
         holdError = null;
         actionMessage = "";
         var verb = hold ? " hold " : " unhold ";
-        executor.run(kemptCmd + verb + Logic.shellQuote(backend + ":" + name), 15000,
+        // ANSWER_TIMEOUT_MS: a hold takes the CLI's writers' lock, which waits up to 30 s.
+        executor.run(kemptCmd + verb + Logic.shellQuote(backend + ":" + name), Logic.ANSWER_TIMEOUT_MS,
                      function(stdout, stderr, rc) {
             if (rc !== 0) {
                 // In the row, not at the top of the stack - and said out loud, because a row is
                 // where the person is standing and a message 300 px away is not a report.
-                var msg = Logic.firstLineOf(stderr)
+                var msg = Logic.answerOutcomeOf(rc, "", stderr, "", Logic.COPY.holdTimedOut).text
                           || Logic.COPY.holdFailed.split("%1").join(name);
                 root.holdError = { backend: backend, name: name, text: msg };
                 root.pendingHold = null;
