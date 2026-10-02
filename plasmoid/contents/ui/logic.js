@@ -320,7 +320,8 @@ var COPY = {
     // - what is true, then what to type - and a person who cannot act on the second still gets the
     // first. INGREDIENTS: engineFaultMessage assembles them; the tooltip takes the first alone.
     // The commands are WHOLE: half a command line fails somewhere the reader has to debug.
-    engineMissing: "Kempt's engine is not installed, so nothing can check for updates yet.",
+    // The header above it already says the engine is not installed, so this does not repeat it.
+    engineMissing: "Nothing can check for updates yet.",
     engineMissingInstall:
         "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. "
         + "Other systems: github.com/erez-c137/kempt",
@@ -2171,10 +2172,12 @@ function viewModel(state, updating, cliError, opts) {
     } else if (noEngine) {
         // Names the state instead of quoting the shell: `sh: line 1: kempt: command not found` is
         // true, unreadable, and about a program the reader has never heard of.
-        tooltipMain = "Kempt";
         headerText = engineFault === "missing"
             ? "Kempt's engine is not installed"
             : "Kempt's engine will not run";
+        // Missing: the header is the tooltip's title, and COPY.engineMissing under it carries on
+        // from it rather than repeating it.
+        tooltipMain = engineFault === "missing" ? headerText : "Kempt";
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
         headerText = "No update data yet";

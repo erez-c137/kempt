@@ -369,6 +369,9 @@ assert_eq "$(js "$eng.headerText")" "Kempt's engine is not installed" "the heade
 assert_eq "$(js "$eng.headerText.indexOf(\"sh:\")")" "-1" "...and never quotes the shell at the user"
 assert_eq "$(js "$eng.tooltipSub")" "$(js 'L.COPY.engineMissing')" \
   "the tooltip says the same thing, in the copy table's words"
+assert_eq "$(js "$eng.tooltipMain")" "Kempt's engine is not installed" "...under the header as its title"
+assert_eq "$(js "$eng.engineFaultMessage.indexOf(\"not installed\")")" "-1" \
+  "...and the message under the header does not repeat it"
 assert_eq "$(js "$eng.tooltipSub.indexOf(\"command not found\")")" "-1" "...and quotes no shell either"
 assert_eq "$(js "$eng.remedyCommand")" "" \
   "nothing is offered to type: kempt is the thing that is missing, so kempt doctor cannot run"
@@ -2910,9 +2913,8 @@ assert_eq "$(js 'L.COPY.unholdAnnounce')" "No longer holding %1" \
 assert_eq "$(js 'L.COPY.holdFailed')" "Could not change the hold on %1." \
   "copy: a hold that failed, said in the row it failed on"
 assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
-assert_eq "$(js 'L.COPY.engineMissing')" \
-  "Kempt's engine is not installed, so nothing can check for updates yet." \
-  "copy: the store-first first run says what is missing"
+assert_eq "$(js 'L.COPY.engineMissing')" "Nothing can check for updates yet." \
+  "copy: the store-first first run says what that means, under a header that says what is missing"
 assert_eq "$(js 'L.COPY.engineMissingInstall')" \
   "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt" \
   "copy: ...and the commands that fix it, complete enough to paste"

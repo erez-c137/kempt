@@ -207,9 +207,10 @@ command -v kempt    # expect: /home/<you>/.local/bin/kempt
 
 Plasma's **Get New Widgets** can install the widget from the
 [KDE Store](https://store.kde.org/p/2370353/). That gives you the panel widget only, without the
-engine it runs. Until the engine is installed, the popup says:
+engine it runs. Until the engine is installed, the widget's header says **Kempt's engine is not
+installed**, and the message under it says:
 
-> Kempt's engine is not installed, so nothing can check for updates yet.
+> Nothing can check for updates yet.
 >
 > On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt
 

@@ -46,6 +46,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
   session-critical updates. **Install Now** uses it.
 
+### Fixed
+
+- **The widget without its engine says each thing once.** The header says Kempt's engine is not
+  installed. The message under it now starts at "Nothing can check for updates yet.", followed by
+  the install commands.
+
 ## [0.1.7] - 2026-10-02
 
 ### Added

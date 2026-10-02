@@ -1807,6 +1807,11 @@ p.check("...never the shell's own sentence, which is what the popup used to quot
         "command not found" in str(lev("engineFaultMessage.text")), False)
 p.check("...announced to a screen reader in the same words",
         lev("engineFaultMessage.Accessible.name"), lev("engineFaultMessage.text"))
+p.check("...under a header that says the engine is not installed",
+        ev("root.vm.headerText"), "Kempt's engine is not installed")
+p.check("...which the message does not repeat: it starts at what that means",
+        [str(lev("engineFaultMessage.text")).startswith("Nothing can check for updates yet."),
+         "not installed" in str(lev("engineFaultMessage.text"))], [True, False])
 # Nothing else that presumes an engine renders beside it. The placeholder is the one that had
 # to be silenced deliberately: it would otherwise promise that a first check is on its way,
 # about a check that is never going to finish.
