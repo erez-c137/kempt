@@ -122,7 +122,7 @@ user or as root.
 | `~/.config/kempt/config` | `key=value` settings, one per line, the only place a setting is stored | Nothing; it is yours |
 | `~/.config/kempt/holds` | One `backend:name` per line | Nothing; it is yours |
 | `~/.local/state/kempt/state.json` | What is pending right now, schema v1, a public interface | Rewritten by every check |
-| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, restart verdict, and the reason when it failed | Newest 50 kept, on every `kempt_init_dirs` |
+| `~/.local/state/kempt/history/<stamp>.json` | One entry per run: versions, counts, held items, duration, restart verdict, and the reason when it failed. A public interface (see [History entries](#history-entries)) | Newest 50 kept, on every `kempt_init_dirs` |
 | `~/.local/state/kempt/logs/<stamp>.log` | Raw package-manager output for one run. An update applied on a restart is the exception: dnf5 installed it while Kempt was not running, so the file is Kempt's own record from the snapshot diff, and says so | Dropped after 60 days |
 | `~/.local/state/kempt/events.log` | The event log: one line per thing Kempt did, `<ISO timestamp> <via> <text>`, mode 0600 | Past 2500 lines, rewritten to the last 2000 |
 | `~/.local/state/kempt/snapshots/*.tsv` | Before and after package sets, which run summaries are diffed from | Overwritten per run; the offline baseline is swept when harvested |
@@ -241,6 +241,25 @@ Two rules for anything that reads this file:
 
 A new backend adds a key under `backends` and stays schema 1. Readers ignore keys they do not
 know, and the totals keep working.
+
+## History entries
+
+Each run's history entry is the second **public interface**. Two commands print it:
+
+- `kempt summary --json` prints the newest entry, or nothing.
+- `kempt history --json` prints every readable entry as one JSON array, newest first, or `[]`.
+
+Both carry every field the run wrote, so the two formats always match. An entry is
+`{timestamp, surface, status, duration_sec, reboot_needed, log, error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`:
+
+- `duration_sec` is a number and `reboot_needed` a boolean. The other top-level fields are strings.
+- `updated`, `added` and `removed` are arrays of `{name, from, to}` objects, with string values.
+  `skipped_held` is an array of names. A backend's `status` is a string.
+
+The optional keys are listed under
+[Where the popup's last-run line comes from](#where-the-popups-last-run-line-comes-from). Fields
+may be added. A field that changes meaning or type is a breaking change. Every field except
+`status` may be absent in an older entry, so a reader must tolerate absence.
 
 ## The offline transaction, end to end
 
@@ -481,8 +500,7 @@ is bound to it, because the polkit dialog takes focus at once.
 The `Last update 18 min ago · 4 packages` row and the line shown after a run both come from
 **`kempt summary --json`**, parsed by `Logic.lastRunOf` in `logic.js` into `main.qml`'s `lastRun`.
 The widget never parses the human `kempt summary`. The CLI serves the newest history entry as
-`cmd_update` wrote it:
-`{timestamp, surface, status, duration_sec, reboot_needed, log, error, backends: {<name>: {updated, added, removed, status, skipped_held}}}`.
+`cmd_update` wrote it, in the shape given under [History entries](#history-entries).
 
 Optional keys on that entry:
 
@@ -501,13 +519,7 @@ Optional keys on that entry:
 - `reclaimed` on the flatpak backend, when `reclaim=automatic` tried a removal after the run:
   `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`, where `status` is a
   `reclaim.last.result` value. `kempt summary` and the last-run line show it only when `status`
-  is `removed`. A non-empty `in_use` adds `COPY.reclaimInUseOne` or `reclaimInUseMore` to the
-  post-run line, a staging run's included, and under the Last update row. An entry with no
-  readable `timestamp` shows neither. The popup marks the run seen when it closes with the
-  sentence on screen (`Logic.reclaimInUseOnScreen`): in the post-run line, or under a Last update
-  row that no report or updating pane hides. After that the row stops showing it, and a later
-  run's entry replaces it anyway (`Logic.lastRunSubtitle`, `main.qml`'s `reclaimInUseSeen`, not
-  kept across a plasmashell restart).
+  is `removed`. The widget's use of `in_use` is in `Logic.lastRunSubtitle`.
 
 Rules at this boundary:
 

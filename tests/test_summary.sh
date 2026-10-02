@@ -10,6 +10,11 @@ assert_exit 0 "summary with no runs exits clean" "$KEMPT" summary
 assert_eq "$("$KEMPT" summary)" "no update runs recorded yet" "empty history says so in words"
 assert_eq "$("$KEMPT" history)" "no update runs recorded yet" \
   "empty history says so in the same words, instead of printing nothing"
+# history --json is an array, so no runs is an empty array: a script can always parse it.
+assert_exit 0 "history --json with no runs exits 0" "$KEMPT" history --json
+assert_eq "$("$KEMPT" history --json 2>/dev/null)" "[]" "history --json with no runs prints []"
+assert_exit 2 "history --json rejects a stray argument" "$KEMPT" history --json 2
+assert_exit 2 "history still rejects an unknown option" "$KEMPT" history --bogus
 # --json's "no data" answer is EMPTY stdout under exit 0, never a fabricated empty run - the same
 # rule the state file lays down for `kempt check`. Only the human mode says it in words.
 assert_exit 0 "summary --json with no runs exits clean" "$KEMPT" summary --json
@@ -223,6 +228,33 @@ assert_eq "$("$KEMPT" history | wc -l)" "3" "history lists every run"
 assert_eq "$("$KEMPT" history | awk 'NR==1' | cut -d' ' -f1)" "2026-08-24T14:00:00+03:00" "history is newest first"
 assert_exit 2 "summary rejects a non-numeric N" "$KEMPT" summary abc
 
+# --- history --json: every run, newest first, each element what summary --json prints ----------
+"$KEMPT" history --json > "$TESTTMP/hj.json"
+assert_exit 0 "history --json exits 0 with runs recorded" "$KEMPT" history --json
+assert_eq "$(jq -r 'type' "$TESTTMP/hj.json")" "array" "history --json prints one JSON array"
+assert_eq "$(jq 'length' "$TESTTMP/hj.json")" "3" "...with every run in it"
+assert_eq "$(jq -r '[.[].timestamp] | join(" ")' "$TESTTMP/hj.json")" \
+  "2026-08-24T14:00:00+03:00 2026-08-24T13:00:00+03:00 2026-08-24T12:00:00+03:00" "...newest first"
+assert_eq "$(jq -S '.[0]' "$TESTTMP/hj.json")" "$("$KEMPT" summary --json | jq -S .)" \
+  "...and its first element is the entry summary --json prints"
+# An entry pruned while the command runs (a run's kempt_init_dirs keeps the newest 50) costs only
+# that entry. The jq stand-in deletes the oldest entry right after it is first read.
+oldest_entry="$(ls -1 "$HIST_DIR"/*.json | LC_ALL=C sort | awk 'NR==1')"
+mkdir -p "$TESTTMP/jq-prunes"
+real_jq="$(command -v jq)"
+cat > "$TESTTMP/jq-prunes/jq" <<STUB
+#!/usr/bin/env bash
+"$real_jq" "\$@"; rc=\$?
+[[ "\${!#}" == "$oldest_entry" ]] && mv -f "$oldest_entry" "$TESTTMP/pruned.json"
+exit \$rc
+STUB
+chmod +x "$TESTTMP/jq-prunes/jq"
+prc=0
+PATH="$TESTTMP/jq-prunes:$PATH" "$KEMPT" history --json > "$TESTTMP/hj-pruned.json" 2>/dev/null || prc=$?
+mv -f "$TESTTMP/pruned.json" "$oldest_entry" 2>/dev/null || true
+assert_eq "$prc" "0" "history --json exits 0 when an entry is pruned while it runs"
+assert_eq "$(jq -r 'type' "$TESTTMP/hj-pruned.json" 2>/dev/null)" "array" "...and still prints one JSON array"
+
 # --- summary --json: the last run as data ------------------------------------------------------
 # The popup needs what the last run did, and re-deriving it from the human text would be a second,
 # lossier copy of render_summary's rules living in the widget. So --json hands over the entry.
@@ -309,6 +341,10 @@ grep -q 'curl 8.17 → 8.18' <<<"$sout" && echo "ok: summary falls back to the n
 assert_eq "$(grep -c 'corrupt history entry' "$TESTTMP/serr")" "2" "both damaged entries are named on stderr"
 assert_eq "$("$KEMPT" history 2>/dev/null | wc -l)" "1" "history skips damaged rows and lists the rest"
 assert_eq "$("$KEMPT" history 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" "history names the damaged entries too"
+assert_eq "$("$KEMPT" history --json 2>/dev/null | jq -r '[.[].timestamp] | join(" ")')" "2026-08-24T11:00:00+03:00" \
+  "history --json leaves the damaged entries out and keeps the rest"
+assert_eq "$("$KEMPT" history --json 2>&1 >/dev/null | grep -c 'corrupt history entry')" "2" \
+  "...and names them on stderr"
 
 # --json must never hand a reader corrupt bytes under exit 0, so it validates before printing. The
 # newest file here is the ZERO-BYTE one: a file with no JSON document in it at all, which `jq .`

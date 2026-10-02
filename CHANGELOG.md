@@ -7,6 +7,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
+  could not answer, or when another check held the lock and the previous state was served.
+  Without it, both still exit 0.
+- **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
+  entry `kempt summary --json` prints. With no runs it prints `[]`.
+
+### Changed
+
+- **`kempt update` exits 7, not 1, when another program had the package lock.** This applies
+  when another program (PackageKit, Discover, dnf-automatic or another `flatpak`) still holds the
+  dnf or Flatpak lock after three tries. A script can wait and try again.
+- **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
+  Flatpak's lock through all three tries, the summary, notification and history say so and say to
+  try again, in place of Flatpak's raw error line.
+
 ## [0.1.7] - 2026-10-02
 
 ### Added

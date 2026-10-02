@@ -113,6 +113,15 @@ assert_eq "$(jq -r .last_success <<<"$state4")" "$(jq -r .last_success <<<"$stat
 assert_eq "$(jq -r '.last_success != null' <<<"$state4")" "true" "preserved last_success is non-null"
 assert_eq "$(jq -r '.error | startswith("dnf check failed")' <<<"$state4")" "true" "stale error names the failing backend"
 
+# --strict: the same failed check exits 1 for a script, and still prints and writes the state.
+# Without it the exit code stays 0, as the widget expects.
+assert_exit 0 "a failed check without --strict exits 0" "$KEMPT" check
+rm -f "$KEMPT_STATE_DIR/state.json"
+rc=0; strict_out="$("$KEMPT" check --strict 2>/dev/null)" || rc=$?
+assert_eq "$rc" "1" "check --strict exits 1 when a backend failed"
+assert_eq "$(jq -r .status <<<"$strict_out")" "stale" "...and still prints the state"
+assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json" 2>/dev/null)" "stale" "...and still writes it"
+
 # unhold rejects unknown backends exactly like hold does (a typo must never silently no-op)
 assert_exit 2 "unhold validates backend" "$KEMPT" unhold apt:foo
 
@@ -144,6 +153,7 @@ case "\$1" in
 esac
 STUB
 chmod +x "$TESTTMP/refresh-stub"
+assert_exit 0 "check --strict exits 0 when every backend answered" "$KEMPT" check --strict
 rm -f "$TESTTMP"/conc-rc.*
 for i in 1 2 3 4 5 6 7 8 9 10; do
   ( rc=0; "$KEMPT" check >/dev/null 2>&1 || rc=$?; printf '%s\n' "$rc" > "$TESTTMP/conc-rc.$i" ) &
@@ -909,7 +919,13 @@ for _ in $(seq 1 200); do
 done
 KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check > "$TESTTMP/served.json" 2>"$TESTTMP/served.err"
 served_rc=$?
+# --strict over the same wait: the previous state is still printed, and the exit says it is old.
+strict_served_rc=0
+KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check --strict > "$TESTTMP/strict-served.json" 2>/dev/null || strict_served_rc=$?
 kill "$lock_holder" 2>/dev/null; wait "$lock_holder" 2>/dev/null || true
+assert_eq "$strict_served_rc" "1" "check --strict that cannot take the lock exits 1"
+assert_eq "$(jq -r '.marker' "$TESTTMP/strict-served.json" 2>/dev/null)" "FIRST" \
+  "...and still prints the previous state"
 assert_eq "$served_rc" "0" "a check that cannot take the lock still exits 0"
 grep -q 'serving previous state' "$TESTTMP/served.err" \
   && echo "ok: ...and says on stderr that the answer is the previous one" \
@@ -1111,6 +1127,11 @@ assert_eq "$(jq -r .marker "$STATE_FILE")" "WRITTEN" "...and leaves state.json a
 assert_eq "$(events_matching ' check ok ')" "$ok_before" "...and is not logged as a check"
 assert_eq "$(tail -n 1 "$EVENTS_FILE" | cut -d' ' -f3-4)" "check shared" "...but as a shared one"
 
+race_check fresh --coalesce --strict
+assert_eq "$race_rc" "0" "a coalesced check --strict exits 0 over an ok state"
+race_check stale --coalesce --strict
+assert_eq "$race_rc" "0" "a --coalesce --strict check does not adopt a stale state, and its own check answers"
+
 race_check fresh
 assert_eq "$(dnf_queries)" "1" "without --coalesce the same race still runs its own check"
 
@@ -1220,6 +1241,15 @@ assert_eq "$(jq .backends.flatpak.actionable <<<"$bad_user")" "$((n_sys_fp + 2))
   "the system apps are counted and the last check's per-user apps are kept"
 assert_eq "$(jq -c '[.backends.flatpak.items[] | select(.scope == "user") | [.name, .size_bytes]] | sort' <<<"$bad_user")" \
   '[["com.brave.Browser",219200000],["net.mkiol.SpeechNote",1100000000]]' "...with the sizes they had"
+# --strict: the check stays ok, but a script is told the per-user answer is not current.
+strict_user_rc=0
+KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_REMOTE_CMD=false \
+  KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check --strict >/dev/null 2>&1 || strict_user_rc=$?
+assert_eq "$strict_user_rc" "1" "check --strict exits 1 when the apps for you only could not be listed"
+strict_user_ok_rc=0
+KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_REMOTE_CMD="cat $TESTTMP/u-remote.tsv" \
+  KEMPT_FLATPAK_USER_LIST_CMD="cat $TESTTMP/u-list.tsv" "$KEMPT" check --strict >/dev/null 2>&1 || strict_user_ok_rc=$?
+assert_eq "$strict_user_ok_rc" "0" "...and 0 when both installations answered"
 # With no per-user items in the previous state there is nothing to keep, and only the system apps count.
 KEMPT_SKIP_REFRESH=1 "$KEMPT" check >/dev/null
 bad_first="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" \

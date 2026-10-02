@@ -9,6 +9,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt check
 .RB [ \-\-refresh ]
 .RB [ \-\-coalesce ]
+.RB [ \-\-strict ]
 .br
 .B kempt update
 .RB [ \-\-no\-flatpak ]
@@ -24,6 +25,7 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt summary \-\-json
 .br
 .B kempt history
+.RB [ \-\-json ]
 .br
 .B kempt log
 .RB [ \-n
@@ -81,9 +83,11 @@ grants a system app update to an active local session without a password, so a r
 but Flatpak updates in it never raises an authentication dialog.
 .SH COMMANDS
 .TP
-.BR check " [" \-\-refresh "] [" \-\-coalesce ]
+.BR check " [" \-\-refresh "] [" \-\-coalesce "] [" \-\-strict ]
 Query every enabled backend, write the state file and print it as JSON.
-Backend failures do not fail the command: the state is marked
+Backend failures do not fail the command unless
+.B \-\-strict
+is given: the state is marked
 .B stale
 with an error message and the previous item lists are kept. Empty output with exit status 0
 means "no data, keep the last known state", never "zero updates". After a restart, this command
@@ -101,6 +105,9 @@ written. The event log says
 .BR "check shared" .
 .B \-\-refresh
 turns it off.
+.B \-\-strict
+exits 1 when the answer is not current, for scripts: a backend failed, or another check held the
+lock and the previous state was served. The state is printed either way.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface ]
@@ -141,6 +148,9 @@ and support for those images is planned. On the
 .B offline
 surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
 for both kinds, so staging would cancel the upgrade.
+.IP
+When another program holds the dnf or Flatpak lock, Kempt tries three times, 10 seconds apart.
+If the lock is still held, the run fails with exit 7 and says to try again in a few minutes.
 .TP
 .BR run " [" \-\-print\-command ]
 Launch
@@ -172,6 +182,14 @@ List past runs, newest first: timestamp, surface, status and what the run change
 column counts upgrades, installs and removals in the same words the notifications use
 .RB ( "3 updated, +1 installed" ", " "no package changes" ),
 so a run that only installed or removed packages is never listed as "0 updated".
+.TP
+.B history \-\-json
+Print every run as one JSON array, newest first. Each element is the history entry
+.B "summary \-\-json"
+prints for that run. A damaged entry is left out, with a warning on stderr. With no runs it
+prints
+.B []
+and exits 0.
 .TP
 .BR log " [" \-n " " \c
 .IR N ]
@@ -456,10 +474,16 @@ Widgets. Six sizes are installed under this one name.
 .SH EXIT STATUS
 .TP
 .B 0
-Success, including declining at the session\-critical recommendation prompt.
+Success, including declining at the session\-critical recommendation prompt, and a
+.B check
+without
+.B \-\-strict
+whose backend failed.
 .TP
 .B 1
 The run itself failed (a backend returned non\-zero),
+.B "check \-\-strict"
+had a backend fail or served the previous state,
 .B doctor
 found at least one problem, or a writer could not take the writers' lock.
 .BR "config set" ,
@@ -503,6 +527,11 @@ when it may not remove anything, including when polkit refuses Flatpak itself.
 only: the runtimes Flatpak would remove are no longer the set that was shown, or part of it
 became unused less than an hour ago. On first use, with no check on record, every runtime is new.
 Nothing was removed.
+.TP
+.B 7
+.B update
+only: another program, such as PackageKit or Discover, held the dnf or Flatpak lock through all
+three tries, and nothing else failed. Try again in a few minutes.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),

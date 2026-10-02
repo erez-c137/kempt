@@ -3,17 +3,20 @@
 Every command is `kempt <subcommand>`. `kempt help` prints the same list.
 
 ```
-check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+check [--refresh] [--coalesce] [--strict]
+                      refresh pending-updates state (JSON to stdout). --refresh fetches package
                       metadata now, ignoring the 3-hour interval but never the battery or
                       metered-connection rules. --coalesce accepts the answer of a check that
-                      finished while this one waited (the widget's automatic checks)
+                      finished while this one waited (the widget's automatic checks). --strict
+                      exits 1 when a backend failed
 update                run the update now (options from config; --no-flatpak, --surface=X override)
 run [--print-command] launch update per configured surface (what the widget calls;
                       --surface=X for one run on another surface)
 summary [N]           human summary of the last (or Nth-last) run
 summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                       or if the newest entry is damaged)
-history               list past runs
+history [--json]      list past runs, newest first; --json prints them as a JSON array of
+                      history entries
 log [-n N]            recent events: what Kempt did, when, and from where (default 30)
 doctor                check this install: helpers, polkit action, tools, config, state
 hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
@@ -35,13 +38,14 @@ Every command uses the same codes:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` whose backend failed (the failure is recorded in the state). |
-| 1 | The run failed (a backend returned non-zero), `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
+| 0 | Success. This includes answering "abort" at the risky-transaction prompt, and a `check` without `--strict` whose backend failed (the failure is recorded in the state). |
+| 1 | The run failed (a backend returned non-zero), `check --strict` had a backend fail or served the previous state, `doctor` found a problem, a command could not take the writers' lock, or Flatpak failed during `reclaim`, even when it removed some of the runtimes first. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator, when updates run in a terminal window. |
 | 5 | Stopped before changing anything: `update` on an image-based Fedora; `update --surface=offline` or `unstage` while a Fedora release upgrade is stored; `run` when the terminal window it launched never opened; or `reclaim` when it may not remove anything, including when polkit refuses Flatpak itself (see [reclaim](#reclaim)). |
 | 6 | `reclaim` only: what Flatpak would remove is no longer the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. Nothing was removed. |
+| 7 | `update` only: another program, such as PackageKit or Discover, held the dnf or Flatpak lock through all three tries. Try again in a few minutes. |
 
 `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in your config directory.
 They take a lock at `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot
@@ -51,7 +55,7 @@ command writes nothing, says so on stderr and exits 1. Commands that only read t
 ## check
 
 ```
-kempt check [--refresh] [--coalesce]
+kempt check [--refresh] [--coalesce] [--strict]
 ```
 
 Asks every enabled backend what is pending, writes `~/.local/state/kempt/state.json`, and prints
@@ -118,19 +122,26 @@ whole seconds, so a check stamped in the same second runs a check of its own. `-
 startup check, so two widgets on two panels cost one check instead of two. Check for Updates,
 Check again and a hold always run a check of their own.
 
+**`--strict`** exits 1 when the answer is not current, after printing it as usual: a backend
+failed, the apps for you only could not be listed, or another check held the lock and the previous
+state was served. Use it in scripts. Without it, all three exit 0.
+
 A check also records a staged update once the restart has installed it, and clears Kempt's
 record of a stage that has gone.
 
 ### What a script can rely on
 
-- **A backend fails** (network down, repo unavailable): exit 0, `status` is `"stale"`, `error`
-  holds the message, and the previous item lists are kept. When a root helper is missing,
+- **A backend fails** (network down, repo unavailable): exit 0, or 1 with `--strict`. `status` is
+  `"stale"`, `error` holds the message, and the previous item lists are kept. When a root helper is missing,
   `error` says `root helper not installed - run ./install.sh (see: kempt doctor)`.
 - **The state file is missing or corrupt:** exit 0, and the check starts from an empty list.
-- **The new state cannot be saved:** the state is printed first, then the command exits non-zero.
-- **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0.
+- **The new state cannot be saved:** the state is printed first, then the command exits 1.
+  With `--strict`, read `status` to tell the two apart: `"stale"` means a backend failed, and
+  anything else means the state could not be saved.
+- **Another check holds the lock** for 60 seconds: the previous state is printed, exit 0, or 1
+  with `--strict`.
 - **With `--coalesce`, another check answered while this one waited:** that state is printed,
-  exit 0, and `state.json` is not rewritten.
+  exit 0, and `state.json` is not rewritten. Only a state whose `status` is `"ok"` is taken.
 
 **Empty output with exit 0 means "no data, keep what you had".** It never means zero updates.
 
@@ -200,12 +211,13 @@ What happens, in order:
 5. **Flatpak**, unless turned off: the system apps, then any installed with
    `flatpak install --user`, as you. With Flatpak holds, each pending app that is not held is
    updated on its own, and a hold covers the app in both. If one of the two fails, the other still
-   runs, and the summary says which failed.
+   runs, and the summary says which failed. A busy Flatpak lock gets the same 3 tries.
 6. **Report.** Kempt compares the snapshots, writes a history entry and a log, prints the
    summary, and sends a notification when the run was not in a terminal.
 
-Exit 0 when every backend succeeded, 1 when one failed. The summary marks a failed backend with
-its status in brackets.
+Exit 0 when every backend succeeded, 1 when one failed. Exit 7 when the only failure was a lock
+that another program held through all three tries. The summary marks a failed backend with its
+status in brackets.
 
 Kempt reads dnf5's history before and after the upgrade. When one new transaction matches the
 command it ran, its id goes into the history as `transaction_id`, for `dnf5 history info`. Its
@@ -426,7 +438,7 @@ terminal, the update also prints the outcome under the **Unused Flatpak runtimes
 ```
 kempt summary [N]
 kempt summary --json
-kempt history
+kempt history [--json]
 ```
 
 `summary` shows one run as text. `N` counts back from the newest: `1` (the default) is the last
@@ -493,6 +505,15 @@ kempt history
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
 2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
+```
+
+`history --json` prints every run as one JSON array, newest first. Each element is the entry
+`summary --json` prints for that run. With no runs it prints `[]`. A damaged entry is left out and
+named on stderr. It always exits 0. The format is in
+[architecture.md](architecture.md#history-entries).
+
+```bash
+kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)  \(.error)"'
 ```
 
 ## log

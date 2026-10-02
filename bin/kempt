@@ -483,11 +483,14 @@ cmd_check() {
   # per panel tray) otherwise turn every automatic trigger into two dnf queries back to back, the
   # second queued on the lock behind the first. Never with --refresh: that flag asks for a FETCH,
   # and a state someone else produced from the old metadata does not answer it.
-  local force_refresh="" coalesce=""
+  # --strict is for scripts: an answer that is not current (a backend failed, or the previous state
+  # was served) exits 1 instead of 0, after the state is printed.
+  local force_refresh="" coalesce="" strict=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --refresh) force_refresh=force; shift ;;
       --coalesce) coalesce=1; shift ;;
+      --strict) strict=1; shift ;;
       *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
   done
@@ -505,6 +508,8 @@ cmd_check() {
     # plain form prints BOTH documents under exit 0 and the widget's JSON.parse throws on the
     # second. House idiom - same guard on prev_ls below, in state_prev_items and `summary --json`.
     jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
+    # --strict: an answer nobody checked just now is not a current one.
+    [[ -z "$strict" ]] || return 1
     return 0
   fi
   local shared
@@ -514,6 +519,13 @@ cmd_check() {
     # a `check ok` and nothing counting checks counts it.
     printf '%s\n' "$shared"
     log_event "check shared last_check=$(jq -r '.last_check' <<<"$shared" 2>/dev/null)"
+    # state_checked_since adopts only an ok state today; --strict does not rely on that.
+    # A failed per-user listing leaves status ok, so the scopes are asked as well.
+    if [[ -n "$strict" ]] \
+       && ! jq -e '.status == "ok" and ((.backends.flatpak.scopes // {}) | all(.[]; . != "failed"))' \
+            <<<"$shared" >/dev/null 2>&1; then
+      return 1
+    fi
     return 0
   fi
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
@@ -656,8 +668,12 @@ cmd_check() {
     counts="$(jq -r '"actionable=\(.actionable) held=\(.held_total)"' <<<"$state" 2>/dev/null)" \
       || counts="actionable=? held=?"
     log_event "check ok $counts"
+    # --strict: the apps for you only that could not be listed are not a current answer either,
+    # though the check stays ok and keeps their previous items.
+    if [[ -n "$strict" && "$fp_scopes" == *'"failed"'* ]]; then return 1; fi
   else
     log_event "check $status $error"
+    [[ -z "$strict" ]] || return 1
   fi
 }
 
@@ -706,16 +722,23 @@ log_warn() {  # log_file message
 # The runner is an argument because the two backends sit on OPPOSITE sides of the privilege
 # boundary: dnf through the root helper (priv_apply), flatpak as the user (flatpak_apply). The run
 # log, the live tee and the retry are the same for both.
-# The predicate matches the lock-held wordings of dnf5, rpm and PackageKit, listed in
+# KEMPT_DNF_LOCK_RE matches the lock-held wordings of dnf5, rpm and PackageKit, listed in
 # tests/fixtures/MANIFEST.md. Package names can contain "lock" (kscreenlocker), so a loose
 # `package.*lock` retries dependency errors. dnf5's "Waiting for a lock" line is left out: dnf5
 # waits and carries on, so it never explains a failure. `can.t` avoids a quote inside quotes.
-# The flatpak wordings carry the path in the MIDDLE (`Unable to lock %s`, `Locking repo %s failed`,
-# `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns rather than literals. `\b`
-# keeps `Unlocking repo failed`, a different error, out of the match.
+# KEMPT_FLATPAK_LOCK_RE: the flatpak wordings carry the path in the MIDDLE (`Unable to lock %s`,
+# `Locking repo %s failed`, `Opening lock file %s/.lock failed`) - hence `.*`-joined patterns
+# rather than literals. `\b` keeps `Unlocking repo failed`, a different error, out of the match.
+KEMPT_DNF_LOCK_RE='failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock'
+KEMPT_FLATPAK_LOCK_RE='unable to lock|\blocking repo.*failed|opening lock file.*failed'
+KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
+KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and did not release it after three tries - the Flatpak update did not finish; try again in a few minutes"
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
-  local attempt rc before_sz
+  local attempt rc before_sz lock_re="$KEMPT_DNF_LOCK_RE" busy="$KEMPT_BUSY_REASON_DNF"
+  if [[ "$runner" == flatpak_apply ]]; then
+    lock_re="$KEMPT_FLATPAK_LOCK_RE"; busy="$KEMPT_BUSY_REASON_FLATPAK"
+  fi
   for attempt in 1 2 3; do
     rc=0
     # Only THIS attempt's output may decide whether to retry: a fixed `tail -n 20` re-reads the
@@ -730,45 +753,30 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
       "$runner" "$@" >>"$log" 2>&1 || rc=$?
     fi
     [[ $rc -eq 0 ]] && return 0
-    if tail -c +$(( before_sz + 1 )) "$log" \
-       | grep -qiE 'failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock|\blocking repo.*failed|opening lock file.*failed'; then
+    if tail -c +$(( before_sz + 1 )) "$log" | grep -qiE "$lock_re"; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
         log_warn "$log" "Package system busy (PackageKit/Discover?) - retrying in ${KEMPT_RETRY_DELAY}s ($attempt/3)"
         sleep "$KEMPT_RETRY_DELAY"
       else
         log_warn "$log" "Package system still busy after $attempt attempts - giving up"
-        # Kempt's own sentence for the most likely failure it has. Without this the reason shown
-        # in the summary, the notification and the history entry is whichever of dnf's lines
-        # matched run_failure_reason's keyword list first - dnf's raw text about a lock file,
-        # which reads as a broken installation rather than as "something else is using this right
-        # now, try again".
+        # Kempt's own sentence for the most likely failure it has, in place of dnf's or flatpak's
+        # raw line about a lock file, which reads as a broken installation. Set only here, where
+        # the evidence is: a lock-specific grep against this attempt's output alone.
         #
-        # Set HERE and nowhere else, because here is the only place with the evidence: the grep
-        # above ran against THIS attempt's output alone and against a lock-specific pattern. A
-        # wider match somewhere downstream would eventually label a full disk or a failed scriptlet
-        # as a busy package system, which is worse than the raw text it replaced.
-        #
-        # Two conditions, and both are about not describing the wrong failure.
-        #
-        # The runner must be the PRIVILEGED one. This function also runs flatpak, and flatpak runs
-        # AFTER dnf: a flatpak lock failure claiming the reason would name three dnf tools that
-        # cannot hold a flatpak lock, would say nothing was installed on a run that had just
-        # installed three hundred packages, and - worst - would mask a dnf failure that happened
-        # first, since an ordinary dnf failure sets no reason of its own.
-        #
-        # And nothing may have claimed the reason already: a cleanup that hits the lock after the
-        # failure it is cleaning up must not relabel the run with its own problem.
-        #
-        # NOT `local`: reason_override belongs to cmd_update, which every caller of this runs
-        # inside. "nothing was installed" is safe on both privileged paths that reach here with the
-        # reason unclaimed - a live upgrade that never started, and a stage that never began - and
-        # the arm and rebuild failures overwrite it with their own more specific sentence.
-        if [[ "$runner" == priv_apply && -z "${reason_override:-}" ]]; then
-          reason_override="another program is using the package system (PackageKit, Discover or dnf-automatic) and did not release it after three tries - nothing was installed; try again in a few minutes"
+        # reason_override, run_busy_reason and run_failed_otherwise belong to cmd_update, which
+        # every caller of this runs inside (dynamic scope, so NOT `local`). The reason is claimed
+        # only when nothing failed before it: a cleanup after a failure, or flatpak after a dnf
+        # failure, must not relabel the run. The flatpak sentence makes no claim about dnf, which
+        # ran first and may have installed hundreds of packages.
+        if [[ -z "${reason_override:-}" && "${status:-ok}" == ok ]]; then
+          reason_override="$busy"
+          run_busy_reason="$busy"
         fi
       fi
     else
+      # A failure that is not a lock: the run cannot exit as "busy", whatever reason it reports.
+      run_failed_otherwise=1
       return "$rc"
     fi
   done
@@ -963,7 +971,7 @@ apply_flatpak_updates() {
     scope_list="$(flatpak_scopes)"
     # Found before the run but unreadable: not updated, and reported failed like a failed update.
     if [[ "${fp_user_unreadable:-false}" == true ]]; then
-      outcomes="user failed"$'\n'; fp_status="failed"; status="failed"
+      outcomes="user failed"$'\n'; fp_status="failed"; status="failed"; run_failed_otherwise=1
       log_warn "$log" "warning: the apps for you only could not be listed, so they were not updated"
     fi
     for scope in $scope_list; do
@@ -1008,14 +1016,14 @@ apply_flatpak_scope() {  # system|user
     # empty installed set means no ids pass and the run reports flatpak failed.
     local installed_fp id pending_fp ids=()
     installed_fp="$(flatpak_snapshot "$scope" | cut -f1 | sed "s/^$KEMPT_FLATPAK_USER_KEY//")" \
-      || { installed_fp=""; rc=1; log_warn "$log" "warning: flatpak installed lookup failed for the $where, so none of them were updated"; }
+      || { installed_fp=""; rc=1; run_failed_otherwise=1; log_warn "$log" "warning: flatpak installed lookup failed for the $where, so none of them were updated"; }
     # ONE capture, read twice below: the apps to name individually, and whether any runtime is
     # pending at all. Asking the backend twice would pay the cached query's cost twice over for an
     # answer that cannot have changed in between.
     # A lookup that FAILS is not "nothing pending": swallowed to an empty list, it updated no app
     # and still reported flatpak `ok`. Failed, like the installed lookup above.
     pending_fp="$(flatpak_check_scope "$scope" 2>/dev/null)" \
-      || { pending_fp=""; rc=1; log_warn "$log" "warning: flatpak update lookup failed for the $where, so none of them were updated"; }
+      || { pending_fp=""; rc=1; run_failed_otherwise=1; log_warn "$log" "warning: flatpak update lookup failed for the $where, so none of them were updated"; }
     while IFS= read -r id; do
       [[ -n "$id" ]] || continue
       grep -qxF "$id" <<<"$held_fp" && continue
@@ -1371,6 +1379,9 @@ cmd_update() {
   # empty stage just excluded.
   local stage_discarded=false
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
+  # run_busy_reason: the busy sentence apply_with_retry claimed, if any. run_failed_otherwise: a
+  #   failure that was not a lock. Together they decide exit 7 at the end.
+  local run_busy_reason="" run_failed_otherwise=""
   local staged_excluded_json='[]'
   if [[ "$surface" == "offline" ]]; then
     # How many updates this stage carries, asked NOW rather than copied from the last check's
@@ -1661,6 +1672,13 @@ cmd_update() {
   # when the log is four hundred lines of dnf progress.
   local reason=""
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
+  # The exit code. 7 only when the reason given is the busy sentence and nothing else failed, so a
+  # script can wait and try again; any other failure is 1.
+  local run_rc=0
+  if [[ "$status" != "ok" ]]; then
+    run_rc=1
+    [[ -n "$run_busy_reason" && "$reason" == "$run_busy_reason" && -z "$run_failed_otherwise" ]] && run_rc=7
+  fi
 
   # history entry
   local held_dnf_json held_fp_json hist="$HIST_DIR/$ts.json" hist_tmp
@@ -1758,8 +1776,8 @@ cmd_update() {
       log_event "run done rc=0 updated=$upd reboot=$([[ "$reboot" == true ]] && echo needed || echo no)"
     fi
   else
-    # rc 1 is what this command exits with on a failed run (the return at the bottom).
-    log_event "run failed rc=1: $reason"
+    # The same rc this command exits with (the return at the bottom).
+    log_event "run failed rc=$run_rc: $reason"
   fi
 
   # tell the human. Both readers take the entry as a FILE, and on the one path where neither the
@@ -1827,7 +1845,7 @@ cmd_update() {
   if [[ -n "${KEMPT_CLOSING_CHECK_MARK:-}" && -n "$CHECK_WROTE_STATE" ]]; then
     : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
   fi
-  [[ "$status" == "ok" ]]
+  return "$run_rc"
 }
 
 # Waits for a launched update window to START, the one thing `kempt run` cannot otherwise see: the
@@ -2065,12 +2083,32 @@ cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry,
   echo "no update runs recorded yet"
 }
 
-cmd_history() {
+cmd_history() {  # [--json] - every run, newest first; --json as one array of history entries
+  local json=false
+  if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
   local f row files=()
   # same while-read form as cmd_summary: an unquoted $(ls) splits on whitespace and globs
   # shellcheck disable=SC2012   # shell-expanded glob; ls is the existence filter, sort is the order
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
+  if [[ "$json" == true ]]; then
+    # Each element is what `summary --json` prints for that run, behind the same guard: one JSON
+    # object per file. A damaged entry is named on stderr and left out. No runs is `[]`.
+    # Read once per entry, and the array built from what was read: a file pruned or rewritten by
+    # a run in the meantime then costs only its own element, never the command.
+    local doc docs=()
+    for f in "${files[@]}"; do
+      if doc="$(jq -c -e -n '[inputs] | select(length == 1 and (.[0]|type == "object")) | .[0]' "$f" 2>/dev/null)" \
+         && [[ -n "$doc" ]]; then
+        docs+=("$doc")
+      elif [[ -e "$f" ]]; then
+        echo "warning: corrupt history entry: $f" >&2
+      fi
+    done
+    printf '%s\n' ${docs[@]+"${docs[@]}"} | jq -n '[inputs]' 2>/dev/null || echo '[]'
+    return 0
+  fi
   local phrase err
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, nor take the whole
@@ -3597,7 +3635,9 @@ cmd_disable_passwordless() {
 
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
-#   1 the run itself failed (a backend returned non-zero), `doctor` found a problem, or a writer
+#   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail or
+#     served the previous state,
+#     `doctor` found a problem, or a writer
 #     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
 #     same table and calls that third case the one that surprises people - keep the two in step.
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
@@ -3608,20 +3648,24 @@ cmd_disable_passwordless() {
 #     by polkit included
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
+#   7 update only: another program held the dnf or Flatpak lock through all three tries
 usage() {
   cat <<'EOF'
 usage: kempt <command>
-  check [--refresh]     refresh pending-updates state (JSON to stdout). --refresh fetches package
+  check [--refresh] [--coalesce] [--strict]
+                        refresh pending-updates state (JSON to stdout). --refresh fetches package
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules. --coalesce accepts the answer of a check that
-                        finished while this one waited (the widget's automatic checks)
+                        finished while this one waited (the widget's automatic checks). --strict
+                        exits 1 when a backend failed
   update                run the update now (options from config; --no-flatpak, --surface=X override)
   run [--print-command] launch update per configured surface (what the widget calls;
                         --surface=X for one run on another surface)
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
-  history               list past runs
+  history [--json]      list past runs, newest first; --json prints them as a JSON array of
+                        history entries
   log [-n N]            recent events: what Kempt did, when, and from where (default 30)
   doctor                check this install: helpers, polkit action, tools, config, state
   hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
@@ -3650,7 +3694,7 @@ case "${1:-help}" in
   update)  shift; cmd_update "$@" ;;
   run)     shift; cmd_run "$@" ;;
   summary) shift; cmd_summary "$@" ;;
-  history) shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_history ;;
+  history) shift; cmd_history "$@" ;;
   log)     shift; cmd_log "$@" ;;
   doctor)  shift; [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }; cmd_doctor ;;
   config)  shift; cmd_config "$@" ;;
