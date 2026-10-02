@@ -296,6 +296,23 @@ rm -f "$KEMPT_STATE_DIR/last_refresh"     # the 3h window, reopened
 "$KEMPT" check >/dev/null 2>&1 || true
 assert_eq "$(events_like ' refresh failed')" "1" "...and one that did not is recorded too"
 
+# kempt-refresh stops a stalled makecache itself, as root, and `timeout` then exits 124, or 137
+# after its SIGKILL. Either is a failed refresh, and the check goes on with the cached metadata.
+for rc in 124 137; do
+  cat > "$TESTTMP/refresh-timed-out" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
+exit $rc
+STUB
+  chmod +x "$TESTTMP/refresh-timed-out"
+  rm -f "$KEMPT_STATE_DIR/last_refresh"
+  : > "$EV"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-timed-out" "$KEMPT" check >/dev/null 2>&1 || true
+  assert_eq "$(events_like ' refresh failed')" "1" "a refresh the helper stopped (exit $rc) is recorded as failed"
+  assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "ok" \
+    "...and the check still answers from the cached metadata (exit $rc)"
+done
+
 # A refresh that never answers, which is what an authentication dialog nobody is at looks like:
 # a background check cannot answer one, so it waits out the whole timeout. The number was
 # hardcoded at 120 until now, so no test could reach this branch without waiting two minutes -
