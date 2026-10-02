@@ -233,7 +233,10 @@ PlasmoidItem {
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
                                                 // message cap has to see them.
-                                                reportShown: reportText.length > 0 })
+                                                reportShown: reportText.length > 0,
+                                                // ...and whether it only repeats the staged message.
+                                                reportRepeatsStaged: reportLatest === "run"
+                                                    && Logic.reportRepeatsStaged(lastRun) })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI

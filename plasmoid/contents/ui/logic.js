@@ -1594,6 +1594,16 @@ function postRunLine(run) {
         + reclaimInUseTailOf(run);
 }
 
+// reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
+// A clean staging run reports "Updates are staged", and the staged message above it says the same
+// with the count and its Restart and Discard buttons. Two boxes for one fact, so the report gives
+// way while that message is on screen, and the Last update row (with Show Log) takes its place.
+// Anything the line adds keeps it: a run that staged nothing, a failure, an in-use note.
+function reportRepeatsStaged(run) {
+    return !!run && !run.failed && run.surface === "offline" && run.stagedNothing === null
+        && reclaimInUseTailOf(run) === "";
+}
+
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
 // `kempt summary --json` answers with the newest entry it can read; the CLI is the primary guard
 // and this is the belt to those braces, covering what the CLI cannot see - a summary answered from
@@ -2143,7 +2153,7 @@ function viewModel(state, updating, cliError, opts) {
     // are main.qml's own state, not the CLI's.
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
-        report: opts.reportShown === true,
+        report: opts.reportShown === true && !(staged && opts.reportRepeatsStaged === true),
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
@@ -2365,6 +2375,7 @@ if (typeof module !== "undefined" && module.exports) {
         RECLAIM_TIMEOUT_MS: RECLAIM_TIMEOUT_MS,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
+        reportRepeatsStaged: reportRepeatsStaged,
         runFinishedSince: runFinishedSince,
         runStartMessage: runStartMessage,
         discardStagedMessage: discardStagedMessage,

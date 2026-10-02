@@ -2210,6 +2210,16 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true}).messageSlot
   "with a report, a staged conflict and an owed restart all true, the popup draws the first two"
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).messageSlots")" \
   '["staged","restart"]' "...and without the report, the restart takes the second slot"
+# A clean staging run's report says what the staged message already says, so it gives way to it.
+# Only while that message is on screen: with nothing staged, the report is the only word on the run.
+STAGED_OK='{"status":"ok","surface":"offline","duration_sec":28,"when":"2026-09-05T12:00:00+03:00"}'
+assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('$STAGED_OK'))")" "true" "a clean staging run's report repeats the staged message"
+assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"x\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"staged_nothing\":\"held\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"background\"}'))+'|'+L.reportRepeatsStaged(null)")" \
+  "false|false|false|false" "...and a failed run, one that staged nothing, a live run and no run do not"
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots")" \
+  '["staged","restart"]' "...so the staged message stands alone and the report's slot goes to the next message"
+assert_eq "$(js "L.viewModel(Object.assign({}, $STACK_ALL, {offline_staged:null}),false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf('report')")" \
+  "0" "...but with nothing staged on screen, the report still shows"
 # The displaced restart is not lost: it moves to the line that always has room. That is what makes
 # dropping it honest rather than merely quiet.
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true}).footerText.indexOf('restart pending') >= 0")" \

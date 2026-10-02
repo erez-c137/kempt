@@ -43,6 +43,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or a metered connection it skips the fetch, and the footer says how old the lists are.
 - **Fetching fresh package lists stops after two minutes if a mirror stalls, instead of running on
   as root.** The check then uses the lists it already has.
+- **Staging updates for the next restart shows one message, not two.** The widget repeated "Updates
+  are staged" in a second box under the message with Restart and Discard. Show Log is on the Last
+  update row.
 - **Per-user Flatpak apps are checked and updated.** Kempt said everything was up to date while
   per-user Flatpak apps had updates. It now counts, sizes and updates apps you installed with
   `flatpak install --user`, after the system ones. The popup marks them **For you only**, and says
