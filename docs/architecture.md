@@ -575,9 +575,11 @@ once. The run has already published the armed stage, and a stale **Update Now** 
 ### What the message stack says to a screen reader
 
 Kirigami gives an `InlineMessage` **no accessible name**, so every message in the popup sets
-`Accessible.name: text`. That announces nothing without focus. So every announcement goes through
-`announce(sentence, assertive)` in `FullRepresentation.qml`. It calls `Accessible.announce`
-(Qt 6.8 and later) and emits `announced(string)`, which tests listen to.
+`Accessible.name: text`. That announces nothing without focus. So every announcement in the popup
+goes through `announce(sentence, assertive)` in `FullRepresentation.qml`. It calls
+`Accessible.announce` (Qt 6.8 and later) and emits `announced(string)`, which tests listen to.
+`CompactRepresentation.qml` has its own `announce(sentence)` of the same shape, always polite, for
+the panel icon.
 
 | What | Politeness | Why |
 | --- | --- | --- |
@@ -585,7 +587,9 @@ Kirigami gives an `InlineMessage` **no accessible name**, so every message in th
 | A hold that failed | Assertive | The row now carries an error and the padlock is live again. |
 | The staged banner, when its words change while it is visible | Assertive | The machine is saying that what it promised has changed. |
 | The post-run line and a failed press | Assertive | The answer the person was waiting for, and the popup may not have focus. |
-| The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. |
+| The question before session-critical updates | Polite | It answers the click on **Update Now**, and says the update has not started. |
+| The Check for Updates answer, `vm.checkAnswerText` | Polite | The person asked. The popup says it while open, the panel icon while closed. |
+| The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
 when hidden. The **Rebuild Staged Update** tooltip names its costs, and `Accessible.description`
