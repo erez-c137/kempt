@@ -39,9 +39,9 @@ chosen, there is no badge. The icon still changes, and the tooltip has the count
 
 **Panel icon size**, under **Configure Kempt…**, offers **Automatic**, **Small** (16 px),
 **Medium** (22 px) and **Large** (32 px). **Automatic** matches the system tray. That is 22 px on
-panels from 22 to 47 px high, which covers Plasma's default panel, and 48 or 64 px on very thick or
-HiDPI panels. **Large** is never smaller than **Automatic**. Inside the system tray, the tray sets the
-size. The setting is `widget_icon_size` in [configuration.md](configuration.md#keys).
+panels from 22 to 47 px high, which covers Plasma's default panel, and 48 or 64 px on very thick
+or HiDPI panels. **Large** is never smaller than **Automatic**. Inside the system tray, the tray
+sets the size. The setting is `widget_icon_size` in [configuration.md](configuration.md#keys).
 
 ## The popup
 
@@ -140,7 +140,8 @@ lower in this list are left out. If that hides the restart message, the footer s
 8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
    install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches
    **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting and
-   hides the message for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
+   hides the message for good. See
+   [configuration.md](configuration.md#upgrading-from-an-older-kempt).
 9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
    from Kempt's, and its checks can make an update wait."** It shows once, while Discover's notifier
    is installed and starts with your session. It waits until message 8 is answered. **Turn Off
@@ -211,9 +212,9 @@ Flatpak holds never cause a warning, because only system packages are staged.
 
 dnf5 deletes the old staged update before it builds the new one. So a failed rebuild
 removes the current staged update, and the restart installs nothing. A rebuild reuses the packages
-already downloaded. If the staged update changed after the banner was drawn, nothing runs and the popup
-says `The staged update changed since this was offered. Nothing was rebuilt; check the banner
-above.`
+already downloaded. If the staged update changed after the banner was drawn, nothing runs and the
+popup says `The staged update changed since this was offered. Nothing was rebuilt; check the
+banner above.`
 
 **Discard Staged Update** is on every staged banner. It removes the staged update, so the next
 restart installs nothing and the banner goes. Its tooltip:
