@@ -211,6 +211,12 @@ assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "...and it hides the
 assert_eq "$(grep -c '^X-Kempt-Override=true' "$USER_AUTOSTART")" "1" \
   "...marked as Kempt's, so kempt discover-notifier on can remove it"
 grep -q 'notifier is off' <<<"$yout" && echo "ok: accepting says the notifier is off" || { echo "FAIL: no confirmation - got: $yout"; _fail=1; }
+# Already off: nothing to ask, and an answer of n is never read as "left on".
+before="$(cat "$USER_AUTOSTART")"
+aout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" 2>&1)"
+assert_contains "$aout" "Discover's update notifier is already off." "with the notifier already off, the installer says so"
+assert_not_contains "$aout" "left on" "...and never says it was left on"
+assert_eq "$(cat "$USER_AUTOSTART")" "$before" "...and leaves the entry alone"
 uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
 assert_contains "$uout" "stays off. To turn it back on: $REPO_ROOT/bin/kempt discover-notifier on" \
   "uninstall says how to turn the notifier back on while Kempt's file keeps it off"

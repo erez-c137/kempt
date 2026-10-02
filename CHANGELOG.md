@@ -23,7 +23,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
   differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
   widget asks once, with **Turn Off Discover's Notifier** and **Keep Discover's Notifier**.
-  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command. The file
+  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command, and
+  `./install.sh` asks only while the notifier is on. The file
   `./install.sh` 0.1.7 wrote counts as Kempt's, so `on` removes it, and `./install.sh --uninstall`
   names `on` only while Kempt's file keeps the notifier off.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or

@@ -252,9 +252,24 @@ main() {
   widget_install
 
   # Recommended: turn off Discover's notifier, which counts updates on its own and can make a Kempt
-  # run wait. Asked, default yes. A failed read means there is nobody to ask (piped or redirected
-  # stdin), and then the notifier stays as it was.
-  local ans=""
+  # run wait. Asked, default yes, and only while it is on. A failed read means there is nobody to
+  # ask (piped or redirected stdin), and then the notifier stays as it was.
+  # KEMPT_INSTALL_ECHO never touches the real desktop: it stops nothing, and the command writes only
+  # inside KEMPT_INSTALL_CONFIG_HOME, the directory a test names. Without one, `off` is printed
+  # like the privileged commands.
+  local ans="" st="" echo_only=""
+  if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then
+    export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"
+    if [[ -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
+    else echo_only=1
+    fi
+  fi
+  # A status that cannot be read is no reason to skip the question.
+  st="$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" || st=""
+  case "$st" in
+    *'"installed":false'*) echo "Discover's update notifier is not installed."; return 0 ;;
+    *'"enabled":false'*) echo "Discover's update notifier is already off."; return 0 ;;
+  esac
   if ! read -rp "Turn off Discover's update notifier for this user? [Y/n] " ans; then
     echo "note: nobody to answer, so Discover's update notifier is left on. To turn it off later: kempt discover-notifier off"
     return 0
@@ -264,16 +279,10 @@ main() {
     n|no)
       echo "Discover's update notifier is left on. To turn it off later: kempt discover-notifier off" ;;
     *)
-      # The command the widget's button runs. KEMPT_INSTALL_ECHO never touches the real desktop: it
-      # stops nothing, and it writes only inside KEMPT_INSTALL_CONFIG_HOME, the directory a test
-      # names. Without one, the command is printed like the privileged ones.
-      if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then
-        export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"
-        if [[ -z "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then
-          printf '%s\n' "$ROOT/bin/kempt discover-notifier off"
-          return 0
-        fi
-        export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
+      # The command the widget's button runs.
+      if [[ -n "$echo_only" ]]; then
+        printf '%s\n' "$ROOT/bin/kempt discover-notifier off"
+        return 0
       fi
       "$ROOT/bin/kempt" discover-notifier off \
         || echo "note: Discover's update notifier was not turned off. To try again: kempt discover-notifier off" ;;
