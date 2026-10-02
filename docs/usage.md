@@ -208,7 +208,7 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 | 2 | Unknown option. |
 | 3 | Another update is running. |
 | 5 | Nothing changed: an image-based Fedora, an installed package set that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
-| 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. |
+| 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart
 
