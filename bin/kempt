@@ -307,9 +307,8 @@ reclaim_extensions_in() {  # listing JSON → refs
 # killed mid-removal, flatpak keeps the lock and no update starts until flatpak exits. The seam's
 # --noninteractive makes flatpak's transaction non-interactive, so polkit never raises a dialog for
 # it: the pkcheck in reclaim_remove is the whole permission decision.
-# Messages in English, for the Info lines reclaim_in_use_of reads: lib/common.sh already sets
-# LC_ALL=C.UTF-8, but gettext still follows LANGUAGE under any locale but plain C. LC_MESSAGES
-# says the same for a caller without LC_ALL. Not LC_ALL=C: ref names and paths stay UTF-8.
+# Messages in English, for the Info lines reclaim_in_use_of reads. lib/common.sh's LC_ALL=C.UTF-8
+# already does it, since gettext ignores LANGUAGE under a C locale. The two here are belt and braces.
 reclaim_uninstall() {  # seconds out-file refs... → flatpak's exit code
   local secs="$1" out="${2:-/dev/null}"; shift 2
   # shellcheck disable=SC2086  # the seam carries its own arguments
@@ -1693,6 +1692,14 @@ cmd_update() {
   # when the log is four hundred lines of dnf progress.
   local reason=""
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
+  # dnf's busy sentence says nothing was installed, which stops being true once Flatpak changed
+  # something in the same run. That sentence goes, and the rest stays the busy reason.
+  if [[ -n "$run_busy_reason" && "$run_busy_reason" == "$KEMPT_BUSY_REASON_DNF" ]] \
+     && jq -e '([.updated, .added, .removed] | map(length) | add) > 0' <<<"$fp_report" >/dev/null 2>&1; then
+    local busy_fp="${KEMPT_BUSY_REASON_DNF/ Nothing was installed./}"
+    [[ "$reason" == "$run_busy_reason" ]] && reason="$busy_fp"
+    run_busy_reason="$busy_fp"
+  fi
   # The exit code. 7 only when the reason given is the busy sentence and nothing else failed, so a
   # script can wait and try again; any other failure is 1.
   local run_rc=0
@@ -3723,10 +3730,12 @@ fi
 
 # Before any command reads the config, so the first `config get surface` of this version already
 # answers what the migration decided. Only the commands that exist: help, the version and a
-# mistyped command change nothing, so they skip it.
+# mistyped command change nothing, so they skip it. So does `discover-notifier status`, which only
+# reads: `install.sh --uninstall` runs it and must write nothing.
 case "${1:-help}" in
   check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
-  discover-notifier|enable-passwordless|disable-passwordless) surface_migrate ;;
+  enable-passwordless|disable-passwordless) surface_migrate ;;
+  discover-notifier) [[ "${2:-}" == status ]] || surface_migrate ;;
 esac
 
 case "${1:-help}" in

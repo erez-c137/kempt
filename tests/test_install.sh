@@ -190,6 +190,13 @@ export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/xdg-autostart"; mkdir -p "$KEMPT_XDG_AU
 printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nExec=/usr/bin/DiscoverNotifier\nHidden=false\nX-KDE-autostart-phase=2\n' \
   > "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"
 USER_AUTOSTART="$HOME/.config/autostart/org.kde.discover.notifier.desktop"
+# Test mode on a real desktop: without a directory named for it, yes prints the command and writes
+# nothing, wherever XDG_CONFIG_HOME points.
+yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
+assert_contains "$yout" "$REPO_ROOT/bin/kempt discover-notifier off" "test mode with no directory named prints the command"
+assert_exit 0 "...and writes no autostart entry" -- test ! -e "$USER_AUTOSTART"
+assert_exit 0 "...and records no answer" -- test ! -e "$KEMPT_STATE_DIR/discover-offer-answered"
+export KEMPT_INSTALL_CONFIG_HOME="$XDG_CONFIG_HOME"
 assert_exit 0 "declining with n writes nothing" -- test ! -e "$USER_AUTOSTART"
 nout_no="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"no")"
 assert_exit 0 "declining with the word 'no' writes nothing either" -- test ! -e "$USER_AUTOSTART"
@@ -199,14 +206,34 @@ grep -q 'notifier is off' <<<"$nout_no" && { echo "FAIL: 'no' turned the notifie
   || echo "ok: 'no' never claims it turned anything off"
 yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
 assert_exit 0 "accepting writes the override" -- test -f "$USER_AUTOSTART"
+assert_exit 0 "...records the answer inside the named directory" -- test -e "$KEMPT_INSTALL_CONFIG_HOME/kempt-state/discover-offer-answered"
+assert_exit 0 "...and nothing in the usual state directory" -- test ! -e "$KEMPT_STATE_DIR/discover-offer-answered"
 assert_eq "$(grep -c '^Hidden=' "$USER_AUTOSTART")" "1" "the override has one Hidden= line"
 assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "...and it hides the notifier"
 assert_eq "$(grep -c '^X-Kempt-Override=true' "$USER_AUTOSTART")" "1" \
   "...marked as Kempt's, so kempt discover-notifier on can remove it"
 grep -q 'notifier is off' <<<"$yout" && echo "ok: accepting says the notifier is off" || { echo "FAIL: no confirmation - got: $yout"; _fail=1; }
+# Already off: nothing to ask, and an answer of n is never read as "left on".
+before="$(cat "$USER_AUTOSTART")"
+aout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" 2>&1)"
+assert_contains "$aout" "Discover's update notifier is already off." "with the notifier already off, the installer says so"
+assert_not_contains "$aout" "left on" "...and never says it was left on"
+assert_eq "$(cat "$USER_AUTOSTART")" "$before" "...and leaves the entry alone"
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_contains "$uout" "stays off. To turn it back on: $REPO_ROOT/bin/kempt discover-notifier on" \
+  "uninstall says how to turn the notifier back on while Kempt's file keeps it off"
 assert_eq "$(KEMPT_INSTALL_ECHO=1 "$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null; echo "$?")" "0" \
   "...and the command turns it back on"
 assert_exit 0 "...removing the installer's file" -- test ! -e "$USER_AUTOSTART"
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_not_contains "$uout" "Discover" "with the notifier on, uninstall says nothing about it"
+# The file install.sh 0.1.7 wrote: uninstall's advice works on it too.
+{ grep -v '^Hidden=' "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"; echo Hidden=true; } > "$USER_AUTOSTART"
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_contains "$uout" "To turn it back on" "uninstall names on for the file install.sh 0.1.7 wrote"
+"$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null
+assert_exit 0 "...and on removes that file" -- test ! -e "$USER_AUTOSTART"
+KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" >/dev/null 2>&1 || true
 
 # A person's own entry, there before the installer: kept, and put back by on.
 mkdir -p "$(dirname "$USER_AUTOSTART")"

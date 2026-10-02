@@ -23,7 +23,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
   differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
   widget asks once, with **Turn Off Discover's Notifier** and **Keep Discover's Notifier**.
-  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command.
+  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command, and
+  `./install.sh` asks only while the notifier is on. The file
+  `./install.sh` 0.1.7 wrote counts as Kempt's, so `on` removes it, and `./install.sh --uninstall`
+  names `on` only while Kempt's file keeps the notifier off.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
   that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 
@@ -54,6 +57,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
+  Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without its engine says each thing once.** The header says Kempt's engine is not
   installed. The message under it now starts at "Nothing can check for updates yet.", followed by
   the install commands.

@@ -141,7 +141,8 @@ Exit 5: an image\-based Fedora (Silverblue, Kinoite, Bazzite or a bootc image), 
 apps that could not be read, or
 .B \-\-surface=offline
 while a Fedora release upgrade is stored, because staging would cancel it. Exit 7: the only
-failure was that lock, held through all three tries.
+failure was that lock, held through all three tries. A busy lock while rebuilding a staged update
+exits 1.
 .TP
 .BR run " [" \-\-print\-command "] [" \-\-surface= \c
 .IR surface "] [" \c
