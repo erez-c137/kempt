@@ -46,7 +46,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the widget says which one it saved. It waits 40 seconds for an answer to be saved, since the CLI
   can wait 30 seconds for another `kempt` command to finish.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
-  offers **Install on Next Restart**, which has the keyboard, or **Install Now**. Before, it started
+  offers **Install on Next Restart**, which has the keyboard, or **Install Now**. The message says
+  the update has not started, and a screen reader hears the question. Before, it started
   them straight away. `auto_accept=false` still sends every run to the terminal.
 - **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
   session-critical updates. **Install Now** uses it. With an older engine that does not know the

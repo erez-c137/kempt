@@ -753,13 +753,23 @@ PlasmaExtras.Representation {
             // button labelled Install on Next Restart, before anything has started, reads as an
             // order to restart the machine now.
             type: Kirigami.MessageType.Information
-            text: popup.vm.riskyMessage
-            Accessible.name: text
             // The same words become a question after Update Now on a surface that cannot ask for
-            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now.
+            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now. The
+            // lead-in says the click did not start anything.
+            text: asking ? i18n("The update has not started.") + " " + popup.vm.riskyMessage
+                         : popup.vm.riskyMessage
+            Accessible.name: text
             readonly property bool asking: popup.shows("riskyChoice")
             visible: popup.shows("kernel") || asking
-            onAskingChanged: if (asking) popup.focusRiskyChoice()
+            // Polite: it answers the click. The question goes last, because the focus then lands
+            // on Install on Next Restart and only the button's name would be read.
+            onAskingChanged: {
+                if (!asking) return;
+                // Built here, not read from `text`, whose binding may not have caught up yet.
+                popup.announce(i18n("The update has not started.") + " " + popup.vm.riskyMessage
+                               + " " + i18n("Install now, or on the next restart?"), false);
+                popup.focusRiskyChoice();
+            }
             actions: [
                 Kirigami.Action {
                     id: riskyStageAction

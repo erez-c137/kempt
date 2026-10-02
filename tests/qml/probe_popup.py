@@ -2553,11 +2553,17 @@ ev('root.postRunLine = ""')
 # Update Now must not start a run: the risky message becomes a choice, with staging first.
 ev('root.actionMessage = ""')
 runs_before = p.call_count("run")
+hush()
 lev("updateButton.clicked()")
 p.pump(100)
 settle()
 p.check("Update Now on a session-critical set in the popup starts nothing",
         p.call_count("run") - runs_before, 0)
+_lead = ev("Logic.COPY.riskyAskLead")
+p.check("...and says so first, on screen",
+        lev("riskyMessage.text"), _lead + " " + ev("root.vm.riskyMessage"))
+p.check("...and out loud, once, ending on the question the buttons answer",
+        said(), [_lead + " " + ev("root.vm.riskyMessage") + " " + ev("Logic.COPY.riskyAskQuestion")])
 p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
 p.check("...in the message that already carries the recommendation",
         [lev("riskyMessage.visible"), lev("riskyMessage.asking")], [True, True])
@@ -2576,6 +2582,7 @@ p.check("Install Now runs the update, saying the person already chose to install
         p.calls_matching("run")[-1:], ["run --risky-ok"])
 p.check("...and the choice closes", ev("root.riskyChoiceOpen"), False)
 p.check("...leaving the plain message for after the run", lev("riskyMessage.asking"), False)
+p.check("...without the lead-in", lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')

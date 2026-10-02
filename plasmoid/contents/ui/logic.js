@@ -181,6 +181,11 @@ var COPY = {
     riskySessionMore:
         "This update touches %1 packages the running desktop depends on (%2). "
         + "The safest way is to install them on the next restart.",
+    // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
+    // because nothing else says the click did not start a run, and the question ends what is read
+    // out, because the focus lands on a button and a screen reader would read only that.
+    riskyAskLead: "The update has not started.",
+    riskyAskQuestion: "Install now, or on the next restart?",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
