@@ -104,7 +104,7 @@ Supplements:    (%{name} = %{version}-%{release} and plasma-workspace)
 
 %description plasmoid
 The system tray widget: a badge with the number of updates you have not held,
-a popup listing each one with the versions it moves between, and one button
+a list of each one with the versions it moves between, and one button
 that runs the update. It drives the kempt command, so the badge and the
 transaction cannot disagree.
 

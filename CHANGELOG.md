@@ -66,6 +66,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
   break a sentence with a dash, and they use the words you see on screen.
+- **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
+  They describe what Kempt does in the same words as the rest of the release.
 
 ### Fixed
 
