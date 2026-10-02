@@ -932,7 +932,7 @@ assert_eq "$rc|$(calls uninstall)" "0|$P1"$'\n'"$P2" "the runtimes are removed f
 assert_json_eq "$(jq -c '{result, refs, bytes}' "$RECLAIM_LAST_FILE")" \
   "{\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000}" "...and the outcome counts both"
 assert_eq "$(jq -r 'has("partial"), has("in_use")' "$RECLAIM_LAST_FILE" | tr '\n' ' ')" "false false " "...as one whole removal"
-# LC_ALL is C.UTF-8 already; LANGUAGE would still translate flatpak's lines under it.
+# LC_ALL=C.UTF-8 already keeps flatpak in English. LANGUAGE=C and LC_MESSAGES=C are extra.
 assert_eq "$(cat "$STUBS/uninstall.locale")" "C|C|C.UTF-8" "flatpak runs with its messages in English, in UTF-8"
 
 # Both passes share the removal's ten minutes: the first leaves a minute for the second, and the
