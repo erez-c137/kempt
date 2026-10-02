@@ -19,7 +19,7 @@ The widget runs these same commands, so anything you do here shows up there too.
 | [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
 | [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
 | [`kempt --version`](#--version) | Prints the version |
-| `kempt help` | Prints the list of commands with a line each |
+| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each |
 
 ## A typical day
 
@@ -176,8 +176,10 @@ kempt update --surface=offline    # stage it; applies on the next reboot
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only, for this run. |
-| `--surface=` | Where this run happens. The values match **Run updates in** in the settings (table below). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | Where this run happens. An unknown value logs a warning and uses `terminal`. |
 | `--risky-ok` | Leaves out the notification about session-critical packages for a run that cannot ask. The popup passes it after you choose **Install Now**. |
+
+The `--surface=` values match **Run updates in** in the widget's settings:
 
 | `--surface=` | Setting |
 | --- | --- |
@@ -368,8 +370,8 @@ becomes a live update in a terminal.
 
 **Exit 0 means the update started.** Read `state.json` or `kempt history` for the result. When the
 terminal window closes, it runs a check, whether the update finished, failed or was aborted, or the
-window was closed early. That check is what ends the widget's updating state. The exit status shown
-in the window is the update's.
+window was closed early. That check is what ends the widget's updating state. The window's shell
+exits with the update's status.
 
 | Exit | When |
 | --- | --- |
@@ -443,9 +445,9 @@ What it removes:
   `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
-group) logged in at the desktop. Over the network, or from another account, nothing is removed. Run
-`kempt reclaim` from an administrator's desktop session instead. Run it as yourself, too. As root
-or with `sudo`, Flatpak cannot see your own apps, so Kempt removes nothing.
+group) logged in at the desktop. Over the network, or from an account that is not an administrator,
+nothing is removed. Run `kempt reclaim` from an administrator's desktop session instead. Run it as
+yourself, too. As root or with `sudo`, Flatpak cannot see your own apps, so Kempt removes nothing.
 
 With `reclaim=automatic` (see [configuration](configuration.md#keys)), a successful update removes
 the offered set for you, and its summary says how much was freed. In a terminal, the update prints
@@ -573,6 +575,11 @@ kempt log -n 6
 Each line is `<timestamp> <via> <what happened>`. `via` is `widget` for the Plasma widget and `cli`
 for anything else, such as a terminal, a script or a timer.
 
+| Exit | When |
+| --- | --- |
+| 0 | Always, including an empty log. |
+| 2 | `-n` without a positive whole number, or an unknown option. |
+
 The file is `~/.local/state/kempt/events.log`, mode 0600. Past 2500 lines it is trimmed to the last
 2000. The wording is fixed, so you can search it:
 
@@ -616,11 +623,6 @@ The file is `~/.local/state/kempt/events.log`, mode 0600. Past 2500 lines it is 
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` removed nothing, because it ran as root or the setting is off. Exit 5. |
 | `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 | `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's update notifier was turned off, or back on, for this user, or kept as it was when the widget's offer was answered. |
-
-| Exit | When |
-| --- | --- |
-| 0 | Always, including an empty log. |
-| 2 | `-n` without a positive whole number, or an unknown option. |
 
 ### Which question, which file
 

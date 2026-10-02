@@ -189,7 +189,7 @@ still install the package:
 
 With several held packages it names the first and counts the rest:
 `You held kernel-core and 2 more after the next-restart install was prepared, so they still
-install.`
+install. Rebuild it to skip them, or stop holding them to keep the current plan.`
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
 `may`:
@@ -222,8 +222,9 @@ restart installs nothing and the banner goes. Its tooltip:
 > Removes the update waiting for the next restart, so the restart installs nothing. Asks for
 > authorization, and deletes the packages it downloaded, so staging again downloads them again.
 
-If the staged update changed after the banner was drawn, nothing is discarded and the popup says
-so. While a Fedora release upgrade is stored, the button is not there.
+The popup reports the result in the same words as the command behind it. If the staged update
+changed after the banner was drawn, nothing is discarded and the popup says so. While a Fedora
+release upgrade is stored, the button is not there.
 
 ### The list
 
@@ -356,12 +357,13 @@ also in [configuration.md](configuration.md), and a change made in a terminal sh
 because only a terminal window can ask. Your choice comes back when you turn that option on
 again.
 
-**Restart reminders** controls the restart message and its **Restart…** button. It is on by
-default. With it off, the footer still says `restart pending`. Kempt never restarts on its own
-either way.
+**Restart reminders** (`restart_reminder`) controls the restart message and its **Restart…** button.
+It is on by default. With it off, the footer still says `restart pending`. Kempt never restarts on
+its own either way.
 
-**Unused Flatpak runtimes** is **Ask me first** (the default), **Remove after updates** or
-**Never**. It is greyed out when Flatpak is not installed or Flatpak apps are left out of updates.
+**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default), **Remove after updates**
+or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are left out of
+updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each opens its
 own password dialog and shows the result under the buttons. The page cannot show which is active,
