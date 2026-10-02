@@ -308,6 +308,18 @@ PlasmaExtras.Representation {
         }
     }
 
+    // Check for Updates, answered. The header changes, and nothing announces a header, so a reader
+    // who pressed the button heard nothing at all. Polite, because the person asked; the header's
+    // own words, so what is heard is what is on screen. A failed check says nothing here: the
+    // footer already announces that one.
+    Connections {
+        target: popup.plasmoidItem
+        function onFreshCheckAnswered() {
+            if (popup.vm.stale) return;
+            popup.announce(popup.vm.headerText, false);
+        }
+    }
+
     // The open itself. main.qml owns `expanded` and therefore owns the announcement.
     // Component.onCompleted covers the FIRST open and only that one: this item is built lazily, as
     // a consequence of the popup being expanded, so on that one occasion it is not yet around to
