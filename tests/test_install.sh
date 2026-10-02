@@ -206,6 +206,8 @@ grep -q 'notifier is off' <<<"$nout_no" && { echo "FAIL: 'no' turned the notifie
   || echo "ok: 'no' never claims it turned anything off"
 yout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"y")"
 assert_exit 0 "accepting writes the override" -- test -f "$USER_AUTOSTART"
+assert_exit 0 "...records the answer inside the named directory" -- test -e "$KEMPT_INSTALL_CONFIG_HOME/kempt-state/discover-offer-answered"
+assert_exit 0 "...and nothing in the usual state directory" -- test ! -e "$KEMPT_STATE_DIR/discover-offer-answered"
 assert_eq "$(grep -c '^Hidden=' "$USER_AUTOSTART")" "1" "the override has one Hidden= line"
 assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "...and it hides the notifier"
 assert_eq "$(grep -c '^X-Kempt-Override=true' "$USER_AUTOSTART")" "1" \

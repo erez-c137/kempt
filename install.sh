@@ -170,6 +170,13 @@ main() {
     esac
   done
 
+  # Test mode with a named directory: every notifier command reads and writes only inside it.
+  if [[ -n "${KEMPT_INSTALL_ECHO:-}" && -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then
+    export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
+    export KEMPT_CONFIG_DIR="$KEMPT_INSTALL_CONFIG_HOME/kempt"
+    export KEMPT_STATE_DIR="$KEMPT_INSTALL_CONFIG_HOME/kempt-state"
+  fi
+
   if [[ -n "$UNINSTALL" ]]; then
     # A staged tree is unprivileged: tear it down with plain rm and no auth prompt. Only a REAL
     # install needs root, and only for the three root-owned files it created.
@@ -254,15 +261,13 @@ main() {
   # Recommended: turn off Discover's notifier, which counts updates on its own and can make a Kempt
   # run wait. Asked, default yes, and only while it is on. A failed read means there is nobody to
   # ask (piped or redirected stdin), and then the notifier stays as it was.
-  # KEMPT_INSTALL_ECHO never touches the real desktop: it stops nothing, and the command writes only
-  # inside KEMPT_INSTALL_CONFIG_HOME, the directory a test names. Without one, `off` is printed
-  # like the privileged commands.
+  # KEMPT_INSTALL_ECHO never touches the real desktop: it stops nothing, and the command writes
+  # its entry, config and state only inside KEMPT_INSTALL_CONFIG_HOME, the directory a test names
+  # (set up at the top of main). Without one, `off` is printed like the privileged commands.
   local ans="" st="" echo_only=""
   if [[ -n "${KEMPT_INSTALL_ECHO:-}" ]]; then
     export KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-false}"
-    if [[ -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"
-    else echo_only=1
-    fi
+    [[ -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]] || echo_only=1
   fi
   # A status that cannot be read is no reason to skip the question.
   st="$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" || st=""
