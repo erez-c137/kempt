@@ -27,7 +27,19 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   offer goes when it does. `./install.sh` and `kempt doctor` use the same command, and
   `./install.sh` asks only while the notifier is on. The file `./install.sh` 0.1.7 wrote counts
   as Kempt's, so `on` removes it, and `./install.sh --uninstall` names `on` only while Kempt's
-  file keeps the notifier off.
+  file keeps the notifier off. `keep` leaves the notifier as it is, and `status [--json]` says
+  whether it is installed, on and running.
+- **The widget offers itself once to an install that kept the terminal.** It offers **Use This
+  Widget** and **Keep the Terminal Window**. Either answer is saved as the `surface` setting, and
+  the widget says which one it saved. It waits 40 seconds for an answer to be saved, since the CLI
+  can wait 30 seconds for another `kempt` command to finish.
+- **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
+  session-critical updates. **Install Now** uses it. With an older engine that does not know the
+  option, Install Now runs plain `kempt run`.
+- **`state.json` can carry two optional fields, `surface_offer` and `discover_offer`.** Each is
+  `true` while the widget may make that offer, and absent otherwise.
+- **The history entry is a documented format.** `docs/architecture.md` describes the entry that
+  `kempt summary --json` and `kempt history --json` print.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
   that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 
@@ -44,17 +56,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   install that already had the terminal keeps it: the first `kempt` command after the upgrade
   writes `surface=terminal` to the config file. A config file that names a surface is never
   changed.
-- **The widget offers itself once to an install that kept the terminal.** It offers **Use This
-  Widget** and **Keep the Terminal Window**. Either answer is saved as the `surface` setting, and
-  the widget says which one it saved. It waits 40 seconds for an answer to be saved, since the CLI
-  can wait 30 seconds for another `kempt` command to finish.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
-  offers **Install on Next Restart**, which has the keyboard, or **Install Now**. The message says
+  offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
   the update has not started, and a screen reader hears the question. Before, it started
   them straight away. `auto_accept=false` still sends every run to the terminal.
-- **`kempt run --risky-ok` and `kempt update --risky-ok`** leave out the notification about
-  session-critical updates. **Install Now** uses it. With an older engine that does not know the
-  option, Install Now runs plain `kempt run`.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
@@ -64,12 +69,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
-- **The widget without its engine says each thing once.** The header says Kempt's engine is not
-  installed. The message under it now starts at "Nothing can check for updates yet.", followed by
-  the install commands.
-- **The widget with an engine that will not run says each thing once.** The header says Kempt's
-  engine will not run. The message under it now reads "The engine is installed but cannot start,
-  so nothing can check for updates.", and the hover text shows the header above that sentence.
+- **The widget without a working engine says each thing once.** The header says Kempt's engine is
+  not installed, or will not run. The message under it no longer repeats that. It starts at
+  "Nothing can check for updates yet." and the install commands, or reads "The engine is installed
+  but cannot start, so nothing can check for updates." The hover text shows the header above it.
 - **The widget without its engine names the package that matches the store install.** It now says
   `sudo dnf install kempt-plasmoid`, which brings the engine too, as the install guide does.
   Before, it said `sudo dnf install kempt`, which left the KDE Store copy as the only widget.
