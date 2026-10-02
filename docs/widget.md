@@ -84,10 +84,11 @@ The header reads one of:
 
 **Check for Updates**, the circular arrow, fetches fresh package lists, which can take a minute or
 more, then checks. On battery or a metered connection it checks without fetching. After a failed
-check, the footer adds `last check failed` and this button's tooltip gives the reason, such as
-`dnf check failed: repo 'updates' unavailable`. While a check or update runs, it is greyed out with
-a spinner. Its answer is read out to a screen reader, and the panel icon says it while the widget
-is closed. It is also in the icon's right-click menu and the tray's **More actions** menu.
+check, a message says so (message 2), the footer adds `last check failed`, and this button's tooltip
+gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or update
+runs, it is greyed out with a spinner. Its answer is read out to a screen reader, and the panel icon
+says it while the widget is closed. It is also in the icon's right-click menu and the tray's
+**More actions** menu.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has the arrow and the gear, so the popup hides its copies.
@@ -103,11 +104,13 @@ left out. If that hides the restart message, the footer says `restart pending` i
    and **Copy Command**. Either one
    shows alone. See [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>`, or what Kempt said about a button press that failed.
-   **Show Log** is on it when a *run* recorded a log file, as every run does, including installs
-   during a restart, unless the log could not be saved. When the message tells you to run
-   `kempt doctor`, it adds **Check Installation**. It goes when you close the popup or the next
-   check starts.
+   `Update failed: <the reason>`, or what Kempt said about a button press that failed. After an
+   answer to message 8 or 9, it says what changed. When **Check for Updates** fails over earlier
+   counts, it says the check failed and that the counts are from the last check. **Show Log** is on
+   it when a *run* recorded a log file, as every run does, including installs during a restart,
+   unless the log could not be saved. When the message tells you to run `kempt doctor`, it adds
+   **Check Installation**. It goes when you close the popup or the next check starts. The
+   check-failed note stays until you check again or a check gets fresh counts.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
 4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
@@ -147,10 +150,10 @@ left out. If that hides the restart message, the footer says `restart pending` i
     Closing the message hides it until the list changes or Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings, without a password. A message under
-the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it
-found, or says it found none. **Show Full Report** shows the whole report, which you can select and
-copy. **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even
-when two others are up. It goes when you close it (even mid-check), close the popup, ask for a check, or when
+the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
+or says it found none. **Show Full Report** shows the whole report, which you can select and copy.
+**Copy Command** copies `kempt doctor`, the command that makes it. This message shows even when two
+others are up. It goes when you close it (even mid-check), close the popup, ask for a check, or when
 an update starts.
 
 ### The staged banner
