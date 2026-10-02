@@ -3726,7 +3726,7 @@ fi
 # mistyped command change nothing, so they skip it.
 case "${1:-help}" in
   check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
-  enable-passwordless|disable-passwordless) surface_migrate ;;
+  discover-notifier|enable-passwordless|disable-passwordless) surface_migrate ;;
 esac
 
 case "${1:-help}" in

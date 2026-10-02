@@ -51,6 +51,12 @@ fresh; mkdir -p "$KEMPT_STATE_DIR/history"
 printf '{}\n' > "$KEMPT_STATE_DIR/history/20260901T100000.json"
 assert_eq "$("$KEMPT" config get surface)" "terminal" "a history entry alone is enough to keep the terminal"
 
+# Every command runs it first, discover-notifier included.
+fresh; used_before
+KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier status >/dev/null 2>&1 || true
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)|$(grep -c '^surface=terminal$' "$KEMPT_CONFIG_DIR/config" 2>/dev/null)" \
+  "yes|1" "discover-notifier runs the migration like every other command"
+
 # --- it runs once -----------------------------------------------------------------------------------
 fresh; used_before
 "$KEMPT" config get surface >/dev/null
