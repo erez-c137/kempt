@@ -195,20 +195,44 @@ assert_contains "$out" "A startup file keeps Discover's notifier off: $USER_ENTR
   "...and says which file keeps it off, and how to undo it"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and leaves that entry alone"
 
-# The entry install.sh wrote before 0.1.8: a copy of the system entry plus Hidden=true. Nothing
-# tells it apart from a copy the person hid themselves, so it is the person's: already off, it is
-# left exactly as it is.
-reset; system_entry
-mkdir -p "$(dirname "$USER_ENTRY")"
-{ cat "$SYS/$ENTRY"; echo Hidden=true; } > "$USER_ENTRY"
-legacy="$(cat "$USER_ENTRY")"
-assert_eq "$(discover_entry_kind)" "own" "a copy of the system entry plus Hidden=true is the person's"
+# The entry install.sh 0.1.7 wrote: the system entry with its Hidden= lines dropped and Hidden=true
+# appended. Its notifier_optout, verbatim, so the bytes are exactly the ones an upgrader has,
+# including the trailing newlines its $(...) stripped.
+optout_017() {  # system entry → the user entry 0.1.7 wrote
+  local f="$USER_ENTRY" body
+  mkdir -p "$(dirname "$f")"
+  [[ -f "$f" ]] || { [[ -f "$1" ]] && cp "$1" "$f"; } || true
+  [[ -f "$f" ]] || printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\n' > "$f"
+  body="$(grep -v '^Hidden=' "$f")" || true
+  printf '%sHidden=true\n' "${body:+$body$'\n'}" > "$f"
+}
+# A system entry with a Hidden=false line and trailing blank lines, the two things the edit changes.
+reset
+printf '[Desktop Entry]\nName=Discover\nExec=/usr/libexec/DiscoverNotifier\nHidden=false\nOnlyShowIn=KDE\n\n\n' > "$SYS/$ENTRY"
+optout_017 "$SYS/$ENTRY"
+assert_eq "$(discover_entry_kind)" "kempt" "the entry install.sh 0.1.7 wrote is Kempt's"
+assert_contains "$("$KEMPT" discover-notifier status --json)" '"by_kempt":true' "...and status says Kempt turned it off"
 rc=0; out="$("$KEMPT" discover-notifier off)" || rc=$?
-assert_eq "$rc" "0" "off over an entry that already hides it succeeds"
+assert_eq "$rc" "0" "off over it succeeds"
 assert_contains "$out" "already off. Nothing changed." "...and says it is already off"
-assert_eq "$(cat "$USER_ENTRY")" "$legacy" "...leaving the entry as it was"
 assert_eq "$(ls -A "$(dirname "$USER_ENTRY")" | wc -l)" "1" "...with nothing moved or added beside it"
 assert_eq "$(is "$KEMPT_STATE_DIR/discover-offer-answered")" "yes" "...and answers the offer"
+rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
+assert_eq "$rc" "0" "on over it succeeds"
+assert_contains "$out" "is on" "...and says it is on"
+assert_eq "$(is "$USER_ENTRY")" "no" "...and removes the file"
+# The common shape too: the system entry with one trailing newline and no Hidden= line.
+reset; system_entry; optout_017 "$SYS/$ENTRY"
+assert_eq "$(discover_entry_kind)" "kempt" "...from a system entry with no Hidden= line as well"
+# A system entry that changed since: nothing ties the file to Kempt any more, so it is the person's.
+printf 'X-New=1\n' >> "$SYS/$ENTRY"
+assert_eq "$(discover_entry_kind)" "own" "...but once the system entry changes, the file is the person's"
+# An unreadable system entry matches nothing, not even a file of the edit's empty output.
+reset; system_entry; mkdir -p "$(dirname "$USER_ENTRY")"; printf 'Hidden=true\n' > "$USER_ENTRY"
+chmod 000 "$SYS/$ENTRY"
+if [[ -r "$SYS/$ENTRY" ]]; then echo "ok: (running as root, the unreadable case is skipped)"
+else assert_eq "$(discover_entry_kind)" "own" "an unreadable system entry makes no file Kempt's"; fi
+chmod 644 "$SYS/$ENTRY"
 # The same shape with a key of the person's own, as System Settings can write: never parked.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"

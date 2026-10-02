@@ -196,8 +196,11 @@ main() {
     run pkexec /usr/bin/bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
       || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
-    echo "Kempt uninstalled (config/state in ~/.config/kempt, ~/.local/state/kempt left in place;"
-    echo "  Discover's update notifier stays as you left it. To turn it back on: $ROOT/bin/kempt discover-notifier on)"
+    echo "Kempt uninstalled. Your settings and history in ~/.config/kempt and ~/.local/state/kempt stay."
+    # Named only when Kempt's own file keeps the notifier off, which is the case `on` can undo.
+    if [[ "$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" == *'"enabled":false,'*'"by_kempt":true'* ]]; then
+      echo "Discover's update notifier stays off. To turn it back on: $ROOT/bin/kempt discover-notifier on"
+    fi
     exit 0
   fi
 

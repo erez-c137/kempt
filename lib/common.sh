@@ -465,8 +465,9 @@ discover_running() {
 }
 
 # Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
-#   kempt     exactly what Kempt last wrote, or exactly the three-line entry install.sh wrote before
-#             0.1.8 when there was no system entry to copy. `on` removes it.
+#   kempt     exactly what Kempt last wrote, or exactly what install.sh wrote before 0.1.8: the
+#             three-line entry when there was no system entry to copy, else the system entry as
+#             it is now, put through that installer's edit (discover_legacy_entry). `on` removes it.
 #   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
 #   own       anything else, a symlink included.
 #   none      no user entry.
@@ -482,9 +483,21 @@ discover_entry_kind() {
   elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && cmp -s "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
   elif cmp -s "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
     echo kempt
+  elif [[ -r "$(discover_sys_entry)" ]] && cmp -s "$user" <(discover_legacy_entry); then
+    echo kempt
   elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
   else echo own
   fi
+}
+
+# The bytes install.sh 0.1.7 wrote from the system entry, made from the system entry as it is now:
+# every line starting `Hidden=` dropped, the trailing newlines stripped by its $(...), then one
+# `Hidden=true`. Matched only while the system entry is unchanged since then, which is the only
+# case where the file can be told apart from a copy the person hid.
+discover_legacy_entry() {
+  local body
+  body="$(grep -v '^Hidden=' "$(discover_sys_entry)")" || true
+  printf '%sHidden=true\n' "${body:+$body$'\n'}"
 }
 
 discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }

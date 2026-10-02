@@ -869,8 +869,9 @@ once it runs.
 prints `installed`, `enabled`, `running` and `by_kempt`, plus `entry` when the file keeping it off
 is not Kempt's.
 
-A file that `./install.sh` wrote before 0.1.8 counts as your own. Delete it to turn the notifier
-back on.
+A file that `./install.sh` wrote before 0.1.8 counts as Kempt's while Discover's own startup file
+is unchanged, so `on` removes it. Once Discover's file changes, it counts as your own. Delete it to
+turn the notifier back on.
 
 | Exit | When |
 | --- | --- |

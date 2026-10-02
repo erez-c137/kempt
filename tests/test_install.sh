@@ -204,9 +204,21 @@ assert_eq "$(grep -c '^Hidden=true' "$USER_AUTOSTART")" "1" "...and it hides the
 assert_eq "$(grep -c '^X-Kempt-Override=true' "$USER_AUTOSTART")" "1" \
   "...marked as Kempt's, so kempt discover-notifier on can remove it"
 grep -q 'notifier is off' <<<"$yout" && echo "ok: accepting says the notifier is off" || { echo "FAIL: no confirmation - got: $yout"; _fail=1; }
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_contains "$uout" "stays off. To turn it back on: $REPO_ROOT/bin/kempt discover-notifier on" \
+  "uninstall says how to turn the notifier back on while Kempt's file keeps it off"
 assert_eq "$(KEMPT_INSTALL_ECHO=1 "$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null; echo "$?")" "0" \
   "...and the command turns it back on"
 assert_exit 0 "...removing the installer's file" -- test ! -e "$USER_AUTOSTART"
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_not_contains "$uout" "Discover" "with the notifier on, uninstall says nothing about it"
+# The file install.sh 0.1.7 wrote: uninstall's advice works on it too.
+{ grep -v '^Hidden=' "$KEMPT_XDG_AUTOSTART_DIR/org.kde.discover.notifier.desktop"; echo Hidden=true; } > "$USER_AUTOSTART"
+uout="$(KEMPT_INSTALL_ECHO=1 bash "$INSTALL" --uninstall 2>&1)"
+assert_contains "$uout" "To turn it back on" "uninstall names on for the file install.sh 0.1.7 wrote"
+"$REPO_ROOT/bin/kempt" discover-notifier on >/dev/null
+assert_exit 0 "...and on removes that file" -- test ! -e "$USER_AUTOSTART"
+KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" >/dev/null 2>&1 || true
 
 # A person's own entry, there before the installer: kept, and put back by on.
 mkdir -p "$(dirname "$USER_AUTOSTART")"
