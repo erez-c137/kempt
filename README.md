@@ -10,8 +10,8 @@ Flatpak. Other distributions are planned.
 
 ![Kempt in the system tray, with the widget open: 55 updates available, and a note that the safest way to install a kernel update is on the next restart](docs/images/kempt-tray-popup.png)
 
-*83 updates, staged to install on the next restart. The padlock on each row holds a package back,
-and the footer shows the download size.*
+*55 updates, with a kernel among them, so Kempt suggests installing on the next restart. The
+padlock on each row holds a package back, and the footer shows the download size.*
 
 ## Install
 
@@ -77,6 +77,11 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
+
+![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
+
+*After staging, the widget says what installs on the next restart. Restart when you are ready, or
+discard the staged update and keep working.*
 
 ![Kempt's settings page: update sources, run surface, check interval, panel icon size, restart reminders and the password-prompt controls](docs/images/kempt-settings.png)
 

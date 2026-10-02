@@ -195,7 +195,7 @@ install -p -D -m 0644 io.github.erez_c137.kempt.metainfo.xml \
 # - docs/usage.md, configuration.md, install.md and security.md: the user guides.
 # - docs/architecture.md: it holds the state JSON schema, the CLI's public interface, and usage.md
 #   and configuration.md send readers to it.
-# - docs/images: the two screenshots README and configuration.md show.
+# - docs/images: the three screenshots README and configuration.md show.
 # Left out, because they are about working on Kempt rather than using it:
 # - CONTRIBUTING.md and AGENTS.md: development setup and conventions for a checkout.
 # - CODE_OF_CONDUCT.md: rules for the project's issues and pull requests, which live on the forge.
