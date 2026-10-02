@@ -876,5 +876,5 @@ turn the notifier back on.
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
-| 1 | Nothing changed: `off` found a `.before-kempt` copy already there, `on` found a file of your own keeping the notifier off, the path is a directory or a broken symlink, or the writers' lock was busy. |
+| 1 | Nothing changed: `off` found a `.before-kempt` copy already there, `on` found a file of your own keeping the notifier off, the path is a directory, a broken symlink or a file Kempt cannot read, or the writers' lock was busy. |
 | 2 | An unknown subcommand or option. |

@@ -298,6 +298,31 @@ assert_not_contains "$out" "awk" "...with no tool's raw error"
 assert_eq "$(readlink "$USER_ENTRY")" "$TESTTMP/gone.desktop" "...leaving the link as it was"
 assert_eq "$(is "$BACKUP")" "no" "...and keeping no copy of it"
 
+# An entry that cannot be read: refused with what is wrong, and nothing moved.
+reset; system_entry
+mkdir -p "$(dirname "$USER_ENTRY")"
+printf '[Desktop Entry]\nExec=/usr/libexec/DiscoverNotifier\nX-Own=1\n' > "$USER_ENTRY"
+chmod 000 "$USER_ENTRY"
+if [[ -r "$USER_ENTRY" ]]; then echo "ok: (running as root, the unreadable cases are skipped)"
+else
+  rc=0; out="$("$KEMPT" discover-notifier off 2>&1)" || rc=$?
+  assert_eq "$rc" "1" "off with an unreadable entry refuses"
+  assert_contains "$out" "Cannot read $USER_ENTRY, so nothing changed." "...and says it cannot read it"
+  assert_not_contains "$out" "could not write" "...not that it could not write"
+  assert_eq "$(is "$BACKUP")" "no" "...and moves nothing aside"
+  rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
+  assert_eq "$rc" "1" "on refuses it too"
+  assert_contains "$out" "Cannot read $USER_ENTRY" "...with the same reason"
+  chmod 644 "$USER_ENTRY"; rm -f "$USER_ENTRY"
+  chmod 000 "$SYS/$ENTRY"
+  rc=0; out="$("$KEMPT" discover-notifier off 2>&1)" || rc=$?
+  assert_eq "$rc" "1" "off with an unreadable system entry refuses"
+  assert_contains "$out" "Cannot read $SYS/$ENTRY, so nothing changed." "...and names that file"
+  assert_eq "$(is "$USER_ENTRY")" "no" "...and writes nothing"
+  chmod 644 "$SYS/$ENTRY"
+fi
+chmod 644 "$USER_ENTRY" 2>/dev/null || true
+
 # Two offs at once, as the widget and Settings can: one at a time, and the copy is never lost.
 reset; system_entry
 mkdir -p "$(dirname "$USER_ENTRY")"

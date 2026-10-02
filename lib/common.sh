@@ -511,6 +511,15 @@ discover_entry_usable() {  # kind
     dangling) echo "$user is a symlink to $(readlink "$user"), which does not exist, so nothing changed." >&2
               return 1 ;;
   esac
+  # An entry that cannot be read cannot say whether it starts the notifier: grep's rc 2 would read
+  # as "it starts", and off would then fail half way. Either entry, since off copies the system one.
+  local f
+  for f in "$user" "$(discover_sys_entry)"; do
+    if [[ -e "$f" && ! -r "$f" ]]; then
+      echo "Cannot read $f, so nothing changed." >&2
+      return 1
+    fi
+  done
   return 0
 }
 
