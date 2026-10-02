@@ -1872,14 +1872,15 @@ cp "$TESTTMP/rb-live.tsv" "$pre2"
 jq -n --arg snap "$pre2" '{staged_at:"x", pre_snapshot:$snap}' > "$marker"
 cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
 decoys=()
-for off in 0 1 2 3; do
-  d="$KEMPT_STATE_DIR/history/$(date -d "+$off seconds" +%Y%m%dT%H%M%S).json"
+base="$(date +%s)"   # read the clock once, or a tick mid-loop leaves a gap the harvest can land in
+for off in $(seq 0 30); do   # wide, so a slow check still lands on a decoy
+  d="$KEMPT_STATE_DIR/history/$(date -d "@$(( base + off ))" +%Y%m%dT%H%M%S).json"
   printf 'DECOY\n' > "$d"; decoys+=("$d")
 done
 "$KEMPT" check >/dev/null 2>&1
 assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*-offline.json 2>/dev/null | wc -l)" "1" \
   "a same-second harvest takes its own filename"
-assert_eq "$(cat "${decoys[@]}" | grep -c DECOY)" "4" "no existing history entry was overwritten"
+assert_eq "$(cat "${decoys[@]}" | grep -c DECOY)" "31" "no existing history entry was overwritten"
 rm -f "${decoys[@]}"
 
 # --- the lock-retry window is PER ATTEMPT. dnf fails three times on a busy package lock, then
