@@ -3730,10 +3730,12 @@ fi
 
 # Before any command reads the config, so the first `config get surface` of this version already
 # answers what the migration decided. Only the commands that exist: help, the version and a
-# mistyped command change nothing, so they skip it.
+# mistyped command change nothing, so they skip it. So does `discover-notifier status`, which only
+# reads: `install.sh --uninstall` runs it and must write nothing.
 case "${1:-help}" in
   check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
-  discover-notifier|enable-passwordless|disable-passwordless) surface_migrate ;;
+  enable-passwordless|disable-passwordless) surface_migrate ;;
+  discover-notifier) [[ "${2:-}" == status ]] || surface_migrate ;;
 esac
 
 case "${1:-help}" in

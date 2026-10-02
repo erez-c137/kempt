@@ -61,11 +61,16 @@ fresh
 "$KEMPT" config set auto_accept false >/dev/null
 assert_eq "$("$KEMPT" config get surface)" "popup" "a new install whose first command sets something keeps the popup"
 
-# Every command runs it first, discover-notifier included.
+# Every command runs it first, discover-notifier included...
 fresh; used_before
-KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier status >/dev/null 2>&1 || true
+KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier keep >/dev/null 2>&1 || true
 assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)|$(grep -c '^surface=terminal$' "$KEMPT_CONFIG_DIR/config" 2>/dev/null)" \
   "yes|1" "discover-notifier runs the migration like every other command"
+# ...except its status, which only reads.
+fresh; used_before
+KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-autostart" "$KEMPT" discover-notifier status >/dev/null 2>&1 || true
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/surface-migrated" ]] && echo yes || echo no)" "no" \
+  "discover-notifier status writes nothing"
 
 # --- it runs once -----------------------------------------------------------------------------------
 fresh; used_before
