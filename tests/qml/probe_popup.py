@@ -182,6 +182,8 @@ recorder("xdg-open", XDGRC)
 p.stub("""
 # `config set` fails with this status while the file holds one, as a config the user cannot write.
 if [[ "$1" == config && "$2" == set && -s %(CSRC)s ]]; then
+  # "hang": answer late, so the widget's own timeout is what ends the wait.
+  [[ "$(cat %(CSRC)s)" == hang ]] && { sleep 3; exit 0; }
   echo "kempt: could not write the config file" >&2; exit "$(cat %(CSRC)s)"
 fi
 case "$1" in
@@ -194,6 +196,8 @@ case "$1" in
           rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
+          # "2u": exit 2 with the refusal's own words, on a run that had no option to refuse.
+          [[ "$rc" == 2u ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
@@ -1601,6 +1605,10 @@ settle()
 p.pump(50)
 p.check("a check nobody asked for (the timer, a file change) leaves the answer on screen",
         lev("doctorMessage.visible"), True)
+ev("root.doCheck(false, false, true)")
+settle()
+p.check("...and so does the watcher's check after a settings write",
+        lev("doctorMessage.visible"), True)
 ev("root.doCheck()")
 settle()
 p.pump(50)
@@ -2232,8 +2240,23 @@ hush()
 ev("root.doCheck(true)")
 settle()
 p.check("...a background check that fails the same way adds nothing", said(), [])
-p.check("...and takes the report back, since it answers the press that report was about",
-        ev("root.actionMessage"), "")
+p.check("...and leaves the report up, since nobody asked again and nothing has changed",
+        [ev("root.actionMessage"), ev("root.checkFailNote")],
+        [ev("Logic.COPY.checkFailedOver"), ev("Logic.COPY.checkFailedOver")])
+# The refresh on open is such a check too: opening the popup must not wipe the note.
+_src_before = open(CHECKSRC).read()
+open(CHECKRC, "w").write("")
+open(CHECKSRC, "w").write(fixture("state-stale.json"))
+ev("root.doCheck(true)")
+settle()
+p.check("an automatic recheck that answers with stale counts keeps the note",
+        ev("root.actionMessage"), ev("Logic.COPY.checkFailedOver"))
+open(CHECKSRC, "w").write(fixture("state-live.json"))
+ev("root.doCheck(true)")
+settle()
+p.check("...and one that answers with fresh counts takes it back",
+        [ev("root.actionMessage"), ev("root.checkFailNote")], ["", ""])
+open(CHECKSRC, "w").write(_src_before)
 # A check the Executor had to kill: rc 124 and its "timeout after" line. The person hears a
 # sentence, never the timeout text.
 open(CHECKRC, "w").write("")
@@ -2643,6 +2666,17 @@ open(RUNRC, "w").write("0")
 open(OLDRUN, "w").write("")
 ev('root.actionMessage = ""')
 ev("root.riskyChoiceOpen = false")
+# Plain Update Now asked for no option, so even exit 2 with the refusal's words is not retried.
+state(fixture("state-live.json"))
+open(RUNRC, "w").write("2u")
+p.clear_calls()
+lev("updateButton.clicked()")
+p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
+settle()
+p.check("plain Update Now that exits 2 is not asked again", p.calls_matching("run"), ["run"])
+open(RUNRC, "w").write("0")
+ev('root.actionMessage = ""')
+state(fixture("state-risky-heavy.json"))
 
 # Install on Next Restart from the choice stages, as it does from the plain message.
 lev("updateButton.clicked()")
@@ -2761,6 +2795,21 @@ p.check("Use This Widget that could not be saved leaves the offer unanswered",
 p.check("...so the offer is back", lev("surfaceOfferMessage.visible"), True)
 p.check("...under the CLI's reason", ev("root.actionMessage"), "kempt: could not write the config file")
 ev('root.actionMessage = ""')
+# An answer the CLI did not confirm in time: the Executor's kill, rc 124. The offer comes back
+# with a sentence, never the timeout text.
+open(CFGSETRC, "w").write("hang")
+lev("surfaceOfferMessage.actions[0].trigger()")
+p.pump(300)
+ev('executor.finish("", "timeout after " + Logic.ANSWER_TIMEOUT_MS + "ms", 124)')
+p.pump(100)
+p.check("Use This Widget that timed out leaves the offer unanswered, and back on screen",
+        [ev("root.surfaceOfferAnswered"), lev("surfaceOfferMessage.visible")], [False, True])
+p.check("...under a sentence that says the answer may not be saved",
+        ev("root.actionMessage"), ev("Logic.COPY.answerTimedOut"))
+open(CFGSETRC, "w").write("")
+p.pump(3500)
+settle()
+ev('root.actionMessage = ""')
 p.clear_calls()
 lev("surfaceOfferMessage.actions[0].trigger()")
 p.pump(50)
@@ -2834,6 +2883,15 @@ p.check("...and the popup shows the CLI's own confirmation, as good news",
         [lev("reportMessage.visible"), lev("reportMessage.text"),
          lev("reportMessage.type === Kirigami.MessageType.Positive")],
         [True, "Discover's update notifier is off, and stays off when you log in again.", True])
+p.check("...said politely, as the answer to the person's own press",
+        lev("popup.lastAnnounceAssertive"), False)
+# The answer's write moves a file the watcher sees, and its check must not take the
+# confirmation away a second after it appeared.
+ev("root.doCheck(false, false, true)")
+settle()
+p.check("...and the watcher's check that the write set off leaves it on screen",
+        [lev("reportMessage.visible"), ev("root.actionDone")],
+        [True, "Discover's update notifier is off, and stays off when you log in again."])
 ev('root.actionDone = ""')
 
 # A failed answer is not an answer: the offer comes back, with the CLI's reason.
@@ -3384,8 +3442,12 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
     "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
     "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
+    "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
+    "riskyAskQuestion",     # -> FullRepresentation's risky announcement, at its end
     "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
+    "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
+    "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

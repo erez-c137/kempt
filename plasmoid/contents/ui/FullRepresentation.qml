@@ -150,10 +150,13 @@ PlasmaExtras.Representation {
 
     // The risky choice opens on the recommended answer, so Enter stages rather than installs.
     // Later, not now: the message's buttons are laid out after the visibility change that shows them.
-    function focusRiskyChoice() {
+    // `then` runs after the focus move, in the same turn, so what it says is queued behind the
+    // button's name rather than cut off by it.
+    function focusRiskyChoice(then) {
         Qt.callLater(function () {
             const button = popup.buttonFor(riskyMessage, riskyStageAction);
             if (button && popup.canTakeFocus(button)) button.forceActiveFocus(Qt.TabFocusReason);
+            if (typeof then === "function") then();
         });
     }
 
@@ -167,10 +170,13 @@ PlasmaExtras.Representation {
     // Qt 6.11 has the method and both politeness values (measured); an older Qt would not, so the
     // call is guarded rather than assumed.
     signal announced(string sentence)
+    // ...and how the last one was said, for the same reason: the bridge cannot be asked.
+    property bool lastAnnounceAssertive: false
 
     function announce(sentence, assertive) {
         const said = String(sentence === undefined || sentence === null ? "" : sentence);
         if (said.length === 0) return;
+        popup.lastAnnounceAssertive = assertive === true;
         popup.announced(said);
         if (typeof popup.Accessible.announce !== "function") return;
         popup.Accessible.announce(said, assertive ? Accessible.AnnouncementPoliteness.Assertive
@@ -223,7 +229,9 @@ PlasmaExtras.Representation {
             reportMessage.spoken = reportMessage.visible ? reportMessage.text : "";
             return;
         }
-        popup.speakMessage(reportMessage, true);
+        // Assertive for a run that finished or a press that failed. Polite for good news about
+        // something the person just did (actionDone), which is the answer to their own press.
+        popup.speakMessage(reportMessage, popup.plasmoidItem.reportLatest !== "done");
     }
 
     // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
@@ -793,19 +801,21 @@ PlasmaExtras.Representation {
             // The same words become a question after Update Now on a surface that cannot ask for
             // itself (logic.js, updateAsksFirst): staging, recommended, or installing now. The
             // lead-in says the click did not start anything.
-            text: asking ? i18n("The update has not started.") + " " + popup.vm.riskyMessage
+            text: asking ? Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
                          : popup.vm.riskyMessage
             Accessible.name: text
             readonly property bool asking: popup.shows("riskyChoice")
             visible: popup.shows("kernel") || asking
-            // Polite: it answers the click. The question goes last, because the focus then lands
-            // on Install on Next Restart and only the button's name would be read.
+            // Polite: it answers the click. Said after the focus lands on Install on Next Restart,
+            // so it follows the button's name instead of being cut off by it, and it ends on the
+            // question that button answers.
             onAskingChanged: {
                 if (!asking) return;
-                // Built here, not read from `text`, whose binding may not have caught up yet.
-                popup.announce(i18n("The update has not started.") + " " + popup.vm.riskyMessage
-                               + " " + i18n("Install now, or on the next restart?"), false);
-                popup.focusRiskyChoice();
+                popup.focusRiskyChoice(function () {
+                    if (!riskyMessage.asking) return;
+                    popup.announce(Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
+                                   + " " + Logic.COPY.riskyAskQuestion, false);
+                });
             }
             actions: [
                 Kirigami.Action {
@@ -1381,8 +1391,9 @@ PlasmaExtras.Representation {
                 // clock ("Checked 4 min ago") and a screen reader does not want to hear that.
                 // Polite, because nothing has gone wrong that needs interrupting: the counts above
                 // are still the best known truth and this dates them.
-                // Not while a Check for Updates is landing: that answer reads this same line out
-                // itself (vm.checkAnswerText), even when the failure is the same as last time.
+                // Not while a Check for Updates is landing: that answer says the check failed and
+                // how old the counts are (vm.checkAnswerText), even when the failure is the same
+                // as last time.
                 property string spokenStale: ""
                 onTextChanged: {
                     const reason = popup.vm.stale ? popup.vm.staleReason : "";

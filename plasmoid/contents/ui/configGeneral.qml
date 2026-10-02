@@ -169,10 +169,13 @@ KCM.SimpleKCM {
         // The value is ours (a checkbox state, a number, one of four known surfaces) but it is
         // quoted anyway. The rule this file follows is that everything reaching a command line is
         // quoted, with no per-case judgement about which values are "obviously safe".
+        // ANSWER_TIMEOUT_MS: a write takes the CLI's writers' lock, which waits up to 30 s.
         cfgExecutor.run(page.durable(kemptCmd + " config set " + key + " " + Logic.shellQuote(value)),
-                        15000, function (stdout, stderr, rc) {
+                        Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             if (rc !== 0) {
-                page.loadError = Logic.firstLineOf(stderr) || ("Could not save " + key + ".");
+                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "",
+                                                       Logic.COPY.settingTimedOut).text
+                                 || ("Could not save " + key + ".");
                 // Apply stays on, so the retry is one click rather than a reopened dialog.
                 page.writeFailed = true;
                 page.unsavedChanges = true;
@@ -263,11 +266,12 @@ KCM.SimpleKCM {
         holdsBusy = true;
         // Durable, for the same reason the config writes are: this button lives on the settings
         // page, so an unhold pressed just before OK is dispatched into the same teardown.
-        cfgExecutor.run(page.durable(kemptCmd + " unhold " + Logic.shellQuote(id)), 15000,
-                        function (stdout, stderr, rc) {
+        cfgExecutor.run(page.durable(kemptCmd + " unhold " + Logic.shellQuote(id)),
+                        Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             page.holdsBusy = false;
             if (rc !== 0) {
-                page.loadError = Logic.firstLineOf(stderr) || ("Could not remove the hold on " + id + ".");
+                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", Logic.COPY.holdTimedOut).text
+                                 || ("Could not remove the hold on " + id + ".");
                 return;
             }
             page.loadHolds();
@@ -311,7 +315,7 @@ KCM.SimpleKCM {
         cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), Logic.ANSWER_TIMEOUT_MS,
                         function (stdout, stderr, rc) {
             page.discoverBusy = false;
-            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "");
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "", Logic.COPY.settingTimedOut);
             if (!said.ok) page.discoverResult = said.text;
             page.loadDiscover();
         });

@@ -1992,6 +1992,21 @@ assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(0, "", "", "Updates now run in
 assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "x"))')" \
   '{"ok":false,"text":"Kempt did not answer in time, so your answer may not be saved. Try again."}' \
   "...an answer that timed out says so in words, never the timeout text"
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "", L.COPY.settingTimedOut))')" \
+  '{"ok":false,"text":"Kempt did not answer in time. The setting may not have changed. Try again."}' \
+  "...a switch in Settings that timed out says the setting may not have changed"
+assert_eq "$(js 'L.answerOutcomeOf(124, "", "timeout after 40000ms", "", L.COPY.holdTimedOut).text')" \
+  "Kempt did not answer in time. The hold may not have changed. Try again." \
+  "...and a hold that timed out says the hold may not have changed"
+# Every other write that takes the writers' lock waits as long: Settings' config set and unhold,
+# and the widget's hold and unhold.
+for pat in 'config set " + key' ' unhold " + Logic.shellQuote(id)' 'verb + Logic.shellQuote(backend'; do
+  if grep -rA1 -F "$pat" "$REPO_ROOT/plasmoid/contents/ui/" | grep -q ANSWER_TIMEOUT_MS; then
+    echo "ok: the write at '$pat' waits ANSWER_TIMEOUT_MS"
+  else
+    echo "FAIL: the write at '$pat' waits less than the writers' lock"; _fail=1
+  fi
+done
 assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(1, "", "kempt: could not take the writers lock\nx", "x"))')" \
   '{"ok":false,"text":"kempt: could not take the writers lock"}' \
   "...and any other failure is the CLI's own reason"
@@ -3318,8 +3333,8 @@ for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function 
             'Component.onCompleted'; do
   assert_contains "$(qml_block "$MQ" "$site")" "doCheck(true)" "the automatic check at '$site' coalesces"
 done
-assert_contains "$(qml_block "$MQ" 'function pollWatch')" "root.doCheck(!delta.config);" \
-  "the watcher's check coalesces, except for a settings write"
+assert_contains "$(qml_block "$MQ" 'function pollWatch')" "root.doCheck(!delta.config, false, true);" \
+  "the watcher's check coalesces, except for a settings write, and says it is the watcher's"
 for site in 'function checkAgain' 'function setHold' 'function discardStaged' 'id: updateGuard'; do
   blk="$(qml_block "$MQ" "$site")"
   assert_contains "$blk" "doCheck()" "the check at '$site' is a person's, and runs its own"

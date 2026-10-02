@@ -150,6 +150,9 @@ var COPY = {
     surfaceSetTerminal: "Updates keep running in a terminal window.",
     // An answer the CLI did not confirm in time (ANSWER_TIMEOUT_MS). The write may still land.
     answerTimedOut: "Kempt did not answer in time, so your answer may not be saved. Try again.",
+    // ...the same for a switch in Settings, and for a hold, which are changes rather than answers.
+    settingTimedOut: "Kempt did not answer in time. The setting may not have changed. Try again.",
+    holdTimedOut: "Kempt did not answer in time. The hold may not have changed. Try again.",
 
     // The one offer to turn off Discover's own update notifier, while it starts with the session.
     // Turning it back on is in Settings, under the same name.
@@ -1763,14 +1766,18 @@ function discardStagedMessage(rc, stdout, stderr) {
 // shorter would report a write as lost while the CLI was still about to make it.
 var ANSWER_TIMEOUT_MS = 40000;
 
-// answerOutcomeOf(rc, stdout, stderr, fallback) -> {ok, text}: what the popup or the settings page
-// says after such a verb. Success is the CLI's first line, or `fallback` when it printed nothing.
-// Failure is its own reason, except the Executor's kill, which gets a sentence.
-function answerOutcomeOf(rc, stdout, stderr, fallback) {
+// answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) -> {ok, text}: what the popup or the
+// settings page says after such a verb. Success is the CLI's first line, or `fallback` when it
+// printed nothing. Failure is its own reason, except the Executor's kill, which gets a sentence:
+// `timedOut` when given (a setting, a hold), COPY.answerTimedOut otherwise.
+function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
     if (rc === 0) {
         return { ok: true, text: firstLineOf(stdout) || (typeof fallback === "string" ? fallback : "") };
     }
-    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: COPY.answerTimedOut };
+    if (isExecutorTimeout(rc, stderr)) {
+        return { ok: false, text: typeof timedOut === "string" && timedOut !== "" ? timedOut
+                                                                                 : COPY.answerTimedOut };
+    }
     return { ok: false, text: firstLineOf(stderr) || firstLineOf(stdout) };
 }
 
