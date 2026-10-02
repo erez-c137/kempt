@@ -57,9 +57,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **A busy package system is recognised in every language.** In a session set to German or
-  another language, dnf and Flatpak printed their lock messages translated, so Kempt did not retry
-  and reported a plain failure. Their output during a run is now in English.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without its engine says each thing once.** The header says Kempt's engine is not

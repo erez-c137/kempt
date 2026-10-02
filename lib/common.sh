@@ -1017,12 +1017,8 @@ config_set() {  # key value [if-absent]
 # CHECK_TIMEOUT_MS allows for both. A seam only so the suite can reach that branch - hardcoded,
 # no test could drive it without waiting two minutes, and it had none.
 KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
-# LANGUAGE=C and LC_MESSAGES=C on both, set here on the user's side and passed on by pkexec, which
-# keeps the locale variables: the helpers' dnf and rpm output is matched in English (the lock lines
-# apply_with_retry retries on, run_failure_reason's keywords), and LC_ALL=C.UTF-8 alone does not
-# make it English, because gettext still follows LANGUAGE under any locale but plain C.
-priv_refresh() { LC_MESSAGES=C LANGUAGE=C timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
-priv_apply()   { LC_MESSAGES=C LANGUAGE=C ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
+priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
+priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
 # kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
 # of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. The

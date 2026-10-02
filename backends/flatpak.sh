@@ -494,16 +494,13 @@ flatpak_apply() {  # [--user] [-y] [--runtime] [app-id...] → 0, or non-zero (p
          ids+=("$a") ;;
     esac
   done
-  # Messages in English, because apply_with_retry matches the lock lines and flatpak_eol_ids the
-  # end-of-life lines: LC_ALL=C.UTF-8 alone does not do it, since gettext still follows LANGUAGE
-  # under any locale but plain C. Same pair as reclaim_uninstall in bin/kempt.
   if [[ ${#ids[@]} -eq 0 ]]; then
-    LC_MESSAGES=C LANGUAGE=C $update_cmd "${assume[@]}" "${kinds[@]}" || rc=$?
+    $update_cmd "${assume[@]}" "${kinds[@]}" || rc=$?
   else
     # Per-app is what makes holds possible: a held app is simply not in the list. One failure
     # fails the call, and the loop still finishes - the other apps have no reason to be skipped.
     for id in "${ids[@]}"; do
-      LC_MESSAGES=C LANGUAGE=C $update_cmd "${assume[@]}" "$id" || rc=1
+      $update_cmd "${assume[@]}" "$id" || rc=1
     done
   fi
   return $rc
