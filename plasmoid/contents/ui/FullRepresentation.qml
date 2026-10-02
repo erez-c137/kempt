@@ -790,6 +790,31 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // The one-time offer to turn off Discover's own update notifier, which counts updates on
+        // its own schedule. Either answer ends it. Settings can turn the notifier back on.
+        Kirigami.InlineMessage {
+            id: discoverOfferMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait.")
+            Accessible.name: text
+            visible: popup.shows("discoverOffer")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Turn Off Discover's Notifier")
+                    icon.name: "notifications-disabled"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("off")
+                },
+                Kirigami.Action {
+                    text: i18n("Keep Discover's Notifier")
+                    icon.name: "dialog-ok"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("keep")
+                }
+            ]
+        }
+
         // ONE slot for the two reports: what the run that just finished did, and what a button
         // press that failed had to say. They are never the same event, and the later one is always
         // the one being asked about - so latest wins, and main.qml decides which that is.

@@ -18,6 +18,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal, it now offers **Check Installation**. The widget runs doctor itself, then quotes the
   first problem found or says there were none. **Show Full Report** shows the whole report, and
   **Copy Command** copies `kempt doctor`.
+- **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
+  differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
+  widget asks once, with **Turn Off Discover's Notifier** and **Keep Discover's Notifier**.
+  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command.
 
 ### Changed
 

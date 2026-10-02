@@ -67,6 +67,11 @@ KCM.SimpleKCM {
     property bool holdsBusy: false
     property string passwordlessResult: ""
     property bool passwordlessBusy: false
+    // Discover's update notifier: what to say and which button to offer (Logic.discoverSettingOf),
+    // or null to show nothing. An action, like the password buttons: it runs at once, not on Apply.
+    property var discoverSetting: null
+    property bool discoverBusy: false
+    property string discoverResult: ""
 
     // Writes dispatched by the current Apply that have not answered yet, and whether any of them
     // came back non-zero. Together they decide WHEN the page is allowed to call itself saved -
@@ -291,6 +296,26 @@ KCM.SimpleKCM {
         });
     }
 
+    function loadDiscover() {
+        cfgExecutor.run(kemptCmd + " discover-notifier status --json", 15000,
+                        function (stdout, stderr, rc) {
+            page.discoverSetting = rc === 0 ? Logic.discoverSettingOf(stdout) : null;
+        });
+    }
+
+    // Durable, like the config writes: the button can be pressed just before OK.
+    function setDiscover(verb) {
+        if (verb !== "off" && verb !== "on") return;
+        discoverBusy = true;
+        discoverResult = "";
+        cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), 15000,
+                        function (stdout, stderr, rc) {
+            page.discoverBusy = false;
+            if (rc !== 0) page.discoverResult = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+            page.loadDiscover();
+        });
+    }
+
     // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt check`,
     // and a settings dialog that takes two minutes to populate is a broken dialog.
     Executor { id: cfgExecutor }
@@ -349,6 +374,7 @@ KCM.SimpleKCM {
             page.flatpakKnown = true;
         });
         loadHolds();
+        loadDiscover();
     }
 
     // There is deliberately no onSurfacesLockedChanged here. Snapping the selection to terminal the
@@ -658,6 +684,49 @@ KCM.SimpleKCM {
         }
 
         Item { Kirigami.FormData.isSection: true }
+
+        // --- Discover's update notifier ----------------------------------------------------------
+        // Shown only when it is installed. Turn On only undoes Kempt's own entry, so an entry of the
+        // person's own gets no button.
+        QQC2.Label {
+            id: discoverStatus
+            Kirigami.FormData.label: i18n("Discover:")
+            visible: page.discoverSetting !== null
+            text: !page.discoverSetting ? ""
+                : page.discoverSetting.state === "on"
+                    ? i18n("Discover also shows update notifications, with its own count.")
+                : page.discoverSetting.state === "off" ? i18n("Discover's notifier is off.")
+                : page.discoverSetting.path
+                    ? i18n("Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.", page.discoverSetting.path)
+                : i18n("Discover's notifier is turned off by a startup file. Delete that file to turn it back on.")
+            wrapMode: Text.WordWrap
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
+        QQC2.Button {
+            id: discoverButton
+            visible: page.discoverSetting !== null && page.discoverSetting.verb !== ""
+            text: page.discoverSetting && page.discoverSetting.verb === "on"
+                ? i18n("Turn On Discover's Notifier") : i18n("Turn Off Discover's Notifier")
+            icon.name: page.discoverSetting && page.discoverSetting.verb === "on"
+                ? "notifications" : "notifications-disabled"
+            enabled: !page.discoverBusy
+            onClicked: page.setDiscover(page.discoverSetting.verb)
+        }
+
+        QQC2.Label {
+            visible: page.discoverResult.length > 0
+            text: page.discoverResult
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.negativeTextColor
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
+        Item {
+            Kirigami.FormData.isSection: true
+            visible: page.discoverSetting !== null
+        }
 
         // --- passwordless ------------------------------------------------------------------------
         // No state is displayed, and that is not an oversight: the polkit rules directory is
