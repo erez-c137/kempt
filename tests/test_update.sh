@@ -2027,6 +2027,28 @@ rc=0; LANGUAGE=de_DE:de "$KEMPT" update --surface=background >/dev/null 2>&1 || 
 assert_eq "$rc" "7" "...and so does a busy Flatpak lock"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
 
+# dnf busy, but Flatpak updated an app in the same run: the reason no longer says nothing was
+# installed, and the run still exits 7.
+cat > "$TESTTMP/apply-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "Failed to obtain rpm transaction lock. Another transaction is in progress." >&2; exit 1
+STUB
+cat > "$TESTTMP/fp-update-stub" <<STUB
+#!/usr/bin/env bash
+sed -i 's/^org\.gimp\.GIMP\t.*/org.gimp.GIMP\t3.0.4/' "$WORLD/fp.tsv"
+STUB
+push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
+rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+bf_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
+assert_eq "$rc" "7" "dnf busy while Flatpak updated an app still exits 7"
+assert_eq "$(jq -r '.backends.flatpak.updated | length' "$bf_hist")" "1" "...with the Flatpak update in the history entry"
+assert_eq "$(jq -r .error "$bf_hist")" \
+  "another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Try again in a few minutes." \
+  "...and the reason no longer says nothing was installed"
+cp "$FIXTURES/flatpak-list.tsv" "$WORLD/fp.tsv"
+cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
+cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
+
 # --- dnf's side of the same predicate, driven from the tools' own wordings (sources in
 # tests/fixtures/MANIFEST.md). A busy line is retried. A line that only names a lock, such as a
 # dependency error about kscreenlocker, is tried once and never reported as a busy package system.

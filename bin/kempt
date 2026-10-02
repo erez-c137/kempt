@@ -1693,6 +1693,14 @@ cmd_update() {
   # when the log is four hundred lines of dnf progress.
   local reason=""
   [[ "$status" == "ok" ]] || reason="${reason_override:-$(run_failure_reason "$log")}"
+  # dnf's busy sentence says nothing was installed, which stops being true once Flatpak changed
+  # something in the same run. That sentence goes, and the rest stays the busy reason.
+  if [[ -n "$run_busy_reason" && "$run_busy_reason" == "$KEMPT_BUSY_REASON_DNF" ]] \
+     && jq -e '([.updated, .added, .removed] | map(length) | add) > 0' <<<"$fp_report" >/dev/null 2>&1; then
+    local busy_fp="${KEMPT_BUSY_REASON_DNF/ Nothing was installed./}"
+    [[ "$reason" == "$run_busy_reason" ]] && reason="$busy_fp"
+    run_busy_reason="$busy_fp"
+  fi
   # The exit code. 7 only when the reason given is the busy sentence and nothing else failed, so a
   # script can wait and try again; any other failure is 1.
   local run_rc=0
