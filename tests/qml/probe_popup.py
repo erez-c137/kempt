@@ -1609,6 +1609,45 @@ ev("root.doCheck(false, false, true)")
 settle()
 p.check("...and so does the watcher's check after a settings write",
         lev("doctorMessage.visible"), True)
+# The usual case: the write lands while a check runs, so the watcher's check folds into it. The
+# check run in its place is still the watcher's, and keeps what the write left on screen.
+open(CHECKSLEEP, "w").write("1")
+ev("root.doCheck(true)")
+p.pump(200)
+p.check("premise: a check is in flight", ev("root.checking"), True)
+ev('root.actionDone = "Saved."')
+ev("root.doCheck(false, false, true)")
+p.check("the watcher's check folds into the running one",
+        [ev("root.recheckPending"), ev("root.recheckWatched")], [True, True])
+open(CHECKSLEEP, "w").write("")
+settle()
+p.pump(50)
+p.check("...and the check run in its place keeps the confirmation and the answer",
+        [ev("root.recheckPending"), ev("root.actionDone"), lev("doctorMessage.visible")],
+        [False, "Saved.", True])
+# Folded with a press, it is the press's check, and that one clears them.
+open(CHECKSLEEP, "w").write("1")
+ev("root.doCheck(true)")
+p.pump(200)
+p.check("premise: a check is in flight again", ev("root.checking"), True)
+ev("root.doCheck(false, false, true)")
+ev("root.doCheck()")
+p.check("a press folded after the watcher's check makes it the press's",
+        [ev("root.recheckPending"), ev("root.recheckWatched")], [True, False])
+ev("root.doCheck(false, false, true)")
+p.check("...and a later watcher's check does not take it back", ev("root.recheckWatched"), False)
+ev('root.actionDone = "Saved."')
+open(CHECKSLEEP, "w").write("")
+settle()
+p.pump(50)
+p.check("...so the check run in its place clears the confirmation and the answer",
+        [ev("root.recheckPending"), ev("root.actionDone"), lev("doctorMessage.visible")],
+        [False, "", False])
+# Put the answer back for the press below.
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("premise: the answer is back", lev("doctorMessage.visible"), True)
 ev("root.doCheck()")
 settle()
 p.pump(50)

@@ -142,8 +142,9 @@ KCM.SimpleKCM {
     // The ONLY place unsavedChanges is cleared, and it is reached only when the last write has
     // landed. Clearing it at the end of saveConfig() instead is the page telling the shell "saved"
     // the instant it has finished DISPATCHING: Apply greys out and closing the dialog stops
-    // prompting while `kempt config set` calls are still queued behind a 15-second timeout, so the
-    // user can close the dialog on a write that has not happened yet and get no warning.
+    // prompting while `kempt config set` calls are still queued behind ANSWER_TIMEOUT_MS (40
+    // seconds each), so the user can close the dialog on a write that has not happened yet and get
+    // no warning.
     //
     // With nothing to write this still runs immediately - the sentinel is the only outstanding
     // write - so an Apply that legitimately writes nothing is clean at once.

@@ -3346,7 +3346,7 @@ assert_contains "$(qml_block "$MQ" 'id: checkAction')" "root.doCheck(false, true
   "the menu's Check for Updates runs its own check, and fetches"
 assert_contains "$(grep -F 'plasmoidItem.doCheck(' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" \
   "plasmoidItem.doCheck(false, true)" "the popup's Check for Updates button runs its own check, and fetches"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again, watchedAgain);" \
   "...and the deferred check it becomes fetches"
 assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "Check for Updates passes --refresh"
 assert_eq "$(js 'L.checkArgs(true, false)')" " check --coalesce" "...an automatic check passes --coalesce"
@@ -3377,7 +3377,7 @@ assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh && !checkingR
   "a Check for Updates during a running fetch does not queue another fetch"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked = true;" \
   "a person's request folded into a running check is remembered as a person's"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again);" \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again, watchedAgain);" \
   "...and the deferred check it becomes does not coalesce"
 
 # --- the settings page's apply path -------------------------------------------------------------

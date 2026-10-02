@@ -22,6 +22,7 @@ PlasmoidItem {
     property bool recheckPending: false    // ...and remembers the one we deferred while it ran
     property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     property bool recheckRefresh: false    // ...and whether any folded request was Check for Updates
+    property bool recheckWatched: false    // ...and whether EVERY folded request was the watcher's
     property bool checkingRefresh: false   // the check in flight is itself a fetch (`--refresh`)
     // When the last Check for Updates whose check has landed was pressed, as Date.now(); 0 until
     // then. The footer compares it with metadata_refreshed to say when that press got no fetch.
@@ -425,7 +426,11 @@ PlasmoidItem {
         // pressed during a timer's check must not be answered by somebody else's.
         // A Check for Updates folded in the same way makes the deferred check fetch, unless the
         // running check is already a fetch: the menu entry stays enabled while one runs.
+        // The deferred check is the watcher's only if every request folded into it was: then it
+        // keeps the reports a settings write left, as the watcher's own check does.
         if (checking) {
+            if (!recheckPending) recheckWatched = watched;
+            else if (!watched) recheckWatched = false;
             recheckPending = true;
             if (!auto) recheckAsked = true;
             if (fresh && !checkingRefresh) recheckRefresh = true;
@@ -515,10 +520,12 @@ PlasmoidItem {
             if (root.recheckPending) {
                 var asked = root.recheckAsked;
                 var again = root.recheckRefresh;
+                var watchedAgain = root.recheckWatched;
                 root.recheckPending = false;
                 root.recheckAsked = false;
                 root.recheckRefresh = false;
-                root.doCheck(!asked, again);
+                root.recheckWatched = false;
+                root.doCheck(!asked, again, watchedAgain);
                 return;
             }
             // Anything waiting for a check to LAND is free now. Before the bounded retry on

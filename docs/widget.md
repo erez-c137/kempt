@@ -82,11 +82,11 @@ The header reads one of:
   succeeded.
 - `Could not read the update state`, usually because the widget is older than the program.
 
-**Check for Updates**, the circular arrow, fetches fresh package lists, which can take a minute or
-more, then checks. On battery or a metered connection it checks without fetching. After a failed
+**Check for Updates**, the circular arrow, fetches fresh package lists, which can take minutes,
+then checks. On battery or a metered connection it checks without fetching. After a failed
 check, a message says so (message 2), the footer adds `last check failed`, and this button's tooltip
 gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or update
-runs, it is greyed out with a spinner. Its answer is read out to a screen reader, and the panel icon
+runs, it is greyed out with a spinner. A screen reader reads its answer, and the panel icon
 says it while the widget is closed. It is also in the icon's right-click menu and the tray's
 **More actions** menu.
 
@@ -106,11 +106,12 @@ left out. If that hides the restart message, the footer says `restart pending` i
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`, or
    `Update failed: <the reason>`, or what Kempt said about a button press that failed. After an
    answer to message 8 or 9, it says what changed. When **Check for Updates** fails over earlier
-   counts, it says the check failed and that the counts are from the last check. **Show Log** is on
-   it when a *run* recorded a log file, as every run does, including installs during a restart,
+   counts, it says so, and that the counts are from the last check. **Show Log** is on it
+   when a *run* recorded a log file, as every run does, including installs during a restart,
    unless the log could not be saved. When the message tells you to run `kempt doctor`, it adds
-   **Check Installation**. It goes when you close the popup or the next check starts. The
-   check-failed note stays until you check again or a check gets fresh counts.
+   **Check Installation**. A run's summary goes when you close the popup or a check starts. Other
+   reports stay until your next press. One that worked also goes when a check starts, and the
+   check-failed note when counts come back fresh.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
 4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
