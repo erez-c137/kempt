@@ -44,7 +44,7 @@ the whole cache window. So there are two, each bound by `exec.path` to one helpe
 
 Both actions set `allow_any=no` and `allow_inactive=no`, so polkit refuses a remote or inactive
 session without a dialog. A check from an SSH session or a switched-away
-session fails with `not authorized - the password was refused, or this session cannot authorize
+session fails with `not authorized: the password was refused, or this session cannot authorize
 (over SSH or switched away)`.
 
 The no-dialog refresh lets the check read the **root** metadata cache that the update will use.

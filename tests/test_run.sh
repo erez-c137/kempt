@@ -62,7 +62,7 @@ assert_eq "$(grep -ci dry "$REPO_ROOT/docs/man/kempt.1")" "0" \
 "$KEMPT" config set surface bogus
 surferr="$("$KEMPT" run --print-command 2>&1 >/dev/null)"
 assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "terminal: $KEMPT_TERMINAL -e kempt update" "unknown surface falls back to terminal"
-grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
+grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
 
 # --- --surface=<s>: one run on a named surface, whatever the setting says -----------------------
 # The widget stages through this (`kempt run --surface=offline`) so that a stage gets the same
@@ -91,7 +91,7 @@ assert_eq "$("$KEMPT" run --print-command --surface=popup)" "terminal: $KEMPT_TE
 # rather than quietly turned into a terminal the way a mistyped setting is.
 rc=0; surferr="$("$KEMPT" run --print-command --surface=bogus 2>&1 >/dev/null)" || rc=$?
 assert_eq "$rc" "2" "run: an unknown --surface is refused (exit 2)"
-assert_eq "$surferr" "unknown surface: bogus (use terminal, popup, background or offline)" \
+assert_eq "$surferr" "unknown --surface value: bogus (use terminal, popup, background or offline)" \
   "...naming the surfaces there are"
 assert_exit 2 "run: an empty --surface is refused" "$KEMPT" run --print-command --surface=
 assert_exit 2 "run: --surface given twice is refused" \

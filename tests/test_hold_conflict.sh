@@ -62,7 +62,7 @@ assert_eq "$(hold_generic_warning kernel-core)" \
   "The staged update was built before this hold and may still install kernel-core on the next restart. Rebuilding applies all current holds." \
   "the warning for when no list may be trusted, verbatim"
 assert_eq "$(unhold_staged_warning kernel-core)" \
-  "The staged update was built without kernel-core - the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
+  "The staged update was built without kernel-core, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "the unhold mirror, verbatim"
 
 # --- a real armed stage to hold against ----------------------------------------------------------
@@ -204,7 +204,7 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null
 assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' "the stage recorded what it left out"
 assert_eq "$(hold_stderr unhold dnf:curl)" \
-  "The staged update was built without curl - the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
+  "The staged update was built without curl, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "releasing a hold the stage was built around says the stage will not install it"
 assert_eq "$(events_tail)" "unhold dnf:curl (staged update was built without it)" \
   "...and the event log says which stage it means"
@@ -234,7 +234,7 @@ assert_eq "$stranded_out" "" "no claim about a staged update whose /system-updat
 "$KEMPT" hold dnf:curl >/dev/null 2>&1
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null
 assert_eq "$(hold_stderr unhold dnf:curl)" \
-  "The staged update was built without curl - the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
+  "The staged update was built without curl, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "...while an ordinary stored transaction still gets the warning"
 
 # A package that was never excluded from this stage. Warning here would be nagging about a decision
@@ -250,7 +250,7 @@ jq 'del(.staged_excluded)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marke
 assert_eq "$(jq -r '[.backends.dnf.items[].name] | index("bash") != null' "$st")" "true" \
   "bash really is pending, which is what the fallback keys on"
 assert_eq "$(hold_stderr unhold dnf:bash)" \
-  "The staged update was built without bash - the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
+  "The staged update was built without bash, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "a legacy marker falls back to what is pending now"
 assert_eq "$(hold_stderr unhold dnf:not-a-package)" "" \
   "...and a package that is not pending at all is still silent"

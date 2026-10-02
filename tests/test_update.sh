@@ -296,7 +296,7 @@ assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "auto_accept=false neve
 # An unknown surface must not silently mean "detached, and definitely not offline". auto_accept is
 # true again here, so terminal can ONLY have come from the surface guard.
 surferr="$("$KEMPT" update --surface=bogus 2>&1 >/dev/null)"
-grep -q "unknown surface 'bogus'" <<<"$surferr" && echo "ok: unknown surface warns" || { echo "FAIL: surface warning"; _fail=1; }
+grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknown surface warns" || { echo "FAIL: surface warning"; _fail=1; }
 hs="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .surface "$hs")" "terminal" "unknown surface falls back to terminal in update"
 
@@ -438,9 +438,9 @@ grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
 assert_exit 0 "a stage that was never armed leaves no marker" -- test ! -f "$marker"
 armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
-assert_eq "$(jq -r .error "$armhist")" "staged but could not arm the restart install" \
+assert_eq "$(jq -r .error "$armhist")" "staged, but could not set it to install on the restart" \
   "...naming the step that failed, not the first error-shaped line in the log"
-grep -q 'run failed rc=1: staged but could not arm the restart install' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'run failed rc=1: staged, but could not set it to install on the restart' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
 grep -q 'FAILED' "$WORLD/notifications" \
   && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
@@ -463,7 +463,7 @@ assert_eq "$bothrc" "1" "a failed unwind does not change the verdict"
 grep -q 'could not discard' <<<"$botherr" \
   && echo "ok: a failed unwind warns" || { echo "FAIL: no warning for a failed unwind - got: $botherr"; _fail=1; }
 bothhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$bothhist")" "staged but could not arm the restart install" \
+assert_eq "$(jq -r .error "$bothhist")" "staged, but could not set it to install on the restart" \
   "...and the reason stays the arm, not the cleanup that failed after it"
 
 # The run is over the moment the helper returns: a report step that dies afterwards would take the
@@ -506,7 +506,7 @@ grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   && echo "ok: the failure notification carries the command that clears what is left" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 armdbl="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$armdbl")" "staged but could not arm the restart install" \
+assert_eq "$(jq -r .error "$armdbl")" "staged, but could not set it to install on the restart" \
   "...while the recorded reason still names the step that failed"
 
 # --- a REBUILD whose STAGE fails, which is the state nothing used to unwind -----------------------
@@ -559,7 +559,7 @@ grep -q 'offline restage failed (previous stage intact)' "$KEMPT_STATE_DIR/event
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
 assert_eq "$(jq -r .error "$sthist")" \
-  "could not rebuild the staged update - the previous one is unchanged and still installs on the next restart" \
+  "could not rebuild the staged update. The previous one is unchanged and still installs on the next restart" \
   "...and the reason says the previous stage still installs, not that it was lost"
 
 # ...but `ready` WITHOUT /system-update is not intact. Measured on Fedora 44: a live dnf5
@@ -581,7 +581,7 @@ sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 # --- a stage with nothing in it is not a failed stage --------------------------------------------
 # Hold your only pending update, then stage: `dnf5 upgrade --offline` prints "Nothing to do", exits
 # 0 and stores no transaction, so arming fails with "No offline transaction is stored". Reported as
-# "staged but could not arm the restart install", rc 1, with a FAILED notification - blaming the arm
+# "staged, but could not set it to install on the restart", rc 1, with a FAILED notification - blaming the arm
 # for a transaction that was never built, over the user's own holds doing exactly what they asked.
 # Found by running it on a real machine with one pending update held.
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
@@ -603,7 +603,7 @@ grep -q 'offline staged ?' "$KEMPT_STATE_DIR/events.log" \
 grep -q 'offline stage found nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event names the reason, so the log does not read as a fault" \
   || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'offline' "$KEMPT_STATE_DIR/events.log" | tail -3; }
-grep -q 'Nothing to stage - every pending update is held' "$WORLD/notifications" \
+grep -q 'Nothing to stage, because every pending update is held' "$WORLD/notifications" \
   && echo "ok: ...and the user is told their holds did it, not that Kempt failed" \
   || { echo "FAIL: wrong notification"; _fail=1; cat "$WORLD/notifications"; }
 grep -q 'could not arm' "$WORLD/notifications" \
@@ -614,7 +614,7 @@ assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a r
 # ...and records WHY nothing was staged, which is the only place a later reader can learn it. The
 # event line and the notification above say it too, but they are spoken once; the popup's post-run
 # line and its last-update row are rendered from this entry, and with only `surface` and `status`
-# to go on both announced "Updates are staged - they install on the next restart" over a restart
+# to go on both announced "Updates are staged and install on the next restart" over a restart
 # that installs nothing. `held` and not just "nothing", because "Kempt did nothing" reads as a
 # fault where "every pending update is held" is the user's own holds working.
 assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \
@@ -666,7 +666,7 @@ tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'offline resta
 grep -q 'offline stage discarded' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...the log says the stored one was discarded" \
   || { echo "FAIL: no discarded event"; _fail=1; }
-grep -q 'Nothing to stage - every pending update is held. The update staged earlier was removed' "$WORLD/notifications" \
+grep -q 'Nothing to stage, because every pending update is held. The update staged earlier was removed' "$WORLD/notifications" \
   && echo "ok: ...and the user is told the earlier stage is gone" \
   || { echo "FAIL: wrong notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
@@ -685,7 +685,7 @@ assert_eq "$ndrc" "1" "an empty stage whose clean fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...without arming the old transaction"
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .error "$ndhist")" \
-  "nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included - run: sudo dnf5 offline clean" \
+  "nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included. Run: sudo dnf5 offline clean" \
   "...and the reason says the old one still installs and how to clear it"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
@@ -729,7 +729,7 @@ grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 dblhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$dblhist")" \
-  "the previous staged update was discarded and could not be rebuilt, and could not be cleaned up - run: sudo dnf5 offline clean" \
+  "the previous staged update was discarded and could not be rebuilt or cleaned up. Run: sudo dnf5 offline clean" \
   "...and the reason carries it too, because there is nothing left to chase in the log"
 
 # Nothing staged before the attempt: there is nothing to unwind, and a clean fired anyway would be
@@ -1166,7 +1166,7 @@ export KEMPT_RETRY_DELAY=0
 # makes "the newest log" unambiguously this run's, whatever second it lands on.
 rm -f "$KEMPT_STATE_DIR"/logs/*.log
 assert_exit 1 "a non-lock failure fails immediately" "$KEMPT" update --no-flatpak
-assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "0" "only package-lock errors are retried"
+assert_eq "$(grep -c 'Retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "0" "only package-lock errors are retried"
 
 # helper failure with lock-ish stderr → retried then fails cleanly.
 # --no-flatpak keeps the retry count scoped to ONE apply call (both backends would retry).
@@ -1181,12 +1181,12 @@ assert_exit 7 "a busy rpm lock exits 7 after the retries" "$KEMPT" update --no-f
 grep -q 'run failed rc=7: another program is using the package system' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log names the same rc and reason" \
   || { echo "FAIL: the event log does not say rc=7 with the busy reason"; _fail=1; }
-assert_eq "$(grep -c 'retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
+assert_eq "$(grep -c 'Retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
 assert_eq "$(jq -r .error "$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)")" \
   "another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. Try again in a few minutes." \
   "...and the reason is Kempt's busy sentence for dnf, in short sentences"
 # 3 attempts = 2 retries: the last failure must not promise a retry that never comes.
-assert_eq "$(grep -c 'giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "1" "gives up loudly after the last attempt"
+assert_eq "$(grep -c 'Giving up' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "1" "gives up loudly after the last attempt"
 
 # ...and WHAT THE PERSON IS TOLD, which is the whole point of retrying at all. This is the most
 # likely failure Kempt has - Discover, PackageKit and dnf-automatic all take the same lock - and
@@ -1489,7 +1489,7 @@ stout="$("$KEMPT" update --surface=offline 2>&1)" || rc=$?
 assert_eq "$rc" "5" "a stranded release upgrade is protected exactly as the other two are"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" "...nothing staged over it"
 case "$stout" in
-  *"no longer armed"*) echo "ok: ...and the refusal says a restart will not install it as things stand" ;;
+  *"no longer set to install"*) echo "ok: ...and the refusal says a restart will not install it as things stand" ;;
   *) echo "FAIL: the refusal describes the wrong state"; echo "  got: $stout"; _fail=1 ;;
 esac
 case "$stout" in
@@ -1836,7 +1836,7 @@ grep -q 'NOT recorded' "$KEMPT_STATE_DIR/events.log" \
 grep -q 'install on the next restart' "$WORLD/notifications" \
   && echo "ok: ...and the person is still told the update installs on the next restart" \
   || { echo "FAIL: the promise was dropped"; _fail=1; }
-grep -q 'could not record it' "$WORLD/notifications" \
+grep -q 'could not record them' "$WORLD/notifications" \
   && echo "ok: ...and that Kempt will not be able to report the result" \
   || { echo "FAIL: the limit was not stated"; _fail=1; }
 transaction_armed
@@ -1904,7 +1904,7 @@ assert_exit 1 "a lock-then-disk run fails" "$KEMPT" update --surface=background
 mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | awk 'NR==1')"
 assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "3" "the dnf lock error is retried three times"
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" "...and the flatpak disk error is tried exactly once"
-assert_eq "$(grep -c 'retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
+assert_eq "$(grep -c 'Retrying' "$mixed_log")" "2" "the disk failure is never retried as a lock error"
 
 # ...and the other half of that: flatpak's OWN lock wordings must be retried too. There are three
 # of them across two libraries, and in two the PATH SITS IN THE MIDDLE - which is the detail a

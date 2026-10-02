@@ -268,7 +268,7 @@ is "after a real clean the next check clears the demoted marker" "$(marker)" ""
 section "S9b staging when every pending update is held"
 # `dnf5 upgrade --offline` prints "Nothing to do", exits 0 and stores NOTHING when the transaction
 # would be empty. Arming then fails with "No offline transaction is stored", which Kempt used to
-# report as "staged but could not arm the restart install" - rc 1 and a FAILED notification over
+# report as "staged, but could not set it to install on the restart" - rc 1 and a FAILED notification over
 # the user's own holds doing exactly what they asked. Found on a real machine with one pending
 # update held; this pins it against real dnf5.
 dnf5 -y -q offline clean >/dev/null 2>&1; rm -f "$LINK" "$STATE/offline_staged.json"

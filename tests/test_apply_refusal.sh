@@ -78,7 +78,7 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-relup" "$KEMPT" update --surface=offline 
 assert_eq "$rc" "1" "a refused arm fails the run"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and is not unwound with a clean, which the helper would refuse too"
 assert_exit 1 "...and writes no marker" -- test -f "$marker"
-assert_eq "$(last_error)" "staged but not armed, because a Fedora release upgrade (44 -> 45) is stored - see: kempt doctor" \
+assert_eq "$(last_error)" "staged, but not set to install on the restart, because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
   "...and the reason names what is stored"
 no_clean_advice "...and nothing advises the command that would delete the release upgrade"
 
@@ -91,7 +91,7 @@ assert_eq "$rc" "1" "a refused stage fails the run"
 assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
 assert_eq "$(last_error)" \
-  "nothing was staged, because the stored offline transaction could not be read and staging would replace it - see: kempt doctor" \
+  "nothing was staged, because the stored offline transaction could not be read and staging would replace it. See: kempt doctor" \
   "...and says nothing was staged, and why"
 grep -q 'offline stage refused by the root helper' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no refusal event"; _fail=1; }
@@ -116,11 +116,11 @@ dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: a Fedora relea
 rc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-fail-clean-refused" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "an arm failure whose unwind is refused still fails the run"
-assert_eq "$(last_error)" "staged but could not arm the restart install" "...and the reason stays the arm"
+assert_eq "$(last_error)" "staged, but could not set it to install on the restart" "...and the reason stays the arm"
 grep -q 'left in place because a Fedora release upgrade (44 -> 45) is stored' "$TESTTMP/err" \
   && echo "ok: ...and the warning says the stored transaction was left in place, and why" \
   || { echo "FAIL: no left-in-place warning"; _fail=1; cat "$TESTTMP/err"; }
-grep -q 'see: kempt doctor' "$WORLD/notifications" \
+grep -q 'See: kempt doctor' "$WORLD/notifications" \
   && echo "ok: ...and the notification points at the doctor" || { echo "FAIL: notification"; _fail=1; cat "$WORLD/notifications"; }
 no_clean_advice "...and nothing advises a clean"
 
@@ -135,7 +135,7 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-fail-clean-refused" "$KEMPT" update --s
 assert_eq "$(calls dnf-offline-clean)" "1" "a failed re-stage still tries its unwind"
 assert_exit 0 "...and when the helper refuses it, the marker stays" -- test -f "$marker"
 assert_eq "$(last_error)" \
-  "could not rebuild the staged update, and what is stored was left in place because a Fedora release upgrade (44 -> 45) is stored - see: kempt doctor" \
+  "could not rebuild the staged update, and what is stored was left in place because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
   "...and the reason says what was left and why"
 no_clean_advice "...and nothing advises a clean"
 
@@ -161,7 +161,7 @@ stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_exit 0 "a refused supersede clean keeps the marker for the doctor" -- test -f "$marker"
-grep -q 'left in place because the stored offline transaction could not be read - see: kempt doctor' "$TESTTMP/err" \
+grep -q 'left in place because the stored offline transaction could not be read. See: kempt doctor' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 

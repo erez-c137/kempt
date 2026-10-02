@@ -115,7 +115,7 @@ The full schema is in [architecture.md](architecture.md#state-json-schema-v1).
 
 When a backend fails (network down, repo unavailable), `status` is `"stale"`, `error` holds the
 message, and the previous item lists are kept. A missing root helper reads
-`root helper not installed - run ./install.sh (see: kempt doctor)`. A missing or corrupt state file
+`root helper not installed. Run ./install.sh (see: kempt doctor)`. A missing or corrupt state file
 starts from an empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
 zero updates.
 
@@ -223,15 +223,15 @@ offline run still updates Flatpak apps live. Until the restart, the staged packa
 pending, and the popup stops offering to stage them again. It says:
 
 ```
-61 updates are staged - they install on the next restart
+61 updates are staged and install on the next restart
 ```
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
-discards it and the run fails with `staged but could not arm the restart install`. Staging again
+discards it and the run fails with `staged, but could not set it to install on the restart`. Staging again
 replaces the previous staged update. If that fails:
 
 - Before anything was replaced, the previous one still installs. The run fails with
-  `could not rebuild the staged update - the previous one is unchanged and still installs on the
+  `could not rebuild the staged update. The previous one is unchanged and still installs on the
   next restart`.
 - After the previous one was gone, the run fails with `the previous staged update was discarded
   and could not be rebuilt`, and Kempt cleans up so the restart installs nothing. If that cleanup
@@ -581,7 +581,7 @@ log keeps pkexec's own wording.
 | Kempt says | What happened |
 | --- | --- |
 | `authentication cancelled` | The password dialog was closed. |
-| `not authorized - the password was refused, or this session cannot authorize (over SSH or switched away)` | A wrong password, or a remote or inactive session. pkexec reports both the same way. |
+| `not authorized: the password was refused, or this session cannot authorize (over SSH or switched away)` | A wrong password, or a remote or inactive session. pkexec reports both the same way. |
 | `no authentication agent is running to ask for the password` | Nothing on the desktop could ask for the password. |
 | `cannot reach polkit (no system bus or polkit service), so nothing can be authorized` | pkexec could not reach polkit, for example in a container or with `polkit.service` stopped. |
 
@@ -668,17 +668,17 @@ here when neither exists.
 | Line | What it means |
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. |
-| `FAIL  staged update can never install: the transaction was downloaded but never armed ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
+| `FAIL  staged update can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
 | `FAIL  staged update can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
 | `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
 | `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
-| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was armed, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
+| `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | A release upgrade replaced Kempt's staged update. The next check clears the record. |
-| `FAIL  boot symlink is live over a transaction that is not armed ...` | The next restart starts the offline updater and installs nothing. |
+| `FAIL  boot symlink is live over a transaction that is not set to install ...` | The next restart starts the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing staged behind it ...` | The same, with nothing stored at all. |
 | `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
 | `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
@@ -772,7 +772,7 @@ When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo
 `kempt unhold` warns the other way, when the staged update was built without the package:
 
 ```
-The staged update was built without kernel-core - the next restart will not install it. Rebuild when ready: kempt update --surface=offline.
+The staged update was built without kernel-core, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline.
 ```
 
 After that restart, the hold works as usual. The widget shows the same warning on its

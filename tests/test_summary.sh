@@ -177,7 +177,7 @@ cat > "$HIST_DIR/20260824T130000.json" <<'EOF'
   "flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 EOF
 f="$(render_summary "$HIST_DIR/20260824T130000.json")"
-grep -q 'FAILED - see /tmp/y.log' <<<"$f" && echo "ok: failure names the log" || { echo "FAIL: failure log line"; _fail=1; }
+grep -q 'FAILED. See /tmp/y.log' <<<"$f" && echo "ok: failure names the log" || { echo "FAIL: failure log line"; _fail=1; }
 grep -q 'System (dnf): 0 updated \[failed\]' <<<"$f" && echo "ok: failing backend is marked" || { echo "FAIL: backend status marker"; _fail=1; }
 grep -q 'Apps (flatpak): 0 updated \[skipped\]' <<<"$f" && echo "ok: skipped backend is marked" || { echo "FAIL: skipped marker"; _fail=1; }
 grep -q 'Held' <<<"$f" && { echo "FAIL: empty held list printed a line"; _fail=1; } || echo "ok: no held line when nothing is held"
