@@ -2624,6 +2624,30 @@ assert_not_contains "$(jq -r .error "$UH")" "apps for you only could not be list
 assert_eq "$(jq -c '[.backends.flatpak.removed[] | select(.scope == "user")] | length' "$UH")" "0" \
   "...and no per-user app is reported removed"
 
+# A busy system installation beside a per-user failure that is not a lock: exit 1, not 7, and the
+# reason does not end on "Try again", which alone would not fix the run.
+printf '#!/usr/bin/env bash\necho "FLATPAK $@" >> "%s/apply-calls"\necho "error: Locking repo /var/lib/flatpak/repo failed: Resource temporarily unavailable" >&2\nexit 1\n' \
+  "$WORLD" > "$TESTTMP/fp-busy-stub"
+chmod +x "$TESTTMP/fp-busy-stub"
+uf_busy_update() { cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
+                   UF_RC=0; KEMPT_RETRY_DELAY=0 KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-busy-stub" \
+                     "$KEMPT" update --surface=background >/dev/null 2>&1 || UF_RC=$?
+                   UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
+uf_busy_update
+assert_eq "$UF_RC" "7" "a busy system installation with the per-user one fine still exits 7"
+USER_FP_RC=1 uf_busy_update
+assert_eq "$UF_RC" "1" "a busy system installation and a failed per-user update exit 1"
+assert_contains "$(jq -r .error "$UH")" "another program is using Flatpak" "...the reason still names the busy lock"
+assert_contains "$(jq -r .error "$UH")" "Another part of the update failed too" "...and says something else failed"
+assert_not_contains "$(jq -r .error "$UH")" "Try again" "...in place of telling the person to try again"
+grep -q 'run failed rc=1: another program is using Flatpak.*Another part of the update failed too' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log says rc=1 with the same reason" \
+  || { echo "FAIL: the event log does not say rc=1 with the combined reason"; _fail=1; }
+# ...and the same when the per-user apps cannot be listed after the run.
+KEMPT_FLATPAK_USER_SNAP_CMD="$TESTTMP/u-snap-after-fails" uf_busy_update
+assert_eq "$UF_RC|$(jq -c .backends.flatpak.scopes "$UH")" '1|{"system":"failed","user":"failed"}' \
+  "a busy system installation and a per-user set unreadable after the run exit 1"
+
 # A bare repo directory, which flatpak fails on, is no installation: the run is the system one.
 rm "$TESTTMP/ufp/repo/config"
 KEMPT_FLATPAK_USER_SNAP_CMD=false KEMPT_FLATPAK_USER_LIST_CMD=false uf_update

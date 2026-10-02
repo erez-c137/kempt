@@ -744,8 +744,11 @@ log_warn() {  # log_file message
 KEMPT_DNF_LOCK_RE='failed to obtain rpm transaction lock|another transaction is in progress|can.t create [a-z]+ lock on|unable to lock'
 KEMPT_FLATPAK_LOCK_RE='unable to lock|\blocking repo.*failed|opening lock file.*failed'
 # Lower case at the start like every other reason: it is shown after "Update failed: ".
-KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. Try again in a few minutes."
-KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and was still busy after three tries. The Flatpak update did not finish. Try again in a few minutes."
+# The last sentence is swapped for KEMPT_BUSY_ALSO_FAILED when another part of the run failed too.
+KEMPT_BUSY_TRY_AGAIN="Try again in a few minutes."
+KEMPT_BUSY_ALSO_FAILED="Another part of the update failed too, and the log says what."
+KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. $KEMPT_BUSY_TRY_AGAIN"
+KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and was still busy after three tries. The Flatpak update did not finish. $KEMPT_BUSY_TRY_AGAIN"
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
   local attempt rc before_sz lock_re="$KEMPT_DNF_LOCK_RE" busy="$KEMPT_BUSY_REASON_DNF"
@@ -1649,7 +1652,8 @@ cmd_update() {
         # Only a run that was otherwise fine takes this reason: an earlier failure keeps its own.
         [[ "$status" == ok ]] \
           && reason_override="${reason_override:-the apps for you only could not be listed after the run, so the summary leaves them out}"
-        fp_status="failed"; status="failed"
+        # Not a lock: a busy system scope beside this exits 1, not 7.
+        fp_status="failed"; status="failed"; run_failed_otherwise=1
         local fp_scopes_after
         if fp_scopes_after="$(jq -cS '(. // {}) + {user: "failed"}' <<<"$fp_scopes" 2>/dev/null)" \
            && [[ -n "$fp_scopes_after" ]]; then
@@ -1694,7 +1698,15 @@ cmd_update() {
   local run_rc=0
   if [[ "$status" != "ok" ]]; then
     run_rc=1
-    [[ -n "$run_busy_reason" && "$reason" == "$run_busy_reason" && -z "$run_failed_otherwise" ]] && run_rc=7
+    if [[ -n "$run_busy_reason" && "$reason" == "$run_busy_reason" ]]; then
+      if [[ -z "$run_failed_otherwise" ]]; then
+        run_rc=7
+      else
+        # Busy, and something else failed too: trying again alone would not fix the run, so the
+        # reason says so in place of "Try again".
+        reason="${reason%" $KEMPT_BUSY_TRY_AGAIN"} $KEMPT_BUSY_ALSO_FAILED"
+      fi
+    fi
   fi
 
   # history entry

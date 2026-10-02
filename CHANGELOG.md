@@ -28,7 +28,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`kempt update` exits 7, not 1, when another program had the package lock.** This applies
   when another program (PackageKit, Discover, dnf-automatic or another `flatpak`) still holds the
-  dnf or Flatpak lock after three tries. A script can wait and try again.
+  dnf or Flatpak lock after three tries. A script can wait and try again. When another part of
+  the run failed too, it exits 1, and the reason says so in place of "Try again".
 - **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
   Flatpak's lock through all three tries, the summary, notification and history say so and say to
   try again, in place of Flatpak's raw error line. Both reasons now read as short sentences.
