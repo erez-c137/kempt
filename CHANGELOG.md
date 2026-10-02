@@ -60,9 +60,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget with an engine that will not run says each thing once.** The header says Kempt's
   engine will not run. The message under it now reads "The engine is installed but cannot start,
   so nothing can check for updates.", and the hover text shows the header above that sentence.
-- **Check for Updates tells a screen reader what it found.** When the check finishes, the
-  header is read out, such as "3 updates available" or "Up to date". Checks you did not ask for
-  stay silent.
+- **Check for Updates tells a screen reader what it found.** The line at the top is read out,
+  such as "3 updates available" or "Up to date". A failed check is read out too. So is the age
+  of the lists when the fetch was skipped. It works from the button and the menu entry, with the
+  widget open or closed. Background checks stay silent.
 
 ## [0.1.7] - 2026-10-02
 

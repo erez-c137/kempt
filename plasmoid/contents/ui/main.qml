@@ -53,10 +53,21 @@ PlasmoidItem {
     // the news; what a surface DOES about it is that surface's business - the same split as
     // popupShown(). `message` carries the sentence to speak when `ok` is false.
     signal holdOutcome(string name, bool hold, bool ok, string message)
-    // ...and when a Check for Updates the person asked for comes back with an answer. Only that
-    // check: the timer, the watcher and the popup opening are nobody's press, and a reader that
-    // spoke up for those would talk over whatever the person was doing.
+    // ...and when a Check for Updates the person asked for comes back with an answer: a state, or
+    // the engine missing or refusing to run. Only that check: the timer, the watcher and the popup
+    // opening are nobody's press, and a reader that spoke up for those would talk over whatever
+    // the person was doing. Not emitted for the two answers that carry nothing to read out: a CLI
+    // that failed without printing a state, and an empty answer (a lost lock). Those stay silent.
+    // What is said is vm.checkAnswerText. WHO says it depends on popupOnScreen: the popup while
+    // it is open, the panel icon while it is not (the popup is built on first open, and once
+    // closed it is a hidden window a reader does not follow).
     signal freshCheckAnswered()
+    // True while such an answer is being taken in. The footer reads it so it does not also
+    // announce a failure that the answer is about to say.
+    property bool answeringCheck: false
+    // Whether the popup is on screen. `expanded` says the same, but a probe cannot touch that
+    // property (see onExpandedChanged), so this follows it through popupOpened/popupClosed.
+    property bool popupOnScreen: false
     // How many times we have re-asked after a check that answered with NOTHING. When another check
     // holds the lock, `kempt check` serves the previous state.json and exits 0 - and prints nothing
     // when there is no previous state yet, which on a fresh install's first login is the ordinary
@@ -410,6 +421,9 @@ PlasmoidItem {
             root.lastCheckFinished = Date.now();
             postRunCheck.stop();                   // any landed check is the one it waits for
             var parsed = Logic.parseState(stdout);
+            // Set across the assignments below, so the footer stays quiet while they land and the
+            // announcement after them is the only one. Cleared once it has been made.
+            root.answeringCheck = fresh;
             if (parsed !== null) {
                 root.kemptState = parsed;
                 // Something answered, so whatever is wrong is inside that answer now, and there IS
@@ -417,9 +431,6 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
-                // After kemptState, so the popup reads the header this answer produced. Before
-                // the recheck below returns, so a timer firing meanwhile cannot swallow it.
-                if (fresh) root.freshCheckAnswered();
             } else if (rc === 127) {
                 // Nothing to run. cliError is cleared so the popup shows one message about one
                 // situation instead of both.
@@ -445,6 +456,10 @@ PlasmoidItem {
                 // below skips retrying while it does.
                 root.engineFault = "";
             }
+            // After the view model has the answer, so what is said is what is now on screen.
+            // Before the recheck below returns, so a timer firing meanwhile cannot swallow it.
+            if (fresh && (parsed !== null || rc === 126 || rc === 127)) root.freshCheckAnswered();
+            root.answeringCheck = false;
             // The last run may not be the one we knew about: a `kempt update` typed in a terminal
             // writes a history entry and then re-checks itself.
             //
@@ -1138,6 +1153,7 @@ PlasmoidItem {
     // `recheckPending`, and a second guard that could disagree with the first is how a popup ends
     // up unable to refresh at all after some sequence nobody tested.
     function popupOpened() {
+        popupOnScreen = true;
         refreshClock();
         var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
             ? kemptState.last_success : "";
@@ -1159,6 +1175,7 @@ PlasmoidItem {
     // ...and it went away. One event, one line at a time: the transient post-run line has been
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
+        popupOnScreen = false;
         // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
         // under the Last update row. Asked BEFORE the post-run line clears.
         if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,

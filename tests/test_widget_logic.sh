@@ -1928,6 +1928,21 @@ assert_eq "$(mfoot_asked 2026-08-26T12:02:00+03:00 "$ASKED")" "Checked 4 min ago
 assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 0)" "Checked 4 min ago" \
   "...and with no press behind the check, the 24-hour floor stands"
 assert_eq "$(js 'L.refreshMissed({}, Date.now())')" "false" "a state with no metadata stamp claims no missed fetch"
+# What Check for Updates says out loud: the line at the top, plus the age when the fetch was
+# missed, or the footer's line when the check failed. One sentence, for both places that speak it.
+answer() {  # state-json askedMs [engineFault]
+  js "L.viewModel($1,false,\"\",{nowMs:$NOW,refreshAskedMs:$2${3:+,engineFault:\"$3\"}}).checkAnswerText"
+}
+OK_STATE='{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{},metadata_refreshed:"2026-08-26T09:00:00+03:00"}'
+assert_eq "$(answer "$OK_STATE" 0)" "Up to date" \
+  "a Check for Updates answer is the line at the top"
+assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Metadata 3 hours old" \
+  "...with the metadata age when the fetch it asked for did not happen"
+STALE_STATE='{schema:1,status:"stale",error:"dnf check failed",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{}}'
+assert_eq "$(answer "$STALE_STATE" "$ASKED")" "Checked 4 min ago · last check failed" \
+  "...and the footer's line when the check failed, never the old counts as the answer"
+assert_eq "$(answer "$STALE_STATE" "$ASKED" missing)" "Kempt's engine is not installed" \
+  "...and that the engine is missing, when it is"
 # ...and the same line for a box that HAS checked, repeatedly, and never once succeeded. That is
 # a different fact from never having checked, and the fallback used to claim the wrong one of the
 # two inside the very block that draws the last_success / last_check distinction. It is not a
@@ -2949,7 +2964,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

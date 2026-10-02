@@ -55,6 +55,10 @@ AUTO = os.path.join(p.sandbox, "auto_accept")
 # world the widget has to react to a CHANGE in, and rewriting a file is how this probe changes the
 # world under a running widget.
 CHECKSRC = os.path.join(p.sandbox, "checksrc")
+# ...and the status `kempt check` exits with, printing nothing, while this file holds one (empty:
+# it serves CHECKSRC). 127 and 126 are the engine missing and the engine refusing to run.
+CHECKRC = os.path.join(p.sandbox, "checkrc")
+open(CHECKRC, "w").write("")
 RR = os.path.join(p.sandbox, "restart_reminder")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
@@ -176,7 +180,8 @@ if [[ "$1" == config && "$2" == set && -s %(CSRC)s ]]; then
 fi
 case "$1" in
 %(CFG)s
-  check)  cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
+  check)  [[ -s %(CHKRC)s ]] && exit "$(cat %(CHKRC)s)"
+          cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
@@ -200,7 +205,7 @@ esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
        "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
-       "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "CHKRC": CHECKRC, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -2018,13 +2023,53 @@ p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1
 
 # ...and says what it found. The header changes and nothing announces a header, so a reader who
 # pressed Check for Updates used to hear nothing at all. The header's own words, once, politely.
-_sev("clear()")
+# The popup says it while it is on screen and the panel icon while it is not, so the panel icon
+# is built here too, against the same root, with its own spy.
+compact_comp = QQmlComponent(p.engine, QUrl.fromLocalFile(
+    os.path.join(harness.UI, "CompactRepresentation.qml")))
+compact = compact_comp.createWithInitialProperties(
+    {"plasmoidItem": root, "vm": root.property("vm"), "iconSizeSetting": "auto"})
+p.check("the panel icon builds against the same root", compact is not None, True)
+if compact is None:
+    sys.exit(p.done())
+QQmlEngine.setObjectOwnership(compact, QQmlEngine.CppOwnership)
+p.keep.append((compact_comp, compact))
+cev = p.evaluator(compact)
+cev("compactRoot.vm = Qt.binding(function () { return compactRoot.plasmoidItem.vm; })")
+_cspy, _csev = p.create_inline("""
+import QtQuick
+QtObject {
+    id: spy
+    property var said: []
+    function hear(sentence) { var a = spy.said.slice(); a.push(sentence); spy.said = a; }
+    function clear() { spy.said = []; }
+}
+""", "compact-announce-spy.qml")
+p.engine.rootContext().setContextProperty("compactAnnounceSpy", _cspy)
+cev("compactRoot.announced.connect(compactAnnounceSpy.hear)")
+
+
+def compact_said():
+    return json.loads(str(_csev("JSON.stringify(said)")))
+
+
+def hush():
+    _sev("clear()")
+    _csev("clear()")
+
+
+ev("root.popupOpened()")
+settle()
+p.check("opening the popup is what puts it on screen, as far as the announcement goes",
+        ev("root.popupOnScreen"), True)
+hush()
 lev("refreshButton.clicked()")
 settle()
 p.check("a Check for Updates that finds updates says the header out loud, once",
         said(), [lev("popup.vm.headerText")])
 p.check("...which is the count the person can see", "updates available" in said()[0], True)
-_sev("clear()")
+p.check("...and the panel icon stays quiet while the popup is open", compact_said(), [])
+hush()
 open(CHECKSRC, "w").write(UPTODATE)
 ev("checkAction.trigger()")
 settle()
@@ -2044,6 +2089,92 @@ _sev("clear()")
 ev("root.doCheck()")
 settle()
 p.check("...nor a manual check that is not Check for Updates", said(), [])
+
+# Pressed while a background check runs. The refresh icon refuses then (it is disabled), so this
+# is the menu entry, which stays live. The press folds into the running check and is answered by
+# the check that follows it: the running one says nothing, the one the press asked for says it.
+hush()
+open(CHECKSRC, "w").write(UPTODATE)
+ev("root.doCheck(true)")
+p.check("...a background check is running", ev("root.checking"), True)
+ev("checkAction.trigger()")
+settle()
+p.check("Check for Updates pressed during a background check is answered once",
+        [said(), compact_said()], [[ev("Logic.COPY.upToDate")], []])
+
+# A failed check. The line at the top still shows the old counts, so it is not the answer; the
+# footer's line is. Read out by the answer and not ALSO by the footer, which announces a new
+# failure on its own.
+state(fixture("state-live.json"))
+hush()
+open(CHECKSRC, "w").write(fixture("state-stale.json"))
+lev("refreshButton.clicked()")
+settle()
+p.check("a Check for Updates that fails reads the footer's line, once",
+        said(), [lev("footerLabel.text")])
+p.check("...which says the check failed", "last check failed" in said()[0], True)
+p.check("...and is the one sentence both speakers use", ev("root.vm.checkAnswerText"),
+        lev("footerLabel.text"))
+hush()
+lev("refreshButton.clicked()")
+settle()
+p.check("...and the same failure again is read again, since somebody asked again",
+        said(), [lev("footerLabel.text")])
+hush()
+ev("root.doCheck(true)")
+settle()
+p.check("...while a background check with the same failure says nothing", said(), [])
+state(fixture("state-live.json"))
+
+# A fetch that did not happen (battery, metered, offline). "Up to date" from old lists is not what
+# the person asked for, so the age the footer gives is read with it.
+_missed = json.load(open(UPTODATE))
+_missed["metadata_refreshed"] = (datetime.datetime.now().astimezone()
+                                 - datetime.timedelta(hours=3, minutes=5)).isoformat(
+                                     timespec="seconds")
+open(os.path.join(p.sandbox, "state-missed.json"), "w").write(json.dumps(_missed))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-missed.json"))
+ev("root.refreshClock()")
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("a Check for Updates whose fetch did not happen says how old the lists are",
+        said(), ["Up to date. Metadata 3 hours old"])
+p.check("...in the footer's own words", "metadata 3 hours old" in str(lev("footerLabel.text")),
+        True)
+
+# The engine missing or refusing to run. The line at the top says which, and so does the answer.
+for _rc, _words in (("127", "Kempt's engine is not installed"),
+                    ("126", "Kempt's engine will not run")):
+    open(CHECKRC, "w").write(_rc)
+    hush()
+    ev("checkAction.trigger()")
+    settle()
+    p.check("a Check for Updates that finds no engine (exit %s) says so" % _rc, said(), [_words])
+open(CHECKRC, "w").write("")
+state(fixture("state-live.json"))
+
+# The menu entry with the popup closed. The popup is a hidden window then, or not built at all,
+# so the panel icon says it, and the popup does not.
+ev("root.popupClosed()")
+p.check("closing the popup takes it off screen", ev("root.popupOnScreen"), False)
+open(CHECKSRC, "w").write(UPTODATE)
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("Check for Updates from the menu with the popup closed is said by the panel icon, once",
+        [compact_said(), said()], [[ev("Logic.COPY.upToDate")], []])
+# ...and a failure the same way, without the hidden footer saying it as well.
+open(CHECKSRC, "w").write(fixture("state-stale.json"))
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("...and a failure with the popup closed, once, by the panel icon alone",
+        [compact_said(), said()], [[ev("root.vm.footerText")], []])
+state(fixture("state-live.json"))
+ev("root.popupOpened()")
+settle()
+hush()
 ev("root.checking = true")
 p.pump(50)
 p.check("a check in flight puts the spinner beside the control that started it",

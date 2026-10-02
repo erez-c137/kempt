@@ -1,5 +1,6 @@
 // The panel icon and its badge. Pure presentation: every value below comes from the view model
-// main.qml derives in logic.js, which the node tests pin. Nothing is decided here.
+// main.qml derives in logic.js, which the node tests pin. Nothing is decided here (the one
+// exception: it speaks a Check for Updates answer while the popup is closed, see the end).
 //
 // Both inputs are `required`, and that is the safety property. Reaching across into main.qml's ids
 // works right up until it does not - and the failure mode is silent, because a binding that cannot
@@ -157,6 +158,32 @@ Item {
             // panel is still sizing itself.
             font.pixelSize: Math.max(1, Math.round(badge.height * (text.length > 2 ? 0.5 : 0.7)))
             font.bold: true
+        }
+    }
+
+    // --- what the panel icon says out loud -------------------------------------------------------
+    // Check for Updates from the tray menu while the popup is closed. The popup is built on its
+    // first open and is a hidden window once closed, so this item, which is always there, says
+    // the answer instead. The same sentence the popup would say (vm.checkAnswerText), and the same
+    // shape as the popup's announce(): `announced` is emitted alongside, because Accessible.announce
+    // reaches an accessibility bridge and nothing else, and the probes spy on the signal.
+    signal announced(string sentence)
+
+    function announce(sentence) {
+        const said = String(sentence === undefined || sentence === null ? "" : sentence);
+        if (said.length === 0) return;
+        compactRoot.announced(said);
+        if (typeof compactRoot.Accessible.announce !== "function") return;
+        compactRoot.Accessible.announce(said, Accessible.AnnouncementPoliteness.Polite);
+    }
+
+    Connections {
+        target: compactRoot.plasmoidItem
+        // A bare PlasmoidItem (a test cell measuring the badge) has no such signal.
+        ignoreUnknownSignals: true
+        function onFreshCheckAnswered() {
+            if (compactRoot.plasmoidItem.popupOnScreen) return;
+            compactRoot.announce(compactRoot.vm.checkAnswerText);
         }
     }
 

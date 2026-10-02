@@ -2390,6 +2390,23 @@ function viewModel(state, updating, cliError, opts) {
     // reminder off, or dismissed for this session, this line is the only place it is said.
     if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
 
+    // What Check for Updates says out loud when it lands, in the words already on screen. ONE
+    // sentence for both places that can speak it (the panel icon while the popup is closed, the
+    // popup while it is open), so the two cannot drift apart.
+    //   * the line at the top, which is the answer: "3 updates available", "Up to date", or that
+    //     the engine is missing or will not run.
+    //   * a check that failed: the footer line, which is where that failure is shown. The counts at
+    //     the top are the old ones, and reading them out as the answer would be the wrong news.
+    //   * a check whose fetch did not happen (battery, metered, offline): the top line plus the age
+    //     the footer gives, because "Up to date" from old lists is not what the person asked for.
+    var checkAnswerText = headerText;
+    if (!updating && !noEngine && usable) {
+        if (stale) checkAnswerText = footerParts.join(DOT);
+        else if (metaAge !== "" && refreshMissed(state, opts.refreshAskedMs)) {
+            checkAnswerText = headerText + ". " + metaAge.charAt(0).toUpperCase() + metaAge.slice(1);
+        }
+    }
+
     return {
         iconState: iconState,
         badgeText: badgeText,
@@ -2505,6 +2522,7 @@ function viewModel(state, updating, cliError, opts) {
         reclaimDigest: reclaimDigest,
         reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
         footerText: footerParts.join(DOT),
+        checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
         downloadText: downloadText,

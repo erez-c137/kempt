@@ -308,15 +308,16 @@ PlasmaExtras.Representation {
         }
     }
 
-    // Check for Updates, answered. The header changes, and nothing announces a header, so a reader
-    // who pressed the button heard nothing at all. Polite, because the person asked; the header's
-    // own words, so what is heard is what is on screen. A failed check says nothing here: the
-    // footer already announces that one.
+    // Check for Updates, answered. The line at the top changes, and nothing announces it, so a
+    // reader who pressed the button heard nothing at all. Polite, because the person asked. The
+    // sentence is vm.checkAnswerText (a failed check reads the footer's line), and only while the
+    // popup is on screen: while it is closed, the panel icon says it instead. Answers with nothing
+    // to read (a CLI failing without a state, an empty answer) are not signalled at all.
     Connections {
         target: popup.plasmoidItem
         function onFreshCheckAnswered() {
-            if (popup.vm.stale) return;
-            popup.announce(popup.vm.headerText, false);
+            if (!popup.plasmoidItem.popupOnScreen) return;
+            popup.announce(popup.vm.checkAnswerText, false);
         }
     }
 
@@ -1316,12 +1317,15 @@ PlasmaExtras.Representation {
                 // clock ("Checked 4 min ago") and a screen reader does not want to hear that.
                 // Polite, because nothing has gone wrong that needs interrupting: the counts above
                 // are still the best known truth and this dates them.
+                // Not while a Check for Updates is landing: that answer reads this same line out
+                // itself (vm.checkAnswerText), even when the failure is the same as last time.
                 property string spokenStale: ""
                 onTextChanged: {
                     const reason = popup.vm.stale ? popup.vm.staleReason : "";
                     if (reason === footerLabel.spokenStale) return;
                     footerLabel.spokenStale = reason;
-                    if (reason !== "") popup.announce(footerLabel.text, false);
+                    if (reason !== "" && !popup.plasmoidItem.answeringCheck)
+                        popup.announce(footerLabel.text, false);
                 }
 
                 // The relative time in the line is the convenience; the absolute stamp is the
