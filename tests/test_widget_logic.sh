@@ -2923,7 +2923,7 @@ assert_eq "$(js 'L.COPY.engineMissingInstall')" \
   "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt" \
   "copy: ...and the commands that fix it, complete enough to paste"
 assert_eq "$(js 'L.COPY.engineUnrunnable')" \
-  "It is installed, but nothing can check for updates until it starts." \
+  "The engine is installed but cannot start, so nothing can check for updates." \
   "copy: an engine that is there and will not start says which of the two it is, under a header that says it will not run"
 assert_eq "$(js 'L.COPY.engineUnrunnableCopy')" "kempt doctor" \
   "copy: ...and the one command that finds out why"

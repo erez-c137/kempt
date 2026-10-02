@@ -97,8 +97,9 @@ Messages appear only when they apply, and **at most two show at once**, the ones
 left out. If that hides the restart message, the footer says `restart pending` instead.
 
 1. **The engine is missing or will not run.** *"Nothing can check for updates yet."*, with the
-   install commands and **Copy Commands**. Or *"Kempt's engine is installed but will not run, so
-   nothing can check for updates."*, with **Check Installation** and **Copy Command**. Either one
+   install commands and **Copy Commands**. Or, under **Kempt's engine will not run**, *"The engine
+   is installed but cannot start, so nothing can check for updates."*, with **Check Installation**
+   and **Copy Command**. Either one
    shows alone. See [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`, or
    `Update failed: <the reason>`, or what Kempt said about a button press that failed.

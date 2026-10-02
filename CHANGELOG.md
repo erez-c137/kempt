@@ -58,8 +58,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installed. The message under it now starts at "Nothing can check for updates yet.", followed by
   the install commands.
 - **The widget with an engine that will not run says each thing once.** The header says Kempt's
-  engine will not run. The message under it now starts at "It is installed, but nothing can check
-  for updates until it starts.", and the hover text carries the same two lines.
+  engine will not run. The message under it now reads "The engine is installed but cannot start,
+  so nothing can check for updates.", and the hover text shows the header above that sentence.
 
 ## [0.1.7] - 2026-10-02
 
