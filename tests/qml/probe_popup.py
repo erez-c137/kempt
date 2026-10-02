@@ -1903,6 +1903,10 @@ p.check("...saying why doctor could not start, in the shell's words",
         lev("doctorMessage.text"),
         "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt:"
         " Permission denied")
+p.check("...with one Copy Command between the two messages, not two",
+        [lev("doctorMessage.actions[1].visible"),
+         json.loads(str(lev("JSON.stringify(" + _VISIBLE_ACTIONS + ")"))).count("Copy Command")],
+        [False, 1])
 ev("root.dismissDoctor()")
 open(DOCTORRC, "w").write("0")
 open(DOCTORERR, "w").write("")
@@ -2017,8 +2021,8 @@ ev('root.cliError = "kempt: command not found"')
 p.pump(50)
 p.check("a CLI that could not be run is an empty state with an explanation",
         lev("placeholder.explanation") != "", True)
-p.check("...that names the button and keeps the command",
-        lev("placeholder.explanation"), "Check Installation runs `kempt doctor` to find out why.")
+p.check("...that names the button, in words rather than a command",
+        lev("placeholder.explanation"), "Check Installation can find out why.")
 p.check("...with Check Installation under it",
         [lev("placeholder.helpfulAction.text"), lev("placeholder.helpfulAction.enabled")],
         ["Check Installation", True])

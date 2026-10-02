@@ -930,6 +930,8 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Copy Command")
                     icon.name: "edit-copy"
+                    // The will-not-run message above has the same button for the same command.
+                    visible: !popup.vm.engineFaultOffersDoctor
                     onTriggered: source => popup.copyToClipboard(Logic.COPY.engineUnrunnableCopy)
                 }
             ]
@@ -1171,7 +1173,7 @@ PlasmaExtras.Representation {
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.remedyCommand.length > 0
-                             ? i18n("Check Installation runs `%1` to find out why.", popup.vm.remedyCommand)
+                             ? i18n("Check Installation can find out why.")
                              : ""
                 helpfulAction: doctorPlaceholderAction
             }
