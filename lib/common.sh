@@ -667,9 +667,8 @@ discover_notifier_on() {
     return 1
   fi
   echo "Discover's update notifier is on."
-  # The files are settled, so the writers' lock cmd_discover_notifier took is released before
-  # anything long-lived starts. Waiting for the notifier to appear needs no lock.
-  writer_unlock
+  # The writers' lock stays held until the notifier is up, so a concurrent off cannot slip in
+  # between. discover_start closes it for the child, so the notifier never inherits it.
   discover_running && return 0
   if discover_start; then
     echo "Started it for this session."
