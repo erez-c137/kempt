@@ -23,13 +23,14 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    - `KPlugin.Version` in `plasmoid/metadata.json`.
    - `<release version=` in `io.github.erez_c137.kempt.metainfo.xml`, with the release date in
      `date=`, newest first.
-   - The two `<screenshot>` URLs in the same file. They name the new tag
+   - The three `<screenshot>` URLs in the same file. They name the new tag
      (`.../kempt/v0.2.0/docs/images/...`), not `main`, so a software centre shows the screenshots
      of this release.
    - `Version:` in `kempt.spec`.
 
-   By hand, because no test checks them: a new dated entry in the spec's `%changelog`, and the
-   supported-versions table in `SECURITY.md` if this release changes it.
+   By hand, because no test checks them: a new dated entry in the spec's `%changelog`, the date in
+   the `.TH` line of `docs/man/kempt.1`, and the supported-versions table in `SECURITY.md` if this
+   release changes it.
 
 2. **Move the CHANGELOG and the roadmap.** Rename `## [Unreleased]` to
    `## [0.2.0] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it. Then move what shipped
@@ -63,7 +64,8 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    - the widget lands where Plasma looks, and the installed QML runs;
    - `doctor`, `holds`, `config` and an unknown command give a new user sensible answers;
    - the package has the man page and user guides, and no maintainer documents;
-   - an upgrade from the last release keeps the widget;
+   - an upgrade from the last release keeps the widget, and keeps an install that used the
+     terminal on it;
    - `dnf remove` leaves nothing behind except the user's settings.
 
    It reads `VERSION`, so nothing needs editing per release. It runs only inside its container.
