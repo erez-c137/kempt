@@ -67,9 +67,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt doctor` no longer FAILs over a KDE Store widget when no packaged widget is installed.**
   The store copy is then the only widget, not a shadow of one. Doctor notes it and says to install
   `kempt-plasmoid` first, then remove the store copy. It still FAILs when both copies are there.
+- **A Check for Updates that fails over earlier counts says so.** Before, the counts stayed and
+  nothing changed on screen. Now a message says the check failed or did not finish, and that the
+  counts shown are from the last check. A check that ran out of time no longer shows "timeout after"
+  and a number of milliseconds.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out,
-  such as "3 updates available" or "Up to date". A failed check is read out too. So is the age
-  of the lists when the fetch was skipped. It works from the button and the menu entry, with the
+  such as "3 updates available" or "Up to date". A failed check is read out too, as which part
+  failed and how old the counts are. So is the age of the lists when the fetch was skipped. It works from the button and the menu entry, with the
   widget open or closed. Checks that run on their own add nothing new.
 
 ## [0.1.7] - 2026-10-02

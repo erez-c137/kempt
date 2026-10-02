@@ -54,12 +54,11 @@ PlasmoidItem {
     // popupShown(). `message` carries the sentence to speak when `ok` is false.
     signal holdOutcome(string name, bool hold, bool ok, string message)
     // ...and when a Check for Updates the person asked for comes back with an answer: a state, the
-    // engine missing or refusing to run, or a CLI that failed while there is no state at all (the
-    // line at the top then says Kempt cannot check). Only that check: the timer, the watcher and
-    // the popup opening are nobody's press, and a reader that spoke up for those would talk over
-    // whatever the person was doing. Not emitted for a CLI that failed over a state we still hold
-    // (the line at the top still shows that state's counts), nor for an empty answer (a lost
-    // lock). Those stay silent.
+    // engine missing or refusing to run, or a CLI that failed (with no state the line at the top
+    // says Kempt cannot check; over a state we hold, the report says the check did not finish).
+    // Only that check: the timer, the watcher and the popup opening are nobody's press, and a
+    // reader that spoke up for those would talk over whatever the person was doing. Not emitted
+    // for an empty answer (a lost lock), which stays silent.
     // What is said is vm.checkAnswerText. WHO says it depends on popupOnScreen: the popup while
     // it is open, the panel icon while it is not (the popup is built on first open, and once
     // closed it is a hidden window a reader does not follow).
@@ -99,6 +98,10 @@ PlasmoidItem {
     property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
+    // A Check for Updates that answered nothing while a state is held: the sentence put in
+    // actionMessage for it, so the next check can take back that report and no other. It is also
+    // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
+    property string checkFailNote: ""
     // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
     // says what a run will really do, which is why the popup binds to effectiveSurface below.
     // The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
@@ -293,6 +296,7 @@ PlasmoidItem {
                                                 configuredSurface: surface,
                                                 autoAccept: autoAccept,
                                                 riskyChoiceOpen: riskyChoiceOpen,
+                                checkUnfinished: checkFailNote,
                                                 surfaceOfferAnswered: surfaceOfferAnswered,
                                                 discoverOfferAnswered: discoverOfferAnswered,
                                                 discoverAnswerKnown: discoverAnswerKnown,
@@ -393,6 +397,11 @@ PlasmoidItem {
         actionDone = "";
         restartError = "";
         holdError = null;
+        // ...and the note a failed Check for Updates left, which this check answers.
+        if (checkFailNote !== "") {
+            if (actionMessage === checkFailNote) actionMessage = "";
+            checkFailNote = "";
+        }
         // ...and a Check Installation answer, which described the installation before this check.
         // One still waiting its turn is left alone: it answers a press made since.
         if (!doctorRunning) dismissDoctor();
@@ -451,7 +460,13 @@ PlasmoidItem {
                 // Nothing usable AND a failure: the one case where the widget itself has something
                 // to report - the CLI ran and could not answer.
                 root.engineFault = "";
-                root.cliError = Logic.firstLineOf(stderr);
+                root.cliError = Logic.checkErrorOf(rc, stderr);
+                // Over counts we still hold, the screen would not change at all, so a press of
+                // Check for Updates says that it did not get an answer.
+                if (fresh && root.kemptState !== null) {
+                    root.checkFailNote = Logic.checkFailedOverOf(rc);
+                    root.actionMessage = root.checkFailNote;
+                }
             } else {
                 // rc 0 with nothing usable: a lock we lost. An engine that exits 0 EXISTS, so a
                 // standing no-engine verdict is stale - and it must not stand, because the retry
@@ -460,8 +475,7 @@ PlasmoidItem {
             }
             // After the view model has the answer, so what is said is what is now on screen.
             // Before the recheck below returns, so a timer firing meanwhile cannot swallow it.
-            if (fresh && (parsed !== null || rc === 126 || rc === 127
-                          || (rc !== 0 && root.kemptState === null))) root.freshCheckAnswered();
+            if (fresh && (parsed !== null || rc !== 0)) root.freshCheckAnswered();
             root.answeringCheck = false;
             // The last run may not be the one we knew about: a `kempt update` typed in a terminal
             // writes a history entry and then re-checks itself.

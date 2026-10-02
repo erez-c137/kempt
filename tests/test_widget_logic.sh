@@ -1939,8 +1939,44 @@ assert_eq "$(answer "$OK_STATE" 0)" "Up to date" \
 assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Metadata 3 hours old" \
   "...with the metadata age when the fetch it asked for did not happen"
 STALE_STATE='{schema:1,status:"stale",error:"dnf check failed",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{}}'
-assert_eq "$(answer "$STALE_STATE" "$ASKED")" "Checked 4 min ago · last check failed" \
-  "...and the footer's line when the check failed, never the old counts as the answer"
+assert_eq "$(answer "$STALE_STATE" "$ASKED")" "The check failed for dnf. The counts are from 4 min ago." \
+  "...and when the check failed, which half failed and how old the counts are, never the old counts as the answer"
+# The reason is read off the CLI's fixed prefixes only: what follows them is a tool's stderr.
+stale_answer() {  # error last_success
+  js "L.staleAnswerOf({error:$1,last_success:$2}, $NOW)"
+}
+assert_eq "$(stale_answer '"dnf check failed: Curl error (6): Could not resolve host"' '"2026-08-26T12:00:00+03:00"')" \
+  "The check failed for dnf. The counts are from 4 min ago." \
+  "the spoken failure leaves out the tool's own error text"
+assert_eq "$(stale_answer '"dnf check failed: x; flatpak check failed: y"' '"2026-08-26T12:00:00+03:00"')" \
+  "The check failed for dnf and Flatpak. The counts are from 4 min ago." \
+  "...names both halves when both failed"
+assert_eq "$(stale_answer '"repository metadata unavailable"' '"2026-08-26T12:00:00+03:00"')" \
+  "The check failed. The counts are from 4 min ago." \
+  "...and names neither when the reason has neither prefix"
+assert_eq "$(stale_answer '"dnf check failed"' '""')" \
+  "The check failed for dnf. No successful check yet." \
+  "...and says there has been no successful check when there has not"
+assert_eq "$(stale_answer '"dnf check failed"' '"not a date"')" "The check failed for dnf." \
+  "...and leaves out a time it cannot read"
+assert_eq "$(js "L.staleAnswerOf({error:\"dnf check failed\",last_success:new Date($NOW - 10000).toISOString()}, $NOW)")" \
+  "The check failed for dnf. The counts are from a moment ago." \
+  "...and a time under a minute reads as a moment ago"
+# A check that answered nothing over a state we hold: main.qml shows a report and passes it here,
+# and that report is the answer, since the counts at the top did not change.
+assert_eq "$(js "L.viewModel($OK_STATE,false,\"\",{nowMs:$NOW,checkUnfinished:L.COPY.checkUnfinished}).checkAnswerText")" \
+  "The check did not finish. The counts shown are from the last check." \
+  "a Check for Updates that never answered over held counts says so"
+assert_eq "$(js 'L.checkFailedOverOf(124)')" "The check did not finish. The counts shown are from the last check." \
+  "...a timeout over held counts says the check did not finish"
+assert_eq "$(js 'L.checkFailedOverOf(1)')" "The check failed. The counts shown are from the last check." \
+  "...any other failure says the check failed"
+assert_eq "$(js 'L.checkErrorOf(124, "timeout after 510000ms")')" "The check did not finish in time." \
+  "with no state, the Executor's kill is a sentence, never its timeout text"
+assert_eq "$(js 'L.checkErrorOf(1, "kempt: the check could not run\nmore")')" "kempt: the check could not run" \
+  "...and any other failure is the CLI's first stderr line"
+assert_eq "$(js 'L.checkErrorOf(124, "kempt: dnf timed out")')" "kempt: dnf timed out" \
+  "...including a 124 the CLI itself reported, with its own words"
 assert_eq "$(answer "$STALE_STATE" "$ASKED" missing)" "Kempt's engine is not installed" \
   "...and that the engine is missing, when it is"
 # ...and the same line for a box that HAS checked, repeatedly, and never once succeeded. That is

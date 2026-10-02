@@ -215,6 +215,17 @@ PlasmaExtras.Representation {
         popup.announce(item.text, assertive);
     }
 
+    // The report slot, which speaks for itself except while a Check for Updates answer lands: a
+    // failed check puts its report here, and the answer (vm.checkAnswerText) is the one that says
+    // it, politely, from whichever of the popup and the panel icon is on screen.
+    function speakReport() {
+        if (popup.plasmoidItem.answeringCheck) {
+            reportMessage.spoken = reportMessage.visible ? reportMessage.text : "";
+            return;
+        }
+        popup.speakMessage(reportMessage, true);
+    }
+
     // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
     // they are shown as they are, never read as markup. InlineMessage has no textFormat of its
     // own; its label is the one child of contentItem that has one.
@@ -310,9 +321,9 @@ PlasmaExtras.Representation {
 
     // Check for Updates, answered. The line at the top changes, and nothing announces it, so a
     // reader who pressed the button heard nothing at all. Polite, because the person asked. The
-    // sentence is vm.checkAnswerText (a failed check reads the footer's line), and only while the
-    // popup is on screen: while it is closed, the panel icon says it instead. Answers with nothing
-    // new to read (a CLI failing over a state we still hold, an empty answer) are not signalled.
+    // sentence is vm.checkAnswerText (a failed check says which half failed and how old the counts
+    // are), and only while the popup is on screen: while it is closed, the panel icon says it
+    // instead. An empty answer (a lost lock) is not signalled.
     Connections {
         target: popup.plasmoidItem
         function onFreshCheckAnswered() {
@@ -849,8 +860,8 @@ PlasmaExtras.Representation {
             // Assertive: a run that has just finished, or a press that failed, is the answer to
             // the one thing the person was waiting for, and the popup may not have the focus.
             property string spoken: ""
-            onTextChanged: popup.speakMessage(reportMessage, true)
-            onVisibleChanged: popup.speakMessage(reportMessage, true)
+            onTextChanged: popup.speakReport()
+            onVisibleChanged: popup.speakReport()
             actions: [
                 Kirigami.Action {
                     text: i18n("Show Log")

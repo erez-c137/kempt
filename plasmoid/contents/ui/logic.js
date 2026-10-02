@@ -191,6 +191,18 @@ var COPY = {
     // its fallback has to be about last_success. A box whose every check since install has failed
     // HAS checked - and that box is the one most likely to be reading this line.
     noSuccessfulCheckYet: "No successful check yet",
+    // A check that never answered. The first is the problem line when there is no state at all;
+    // the other two are the report over counts we still hold, which otherwise change nothing on
+    // screen. Never the Executor's own "timeout after 510000ms": that is a log line, not a reason.
+    checkTimedOut: "The check did not finish in time.",
+    checkUnfinished: "The check did not finish. The counts shown are from the last check.",
+    checkFailedOver: "The check failed. The counts shown are from the last check.",
+    // What Check for Updates says out loud when the check itself reported a failure (status
+    // "stale"). Short on purpose: the footer line it replaces also carried the metadata age, the
+    // held count and the download size. %1 is the failed half, %2 when the counts are from.
+    checkFailedFor: "The check failed for %1.",
+    checkFailedPlain: "The check failed.",
+    countsFrom: "The counts are from %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
@@ -1923,6 +1935,49 @@ function reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) 
     return lastRunSubtitle(run, seenWhen) !== "";
 }
 
+// isExecutorTimeout(rc, stderr) -> did Executor.qml's kill timer end this call? It reports that as
+// rc 124 with "timeout after Nms", words meant for a log, never for a person.
+function isExecutorTimeout(rc, stderr) {
+    return rc === 124 && firstLineOf(stderr).indexOf("timeout after ") === 0;
+}
+
+// checkErrorOf(rc, stderr) -> the widget's own report of a check that answered nothing, with no
+// state to fall back on (main.qml's cliError). The CLI's first stderr line, except for the
+// Executor's kill, which gets a sentence.
+function checkErrorOf(rc, stderr) {
+    if (isExecutorTimeout(rc, stderr)) return COPY.checkTimedOut;
+    return firstLineOf(stderr);
+}
+
+// checkFailedOverOf(rc) -> the report for a Check for Updates that answered nothing while a state
+// is still held. The counts on screen do not change, so without this the press looked ignored.
+function checkFailedOverOf(rc) {
+    return rc === 124 ? COPY.checkUnfinished : COPY.checkFailedOver;
+}
+
+// staleAnswerOf(state, nowMs) -> what Check for Updates says out loud for a check that reported a
+// failure. Which half failed comes from the CLI's own `error` ("dnf check failed: ...; flatpak
+// check failed: ..."), by its fixed prefixes only: what follows them is a tool's stderr, which is
+// not something to read to a person. Then how old the counts are, from last_success.
+function staleAnswerOf(state, nowMs) {
+    var names = [];
+    var parts = (typeof state.error === "string" ? state.error : "").split("; ");
+    for (var i = 0; i < parts.length; i++) {
+        var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
+        if (m === null) continue;
+        var name = m[1] === "flatpak" ? "Flatpak" : "dnf";
+        if (names.indexOf(name) < 0) names.push(name);
+    }
+    var said = names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
+                                : COPY.checkFailedPlain;
+    var ls = typeof state.last_success === "string" ? state.last_success.trim() : "";
+    if (ls === "") return said + " " + COPY.noSuccessfulCheckYet + ".";
+    if (!isRenderableStamp(ls)) return said;
+    var when = relativeTime(ls, nowMs);
+    if (when === "just now") when = "a moment ago";
+    return said + " " + fill(COPY.countsFrom, "%1", when);
+}
+
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
 // state change; the QML side holds no derived state of its own.
 //
@@ -2395,13 +2450,18 @@ function viewModel(state, updating, cliError, opts) {
     // popup while it is open), so the two cannot drift apart.
     //   * the line at the top, which is the answer: "3 updates available", "Up to date", or that
     //     the engine is missing or will not run.
-    //   * a check that failed: the footer line, which is where that failure is shown. The counts at
-    //     the top are the old ones, and reading them out as the answer would be the wrong news.
+    //   * a check that failed: which half failed and how old the counts are (staleAnswerOf). The
+    //     counts at the top are the old ones, and reading them out as the answer would be the
+    //     wrong news.
     //   * a check whose fetch did not happen (battery, metered, offline): the top line plus the age
     //     the footer gives, because "Up to date" from old lists is not what the person asked for.
+    //   * a check that answered nothing over a state we hold: the report main.qml put on screen
+    //     for it (opts.checkUnfinished), since the counts at the top did not change.
     var checkAnswerText = headerText;
-    if (!updating && !noEngine && usable) {
-        if (stale) checkAnswerText = footerParts.join(DOT);
+    var checkUnfinished = typeof opts.checkUnfinished === "string" ? opts.checkUnfinished : "";
+    if (!updating && !noEngine && checkUnfinished !== "") checkAnswerText = checkUnfinished;
+    else if (!updating && !noEngine && usable) {
+        if (stale) checkAnswerText = staleAnswerOf(state, opts.nowMs);
         else if (metaAge !== "" && refreshMissed(state, opts.refreshAskedMs)) {
             checkAnswerText = headerText + ". " + metaAge.charAt(0).toUpperCase() + metaAge.slice(1);
         }
@@ -2581,6 +2641,10 @@ if (typeof module !== "undefined" && module.exports) {
         reclaimInUseOnScreen: reclaimInUseOnScreen,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
+        isExecutorTimeout: isExecutorTimeout,
+        checkErrorOf: checkErrorOf,
+        checkFailedOverOf: checkFailedOverOf,
+        staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,

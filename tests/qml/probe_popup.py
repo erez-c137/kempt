@@ -59,6 +59,9 @@ CHECKSRC = os.path.join(p.sandbox, "checksrc")
 # it serves CHECKSRC). 127 and 126 are the engine missing and the engine refusing to run.
 CHECKRC = os.path.join(p.sandbox, "checkrc")
 open(CHECKRC, "w").write("")
+# Seconds `kempt check` takes before it answers (empty: none).
+CHECKSLEEP = os.path.join(p.sandbox, "checksleep")
+open(CHECKSLEEP, "w").write("")
 RR = os.path.join(p.sandbox, "restart_reminder")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
@@ -183,7 +186,8 @@ if [[ "$1" == config && "$2" == set && -s %(CSRC)s ]]; then
 fi
 case "$1" in
 %(CFG)s
-  check)  [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
+  check)  [[ -s %(CHKSLEEP)s ]] && sleep "$(cat %(CHKSLEEP)s)"
+          [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
           cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    # A 0.1.7 engine, while this file holds anything: it has no --risky-ok, and says so.
           [[ "$2" == --risky-ok && -s %(OLDRUN)s ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
@@ -210,7 +214,7 @@ esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
        "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
-       "CHKRC": CHECKRC, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -2107,24 +2111,25 @@ settle()
 p.check("Check for Updates pressed during a background check is answered once",
         [said(), compact_said()], [[ev("Logic.COPY.upToDate")], []])
 
-# A failed check. The line at the top still shows the old counts, so it is not the answer; the
-# footer's line is. Read out by the answer and not ALSO by the footer, which announces a new
-# failure on its own.
+# A failed check. The line at the top still shows the old counts, so it is not the answer; a short
+# sentence is: which half failed, and how old the counts are. Read out by the answer and not ALSO
+# by the footer, which announces a new failure on its own.
 state(fixture("state-live.json"))
 hush()
 open(CHECKSRC, "w").write(fixture("state-stale.json"))
 lev("refreshButton.clicked()")
 settle()
-p.check("a Check for Updates that fails reads the footer's line, once",
-        said(), [lev("footerLabel.text")])
-p.check("...which says the check failed", "last check failed" in said()[0], True)
+p.check("a Check for Updates that fails says so, once",
+        said(), [ev("root.vm.checkAnswerText")])
+p.check("...which says the check failed", said()[0].startswith("The check failed"), True)
+p.check("...and how old the counts are", "The counts are from" in said()[0], True)
 p.check("...and is the one sentence both speakers use", ev("root.vm.checkAnswerText"),
-        lev("footerLabel.text"))
+        ev("Logic.staleAnswerOf(root.kemptState, root.nowMs)"))
 hush()
 lev("refreshButton.clicked()")
 settle()
 p.check("...and the same failure again is read again, since somebody asked again",
-        said(), [lev("footerLabel.text")])
+        said(), [ev("root.vm.checkAnswerText")])
 hush()
 ev("root.doCheck(true)")
 settle()
@@ -2145,13 +2150,14 @@ hush()
 open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-stale-b.json"))
 lev("refreshButton.clicked()")
 settle()
+_answer_b = ev("root.vm.checkAnswerText")
 p.check("premise: the reason changed and the footer line did not",
         [ev("root.vm.staleReason"), lev("footerLabel.text")],
         ["repository metadata unavailable", _line_a])
 ev("root.nowMs = Date.now() + 600000")
 p.pump(80)
 p.check("a new failure behind the same line is read once, not again at the next clock tick",
-        said(), [_line_a])
+        said(), [_answer_b])
 ev("root.refreshClock()")
 state(fixture("state-live.json"))
 
@@ -2181,13 +2187,43 @@ for _rc, _words in (("127", "Kempt's engine is not installed"),
     settle()
     p.check("a Check for Updates that finds no engine (exit %s) says so" % _rc, said(), [_words])
 # A CLI that fails with no state at all. The line at the top says Kempt cannot check, and so does
-# the answer. Over a state we still hold, the same failure stays silent: the top line still shows
-# that state's counts, and those are not the answer.
+# the answer. Over a state we still hold the top line still shows that state's counts, which are
+# not the answer: a report says the check failed, and the answer reads that report, once.
 open(CHECKRC, "w").write("1")
 hush()
 ev("checkAction.trigger()")
 settle()
-p.check("a Check for Updates that fails over a state we still hold says nothing", said(), [])
+p.check("a Check for Updates that fails over a state we still hold says so, once",
+        said(), [ev("Logic.COPY.checkFailedOver")])
+p.check("...on screen too, in the report slot",
+        [lev("reportMessage.visible"), lev("reportMessage.text")],
+        [True, ev("Logic.COPY.checkFailedOver")])
+p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
+hush()
+ev("root.doCheck(true)")
+settle()
+p.check("...a background check that fails the same way adds nothing", said(), [])
+p.check("...and takes the report back, since it answers the press that report was about",
+        ev("root.actionMessage"), "")
+# A check the Executor had to kill: rc 124 and its "timeout after" line. The person hears a
+# sentence, never the timeout text.
+open(CHECKRC, "w").write("")
+open(CHECKSLEEP, "w").write("3")
+hush()
+ev("checkAction.trigger()")
+p.pump(300)
+p.check("premise: a Check for Updates is in flight", ev("root.checking"), True)
+ev('executor.finish("", "timeout after " + Logic.CHECK_TIMEOUT_MS + "ms", 124)')
+p.pump(100)
+p.check("a Check for Updates the Executor had to stop says it did not finish, once",
+        said(), [ev("Logic.COPY.checkUnfinished")])
+p.check("...on screen too", lev("reportMessage.text"), ev("Logic.COPY.checkUnfinished"))
+p.check("...never the timeout text", "timeout after" in str(lev("reportMessage.text")), False)
+open(CHECKSLEEP, "w").write("")
+p.pump(3500)
+settle()
+ev('root.actionMessage = ""; root.checkFailNote = ""')
+open(CHECKRC, "w").write("1")
 ev("root.kemptState = null")
 p.pump(50)
 hush()
@@ -2215,7 +2251,7 @@ hush()
 ev("checkAction.trigger()")
 settle()
 p.check("...and a failure with the popup closed, once, by the panel icon alone",
-        [compact_said(), said()], [[ev("root.vm.footerText")], []])
+        [compact_said(), said()], [[ev("root.vm.checkAnswerText")], []])
 state(fixture("state-live.json"))
 ev("root.popupOpened()")
 settle()
@@ -3284,6 +3320,12 @@ _ASSEMBLED_IN_LOGIC = {
     "doctorCouldNotRun",    # -> doctorOutcomeOf, with the first line doctor's stderr gave
     "doctorCouldNotRunCode",  # -> doctorOutcomeOf, with the status, when it gave none
     "doctorTimedOut",       # -> doctorOutcomeOf, for the Executor's own kill
+    "checkTimedOut",        # -> checkErrorOf -> root.cliError, for the Executor's own kill
+    "checkUnfinished",      # -> checkFailedOverOf -> root.actionMessage and vm.checkAnswerText
+    "checkFailedOver",      # -> checkFailedOverOf, for any other failure over held counts
+    "checkFailedFor",       # -> staleAnswerOf -> vm.checkAnswerText (dnf and Flatpak into the %1)
+    "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
+    "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",
