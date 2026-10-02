@@ -1556,6 +1556,22 @@ p.check("a clean check says there are no problems",
         [lev("doctorMessage.text"), lev("doctorMessage.type")],
         [ev("Logic.COPY.doctorPassed"), lev("Kirigami.MessageType.Positive")])
 p.check("...with the report folded again for the new answer", lev("doctorReportView.visible"), False)
+p.check("...and Show Full Report drawn closed with it", lev("doctorMessage.actions[0].checked"), False)
+lev("doctorMessage.actions[0].trigger()")
+p.pump(50)
+p.check("pressed again, it opens and is drawn open",
+        [lev("doctorReportView.visible"), lev("doctorMessage.actions[0].checked")], [True, True])
+lev("doctorMessage.actions[0].trigger()")
+p.pump(50)
+p.check("...and pressed once more, it closes and is drawn closed",
+        [lev("doctorReportView.visible"), lev("doctorMessage.actions[0].checked")], [False, False])
+lev("doctorMessage.actions[0].trigger()")
+p.pump(50)
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
+settle()
+p.check("a check run with the report open folds it, and the button follows",
+        [lev("doctorReportView.visible"), lev("doctorMessage.actions[0].checked")], [False, False])
 ev("root.dismissDoctor()")
 p.pump(50)
 p.check("closed, the result goes", lev("doctorMessage.visible"), False)

@@ -409,6 +409,21 @@ p.check("the answer's Show Full Report takes the keyboard", focused(), "elsewher
 press(Qt.Key_Return)
 p.pump(150)
 p.check("...and Return on it opens the report", lev("doctorReportView.visible"), True)
+_report_button = "popup.buttonFor(doctorMessage, doctorMessage.actions[0])"
+p.check("...and the button is drawn pressed", lev(_report_button + ".checked"), True)
+press(Qt.Key_Return)
+p.pump(150)
+p.check("Return again closes it, and the button is drawn released",
+        [lev("doctorReportView.visible"), lev(_report_button + ".checked")], [False, False])
+press(Qt.Key_Return)
+p.pump(150)
+ev("root.runDoctor()")
+p.wait_for(ev, "root.doctorRunning", False, timeout_ms=10000)
+settle()
+p.pump(150)
+p.check("a new check folds an open report, and the button follows it",
+        [lev("doctorReportView.visible"), lev("doctorMessage.actions[0].checked"),
+         lev(_report_button + " === null || !" + _report_button + ".checked")], [False, False, True])
 open(DOCTORSLEEP, "w").write("0")
 ev("root.dismissDoctor()")
 ev('root.actionMessage = ""')
