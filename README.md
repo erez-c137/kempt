@@ -45,8 +45,8 @@ Discover's notifier counts from PackageKit's own cache, so its number can differ
 install. Its background work can also hold the dnf lock.
 
 Kempt checks the same cache the update uses, so the count in the tray matches what gets installed.
-(`dnf5 check-update` run as yourself reads your own cache, so its count can differ.) Every update
-ends with a summary: each package's old and new version, how long it took, and whether to restart.
+A `dnf5 check-update` of your own reads your user cache, so its count can differ. Every update ends
+with a summary: each package's old and new version, how long it took, and whether to restart.
 The widget runs the same commands you can run in a terminal, so the two always agree.
 
 Kempt is a desktop tool. It checks for updates on its own, but installs them only when you say
