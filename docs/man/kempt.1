@@ -133,12 +133,12 @@ leaves that notification out. The popup passes it after
 .B \-\-surface=offline
 downloads the update and sets it to install on the next restart, with one password prompt. Any
 restart then installs it. Kempt never restarts the machine itself. If the update cannot be set up
-for the restart, the run fails and Kempt discards it. A later live update that changes any rpm
-discards the stage.
+for the restart, the run fails and Kempt discards it. A later live update that changes any system
+package discards the stage.
 .IP
 When another program holds the dnf or Flatpak lock, Kempt tries three times, 10 seconds apart.
-Exit 5: an image\-based Fedora (Silverblue, Kinoite, Bazzite or a bootc image), an installed package
-set that could not be read, or
+Exit 5: an image\-based Fedora (Silverblue, Kinoite, Bazzite or a bootc image), installed packages or
+apps that could not be read, or
 .B \-\-surface=offline
 while a Fedora release upgrade is stored, because staging would cancel it. Exit 7: the only
 failure was that lock, held through all three tries.
@@ -165,7 +165,7 @@ have the result. Exit 5: the terminal window did not open within five seconds.
 Discard the update staged for the next restart, so the next restart installs nothing. It asks for
 your password once, or says so without asking when nothing is staged. Kempt clears its record only
 once dnf5 confirms the transaction is gone. Exit 1: dnf5 still has it. Exit 5: a Fedora release
-upgrade is stored, and discarding would cancel it.
+upgrade is stored, or the root helper refused.
 .TP
 .BR reclaim " [" \-\-list "] [" \-y "] [" \-\-expect= \c
 .IR digest ]
@@ -192,7 +192,9 @@ refuses to run as root. Exit 5: nothing removed, because it ran as root, Flatpak
 is set, removing needs an administrator, or there is no
 .B \-y
 and no terminal to ask at. Exit 6: the list is not the set you were shown, or part of it became
-unused less than an hour ago.
+unused less than an hour ago. Exit 1: Flatpak failed, possibly after removing some. Run
+.B "kempt reclaim \-\-list"
+to see what is left.
 .TP
 .BR summary " [" \c
 .IR N ]
@@ -235,6 +237,11 @@ It covers the root helpers and the polkit action, the tools Kempt needs, the con
 the state directory and any staged update. Every check runs, and the last five events follow.
 Exit 1 when any line is
 .BR FAIL .
+A staged update that was downloaded but never set to install is a
+.BR FAIL ,
+and
+.B "sudo dnf5 offline clean"
+removes it.
 .IP
 Run it when the widget shows nothing pending and you are unsure why. A missing root helper makes
 .B check
@@ -364,6 +371,11 @@ your home directory are the same for both.
 The command, a symlink into
 .I /usr/share/kempt
 or the checkout.
+.TP
+.IR /usr/share/kempt/VERSION " or " <checkout>/VERSION
+The version that
+.B kempt \-\-version
+prints.
 .TP
 .I ~/.config/kempt/config
 Settings.
