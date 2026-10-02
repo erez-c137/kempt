@@ -10,13 +10,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
-  could not answer, or when another check held the lock and the previous state was served. It also
-  exits 1 when the apps for you only could not be listed. The state then still says `"ok"`, and
-  `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these exit 0.
+  could not answer. It also exits 1 when another check held the lock and the previous state was
+  served. And it exits 1 when the apps for you only could not be listed. The state then still says
+  `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these
+  exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
-- **The widget checks its own installation.** Where it used to say to run `kempt doctor` in a
-  terminal, it now offers **Check Installation**. The widget runs doctor itself, then quotes the
+- **The widget checks its own installation.** Where it said to run `kempt doctor` in a terminal,
+  it now offers **Check Installation**. The widget runs doctor itself, then quotes the
   first problem found or says there were none. **Show Full Report** shows the whole report, and
   **Copy Command** copies `kempt doctor`.
 - **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
@@ -26,14 +27,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **`kempt update` exits 7, not 1, when another program had the package lock.** This applies
-  when another program (PackageKit, Discover, dnf-automatic or another `flatpak`) still holds the
-  dnf or Flatpak lock after three tries. A script can wait and try again. When another part of
+- **`kempt update` exits 7, not 1, when another program had the package lock.** The program can be
+  PackageKit, Discover, dnf-automatic or another `flatpak`. It still held the dnf or Flatpak lock
+  after three tries. A script can wait and try again. When another part of
   the run failed too, it exits 1, and the reason says so in place of "Try again".
-- **A busy Flatpak gets the same plain reason as a busy dnf.** When another program holds
-  Flatpak's lock through all three tries, the summary, notification and history say so and say to
-  try again, in place of Flatpak's raw error line. Both reasons now read as short sentences.
-- **Updates run in the widget by default.** A new install no longer opens a terminal window. An
+- **A busy Flatpak gets the same plain reason as a busy dnf.** Another program can hold Flatpak's
+  lock through all three tries. The summary, notification and history then say so and say to try
+  again. Before, they showed Flatpak's raw error line. Both reasons now read as short sentences.
+- **Updates run in the widget by default.** A new install opens no terminal window. An
   install that already had the terminal keeps it: the first `kempt` command after the upgrade
   writes `surface=terminal` to the config file. A config file that names a surface is never
   changed.

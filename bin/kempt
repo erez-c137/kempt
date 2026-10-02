@@ -3238,7 +3238,7 @@ doctor_other_updater_row() {
   local entry
   entry="$(discover_effective_entry)"
   if discover_entry_starts "$entry"; then
-    doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's, and its background work can make a Kempt run wait. To turn it off: kempt discover-notifier off, or Turn Off Discover's Notifier in the widget"
+    doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run kempt discover-notifier off or use Turn Off Discover's Notifier in the widget"
     return 0
   fi
   # Off by Kempt's entry, by the person's own, or by a desktop list that leaves Plasma out.

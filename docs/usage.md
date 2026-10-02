@@ -128,9 +128,10 @@ whole seconds, so a check stamped in the same second runs a check of its own. `-
 startup check, so two widgets on two panels cost one check instead of two. Check for Updates,
 Check again and a hold always run a check of their own.
 
-**`--strict`** exits 1 when the answer is not current, after printing it as usual: a backend
-failed, the apps for you only could not be listed, or another check held the lock and the previous
-state was served. Use it in scripts. Without it, all three exit 0.
+**`--strict`** exits 1 when the answer is not current. It prints the state as usual first. The
+answer is not current when a backend failed or the apps for you only could not be listed. It is
+also not current when another check held the lock and the previous state was served. Use it in
+scripts. Without it, all three exit 0.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's
 record of a stage that has gone.
@@ -915,9 +916,13 @@ Kempt before 0.1.8 wrote a copy of the system entry with `Hidden=true` from `./i
 Nothing tells that file apart from one you wrote, so Kempt treats it as yours. To turn the notifier
 back on, delete it.
 
-Exit codes: **1** when `off` finds a copy of your own entry already kept, `on` finds your own entry
-keeps the notifier off, or the entry path is a directory or a symlink to nothing. Nothing changed in
-any of these cases. Two of these commands at once take turns, on the writers' lock.
+Exit codes: **1** in three cases, and nothing changed in any of them:
+
+- `off` finds a copy of your own entry already kept.
+- `on` finds that your own entry keeps the notifier off.
+- The entry path is a directory, or a symlink to nothing.
+
+Two of these commands at once take turns, on the writers' lock.
 
 ## The Plasma widget
 
@@ -1082,7 +1087,7 @@ lower in this list are left out. If that hides the restart message, the footer s
    for good. See [configuration.md](configuration.md#upgrading-from-an-older-kempt).
 9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
    from Kempt's, and its checks can make an update wait."** It shows once, while Discover's notifier
-   is installed and starts with your session, and never together with message 8. **Turn Off
+   is installed and starts with your session. It never shows together with message 8. **Turn Off
    Discover's Notifier** runs `kempt discover-notifier off`. **Keep Discover's Notifier** changes
    nothing. Either answer hides the message for good, after a restart too. Settings can turn the
    notifier back on.

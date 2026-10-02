@@ -442,7 +442,7 @@ assert_eq "$(js "$eng.iconState")" "unknown" "...and an absent one still does no
 assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the whole stack"
 # The fix line must not promise more than it can keep: `kempt doctor` is itself a kempt subcommand,
 # so on the box whose kempt cannot start it cannot start either. The sentence says so.
-assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If it cannot start either") >= 0')" "true" \
+assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If that cannot start") >= 0')" "true" \
   "the repair line admits doctor may not start, rather than promising it will"
 
 # --- a Fedora release upgrade staged outside Kempt -----------------------------------------------

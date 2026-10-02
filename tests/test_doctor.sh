@@ -1149,6 +1149,9 @@ assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "kempt disco
   "...and the command that turns it off"
 assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "Turn Off Discover's Notifier" \
   "...and the widget's button for the same"
+assert_contains "$(doctor_with_autostart | grep '^info  Discover')" \
+  "so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run" \
+  "...in short sentences"
 assert_exit 0 "...and it never makes the checkup fail" \
   env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor
 

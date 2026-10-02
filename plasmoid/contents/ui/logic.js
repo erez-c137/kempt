@@ -334,7 +334,7 @@ var COPY = {
     // without the execute bit, a noexec mount, a missing interpreter - and the widget cannot tell
     // which from an exit code, so it names none of them and hands over the one command that can.
     engineUnrunnable: "Kempt's engine is installed but will not run, so nothing can check for updates.",
-    engineUnrunnableFix: "Check Installation runs kempt doctor, which reports what is wrong. If it cannot start either, its error names the reason.",
+    engineUnrunnableFix: "Check Installation runs kempt doctor to find the problem. If that cannot start, its error says why.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
     // remedy is two commands and the repair one is a single command, and a button offering to copy
