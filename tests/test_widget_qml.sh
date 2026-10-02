@@ -3,7 +3,7 @@
 #
 # tests/test_widget_logic.sh covers the two halves that do not need a running engine: every
 # DERIVATION rule (logic.js, under node) and the fact that every .qml compiles. Neither can answer
-# the questions that actually broke in review - does pressing Apply write the right keys, does the
+# the questions that matter most at run time - does pressing Apply write the right keys, does the
 # watcher end a run at the right moment, does a hostile package name reach the shell as ONE
 # argument. Those need the real Qt 6 QML engine running the real files against a real CLI on a
 # real PATH, which is what tests/qml/ does.

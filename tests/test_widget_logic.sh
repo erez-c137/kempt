@@ -3561,8 +3561,8 @@ assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.
 # --- docs/usage.md has to describe the widget that is here --------------------------------------
 # Doc drift is not a documentation problem, it is a truth problem: the popup section is what a
 # person reads INSTEAD of watching the code, so a sentence that was true of an earlier build is
-# just a wrong answer with a nice tone. These tie the paragraphs the 2026-08-27 review found wrong
-# back to the code that decides them.
+# just a wrong answer with a nice tone. These tie the paragraphs most likely to drift back to the
+# code that decides them.
 USAGE="$REPO_ROOT/docs/usage.md"
 
 # Every fixed header wording the view model can produce is DERIVED here rather than typed, so a
