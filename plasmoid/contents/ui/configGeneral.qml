@@ -595,7 +595,7 @@ KCM.SimpleKCM {
         }
 
         QQC2.Label {
-            text: i18n("With this off there is no message and no button. The popup's status line still ends \"restart pending\", because that is a fact about your machine rather than a reminder. Nothing ever restarts on its own either way.")
+            text: i18n("With this off there is no message and no button. The status line in this widget still ends \"restart pending\", because that is a fact about your machine rather than a reminder. Nothing ever restarts on its own either way.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8
@@ -666,7 +666,7 @@ KCM.SimpleKCM {
         // machine asks for a password is the wrong thing to guess about.
         QQC2.Label {
             Kirigami.FormData.label: i18n("Password prompts:")
-            text: i18n("Updates normally ask for your password once per run. You can allow Kempt's update action to run without one - it applies only to this action, and only while you are logged in at this machine.")
+            text: i18n("Updates normally ask for your password once per run. You can allow Kempt's update action to run without one. That applies only to this action, and only while you are logged in at this machine.")
             wrapMode: Text.WordWrap
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
