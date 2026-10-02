@@ -1199,6 +1199,9 @@ PlasmoidItem {
     function popupOpened() {
         popupOnScreen = true;
         refreshClock();
+        // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
+        // cannot call back into this file, so the CLI's marker is looked for again at each open.
+        if (!discoverOfferAnswered) readDiscoverAnswered();
         var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
             ? kemptState.last_success : "";
         // ...and not during a run of ours, for checkTimer's reason: the updating pane shows no
@@ -1207,9 +1210,6 @@ PlasmoidItem {
         // Check for Updates are the person asking, and still check.
         if (!updating && Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now()))
             doCheck(true);
-        // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
-        // cannot call back into this file, so the CLI's marker is looked for again at each open.
-        if (!discoverOfferAnswered) readDiscoverAnswered();
         root.popupShown();
     }
 
