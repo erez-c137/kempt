@@ -217,15 +217,15 @@ tools/build-local.sh          # runs the suite, builds, installs, reloads the wi
 A hand build is named as a preview of the next release, so you can tell which commit is installed:
 
 ```
-kempt-0.1.5~dev.4-0.git1a2b3c4.20260922T193500.1.fc44     rpm -q kempt
-kempt 0.1.5~dev.4+git1a2b3c4                               kempt --version, the widget
+kempt-0.1.8~dev.4-0.git1a2b3c4.20261002T193500.1.fc44     rpm -q kempt
+kempt 0.1.8~dev.4+git1a2b3c4                               kempt --version, the widget
 ```
 
-- **0.1.5** is the next release: the patch after the newest tag, or `VERSION` once it has been
+- **0.1.8** is the next release: the patch after the newest tag, or `VERSION` once it has been
   bumped past the tag.
 - **dev.4** is the number of commits since that tag. `.dirty` means there were uncommitted
   changes.
-- **The tilde** makes `0.1.5~dev.4` sort below `0.1.5`, so the real release replaces the hand build.
+- **The tilde** makes `0.1.8~dev.4` sort below `0.1.8`, so the real release replaces the hand build.
 
 The script works on a copy and never edits the checkout. `--print-name` prints the name and stops;
 `--no-install` builds into `~/rpmbuild/RPMS/noarch` and stops.
