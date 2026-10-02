@@ -57,6 +57,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget without its engine says each thing once.** The header says Kempt's engine is not
   installed. The message under it now starts at "Nothing can check for updates yet.", followed by
   the install commands.
+- **Check for Updates tells a screen reader what it found.** When the check finishes, the
+  header is read out, such as "3 updates available" or "Up to date". Checks you did not ask for
+  stay silent.
 
 ## [0.1.7] - 2026-10-02
 

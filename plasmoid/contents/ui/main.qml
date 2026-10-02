@@ -53,6 +53,10 @@ PlasmoidItem {
     // the news; what a surface DOES about it is that surface's business - the same split as
     // popupShown(). `message` carries the sentence to speak when `ok` is false.
     signal holdOutcome(string name, bool hold, bool ok, string message)
+    // ...and when a Check for Updates the person asked for comes back with an answer. Only that
+    // check: the timer, the watcher and the popup opening are nobody's press, and a reader that
+    // spoke up for those would talk over whatever the person was doing.
+    signal freshCheckAnswered()
     // How many times we have re-asked after a check that answered with NOTHING. When another check
     // holds the lock, `kempt check` serves the previous state.json and exits 0 - and prints nothing
     // when there is no previous state yet, which on a fresh install's first login is the ordinary
@@ -413,6 +417,9 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
+                // After kemptState, so the popup reads the header this answer produced. Before
+                // the recheck below returns, so a timer firing meanwhile cannot swallow it.
+                if (fresh) root.freshCheckAnswered();
             } else if (rc === 127) {
                 // Nothing to run. cliError is cleared so the popup shows one message about one
                 // situation instead of both.

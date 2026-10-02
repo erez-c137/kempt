@@ -2014,6 +2014,35 @@ settle()
 p.check("the refresh icon runs the same check the menu entry does",
         p.call_count("check") - before_check, 1)
 p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1], "check --refresh")
+
+# ...and says what it found. The header changes and nothing announces a header, so a reader who
+# pressed Check for Updates used to hear nothing at all. The header's own words, once, politely.
+_sev("clear()")
+lev("refreshButton.clicked()")
+settle()
+p.check("a Check for Updates that finds updates says the header out loud, once",
+        said(), [lev("popup.vm.headerText")])
+p.check("...which is the count the person can see", "updates available" in said()[0], True)
+_sev("clear()")
+open(CHECKSRC, "w").write(UPTODATE)
+ev("checkAction.trigger()")
+settle()
+p.check("...and one that finds nothing says so, from the menu entry too", said(),
+        [ev("Logic.COPY.upToDate")])
+# A check nobody pressed for is not news: the timer, the watcher and the popup opening.
+_sev("clear()")
+open(CHECKSRC, "w").write(fixture("state-live.json"))
+ev("root.doCheck(true)")
+settle()
+p.check("a background check that changes the count says nothing", said(), [])
+p.check("...though the header did change", "updates available" in str(lev("popup.vm.headerText")),
+        True)
+# ...and neither does a check the person caused some other way (Check again, a hold, a discard):
+# those each announce their own outcome.
+_sev("clear()")
+ev("root.doCheck()")
+settle()
+p.check("...nor a manual check that is not Check for Updates", said(), [])
 ev("root.checking = true")
 p.pump(50)
 p.check("a check in flight puts the spinner beside the control that started it",
