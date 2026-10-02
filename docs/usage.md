@@ -178,7 +178,9 @@ What happens, in order:
    families and carries on. `kempt check` publishes the same list as `risky_pending`.
 2. **Lock.** A second update exits 3. The prompt comes first, so an unanswered prompt blocks
    nothing.
-3. **Snapshots** of the installed packages. If the set cannot be read, the run exits 5.
+3. **Snapshots** of the installed packages and Flatpak apps. If the packages or the system apps
+   cannot be read, the run exits 5. If just the apps installed for you cannot be read, the run
+   goes on without them and reports them failed.
 4. **dnf**, through the root helper, with `-y` when `auto_accept` is on and one `--exclude=` per
    dnf hold. If another program holds the package lock, Kempt tries 3 times, 10 seconds apart, and
    names the likely holder.
@@ -207,7 +209,7 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 | 1 | A backend failed. |
 | 2 | Unknown option. |
 | 3 | Another update is running. |
-| 5 | Nothing changed: an image-based Fedora, an installed package set that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
+| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart
@@ -344,10 +346,10 @@ record of the stage only once dnf5 confirms the transaction is gone.
 | Exit | When |
 | --- | --- |
 | 0 | Discarded, or nothing was staged. |
-| 1 | dnf5 still has the transaction. Kempt keeps its record. |
+| 1 | The root helper failed, or dnf5 still has the transaction. Kempt keeps its record. |
 | 2 | Any argument. |
 | 3 | Another update is running. |
-| 5 | A Fedora release upgrade is stored. Discarding would cancel it, so nothing changes. |
+| 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, or the root helper refused. |
 
 ## reclaim
 
