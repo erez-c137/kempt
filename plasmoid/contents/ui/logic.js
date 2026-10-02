@@ -1600,8 +1600,9 @@ function postRunLine(run) {
 // way while that message is on screen, and the Last update row (with Show Log) takes its place.
 // Anything the line adds keeps it: a run that staged nothing, a failure, an in-use note.
 function reportRepeatsStaged(run) {
+    // A stamp the row cannot render would leave the Last update row with no title in its place.
     return !!run && !run.failed && run.surface === "offline" && run.stagedNothing === null
-        && reclaimInUseTailOf(run) === "";
+        && isRenderableStamp(run.when) && reclaimInUseTailOf(run) === "";
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?

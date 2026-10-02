@@ -2212,10 +2212,12 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).messageSlo
   '["staged","restart"]' "...and without the report, the restart takes the second slot"
 # A clean staging run's report says what the staged message already says, so it gives way to it.
 # Only while that message is on screen: with nothing staged, the report is the only word on the run.
-STAGED_OK='{"status":"ok","surface":"offline","duration_sec":28,"when":"2026-09-05T12:00:00+03:00"}'
+STAGED_OK='{"status":"ok","surface":"offline","duration_sec":28,"timestamp":"2026-09-05T12:00:00+03:00"}'
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('$STAGED_OK'))")" "true" "a clean staging run's report repeats the staged message"
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"x\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"staged_nothing\":\"held\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"background\"}'))+'|'+L.reportRepeatsStaged(null)")" \
   "false|false|false|false" "...and a failed run, one that staged nothing, a live run and no run do not"
+assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-09-05T12:00:00+03:00\",\"backends\":{\"flatpak\":{\"reclaimed\":{\"status\":\"removed\",\"refs\":[\"a//1\"],\"in_use\":[\"a//1\"]}}}}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\"}'))")" \
+  "false|false" "...nor one whose report adds the in-use note, nor one with no time the Last update row could show"
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots")" \
   '["staged","restart"]' "...so the staged message stands alone and the report's slot goes to the next message"
 assert_eq "$(js "L.viewModel(Object.assign({}, $STACK_ALL, {offline_staged:null}),false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf('report')")" \
