@@ -199,6 +199,10 @@ case "$1" in
   update) exit 0 ;;
   discover-notifier)
           [[ -s %(DNRC)s ]] && { echo "could not write /home/you/.config/autostart/org.kde.discover.notifier.desktop" >&2; exit "$(cat %(DNRC)s)"; }
+          case "$2" in
+            off)  echo "Discover's update notifier is off, and stays off when you log in again." ;;
+            keep) echo "Discover's update notifier stays as it is." ;;
+          esac
           exit 0 ;;
   hold|unhold) exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s
@@ -2732,6 +2736,12 @@ settle()
 p.check("Use This Widget writes the widget as the setting",
         p.calls_matching("config set"), ["config set surface popup"])
 p.check("...and the offer goes", lev("surfaceOfferMessage.visible"), False)
+# `kempt config set` prints nothing, so the confirmation is the widget's own sentence.
+p.check("...and the popup confirms the answer, as good news",
+        [lev("reportMessage.visible"), lev("reportMessage.text"),
+         lev("reportMessage.type === Kirigami.MessageType.Positive")],
+        [True, ev("Logic.COPY.surfaceSetPopup"), True])
+ev('root.actionDone = ""')
 ev("root.surfaceOfferAnswered = false")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
@@ -2788,6 +2798,11 @@ p.check("Turn Off Discover's Notifier runs kempt discover-notifier off",
 p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
 p.check("...and the offer stays gone on this session's answer alone",
         [ev("root.kemptState.discover_offer"), lev("discoverOfferMessage.visible")], [True, False])
+p.check("...and the popup shows the CLI's own confirmation, as good news",
+        [lev("reportMessage.visible"), lev("reportMessage.text"),
+         lev("reportMessage.type === Kirigami.MessageType.Positive")],
+        [True, "Discover's update notifier is off, and stays off when you log in again.", True])
+ev('root.actionDone = ""')
 
 # A failed answer is not an answer: the offer comes back, with the CLI's reason.
 ev("root.discoverOfferAnswered = false")
@@ -2836,6 +2851,16 @@ ev("root.readDiscoverAnswered()")
 p.wait_for(ev, "root.discoverAnswerKnown", True, timeout_ms=8000)
 settle()
 p.check("...and with no marker, the offer is made", lev("discoverOfferMessage.visible"), True)
+# Settings answers through the same CLI verb, from a dialog that cannot reach this file. The next
+# open looks for the marker again, so the offer does not outlive an answer given there.
+open(_marker, "w").close()
+ev("root.popupOpened()")
+p.wait_for(ev, "root.discoverOfferAnswered", True, timeout_ms=8000)
+settle()
+p.check("an answer given in Settings hides the offer the next time the popup opens",
+        lev("discoverOfferMessage.visible"), False)
+os.remove(_marker)
+ev("root.discoverOfferAnswered = false")
 state(fixture("state-live.json"))
 
 # --- the stale explanation --------------------------------------------------------------------------
@@ -3326,6 +3351,9 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedFor",       # -> staleAnswerOf -> vm.checkAnswerText (dnf and Flatpak into the %1)
     "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
     "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
+    "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
+    "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
+    "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

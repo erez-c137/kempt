@@ -144,6 +144,12 @@ var COPY = {
     surfaceOffer: "Updates can now run in this widget instead of a terminal window.",
     surfaceOfferUse: "Use This Widget",
     surfaceOfferKeep: "Keep the Terminal Window",
+    // ...and what the popup says once either answer is saved. `kempt config set` prints nothing,
+    // so these are the widget's own words for what the person just chose.
+    surfaceSetPopup: "Updates now run in this widget.",
+    surfaceSetTerminal: "Updates keep running in a terminal window.",
+    // An answer the CLI did not confirm in time (ANSWER_TIMEOUT_MS). The write may still land.
+    answerTimedOut: "Kempt did not answer in time, so your answer may not be saved. Try again.",
 
     // The one offer to turn off Discover's own update notifier, while it starts with the session.
     // Turning it back on is in Settings, under the same name.
@@ -1746,6 +1752,23 @@ function discardStagedMessage(rc, stdout, stderr) {
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
 }
 
+// --- answering an offer, or changing a setting through a CLI verb ----------------------------------
+// How long the widget waits for `kempt config set` or `kempt discover-notifier`. Each takes the
+// CLI's writers' lock, which waits up to 30 s for another writer before it gives up, so anything
+// shorter would report a write as lost while the CLI was still about to make it.
+var ANSWER_TIMEOUT_MS = 40000;
+
+// answerOutcomeOf(rc, stdout, stderr, fallback) -> {ok, text}: what the popup or the settings page
+// says after such a verb. Success is the CLI's first line, or `fallback` when it printed nothing.
+// Failure is its own reason, except the Executor's kill, which gets a sentence.
+function answerOutcomeOf(rc, stdout, stderr, fallback) {
+    if (rc === 0) {
+        return { ok: true, text: firstLineOf(stdout) || (typeof fallback === "string" ? fallback : "") };
+    }
+    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: COPY.answerTimedOut };
+    return { ok: false, text: firstLineOf(stderr) || firstLineOf(stdout) };
+}
+
 // --- Check Installation (`kempt doctor`) --------------------------------------------------------
 // How long the widget waits for doctor. It reads files and takes well under a second; its slowest
 // row is the unused-runtime listing, capped at KEMPT_RECLAIM_LIST_TIMEOUT (15 s).
@@ -2642,6 +2665,8 @@ if (typeof module !== "undefined" && module.exports) {
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         isExecutorTimeout: isExecutorTimeout,
+        ANSWER_TIMEOUT_MS: ANSWER_TIMEOUT_MS,
+        answerOutcomeOf: answerOutcomeOf,
         checkErrorOf: checkErrorOf,
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,

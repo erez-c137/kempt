@@ -1971,6 +1971,30 @@ assert_eq "$(js 'L.checkFailedOverOf(124)')" "The check did not finish. The coun
   "...a timeout over held counts says the check did not finish"
 assert_eq "$(js 'L.checkFailedOverOf(1)')" "The check failed. The counts shown are from the last check." \
   "...any other failure says the check failed"
+# Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
+# waits up to 30 s, so the widget waits longer than that before it calls the write lost.
+assert_eq "$(js 'L.ANSWER_TIMEOUT_MS >= 35000')" "true" \
+  "an answer is waited on for longer than the CLI's 30 s writers' lock"
+for f in main.qml configGeneral.qml; do
+  if grep -E 'config set surface|discover-notifier " \+ verb' "$REPO_ROOT/plasmoid/contents/ui/$f" \
+       | grep -qE ', (10000|15000)[,)]'; then
+    echo "FAIL: $f still waits less than the writers' lock for an answer"; _fail=1
+  else
+    echo "ok: $f waits ANSWER_TIMEOUT_MS for an answer, not 10 or 15 seconds"
+  fi
+done
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(0, "Discover'"'"'s update notifier is off.\nmore", "", "x"))')" \
+  '{"ok":true,"text":"Discover'"'"'s update notifier is off."}' \
+  "a confirmed answer is the CLI's first line, as good news"
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(0, "", "", "Updates now run in this widget."))')" \
+  '{"ok":true,"text":"Updates now run in this widget."}' \
+  "...or the widget's own sentence when the CLI printed nothing"
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "x"))')" \
+  '{"ok":false,"text":"Kempt did not answer in time, so your answer may not be saved. Try again."}' \
+  "...an answer that timed out says so in words, never the timeout text"
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(1, "", "kempt: could not take the writers lock\nx", "x"))')" \
+  '{"ok":false,"text":"kempt: could not take the writers lock"}' \
+  "...and any other failure is the CLI's own reason"
 assert_eq "$(js 'L.checkErrorOf(124, "timeout after 510000ms")')" "The check did not finish in time." \
   "with no state, the Executor's kill is a sentence, never its timeout text"
 assert_eq "$(js 'L.checkErrorOf(1, "kempt: the check could not run\nmore")')" "kempt: the check could not run" \

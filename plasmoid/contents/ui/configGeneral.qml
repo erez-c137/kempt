@@ -308,10 +308,11 @@ KCM.SimpleKCM {
         if (verb !== "off" && verb !== "on") return;
         discoverBusy = true;
         discoverResult = "";
-        cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), 15000,
+        cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), Logic.ANSWER_TIMEOUT_MS,
                         function (stdout, stderr, rc) {
             page.discoverBusy = false;
-            if (rc !== 0) page.discoverResult = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "");
+            if (!said.ok) page.discoverResult = said.text;
             page.loadDiscover();
         });
     }

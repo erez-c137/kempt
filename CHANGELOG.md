@@ -23,7 +23,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt discover-notifier off` turns off Discover's own update notifier**, whose count can
   differ from Kempt's. `on` brings it back, restoring your own autostart file if you had one. The
   widget asks once, with **Turn Off Discover's Notifier** and **Keep Discover's Notifier**.
-  Settings can turn it back on. `./install.sh` and `kempt doctor` use the same command.
+  The widget then shows what the command did. Settings can turn it back on, and the widget's
+  offer goes when it does. `./install.sh` and `kempt doctor` use the same command.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
   that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 
@@ -41,7 +42,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes `surface=terminal` to the config file. A config file that names a surface is never
   changed.
 - **The widget offers itself once to an install that kept the terminal.** It offers **Use This
-  Widget** and **Keep the Terminal Window**. Either answer is saved as the `surface` setting.
+  Widget** and **Keep the Terminal Window**. Either answer is saved as the `surface` setting, and
+  the widget says which one it saved. It waits 40 seconds for an answer to be saved, since the CLI
+  can wait 30 seconds for another `kempt` command to finish.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has the keyboard, or **Install Now**. Before, it started
   them straight away. `auto_accept=false` still sends every run to the terminal.

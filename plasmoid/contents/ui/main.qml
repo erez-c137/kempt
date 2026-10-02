@@ -997,17 +997,24 @@ PlasmoidItem {
     function useSurface(value) {
         if (value !== "popup" && value !== "terminal") return;
         surfaceOfferAnswered = true;
-        executor.run(kemptCmd + " config set surface " + value, 10000, function(stdout, stderr, rc) {
-            if (rc !== 0) {
+        actionMessage = "";
+        actionDone = "";
+        executor.run(kemptCmd + " config set surface " + value, Logic.ANSWER_TIMEOUT_MS,
+                     function(stdout, stderr, rc) {
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr,
+                value === "popup" ? Logic.COPY.surfaceSetPopup : Logic.COPY.surfaceSetTerminal);
+            if (!said.ok) {
                 // Not saved, so not answered: the offer comes back with the reason above it.
                 root.surfaceOfferAnswered = false;
-                root.actionMessage = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+                root.actionMessage = said.text;
                 return;
             }
             root.readSurface();
             // A check publishes state.json without surface_offer, so the offer stays gone after
             // this session forgets the answer.
             root.doCheck();
+            // After the check, which clears the last event's reports at its top.
+            root.actionDone = said.text;
         });
     }
 
@@ -1017,14 +1024,20 @@ PlasmoidItem {
     function setDiscoverNotifier(verb) {
         if (verb !== "off" && verb !== "keep") return;
         discoverOfferAnswered = true;
-        executor.run(kemptCmd + " discover-notifier " + verb, 15000, function(stdout, stderr, rc) {
-            if (rc !== 0) {
+        actionMessage = "";
+        actionDone = "";
+        executor.run(kemptCmd + " discover-notifier " + verb, Logic.ANSWER_TIMEOUT_MS,
+                     function(stdout, stderr, rc) {
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "");
+            if (!said.ok) {
                 // Not done, so not answered: the offer comes back with the reason above it.
                 root.discoverOfferAnswered = false;
-                root.actionMessage = Logic.firstLineOf(stderr) || Logic.firstLineOf(stdout);
+                root.actionMessage = said.text;
                 return;
             }
             root.doCheck();
+            // The CLI's own confirmation, after the check for the same reason as useSurface.
+            root.actionDone = said.text;
         });
     }
 
@@ -1192,6 +1205,9 @@ PlasmoidItem {
         // Check for Updates are the person asking, and still check.
         if (!updating && Logic.shouldRefreshOnOpen(lastSuccess, refreshIntervalMin, Date.now()))
             doCheck(true);
+        // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
+        // cannot call back into this file, so the CLI's marker is looked for again at each open.
+        if (!discoverOfferAnswered) readDiscoverAnswered();
         root.popupShown();
     }
 
