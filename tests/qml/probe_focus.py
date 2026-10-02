@@ -51,6 +51,7 @@ case "$1" in
 %(CFG)s
   check)  sleep "$(cat %(SLEEP)s)"; cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    exit 0 ;;
+  discover-notifier) echo "Discover's update notifier is off."; exit 0 ;;
   summary) if [[ "$2" == "--json" ]]; then cat %(RUNJSON)s; fi; exit 0 ;;
   doctor) sleep "$(cat %(DSLEEP)s)"; echo "ok    jq: /usr/bin/jq"
           echo "FAIL  state dir not writable: /x"; echo "kempt doctor: 1 problem found"; exit 1 ;;
@@ -424,9 +425,79 @@ p.pump(150)
 p.check("a new check folds an open report, and the button follows it",
         [lev("doctorReportView.visible"), lev("doctorMessage.actions[0].checked"),
          lev(_report_button + " === null || !" + _report_button + ".checked")], [False, False, True])
+# The doctor message's close button hides the message, and the button with it, while the
+# keyboard is in it. Its close is `visible = false`, which is what this does.
+lev("popup.buttonFor(doctorMessage, doctorMessage.actions[0]).forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
+lev("doctorMessage.visible = false")
+p.pump(150)
+ON_SCREEN = """(function () {
+  var it = popup.Window.activeFocusItem;
+  return !!it && it.visible === true && it.enabled === true;
+})()"""
+p.check("closing the Check Installation answer leaves the keyboard on a control on screen",
+        [focused() != "nothing", lev(ON_SCREEN)], [True, True])
 open(DOCTORSLEEP, "w").write("0")
 ev("root.dismissDoctor()")
 ev('root.actionMessage = ""')
 p.pump(100)
+
+
+# --- message buttons that end their own message ----------------------------------------------------
+# Each answer hides or disables the button that was pressed. Return on it, through the real
+# keyboard path, must leave the keyboard on something that is on screen and can be pressed.
+def answer(message, index, what):
+    button = "popup.buttonFor(%s, %s.actions[%d])" % (message, message, index)
+    lev(button + ".forceActiveFocus(Qt.TabFocusReason)")
+    p.pump(50)
+    p.check("premise: %s has the keyboard" % what, focused(), "elsewhere:" + str(lev(button + ".text")))
+    press(Qt.Key_Return)
+    p.pump(150)
+    settle()
+    p.pump(150)
+    p.check("%s leaves the keyboard on a control on screen" % what,
+            [focused() != "nothing", lev(ON_SCREEN)], [True, True])
+
+
+ev("root.popupOpened()")
+settle()
+_so = json.load(open(fixture("state-live.json")))
+_so["surface_offer"] = True
+_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
+open(_sopath, "w").write(json.dumps(_so))
+for index, what in ((0, "Use This Widget"), (1, "Keep the Terminal Window")):
+    ev('root.surface = "terminal"')
+    ev("root.surfaceOfferAnswered = false")
+    state(_sopath)
+    p.check("premise: the offer to use the widget is up", lev("surfaceOfferMessage.visible"), True)
+    answer("surfaceOfferMessage", index, what)
+
+_do = json.load(open(fixture("state-live.json")))
+_do["discover_offer"] = True
+_dopath = os.path.join(p.sandbox, "state-discover-offer.json")
+open(_dopath, "w").write(json.dumps(_do))
+for index, what in ((0, "Turn Off Discover's Notifier"), (1, "Keep Discover's Notifier")):
+    ev("root.discoverOfferAnswered = false")
+    state(_dopath)
+    p.check("premise: the offer about Discover is up", lev("discoverOfferMessage.visible"), True)
+    answer("discoverOfferMessage", index, what)
+ev('root.actionDone = ""')
+
+# The risky choice: Update Now on a session-critical set opens it, and each answer closes it.
+for index, what in ((1, "Install Now"), (0, "Install on Next Restart")):
+    state(fixture("state-risky-heavy.json"))
+    ev("root.riskyChoiceOpen = false")
+    lev("updateButton.forceActiveFocus(Qt.TabFocusReason)")
+    press(Qt.Key_Return)
+    p.pump(150)
+    p.check("premise: Update Now opened the choice", lev("riskyMessage.asking"), True)
+    answer("riskyMessage", index, what)
+    if ev("root.updating"):
+        ev("root.leaveUpdating()")
+        settle()
+    ev("root.actionPending = false")
+    ev('root.postRunLine = ""')
+    ev('root.actionMessage = ""')
+    p.pump(100)
 
 sys.exit(p.done())

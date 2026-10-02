@@ -345,6 +345,43 @@ PlasmaExtras.Representation {
     }
     Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()
 
+    // --- keeping the keyboard on something ------------------------------------------------------
+    // A message button can hide itself under the keyboard: Use This Widget ends its offer, Install
+    // Now closes its question, a close button closes its message. A hidden control keeps the focus
+    // while nobody can see it, and the next key goes to it anyway.
+    //
+    // rescueFocus() puts the keyboard back on the primary control, later rather than now (the
+    // change that caused it is still being laid out), and only if what holds focus by then is not
+    // something on screen that a person could press or tab to. The message buttons call it after
+    // their action too, because an answer disables them while it is saved, and a button that will
+    // not press again is not where the keyboard should wait. A control that refuses only for a
+    // moment (Refresh while a check runs) keeps the keyboard: nothing calls this for it.
+    function rescueFocus() {
+        Qt.callLater(popup.rescueFocusNow);
+    }
+    function rescueFocusNow() {
+        if (!popup.plasmoidItem.popupOnScreen || !popup.visible) return;
+        const it = popup.Window.activeFocusItem;
+        if (it && it.visible && it.enabled && (it === popup || it.activeFocusOnTab === true)) return;
+        popup.focusPrimary();
+    }
+    // Every message's buttons, without a line in each: watch whatever holds the keyboard, and
+    // rescue when it hides, or when the focus left it because it was hidden or destroyed.
+    readonly property Item focusHolder: popup.Window.activeFocusItem
+    property var lastFocusHolder: null
+    onFocusHolderChanged: {
+        const was = popup.lastFocusHolder;
+        popup.lastFocusHolder = popup.focusHolder;
+        if (was && was.visible !== true) popup.rescueFocus();
+    }
+    Connections {
+        target: popup.focusHolder
+        ignoreUnknownSignals: true
+        function onVisibleChanged() {
+            if (popup.focusHolder && !popup.focusHolder.visible) popup.rescueFocus();
+        }
+    }
+
     // --- the header ------------------------------------------------------------------------------
     // One row: the count, the refresh icon, the gear. Nothing else - three of the things that used
     // to be stacked in this toolbar were messages rather than controls, and they are InlineMessages
@@ -786,7 +823,7 @@ PlasmaExtras.Representation {
                     // different message is a puzzle rather than an answer.
                     visible: popup.vm.offlineStageOffered
                     enabled: visible && !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.stageOffline()
+                    onTriggered: source => { popup.plasmoidItem.stageOffline(); popup.rescueFocus(); }
                 },
                 Kirigami.Action {
                     id: riskyInstallNowAction
@@ -798,7 +835,7 @@ PlasmaExtras.Representation {
                     visible: riskyMessage.asking
                     enabled: visible && !popup.plasmoidItem.runRequested
                              && !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.startUpdate(true)
+                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
                 }
             ]
         }
@@ -817,12 +854,12 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Use This Widget")
                     icon.name: "dialog-ok"
-                    onTriggered: source => popup.plasmoidItem.useSurface("popup")
+                    onTriggered: source => { popup.plasmoidItem.useSurface("popup"); popup.rescueFocus(); }
                 },
                 Kirigami.Action {
                     text: i18n("Keep the Terminal Window")
                     icon.name: "utilities-terminal"
-                    onTriggered: source => popup.plasmoidItem.useSurface("terminal")
+                    onTriggered: source => { popup.plasmoidItem.useSurface("terminal"); popup.rescueFocus(); }
                 }
             ]
         }
@@ -841,13 +878,13 @@ PlasmaExtras.Representation {
                     text: i18n("Turn Off Discover's Notifier")
                     icon.name: "notifications-disabled"
                     enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("off")
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
                 },
                 Kirigami.Action {
                     text: i18n("Keep Discover's Notifier")
                     icon.name: "dialog-ok"
                     enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.setDiscoverNotifier("keep")
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
                 }
             ]
         }
@@ -944,6 +981,7 @@ PlasmaExtras.Representation {
                 doctorMessage.spoken = "";
                 if (!popup.closedByButton(doctorMessage, "doctor")) return;
                 popup.plasmoidItem.dismissDoctor();
+                popup.rescueFocus();
                 visible = Qt.binding(function () { return popup.shows("doctor"); });
             }
         }
