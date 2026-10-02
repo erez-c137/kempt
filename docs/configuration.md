@@ -131,17 +131,14 @@ an edit by hand.
 
 ### Offline staging
 
-Kempt recommends this path when session-critical packages are pending. Things to know:
+Kempt recommends this path when session-critical packages are pending. Flatpak apps still update
+**live** in the same run, because Flatpak has no restart install.
 
-- Flatpak apps still update **live** in the same run. Flatpak has no offline mechanism.
-- Staging records the current boot session. `kempt check` records the result only after the boot
-  session changes, so a manual `dnf install` or a live Kempt run before the reboot is never mistaken
-  for the staged update.
-- The result appears in `kempt history` as `offline (applied on reboot)`, with a notification.
-- The report compares the package set with a snapshot taken at staging time. It then asks dnf5's
-  history which transaction ran. If that was Kempt's, the report keeps only its packages. If the
-  staged update did not run, the entry is `restart (staged update did not run)`. If the history
-  cannot answer, the report shows the whole difference, including changes other tools made.
+The first `kempt check` after the restart records the result in `kempt history` as
+`offline (applied on reboot)`, with a notification. A `dnf install` or live run before the restart
+is never mistaken for it, because Kempt waits for a new boot session. If dnf5's history cannot say
+which transaction ran, the report shows every package change since staging, including other tools'.
+[Installing on the next restart](usage.md#installing-on-the-next-restart) has the rest.
 
 ## Holds
 
