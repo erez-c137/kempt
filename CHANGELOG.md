@@ -60,6 +60,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget with an engine that will not run says each thing once.** The header says Kempt's
   engine will not run. The message under it now reads "The engine is installed but cannot start,
   so nothing can check for updates.", and the hover text shows the header above that sentence.
+- **The widget without its engine names the package that matches the store install.** It now says
+  `sudo dnf install kempt-plasmoid`, which brings the engine too, as the install guide does.
+  Before, it said `sudo dnf install kempt`, which left the KDE Store copy as the only widget.
+- **`kempt doctor` no longer FAILs over a KDE Store widget when no packaged widget is installed.**
+  The store copy is then the only widget, not a shadow of one. Doctor notes it and says to install
+  `kempt-plasmoid` first, then remove the store copy. It still FAILs when both copies are there.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out,
   such as "3 updates available" or "Up to date". A failed check is read out too. So is the age
   of the lists when the fetch was skipped. It works from the button and the menu entry, with the

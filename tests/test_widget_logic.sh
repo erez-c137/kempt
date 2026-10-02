@@ -381,8 +381,8 @@ assert_eq "$(js "$eng.emptyStateText")" "" \
 # worse than no command line: it fails in a way the reader has to debug.
 assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf copr enable erez-c137/kempt") >= 0')" "true" \
   "the install line carries the copr command in full"
-assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf install kempt") >= 0')" "true" \
-  "...and the install command in full"
+assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf install kempt-plasmoid.") >= 0')" "true" \
+  "...and the install command in full: the widget package, which pulls in the engine and replaces the store copy"
 assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt") >= 0')" "true" \
   "...and where everybody who is not on Fedora goes"
 # The pasteable form behind the Copy Commands button: ONE line, chained with &&, so one paste in
@@ -390,7 +390,7 @@ assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt
 # is worse than retyping - and drift-guarded against the display string: both must name the same
 # two commands, or the button copies something other than what the message shows.
 assert_eq "$(js "$eng.engineFaultCopyText")" \
-  "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt" \
+  "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt-plasmoid" \
   "the copy payload is the two commands, chained, verbatim"
 assert_eq "$(js 'L.viewModel(null,false,"",{}).engineFaultCopyText')" "" \
   "no missing engine, nothing to copy"
@@ -2935,7 +2935,7 @@ assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings ac
 assert_eq "$(js 'L.COPY.engineMissing')" "Nothing can check for updates yet." \
   "copy: the store-first first run says what that means, under a header that says what is missing"
 assert_eq "$(js 'L.COPY.engineMissingInstall')" \
-  "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt" \
+  "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. Other systems: github.com/erez-c137/kempt" \
   "copy: ...and the commands that fix it, complete enough to paste"
 assert_eq "$(js 'L.COPY.engineUnrunnable')" \
   "The engine is installed but cannot start, so nothing can check for updates." \

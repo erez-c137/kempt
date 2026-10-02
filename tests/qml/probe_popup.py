@@ -1805,7 +1805,7 @@ p.check("...carrying logic.js's sentence rather than a second copy of it",
 p.check("...with the copr command readable in the body",
         "sudo dnf copr enable erez-c137/kempt" in str(lev("engineFaultMessage.text")), True)
 p.check("...and the install command that follows it",
-        "sudo dnf install kempt" in str(lev("engineFaultMessage.text")), True)
+        "sudo dnf install kempt-plasmoid" in str(lev("engineFaultMessage.text")), True)
 p.check("...and somewhere to go for a box that is not Fedora",
         "github.com/erez-c137/kempt" in str(lev("engineFaultMessage.text")), True)
 p.check("...never the shell's own sentence, which is what the popup used to quote",

@@ -207,7 +207,7 @@ installed**, and the message under it says:
 
 > Nothing can check for updates yet.
 >
-> On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt
+> On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. Other systems: github.com/erez-c137/kempt
 
 The panel icon stays dim, with no badge. Install the package and press the popup's refresh
 button, or wait for the next scheduled check. If the CLI is installed but cannot run, the popup
@@ -223,8 +223,9 @@ kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt
 plasmashell --replace
 ```
 
-On a packaged install, `kempt doctor` FAILs when it finds a user copy and prints those two
-commands. Removing the copy keeps the widget on your panel: the packaged copy takes its place when
+When the widget package is installed, `kempt doctor` FAILs when it finds a user copy and prints
+those two commands. With only `kempt` installed, it notes that the store copy is the widget in use
+and says to install `kempt-plasmoid` first. Removing the copy keeps the widget on your panel: the packaged copy takes its place when
 the shell reloads.
 
 If you install the package first, none of this applies.

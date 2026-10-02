@@ -3488,7 +3488,13 @@ doctor_install_rows() {
     # Plasma loads, invisibly, and no other row would catch it.
     # Only in this branch: on a checkout that directory IS the install, and the message would tell
     # a developer to delete their own widget. The skew comparison below covers that case.
-    if [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
+    # Shadowing needs TWO copies: with only the CLI package installed, the store copy is the one
+    # widget on the box, and failing the checkup over it tells somebody to delete their only panel.
+    # That case gets the same remedy as a pointer instead: install the widget package, THEN remove
+    # the store copy.
+    if [[ -d "$KEMPT_PLASMOID_DIR" && ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+      doctor_info "store widget in use: the panel runs the KDE Store copy in $KEMPT_PLASMOID_DIR, and package updates do not reach it. Install the widget package with: sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+    elif [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
       doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
     elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
       # The panel half is its own package, so a working CLI can sit on a box with no widget and

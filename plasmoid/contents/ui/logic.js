@@ -323,12 +323,12 @@ var COPY = {
     // The header above it already says the engine is not installed, so this does not repeat it.
     engineMissing: "Nothing can check for updates yet.",
     engineMissingInstall:
-        "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. "
+        "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. "
         + "Other systems: github.com/erez-c137/kempt",
     // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
     // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
     // The tests drift-guard the two: every command this copies must appear verbatim in the other.
-    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt",
+    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt-plasmoid",
     // The OTHER way an engine can be unavailable, and a different fact with a different remedy:
     // the program is THERE and will not start. Reinstalling it is not the answer, and a message
     // that says to sends somebody to fix what is not broken. Three things produce it - a file

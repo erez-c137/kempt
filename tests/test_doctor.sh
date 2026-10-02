@@ -644,11 +644,30 @@ assert_exit 0 "a packaged install with no user copy of the widget is healthy" \
 assert_not_contains "$(cat "$TESTTMP/last_output")" 'shadows' \
   "...and says nothing about one"
 
-# The trap itself: both copies on the box at once.
+# A store copy with only the CLI package installed is NOT shadowing anything: it is the one widget
+# on the box. Failing over it would tell somebody to delete their only panel. It gets a pointer
+# instead, in the order that keeps a widget on the panel: the package first, then the removal.
 mkdir -p "$STORE_COPY/contents/ui"
 cp "$REPO_ROOT/plasmoid/metadata.json" "$STORE_COPY/metadata.json"
-assert_exit 1 "a user copy shadowing the packaged widget fails the checkup" \
+assert_exit 0 "a store copy with no packaged widget does not fail the checkup" \
   -- doctor_packaged "$STORE_COPY"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'shadows' \
+  "...and does not call it shadowing, because there is nothing to shadow"
+assert_contains "$(cat "$TESTTMP/last_output")" "info  store widget in use: the panel runs the KDE Store copy in $STORE_COPY, and package updates do not reach it" \
+  "...it says the widget in use is the store copy, which package updates do not reach"
+assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' \
+  "...and to install the widget package first, then remove the store copy"
+assert_not_contains "$(cat "$TESTTMP/last_output")" 'panel widget not installed' \
+  "...and does not also claim there is no widget on the panel"
+
+# The trap itself: both copies on the box at once.
+SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
+doctor_packaged_both() {
+  env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$1" KEMPT_SYSTEM_PLASMOID_DIR="$SYS_WIDGET" \
+    "$NOGIT/bin/kempt" doctor
+}
+assert_exit 1 "a user copy shadowing the packaged widget fails the checkup" \
+  -- doctor_packaged_both "$STORE_COPY"
 grep -qF "user widget copy shadows the package: $STORE_COPY" "$TESTTMP/last_output" \
   && echo "ok: the FAIL line names the directory" \
   || { echo "FAIL: no shadow line"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
@@ -673,7 +692,6 @@ assert_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed. It is 
 assert_contains "$(cat "$TESTTMP/skew.txt")" 'Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)' \
   "...and says that without it nothing checks on a schedule, and not over SSH"
 # ...and says nothing once the package IS installed. The line is a pointer, not a nag.
-SYS_WIDGET="$TESTTMP/sys-widget"; mkdir -p "$SYS_WIDGET/contents"
 env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \
     KEMPT_SYSTEM_PLASMOID_DIR="$SYS_WIDGET" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
 assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed' \
