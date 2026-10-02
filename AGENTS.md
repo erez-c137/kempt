@@ -1,7 +1,7 @@
 # Working on Kempt
 
-A short map for new contributors: what you need in the first two minutes, and four rules that
-catch people out. `CONTRIBUTING.md` is the full guide.
+A two-minute map for new contributors, and four rules that catch people out. `CONTRIBUTING.md` is
+the full guide.
 
 ## What it is
 
@@ -23,7 +23,7 @@ Nothing is setuid, and the CLI never runs as root.
 | `lib/common.sh` | State, config, holds, locks, the staged-update marker and the `KEMPT_*` seams. |
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager. `docs/architecture.md` explains how to add one. |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Start here for a security review. |
-| `libexec/kempt-flatpak-unused` | The one Python file. It lists unused Flatpak runtimes and runs as the user. |
+| `libexec/kempt-flatpak-unused` | The one Python file Kempt ships. It lists unused Flatpak runtimes and runs as the user. |
 | `plasmoid/contents/ui/logic.js` | Turns the state file into what the widget shows. It has no Qt and no I/O, so Node can run it in the tests. |
 | `plasmoid/contents/ui/*.qml` | The widget itself, mostly bindings to `logic.js`. |
 | `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
@@ -66,7 +66,10 @@ so. CI runs them in a Fedora container, so a green badge means the widget was te
 
 ## Writing
 
-Everything here is read by someone, from comments and commit messages to the text Kempt shows.
-`CONTRIBUTING.md` has the rules under "Writing". The short version: write what the reader needs
-first, in short sentences, using the words on screen. Public files name nobody and say nothing
-about how the work was made.
+`CONTRIBUTING.md` has the rules under "Writing". They cover comments, commits and Kempt's own text.
+Public files name nobody and say nothing about how the work was made.
+
+A feature changes the docs it touches and leaves them no longer. Before you add a paragraph, cut
+or merge an older one in the same section. `tests/test_docs.sh` holds a word budget per doc. Raise
+one only when the reader gains something new, and say why in the commit. Run
+`python3 tools/prose-check.py` on every doc you changed.

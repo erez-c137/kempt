@@ -1,8 +1,7 @@
 # Releasing Kempt
 
-How to cut a release, in order. Every step has been run for each release since 0.1.2. The spec has
-built two packages, `kempt` and `kempt-plasmoid`, since 0.1.2, and step 4 checks the upgrade across
-that split on every release.
+How to cut a release, in order. The spec builds two packages, `kempt` and `kempt-plasmoid`, and
+step 4 checks the upgrade from the last release on every release.
 
 ## Kempt never updates itself
 
@@ -40,6 +39,14 @@ shows up in its own list like any other update. Only checkout installs upgrade b
 
    ```bash
    tests/run_tests.sh
+   ```
+
+   Then check the docs. Run `python3 tools/prose-check.py` over them. Read every doc whose budget
+   in `tests/test_docs.sh` went up since the last release, and cut it.
+
+   ```bash
+   python3 tools/prose-check.py README.md AGENTS.md CONTRIBUTING.md SECURITY.md tests/README.md docs/*.md
+   git diff "$(git describe --tags --abbrev=0)" -- tests/test_docs.sh   # budgets raised since
    ```
 
 4. **Run the release check.** The suite tests the code; this tests the packages.

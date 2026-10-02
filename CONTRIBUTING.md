@@ -20,8 +20,8 @@ cd kempt
 tests/run_tests.sh
 ```
 
-You need bash 4+, `jq`, `flock` (util-linux) and GNU coreutils. You do not need dnf, Flatpak, polkit
-or root: every outside command goes through an
+You need bash 4+, `jq`, `flock` (util-linux), GNU coreutils and `python3`. You do not need dnf,
+Flatpak, polkit or root: every outside command goes through an
 [environment seam](docs/architecture.md#environment-seams), and the suite stubs them all.
 
 Two optional tools add the widget's tests, which are more than half the suite. `node` runs the
@@ -30,15 +30,15 @@ QML. The suite prints a warning when either is missing.
 
 | Command | What it tests | Needs |
 | --- | --- | --- |
-| `tests/run_tests.sh` | the code: backends, parsers, renderers and the widget's logic | bash and jq |
+| `tests/run_tests.sh` | the code: backends, parsers, renderers and the widget's logic, and the docs | bash, jq and python3 |
 | `tests/live/run-offline-gate.sh` | the offline update against a real dnf5, including a broken one | podman, network |
 | `tests/release/run-release-check.sh` | the packages: a fresh install, the installed QML, an upgrade from the last release, and a clean removal | podman, network |
 
 The last two run only inside a throwaway container. Run the release check before tagging: it is
 step 4 of [docs/RELEASING.md](docs/RELEASING.md).
 
-Before you commit, syntax-check and lint. CI runs the same commands. The third checks the one
-Python file, the Flatpak listing helper:
+Before you commit, syntax-check and lint. CI runs the same commands. The third checks the
+Python file Kempt ships, the Flatpak listing helper:
 
 ```bash
 bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
@@ -154,17 +154,23 @@ also changes `assemble_state`. The review is mostly about the root helper and th
 
 Docs, comments, commit messages, issues and the widget's text all follow these rules.
 
-1. Know who reads it. Put what they need first.
-2. One idea per sentence. Aim for about 15 words.
+1. Reader first. Know who reads it, and put what they need first.
+2. One idea per sentence, in everyday words. Aim for about 15 words.
 3. Say what something does, not what it is not.
-4. No asides in brackets or dashes. No em dashes: use " - " or rephrase.
+4. No asides in brackets or dashes, so no em dashes and no " - ". Split the sentence instead.
 5. No self-praise (`robust`, `carefully`, `deliberately`).
 6. State the rule. The story of how it came about goes in the commit.
-7. Use the words the reader sees on screen.
+7. Use the words the reader sees, such as **Update Now** and **Held**. Code words such as
+   surface, harvest or seam stay out of user-facing text. Name the place: "the popup", not "on
+   screen".
 8. Say each thing once, in one place, and link to it.
 9. Cut what the reader does not need.
 10. Check every command, setting, default and exit code against the code. When a doc and the code
     disagree, fix the doc. Run every example before you commit it.
+
+`tools/prose-check.py` measures sentence length, asides and self-praise. The suite runs it over
+every doc. It fails on a FAIL verdict, and when a doc goes over its word budget in
+`tests/test_docs.sh`.
 
 Address the reader as "you" and the program as "Kempt". Spelling is British (*behaviour*,
 *cancelled*), except text copied from Plasma. Commands, paths and keys go in backticks, and
@@ -175,8 +181,8 @@ on-screen labels in **bold**.
 Everyone who reads this repository has only this repository. So, in docs and in code comments:
 
 - **No names, and nobody in the third person.** Write "the check runs first", not who decided it.
-- **Nothing about how the work was made.** No review names, finding numbers, task codes or tool
-  names.
+- **Nothing about how the work was made.** No model, tool, agent or session names, and no review
+  names, finding numbers or task codes.
 - **No links to private notes.** If a fact from them matters, write the fact here.
 - **No email addresses**, except in `kempt.spec`'s `%changelog`, `SECURITY.md` and
   `CODE_OF_CONDUCT.md`.

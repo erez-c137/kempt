@@ -10,3 +10,4 @@
 - [ ] The suite is green locally (`tests/run_tests.sh`)
 - [ ] New behaviour has a test that fails without the change
 - [ ] The docs match the change
+- [ ] Docs I touched are no longer than before, or the budget change is explained
