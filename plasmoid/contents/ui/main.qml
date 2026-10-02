@@ -53,11 +53,13 @@ PlasmoidItem {
     // the news; what a surface DOES about it is that surface's business - the same split as
     // popupShown(). `message` carries the sentence to speak when `ok` is false.
     signal holdOutcome(string name, bool hold, bool ok, string message)
-    // ...and when a Check for Updates the person asked for comes back with an answer: a state, or
-    // the engine missing or refusing to run. Only that check: the timer, the watcher and the popup
-    // opening are nobody's press, and a reader that spoke up for those would talk over whatever
-    // the person was doing. Not emitted for the two answers that carry nothing to read out: a CLI
-    // that failed without printing a state, and an empty answer (a lost lock). Those stay silent.
+    // ...and when a Check for Updates the person asked for comes back with an answer: a state, the
+    // engine missing or refusing to run, or a CLI that failed while there is no state at all (the
+    // line at the top then says Kempt cannot check). Only that check: the timer, the watcher and
+    // the popup opening are nobody's press, and a reader that spoke up for those would talk over
+    // whatever the person was doing. Not emitted for a CLI that failed over a state we still hold
+    // (the line at the top still shows that state's counts), nor for an empty answer (a lost
+    // lock). Those stay silent.
     // What is said is vm.checkAnswerText. WHO says it depends on popupOnScreen: the popup while
     // it is open, the panel icon while it is not (the popup is built on first open, and once
     // closed it is a hidden window a reader does not follow).
@@ -458,7 +460,8 @@ PlasmoidItem {
             }
             // After the view model has the answer, so what is said is what is now on screen.
             // Before the recheck below returns, so a timer firing meanwhile cannot swallow it.
-            if (fresh && (parsed !== null || rc === 126 || rc === 127)) root.freshCheckAnswered();
+            if (fresh && (parsed !== null || rc === 126 || rc === 127
+                          || (rc !== 0 && root.kemptState === null))) root.freshCheckAnswered();
             root.answeringCheck = false;
             // The last run may not be the one we knew about: a `kempt update` typed in a terminal
             // writes a history entry and then re-checks itself.
@@ -1393,6 +1396,9 @@ PlasmoidItem {
     }
 
     Component.onCompleted: {
+        // A widget built with its popup already open (a desktop widget restored expanded) gets no
+        // expandedChanged to set this from.
+        popupOnScreen = expanded;
         readDiscoverAnswered();
         readInterval();
         readSurface();

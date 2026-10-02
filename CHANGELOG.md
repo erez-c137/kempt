@@ -63,7 +63,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out,
   such as "3 updates available" or "Up to date". A failed check is read out too. So is the age
   of the lists when the fetch was skipped. It works from the button and the menu entry, with the
-  widget open or closed. Background checks stay silent.
+  widget open or closed. Checks that run on their own add nothing new.
 
 ## [0.1.7] - 2026-10-02
 

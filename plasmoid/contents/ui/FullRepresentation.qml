@@ -312,10 +312,13 @@ PlasmaExtras.Representation {
     // reader who pressed the button heard nothing at all. Polite, because the person asked. The
     // sentence is vm.checkAnswerText (a failed check reads the footer's line), and only while the
     // popup is on screen: while it is closed, the panel icon says it instead. Answers with nothing
-    // to read (a CLI failing without a state, an empty answer) are not signalled at all.
+    // new to read (a CLI failing over a state we still hold, an empty answer) are not signalled.
     Connections {
         target: popup.plasmoidItem
         function onFreshCheckAnswered() {
+            // The answer has said any failure, so the footer counts it as said. Without this a
+            // new reason behind the same footer line would be spoken again at the next clock tick.
+            footerLabel.spokenStale = popup.vm.stale ? popup.vm.staleReason : "";
             if (!popup.plasmoidItem.popupOnScreen) return;
             popup.announce(popup.vm.checkAnswerText, false);
         }

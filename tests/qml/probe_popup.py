@@ -180,7 +180,7 @@ if [[ "$1" == config && "$2" == set && -s %(CSRC)s ]]; then
 fi
 case "$1" in
 %(CFG)s
-  check)  [[ -s %(CHKRC)s ]] && exit "$(cat %(CHKRC)s)"
+  check)  [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
           cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
@@ -2125,6 +2125,30 @@ ev("root.doCheck(true)")
 settle()
 p.check("...while a background check with the same failure says nothing", said(), [])
 state(fixture("state-live.json"))
+# A new reason behind the same footer line. The line does not change, so the footer hears nothing
+# from the press; the answer says it, and the next clock tick must not say it again.
+_stale_a = json.load(open(fixture("state-stale.json")))
+# Five minutes ago, so the clock tick below really rewrites the line ("5 min ago" to "15 min ago").
+_stale_a["last_success"] = (datetime.datetime.now().astimezone()
+                            - datetime.timedelta(minutes=5)).isoformat(timespec="seconds")
+_stale_b = dict(_stale_a, error="repository metadata unavailable")
+open(os.path.join(p.sandbox, "state-stale-a.json"), "w").write(json.dumps(_stale_a))
+open(os.path.join(p.sandbox, "state-stale-b.json"), "w").write(json.dumps(_stale_b))
+state(os.path.join(p.sandbox, "state-stale-a.json"))
+_line_a = lev("footerLabel.text")
+hush()
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-stale-b.json"))
+lev("refreshButton.clicked()")
+settle()
+p.check("premise: the reason changed and the footer line did not",
+        [ev("root.vm.staleReason"), lev("footerLabel.text")],
+        ["repository metadata unavailable", _line_a])
+ev("root.nowMs = Date.now() + 600000")
+p.pump(80)
+p.check("a new failure behind the same line is read once, not again at the next clock tick",
+        said(), [_line_a])
+ev("root.refreshClock()")
+state(fixture("state-live.json"))
 
 # A fetch that did not happen (battery, metered, offline). "Up to date" from old lists is not what
 # the person asked for, so the age the footer gives is read with it.
@@ -2151,7 +2175,23 @@ for _rc, _words in (("127", "Kempt's engine is not installed"),
     ev("checkAction.trigger()")
     settle()
     p.check("a Check for Updates that finds no engine (exit %s) says so" % _rc, said(), [_words])
+# A CLI that fails with no state at all. The line at the top says Kempt cannot check, and so does
+# the answer. Over a state we still hold, the same failure stays silent: the top line still shows
+# that state's counts, and those are not the answer.
+open(CHECKRC, "w").write("1")
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("a Check for Updates that fails over a state we still hold says nothing", said(), [])
+ev("root.kemptState = null")
+p.pump(50)
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("...while one that fails with no state at all says Kempt cannot check",
+        said(), ["Kempt cannot check for updates"])
 open(CHECKRC, "w").write("")
+ev('root.cliError = ""; root.engineFault = ""')
 state(fixture("state-live.json"))
 
 # The menu entry with the popup closed. The popup is a hidden window then, or not built at all,
