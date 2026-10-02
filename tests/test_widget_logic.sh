@@ -431,8 +431,12 @@ assert_eq "$(js "$brk.engineFaultCopyText")" "kempt doctor" \
   "the button copies the one command that can find the cause"
 assert_eq "$(js "$brk.engineFaultActionLabel")" "Copy Command" \
   "...and says Command, singular, because that is what it copies"
+assert_eq "$(js "$brk.tooltipMain")" "Kempt's engine will not run" \
+  "the tooltip title is the header"
 assert_eq "$(js "$brk.tooltipSub")" "$(js 'L.COPY.engineUnrunnable')" \
-  "the tooltip says the same thing, in the copy table's words"
+  "...with the message under it, in the copy table's words"
+assert_eq "$(js "$brk.engineFaultMessage.indexOf(\"will not run\")")" "-1" \
+  "...and the message does not repeat the header"
 assert_eq "$(js "$brk.emptyStateText")" "" "the placeholder stands down, as it does for a missing one"
 assert_eq "$(js "$brk.remedyCommand")" "" \
   "nothing is offered twice: the message already carries the command"
@@ -2919,8 +2923,8 @@ assert_eq "$(js 'L.COPY.engineMissingInstall')" \
   "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt. Other systems: github.com/erez-c137/kempt" \
   "copy: ...and the commands that fix it, complete enough to paste"
 assert_eq "$(js 'L.COPY.engineUnrunnable')" \
-  "Kempt's engine is installed but will not run, so nothing can check for updates." \
-  "copy: an engine that is there and will not start says which of the two it is"
+  "It is installed, but nothing can check for updates until it starts." \
+  "copy: an engine that is there and will not start says which of the two it is, under a header that says it will not run"
 assert_eq "$(js 'L.COPY.engineUnrunnableCopy')" "kempt doctor" \
   "copy: ...and the one command that finds out why"
 # Nothing empty, nothing that is not a string: an undefined COPY key reaches a QML binding as a

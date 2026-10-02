@@ -334,7 +334,8 @@ var COPY = {
     // that says to sends somebody to fix what is not broken. Three things produce it - a file
     // without the execute bit, a noexec mount, a missing interpreter - and the widget cannot tell
     // which from an exit code, so it names none of them and hands over the one command that can.
-    engineUnrunnable: "Kempt's engine is installed but will not run, so nothing can check for updates.",
+    // The header above it already says the engine will not run, so this does not repeat it.
+    engineUnrunnable: "It is installed, but nothing can check for updates until it starts.",
     engineUnrunnableFix: "Check Installation runs kempt doctor to find the problem. If that cannot start, its error says why.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
@@ -2175,9 +2176,9 @@ function viewModel(state, updating, cliError, opts) {
         headerText = engineFault === "missing"
             ? "Kempt's engine is not installed"
             : "Kempt's engine will not run";
-        // Missing: the header is the tooltip's title, and COPY.engineMissing under it carries on
-        // from it rather than repeating it.
-        tooltipMain = engineFault === "missing" ? headerText : "Kempt";
+        // The header is the tooltip's title, and COPY.engineMissing or COPY.engineUnrunnable under
+        // it carries on from it rather than repeating it.
+        tooltipMain = headerText;
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
         headerText = "No update data yet";

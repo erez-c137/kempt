@@ -1845,7 +1845,7 @@ ev('root.engineFault = "unrunnable"')
 p.pump(80)
 stack("with the engine installed and refusing to start", "engineFaultMessage")
 p.check("...saying it is installed rather than absent",
-        "installed but will not run" in str(lev("engineFaultMessage.text")), True)
+        "It is installed" in str(lev("engineFaultMessage.text")), True)
 p.check("...and never offering to install it again",
         "dnf install" in str(lev("engineFaultMessage.text")), False)
 p.check("...offering Check Installation, and the command it runs to copy",
