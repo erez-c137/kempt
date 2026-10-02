@@ -1,4 +1,4 @@
-.TH KEMPT 1 "2026-09-05" "Kempt" "User Commands"
+.TH KEMPT 1 "2026-10-02" "Kempt" "User Commands"
 .SH NAME
 kempt \- one-click system updates for Fedora, from the terminal or the Plasma panel
 .SH SYNOPSIS
@@ -23,6 +23,13 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .IR surface ]
 .RB [ \-\-risky\-ok ]
 .br
+.B kempt unstage
+.br
+.B kempt reclaim
+.RB [ \-\-list ]
+.RB [ \-y ]
+.RB [ \-\-expect=\fIdigest\fR ]
+.br
 .B kempt summary
 .RI [ N ]
 .br
@@ -46,13 +53,6 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt holds
 .RB [ \-\-exclude\-args ]
 .br
-.B kempt unstage
-.br
-.B kempt reclaim
-.RB [ \-\-list ]
-.RB [ \-y ]
-.RB [ \-\-expect=\fIdigest\fR ]
-.br
 .B kempt config get
 .I key
 .RI [ default ]
@@ -73,151 +73,150 @@ kempt \- one-click system updates for Fedora, from the terminal or the Plasma pa
 .B kempt \-\-version
 .SH DESCRIPTION
 .B kempt
-reports and applies pending system updates from the dnf5 and Flatpak backends, and is the
-engine behind the Kempt Plasma panel widget. It queries the same root metadata cache that the
-update itself uses, so the pending count and the update can never disagree.
+finds and installs pending system updates from dnf5 and Flatpak. It is also the engine behind the
+Kempt Plasma panel widget, which runs these same commands. The widget is described in
+.IR docs/widget.md .
 .PP
-Packages can be
-.B held:
-excluded from every Kempt run while still being reported as pending. When a pending
-transaction touches session\-critical packages such as the kernel, systemd or the Qt and KDE
-stack, an interactive run recommends staging the transaction for the next reboot instead of
-rewriting a running desktop.
+A held package is left out of every Kempt run, and still shows as pending. When an update touches
+packages the running desktop depends on, such as the kernel, systemd, Qt or KDE, Kempt recommends
+installing it on the next restart.
 .PP
-Only two small helpers run as root, one per polkit action, and both validate every argument
-before executing anything. Both belong to the dnf side. Flatpak updates run as you:
-.BR flatpak (1)
-grants a system app update to an active local session without a password, so a run with nothing
-but Flatpak updates in it never raises an authentication dialog.
+Only two small helpers run as root, one per polkit action, and both check every argument. Both
+serve dnf. Flatpak updates run as you and never ask for a password.
 .SH COMMANDS
 .TP
 .BR check " [" \-\-refresh "] [" \-\-coalesce "] [" \-\-strict ]
-Query every enabled backend, write the state file and print it as JSON.
-Backend failures do not fail the command unless
-.B \-\-strict
-is given: the state is marked
-.B stale
-with an error message and the previous item lists are kept. Empty output with exit status 0
-means "no data, keep the last known state", never "zero updates". After a restart, this command
-also records the result of a staged offline update, and it forgets a staged update that no longer
-exists. It refreshes package metadata at most once every three hours, and never on battery or on a
-metered connection.
+Ask every enabled backend what is pending, write the state file and print it as JSON. A check
+answers from the local dnf and Flatpak caches. It refreshes them at most once every three hours,
+and never on battery or a metered connection.
 .B \-\-refresh
-skips the three\-hour wait, but not the battery and metered rules. When the metadata was last fetched is published as
-.B metadata_refreshed
-in the state file, and a skipped refresh is written to the event log at most once a day.
+fetches now, but still skips battery and metered connections.
 .B \-\-coalesce
-is for automatic checks. When this check waited for another one, and that one succeeded and was
-stamped in a later second than this request, its state is printed and nothing is queried or
-written. The event log says
-.BR "check shared" .
+is for automatic checks: when this check waited for another that succeeded later, that one's state
+is printed and nothing is queried.
 .B \-\-refresh
 turns it off.
 .B \-\-strict
-exits 1 when the answer is not current, for scripts: a backend failed, the apps for you only could
-not be listed, or another check held the lock and the previous state was served. The state is
-printed either way. A per\-user listing that failed leaves
+exits 1 when the answer is not current: a backend failed, the apps for you only could not be
+listed, or another check held the lock and the previous state was printed.
+.IP
+When a backend fails, its
 .B status
-as
-.BR ok ,
-with
-.B .backends.flatpak.scopes.user
-set to
-.BR failed .
+is
+.BR stale ,
+the error is recorded and the previous items are kept. Without
+.BR \-\-strict ,
+that still exits 0.
+.B "Empty output with exit 0 means no data, never zero updates."
+A check also records a staged update once the restart has installed it.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface "] [" \c
 .BR \-\-risky\-ok ]
-Run the update now. Options come from the configuration file;
+Run the update now, in this process. Options override the configuration file for this run.
 .B \-\-no\-flatpak
-excludes Flatpak apps for this run and
+updates system packages only.
 .B \-\-surface=
-overrides the run surface
-.RB ( terminal ", " popup ", " background ", " offline ).
-An unrecognized surface falls back to
+picks where the run happens:
+.BR terminal ", " popup ", " background " or " offline .
+An unknown value logs a warning and uses
 .BR terminal .
-Held items are excluded, listed and counted. When session\-critical packages are pending, an interactive
-terminal run first offers to update live, stage the transaction offline, or abort; anything
-other than an explicit yes aborts, having changed nothing. A run outside the terminal sends a
-notification instead, which
+Held items are skipped, and the summary lists them.
+.IP
+When session\-critical packages are pending, a terminal run asks first: stage for the next
+restart, update now, or abort. Enter, Ctrl\-D or a second unknown answer aborts, with exit 0 and
+nothing changed. A run that cannot ask sends a notification and carries on.
 .B \-\-risky\-ok
-leaves out: the widget passes it after the person chooses Install Now.
+leaves that notification out. The popup passes it after
+.BR "Install Now" .
 .IP
-The
-.B offline
-surface both downloads the transaction and arms it, in one authentication, at staging time. Once
-the run finishes, any restart installs it: the widget's button, the desktop menu, or
-.BR reboot (8)
-typed in a terminal. Kempt never restarts anything itself. If the transaction cannot be armed the
-run fails and the stage is discarded, because a transaction nothing can apply is worse than none.
-The staged packages keep showing as pending until the restart runs, which is the truth.
-A later live update supersedes a pending stage: installing anything invalidates the staged
-transaction, so it is discarded rather than left to fail at the next boot. A run that changed no
-system packages leaves it alone, and so does one over a transaction Kempt did not stage: a stored
-Fedora release upgrade is never cleaned to tidy up a stage of ours.
-.IP
-Two pre\-flight refusals end the run before anything is read or locked, with exit 5 and nothing
-changed. On an image\-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image) every surface
-refuses, because those update as an image and
-.B /usr
-is not dnf's to write; the message names
-.BR rpm\-ostree (1)
-or
-.BR bootc (8),
-and support for those images is planned. On the
-.B offline
-surface only, a stored Fedora release upgrade refuses the stage: dnf5 keeps one stored transaction
-for both kinds, so staging would cancel the upgrade.
+.B \-\-surface=offline
+downloads the update and sets it to install on the next restart, with one password prompt. Any
+restart then installs it. Kempt never restarts the machine itself. If the update cannot be set up
+for the restart, the run fails and Kempt discards it. A later live update that changes any rpm
+discards the stage.
 .IP
 When another program holds the dnf or Flatpak lock, Kempt tries three times, 10 seconds apart.
-If the lock is still held, the run fails with exit 7 and says to try again in a few minutes.
+Exit 5: an image\-based Fedora (Silverblue, Kinoite, Bazzite or a bootc image), an installed package
+set that could not be read, or
+.B \-\-surface=offline
+while a Fedora release upgrade is stored, because staging would cancel it. Exit 7: the only
+failure was that lock, held through all three tries.
 .TP
 .BR run " [" \-\-print\-command "] [" \-\-surface= \c
 .IR surface "] [" \c
 .BR \-\-risky\-ok ]
-Launch
+Start
 .B kempt update
-according to the configured surface and return immediately. This is what the widget's Update Now
-button calls.
+where the
+.B surface
+setting says, then return at once. The widget's
+.B Update Now
+runs this.
 .B \-\-print\-command
-prints the command that would be launched, without launching it.
+prints the launch command and starts nothing.
 .B \-\-risky\-ok
-is passed on to an update outside the terminal; a terminal run still asks.
-A successful launch says nothing about the update's outcome: poll the state file or the history.
+is passed on to an update outside the terminal. A terminal run still asks.
+Exit 0 means the update started. The state file and
+.B kempt history
+have the result. Exit 5: the terminal window did not open within five seconds.
+.TP
+.B unstage
+Discard the update staged for the next restart, so the next restart installs nothing. It asks for
+your password once, or says so without asking when nothing is staged. Kempt clears its record only
+once dnf5 confirms the transaction is gone. Exit 1: dnf5 still has it. Exit 5: a Fedora release
+upgrade is stored, and discarding would cancel it.
+.TP
+.BR reclaim " [" \-\-list "] [" \-y "] [" \-\-expect= \c
+.IR digest ]
+Remove the system Flatpak runtimes no installed app uses, after showing them and their estimated
+size.
+.B \-\-list
+only shows them.
+.BR \-y ", " \-\-yes
+removes without asking.
+.BI \-\-expect= digest
+removes only if the list still matches
+.B reclaim.digest
+from the state file.
+.IP
+A runtime is removed only after it has been unused for an hour, counted from the first check that
+listed it. Runtimes go first, then the extensions still unused, so an app installed meanwhile keeps
+its own. A pinned runtime is never removed: use
+.B "flatpak pin"
+to keep one.
+.IP
+It never asks for a password. Removing needs an administrator logged in at the desktop, and it
+refuses to run as root. Exit 5: nothing removed, because it ran as root, Flatpak is off or missing,
+.B reclaim=off
+is set, removing needs an administrator, or there is no
+.B \-y
+and no terminal to ask at. Exit 6: the list is not the set you were shown, or part of it became
+unused less than an hour ago.
 .TP
 .BR summary " [" \c
 .IR N ]
-Render one run as human\-readable text.
+Show one run as text.
 .I N
-counts back from the newest and defaults to 1. Corrupt entries are skipped with a warning.
-Held packages are named and counted, so you can see why they are still pending.
+counts back from the newest and defaults to 1. A damaged entry is skipped with a warning.
 .TP
 .B summary \-\-json
-Print the newest run's history entry verbatim as JSON, and nothing else. The entry is validated
-before any of it is printed, and a damaged newest entry produces no output at all, with a warning
-on stderr naming it. Unlike the text mode, it never falls back to an older run, because it answers
-"what did the last run do". Takes no
+Print the newest run's history entry as JSON, for the widget. It takes no
 .IR N .
-With no runs recorded, or with the newest entry damaged, it prints nothing and exits 0: empty
-output means "no data", never an empty run and never a different one.
+With no runs, or a damaged newest entry, it prints nothing and shows no older run instead.
 .TP
-.B history
-List past runs, newest first: timestamp, surface, status and what the run changed. The last
-column counts upgrades, installs and removals in the same words the notifications use
-.RB ( "3 updated, +1 installed" ", " "no package changes" ),
-so a run that only installed or removed packages is never listed as "0 updated".
-.TP
-.B history \-\-json
-Print every run as one JSON array, newest first. Each element is the history entry
+.BR history " [" \-\-json ]
+List past runs, newest first: time, how it ran, status and what changed.
+.B \-\-json
+prints them as one JSON array of
 .B "summary \-\-json"
-prints for that run. A damaged entry is left out, with a warning on stderr. With no runs it
-prints
-.B []
-and exits 0.
+entries, or
+.BR [] .
+A damaged entry is left out and named on stderr.
 .TP
 .BR log " [" \-n " " \c
 .IR N ]
-Print the event log, oldest of the shown lines first.
+Print the event log, newest last.
 .I N
 defaults to 30. Each line is
 .IR "timestamp via text" ,
@@ -225,201 +224,124 @@ where
 .I via
 is
 .B widget
-when the command came from the Plasma widget and
-.B cli
-for anything else, and the text comes from a fixed vocabulary: config changes with the value
-they replaced, holds, check outcomes with their counts, metadata refreshes, run start and run
-result, offline staging, harvests and passwordless attempts. With nothing recorded yet it prints
-.B "No events recorded yet."
-and exits 0. This is the file to read when the question is "did the change I just made land?",
-which the per-run logs and the history cannot answer.
+or
+.BR cli .
+It answers "did the change I just made land?", which the run logs and history cannot.
 .TP
 .B doctor
-Check this installation and print one line per check, prefixed
-.BR ok ", " info " or " FAIL :
-both root helpers at the polkit\-annotated paths and owned by root, the polkit action file,
-.BR jq ,
-the terminal emulator, flatpak, dnf, whether Kempt can list unused Flatpak runtimes (a
-.B FAIL
-only when
-.B flatpak\-libs
-or
-.B python3\-gobject\-base
-is missing), the configuration file's syntax, a writable state directory,
-an intact tree, and any staged offline transaction or live boot symlink. Every check runs even after one fails.
-Exit status 1 when anything failed. A staged transaction that was downloaded but never armed is a
-.B FAIL
-naming the command that clears it: it will install on no restart, and every other surface
-describes it as pending.
-The last five lines of the event log are printed after the checks; they are not a check and never
-affect the exit status.
+Check this install and print one line per check, marked
+.BR ok ", " info " or " FAIL .
+It covers the root helpers and the polkit action, the tools Kempt needs, the configuration file,
+the state directory and any staged update. Every check runs, and the last five events follow.
+Exit 1 when any line is
+.BR FAIL .
 .IP
-The report ends with the install itself. A
-.B version:
-line names the release, and in a git checkout the commit it came from and whether the tree is
-clean. Then
+Run it when the widget shows nothing pending and you are unsure why. A missing root helper makes
+.B check
+report zero updates with exit 0.
+.IP
+The report ends with the install. In a checkout,
 .BR helpers: ", " policy: " and " widget:
-compare each installed copy against the checkout, byte for byte: the CLI is a symlink, so
-.B git pull
-updates it at once, while the two root helpers, the polkit action and the widget package are
-copies that change only when
-.B ./install.sh
-runs.
+compare the installed copies with the checkout.
 .B DIFFER
-means exactly that pull, and the line names the command that fixes it. An install that did not
-come from a checkout prints
+means you pulled without re\-running
+.BR ./install.sh ,
+and the line names the fix. A packaged install prints
 .B "install: packaged"
-and compares nothing, because the package manager keeps those files in step.
-Worth running when
-.B check
-reports nothing pending on a machine you know is out of date: a missing root helper
-leaves
-.B check
-exiting 0 with a
-.B stale
-state and no items.
+instead.
 .TP
 .BI hold " backend:name"
-Exclude a package or app from Kempt runs while still reporting it as pending.
+Skip a package or app in Kempt runs, and keep reporting it as pending.
 .I backend
 is
 .B dnf
 or
-.BR flatpak ;
-the colon is required. Holds are Kempt's own list, not a system\-wide version lock.
+.BR flatpak .
+Flatpak runtimes cannot be held. Holds are Kempt's own list, which a
+.B dnf5
+command of your own ignores.
 .TP
 .BI unhold " backend:name"
-Remove a hold. Removing one that does not exist is not an error.
+Remove a hold. Removing one that is not there succeeds.
 .TP
 .BR holds " [" \-\-exclude\-args ]
 List current holds, one
 .I backend:name
 per line.
 .B \-\-exclude\-args
-instead prints the dnf holds as dnf5
+prints the dnf holds as one line of dnf5
 .B \-\-exclude=
-arguments on a single line, so a transaction run outside Kempt can honour the same list without
-retyping it. Flatpak holds are left out of that form, because
-.B \-\-exclude=
-is a dnf5 argument and an app id is not one. With no dnf holds it prints an empty line and exits 0,
-so a command substitution around it expands to no arguments rather than failing.
-.TP
-.B unstage
-Discard the staged offline transaction, so the next restart installs nothing. Asks for
-authorization once, and exits 0 with a sentence when nothing is staged. A stored Fedora release
-upgrade refuses the command with exit 5 and nothing changed, in the CLI and again in the root
-helper: dnf5 keeps one stored transaction, so discarding would cancel the upgrade. Kempt's own
-record of the stage is cleared only once dnf5 reports the transaction really gone.
-.TP
-.B reclaim
-List the Flatpak runtimes no installed app uses, with an estimate of the space they take, and
-remove them when you answer yes.
-.B \-\-list
-only lists them.
-.B \-y
-removes without asking.
-.BI \-\-expect= digest
-removes only if the list is still the set named by
-.B reclaim.digest
-in the state file.
-It never asks for a password: when removing needs an administrator, nothing is removed.
-A runtime is removed only after it has been unused for an hour, counted from the first check that
-listed it. With no check on record,
-.B kempt reclaim
-runs one first and says to try again in an hour.
-Kempt removes runtimes first, then checks again and removes only the extensions still unused.
-An app you install during the removal keeps its runtime.
-If Flatpak removes one of its extensions, Kempt says so; run
-.B "flatpak update"
-to put it back.
-To keep one,
-pin it with
-.BR "flatpak pin" .
-Runs as the user and refuses to run as root. Exits 5 with nothing removed when it may not remove
-(root, Flatpak off or missing,
-.BR reclaim=off ,
-removal needs an administrator, or no
-.B \-y
-and no terminal to ask at), and 6 when the list changed since it was shown or part of it
-became unused less than an hour ago, first use included.
+arguments, or an empty line with none, for
+.BR "sudo dnf5 upgrade $(kempt holds \-\-exclude\-args)" .
 .TP
 .BI "config get" " key " [ default ]
-Print a configuration value, falling back to the built\-in default for the key, or to
-.I default
-if given.
+Print a setting. With no value stored, it prints
+.IR default ,
+or the built\-in default for a known key.
 .TP
 .BI "config set" " key value"
-Set a configuration value. Keys must match
+Change a setting. Keys match
 .RB ' ^[a-z][a-z0-9_]+$ '
-and values must be single\-line.
-An unrecognized key, or a value outside the set a key accepts, is reported on standard error and
-then stored anyway, with exit status 0, because a newer widget may use a key this version does
-not know. Booleans are not
-checked this way, because anything that is not
-.BR true ", " 1 " or " yes
-is documented to mean false.
+and values are one line. An unknown key, or a value the key does not accept, gets a warning on
+stderr and is stored anyway, so a newer widget can use it.
 .TP
 .B enable\-passwordless
-Install a polkit rule that lets the current user apply updates without the authentication
-dialog. It covers one action id only, for that user, and only in an active local session -
-the dnf half, which is the only half that ever asks, since Flatpak app updates already run
-without a prompt.
+Install a polkit rule that lets your active local session install dnf updates without a password.
+It asks for your password once.
 .TP
 .B disable\-passwordless
-Remove that rule.
+Remove that rule. Removing a rule that was never installed succeeds.
 .TP
 .BR "discover\-notifier off" " | " on " | " keep " | " status " [" \-\-json ]
-Turn Discover's own update notifier off or back on for this user, without root.
+Turn Discover's own update notifier off or back on for you alone, without a password.
 .B off
 writes
 .I ~/.config/autostart/org.kde.discover.notifier.desktop
 with
 .B Hidden=true
-and stops the running notifier. A file of the user's own there is moved to
-.IR org.kde.discover.notifier.desktop.before\-kempt ;
-when that copy already exists,
-.B off
-changes nothing and exits 1.
+and stops the running notifier. A file of your own there moves to a name ending in
+.IR .before\-kempt .
 .B on
-removes the entry Kempt wrote, only while it matches byte for byte (an edited one is moved to
-.IR org.kde.discover.notifier.desktop.kempt\-edited ),
-restores the kept file exactly, then starts the notifier for the session. It exits 1 when an
-entry of the user's own keeps the notifier off. Both exit 1 when the entry path is a directory or
-a symlink to nothing.
+removes Kempt's file, puts yours back and starts the notifier. An edited Kempt file moves to a
+name ending in
+.IR .kempt\-edited .
 .B keep
-changes nothing and records that the widget's offer was answered.
+changes nothing and records that you answered the widget's offer.
 .B status
-reports whether the notifier is installed, on, turned off by Kempt and running;
+says whether the notifier is installed, on, turned off by Kempt and running.
 .B \-\-json
-prints the same as one object. When the notifier is not installed,
+prints the same as one object.
+.IP
+Exit 1, with nothing changed:
 .B off
-and
+found a
+.I .before\-kempt
+copy already there,
 .B on
-say so and change nothing.
+found a file of your own keeping the notifier off, or the path is a directory or a broken
+symlink.
 .TP
 .BR \-\-version ", " version ", " \-V
 Print
 .RB ' "kempt <version>" '
-and exit. The version is read from the
+from the
 .I VERSION
-file. Without one it prints
+file, or
 .RB ' "kempt unknown" '
-and still works.
-.BR "kempt doctor" 's
-first line reports the same version and the tree it came from.
+without one.
 .TP
 .BR help ", " \-\-help ", " \-h
-Print the command list and exit. It is also what a bare
+Print the command list. A bare
 .B kempt
-with no arguments prints, and what an unknown command prints on stderr before exiting 2.
+prints it too, and an unknown command prints it on stderr and exits 2.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config
 as
 .IR key = value
-lines and are read and written with
-.BR "kempt config" .
-The keys are
+lines. Read and change them with
+.BR "kempt config" ,
+or in the widget's settings. The keys are
 .BR include_flatpak " (default " true "),"
 .BR auto_accept " (default " true "),"
 .BR surface " (default " popup "),"
@@ -428,39 +350,20 @@ The keys are
 .BR restart_reminder " (default " true "),"
 .BR risky_regex " and"
 .BR reclaim " (" ask ", " automatic " or " off "; default " ask ")."
-A value counts as true when it is
-.BR true ", " 1 " or " yes ;
-everything else is false.
+A boolean is true when it is
+.BR true ", " 1 " or " yes .
+Everything else is false.
 .PP
-.B restart_reminder
-governs the Plasma widget's popup only: with it on, a popup opened while a restart is owed shows a
-message saying so and offers a button that opens KDE's own restart prompt; with it off there is no
-message and no button, and the popup's status line still ends
-.BR "restart pending" .
-Nothing ever restarts on its own either way.
-.PP
-See
-.I /usr/share/doc/kempt/docs/configuration.md
-for the full reference. A checkout install has it at
-.I docs/configuration.md
-in the checkout, and it is also at https://github.com/erez-c137/kempt.
+The full reference is
+.IR docs/configuration.md .
 .SH FILES
-Kempt has two kinds of install and they put their own files in different places. Where both are
-listed below, the first path is the package and the second is a checkout install; everything under
-your home directory is the same either way.
+Where two paths are given, the first is the package and the second a checkout install. Files in
+your home directory are the same for both.
 .TP
 .IR /usr/bin/kempt " or " ~/.local/bin/kempt
-The command itself. Both are symlinks into the tree the CLI resolves with
-.BR readlink (1):
-.I /usr/share/kempt/bin/kempt
-from the package,
-.I <checkout>/bin/kempt
-from a checkout.
-.TP
-.IR /usr/share/kempt/VERSION " or " <checkout>/VERSION
-The version. The widget's
-.IR metadata.json ,
-the RPM and the AppStream release all match it.
+The command, a symlink into
+.I /usr/share/kempt
+or the checkout.
 .TP
 .I ~/.config/kempt/config
 Settings.
@@ -471,130 +374,88 @@ Holds, one
 per line.
 .TP
 .I ~/.local/state/kempt/state.json
-Latest check result, schema v1. A documented public interface.
+The latest check result, schema v1. Scripts and the widget read it.
 .TP
 .I ~/.local/state/kempt/history/
 One JSON entry per run. The newest 50 are kept.
 .TP
 .I ~/.local/state/kempt/logs/
-Full raw output per run. Deleted after 60 days. Evidence, never rewritten: a failure that a
-summary reports as
-.B "authentication cancelled"
-or
-.B "not authorized"
-appears here in the authentication helper's own words.
+The raw output of each run, deleted after 60 days.
 .TP
 .I ~/.local/state/kempt/events.log
-The event log, mode 0600. One line per thing Kempt did. Past 2500 lines it is rewritten to the
-last 2000; nothing else deletes from it.
+The event log, mode 0600. Past 2500 lines it is cut to the last 2000.
 .TP
 .IR /usr/libexec/kempt-refresh " or " /usr/local/libexec/kempt-refresh
-Root helper: package metadata only, no authentication dialog.
+Root helper: refreshes package metadata, with no password prompt.
 .TP
 .IR /usr/libexec/kempt-apply " or " /usr/local/libexec/kempt-apply
-Root helper: the dnf upgrade verbs, one authentication per run.
-.IP
-The two builds pin different directories and cannot be reconciled at runtime: pkexec matches an
-action by its
-.B exec.path
-annotation and by nothing else, so the polkit action pins whichever this build uses.
-.B kempt doctor
-prints the path it resolved and FAILs when the two disagree.
+Root helper: runs the dnf upgrade, with one password prompt per run.
 .TP
 .I /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
-The two polkit actions.
+The two polkit actions. Each names one helper path, and
+.B kempt doctor
+fails when it is not the one this CLI uses.
 .TP
 .I /etc/polkit-1/rules.d/49-kempt.rules
-Present only while passwordless mode is enabled.
+Present only while passwordless mode is on.
 .TP
 .IR /usr/share/plasma/plasmoids/io.github.erez_c137.kempt/ " or " ~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/
-The Plasma panel widget. The package owns its copy; a checkout install copies it into your home
-directory with
-.BR kpackagetool6 ,
-so re-run
-.B install.sh
-after changing anything under
-.IR plasmoid/ ,
-because unlike the CLI it is a copy and not a symlink. Kempt declares itself a system-tray entry
-and is enabled by default, so it appears in the tray on its own; Add Widgets puts a SECOND copy on
-the panel itself. Plasma prefers the home-directory copy over the packaged one, which is why
-.B kempt doctor
-FAILs on a user copy found alongside a packaged install.
-.TP
-.IR /usr/share/icons/hicolor/scalable/apps/kempt.svg " or " ~/.local/share/icons/hicolor/scalable/apps/kempt.svg
-The widget's icon, in the system or the user icon theme, which is how its name resolves in Add
-Widgets. Six sizes are installed under this one name.
+The Plasma widget. A checkout install copies it, so re\-run
+.B ./install.sh
+after changing
+.IR plasmoid/ .
 .SH EXIT STATUS
+Most commands use these codes. Each command above lists its own cases.
 .TP
 .B 0
-Success, including declining at the session\-critical recommendation prompt, and a
-.B check
-without
-.B \-\-strict
-whose backend failed.
+Success.
 .TP
 .B 1
-The run itself failed (a backend returned non\-zero),
-.B "check \-\-strict"
-had a backend fail, could not list the apps for you only, or served the previous state,
-.B doctor
-found at least one problem, or a writer could not take the writers' lock.
+Something failed. This includes a busy writers' lock:
 .BR "config set" ,
-.B hold
-and
+.BR hold ,
 .B unhold
-hold that lock across their whole read\-modify\-write and refuse rather than write after 30
-seconds, so one of those three can exit 1 with no run having failed and nothing having changed.
-.B reclaim
-exits 1 when Flatpak fails, even after removing some of the runtimes, or when what it removed
-cannot be read afterwards.
+and
+.B "discover\-notifier off|on|keep"
+give up after 30 seconds and write nothing.
 .TP
 .B 2
 Usage error: unknown command, option or argument.
 .TP
 .B 3
-Cannot start: jq is missing, or another
+Cannot start:
+.B jq
+is missing, or another
 .B kempt update
-holds the lock.
+is running.
 .TP
 .B 4
-Launcher missing: no terminal emulator for the
-.B terminal
-surface.
+No terminal emulator.
 .TP
 .B 5
-Aborted during pre\-flight. Nothing was changed. Four causes:
-.B update
-on an image\-based Fedora;
-.B "update \-\-surface=offline"
-while dnf5 has a Fedora release upgrade stored;
-.B unstage
-while one is stored, or when the root helper refuses to discard what is; and
-.B run
-when the terminal window it launched never opened, so the update never began. Also
-.B reclaim
-when it may not remove anything, including when polkit refuses Flatpak itself.
+Stopped before changing anything.
 .TP
 .B 6
 .B reclaim
-only: the runtimes Flatpak would remove are no longer the set that was shown, or part of it
-became unused less than an hour ago. On first use, with no check on record, every runtime is new.
-Nothing was removed.
+only: the list changed. Nothing was removed.
 .TP
 .B 7
 .B update
-only: another program, such as PackageKit or Discover, held the dnf or Flatpak lock through all
-three tries, and nothing else failed. Try again in a few minutes.
+only: another program held the package lock.
+.PP
+.B disable\-passwordless
+passes on
+.BR pkexec 's
+code when it cannot remove the rule: 126 when the password dialog was dismissed, 127 when
+authorization was refused.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),
 .BR pkexec (1),
 .BR polkit (8)
 .PP
-Full documentation is installed with the package in
+The package installs the full documentation in
 .IR /usr/share/doc/kempt/ :
-.IR README.md ", " docs/usage.md ", " docs/widget.md ", " docs/configuration.md ", " docs/architecture.md
-and
-.IR docs/security.md .
-A checkout install has the same files in the checkout, and they are also at
-https://github.com/erez-c137/kempt.
+.IR docs/usage.md " for every command, " docs/widget.md " for the widget, and"
+.IR docs/configuration.md ", " docs/architecture.md " and " docs/security.md .
+A checkout has the same files, and they are also at https://github.com/erez-c137/kempt.
