@@ -21,18 +21,14 @@
     <ul>
       <li>dnf5 and Flatpak updates, with the version each package moves from and to.</li>
       <li>Holds that skip a package but keep reporting it.</li>
-      <li>Offline staging for updates that could disturb the running session.</li>
+      <li>Installing on the next restart, for updates that could disturb the running desktop.</li>
+      <li>Removing the Flatpak runtimes no installed app uses.</li>
     </ul>
   </description>
   <developer id="io.github.erez_c137">
     <name>Erez</name>
   </developer>
-  <!--
-    appstreamcli fetches these four URLs and both screenshots, and a clean run has no findings.
-    url-not-reachable or screenshot-image-not-found means a broken link. A release's details URL
-    is not fetched, so it can name a tag that does not exist yet. A double hyphen ends an XML
-    comment, so write command flags here without one.
-  -->
+  <!-- appstreamcli fetches these URLs and the screenshots, but not a release's details URL. -->
   <url type="homepage">https://github.com/erez-c137/kempt</url>
   <url type="bugtracker">https://github.com/erez-c137/kempt/issues</url>
   <url type="help">https://github.com/erez-c137/kempt/blob/main/docs/widget.md</url>
@@ -47,10 +43,7 @@
     <keyword>plasma</keyword>
   </keywords>
   <screenshots>
-    <!--
-      width and height are the image's real size; the validator compares them. Update them with
-      the new 16:9 screenshots.
-    -->
+    <!-- width and height must be the image's real size: the validator compares them. -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
       <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.7/docs/images/kempt-tray-popup.png</image>
