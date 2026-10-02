@@ -7,7 +7,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | Needed | Why |
 | --- | --- |
 | Fedora with `dnf5` | The backend runs `dnf5 check-update`, `makecache`, `upgrade` and `needs-restarting`. Fedora 41 was the first release to ship dnf5 as the default `dnf`. |
-| A package-based Fedora, for now | Silverblue, Kinoite, Bazzite and bootc images ship dnf5 too, so Kempt installs and its checks pass. But dnf cannot write `/usr` there, so `kempt update` refuses in pre-flight (exit 5) and names `rpm-ostree upgrade`, or `bootc upgrade` on a bootc image. Everything that only reads works: `kempt check`, holds, the event log and `kempt doctor`. Support for those images is planned; see [the roadmap](ROADMAP.md). |
+| A package-based Fedora, for now | On Silverblue, Kinoite, Bazzite and bootc images, Kempt installs and checks, but [`kempt update`](usage.md#update) stops with exit 5. Support is planned in [the roadmap](ROADMAP.md). |
 | `rpm` | The before/after snapshots behind the summary come from `rpm -qa`. |
 | `jq` | Every state and history file is JSON. Without it, every command exits 3. `sudo dnf install jq` |
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
@@ -36,17 +36,13 @@ That installs two packages, because `kempt-plasmoid` requires `kempt`:
 
 | Package | What it is | Requires |
 | --- | --- | --- |
-| `kempt` | The CLI, the two root helpers, the polkit actions, the man page and this documentation. It needs no desktop, but it needs an active local session: polkit refuses both Kempt actions over SSH. Without the widget nothing checks on a schedule, so the CLI alone checks only when you run it. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)` |
+| `kempt` | The CLI, the two root helpers, the polkit actions, the man page and this documentation. It needs no desktop, but polkit refuses both Kempt actions over SSH. Without the widget, nothing checks on a schedule. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)`, and `python3-gobject-base` and `flatpak-libs` when Flatpak is installed |
 | `kempt-plasmoid` | The panel widget and its icons. | `kempt` of the same version, `plasma-workspace`, `hicolor-icon-theme` |
 
 The CLI is a separate package so that it does not pull in a desktop. `kempt-plasmoid` also
 `Supplements` `kempt` and `plasma-workspace` together. On a machine that already runs Plasma, dnf
-adds the widget when it installs or upgrades the CLI.
-
-> **Upgrading from 0.1.1**, where one package carried everything: run `sudo dnf upgrade`. On a
-> machine running Plasma, dnf installs `kempt-plasmoid` in the same transaction, so the panel is
-> untouched. With weak dependencies switched off (`install_weak_deps=False`), run
-> `sudo dnf install kempt-plasmoid` once.
+adds the widget when it installs or upgrades the CLI. With `install_weak_deps=False`, run
+`sudo dnf install kempt-plasmoid` once.
 
 From then on, `dnf` keeps everything in step. The whole tree is root-owned, and nothing in it is
 a symlink into your home directory.
@@ -56,7 +52,7 @@ a symlink into your home directory.
 | Path | Owner | What it is |
 | --- | --- | --- |
 | `/usr/bin/kempt` | `root:root` | The command you type. A **symlink** to `/usr/share/kempt/bin/kempt`, because the CLI finds its own tree with `readlink -f`. |
-| `/usr/share/kempt/bin/`, `lib/`, `backends/` | `root:root` | The CLI, its library and the two backends. |
+| `/usr/share/kempt/bin/`, `lib/`, `backends/`, `libexec/` | `root:root` | The CLI, its library, the two backends and the helper that lists unused Flatpak runtimes. |
 | `/usr/share/kempt/VERSION` | `root:root` 0644 | What `kempt --version` and the first line of `kempt doctor` read. |
 | `/usr/share/kempt/polkit/49-kempt.rules.in` | `root:root` 0644 | The template `kempt enable-passwordless` renders. |
 | `/usr/libexec/kempt-refresh` | `root:root` 0755 | Root helper: package metadata only, no authentication dialog. |
@@ -150,12 +146,12 @@ The installer does four things, in this order:
 
 1. **Symlinks the CLI and its man page** into `~/.local/bin/kempt` and
    `~/.local/share/man/man1/kempt.1`, so `man kempt` works without root.
-2. **Asks for authentication once** (one `pkexec`). As root, it copies the two helpers and the
-   polkit action out of the repo.
+2. **Asks for authentication once**, through one `pkexec`. As root, it copies the two helpers and
+   the polkit action out of the repo.
 3. **Installs the panel widget and its icons** with `kpackagetool6`, with no authentication. If
    you decline the dialog in step 2, this step is skipped, because the widget cannot work without
    the root helpers.
-4. **Offers to turn off Discover's notifier** (see below).
+4. **Offers to turn off Discover's notifier**, as [described below](#the-discover-notifier-opt-out).
 
 The CLI, its library, the backends and the passwordless rules template all run from the checkout.
 Moving or deleting the checkout breaks `kempt`. Only the root-owned files and the widget are
@@ -172,7 +168,7 @@ copies.
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
 | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6`) |
 | `~/.local/share/icons/hicolor/{scalable,64x64,48x48,32x32,22x22,16x16}/apps/kempt.svg` | you | `install.sh`, so the icon resolves by name in Add Widgets |
-| (no file) an `org.kde.KIconLoader.iconChanged` signal on your session bus | - | `install.sh`, so a running Plasma finds the new icon |
+| No file: an `org.kde.KIconLoader.iconChanged` signal on your session bus | none | `install.sh`, so a running Plasma finds the new icon |
 | `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you turn Discover's notifier off |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
 
@@ -193,8 +189,7 @@ too.
 
 If `kpackagetool6` is missing, the widget is skipped with a note and everything else installs.
 
-Nothing else is written at install time. Config and state directories are created on first use;
-see [configuration.md](configuration.md#files-and-retention).
+Nothing else is written at install time.
 
 If `kempt` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's default
 shell profile adds it when the directory exists, so a fresh login usually fixes it:
@@ -274,10 +269,8 @@ kempt doctor
 ```
 
 Expect `kempt doctor: all checks passed` and exit status 0. It prints one line per check, so a
-failure names itself. It checks the root helpers, the polkit action and each `exec.path`, `jq`,
-your terminal, flatpak, dnf, your config file, the state directory and the installed files. A
-packaged install prints [a slightly different report](#verify-it). Full detail is in
-[usage.md](usage.md#doctor).
+failure names itself. A packaged install prints [a slightly different report](#verify-it).
+[usage.md](usage.md#doctor) says what each line means.
 
 Then check for updates:
 
@@ -293,10 +286,10 @@ kempt check | jq '.backends.dnf.items | length'
 dnf5 --cacheonly check-update --quiet | wc -l
 ```
 
-Expect the same ballpark (dnf5 may print a header line, which `wc` counts). Kempt merges
-multilib pairs such as `bash.x86_64` and `bash.i686` into one item and filters out obsoleted
-packages. This `dnf5` command also reads your user cache, while
-Kempt reads the root cache its update will use.
+Expect about the same number. dnf5 may print a header line, which `wc` counts. Kempt merges
+multilib pairs such as `bash.x86_64` and `bash.i686` into one item, and leaves out obsoleted
+packages. The `dnf5` command also reads your user cache, while Kempt reads the root cache its
+update will use.
 
 ## Passwordless updates (optional)
 
@@ -333,9 +326,8 @@ The CLI updates at once, because `~/.local/bin/kempt` points into the checkout. 
 `./install.sh` if the root helpers, the polkit action or the widget changed, because those are
 copies.
 
-The installer upgrades the widget in place and says so. Plasma keeps the QML it already loaded, so
-run `plasmashell --replace` or log out and back in to see the new version. The installer does not
-remove and re-install the widget, because that would take it off your panel.
+The installer upgrades the widget in place, so it stays on your panel. Plasma keeps the QML it
+already loaded, so run `plasmashell --replace` or log out and back in to see the new version.
 
 Then `kempt doctor` confirms every copy matches the checkout:
 
