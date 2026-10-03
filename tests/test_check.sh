@@ -253,6 +253,14 @@ else
   KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails" "$KEMPT" check >/dev/null
   assert_eq "$(fp_fetches)" "4" "a failed dnf arm does not stop the flatpak one"
   assert_exit 0 "one arm succeeding stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
+  # The dnf check is cache-only, so with no cache it says only "no cache". The state says the
+  # latest dnf fetch failed, so the widget can tell a failed fetch from one never tried.
+  assert_eq "$(jq -r '.backends.dnf.refresh_failed' "$STATE_FILE")" "true" \
+    "a failed dnf refresh is published as backends.dnf.refresh_failed"
+  rm -f "$LAST_REFRESH_FILE"
+  "$KEMPT" check >/dev/null
+  assert_eq "$(jq -r '.backends.dnf | has("refresh_failed")' "$STATE_FILE")" "false" \
+    "...and a dnf refresh that works removes it"
 
   # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
   rm -f "$LAST_REFRESH_FILE"

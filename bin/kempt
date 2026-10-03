@@ -655,6 +655,12 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # true or absent: the latest dnf refresh that ran failed. A dnf check is cache-only, so with no
+  # cache it says only "no cache", and this is how a reader knows the fetch was tried.
+  if [[ -e "$REFRESH_DNF_FAILED_FILE" ]] \
+     && merged="$(jq '.backends.dnf.refresh_failed = true' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # true or absent, like image_based: the popup's one offer of the popup default, to an install
   # surface_migrate kept on the terminal.
   if surface_offer_pending \

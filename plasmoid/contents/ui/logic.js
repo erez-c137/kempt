@@ -226,6 +226,8 @@ var COPY = {
     checkFailedHint: "Check Installation can find out why.",
     checkNetworkHeadline: "Kempt could not reach the update servers",
     checkNetworkHint: "Check your network connection.",
+    // dnf has no package lists and no failed download explains why.
+    checkNoCacheHeadline: "The package lists have not been downloaded yet",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
     stateUnreadableTooltip: "Cannot read the update state",
@@ -2016,8 +2018,9 @@ function checkErrorOf(rc, stderr) {
     return firstLineOf(stderr);
 }
 
-// The words of a check that could not reach a server, from dnf5, librepo, curl and flatpak. Bare
-// "timed out" is left out: a lock or a polkit prompt can time out too.
+// The words of a check that could not reach a server. Bare "timed out" is left out: a lock or a
+// polkit prompt can time out too. The dnf check is cache-only, so these come from flatpak; dnf
+// says only that it has no cache, and NO_CACHE_RE below handles that.
 var NETWORK_ERROR_RE = new RegExp([
     "curl error", "could(n't| not) resolve", "temporary failure in name resolution",
     "name or service not known", "error resolving", "cannot download", "failed to download",
@@ -2026,17 +2029,34 @@ var NETWORK_ERROR_RE = new RegExp([
     "while fetching"
 ].join("|"), "i");
 
-// checkProblemOf(text) -> {network, headline, detail} for a check that answered nothing and left
-// no counts. The headline is plain words. The tool's first line is kept as the detail, for the
-// small print under it. The widget's own timeout sentence is already plain, so it has no detail.
-function checkProblemOf(text) {
+// dnf5 --cacheonly with no metadata: 'Cache-only enabled but no cache for repository "fedora"'.
+var NO_CACHE_RE = /no cache for repository/i;
+
+// checkProblemOf(text, dnfRefreshFailed) -> {network, headline, detail} for a check that answered
+// nothing and left no counts. The headline is plain words. The tool's first line is kept as the
+// detail, for the small print under it. The widget's own timeout sentence is already plain, so it
+// has no detail.
+// The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
+// part is one. dnf's "no cache" counts as one only when the latest dnf refresh failed
+// (backends.dnf.refresh_failed). A text that names kempt doctor never is.
+function checkProblemOf(text, dnfRefreshFailed) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
     if (raw === "") return { network: false, headline: "", detail: "" };
     if (raw === COPY.checkTimedOut) return { network: false, headline: raw, detail: "" };
-    if (NETWORK_ERROR_RE.test(raw)) {
+    var failed = { network: false, headline: COPY.checkFailedHeadline, detail: raw };
+    if (mentionsDoctor(raw)) return failed;
+    var parts = raw.split(/; (?=(?:dnf|flatpak) check failed\b)/);
+    var network = 0, noCache = 0;
+    for (var i = 0; i < parts.length; i++) {
+        var dnfNoCache = /^dnf check failed\b/.test(parts[i]) && NO_CACHE_RE.test(parts[i]);
+        if (NETWORK_ERROR_RE.test(parts[i]) || (dnfNoCache && dnfRefreshFailed === true)) network++;
+        else if (dnfNoCache) noCache++;
+    }
+    if (network === parts.length) {
         return { network: true, headline: COPY.checkNetworkHeadline, detail: raw };
     }
-    return { network: false, headline: COPY.checkFailedHeadline, detail: raw };
+    if (noCache === parts.length) return { network: false, headline: COPY.checkNoCacheHeadline, detail: raw };
+    return failed;
 }
 
 // checkFailedOverOf(rc) -> the report for a Check for Updates that answered nothing while a state
@@ -2356,7 +2376,8 @@ function viewModel(state, updating, cliError, opts) {
         var problemRaw = cliError !== "" ? cliError                  // we could not run the CLI
             : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
         if (problemRaw !== "") {
-            var problem = checkProblemOf(problemRaw);
+            var problem = checkProblemOf(problemRaw, usable && !!state.backends
+                && !!state.backends.dnf && state.backends.dnf.refresh_failed === true);
             problemText = problem.headline;
             problemDetail = problem.detail;
             problemNetwork = problem.network;

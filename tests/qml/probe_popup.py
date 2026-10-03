@@ -3514,6 +3514,7 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
+    "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read
     "checkNetworkShort",    # -> vm.tooltipSub, for a network failure

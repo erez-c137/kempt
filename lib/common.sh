@@ -85,6 +85,9 @@ REFRESH_SKIP_FILE="$KEMPT_STATE_DIR/last_refresh_skip"
 # When the dnf half of a refresh last succeeded. $LAST_REFRESH_FILE is touched when EITHER half
 # does, so it would date dnf's metadata by a Flatpak fetch. metadata_refreshed reads this one.
 LAST_REFRESH_DNF_FILE="$KEMPT_STATE_DIR/last_refresh_dnf"
+# Present while the latest dnf refresh that ran failed. A check publishes it as
+# backends.dnf.refresh_failed, so the widget can tell a failed fetch from a fetch never tried.
+REFRESH_DNF_FAILED_FILE="$KEMPT_STATE_DIR/refresh_dnf_failed"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
@@ -1514,8 +1517,10 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   if priv_refresh refresh >/dev/null 2>&1; then
     ok=1
     touch "$LAST_REFRESH_DNF_FILE" || true
+    rm -f "$REFRESH_DNF_FAILED_FILE" || true
     log_event "refresh ok"
   else
+    touch "$REFRESH_DNF_FAILED_FILE" || true
     log_event "refresh failed"
   fi
   # Gated on include_flatpak: fetching flathub's summary for a backend the user switched off is

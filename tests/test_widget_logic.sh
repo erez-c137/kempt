@@ -350,20 +350,40 @@ assert_eq "$(js 'L.viewModel(null,false,"").remedyCommand')" "" "...and unknown 
 assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").problemDetail')" "line one" \
   "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
 # A check that could not reach a server is not a broken installation. It gets its own headline,
-# the network hint, and no Check Installation. The words are dnf5's, curl's and flatpak's.
-net='L.viewModel(null,false,"dnf check failed: Curl error (6): Couldn'"'"'t resolve host name for https://mirrors.fedoraproject.org/metalink?repo=fedora-44")'
+# the network hint, and no Check Installation. The dnf check is cache-only, so offline it says only
+# that it has no cache. That reads as a network failure when the state says the latest dnf refresh
+# failed (backends.dnf.refresh_failed), and as a neutral headline when it does not.
+nocache='dnf check failed: Cache-only enabled but no cache for repository \"fedora\"'
+net_state="{schema:1,status:\"stale\",error:\"$nocache\",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[],refresh_failed:true}}}"
+net="L.viewModel($net_state,false)"
 assert_eq "$(js "$net.emptyStateText")" "Kempt could not reach the update servers" \
-  "a network failure gets a plain headline instead of the URL"
+  "no dnf cache after a failed dnf refresh gets the network headline"
 assert_eq "$(js "$net.problemNetwork")" "true" "...is marked as a network failure for the hint"
-assert_eq "$(js "$net.problemDetail.indexOf(\"Curl error (6)\") >= 0")" "true" "...keeps the raw text as the detail"
+assert_eq "$(js "$net.problemDetail.indexOf(\"no cache for repository\") >= 0")" "true" "...keeps the raw text as the detail"
 assert_eq "$(js "$net.remedyCommand")" "" "...and offers no Check Installation, since nothing is broken"
 assert_eq "$(js "$net.tooltipMain + \" | \" + $net.tooltipSub")" \
   "Cannot check for updates | Could not reach the update servers" "...and the tooltip says the same in short"
-for _e in "dnf check failed: Cannot download repomd.xml: Cannot download repodata/repomd.xml: All mirrors were tried" \
-          "dnf check failed: Failed to download metadata (metalink: \"https://x\") for repository \"fedora\"" \
-          "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname" \
-          "dnf check failed: Curl error (28): Timeout was reached for https://x" \
-          "flatpak check failed: Could not connect: Network is unreachable"; do
+old_state="{schema:1,status:\"stale\",error:\"$nocache\",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[]}}}"
+assert_eq "$(js "L.viewModel($old_state,false).emptyStateText + \"|\" + L.viewModel($old_state,false).problemNetwork")" \
+  "The package lists have not been downloaded yet|false" \
+  "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
+assert_eq "$(js "L.viewModel($old_state,false).remedyCommand")" "kempt doctor" "...and offers Check Installation"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\", false).network")" "false" "checkProblemOf: no cache alone is not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\", true).network")" "true" "...but no cache after a failed dnf refresh is"
+assert_eq "$(js "L.checkProblemOf(\"flatpak check failed: $nocache\", true).network")" "false" \
+  "...and only for the dnf part"
+# The CLI joins the two backends' failures with "; ". Network only when every part is.
+fp_net='flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname'
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", true).network")" "true" \
+  "both parts network: a network failure"
+assert_eq "$(js "L.checkProblemOf(\"dnf check failed: kempt: dnf timed out; $fp_net\", true).headline")" \
+  "The check failed" "one network part and one other: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", false).headline")" \
+  "The check failed" "no cache with no failed refresh beside a network part: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$fp_net (see: kempt doctor)\", true).network")" "false" \
+  "a text that names kempt doctor is never a network failure"
+for _e in "$fp_net" "flatpak check failed: Could not connect: Network is unreachable" \
+          "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [28] Timeout was reached"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "true" "network failure: $_e"
 done
 for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)" \
@@ -372,9 +392,6 @@ for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: k
 done
 assert_eq "$(js 'L.viewModel(null,false,L.COPY.checkTimedOut).emptyStateText + "|" + L.viewModel(null,false,L.COPY.checkTimedOut).problemDetail')" \
   "The check did not finish in time.|" "the widget's own timeout sentence is already plain, with nothing under it"
-# The same for a state that never answered: its error is the CLI's, classified the same way.
-assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"dnf check failed: Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443: Could not connect to server",last_success:null,actionable:0,held_total:0,backends:{}},false).remedyCommand')" \
-  "" "a state that never answered over the network offers no Check Installation either"
 # The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
 # explain_helper_error). That text arrives in the state, so the remedy must be offered from there
 # too - the CLI ran fine, it is the install that is broken.

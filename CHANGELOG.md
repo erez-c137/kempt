@@ -103,11 +103,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing changed on screen. Now a message says the check failed or did not finish, and that the
   counts shown are from the last check. A check that ran out of time no longer shows "timeout after"
   and a number of milliseconds.
-- **A first check that fails says why in plain words.** When no server could be reached, the
-  widget says "Kempt could not reach the update servers" and to check the network, with no
-  **Check Installation**. Any other failure reads "The check failed" and offers it. The raw error
-  stays underneath in small print. The hover text reads "Cannot check for updates" and a short
-  reason.
+- **A first check that fails says why in plain words.** If dnf's download failed and it has no
+  package lists, or Flatpak could not connect, the widget says "Kempt could not reach the update
+  servers". It then offers no **Check Installation**. Any other failure reads "The check failed"
+  and offers it. The raw error stays underneath in small print. The hover text reads "Cannot check
+  for updates" and a short reason. The state records a failed dnf download as
+  `backends.dnf.refresh_failed`.
 - **The widget's hover text says each thing once.** With only held packages, it no longer gives
   the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
 - **The staged message no longer repeats the header.** It reads "They install when you restart."
