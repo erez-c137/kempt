@@ -188,7 +188,7 @@ var COPY = {
     // because nothing else says the click did not start a run, and the question ends what is read
     // out, because the focus lands on a button and a screen reader would read only that.
     riskyAskLead: "Nothing is installed yet.",
-    riskyAskQuestion: "Install now, or on the next restart?",
+    riskyAskQuestion: "Install on the next restart, or now?",
     // The same risk with no advice, for a box with no route to the next restart.
     riskySummaryOne: "1 pending update touches a package the running desktop depends on (%1).",
     riskySummaryMore: "%1 pending updates touch packages the running desktop depends on (%2).",
@@ -226,6 +226,11 @@ var COPY = {
     checkFailedHint: "Check Installation can find out why.",
     checkNetworkHeadline: "Kempt could not reach the update servers",
     checkNetworkHint: "Check your network connection.",
+    // dnf has no package lists and no network failure explains why. Doctor reports nothing
+    // wrong here, so neither hint offers Check Installation.
+    checkNoCacheHeadline: "The package lists have not been downloaded yet",
+    checkNoCacheHint: "Kempt downloads them at a check on mains power and an unmetered connection.",
+    checkRefreshFailedHint: "dnf could not download them. Its error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
     stateUnreadableTooltip: "Cannot read the update state",
@@ -513,8 +518,8 @@ function trimZero(n) {
     return String(Math.round(n * 10) / 10);
 }
 
-// How many session-critical families the offline recommendation names before ", ...". Same number
-// the CLI's notification uses (bin/kempt).
+// How many session-critical families the offline recommendation names before ", …". Same number
+// the CLI's notification uses (bin/kempt), which ends its list in three ASCII dots instead.
 var RISKY_FAMILIES_SHOWN = 4;
 
 // Highest number the panel badge spells out; above this it reads "999+". COMPACT ONLY - the popup
@@ -820,6 +825,14 @@ function holdsOf(text) {
     return out;
 }
 
+// logTailOf(text) -> the run's log tail as the widget shows it. dnf pads a line out to a counter
+// at the right edge ("Upgrading bash-5.3-1.fc44.x86_64          31/62"). The widget wraps long
+// lines, so the padding would push the counter onto a line of its own. It becomes one space.
+function logTailOf(text) {
+    if (typeof text !== "string") return "";
+    return text.replace(/[ \t]{2,}(\d+\/\d+)[ \t]*$/gm, " $1");
+}
+
 // lastLinesOf(text, max) -> the last `max` non-blank lines, trimmed, joined with " ". The result
 // line under the passwordless buttons. The LAST lines: pkexec and polkit print their progress
 // before their verdict, and the verdict is the part worth showing.
@@ -999,7 +1012,7 @@ function riskyFamiliesOf(names) {
         lbl = labelFor(fams.shown[i]);
         out.push(lbl !== "" ? lbl : fams.shown[i]);
     }
-    return out.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
+    return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
 }
 
 // "20 pending updates touch packages the running desktop depends on (dbus, glibc, kernel, kf6,
@@ -2016,8 +2029,9 @@ function checkErrorOf(rc, stderr) {
     return firstLineOf(stderr);
 }
 
-// The words of a check that could not reach a server, from dnf5, librepo, curl and flatpak. Bare
-// "timed out" is left out: a lock or a polkit prompt can time out too.
+// The words of a check that could not reach a server. Bare "timed out" is left out: a lock or a
+// polkit prompt can time out too. The dnf check is cache-only, so these come from flatpak; dnf
+// says only that it has no cache, and NO_CACHE_RE below handles that.
 var NETWORK_ERROR_RE = new RegExp([
     "curl error", "could(n't| not) resolve", "temporary failure in name resolution",
     "name or service not known", "error resolving", "cannot download", "failed to download",
@@ -2026,17 +2040,57 @@ var NETWORK_ERROR_RE = new RegExp([
     "while fetching"
 ].join("|"), "i");
 
-// checkProblemOf(text) -> {network, headline, detail} for a check that answered nothing and left
-// no counts. The headline is plain words. The tool's first line is kept as the detail, for the
-// small print under it. The widget's own timeout sentence is already plain, so it has no detail.
-function checkProblemOf(text) {
+// The same for dnf's own refresh error (backends.dnf.refresh_error), and stricter: a repository
+// that answers 404 also gives "Curl error" and "Cannot download", and that server was reached.
+var REFRESH_NETWORK_RE = new RegExp([
+    "could(n't| not) resolve", "temporary failure in name resolution", "name or service not known",
+    "could(n't| not) connect", "failed to connect", "connection (refused|reset|timed out)",
+    "operation timed out", "timeout was reached", "network is unreachable", "no route to host"
+].join("|"), "i");
+
+// dnf5 --cacheonly with no metadata: 'Cache-only enabled but no cache for repository "fedora"'.
+var NO_CACHE_RE = /no cache for repository/i;
+
+// checkProblemOf(text, dnfRefreshError) -> {network, noCache, headline, detail, hint} for a check
+// that answered nothing and left no counts. The headline is plain words, and the hint the line
+// under it. The tool's first line is kept as the detail, for the small print. The widget's own
+// timeout sentence is already plain, so it has no detail.
+// The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
+// part is one. dnf's "no cache" counts as one only when dnf's own refresh error (a string while
+// the latest refresh failed) is a network error. A text that names kempt doctor never is.
+function checkProblemOf(text, dnfRefreshError) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
-    if (raw === "") return { network: false, headline: "", detail: "" };
-    if (raw === COPY.checkTimedOut) return { network: false, headline: raw, detail: "" };
-    if (NETWORK_ERROR_RE.test(raw)) {
-        return { network: true, headline: COPY.checkNetworkHeadline, detail: raw };
+    var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
+    if (raw === "") return none;
+    if (raw === COPY.checkTimedOut) {
+        return { network: false, noCache: false, headline: raw, detail: "", hint: COPY.checkFailedHint };
     }
-    return { network: false, headline: COPY.checkFailedHeadline, detail: raw };
+    var failed = { network: false, noCache: false, headline: COPY.checkFailedHeadline, detail: raw,
+                   hint: COPY.checkFailedHint };
+    if (mentionsDoctor(raw)) return failed;
+    var refreshError = typeof dnfRefreshError === "string" ? firstLineOf(dnfRefreshError) : null;
+    var refreshNetwork = refreshError !== null && REFRESH_NETWORK_RE.test(refreshError);
+    var parts = raw.split(/; (?=(?:dnf|flatpak) check failed\b)/);
+    var network = 0, noCache = 0;
+    for (var i = 0; i < parts.length; i++) {
+        var dnfNoCache = /^dnf check failed\b/.test(parts[i]) && NO_CACHE_RE.test(parts[i]);
+        if (dnfNoCache ? refreshNetwork : NETWORK_ERROR_RE.test(parts[i])) network++;
+        else if (dnfNoCache) noCache++;
+    }
+    if (network === parts.length) {
+        return { network: true, noCache: false, headline: COPY.checkNetworkHeadline, detail: raw,
+                 hint: COPY.checkNetworkHint };
+    }
+    if (noCache === parts.length) {
+        // A refresh that failed says why in its own words. With none on record it was skipped,
+        // which happens on battery and on a metered connection.
+        return refreshError !== null && refreshError !== ""
+            ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
+                detail: refreshError, hint: COPY.checkRefreshFailedHint }
+            : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
+                hint: COPY.checkNoCacheHint };
+    }
+    return failed;
 }
 
 // checkFailedOverOf(rc) -> the report for a Check for Updates that answered nothing while a state
@@ -2351,15 +2405,19 @@ function viewModel(state, updating, cliError, opts) {
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
     // A failed check is said in plain words, with the tool's own line kept as the detail.
-    var problemText = "", problemDetail = "", problemNetwork = false;
+    var problemText = "", problemDetail = "", problemNetwork = false, problemNoCache = false;
+    var problemHint = "";
     if (iconState === "error") {
         var problemRaw = cliError !== "" ? cliError                  // we could not run the CLI
             : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
         if (problemRaw !== "") {
-            var problem = checkProblemOf(problemRaw);
+            var problem = checkProblemOf(problemRaw, usable && !!state.backends
+                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined);
             problemText = problem.headline;
             problemDetail = problem.detail;
             problemNetwork = problem.network;
+            problemNoCache = problem.noCache;
+            problemHint = problem.hint;
         } else {
             problemText = "the update state could not be read";      // it answered something else
         }
@@ -2405,8 +2463,8 @@ function viewModel(state, updating, cliError, opts) {
         if (pendingNames !== "") subParts.push(pendingNames);
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
-        // Not when the header already ends in it ("Up to date · 10 held").
-        if (heldTotal > 0 && countPhrase.indexOf(heldTotal + " " + COPY.held) < 0) {
+        // Not when the tooltip title already ends in it ("Up to date · 10 held").
+        if (heldTotal > 0 && tooltipMain.indexOf(heldTotal + " " + COPY.held) < 0) {
             subParts.push(heldTotal + " " + COPY.held);
         }
         // Only with something to download AND something to press. On an up-to-date box the number
@@ -2449,9 +2507,10 @@ function viewModel(state, updating, cliError, opts) {
     // doctor` is a kempt subcommand, so on the box where kempt is what is absent this would tell
     // the user to run the very thing they do not have. Those states carry their own message, which
     // says the right thing for each.
-    // ...and not for a network failure either: nothing in the installation is wrong.
-    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered) && !problemNetwork)
-        ? "kempt doctor" : "";
+    // ...and not for a network failure or missing package lists either: nothing in the
+    // installation is wrong, and doctor would say so.
+    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered) && !problemNetwork
+                         && !problemNoCache) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
@@ -2606,6 +2665,9 @@ function viewModel(state, updating, cliError, opts) {
         // The tool's own line under a plain emptyStateText, and whether it was a network failure.
         problemDetail: problemDetail,
         problemNetwork: problemNetwork,
+        // The line under emptyStateText: what to do about it. Check Installation's when it is offered.
+        problemHint: remedyCommand !== "" ? COPY.checkFailedHint
+            : (problemNetwork || problemNoCache ? problemHint : ""),
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
         // a string in this key otherwise renders as. These two must agree about the same key.
@@ -2761,6 +2823,7 @@ if (typeof module !== "undefined" && module.exports) {
         answerOutcomeOf: answerOutcomeOf,
         checkErrorOf: checkErrorOf,
         checkProblemOf: checkProblemOf,
+        logTailOf: logTailOf,
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,

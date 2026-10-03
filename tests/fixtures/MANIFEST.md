@@ -214,7 +214,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   plasma-workspace, kwin-common, kwin-x11, all at EVR `9.9.9-1.fc44`. Real Fedora package names
   from the session-critical families, all pending at once - a Qt or KDE bump genuinely looks like
   this. The CLI flags all 20 in `risky_pending`; they reduce to 9 families (dbus, glibc, kernel,
-  kf6, kwin, mesa, plasma, qt6, systemd), which is what makes this fixture exercise the ", ..."
+  kf6, kwin, mesa, plasma, qt6, systemd), which is what makes this fixture exercise the ", …"
   tail on the offline recommendation rather than just the four-family happy path.
 - **state-broken.json** - captured, on a box where `install.sh` has never run: the refresh helper
   path does not exist and `include_flatpak=false` leaves nothing else that can answer. Result:

@@ -253,6 +253,71 @@ else
   KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails" "$KEMPT" check >/dev/null
   assert_eq "$(fp_fetches)" "4" "a failed dnf arm does not stop the flatpak one"
   assert_exit 0 "one arm succeeding stamps last_refresh" -- test -f "$LAST_REFRESH_FILE"
+  # The dnf check is cache-only, so with no cache it says only "no cache". The state carries one
+  # line of the failed refresh's error, so the widget can tell a network failure from any other.
+  cat > "$TESTTMP/refresh-dnf-neterr" <<STUB
+#!/usr/bin/env bash
+echo "\$1" >> "$TESTTMP/dnf-refresh-verbs"
+case "\$1" in
+  check) cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) printf '%s\n' 'Updating and loading repositories:' \
+             '>>> Curl error (6): Couldn'\''t resolve host name for https://me:secret@mirror/metalink?repo=fedora-44&token=abc [Could not resolve host]' \
+             'Failed to download metadata for repository "fedora"' >&2
+           exit 1 ;;
+esac
+STUB
+  chmod +x "$TESTTMP/refresh-dnf-neterr"
+  rm -f "$LAST_REFRESH_FILE"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(jq -r '.backends.dnf.refresh_error' "$STATE_FILE")" \
+    "Curl error (6): Couldn't resolve host name for https://mirror/metalink [Could not resolve host]" \
+    "a failed dnf refresh publishes its first error line, without the URL's credentials or query"
+  rm -f "$LAST_REFRESH_FILE"
+  "$KEMPT" check >/dev/null
+  assert_eq "$(jq -r '.backends.dnf | has("refresh_error")' "$STATE_FILE")" "false" \
+    "...and a dnf refresh that works removes it"
+
+  # A box where no dnf refresh has ever worked has no cache to check against. A Flatpak fetch beside
+  # a failed dnf one stamps the shared gate, and must not hold dnf off for 3 hours.
+  rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE" "$TESTTMP/dnf-refresh-verbs"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  fp_before="$(fp_fetches)"
+  touch -d '10 minutes ago' "$LAST_REFRESH_FILE"; stamp_before="$(stat -c %Y "$LAST_REFRESH_FILE")"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "1" \
+    "a failed dnf refresh is not tried again within 15 minutes of failing"
+  touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
+    "with no dnf refresh ever recorded, a failed one is tried again once 15 minutes old"
+  assert_eq "$(fp_fetches)|$(stat -c %Y "$LAST_REFRESH_FILE")" "$fp_before|$stamp_before" \
+    "...without fetching Flatpak again or moving the shared stamp"
+  touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"
+  "$KEMPT" check >/dev/null
+  assert_eq "$(jq -r '.backends.dnf | has("refresh_error")' "$STATE_FILE")|$(stat -c %Y "$LAST_REFRESH_FILE")" \
+    "false|$stamp_before" "...and the retry that works clears the error, still inside the gate"
+  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
+    "once a dnf refresh has worked, a failing one waits for the gate"
+
+  # The published line never carries a credential, even from a tail cut inside a URL.
+  rel() { printf '%b' "$1" > "$TESTTMP/rel.err"; refresh_error_line "$TESTTMP/rel.err" "${2:-1}"; }
+  long="$(printf 'x%.0s' {1..150})"
+  assert_eq "$(rel "$long https://h/r/repomd.xml?token=SECRETTOKEN123 [404]\n>>> Status code: 404 for https://h/r?token=SECRETTOKEN123\n")" \
+    "Status code: 404 for https://h/r" "with no error line, dnf's >>> status line is used, without its query"
+  pad="$(printf 'z%.0s' {1..176})"  # puts the 200-byte cut at "n=SECRETTOKEN123"
+  assert_eq "$(rel "$long https://h/r?token=SECRETTOKEN123 [404] $pad\n")" "[404] $pad" \
+    "a cut tail loses its first word, so a query cut in half does not survive"
+  assert_eq "$(rel "$(printf 'y%.0s' {1..190})https://user:pw@h/r [404]\n")" "[404]" \
+    "...nor credentials cut in half"
+  assert_eq "$(rel "fetch: https://h/r?token=abc\"def&k=SECRET2 [x]\n")" "fetch: https://h/r [x]" \
+    "a quote inside a query does not stop its removal"
+  assert_eq "$(rel "fetch from user:pw@host/r and https://u:p@h/x failed\n")" "fetch from host/r and https://h/x failed" \
+    "user:password@ is removed wherever it appears"
+  assert_eq "$(rel "Error: $(printf '\\xc3\\xa9%.0s' {1..120})\n" | tr -d '\n' | LC_ALL=C wc -c)" "199" \
+    "the line is at most 200 bytes and ends on a whole character"
+  assert_eq "$(rel "" 124)|$(rel "  \n" 2)" "dnf makecache timed out|dnf makecache exited with status 2" \
+    "a refresh that printed nothing is named by how it ended"
 
   # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
   rm -f "$LAST_REFRESH_FILE"

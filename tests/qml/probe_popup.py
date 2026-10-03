@@ -1190,6 +1190,7 @@ GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [],
 REBUILD_TIP = ("Builds the staged update again with your current holds. Asks for "
                "authorization; if the rebuild fails, the current staged update is removed.")
 
+_sev("clear()")
 state(CONFLICT1)
 stack("with a hold on a package the staged update contains", "stagedMessage")
 p.check("...the banner tells it in the person's own order of events, with both ways out and "
@@ -1205,6 +1206,11 @@ p.check("...as a Warning, because the reassurance is no longer true",
 # difference between the two banners would be a colour, which is not a difference at all.
 p.check("...announced to a screen reader as the sentence, not as a change of colour",
         lev("stagedMessage.Accessible.name"), lev("stagedMessage.text"))
+# Said once, as the new sentence. The announcement is handed the sentence itself, so it cannot
+# read an accessible name that has not caught up with the flip.
+p.check("...and the flip is spoken as the new sentence, once",
+        [w for w in said() if w.startswith("You held") or w.endswith("next restart")],
+        [lev("stagedMessage.text")])
 p.check("...offering three actions in the list, one of which is standing down",
         lev("stagedMessage.actions.length"), 3)
 p.check("...and the Restart… button is NOT one of them: offering a restart here offers the "
@@ -2682,6 +2688,13 @@ p.check("...and Install Now beside it",
         [lev("riskyMessage.actions[1].text"), lev("riskyMessage.actions[1].visible")],
         [ev("Logic.COPY.installNow"), True])
 
+# Every way the question closes gives Update Now back to the footer, whenever its own rule allows
+# it. The rule here is the binding's, less the question.
+def footer_back(label):
+    p.check(label, [lev("riskyMessage.asking"), lev("updateButton.visible")],
+            [False, lev("popup.vm.actionable > 0 && !popup.plasmoidItem.updating"
+                        " && !popup.vm.stagedArmed && popup.vm.updateOffered")])
+
 # Install Now: what Update Now would have run, plus the flag that says the person chose it.
 lev("riskyMessage.actions[1].trigger()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
@@ -2756,6 +2769,7 @@ p.check("...and closes the choice", ev("root.riskyChoiceOpen"), False)
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
+footer_back("...and Update Now comes back after staging, as its own rule allows")
 
 # A choice left open is not carried over to the next time the popup opens.
 lev("updateButton.clicked()")
@@ -2764,6 +2778,8 @@ ev("root.popupClosed()")
 p.check("closing the popup closes an unanswered choice", ev("root.riskyChoiceOpen"), False)
 p.check("...and the plain message's Install Now goes with it",
         lev("riskyMessage.actions[1].visible"), False)
+footer_back("...and Update Now comes back")
+p.check("premise: Update Now is on the footer here", lev("updateButton.visible"), True)
 
 # A question is about the moment it was asked: a run started some other way ends it...
 lev("updateButton.clicked()")
@@ -2777,11 +2793,13 @@ ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
 p.check("...and it does not come back after the run", lev("riskyMessage.asking"), False)
+footer_back("...and Update Now is back after that run")
 # ...and so does a set that is no longer session-critical.
 lev("updateButton.clicked()")
 p.pump(100)
 state(fixture("state-live.json"))
 p.check("a check that finds nothing session-critical closes the choice", ev("root.riskyChoiceOpen"), False)
+footer_back("...and Update Now comes back")
 
 # On the terminal, the terminal asks for itself: Update Now runs at once, with no question here.
 open(SURF, "w").write("terminal\n")
@@ -3514,6 +3532,11 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
+    "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
+    "checkFailedHint",      # -> checkProblemOf -> vm.problemHint, beside Check Installation
+    "checkNetworkHint",     # -> checkProblemOf -> vm.problemHint, for a network failure
+    "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
+    "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read
     "checkNetworkShort",    # -> vm.tooltipSub, for a network failure

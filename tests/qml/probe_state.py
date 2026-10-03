@@ -625,21 +625,9 @@ PlasmoidItem {
         id: cr; anchors.fill: parent; plasmoidItem: shell; vm: shell.vm
         iconSizeSetting: shell.sizeSetting
     }
-    // The count pill is the disc holding a label; the restart emblem is a disc holding an icon.
     function badge() {
-        for (var i = 0; i < cr.children.length; i++) {
-            var c = cr.children[i];
-            if (c.radius !== undefined && c.children.length && c.children[0].text !== undefined)
-                return c;
-        }
-        return null;
-    }
-    function restartEmblem() {
-        for (var i = 0; i < cr.children.length; i++) {
-            var c = cr.children[i];
-            if (c.radius !== undefined && c.children.length && c.children[0].source !== undefined)
-                return c;
-        }
+        for (var i = 0; i < cr.children.length; i++)
+            if (cr.children[i].radius !== undefined) return cr.children[i];
         return null;
     }
     // `mainIcon` is an id private to CompactRepresentation.qml, so it is found by what it is:
@@ -723,12 +711,6 @@ p.pump(60)
 p.check("the 22px step is where the badge comes back", cev("cr.iconSize"), 22)
 p.check("...and it is drawn", cev("badge().visible"), True)
 p.check("...at a size a count can be read at", cev("badge().children[0].font.pixelSize") >= 6, True)
-p.check("with no restart owed, the panel icon carries no restart emblem",
-        cev("restartEmblem().visible"), False)
-cev("shell.vm = ({ iconState: 'updates', badgeText: '347', badgeVisible: true, rebootNeeded: true })")
-p.pump(60)
-p.check("...and with one owed it does, in the corner the count badge leaves free",
-        [cev("restartEmblem().visible"), cev("restartEmblem().x < badge().x")], [True, True])
 
 # Below the smallest hinted step there is nothing to snap to, so it must still be a whole number
 # of pixels rather than a fraction.

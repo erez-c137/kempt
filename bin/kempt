@@ -655,6 +655,14 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # One line, or absent: the error of the latest dnf refresh, while it failed. A dnf check is
+  # cache-only, so with no cache it says only "no cache", and this says why there is none.
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]] \
+     && merged="$(jq --rawfile e "$REFRESH_DNF_FAILED_FILE" \
+                   '.backends.dnf.refresh_error = ($e | split("\n")[0])' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # true or absent, like image_based: the popup's one offer of the popup default, to an install
   # surface_migrate kept on the terminal.
   if surface_offer_pending \

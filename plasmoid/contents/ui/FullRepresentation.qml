@@ -214,9 +214,12 @@ PlasmaExtras.Representation {
     // `spoken` is what stops one change being announced twice: `text` and `visible` are two
     // bindings onto the same view-model change and both handlers fire. It is cleared when the
     // message goes away, so a banner that comes back says itself again.
-    function speakMessage(item, assertive) {
+    // `sentence`, when given, is what is said. A caller passes it when the item's Accessible.name
+    // is bound to the same change and may not have updated yet when this handler runs.
+    function speakMessage(item, assertive, sentence) {
         if (!item.visible) { item.spoken = ""; return; }
-        const said = item.Accessible.name || item.text;
+        const said = (typeof sentence === "string" && sentence.length > 0)
+            ? sentence : (item.Accessible.name || item.text);
         if (said === item.spoken) return;
         item.spoken = said;
         popup.announce(said, assertive);
@@ -667,7 +670,7 @@ PlasmaExtras.Representation {
             type: popup.vm.stagedType === "warning"
                   ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
             // The plain banner shows only what the header does not say. Its accessible name, and
-            // what is announced, is the whole sentence (popup.speakMessage reads the name).
+            // what is announced, is the whole sentence (`sentence` below).
             text: popup.vm.stagedBanner
             // The flip has to arrive as WORDS. Without a name a screen reader announces the icon,
             // "Positive" and later "Warning", and the difference between the two banners would
@@ -680,8 +683,8 @@ PlasmaExtras.Representation {
             property string spoken: ""
             // On the whole sentence, which changes with the count while the banner may not.
             readonly property string sentence: popup.vm.stagedMessage
-            onSentenceChanged: popup.speakMessage(stagedMessage, true)
-            onVisibleChanged: popup.speakMessage(stagedMessage, true)
+            onSentenceChanged: popup.speakMessage(stagedMessage, true, sentence)
+            onVisibleChanged: popup.speakMessage(stagedMessage, true, sentence)
             actions: [
                 Kirigami.Action {
                     // The same action the restart Warning offers, and never at the same time as it:
@@ -1226,9 +1229,7 @@ PlasmaExtras.Representation {
                           : popup.vm.iconState === "error" ? "dialog-error"
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
-                explanation: popup.vm.remedyCommand.length > 0
-                             ? i18n("Check Installation can find out why.")
-                             : popup.vm.problemNetwork ? i18n("Check your network connection.") : ""
+                explanation: popup.vm.problemHint
                 helpfulAction: doctorPlaceholderAction
                 // The tool's own words, in small print under the plain headline, for anyone who
                 // needs them. Selectable, so they can be pasted into a search or a bug report.
@@ -1475,7 +1476,7 @@ PlasmaExtras.Representation {
                 // delivers Space and Return to whatever holds activeFocus whether it is drawn or
                 // not, so what is left is an invisible button that starts `kempt run` on a box with
                 // nothing to update.
-                onVisibleChanged: if (!visible && activeFocus) popup.focusPrimary()
+                onVisibleChanged: if (!visible && activeFocus && !riskyMessage.asking) popup.focusPrimary()
 
                 // The belt to that braces. A control that is invisible and still operable is a trap
                 // however the keyboard reached it, and the focus move above is not the only route

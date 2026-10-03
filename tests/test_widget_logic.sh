@@ -224,6 +224,10 @@ assert_eq "$(js 'V("held-only",false).badgeVisible')" "false" "held items are no
 assert_eq "$(js 'V("held-only",false).tooltipMain')" "Up to date · 10 held" "...but the tooltip notes N held"
 assert_eq "$(js 'V("held-only",false).tooltipSub.indexOf("10 held")')" "-1" \
   "...once: the title already carries it, so the line under it does not repeat it"
+# The test is against the tooltip's title, not the count phrase: over a staged update the title is
+# the staged header, so the held count still belongs in the line under it.
+assert_eq "$(js 'const s = S("held-only"); s.offline_staged = {staged_at: "2026-09-02T10:31:00+03:00", count: 3, armed: true, holds_conflict: [], names_source: "transaction"}; L.viewModel(s, false).tooltipSub')" \
+  "10 held" "...and with an update staged, the title is the staged header and the held count stays below"
 assert_eq "$(js 'V("live",false).tooltipSub.indexOf("held")')" "-1" "...and with nothing held, nothing is said"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:3,held_total:2,backends:{}},false).tooltipSub')" "2 held" \
   "...while a count of pending updates leaves the held count to the line under it"
@@ -350,31 +354,73 @@ assert_eq "$(js 'L.viewModel(null,false,"").remedyCommand')" "" "...and unknown 
 assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").problemDetail')" "line one" \
   "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
 # A check that could not reach a server is not a broken installation. It gets its own headline,
-# the network hint, and no Check Installation. The words are dnf5's, curl's and flatpak's.
-net='L.viewModel(null,false,"dnf check failed: Curl error (6): Couldn'"'"'t resolve host name for https://mirrors.fedoraproject.org/metalink?repo=fedora-44")'
+# the network hint, and no Check Installation. The dnf check is cache-only, so offline it says only
+# that it has no cache. That reads as a network failure when dnf's own refresh error
+# (backends.dnf.refresh_error) is one, and as a neutral headline otherwise.
+nocache='dnf check failed: Updating and loading repositories: Cache-only enabled but no cache for repository \"fedora\"'
+neterr='Curl error (6): Couldn'"'"'t resolve host name for https://mirrors.fedoraproject.org/metalink [Could not resolve host: mirrors.fedoraproject.org]'
+err404='Curl error (22): The requested URL returned error: 404 for https://download.copr.fedorainfracloud.org/results/x/y/repodata/repomd.xml'
+nc_state() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[]%s}}}' "$nocache" "$1"; }
+net="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$neterr" | jq -Rs .)"),false)"
 assert_eq "$(js "$net.emptyStateText")" "Kempt could not reach the update servers" \
-  "a network failure gets a plain headline instead of the URL"
-assert_eq "$(js "$net.problemNetwork")" "true" "...is marked as a network failure for the hint"
-assert_eq "$(js "$net.problemDetail.indexOf(\"Curl error (6)\") >= 0")" "true" "...keeps the raw text as the detail"
+  "no dnf cache after a refresh that could not resolve the mirror gets the network headline"
+assert_eq "$(js "$net.problemNetwork + \"|\" + $net.problemHint")" "true|Check your network connection." \
+  "...is marked as a network failure, with the network hint"
+assert_eq "$(js "$net.problemDetail.indexOf(\"no cache for repository\") >= 0")" "true" "...keeps the raw text as the detail"
 assert_eq "$(js "$net.remedyCommand")" "" "...and offers no Check Installation, since nothing is broken"
 assert_eq "$(js "$net.tooltipMain + \" | \" + $net.tooltipSub")" \
   "Cannot check for updates | Could not reach the update servers" "...and the tooltip says the same in short"
-for _e in "dnf check failed: Cannot download repomd.xml: Cannot download repodata/repomd.xml: All mirrors were tried" \
-          "dnf check failed: Failed to download metadata (metalink: \"https://x\") for repository \"fedora\"" \
-          "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname" \
-          "dnf check failed: Curl error (28): Timeout was reached for https://x" \
-          "flatpak check failed: Could not connect: Network is unreachable"; do
+r404="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$err404" | jq -Rs .)"),false)"
+assert_eq "$(js "$r404.emptyStateText + \"|\" + $r404.problemNetwork")" \
+  "The package lists have not been downloaded yet|false" \
+  "a refresh that reached a server answering 404 is not a network failure"
+assert_eq "$(js "$r404.problemDetail + \"|\" + $r404.problemHint")" \
+  "$err404|dnf could not download them. Its error is below." "...and shows dnf's refresh error under it"
+assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which would find nothing wrong"
+r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
+assert_eq "$(js "$r_empty.emptyStateText + \"|\" + $r_empty.problemNetwork")" \
+  "The package lists have not been downloaded yet|false" "a refresh that failed silently claims no network cause"
+r_to="L.viewModel($(nc_state ',refresh_error:"dnf makecache timed out"'),false)"
+assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemNetwork + \"|\" + $r_to.problemHint")" \
+  "The package lists have not been downloaded yet|false|dnf could not download them. Its error is below." \
+  "a refresh that timed out is not called a network failure, and the hint says a refresh ran"
+old="L.viewModel($(nc_state ''),false)"
+assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
+  "The package lists have not been downloaded yet|false|" \
+  "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
+assert_eq "$(js "$old.problemHint")" "Kempt downloads them at a check on mains power and an unmetered connection." \
+  "...and says when the lists download"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
+  "...but no cache after a refresh with a network error is"
+assert_eq "$(js "L.checkProblemOf(\"flatpak check failed: Cache-only enabled but no cache for repository\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
+  "...and only for the dnf part"
+# The CLI joins the two backends' failures with "; ". Network only when every part is.
+fp_net='flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname'
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
+  "both parts network: a network failure"
+assert_eq "$(js "L.checkProblemOf(\"dnf check failed: kempt: dnf timed out; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).headline")" \
+  "The check failed" "one network part and one other: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\").headline")" \
+  "The check failed" "no cache with no failed refresh beside a network part: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$fp_net (see: kempt doctor)\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
+  "a text that names kempt doctor is never a network failure"
+for _e in "$fp_net" "flatpak check failed: Could not connect: Network is unreachable" \
+          "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [28] Timeout was reached"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "true" "network failure: $_e"
 done
 for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)" \
           "kempt: dnf timed out" "kempt: cannot reach polkit (no system bus or polkit service)"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "false" "not a network failure: $_e"
 done
+# The run's log in the widget wraps, so dnf's padding before a trailing counter is collapsed and
+# the counter stays on its line. Other runs of spaces are left alone.
+assert_eq "$(js 'L.logTailOf("  Upgrading        : bash-5.3-1.fc44.x86_64                31/62\n  Verifying  x   1/2  \nplain  text")')" \
+  "$(printf '  Upgrading        : bash-5.3-1.fc44.x86_64 31/62\n  Verifying  x 1/2\nplain  text')" \
+  "the log tail keeps dnf's trailing counter on its line"
+assert_eq "$(js 'L.logTailOf(undefined)')" "" "...and an absent tail is empty"
 assert_eq "$(js 'L.viewModel(null,false,L.COPY.checkTimedOut).emptyStateText + "|" + L.viewModel(null,false,L.COPY.checkTimedOut).problemDetail')" \
   "The check did not finish in time.|" "the widget's own timeout sentence is already plain, with nothing under it"
-# The same for a state that never answered: its error is the CLI's, classified the same way.
-assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"dnf check failed: Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443: Could not connect to server",last_success:null,actionable:0,held_total:0,backends:{}},false).remedyCommand')" \
-  "" "a state that never answered over the network offers no Check Installation either"
 # The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
 # explain_helper_error). That text arrives in the state, so the remedy must be offered from there
 # too - the CLI ran fine, it is the install that is broken.
@@ -1032,7 +1078,7 @@ assert_eq "$(js 'V("live",false).rows.length')" "12" "...and the row count is un
 
 # --- risky transaction: the widget's summary must match what the CLI itself says ---
 # Expected string built with the CLI's own pipeline (bin/kempt: families are the prefix up to the
-# first - or ., sort -u, first four, then ", ...").
+# first - or ., sort -u, first four, then a comma and an ellipsis).
 risky_names="$(jq -r '.risky_pending[]' "$FIXTURES/state-risky-heavy.json")"
 n_risky="$(grep -c '' <<<"$risky_names")"
 fams="$(sed 's/[-.].*//' <<<"$risky_names" | sort -u)"
@@ -1044,7 +1090,7 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            lbl="$(bash -c "source '$REPO_ROOT/lib/common.sh'; family_label '$f'")"
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
-more=""; if (( n_fams > 4 )); then more=", ..."; fi
+more=""; if (( n_fams > 4 )); then more=", …"; fi
 expect_risky="$n_risky pending updates touch packages the running desktop depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
 assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
@@ -1136,9 +1182,9 @@ assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
-# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", ...".
+# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, ...). The safest way is to install them on the next restart." \
+  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -3089,7 +3135,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3687,10 +3733,8 @@ assert_eq "$(grep -c 'popup.vm.stagedType === "warning"' "$REPO_ROOT/plasmoid/co
 # enforcement rather than another round of finding them by eye.
 #
 # Comments are stripped by ui_grep above, because they are not user-facing and this project's
-# comments are full of "...". The one allowed literal is logic.js's `", ..."`: it MIRRORS the
-# CLI's notification text, which is plain ASCII by choice, and the two must not drift apart.
-ELLIPSIS_ALLOW='? ", ..." :'
-ellipsis_hits="$(ui_grep '\.\.\.' | grep -vF "$ELLIPSIS_ALLOW" || true)"
+# comments are full of "...".
+ellipsis_hits="$(ui_grep '\.\.\.' || true)"
 if [[ -z "$ellipsis_hits" ]]; then
   echo "ok: no three-dot ellipsis in any string the widget shows a person"
 else
@@ -3743,14 +3787,14 @@ done < <(js 'L.COPY.engineMissingInstall'; echo)
 # whatever prompted this request. The page used to say the opposite.
 assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
   "widget.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'If a check is already running, one more runs when it$' "$WIDGET_DOC")" "1" \
   "...it describes the coalescing the code actually does"
 
 # Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
 # harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
 assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
   "widget.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'opens the run.s log, when there is one' "$WIDGET_DOC")" "1" \
   "...it says when the button is there instead"
 assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
   "...and the QML really does bind both Show Log buttons to a log path being present"
@@ -3784,7 +3828,7 @@ assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart ins
 # page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
 # could pass with the popup section saying nothing at all.
 POPUP_DOC="$TESTTMP/widget-popup.md"
-awk '/^## The popup$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
+awk '/^## Inside the widget$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
 assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
   "premise: docs/widget.md still has a popup section to read"
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
@@ -3792,7 +3836,7 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
 # wherever it quotes a banner.
 assert_eq "$(grep -q 'asks for authorization' "$POPUP_DOC" && echo yes || echo no)" "yes" \
   "the popup section says the rebuild asks for authorization"
-assert_eq "$(grep -c 'removes the current staged update' "$POPUP_DOC")" "1" \
+assert_eq "$(grep -q 'if it fails, *$' "$POPUP_DOC" && grep -q 'nothing stays staged' "$POPUP_DOC" && echo 1 || echo 0)" "1" \
   "...and that a rebuild that fails removes the staged update it was replacing"
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"

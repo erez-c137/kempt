@@ -205,6 +205,7 @@ cope with that.
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every runtime. **A runtime's identity is its `name` and `branch` together.** Anything that keys items by name must key on the pair where this is present. Additive. |
 | `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name. **Absent means unknown, never zero.** Additive. |
 | `backends.flatpak.scopes` | object, optional | Only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. See [below](#flatpak-scopes). Additive. |
+| `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes, with any `user:password@` and any query string removed. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item has a `size_bytes`**. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
@@ -588,7 +589,7 @@ the panel icon.
 | A hold that failed | Assertive | The row now carries an error and the padlock is live again. |
 | The staged banner, when its words change while it is visible | Assertive | The machine is saying that what it promised has changed. |
 | The post-run line and a failed press | Assertive | The answer the person was waiting for, and the widget may not have focus. |
-| The question before session-critical updates | Polite | It answers the click on **Update Now**. It starts `Nothing is installed yet.` and ends with `Install now, or on the next restart?` |
+| The question before session-critical updates | Polite | It answers the click on **Update Now**. It starts `Nothing is installed yet.` and ends with `Install on the next restart, or now?` |
 | The Check for Updates answer, `vm.checkAnswerText` | Polite | The person asked. The widget says it while open, the panel icon while closed. |
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 

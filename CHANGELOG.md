@@ -61,11 +61,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
   nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
-  leaves the footer until the question is answered. Before, it started them straight away. `auto_accept=false` still sends every run to the terminal.
+  leaves the footer while the question is open. Before, it started them straight away.
+  `auto_accept=false` still sends every run to the terminal.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
   break a sentence with a dash, and they use the words you see on screen.
+- **More widget messages are plain sentences.** The Held note reads "Kempt skips these. Other
+  updaters still see them." The commands to install a missing engine each get a line. A failed
+  installation check points to the full report. A run that stops reporting back says the list
+  shows what is pending now. A long list of desktop packages ends in "…".
 - **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
   They describe what Kempt does in the same words as the rest of the release.
 - **The widget's summary names Fedora.** The KDE Store, Add Widgets and software centres read
@@ -103,19 +108,22 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing changed on screen. Now a message says the check failed or did not finish, and that the
   counts shown are from the last check. A check that ran out of time no longer shows "timeout after"
   and a number of milliseconds.
-- **A first check that fails says why in plain words.** When no server could be reached, the
-  widget says "Kempt could not reach the update servers" and to check the network, with no
-  **Check Installation**. Any other failure reads "The check failed" and offers it. The raw error
-  stays underneath in small print. The hover text reads "Cannot check for updates" and a short
-  reason.
+- **A first check that fails says why in plain words.** "Kempt could not reach the update
+  servers" appears only when every failed part is a network failure. For dnf, its own metadata
+  refresh must have failed with one, such as a host that would not resolve. That message offers no
+  **Check Installation**. dnf with no package lists for another reason reads "The package lists have
+  not been downloaded yet". Any other failure reads "The check failed" and offers Check
+  Installation. The raw error stays underneath in small print. The state publishes dnf's refresh
+  error as `backends.dnf.refresh_error`.
+- **A dnf refresh that has never worked is tried again 15 minutes after it failed.** Before, a
+  Flatpak fetch beside it held dnf off for three hours, leaving the check nothing to read.
 - **The widget's hover text says each thing once.** With only held packages, it no longer gives
   the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
 - **The staged message no longer repeats the header.** It reads "They install when you restart."
   A screen reader still hears the whole sentence with the count.
-- **An update in progress shows its log in full.** Long log lines wrap, the popup no longer
-  repeats "Updating…" over the log, and **Not Updating? Check Again** is a button.
-- **The panel icon shows a pending restart.** A small restart emblem sits on the icon until the
-  restart.
+- **An update in progress shows its log in full.** Long log lines wrap, and dnf's progress
+  counter stays on its line. The widget no longer repeats "Updating…" over the log, and **Not
+  Updating? Check Again** is a button.
 - **Settings read the same size throughout.** The notes under Discover's notifier and password
   prompts use the small font, like the other notes.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out, such
