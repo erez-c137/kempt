@@ -110,7 +110,7 @@ var COPY = {
     newBuild: "new build",
     // ...and the line the Held heading owes a first-timer: a hold is Kempt's own list and does not
     // touch `dnf upgrade`.
-    heldKemptOnly: "Held packages are skipped by Kempt only.",
+    heldKemptOnly: "Kempt skips these. Other updaters still see them.",
     // The version line as a sentence: on screen it is "3.105-… → 3.106-1.fc44", and that arrow
     // goes through a screen reader's character table as a word nobody wants to hear.
     versionRange: "from %1 to %2",
@@ -126,7 +126,7 @@ var COPY = {
     // that is aborted or closed never writes one - so without this the popup sits on an empty pane
     // until a three-hour guard fires. On the default configuration that is what a first-timer gets
     // for taking the default answer to Kempt's one question.
-    notUpdatingCheckAgain: "Not updating? Check again",
+    notUpdatingCheckAgain: "Not Updating? Check Again",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
     // it. The tooltip is the whole argument for choosing it.
@@ -187,8 +187,11 @@ var COPY = {
     // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
     // because nothing else says the click did not start a run, and the question ends what is read
     // out, because the focus lands on a button and a screen reader would read only that.
-    riskyAskLead: "The update has not started.",
+    riskyAskLead: "Nothing is installed yet.",
     riskyAskQuestion: "Install now, or on the next restart?",
+    // The same risk with no advice, for a box with no route to the next restart.
+    riskySummaryOne: "1 pending update touches a package the running desktop depends on (%1).",
+    riskySummaryMore: "%1 pending updates touch packages the running desktop depends on (%2).",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
@@ -216,6 +219,20 @@ var COPY = {
     // held count and the download size. %1 is the failed half, %2 when the counts are from.
     checkFailedFor: "The check failed for %1.",
     checkFailedPlain: "The check failed.",
+    // The placeholder over a check that answered nothing and left no counts to show. The tool's
+    // own words stay on screen in small print under it (vm.problemDetail). A network failure gets
+    // its own sentence, and no Check Installation: nothing in the installation is wrong.
+    checkFailedHeadline: "The check failed",
+    checkFailedHint: "Check Installation can find out why.",
+    checkNetworkHeadline: "Kempt could not reach the update servers",
+    checkNetworkHint: "Check your network connection.",
+    // ...and the panel tooltip in that state: a title, and the reason in a few words.
+    checkFailedTooltip: "Cannot check for updates",
+    stateUnreadableTooltip: "Cannot read the update state",
+    checkNetworkShort: "Could not reach the update servers",
+    checkFailedShort: "Open Kempt to see why",
+    // The age of the counts in the stale tooltip. %1 is a relative time ("1 day ago").
+    lastSuccessfulCheck: "Last successful check %1",
     countsFrom: "The counts are from %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
@@ -231,6 +248,10 @@ var COPY = {
     stagedTail: "are staged and install on the next restart",
     stagedOne: "1 update is staged and installs on the next restart",
     stagedUnknownCount: "Updates are staged and install on the next restart",
+    // ...and what the banner shows under the header, which already says how many are staged.
+    // The full sentence above stays its accessible name and what is announced.
+    stagedBannerOne: "It installs when you restart.",
+    stagedBannerMore: "They install when you restart.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
@@ -348,9 +369,12 @@ var COPY = {
     // The commands are WHOLE: half a command line fails somewhere the reader has to debug.
     // The header above it already says the engine is not installed, so this does not repeat it.
     engineMissing: "Nothing can check for updates yet.",
+    // One command per line, so neither wraps in the middle.
     engineMissingInstall:
-        "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. "
-        + "Other systems: github.com/erez-c137/kempt",
+        "To install it on Fedora, run:\n"
+        + "sudo dnf copr enable erez-c137/kempt\n"
+        + "sudo dnf install kempt-plasmoid\n"
+        + "On other systems, see github.com/erez-c137/kempt.",
     // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
     // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
     // The tests drift-guard the two: every command this copies must appear verbatim in the other.
@@ -362,7 +386,7 @@ var COPY = {
     // which from an exit code, so it names none of them and hands over the one command that can.
     // The header above it already says the engine will not run, so this does not repeat it.
     engineUnrunnable: "The engine is installed but cannot start, so nothing can check for updates.",
-    engineUnrunnableFix: "Check Installation runs kempt doctor to find the problem. If that cannot start, its error says why.",
+    engineUnrunnableFix: "Check Installation can find the problem. If it cannot start, its error says why.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
     // remedy is two commands and the repair one is a single command, and a button offering to copy
@@ -378,7 +402,8 @@ var COPY = {
     doctorPassed: "Kempt checked its installation and found no problems.",
     doctorFoundOne: "Kempt found a problem with its installation: %1",
     doctorFoundMore: "Kempt found %1 problems with its installation. The first: %2",
-    doctorCouldNotRun: "Kempt could not check its installation: %1",
+    // The shell's own reason ("sh: line 1: ...") goes in the full report, never in this sentence.
+    doctorCouldNotRun: "Kempt could not check its installation. The full report has the error.",
     doctorCouldNotRunCode: "Kempt could not check its installation (exit %1).",
     doctorTimedOut: "Kempt stopped waiting for the installation check. Try again in a minute.",
     doctorShowReport: "Show Full Report",
@@ -977,12 +1002,14 @@ function riskyFamiliesOf(names) {
     return out.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
 }
 
-// "20 session-critical pending (dbus, glibc, kernel, kf6, ...)", worded from the same parts as the
-// CLI's notification. Published as vm.riskySummary and deliberately not drawn: the popup shows the
-// RECOMMENDATION below, which answers the next question.
+// "20 pending updates touch packages the running desktop depends on (dbus, glibc, kernel, kf6,
+// ...).", from the same family names as the CLI's notification. Drawn only where the
+// recommendation below cannot be: there is no route to the next restart.
 function riskySummaryOf(names) {
     if (!names || !names.length) return "";
-    return names.length + " session-critical pending (" + riskyFamiliesOf(names) + ")";
+    return names.length === 1
+        ? fill(COPY.riskySummaryOne, "%1", riskyFamiliesOf(names))
+        : fill(fill(COPY.riskySummaryMore, "%1", String(names.length)), "%2", riskyFamiliesOf(names));
 }
 
 // pendingNamesOf(sections, riskyNames) -> "kernel-core, bash, curl and 7 more", for the panel
@@ -1089,7 +1116,7 @@ var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "s
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
 // an engine that answered. The one exception is the result of its own Check Installation button.
-// Anything displaced shows NOTHING - it does not shuffle into the next slot mid-glance and it does
+// Anything displaced is not shown. It does not shuffle into the next slot mid-glance, and it does
 // not stack below the fold.
 // `doctor`, the result of Check Installation, is outside the cap. It answers a press made seconds
 // ago, so it must show whatever else is up, and it must not push out the staged or restart banner
@@ -1179,7 +1206,8 @@ function stagedHeaderOf(staged) {
 }
 
 // stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words:
-//   { type: "positive" | "warning", message, conflictNames: [...], stagedAt: "" }
+//   { type: "positive" | "warning", message, banner, conflictNames: [...], stagedAt: "" }
+// banner is set on the plain variant only; viewModel shows a warning's whole message.
 //
 // THE PROBLEM IT EXISTS FOR: stage 83 updates with a kernel among them, press the pin on
 // kernel-core, and restart into the kernel you just tried to keep out. dnf5 built and stored that
@@ -1203,9 +1231,12 @@ function stagedHeaderOf(staged) {
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
 function stagedVariantOf(staged, heldDnf) {
-    var plain = { type: "positive", message: stagedMessageOf(staged), conflictNames: [],
+    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "", conflictNames: [],
                   stagedAt: "" };
     if (plain.message === "") return plain;
+    // The plain banner sits under a header that already gives the count, so it shows only the
+    // rest. A warning shows its whole message.
+    plain.banner = staged.count === 1 ? COPY.stagedBannerOne : COPY.stagedBannerMore;
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -1836,10 +1867,11 @@ function doctorVerdictOf(rc, stdout, stderr) {
     if (rc === 0) return { failed: false, summary: COPY.doctorPassed, report: report };
     // The Executor's own kill: it answers 124 and names its timeout on stderr.
     if (rc === 124) return { failed: true, summary: COPY.doctorTimedOut, report: report };
-    // Only stderr explains a failure. Stdout holds doctor's info rows, which do not.
+    // Only stderr explains a failure. Stdout holds doctor's info rows, which do not. The
+    // report carries stderr, so the sentence only says where to read it.
     var why = firstLineOf(err);
     return { failed: true, report: report,
-             summary: why !== "" ? fill(COPY.doctorCouldNotRun, "%1", why)
+             summary: why !== "" ? COPY.doctorCouldNotRun
                                  : fill(COPY.doctorCouldNotRunCode, "%1", String(rc)) };
 }
 
@@ -1982,6 +2014,29 @@ function isExecutorTimeout(rc, stderr) {
 function checkErrorOf(rc, stderr) {
     if (isExecutorTimeout(rc, stderr)) return COPY.checkTimedOut;
     return firstLineOf(stderr);
+}
+
+// The words of a check that could not reach a server, from dnf5, librepo, curl and flatpak. Bare
+// "timed out" is left out: a lock or a polkit prompt can time out too.
+var NETWORK_ERROR_RE = new RegExp([
+    "curl error", "could(n't| not) resolve", "temporary failure in name resolution",
+    "name or service not known", "error resolving", "cannot download", "failed to download",
+    "all mirrors were tried", "could(n't| not) connect", "connection (refused|reset|timed out)",
+    "operation timed out", "timeout was reached", "network is unreachable", "no route to host",
+    "while fetching"
+].join("|"), "i");
+
+// checkProblemOf(text) -> {network, headline, detail} for a check that answered nothing and left
+// no counts. The headline is plain words. The tool's first line is kept as the detail, for the
+// small print under it. The widget's own timeout sentence is already plain, so it has no detail.
+function checkProblemOf(text) {
+    var raw = firstLineOf(typeof text === "string" ? text : "");
+    if (raw === "") return { network: false, headline: "", detail: "" };
+    if (raw === COPY.checkTimedOut) return { network: false, headline: raw, detail: "" };
+    if (NETWORK_ERROR_RE.test(raw)) {
+        return { network: true, headline: COPY.checkNetworkHeadline, detail: raw };
+    }
+    return { network: false, headline: COPY.checkFailedHeadline, detail: raw };
 }
 
 // checkFailedOverOf(rc) -> the report for a Check for Updates that answered nothing while a state
@@ -2273,7 +2328,8 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain = "Kempt";
         headerText = "No update data yet";
     } else if (iconState === "error") {
-        tooltipMain = "Kempt";
+        tooltipMain = (cliError !== "" || neverAnswered)
+            ? COPY.checkFailedTooltip : COPY.stateUnreadableTooltip;
         headerText = (cliError !== "" || neverAnswered)
             ? "Kempt cannot check for updates"
             : "Could not read the update state";
@@ -2294,11 +2350,19 @@ function viewModel(state, updating, cliError, opts) {
         : "";
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
-    var problemText = "";
+    // A failed check is said in plain words, with the tool's own line kept as the detail.
+    var problemText = "", problemDetail = "", problemNetwork = false;
     if (iconState === "error") {
-        if (cliError !== "") problemText = cliError;                 // we could not run the CLI
-        else if (neverAnswered) problemText = staleReason;           // it ran, and told us why not
-        else problemText = "the update state could not be read";     // it answered something else
+        var problemRaw = cliError !== "" ? cliError                  // we could not run the CLI
+            : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
+        if (problemRaw !== "") {
+            var problem = checkProblemOf(problemRaw);
+            problemText = problem.headline;
+            problemDetail = problem.detail;
+            problemNetwork = problem.network;
+        } else {
+            problemText = "the update state could not be read";      // it answered something else
+        }
     }
 
     // The whole answer for a box with no working engine, assembled here so the popup binds one
@@ -2329,7 +2393,11 @@ function viewModel(state, updating, cliError, opts) {
     if (engineFault === "missing") subParts.push(COPY.engineMissing);
     else if (engineFault === "unrunnable") subParts.push(COPY.engineUnrunnable);
     else if (iconState === "unknown") subParts.push("no data until the first check finishes");
-    else if (iconState === "error") subParts.push(problemText);
+    else if (iconState === "error") {
+        // A short reason, never the tool's stderr: the popup has that in small print.
+        subParts.push(problemNetwork ? COPY.checkNetworkShort
+            : (problemDetail !== "" ? COPY.checkFailedShort : problemText));
+    }
     else {
         // What is pending, by name - the count says how many, this says what. Not while a stage
         // is armed: the header already says the work is done and waiting for a restart.
@@ -2337,7 +2405,10 @@ function viewModel(state, updating, cliError, opts) {
         if (pendingNames !== "") subParts.push(pendingNames);
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
-        if (heldTotal > 0) subParts.push(heldTotal + " " + COPY.held);
+        // Not when the header already ends in it ("Up to date · 10 held").
+        if (heldTotal > 0 && countPhrase.indexOf(heldTotal + " " + COPY.held) < 0) {
+            subParts.push(heldTotal + " " + COPY.held);
+        }
         // Only with something to download AND something to press. On an up-to-date box the number
         // is zero or absent; next to a held-only list it would describe bytes no run will fetch.
         if (actionable > 0 && downloadText !== "") subParts.push(downloadText + " to download");
@@ -2345,7 +2416,9 @@ function viewModel(state, updating, cliError, opts) {
         // went wrong, and how old the numbers above it therefore are.
         if (stale) {
             subParts.push(staleReason);
-            subParts.push("last successful check: " + lastSuccessText);
+            subParts.push(everSucceeded
+                ? fill(COPY.lastSuccessfulCheck, "%1", relativeTime(state.last_success, opts.nowMs))
+                : COPY.noSuccessfulCheckYet);
         }
         if (userUnchecked) subParts.push(COPY.userAppsUncheckedShort);
         // A pending restart is the one fact needing an action from the person; without this line
@@ -2376,7 +2449,9 @@ function viewModel(state, updating, cliError, opts) {
     // doctor` is a kempt subcommand, so on the box where kempt is what is absent this would tell
     // the user to run the very thing they do not have. Those states carry their own message, which
     // says the right thing for each.
-    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered)) ? "kempt doctor" : "";
+    // ...and not for a network failure either: nothing in the installation is wrong.
+    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered) && !problemNetwork)
+        ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
@@ -2528,6 +2603,9 @@ function viewModel(state, updating, cliError, opts) {
         engineFaultActionLabel: engineFaultActionLabel,
         engineFaultOffersDoctor: engineFaultOffersDoctor,
         emptyStateText: emptyStateText,
+        // The tool's own line under a plain emptyStateText, and whether it was a network failure.
+        problemDetail: problemDetail,
+        problemNetwork: problemNetwork,
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
         // a string in this key otherwise renders as. These two must agree about the same key.
@@ -2537,6 +2615,8 @@ function viewModel(state, updating, cliError, opts) {
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
         stagedMessage: stagedMessage,
+        // What the banner shows: the plain one gives way to the header's count.
+        stagedBanner: stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
@@ -2680,6 +2760,7 @@ if (typeof module !== "undefined" && module.exports) {
         ANSWER_TIMEOUT_MS: ANSWER_TIMEOUT_MS,
         answerOutcomeOf: answerOutcomeOf,
         checkErrorOf: checkErrorOf,
+        checkProblemOf: checkProblemOf,
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,

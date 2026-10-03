@@ -329,7 +329,7 @@ for _surface, _said in (("popup", "Updating…"),
     ev('root.enterUpdating("%s")' % _surface)
     p.pump(80)
     p.check("a run on the %s surface says where to look for it" % _surface,
-            lev("updatingLabel.text"), _said)
+            [lev("updatingLabel.text"), lev("updatingLabel.visible")], [_said, _surface != "popup"])
     ev("root.leaveUpdating()")
     settle()
     ev('root.postRunLine = ""')
