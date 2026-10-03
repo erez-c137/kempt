@@ -171,8 +171,8 @@ force a refresh on the next check. Set `KEMPT_SKIP_REFRESH=1` to turn refreshing
 battery or a metered connection. The widget's **Check for Updates** runs it. When that press gets
 no fetch, the footer shows the metadata's age at once, such as `metadata 3 hours old`.
 
-Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json`. Once the
-metadata is over 24 hours old, the popup's footer shows `metadata N days old`, and `kempt doctor`
+Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json` once a dnf
+refresh has worked, and leaves it out until then. Once the metadata is over 24 hours old, the popup's footer shows `metadata N days old`, and `kempt doctor`
 reports it on its own row. A skipped refresh is also written to the event log, at most once a
 day.
 
@@ -189,7 +189,6 @@ day.
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
 | `~/.local/state/kempt/last_refresh` | Timestamp of the last metadata refresh, for the 3-hour interval |
 | `~/.local/state/kempt/last_refresh_dnf` | Timestamp of the last dnf metadata refresh that succeeded, for `metadata_refreshed` |
-| `~/.local/state/kempt/last_refresh_flatpak` | Timestamp of the last Flatpak metadata refresh that succeeded. Once it exists, `metadata_refreshed` no longer falls back to `last_refresh` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |

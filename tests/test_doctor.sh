@@ -84,12 +84,12 @@ assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
 # checked. No other row here would say so. info and never FAIL: old metadata is what those two
 # rules are FOR, so it is a fact to put in front of the reader, not a fault to count.
 kempt_init_dirs
-rm -f "$LAST_REFRESH_FILE"
+rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata: never refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: a box that has never fetched metadata says so, rather than dating it" \
   || { echo "FAIL: no never-refreshed metadata row"; _fail=1; }
-touch -d '3 days ago' "$LAST_REFRESH_FILE"
+touch -d '3 days ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and an old cache is dated in whole days" \
@@ -97,23 +97,28 @@ grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
 grep -q 'kempt check --refresh' "$TESTTMP/doc-meta" \
   && echo "ok: ...and names the command that fetches now" \
   || { echo "FAIL: the metadata row offers no remedy"; _fail=1; }
-touch -d '1 day ago' "$LAST_REFRESH_FILE"
+touch -d '1 day ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata is 1 day old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and one day reads as one day, verb and all" \
   || { echo "FAIL: the metadata row says '1 days'"; _fail=1; }
-touch "$LAST_REFRESH_FILE"
+touch "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: ...and a cache fetched today is an ok row, not a finding" \
   || { echo "FAIL: fresh metadata is not reported ok"; _fail=1; }
-# A Flatpak fetch moves the shared stamp too, so on a box whose dnf fetch never worked it dates nothing.
-touch "$LAST_REFRESH_FLATPAK_FILE"
+# Fetches have run but no dnf one is on record: the shared stamp also moves for Flatpak alone, so
+# it dates nothing, and the row says what to do rather than "refreshed" or "never refreshed".
+rm -f "$LAST_REFRESH_DNF_FILE"
+touch "$LAST_REFRESH_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package metadata: no dnf refresh has worked on this box yet' "$TESTTMP/doc-meta" \
-  && echo "ok: a box where only the Flatpak fetch worked does not date the dnf metadata" \
-  || { echo "FAIL: a Flatpak-only fetch is reported as a dnf refresh"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
-rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_FLATPAK_FILE"
+grep -qE '^info +package metadata: no dnf refresh recorded yet' "$TESTTMP/doc-meta" \
+  && echo "ok: a box with fetches but no dnf stamp does not date the dnf metadata" \
+  || { echo "FAIL: the shared stamp is reported as a dnf refresh"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
+grep -q 'dnf5 makecache --refresh shows why' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and says how to see why, if it stays" \
+  || { echo "FAIL: the row gives no next step"; _fail=1; }
+rm -f "$LAST_REFRESH_FILE"
 
 # --- the ownership branches, which nothing could reach before ---
 # doctor checks root:root 0755 only when the helper it was handed IS the path polkit's exec.path

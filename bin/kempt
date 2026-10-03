@@ -3257,9 +3257,11 @@ doctor_other_updater_row() {
 doctor_metadata_row() {
   local iso days
   iso="$(metadata_refreshed_iso)"
-  # A Flatpak fetch landed and no dnf fetch ever did: "never refreshed" would hide that fetches run.
-  if [[ -z "$iso" && -e "$LAST_REFRESH_FLATPAK_FILE" ]]; then
-    doctor_info "package metadata: no dnf refresh has worked on this box yet, only the Flatpak one. Checks answer from whatever dnf has cached. Try one with: kempt check --refresh"
+  # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
+  # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
+  # for both: "never refreshed" would hide that fetches run.
+  if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
+    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
     return 0
   fi
   if [[ -z "$iso" ]]; then

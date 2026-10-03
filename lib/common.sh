@@ -85,9 +85,6 @@ REFRESH_SKIP_FILE="$KEMPT_STATE_DIR/last_refresh_skip"
 # When the dnf half of a refresh last succeeded. $LAST_REFRESH_FILE is touched when EITHER half
 # does, so it would date dnf's metadata by a Flatpak fetch. metadata_refreshed reads this one.
 LAST_REFRESH_DNF_FILE="$KEMPT_STATE_DIR/last_refresh_dnf"
-# When the Flatpak half last succeeded. It tells a $LAST_REFRESH_FILE that an older Kempt wrote,
-# which may date dnf's metadata, from one a Flatpak fetch alone wrote, which never does.
-LAST_REFRESH_FLATPAK_FILE="$KEMPT_STATE_DIR/last_refresh_flatpak"
 OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
@@ -578,7 +575,8 @@ discover_wait_running() {
 # no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd 7
 # open would hold the writers' lock for the whole session and every later `config set`, `hold` or
 # `unhold` would wait 30 s and fail. Closing one that is not open is a no-op.
-# The binary is started after kstart's wait even when kstart's launch is only slow, so two can start.
+# The binary is started when discover_wait_running gives up after kstart, even when kstart's launch
+# is only slow, so two can start.
 # That is harmless: DiscoverNotifier registers its D-Bus name through KDBusService with Unique set
 # (checked in plasma-discover-notifier 6.7.5), so whichever one finds the name taken exits at once.
 discover_start() {
@@ -1438,13 +1436,11 @@ metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
   date -Is -r "$f" 2>/dev/null || true
 }
 
-# The dnf stamp. The shared one only while no fetch since the upgrade from 0.1.7 has landed: after
-# that, a Flatpak fetch alone may have moved it, and a box whose dnf fetch never worked would be
-# told its package lists are new. A missing dnf stamp then means unknown.
+# The dnf stamp, and only that one. The shared stamp moves when a Flatpak fetch alone lands, so on
+# a box whose dnf fetch never worked it would date dnf's metadata by Flatpak's. No dnf stamp means
+# no date, and metadata_refreshed is then left out of the state.
 metadata_stamp_file() {
-  if [[ ! -f "$LAST_REFRESH_DNF_FILE" && -f "$LAST_REFRESH_FILE" && ! -e "$LAST_REFRESH_FLATPAK_FILE" ]]; then
-    printf '%s\n' "$LAST_REFRESH_FILE"
-  else printf '%s\n' "$LAST_REFRESH_DNF_FILE"; fi
+  printf '%s\n' "$LAST_REFRESH_DNF_FILE"
 }
 
 # ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
@@ -1499,7 +1495,7 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
   # keep in step with this one. `ok` records whether ANY fetch landed; see the stamp at the bottom.
-  local ok=0 fp_ok=0
+  local ok=0
   # Logged as its own step, because a failure here is invisible everywhere else: the check that
   # follows carries on against the cached metadata and reports status "ok", so a box whose metadata
   # has not refreshed for a week looks exactly like one that is up to date. The two skipped paths
@@ -1520,7 +1516,7 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # no-dialog polkit action remains dnf-only.
   if is_true "$(config_get include_flatpak)"; then
     if flatpak_refresh; then
-      ok=1; fp_ok=1
+      ok=1
       log_event "refresh flatpak ok"
     else
       log_event "refresh flatpak failed"
@@ -1531,14 +1527,6 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # the next check merely because dnf's makecache failed - which would cost a box with one broken
   # repo a full re-fetch of everything every few minutes, forever.
   if (( ok )); then
-    # The first Flatpak stamp ends the fallback in metadata_stamp_file. A shared stamp an older
-    # Kempt wrote is its only dnf date, so it is kept as the dnf stamp before this one moves it.
-    if (( fp_ok )); then
-      if [[ ! -e "$LAST_REFRESH_DNF_FILE" && ! -e "$LAST_REFRESH_FLATPAK_FILE" && -f "$LAST_REFRESH_FILE" ]]; then
-        touch -r "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE" || true
-      fi
-      touch "$LAST_REFRESH_FLATPAK_FILE" || true
-    fi
     touch "$LAST_REFRESH_FILE" || true
   fi
   return 0
