@@ -61,11 +61,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
   nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
-  leaves the footer until the question is answered. Before, it started them straight away. `auto_accept=false` still sends every run to the terminal.
+  leaves the footer while the question is open. Before, it started them straight away.
+  `auto_accept=false` still sends every run to the terminal.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
   break a sentence with a dash, and they use the words you see on screen.
+- **More widget messages are plain sentences.** The Held note reads "Kempt skips these. Other
+  updaters still see them." The commands to install a missing engine each get a line. A failed
+  installation check points to the full report. A run that stops reporting back says the list
+  shows what is pending now. A long list of desktop packages ends in "…".
 - **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
   They describe what Kempt does in the same words as the rest of the release.
 - **The widget's summary names Fedora.** The KDE Store, Add Widgets and software centres read
@@ -113,8 +118,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
 - **The staged message no longer repeats the header.** It reads "They install when you restart."
   A screen reader still hears the whole sentence with the count.
-- **An update in progress shows its log in full.** Long log lines wrap, the popup no longer
-  repeats "Updating…" over the log, and **Not Updating? Check Again** is a button.
+- **An update in progress shows its log in full.** Long log lines wrap, and dnf's progress
+  counter stays on its line. The widget no longer repeats "Updating…" over the log, and **Not
+  Updating? Check Again** is a button.
 - **Settings read the same size throughout.** The notes under Discover's notifier and password
   prompts use the small font, like the other notes.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out, such

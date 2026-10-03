@@ -1059,7 +1059,7 @@ assert_eq "$(js 'V("live",false).rows.length')" "12" "...and the row count is un
 
 # --- risky transaction: the widget's summary must match what the CLI itself says ---
 # Expected string built with the CLI's own pipeline (bin/kempt: families are the prefix up to the
-# first - or ., sort -u, first four, then ", ...").
+# first - or ., sort -u, first four, then a comma and an ellipsis).
 risky_names="$(jq -r '.risky_pending[]' "$FIXTURES/state-risky-heavy.json")"
 n_risky="$(grep -c '' <<<"$risky_names")"
 fams="$(sed 's/[-.].*//' <<<"$risky_names" | sort -u)"
@@ -1071,7 +1071,7 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            lbl="$(bash -c "source '$REPO_ROOT/lib/common.sh'; family_label '$f'")"
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
-more=""; if (( n_fams > 4 )); then more=", ..."; fi
+more=""; if (( n_fams > 4 )); then more=", …"; fi
 expect_risky="$n_risky pending updates touch packages the running desktop depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
 assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
@@ -1163,9 +1163,9 @@ assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
-# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", ...".
+# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, ...). The safest way is to install them on the next restart." \
+  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -3714,10 +3714,8 @@ assert_eq "$(grep -c 'popup.vm.stagedType === "warning"' "$REPO_ROOT/plasmoid/co
 # enforcement rather than another round of finding them by eye.
 #
 # Comments are stripped by ui_grep above, because they are not user-facing and this project's
-# comments are full of "...". The one allowed literal is logic.js's `", ..."`: it MIRRORS the
-# CLI's notification text, which is plain ASCII by choice, and the two must not drift apart.
-ELLIPSIS_ALLOW='? ", ..." :'
-ellipsis_hits="$(ui_grep '\.\.\.' | grep -vF "$ELLIPSIS_ALLOW" || true)"
+# comments are full of "...".
+ellipsis_hits="$(ui_grep '\.\.\.' || true)"
 if [[ -z "$ellipsis_hits" ]]; then
   echo "ok: no three-dot ellipsis in any string the widget shows a person"
 else

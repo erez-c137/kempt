@@ -188,7 +188,7 @@ var COPY = {
     // because nothing else says the click did not start a run, and the question ends what is read
     // out, because the focus lands on a button and a screen reader would read only that.
     riskyAskLead: "Nothing is installed yet.",
-    riskyAskQuestion: "Install now, or on the next restart?",
+    riskyAskQuestion: "Install on the next restart, or now?",
     // The same risk with no advice, for a box with no route to the next restart.
     riskySummaryOne: "1 pending update touches a package the running desktop depends on (%1).",
     riskySummaryMore: "%1 pending updates touch packages the running desktop depends on (%2).",
@@ -515,8 +515,8 @@ function trimZero(n) {
     return String(Math.round(n * 10) / 10);
 }
 
-// How many session-critical families the offline recommendation names before ", ...". Same number
-// the CLI's notification uses (bin/kempt).
+// How many session-critical families the offline recommendation names before ", …". Same number
+// the CLI's notification uses (bin/kempt), which ends its list in three ASCII dots instead.
 var RISKY_FAMILIES_SHOWN = 4;
 
 // Highest number the panel badge spells out; above this it reads "999+". COMPACT ONLY - the popup
@@ -1009,7 +1009,7 @@ function riskyFamiliesOf(names) {
         lbl = labelFor(fams.shown[i]);
         out.push(lbl !== "" ? lbl : fams.shown[i]);
     }
-    return out.join(", ") + (fams.total > fams.shown.length ? ", ..." : "");
+    return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
 }
 
 // "20 pending updates touch packages the running desktop depends on (dbus, glibc, kernel, kf6,

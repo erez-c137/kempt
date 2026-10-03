@@ -128,11 +128,11 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 7. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** Another version also names the NVIDIA driver.
    Without a kernel, it names the desktop packages in the update: `This update touches 20 packages
-   the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way is to install them
+   the running desktop depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
    on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
    staged. When you press **Update Now** and updates run outside a terminal, it asks first. The
    message moves to the top (below a Check Installation result), starts *"Nothing is installed
-   yet."*, ends *"Install now, or on the next restart?"* and adds **Install Now**. **Install on Next
+   yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
 8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an

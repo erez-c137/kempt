@@ -589,7 +589,7 @@ the panel icon.
 | A hold that failed | Assertive | The row now carries an error and the padlock is live again. |
 | The staged banner, when its words change while it is visible | Assertive | The machine is saying that what it promised has changed. |
 | The post-run line and a failed press | Assertive | The answer the person was waiting for, and the widget may not have focus. |
-| The question before session-critical updates | Polite | It answers the click on **Update Now**. It starts `Nothing is installed yet.` and ends with `Install now, or on the next restart?` |
+| The question before session-critical updates | Polite | It answers the click on **Update Now**. It starts `Nothing is installed yet.` and ends with `Install on the next restart, or now?` |
 | The Check for Updates answer, `vm.checkAnswerText` | Polite | The person asked. The widget says it while open, the panel icon while closed. |
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
