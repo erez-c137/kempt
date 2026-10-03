@@ -569,7 +569,7 @@ PlasmoidItem {
     // the CLI discard it as superseded.
     //
     // One `cat`, taking no lock, the same trade rebuildStaged and discardStaged make before they
-    // act on a banner. stateDir is NOT shellQuote'd - see findLog().
+    // act on a banner. stateDir is NOT shellQuote'd. findLog() says why.
     function adoptState(done) {
         executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
             var fresh = Logic.parseState(stdout);
@@ -796,7 +796,7 @@ PlasmoidItem {
     // rebuild is destructive at its START - dnf5 destroys the stored transaction the moment a
     // re-stage begins - so acting on a stale banner throws away a transaction the person never
     // agreed to lose. So: read the state file as it is NOW, and proceed only if it is
-    // still the same stage and still in conflict. stateDir is NOT shellQuote'd - see findLog().
+    // still the same stage and still in conflict. stateDir is NOT shellQuote'd. findLog() says why.
     function rebuildStaged() {
         // The same guard stageOffline has, and it matters more here: two staging runs at once is a
         // double press with a destructive first step.
@@ -848,7 +848,7 @@ PlasmoidItem {
     // BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
     // a restart can consume the stage, a re-stage can replace it, or `dnf5 offline clean` can take
     // it away - and discarding what arrived in its place is spending consent that was never given.
-    // stateDir is NOT shellQuote'd - see findLog().
+    // stateDir is NOT shellQuote'd. findLog() says why.
     function discardStaged() {
         if (updating || runRequested || actionPending) return;
         actionPending = true;
@@ -1173,7 +1173,7 @@ PlasmoidItem {
         // and reads the same file.
         if (tailExecutor.current) return;
         tailExecutor.run("tail -n 25 " + Logic.shellQuote(logPath), 10000, function(stdout, stderr, rc) {
-            if (rc === 0) root.logTail = stdout;
+            if (rc === 0) root.logTail = Logic.logTailOf(stdout);
         });
     }
 
@@ -1358,7 +1358,7 @@ PlasmoidItem {
         onTriggered: {
             root.updating = false;
             root.runningSurface = "";
-            root.actionMessage = "Stopped waiting for the update to report back. Check: kempt summary";
+            root.actionMessage = "Kempt stopped waiting for the update to report back. The list shows what is pending now.";
             root.doCheck();
         }
     }
@@ -1449,8 +1449,8 @@ PlasmoidItem {
         }
     }
 
-    // The CLI's record that the Discover offer was answered. stateDir is NOT shellQuote'd - see
-    // findLog(). Any answer, found or not, ends the wait.
+    // The CLI's record that the Discover offer was answered. stateDir is NOT shellQuote'd.
+    // findLog() says why. Any answer, found or not, ends the wait.
     function readDiscoverAnswered() {
         executor.run("test -e \"" + stateDir + "/discover-offer-answered\"", 10000,
                      function(stdout, stderr, rc) {

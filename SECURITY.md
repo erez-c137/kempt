@@ -9,7 +9,7 @@ On <https://github.com/erez-c137/kempt>, open the **Security** tab and choose
 
 Include:
 
-- the commit you are on (`git rev-parse HEAD`);
+- the `version:` line from `kempt doctor`, which also names the commit on a checkout;
 - the exact command and arguments;
 - whether `/etc/polkit-1/rules.d/49-kempt.rules` is installed, because passwordless mode changes
   what is exposed;

@@ -2671,6 +2671,20 @@ KEMPT_FLATPAK_USER_SNAP_CMD="$TESTTMP/u-snap-after-fails" uf_busy_update
 assert_eq "$UF_RC|$(jq -c .backends.flatpak.scopes "$UH")" '1|{"system":"failed","user":"failed"}' \
   "a busy system installation and a per-user set unreadable after the run exit 1"
 
+# A busy dnf lock with the per-user apps unreadable before the run: two failures, so exit 1, and
+# the reason is still the busy sentence with the "failed too" ending, not dnf's raw lock line.
+printf '#!/usr/bin/env bash\necho "APPLY $@" >> "%s/apply-calls"\necho "Failed to obtain rpm transaction lock. Another transaction is in progress." >&2\nexit 1\n' \
+  "$WORLD" > "$TESTTMP/apply-busy-stub"
+chmod +x "$TESTTMP/apply-busy-stub"
+cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
+UF_RC=0; KEMPT_RETRY_DELAY=0 KEMPT_APPLY_HELPER="$TESTTMP/apply-busy-stub" KEMPT_FLATPAK_USER_SNAP_CMD=false \
+  "$KEMPT" update --surface=background >/dev/null 2>&1 || UF_RC=$?
+UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
+assert_eq "$UF_RC" "1" "a busy dnf lock and per-user apps unreadable before the run exit 1"
+assert_contains "$(jq -r .error "$UH")" "another program is using the package system" "...the reason names the busy lock"
+assert_contains "$(jq -r .error "$UH")" "Another part of the update failed too" "...and says something else failed"
+assert_not_contains "$(jq -r .error "$UH")" "rpm transaction lock" "...not dnf's raw lock line"
+
 # A bare repo directory, which flatpak fails on, is no installation: the run is the system one.
 rm "$TESTTMP/ufp/repo/config"
 KEMPT_FLATPAK_USER_SNAP_CMD=false KEMPT_FLATPAK_USER_LIST_CMD=false uf_update

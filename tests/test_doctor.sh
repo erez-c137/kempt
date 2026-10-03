@@ -84,12 +84,12 @@ assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
 # checked. No other row here would say so. info and never FAIL: old metadata is what those two
 # rules are FOR, so it is a fact to put in front of the reader, not a fault to count.
 kempt_init_dirs
-rm -f "$LAST_REFRESH_FILE"
+rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata: never refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: a box that has never fetched metadata says so, rather than dating it" \
   || { echo "FAIL: no never-refreshed metadata row"; _fail=1; }
-touch -d '3 days ago' "$LAST_REFRESH_FILE"
+touch -d '3 days ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and an old cache is dated in whole days" \
@@ -97,16 +97,27 @@ grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
 grep -q 'kempt check --refresh' "$TESTTMP/doc-meta" \
   && echo "ok: ...and names the command that fetches now" \
   || { echo "FAIL: the metadata row offers no remedy"; _fail=1; }
-touch -d '1 day ago' "$LAST_REFRESH_FILE"
+touch -d '1 day ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package metadata is 1 day old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and one day reads as one day, verb and all" \
   || { echo "FAIL: the metadata row says '1 days'"; _fail=1; }
-touch "$LAST_REFRESH_FILE"
+touch "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: ...and a cache fetched today is an ok row, not a finding" \
   || { echo "FAIL: fresh metadata is not reported ok"; _fail=1; }
+# Fetches have run but no dnf one is on record: the shared stamp also moves for Flatpak alone, so
+# it dates nothing, and the row says what to do rather than "refreshed" or "never refreshed".
+rm -f "$LAST_REFRESH_DNF_FILE"
+touch "$LAST_REFRESH_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^info +package metadata: no dnf refresh recorded yet' "$TESTTMP/doc-meta" \
+  && echo "ok: a box with fetches but no dnf stamp does not date the dnf metadata" \
+  || { echo "FAIL: the shared stamp is reported as a dnf refresh"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
+grep -q 'dnf5 makecache --refresh shows why' "$TESTTMP/doc-meta" \
+  && echo "ok: ...and says how to see why, if it stays" \
+  || { echo "FAIL: the row gives no next step"; _fail=1; }
 rm -f "$LAST_REFRESH_FILE"
 
 # --- the ownership branches, which nothing could reach before ---
@@ -627,6 +638,22 @@ assert_contains "$(cat "$TESTTMP/skew.txt")" 'info  install: packaged, so the pa
 grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
+
+# A package has no install.sh, so its fix messages name the package instead.
+env KEMPT_POLICY_FILE="$TESTTMP/no-such.policy" KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" \
+    KEMPT_REFRESH_HELPER_PATH="$TESTTMP/nope-refresh" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/skew.txt")" \
+  "root helper (refresh) not installed: $TESTTMP/nope-refresh. Reinstall it with: sudo dnf reinstall kempt" \
+  "a packaged install's missing helper points at dnf reinstall"
+assert_contains "$(cat "$TESTTMP/skew.txt")" \
+  "polkit action not installed: $TESTTMP/no-such.policy. Reinstall it with: sudo dnf reinstall kempt" \
+  "...and so does its missing polkit action"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" "install.sh" \
+  "...and nothing tells a package user to run install.sh"
+pkg_state="$(KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" "$NOGIT/bin/kempt" check 2>/dev/null)" || true
+assert_contains "$(jq -r .error <<<"$pkg_state")" \
+  "dnf check failed: root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)" \
+  "a packaged check names the package fix for a missing helper"
 
 # --- the store copy that shadows a packaged widget ----------------------------------------------
 # The widget is installable on its own from the KDE Store, and kpackagetool6 puts what it installs

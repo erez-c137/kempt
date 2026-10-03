@@ -706,6 +706,7 @@ KCM.SimpleKCM {
                     ? i18n("Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.", page.discoverSetting.path)
                 : i18n("Discover's notifier is turned off by a startup file. Delete that file to turn it back on.")
             wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
@@ -743,6 +744,7 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Password prompts:")
             text: i18n("Updates normally ask for your password once per run. You can allow Kempt's update action to run without one. That applies only to this action, and only while you are logged in at this machine.")
             wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 

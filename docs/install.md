@@ -13,11 +13,11 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are in a base Fedora install. |
 | `flatpak` | Only when `include_flatpak` is on (the default). On a machine without Flatpak, run `kempt config set include_flatpak false`. |
-| `notify-send` (libnotify) | Desktop notifications from the detached surfaces. If it is missing, notifications are skipped. |
-| `konsole` | Only for the `terminal` surface. For another emulator, set `KEMPT_TERMINAL` in your environment. |
+| `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
+| `konsole` | Only for updates in a terminal window (`surface=terminal`). For another emulator, set `KEMPT_TERMINAL` in your environment. |
 | KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. If it is missing, the installer says so and installs everything else. |
 
-The offline surface also needs a dnf5 that supports staged transactions. Check with:
+Installing on the next restart also needs a dnf5 that supports staged transactions. Check with:
 
 ```bash
 dnf5 upgrade --help | grep -- --offline
@@ -62,7 +62,7 @@ a symlink into your home directory.
 | `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The icon at each size. **From `kempt-plasmoid`.** |
 | `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`. |
 | `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. **From `kempt-plasmoid`.** |
-| `/usr/share/doc/kempt/` | `root:root` | The README, the changelog, `SECURITY.md` and the user guides in `docs/`, at the same relative paths so their links work. |
+| `/usr/share/doc/kempt/` | `root:root` | The README, the changelog, `SECURITY.md` and the user guides in `docs/`, at the same relative paths so most of their links work. |
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Only after `kempt enable-passwordless`. It names one user, so it is not part of the package. |
 
 Your settings and state are created on first use, in `~/.config/kempt/` (config, holds) and
@@ -76,6 +76,13 @@ enabled by default. The tray shows it the first time Plasma loads the plugin. It
 `plasmashell --replace` or a log-out to appear. Adding it from Add Widgets as well gives you two
 Kempt icons. Both places, and how to turn either off, are in
 [widget.md](widget.md#where-it-lives-the-system-tray-or-the-panel-itself).
+
+### Discover's notifier
+
+When Discover's update notifier is installed, the widget offers once to turn it off. Discover
+itself keeps working. To turn the notifier back on, use the **Discover** row in the widget's
+settings, or run `kempt discover-notifier on`. [The opt-out](#the-discover-notifier-opt-out) says
+what it changes.
 
 ### Verify it
 
@@ -127,12 +134,18 @@ Doctor also catches a widget installed from the KDE Store before the package; se
 ### Removing the package
 
 ```bash
+kempt disable-passwordless    # first, if you allowed updates without a password
+kempt discover-notifier on    # first, if you turned off Discover's notifier
 sudo dnf remove kempt
 ```
 
-That removes every path in the table above except two. The passwordless rule is not part of the
-package, so run `kempt disable-passwordless` first or delete the file by hand. Your
-`~/.config/kempt/` and `~/.local/state/kempt/` stay, with your settings, holds and update history.
+Removing `kempt` also removes `kempt-plasmoid` and every file the two packages installed. Some
+files are not part of the package, so they stay:
+
+- The passwordless rule. That is why `kempt disable-passwordless` comes first.
+- `~/.config/autostart/org.kde.discover.notifier.desktop`, if you turned Discover's notifier off.
+  That is why `kempt discover-notifier on` comes first.
+- `~/.config/kempt/` and `~/.local/state/kempt/`, with your settings, holds and update history.
 
 ## From a checkout (developers)
 
@@ -173,7 +186,7 @@ copies.
 | `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
 
 The widget is a copy, so re-run `./install.sh` after changing anything under `plasmoid/`.
-Installing the widget does not put it on a panel: right-click the panel > **Add Widgets...** >
+Installing the widget does not put it on a panel: right-click the panel > **Add Widgets…** >
 search for **Kempt**.
 
 The icon goes into `~/.local/share/icons/hicolor/` because Add Widgets looks it up by name
@@ -207,11 +220,17 @@ installed**, and the message under it says:
 
 > Nothing can check for updates yet.
 >
-> On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. Other systems: github.com/erez-c137/kempt
+> To install it on Fedora, run:
+>
+> sudo dnf copr enable erez-c137/kempt
+>
+> sudo dnf install kempt-plasmoid
+>
+> On other systems, see github.com/erez-c137/kempt.
 
-The panel icon stays dim, with no badge. Install the package and press the popup's refresh
-button, or wait for the next scheduled check. If the CLI is installed but cannot run, the popup
-shows a different message; run `kempt doctor`.
+The panel icon stays dim, with no badge. Install the package and press **Check for Updates** in the
+widget, or wait for the next scheduled check. If the CLI is installed but cannot run, the widget
+shows a different message. Run `kempt doctor`.
 
 **Then remove the store copy.** The store installs into
 `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt`, the package installs into
@@ -263,15 +282,8 @@ See [usage.md](usage.md#discover-notifier).
 
 ## Verify the install
 
-For either kind of install, run this first:
-
-```bash
-kempt doctor
-```
-
-Expect `kempt doctor: all checks passed` and exit status 0. It prints one line per check, so a
-failure names itself. A packaged install prints [a slightly different report](#verify-it).
-[usage.md](usage.md#doctor) says what each line means.
+For either kind of install, run `kempt doctor` first, as in [Verify it](#verify-it). It exits 0
+when every check passes. [usage.md](usage.md#doctor) says what each line means.
 
 Then check for updates:
 
@@ -314,7 +326,7 @@ The full grant is in [security.md](security.md#passwordless-mode).
 ## Updating Kempt
 
 **From the package**, `sudo dnf upgrade` updates Kempt with everything else. Kempt lists itself in
-its own popup while the update is pending. [RELEASING.md](RELEASING.md) says why there is no
+the widget while the update is pending. [RELEASING.md](RELEASING.md) says why there is no
 self-update.
 
 **From a checkout**, pull first:

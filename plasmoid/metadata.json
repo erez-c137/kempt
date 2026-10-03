@@ -2,12 +2,12 @@
     "KPlugin": {
         "Id": "io.github.erez_c137.kempt",
         "Name": "Kempt",
-        "Description": "Tidy system updates for the Plasma desktop",
+        "Description": "Tidy dnf and Flatpak updates for Fedora KDE",
         "Icon": "kempt",
         "Category": "System Information",
         "Authors": [{ "Name": "Erez" }],
         "License": "MIT",
-        "Version": "0.1.7",
+        "Version": "0.1.8",
         "Website": "https://github.com/erez-c137/kempt",
         "BugReportUrl": "https://github.com/erez-c137/kempt/issues",
         "EnabledByDefault": true

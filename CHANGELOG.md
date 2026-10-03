@@ -5,7 +5,7 @@ All notable changes to Kempt are recorded here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.8] - Unreleased
 
 ### Added
 
@@ -52,21 +52,44 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A busy Flatpak gets the same plain reason as a busy dnf.** Another program can hold Flatpak's
   lock through all three tries. The summary, notification and history then say so and say to try
   again. Before, they showed Flatpak's raw error line. Both reasons now read as short sentences.
-- **Updates run in the widget by default.** A new install opens no terminal window. An
-  install that already had the terminal keeps it: the first `kempt` command after the upgrade
-  writes `surface=terminal` to the config file. A config file that names a surface is never
-  changed.
+- **Updates run in the widget by default.** A new install opens no terminal window. An install
+  that already had the terminal keeps it. The first `kempt` command after the upgrade, other than
+  help, the version and `discover-notifier status`, writes `surface=terminal` to the config file.
+  A config file that names a surface is never changed.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
-  the update has not started, and a screen reader hears the question. Before, it started
-  them straight away. `auto_accept=false` still sends every run to the terminal.
+  nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
+  leaves the footer while the question is open. Before, it started them straight away.
+  `auto_accept=false` still sends every run to the terminal.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
   break a sentence with a dash, and they use the words you see on screen.
+- **More widget messages are plain sentences.** The Held note reads "Kempt skips these. Other
+  updaters still see them." The commands to install a missing engine each get a line. A failed
+  installation check points to the full report. A run that stops reporting back says the list
+  shows what is pending now. A long list of desktop packages ends in "…".
+- **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
+  They describe what Kempt does in the same words as the rest of the release.
+- **The widget's summary names Fedora.** The KDE Store, Add Widgets and software centres read
+  "Tidy dnf and Flatpak updates for Fedora KDE".
+- **`kempt --help` shows the options of `update`, `run` and `config`.** It ends with a pointer to
+  `man kempt`.
 
 ### Fixed
 
+- **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`
+  said to run `./install.sh`, which the package does not ship. They now say
+  `sudo dnf reinstall kempt`. A checkout still gets the `./install.sh` advice.
+- **`kempt config set` with an invalid key prints one error.** The unknown-setting warning no longer
+  comes before it.
+- **The install guide's removal steps are complete.** Run `kempt disable-passwordless`, and
+  `kempt discover-notifier on` if you turned Discover's notifier off, before
+  `sudo dnf remove kempt`.
+- **Package metadata is no longer dated by a Flatpak fetch alone.** When dnf's refresh had never
+  worked, `kempt doctor` and `metadata_refreshed` gave the date of the last Flatpak fetch.
+  `metadata_refreshed` is now left out until a dnf refresh works. Doctor then says no dnf refresh
+  is recorded yet, and how to see why.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without a working engine says each thing once.** The header says Kempt's engine is
@@ -83,6 +106,24 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing changed on screen. Now a message says the check failed or did not finish, and that the
   counts shown are from the last check. A check that ran out of time no longer shows "timeout after"
   and a number of milliseconds.
+- **A first check that fails says why in plain words.** "Kempt could not reach the update
+  servers" appears only when every failed part is a network failure. For dnf, its own metadata
+  refresh must have failed with one, such as a host that would not resolve. That message offers no
+  **Check Installation**. dnf with no package lists for another reason reads "The package lists have
+  not been downloaded yet". Any other failure reads "The check failed" and offers Check
+  Installation. The raw error stays underneath in small print. The state publishes dnf's refresh
+  error as `backends.dnf.refresh_error`.
+- **A dnf refresh that has never worked is tried again 15 minutes after it failed.** Before, a
+  Flatpak fetch beside it held dnf off for three hours, leaving the check nothing to read.
+- **The widget's hover text says each thing once.** With only held packages, it no longer gives
+  the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
+- **The staged message no longer repeats the header.** It reads "They install when you restart."
+  A screen reader still hears the whole sentence with the count.
+- **An update in progress shows its log in full.** Long log lines wrap, and dnf's progress
+  counter stays on its line. The widget no longer repeats "Updating…" over the log, and **Not
+  Updating? Check Again** is a button.
+- **Settings read the same size throughout.** The notes under Discover's notifier and password
+  prompts use the small font, like the other notes.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out, such
   as "3 updates available" or "Up to date". A failed check is read out too, as which part failed and
   how old the counts are. So is the age of the lists when the fetch was skipped. It works from the
@@ -1066,7 +1107,7 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.7...HEAD
+[0.1.8]: https://github.com/erez-c137/kempt/compare/v0.1.7...HEAD
 [0.1.7]: https://github.com/erez-c137/kempt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/erez-c137/kempt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5

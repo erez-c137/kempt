@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kempt - one-click system updates. See docs/architecture.md
+# Kempt - system updates for Fedora. See docs/architecture.md
 set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 ROOT="$(dirname "$(dirname "$SELF")")"
@@ -652,6 +652,14 @@ cmd_check() {
   reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
   if [[ -n "$reclaim_json" ]] \
      && merged="$(jq --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
+  # One line, or absent: the error of the latest dnf refresh, while it failed. A dnf check is
+  # cache-only, so with no cache it says only "no cache", and this says why there is none.
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]] \
+     && merged="$(jq --rawfile e "$REFRESH_DNF_FAILED_FILE" \
+                   '.backends.dnf.refresh_error = ($e | split("\n")[0])' <<<"$state" 2>/dev/null)" \
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
@@ -3030,7 +3038,7 @@ doctor_widget_engine() {
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path. Run ./install.sh"
+    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint "")"
     return 0
   fi
   if [[ "$path" != "$annotated" ]]; then
@@ -3044,7 +3052,7 @@ doctor_helper() {  # label seam_path annotated_path
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
-    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. Run ./install.sh again"
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $(reinstall_hint again)"
   fi
   # The directory, too: whoever can write to it can rename the helper away and put their own file
   # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
@@ -3119,7 +3127,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. Run ./install.sh"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint "")"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
@@ -3257,6 +3265,13 @@ doctor_other_updater_row() {
 doctor_metadata_row() {
   local iso days
   iso="$(metadata_refreshed_iso)"
+  # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
+  # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
+  # for both: "never refreshed" would hide that fetches run.
+  if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
+    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
+    return 0
+  fi
   if [[ -z "$iso" ]]; then
     doctor_info "package metadata: never refreshed on this box. The next check on mains power and an unmetered connection fetches it"
     return 0
@@ -3698,11 +3713,13 @@ usage: kempt <command>
                         finished while this one waited (the widget's automatic checks). --strict
                         exits 1 when dnf or Flatpak failed, the apps for you only could not be
                         listed, or the previous state was served
-  update                run the update now (options from config; --no-flatpak, --surface=X override;
-                        --risky-ok leaves out the session-critical notification)
-  run [--print-command] launch an update where the config says (what the widget calls;
-                        --surface=X runs this one elsewhere; --risky-ok when the person
-                        already chose to install session-critical updates now)
+  update [--no-flatpak] [--surface=X] [--risky-ok]
+                        run the update now, in this process. The options override the config
+                        for this run. --risky-ok leaves out the session-critical notification
+  run [--print-command] [--surface=X] [--risky-ok]
+                        start an update where the config says, as Update Now does, and return.
+                        --surface=X runs this one elsewhere. --risky-ok as for update, but a
+                        terminal run still asks
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
@@ -3717,7 +3734,8 @@ usage: kempt <command>
   unstage               discard the staged offline update; the next restart installs nothing
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
-  config get|set        read/write settings
+  config get <key> [default] | config set <key> <value>
+                        read or write a setting
   discover-notifier off | on | keep | status [--json]
                         turn Discover's own update notifier off or back on for this user, keep
                         it as it is (the widget's answer), or say whether it is installed, on
@@ -3725,6 +3743,8 @@ usage: kempt <command>
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
   help | --help | -h    print this list
+
+More: man kempt
 EOF
 }
 

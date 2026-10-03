@@ -221,7 +221,16 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,
 # --- holds: the spec's promise that a held-only box looks up to date but still says so ---
 assert_eq "$(js 'V("held-only",false).iconState')" "uptodate" "held-only pending => the up-to-date icon"
 assert_eq "$(js 'V("held-only",false).badgeVisible')" "false" "held items are not badged"
-assert_eq "$(js 'V("held-only",false).tooltipSub.indexOf("10 held") >= 0')" "true" "...but the tooltip notes N held"
+assert_eq "$(js 'V("held-only",false).tooltipMain')" "Up to date · 10 held" "...but the tooltip notes N held"
+assert_eq "$(js 'V("held-only",false).tooltipSub.indexOf("10 held")')" "-1" \
+  "...once: the title already carries it, so the line under it does not repeat it"
+# The test is against the tooltip's title, not the count phrase: over a staged update the title is
+# the staged header, so the held count still belongs in the line under it.
+assert_eq "$(js 'const s = S("held-only"); s.offline_staged = {staged_at: "2026-09-02T10:31:00+03:00", count: 3, armed: true, holds_conflict: [], names_source: "transaction"}; L.viewModel(s, false).tooltipSub')" \
+  "10 held" "...and with an update staged, the title is the staged header and the held count stays below"
+assert_eq "$(js 'V("live",false).tooltipSub.indexOf("held")')" "-1" "...and with nothing held, nothing is said"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:3,held_total:2,backends:{}},false).tooltipSub')" "2 held" \
+  "...while a count of pending updates leaves the held count to the line under it"
 assert_eq "$(js 'V("held-only",false).heldItems.length')" "10" "every held item is listed for the Held section"
 assert_eq "$(js 'V("held-only",false).sections.length')" "0" "a held-only state renders no pending sections"
 assert_eq "$(js 'V("live",false).heldItems.length')" "0" "nothing held => an empty Held list"
@@ -241,21 +250,24 @@ assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")"
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
 assert_eq "$(js 'V("stale",false).badgeText')" "10" "stale keeps the LAST KNOWN count on the badge"
-assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more · dnf check failed · last successful check: $ls_stale" \
+assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more · dnf check failed · Last successful check $ls_stale" \
   "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
 assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
   "...and the reason it carries is the CLI's own staleReason, verbatim"
 assert_eq "$(js 'V("stale",false).lastSuccessText')" "$ls_stale" "lastSuccessText is the formatted last success"
 assert_eq "$(js 'V("stale",false).staleReason')" "dnf check failed" "the stale reason is the CLI's own error text"
-assert_eq "$(js 'V("never",false).tooltipSub.indexOf("last successful check: never") >= 0')" "true" \
-  "a box that has never had a successful check says never, not Invalid Date"
+assert_eq "$(js 'V("never",false).tooltipSub.indexOf("No successful check yet") >= 0')" "true" \
+  "a box that has never had a successful check says so, not Invalid Date"
 assert_eq "$(js 'V("never",false).lastSuccessText')" "never" "...and lastSuccessText says never too"
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held_total:0,backends:{}},false).staleReason')" \
   "the last check failed" "a stale state with no error text still explains itself"
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
 # fall in the same minute would let last_check pass for last_success. These two cannot.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2020-01-01T10:30:00+03:00",backends:{}},false).tooltipSub')" \
-  "x · last successful check: 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
+  "x · Last successful check 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
+# ...as a relative time, like the footer, once the clock is known.
+assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-26T10:00:00+03:00",last_success:"2026-08-25T10:00:00+03:00",backends:{}},false,"",{nowMs:Date.UTC(2026,7,26,7,0,0)}).tooltipSub')" \
+  "x · Last successful check 1 day ago" "the stale tooltip gives the age of the counts in words"
 
 # --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------
 # A repo that flapped is not a broken machine. The panel keeps rendering whatever the last good
@@ -304,10 +316,13 @@ assert_eq "$(js 'V("broken",false).iconState')" "error" "never succeeded and not
 assert_eq "$(js 'V("broken",false).headerText')" "Kempt cannot check for updates" "...the header says so plainly"
 assert_eq "$(js 'V("broken",false).headerText.indexOf("Up to date")')" "-1" "...and never claims the box is up to date"
 assert_eq "$(js 'V("broken",false).badgeVisible')" "false" "...it badges nothing"
-assert_eq "$(js 'V("broken",false).emptyStateText.indexOf("root helper not installed") >= 0')" "true" \
-  "...the popup shows the CLI's own diagnosis"
-assert_eq "$(js 'V("broken",false).tooltipSub.indexOf("root helper not installed") >= 0')" "true" \
-  "...so does the tooltip"
+assert_eq "$(js 'V("broken",false).emptyStateText')" "The check failed" \
+  "...the popup headline says so in plain words"
+assert_eq "$(js 'V("broken",false).problemDetail.indexOf("root helper not installed") >= 0')" "true" \
+  "...with the CLI's own diagnosis kept as the detail under it"
+assert_eq "$(js 'V("broken",false).tooltipMain + " | " + V("broken",false).tooltipSub')" \
+  "Cannot check for updates | Open Kempt to see why" \
+  "...and the tooltip gives a title and a short reason, not stderr"
 assert_eq "$(js 'V("broken",false).remedyCommand')" "kempt doctor" "...and it points at doctor"
 assert_eq "$(js 'V("broken",false).staleReason.indexOf("root helper not installed") >= 0')" "true" \
   "...with staleReason still carrying the raw text for anyone who wants it"
@@ -328,14 +343,84 @@ cli_err='L.viewModel(null,false,"kempt: command not found")'
 assert_eq "$(js "$cli_err.iconState")" "error" "no state plus a failed CLI is an error, not merely unknown"
 assert_eq "$(js "$cli_err.badgeVisible")" "false" "...and it badges nothing"
 assert_eq "$(js "$cli_err.headerText")" "Kempt cannot check for updates" "the popup header names the problem"
-assert_eq "$(js "$cli_err.emptyStateText")" "kempt: command not found" "the popup shows the CLI's own words"
-assert_eq "$(js "$cli_err.tooltipSub")" "kempt: command not found" "...and so does the tooltip"
+assert_eq "$(js "$cli_err.emptyStateText")" "The check failed" "the popup headline is plain words"
+assert_eq "$(js "$cli_err.problemDetail")" "kempt: command not found" "...with the CLI's own words under it"
+assert_eq "$(js "$cli_err.problemNetwork")" "false" "...which are not about the network"
+assert_eq "$(js "$cli_err.tooltipSub")" "Open Kempt to see why" "...and the tooltip gives a short reason"
 assert_eq "$(js "$cli_err.remedyCommand")" "kempt doctor" "...and points at the command that diagnoses it"
 assert_eq "$(js 'L.viewModel(null,false,"").iconState')" "unknown" \
   "no state and no error is still just unknown - not every blank is a failure"
 assert_eq "$(js 'L.viewModel(null,false,"").remedyCommand')" "" "...and unknown suggests nothing"
-assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").emptyStateText')" "line one" \
+assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").problemDetail')" "line one" \
   "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
+# A check that could not reach a server is not a broken installation. It gets its own headline,
+# the network hint, and no Check Installation. The dnf check is cache-only, so offline it says only
+# that it has no cache. That reads as a network failure when dnf's own refresh error
+# (backends.dnf.refresh_error) is one, and as a neutral headline otherwise.
+nocache='dnf check failed: Updating and loading repositories: Cache-only enabled but no cache for repository \"fedora\"'
+neterr='Curl error (6): Couldn'"'"'t resolve host name for https://mirrors.fedoraproject.org/metalink [Could not resolve host: mirrors.fedoraproject.org]'
+err404='Curl error (22): The requested URL returned error: 404 for https://download.copr.fedorainfracloud.org/results/x/y/repodata/repomd.xml'
+nc_state() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[]%s}}}' "$nocache" "$1"; }
+net="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$neterr" | jq -Rs .)"),false)"
+assert_eq "$(js "$net.emptyStateText")" "Kempt could not reach the update servers" \
+  "no dnf cache after a refresh that could not resolve the mirror gets the network headline"
+assert_eq "$(js "$net.problemNetwork + \"|\" + $net.problemHint")" "true|Check your network connection." \
+  "...is marked as a network failure, with the network hint"
+assert_eq "$(js "$net.problemDetail.indexOf(\"no cache for repository\") >= 0")" "true" "...keeps the raw text as the detail"
+assert_eq "$(js "$net.remedyCommand")" "" "...and offers no Check Installation, since nothing is broken"
+assert_eq "$(js "$net.tooltipMain + \" | \" + $net.tooltipSub")" \
+  "Cannot check for updates | Could not reach the update servers" "...and the tooltip says the same in short"
+r404="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$err404" | jq -Rs .)"),false)"
+assert_eq "$(js "$r404.emptyStateText + \"|\" + $r404.problemNetwork")" \
+  "The package lists have not been downloaded yet|false" \
+  "a refresh that reached a server answering 404 is not a network failure"
+assert_eq "$(js "$r404.problemDetail + \"|\" + $r404.problemHint")" \
+  "$err404|dnf could not download them. Its error is below." "...and shows dnf's refresh error under it"
+assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which would find nothing wrong"
+r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
+assert_eq "$(js "$r_empty.emptyStateText + \"|\" + $r_empty.problemNetwork")" \
+  "The package lists have not been downloaded yet|false" "a refresh that failed silently claims no network cause"
+r_to="L.viewModel($(nc_state ',refresh_error:"dnf makecache timed out"'),false)"
+assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemNetwork + \"|\" + $r_to.problemHint")" \
+  "The package lists have not been downloaded yet|false|dnf could not download them. Its error is below." \
+  "a refresh that timed out is not called a network failure, and the hint says a refresh ran"
+old="L.viewModel($(nc_state ''),false)"
+assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
+  "The package lists have not been downloaded yet|false|" \
+  "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
+assert_eq "$(js "$old.problemHint")" "Kempt downloads them at a check on mains power and an unmetered connection." \
+  "...and says when the lists download"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
+  "...but no cache after a refresh with a network error is"
+assert_eq "$(js "L.checkProblemOf(\"flatpak check failed: Cache-only enabled but no cache for repository\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
+  "...and only for the dnf part"
+# The CLI joins the two backends' failures with "; ". Network only when every part is.
+fp_net='flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname'
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
+  "both parts network: a network failure"
+assert_eq "$(js "L.checkProblemOf(\"dnf check failed: kempt: dnf timed out; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).headline")" \
+  "The check failed" "one network part and one other: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\").headline")" \
+  "The check failed" "no cache with no failed refresh beside a network part: not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$fp_net (see: kempt doctor)\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
+  "a text that names kempt doctor is never a network failure"
+for _e in "$fp_net" "flatpak check failed: Could not connect: Network is unreachable" \
+          "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [28] Timeout was reached"; do
+  assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "true" "network failure: $_e"
+done
+for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)" \
+          "kempt: dnf timed out" "kempt: cannot reach polkit (no system bus or polkit service)"; do
+  assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "false" "not a network failure: $_e"
+done
+# The run's log in the widget wraps, so dnf's padding before a trailing counter is collapsed and
+# the counter stays on its line. Other runs of spaces are left alone.
+assert_eq "$(js 'L.logTailOf("  Upgrading        : bash-5.3-1.fc44.x86_64                31/62\n  Verifying  x   1/2  \nplain  text")')" \
+  "$(printf '  Upgrading        : bash-5.3-1.fc44.x86_64 31/62\n  Verifying  x 1/2\nplain  text')" \
+  "the log tail keeps dnf's trailing counter on its line"
+assert_eq "$(js 'L.logTailOf(undefined)')" "" "...and an absent tail is empty"
+assert_eq "$(js 'L.viewModel(null,false,L.COPY.checkTimedOut).emptyStateText + "|" + L.viewModel(null,false,L.COPY.checkTimedOut).problemDetail')" \
+  "The check did not finish in time.|" "the widget's own timeout sentence is already plain, with nothing under it"
 # The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
 # explain_helper_error). That text arrives in the state, so the remedy must be offered from there
 # too - the CLI ran fine, it is the install that is broken.
@@ -381,7 +466,7 @@ assert_eq "$(js "$eng.emptyStateText")" "" \
 # worse than no command line: it fails in a way the reader has to debug.
 assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf copr enable erez-c137/kempt") >= 0')" "true" \
   "the install line carries the copr command in full"
-assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf install kempt-plasmoid.") >= 0')" "true" \
+assert_eq "$(js 'L.COPY.engineMissingInstall.split("\n").indexOf("sudo dnf install kempt-plasmoid") >= 0')" "true" \
   "...and the install command in full: the widget package, which pulls in the engine and replaces the store copy"
 assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt") >= 0')" "true" \
   "...and where everybody who is not on Fedora goes"
@@ -449,7 +534,7 @@ assert_eq "$(js "$eng.iconState")" "unknown" "...and an absent one still does no
 assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the whole stack"
 # The fix line must not promise more than it can keep: `kempt doctor` is itself a kempt subcommand,
 # so on the box whose kempt cannot start it cannot start either. The sentence says so.
-assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If that cannot start") >= 0')" "true" \
+assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If it cannot start") >= 0')" "true" \
   "the repair line admits doctor may not start, rather than promising it will"
 
 # --- a Fedora release upgrade staged outside Kempt -----------------------------------------------
@@ -542,7 +627,7 @@ assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing s
 # half to lose. So the summary sentence stands in: the same fact, advising nothing.
 assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade","kernel"]' \
   "the risk is still on screen beside the release upgrade"
-assert_eq "$(js "$ru.riskyMessage.indexOf(\"session-critical pending\") >= 0")" "true" \
+assert_eq "$(js "$ru.riskyMessage.indexOf(\"the running desktop depends on\") >= 0")" "true" \
   "...as the summary, which states the risk"
 assert_eq "$(js "$ru.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
   "...and not the recommendation, which would advise a button that is not there"
@@ -993,7 +1078,7 @@ assert_eq "$(js 'V("live",false).rows.length')" "12" "...and the row count is un
 
 # --- risky transaction: the widget's summary must match what the CLI itself says ---
 # Expected string built with the CLI's own pipeline (bin/kempt: families are the prefix up to the
-# first - or ., sort -u, first four, then ", ...").
+# first - or ., sort -u, first four, then a comma and an ellipsis).
 risky_names="$(jq -r '.risky_pending[]' "$FIXTURES/state-risky-heavy.json")"
 n_risky="$(grep -c '' <<<"$risky_names")"
 fams="$(sed 's/[-.].*//' <<<"$risky_names" | sort -u)"
@@ -1005,8 +1090,8 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            lbl="$(bash -c "source '$REPO_ROOT/lib/common.sh'; family_label '$f'")"
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
-more=""; if (( n_fams > 4 )); then more=", ..."; fi
-expect_risky="$n_risky session-critical pending ($shown$more)"
+more=""; if (( n_fams > 4 )); then more=", …"; fi
+expect_risky="$n_risky pending updates touch packages the running desktop depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
 assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
   "the offline recommendation names the count and the first four families, exactly like the CLI"
@@ -1097,9 +1182,9 @@ assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
-# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", ...".
+# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, ...). The safest way is to install them on the next restart." \
+  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -1544,8 +1629,8 @@ assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").report')" "$(prin
   "the full report is everything doctor printed"
 # An engine that will not start: the shell answers 126 and says why on stderr.
 assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: line 1: /home/u/.local/bin/kempt: Permission denied\n").summary')" \
-  "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt: Permission denied" \
-  "a doctor that could not start says the shell's reason"
+  "Kempt could not check its installation. The full report has the error." \
+  "a doctor that could not start says so in plain words, never the shell's text"
 assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: x: Permission denied\n").report')" "sh: x: Permission denied" \
   "...and the report is that reason"
 assert_eq "$(js 'L.doctorOutcomeOf(124, "", "timeout after 60000ms").summary')" "$(js 'L.COPY.doctorTimedOut')" \
@@ -2094,7 +2179,7 @@ assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "
 # reads it today keeps working.
 assert_eq "$(js 'V("risky-heavy",false).riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
   "a captured risky transaction with kernel-core in it names the kernel"
-assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("session-critical pending") >= 0')" "true" \
+assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("the running desktop depends on") >= 0')" "true" \
   "...while riskySummary keeps its own, unchanged phrasing"
 assert_eq "$(js 'V("live",false).riskyMessage')" "" "an everyday transaction raises no message"
 assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
@@ -2114,8 +2199,11 @@ assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
   "...nor is an object that merely carries a length"
 # The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
-  "2 session-critical pending (the core system library, the Linux kernel)" \
+  "2 pending updates touch packages the running desktop depends on (the core system library, the Linux kernel)." \
   "a genuine array still derives the summary it always did, now in the shared vocabulary"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]},false).riskySummary')" \
+  "1 pending update touches a package the running desktop depends on (the core system library)." \
+  "...and one is an update, singular"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
 # The state key exists only when the CLI has reconciled its own marker against dnf5's status and
@@ -2134,6 +2222,14 @@ assert_eq "$(vm '{}' "$STGN" 0 'stagedMessage')" \
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:1,armed:true}' 0 'stagedMessage')" \
   "1 update is staged and installs on the next restart" \
   "a single staged update reads as one, verb included"
+# The banner under the header shows only what the header does not say: the header has the count.
+# The whole sentence stays the banner's accessible name and its announcement (FullRepresentation).
+assert_eq "$(vm '{}' "$STG" 0 'stagedBanner')" "They install when you restart." \
+  "the staged banner does not repeat the header's count"
+assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:1,armed:true}' 0 'stagedBanner')" \
+  "It installs when you restart." "...and one staged update is an it"
+assert_eq "$(vm '{}' "$STGN" 0 'stagedBanner')" "They install when you restart." "...with no count, a they"
+assert_eq "$(vm '{}' '' 0 'stagedBanner')" "" "...and nothing staged shows no banner"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:2,armed:true}' 0 'stagedMessage')" \
   "2 updates are staged and install on the next restart" \
   "...and two is back to the plural"
@@ -2846,7 +2942,7 @@ assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
   "copy: ...or nothing at all, when the output is arriving right here"
 assert_eq "$(js 'L.COPY.updatingOffline')" "Preparing the install for the next restart…" \
   "copy: ...and staging is not updating, so it does not say updating"
-assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not updating? Check again" \
+assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check Again" \
   "copy: the way out of a pane that is waiting for a run nobody is running any more"
 # One surface, one sentence, and no surface without one: the pane switches on the running surface
 # and a fifth value would draw an empty label.
@@ -2982,7 +3078,7 @@ assert_eq "$(js 'L.COPY.heldConsequence')" "Kempt offers its update again." \
   "copy: ...and what stopping does"
 assert_eq "$(js 'L.COPY.heldToken')" "Held" \
   "copy: the state as a word on the row, because an opacity dip is a contrast REDUCTION"
-assert_eq "$(js 'L.COPY.heldKemptOnly')" "Held packages are skipped by Kempt only." \
+assert_eq "$(js 'L.COPY.heldKemptOnly')" "Kempt skips these. Other updaters still see them." \
   "copy: the one line the Held heading owes a dnf user who reads versionlock into it"
 assert_eq "$(js 'L.COPY.versionRange')" "from %1 to %2" \
   "copy: the version line in words, because the arrow goes through a screen reader's character table"
@@ -3010,7 +3106,7 @@ assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings ac
 assert_eq "$(js 'L.COPY.engineMissing')" "Nothing can check for updates yet." \
   "copy: the store-first first run says what that means, under a header that says what is missing"
 assert_eq "$(js 'L.COPY.engineMissingInstall')" \
-  "On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. Other systems: github.com/erez-c137/kempt" \
+  "$(printf 'To install it on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nOn other systems, see github.com/erez-c137/kempt.')" \
   "copy: ...and the commands that fix it, complete enough to paste"
 assert_eq "$(js 'L.COPY.engineUnrunnable')" \
   "The engine is installed but cannot start, so nothing can check for updates." \
@@ -3039,7 +3135,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3622,7 +3718,7 @@ awk '/Kirigami\.InlineMessage \{/ { f = 1 } /--- the list, and what stands in fo
   "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml" > "$STACK"
 assert_eq "$([[ -s "$STACK" ]] && echo yes || echo no)" "yes" \
   "premise: the popup still has a message stack to scan"
-assert_eq "$(grep -c 'Accessible.name: text' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
+assert_eq "$(grep -cE 'Accessible.name: (text|popup.vm.stagedMessage)$' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
   "every message in the popup's stack announces its own text to a screen reader"
 # ...and the type is BOUND to the derived variant rather than declared. A hard-coded Positive here
 # is the bug this whole change exists to remove, and it is one careless edit away.
@@ -3637,10 +3733,8 @@ assert_eq "$(grep -c 'popup.vm.stagedType === "warning"' "$REPO_ROOT/plasmoid/co
 # enforcement rather than another round of finding them by eye.
 #
 # Comments are stripped by ui_grep above, because they are not user-facing and this project's
-# comments are full of "...". The one allowed literal is logic.js's `", ..."`: it MIRRORS the
-# CLI's notification text, which is plain ASCII by choice, and the two must not drift apart.
-ELLIPSIS_ALLOW='? ", ..." :'
-ellipsis_hits="$(ui_grep '\.\.\.' | grep -vF "$ELLIPSIS_ALLOW" || true)"
+# comments are full of "...".
+ellipsis_hits="$(ui_grep '\.\.\.' || true)"
 if [[ -z "$ellipsis_hits" ]]; then
   echo "ok: no three-dot ellipsis in any string the widget shows a person"
 else
@@ -3683,22 +3777,24 @@ EOF
 INSTALL_DOC="$REPO_ROOT/docs/install.md"
 assert_eq "$(grep -cF "$(js 'L.COPY.engineMissing')" "$INSTALL_DOC")" "1" \
   "docs/install.md quotes the message a widget with no engine really shows"
-assert_eq "$(grep -cF "$(js 'L.COPY.engineMissingInstall')" "$INSTALL_DOC")" "1" \
-  "...and the install line under it, character for character"
+while IFS= read -r _line; do
+  assert_eq "$(grep -cF "$_line" "$INSTALL_DOC" | awk '{print ($1 >= 1)}')" "1" \
+    "...and the install line under it, character for character: $_line"
+done < <(js 'L.COPY.engineMissingInstall'; echo)
 
 # The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
 # when one is already in flight - deliberately, because the running check read the system before
 # whatever prompted this request. The page used to say the opposite.
 assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
   "widget.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'If a check is already running, one more runs when it$' "$WIDGET_DOC")" "1" \
   "...it describes the coalescing the code actually does"
 
 # Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
 # harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
 assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
   "widget.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'opens the run.s log, when there is one' "$WIDGET_DOC")" "1" \
   "...it says when the button is there instead"
 assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
   "...and the QML really does bind both Show Log buttons to a log path being present"
@@ -3732,7 +3828,7 @@ assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart ins
 # page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
 # could pass with the popup section saying nothing at all.
 POPUP_DOC="$TESTTMP/widget-popup.md"
-awk '/^## The popup$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
+awk '/^## Inside the widget$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
 assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
   "premise: docs/widget.md still has a popup section to read"
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
@@ -3740,7 +3836,7 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
 # wherever it quotes a banner.
 assert_eq "$(grep -q 'asks for authorization' "$POPUP_DOC" && echo yes || echo no)" "yes" \
   "the popup section says the rebuild asks for authorization"
-assert_eq "$(grep -c 'removes the current staged update' "$POPUP_DOC")" "1" \
+assert_eq "$(grep -q 'if it fails, *$' "$POPUP_DOC" && grep -q 'nothing stays staged' "$POPUP_DOC" && echo 1 || echo 0)" "1" \
   "...and that a rebuild that fails removes the staged update it was replacing"
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"
