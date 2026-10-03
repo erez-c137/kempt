@@ -71,6 +71,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Package metadata is no longer dated by a Flatpak fetch alone.** On a box where dnf's refresh
+  never worked, `kempt doctor` said the package metadata was refreshed just now, and so did
+  `metadata_refreshed`. Doctor now says no dnf refresh has worked yet, and `metadata_refreshed` is
+  left out. A box upgraded from 0.1.7 keeps the date it had.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without a working engine says each thing once.** The header says Kempt's engine is

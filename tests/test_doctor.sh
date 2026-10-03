@@ -107,7 +107,13 @@ touch "$LAST_REFRESH_FILE"
 grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: ...and a cache fetched today is an ok row, not a finding" \
   || { echo "FAIL: fresh metadata is not reported ok"; _fail=1; }
-rm -f "$LAST_REFRESH_FILE"
+# A Flatpak fetch moves the shared stamp too, so on a box whose dnf fetch never worked it dates nothing.
+touch "$LAST_REFRESH_FLATPAK_FILE"
+"$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
+grep -qE '^info +package metadata: no dnf refresh has worked on this box yet' "$TESTTMP/doc-meta" \
+  && echo "ok: a box where only the Flatpak fetch worked does not date the dnf metadata" \
+  || { echo "FAIL: a Flatpak-only fetch is reported as a dnf refresh"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
+rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_FLATPAK_FILE"
 
 # --- the ownership branches, which nothing could reach before ---
 # doctor checks root:root 0755 only when the helper it was handed IS the path polkit's exec.path
