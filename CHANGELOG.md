@@ -83,6 +83,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The install guide's removal steps are complete.** Run `kempt disable-passwordless`, and
   `kempt discover-notifier on` if you turned Discover's notifier off, before
   `sudo dnf remove kempt`.
+- **Package metadata is no longer dated by a Flatpak fetch alone.** When dnf's refresh had never
+  worked, `kempt doctor` and `metadata_refreshed` gave the date of the last Flatpak fetch.
+  `metadata_refreshed` is now left out until a dnf refresh works. Doctor then says no dnf refresh
+  is recorded yet, and how to see why.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without a working engine says each thing once.** The header says Kempt's engine is

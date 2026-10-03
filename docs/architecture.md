@@ -248,10 +248,11 @@ check's per-user items, and the widget says the apps for you only could not be c
 
 ### `metadata_refreshed`
 
-- It reads `$LAST_REFRESH_DNF_FILE`, or `$LAST_REFRESH_FILE` before the first dnf fetch that wrote
-  it. A Flatpak fetch alone does not move it.
+- It reads `$LAST_REFRESH_DNF_FILE` and nothing else. `$LAST_REFRESH_FILE` also moves when only the
+  Flatpak fetch worked, so it never dates dnf's metadata.
+- It is absent until a dnf fetch has worked. `kempt doctor` then says no dnf refresh is recorded
+  yet when fetches have run, and never refreshed when none has.
 - A check answers from the cache, so this can be much older than `last_check`.
-- It is absent when nothing has ever been fetched.
 - The widget's footer shows `metadata N days old` past 24 hours. When a **Check for Updates**
   press got no fetch, it shows the age from a minute up (`Logic.refreshMissed`).
 

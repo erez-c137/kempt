@@ -172,9 +172,10 @@ force a refresh on the next check. Set `KEMPT_SKIP_REFRESH=1` to turn refreshing
 battery or a metered connection. The widget's **Check for Updates** runs it. When that press gets
 no fetch, the footer shows the metadata's age at once, such as `metadata 3 hours old`.
 
-Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json`. Once the
-metadata is over 24 hours old, the widget's footer shows `metadata N days old`, and `kempt doctor`
-reports it on its own row. A skipped refresh is also written to the event log, at most once a
+Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json` once a dnf
+refresh has worked, and leaves it out until then. Once the metadata is over 24 hours old, the
+widget's footer shows `metadata N days old`, and `kempt doctor` reports it on its own row. A
+skipped refresh is also written to the event log, at most once a
 day.
 
 ## Files and retention

@@ -354,8 +354,39 @@ assert_eq "$(metadata_refreshed_iso)" "$old_meta" "...but metadata_refreshed kee
 assert_eq "$(( $(date +%s) - $(date -d "$(metadata_refreshed_iso)" +%s) < 60 ))" "1" \
   "...and a dnf fetch that succeeds moves it"
 rm -f "$LAST_REFRESH_DNF_FILE"
-assert_eq "$(metadata_refreshed_iso)" "$(date -Is -r "$LAST_REFRESH_FILE")" \
-  "a box with no dnf stamp yet falls back to the shared one"
+assert_eq "$(metadata_refreshed_iso)" "" "with no dnf stamp there is no date, whatever the shared stamp says"
+
+# The shared stamp moves when a Flatpak fetch alone lands, so it never dates dnf's metadata.
+fp_only_refresh() {
+  (
+    on_battery() { return 1; }
+    metered_connection() { return 1; }
+    source "$REPO_ROOT/backends/flatpak.sh"
+    KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-fails"
+    maybe_refresh_metadata force
+  ) >/dev/null 2>&1
+}
+rm -f "$LAST_REFRESH_DNF_FILE" "$LAST_REFRESH_FILE"
+fp_only_refresh
+assert_eq "$(metadata_refreshed_iso)" "" "a Flatpak fetch alone on a new box claims no dnf metadata date"
+fp_only_refresh
+assert_eq "$(metadata_refreshed_iso)|$(metadata_age_days)" "|" "...and nor does a second one, as a date or an age"
+# A box from 0.1.7 whose dnf fetch never worked: 0.1.7 wrote only the shared stamp, from Flatpak.
+# Neither before nor after the next Flatpak-only fetch is that date dnf's, and no dnf stamp appears.
+rm -f "$LAST_REFRESH_DNF_FILE"
+touch -d '2 days ago' "$LAST_REFRESH_FILE"
+assert_eq "$(metadata_refreshed_iso)" "" "a 0.1.7 box with only the shared stamp has no dnf date"
+fp_only_refresh
+assert_eq "$(metadata_refreshed_iso)" "" "...and a Flatpak fetch alone after the upgrade gives it none"
+assert_exit 1 "...nor writes a dnf stamp" -- test -e "$LAST_REFRESH_DNF_FILE"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 1; }
+  source "$REPO_ROOT/backends/flatpak.sh"
+  maybe_refresh_metadata force
+) >/dev/null 2>&1
+assert_eq "$(( $(date +%s) - $(date -d "$(metadata_refreshed_iso)" +%s) < 60 ))" "1" \
+  "...until a dnf fetch works, which dates it"
 
 # A skipped refresh is said ONCE A DAY, not once a check. A laptop on battery skips every check it
 # runs - every ten minutes, all day - and a line per skip would be 144 lines saying one thing,

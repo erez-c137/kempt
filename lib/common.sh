@@ -577,6 +577,10 @@ discover_wait_running() {
 # no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd 7
 # open would hold the writers' lock for the whole session and every later `config set`, `hold` or
 # `unhold` would wait 30 s and fail. Closing one that is not open is a no-op.
+# The binary is started when discover_wait_running gives up after kstart, even when kstart's launch
+# is only slow, so two can start.
+# That is harmless: DiscoverNotifier registers its D-Bus name through KDBusService with Unique set
+# (checked in plasma-discover-notifier 6.7.5), so whichever one finds the name taken exits at once.
 discover_start() {
   if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
     setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1 \
@@ -1442,11 +1446,11 @@ metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
   date -Is -r "$f" 2>/dev/null || true
 }
 
-# The dnf stamp, or the shared one on a box that has not fetched dnf metadata since the dnf stamp
-# was added. A dnf failure beside a Flatpak success then leaves the date where it was.
+# The dnf stamp, and only that one. The shared stamp moves when a Flatpak fetch alone lands, so on
+# a box whose dnf fetch never worked it would date dnf's metadata by Flatpak's. No dnf stamp means
+# no date, and metadata_refreshed is then left out of the state.
 metadata_stamp_file() {
-  if [[ -f "$LAST_REFRESH_DNF_FILE" ]]; then printf '%s\n' "$LAST_REFRESH_DNF_FILE"
-  else printf '%s\n' "$LAST_REFRESH_FILE"; fi
+  printf '%s\n' "$LAST_REFRESH_DNF_FILE"
 }
 
 # ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
