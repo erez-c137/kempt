@@ -115,8 +115,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not been downloaded yet". Any other failure reads "The check failed" and offers Check
   Installation. The raw error stays underneath in small print. The state publishes dnf's refresh
   error as `backends.dnf.refresh_error`.
-- **A dnf refresh that has never worked is tried again at every check.** Before, a Flatpak fetch
-  beside it held dnf off for three hours, leaving the check nothing to read.
+- **A dnf refresh that has never worked is tried again 15 minutes after it failed.** Before, a
+  Flatpak fetch beside it held dnf off for three hours, leaving the check nothing to read.
 - **The widget's hover text says each thing once.** With only held packages, it no longer gives
   the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
 - **The staged message no longer repeats the header.** It reads "They install when you restart."

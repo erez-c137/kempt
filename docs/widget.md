@@ -83,11 +83,12 @@ The header reads one of:
   check failed`. Only the last offers **Check Installation**.
 - `Could not read the update state`, usually because the widget is older than the program.
 
-**Check for Updates**, the circular arrow, fetches fresh package lists, then checks. On battery or a metered connection it checks without fetching. After a failed
-check, a message says so (message 2), the footer adds `last check failed`, and this button's tooltip
-gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or update
-runs, it is greyed out with a spinner. A screen reader reads its answer, and the panel icon
-says it when the widget is closed. It is also in the right-click and **More actions** menus.
+**Check for Updates**, the circular arrow, fetches fresh package lists, then checks. On battery or
+a metered connection it checks without fetching. After a failed check, a message says so
+(message 2), the footer adds `last check failed`, and this button's tooltip gives the reason, such
+as `dnf check failed: repo 'updates' unavailable`. While a check or update runs, it is greyed out
+with a spinner. A screen reader reads its answer, and the panel icon says it when the widget is
+closed. It is also in the right-click and **More actions** menus.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has the arrow and the gear, so the widget hides its copies.
