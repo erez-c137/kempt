@@ -1173,7 +1173,7 @@ PlasmoidItem {
         // and reads the same file.
         if (tailExecutor.current) return;
         tailExecutor.run("tail -n 25 " + Logic.shellQuote(logPath), 10000, function(stdout, stderr, rc) {
-            if (rc === 0) root.logTail = stdout;
+            if (rc === 0) root.logTail = Logic.logTailOf(stdout);
         });
     }
 

@@ -822,6 +822,14 @@ function holdsOf(text) {
     return out;
 }
 
+// logTailOf(text) -> the run's log tail as the widget shows it. dnf pads a line out to a counter
+// at the right edge ("Upgrading bash-5.3-1.fc44.x86_64          31/62"). The widget wraps long
+// lines, so the padding would push the counter onto a line of its own. It becomes one space.
+function logTailOf(text) {
+    if (typeof text !== "string") return "";
+    return text.replace(/[ \t]{2,}(\d+\/\d+)[ \t]*$/gm, " $1");
+}
+
 // lastLinesOf(text, max) -> the last `max` non-blank lines, trimmed, joined with " ". The result
 // line under the passwordless buttons. The LAST lines: pkexec and polkit print their progress
 // before their verdict, and the verdict is the part worth showing.
@@ -2426,8 +2434,8 @@ function viewModel(state, updating, cliError, opts) {
         if (pendingNames !== "") subParts.push(pendingNames);
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
-        // Not when the header already ends in it ("Up to date · 10 held").
-        if (heldTotal > 0 && countPhrase.indexOf(heldTotal + " " + COPY.held) < 0) {
+        // Not when the tooltip title already ends in it ("Up to date · 10 held").
+        if (heldTotal > 0 && tooltipMain.indexOf(heldTotal + " " + COPY.held) < 0) {
             subParts.push(heldTotal + " " + COPY.held);
         }
         // Only with something to download AND something to press. On an up-to-date box the number
@@ -2782,6 +2790,7 @@ if (typeof module !== "undefined" && module.exports) {
         answerOutcomeOf: answerOutcomeOf,
         checkErrorOf: checkErrorOf,
         checkProblemOf: checkProblemOf,
+        logTailOf: logTailOf,
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,

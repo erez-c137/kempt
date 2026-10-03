@@ -224,6 +224,10 @@ assert_eq "$(js 'V("held-only",false).badgeVisible')" "false" "held items are no
 assert_eq "$(js 'V("held-only",false).tooltipMain')" "Up to date · 10 held" "...but the tooltip notes N held"
 assert_eq "$(js 'V("held-only",false).tooltipSub.indexOf("10 held")')" "-1" \
   "...once: the title already carries it, so the line under it does not repeat it"
+# The test is against the tooltip's title, not the count phrase: over a staged update the title is
+# the staged header, so the held count still belongs in the line under it.
+assert_eq "$(js 'const s = S("held-only"); s.offline_staged = {staged_at: "2026-09-02T10:31:00+03:00", count: 3, armed: true, holds_conflict: [], names_source: "transaction"}; L.viewModel(s, false).tooltipSub')" \
+  "10 held" "...and with an update staged, the title is the staged header and the held count stays below"
 assert_eq "$(js 'V("live",false).tooltipSub.indexOf("held")')" "-1" "...and with nothing held, nothing is said"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:3,held_total:2,backends:{}},false).tooltipSub')" "2 held" \
   "...while a count of pending updates leaves the held count to the line under it"
@@ -390,6 +394,12 @@ for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: k
           "kempt: dnf timed out" "kempt: cannot reach polkit (no system bus or polkit service)"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "false" "not a network failure: $_e"
 done
+# The run's log in the widget wraps, so dnf's padding before a trailing counter is collapsed and
+# the counter stays on its line. Other runs of spaces are left alone.
+assert_eq "$(js 'L.logTailOf("  Upgrading        : bash-5.3-1.fc44.x86_64                31/62\n  Verifying  x   1/2  \nplain  text")')" \
+  "$(printf '  Upgrading        : bash-5.3-1.fc44.x86_64 31/62\n  Verifying  x 1/2\nplain  text')" \
+  "the log tail keeps dnf's trailing counter on its line"
+assert_eq "$(js 'L.logTailOf(undefined)')" "" "...and an absent tail is empty"
 assert_eq "$(js 'L.viewModel(null,false,L.COPY.checkTimedOut).emptyStateText + "|" + L.viewModel(null,false,L.COPY.checkTimedOut).problemDetail')" \
   "The check did not finish in time.|" "the widget's own timeout sentence is already plain, with nothing under it"
 # The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
