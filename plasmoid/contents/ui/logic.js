@@ -226,8 +226,11 @@ var COPY = {
     checkFailedHint: "Check Installation can find out why.",
     checkNetworkHeadline: "Kempt could not reach the update servers",
     checkNetworkHint: "Check your network connection.",
-    // dnf has no package lists and no failed download explains why.
+    // dnf has no package lists and no network failure explains why. Doctor reports nothing
+    // wrong here, so neither hint offers Check Installation.
     checkNoCacheHeadline: "The package lists have not been downloaded yet",
+    checkNoCacheHint: "Kempt downloads them at a check on mains power and an unmetered connection.",
+    checkRefreshFailedHint: "dnf could not download them. Its error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
     stateUnreadableTooltip: "Cannot read the update state",
@@ -2037,33 +2040,56 @@ var NETWORK_ERROR_RE = new RegExp([
     "while fetching"
 ].join("|"), "i");
 
+// The same for dnf's own refresh error (backends.dnf.refresh_error), and stricter: a repository
+// that answers 404 also gives "Curl error" and "Cannot download", and that server was reached.
+var REFRESH_NETWORK_RE = new RegExp([
+    "could(n't| not) resolve", "temporary failure in name resolution", "name or service not known",
+    "could(n't| not) connect", "failed to connect", "connection (refused|reset|timed out)",
+    "operation timed out", "timeout was reached", "network is unreachable", "no route to host"
+].join("|"), "i");
+
 // dnf5 --cacheonly with no metadata: 'Cache-only enabled but no cache for repository "fedora"'.
 var NO_CACHE_RE = /no cache for repository/i;
 
-// checkProblemOf(text, dnfRefreshFailed) -> {network, headline, detail} for a check that answered
-// nothing and left no counts. The headline is plain words. The tool's first line is kept as the
-// detail, for the small print under it. The widget's own timeout sentence is already plain, so it
-// has no detail.
+// checkProblemOf(text, dnfRefreshError) -> {network, noCache, headline, detail, hint} for a check
+// that answered nothing and left no counts. The headline is plain words, and the hint the line
+// under it. The tool's first line is kept as the detail, for the small print. The widget's own
+// timeout sentence is already plain, so it has no detail.
 // The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
-// part is one. dnf's "no cache" counts as one only when the latest dnf refresh failed
-// (backends.dnf.refresh_failed). A text that names kempt doctor never is.
-function checkProblemOf(text, dnfRefreshFailed) {
+// part is one. dnf's "no cache" counts as one only when dnf's own refresh error (a string while
+// the latest refresh failed) is a network error. A text that names kempt doctor never is.
+function checkProblemOf(text, dnfRefreshError) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
-    if (raw === "") return { network: false, headline: "", detail: "" };
-    if (raw === COPY.checkTimedOut) return { network: false, headline: raw, detail: "" };
-    var failed = { network: false, headline: COPY.checkFailedHeadline, detail: raw };
+    var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
+    if (raw === "") return none;
+    if (raw === COPY.checkTimedOut) {
+        return { network: false, noCache: false, headline: raw, detail: "", hint: COPY.checkFailedHint };
+    }
+    var failed = { network: false, noCache: false, headline: COPY.checkFailedHeadline, detail: raw,
+                   hint: COPY.checkFailedHint };
     if (mentionsDoctor(raw)) return failed;
+    var refreshError = typeof dnfRefreshError === "string" ? firstLineOf(dnfRefreshError) : null;
+    var refreshNetwork = refreshError !== null && REFRESH_NETWORK_RE.test(refreshError);
     var parts = raw.split(/; (?=(?:dnf|flatpak) check failed\b)/);
     var network = 0, noCache = 0;
     for (var i = 0; i < parts.length; i++) {
         var dnfNoCache = /^dnf check failed\b/.test(parts[i]) && NO_CACHE_RE.test(parts[i]);
-        if (NETWORK_ERROR_RE.test(parts[i]) || (dnfNoCache && dnfRefreshFailed === true)) network++;
+        if (dnfNoCache ? refreshNetwork : NETWORK_ERROR_RE.test(parts[i])) network++;
         else if (dnfNoCache) noCache++;
     }
     if (network === parts.length) {
-        return { network: true, headline: COPY.checkNetworkHeadline, detail: raw };
+        return { network: true, noCache: false, headline: COPY.checkNetworkHeadline, detail: raw,
+                 hint: COPY.checkNetworkHint };
     }
-    if (noCache === parts.length) return { network: false, headline: COPY.checkNoCacheHeadline, detail: raw };
+    if (noCache === parts.length) {
+        // A refresh that failed says why in its own words. With none on record it was skipped,
+        // which happens on battery and on a metered connection.
+        return refreshError !== null && refreshError !== ""
+            ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
+                detail: refreshError, hint: COPY.checkRefreshFailedHint }
+            : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
+                hint: COPY.checkNoCacheHint };
+    }
     return failed;
 }
 
@@ -2379,16 +2405,19 @@ function viewModel(state, updating, cliError, opts) {
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
     // A failed check is said in plain words, with the tool's own line kept as the detail.
-    var problemText = "", problemDetail = "", problemNetwork = false;
+    var problemText = "", problemDetail = "", problemNetwork = false, problemNoCache = false;
+    var problemHint = "";
     if (iconState === "error") {
         var problemRaw = cliError !== "" ? cliError                  // we could not run the CLI
             : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
         if (problemRaw !== "") {
             var problem = checkProblemOf(problemRaw, usable && !!state.backends
-                && !!state.backends.dnf && state.backends.dnf.refresh_failed === true);
+                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined);
             problemText = problem.headline;
             problemDetail = problem.detail;
             problemNetwork = problem.network;
+            problemNoCache = problem.noCache;
+            problemHint = problem.hint;
         } else {
             problemText = "the update state could not be read";      // it answered something else
         }
@@ -2478,9 +2507,10 @@ function viewModel(state, updating, cliError, opts) {
     // doctor` is a kempt subcommand, so on the box where kempt is what is absent this would tell
     // the user to run the very thing they do not have. Those states carry their own message, which
     // says the right thing for each.
-    // ...and not for a network failure either: nothing in the installation is wrong.
-    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered) && !problemNetwork)
-        ? "kempt doctor" : "";
+    // ...and not for a network failure or missing package lists either: nothing in the
+    // installation is wrong, and doctor would say so.
+    var remedyCommand = (!noEngine && (cliError !== "" || neverAnswered) && !problemNetwork
+                         && !problemNoCache) ? "kempt doctor" : "";
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
@@ -2635,6 +2665,9 @@ function viewModel(state, updating, cliError, opts) {
         // The tool's own line under a plain emptyStateText, and whether it was a network failure.
         problemDetail: problemDetail,
         problemNetwork: problemNetwork,
+        // The line under emptyStateText: what to do about it. Check Installation's when it is offered.
+        problemHint: remedyCommand !== "" ? COPY.checkFailedHint
+            : (problemNetwork || problemNoCache ? problemHint : ""),
         remedyCommand: remedyCommand,
         // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
         // a string in this key otherwise renders as. These two must agree about the same key.

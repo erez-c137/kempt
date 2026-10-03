@@ -355,36 +355,51 @@ assert_eq "$(js 'L.viewModel(null,false,"line one\nline two").problemDetail')" "
   "a multi-line stderr is reduced to its first line, not pasted into the panel whole"
 # A check that could not reach a server is not a broken installation. It gets its own headline,
 # the network hint, and no Check Installation. The dnf check is cache-only, so offline it says only
-# that it has no cache. That reads as a network failure when the state says the latest dnf refresh
-# failed (backends.dnf.refresh_failed), and as a neutral headline when it does not.
-nocache='dnf check failed: Cache-only enabled but no cache for repository \"fedora\"'
-net_state="{schema:1,status:\"stale\",error:\"$nocache\",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[],refresh_failed:true}}}"
-net="L.viewModel($net_state,false)"
+# that it has no cache. That reads as a network failure when dnf's own refresh error
+# (backends.dnf.refresh_error) is one, and as a neutral headline otherwise.
+nocache='dnf check failed: Updating and loading repositories: Cache-only enabled but no cache for repository \"fedora\"'
+neterr='Curl error (6): Couldn'"'"'t resolve host name for https://mirrors.fedoraproject.org/metalink [Could not resolve host: mirrors.fedoraproject.org]'
+err404='Curl error (22): The requested URL returned error: 404 for https://download.copr.fedorainfracloud.org/results/x/y/repodata/repomd.xml'
+nc_state() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[]%s}}}' "$nocache" "$1"; }
+net="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$neterr" | jq -Rs .)"),false)"
 assert_eq "$(js "$net.emptyStateText")" "Kempt could not reach the update servers" \
-  "no dnf cache after a failed dnf refresh gets the network headline"
-assert_eq "$(js "$net.problemNetwork")" "true" "...is marked as a network failure for the hint"
+  "no dnf cache after a refresh that could not resolve the mirror gets the network headline"
+assert_eq "$(js "$net.problemNetwork + \"|\" + $net.problemHint")" "true|Check your network connection." \
+  "...is marked as a network failure, with the network hint"
 assert_eq "$(js "$net.problemDetail.indexOf(\"no cache for repository\") >= 0")" "true" "...keeps the raw text as the detail"
 assert_eq "$(js "$net.remedyCommand")" "" "...and offers no Check Installation, since nothing is broken"
 assert_eq "$(js "$net.tooltipMain + \" | \" + $net.tooltipSub")" \
   "Cannot check for updates | Could not reach the update servers" "...and the tooltip says the same in short"
-old_state="{schema:1,status:\"stale\",error:\"$nocache\",last_success:null,actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[]}}}"
-assert_eq "$(js "L.viewModel($old_state,false).emptyStateText + \"|\" + L.viewModel($old_state,false).problemNetwork")" \
+r404="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$err404" | jq -Rs .)"),false)"
+assert_eq "$(js "$r404.emptyStateText + \"|\" + $r404.problemNetwork")" \
   "The package lists have not been downloaded yet|false" \
+  "a refresh that reached a server answering 404 is not a network failure"
+assert_eq "$(js "$r404.problemDetail + \"|\" + $r404.problemHint")" \
+  "$err404|dnf could not download them. Its error is below." "...and shows dnf's refresh error under it"
+assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which would find nothing wrong"
+r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
+assert_eq "$(js "$r_empty.emptyStateText + \"|\" + $r_empty.problemNetwork")" \
+  "The package lists have not been downloaded yet|false" "a refresh that failed silently claims no network cause"
+old="L.viewModel($(nc_state ''),false)"
+assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
+  "The package lists have not been downloaded yet|false|" \
   "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
-assert_eq "$(js "L.viewModel($old_state,false).remedyCommand")" "kempt doctor" "...and offers Check Installation"
-assert_eq "$(js "L.checkProblemOf(\"$nocache\", false).network")" "false" "checkProblemOf: no cache alone is not a network failure"
-assert_eq "$(js "L.checkProblemOf(\"$nocache\", true).network")" "true" "...but no cache after a failed dnf refresh is"
-assert_eq "$(js "L.checkProblemOf(\"flatpak check failed: $nocache\", true).network")" "false" \
+assert_eq "$(js "$old.problemHint")" "Kempt downloads them at a check on mains power and an unmetered connection." \
+  "...and says when the lists download"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
+assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
+  "...but no cache after a refresh with a network error is"
+assert_eq "$(js "L.checkProblemOf(\"flatpak check failed: Cache-only enabled but no cache for repository\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
   "...and only for the dnf part"
 # The CLI joins the two backends' failures with "; ". Network only when every part is.
 fp_net='flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [6] Could not resolve hostname'
-assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", true).network")" "true" \
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
   "both parts network: a network failure"
-assert_eq "$(js "L.checkProblemOf(\"dnf check failed: kempt: dnf timed out; $fp_net\", true).headline")" \
+assert_eq "$(js "L.checkProblemOf(\"dnf check failed: kempt: dnf timed out; $fp_net\", $(printf '%s' "$neterr" | jq -Rs .)).headline")" \
   "The check failed" "one network part and one other: not a network failure"
-assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\", false).headline")" \
+assert_eq "$(js "L.checkProblemOf(\"$nocache; $fp_net\").headline")" \
   "The check failed" "no cache with no failed refresh beside a network part: not a network failure"
-assert_eq "$(js "L.checkProblemOf(\"$fp_net (see: kempt doctor)\", true).network")" "false" \
+assert_eq "$(js "L.checkProblemOf(\"$fp_net (see: kempt doctor)\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "false" \
   "a text that names kempt doctor is never a network failure"
 for _e in "$fp_net" "flatpak check failed: Could not connect: Network is unreachable" \
           "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [28] Timeout was reached"; do
@@ -3116,7 +3131,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

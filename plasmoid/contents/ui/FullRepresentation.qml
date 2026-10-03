@@ -1229,9 +1229,7 @@ PlasmaExtras.Representation {
                           : popup.vm.iconState === "error" ? "dialog-error"
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
-                explanation: popup.vm.remedyCommand.length > 0
-                             ? i18n("Check Installation can find out why.")
-                             : popup.vm.problemNetwork ? i18n("Check your network connection.") : ""
+                explanation: popup.vm.problemHint
                 helpfulAction: doctorPlaceholderAction
                 // The tool's own words, in small print under the plain headline, for anyone who
                 // needs them. Selectable, so they can be pasted into a search or a bug report.

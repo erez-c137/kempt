@@ -3533,6 +3533,10 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
     "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
+    "checkFailedHint",      # -> checkProblemOf -> vm.problemHint, beside Check Installation
+    "checkNetworkHint",     # -> checkProblemOf -> vm.problemHint, for a network failure
+    "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
+    "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read
     "checkNetworkShort",    # -> vm.tooltipSub, for a network failure
