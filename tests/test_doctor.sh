@@ -628,6 +628,22 @@ grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
 
+# A package has no install.sh, so its fix messages name the package instead.
+env KEMPT_POLICY_FILE="$TESTTMP/no-such.policy" KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" \
+    KEMPT_REFRESH_HELPER_PATH="$TESTTMP/nope-refresh" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/skew.txt")" \
+  "root helper (refresh) not installed: $TESTTMP/nope-refresh. Reinstall it with: sudo dnf reinstall kempt" \
+  "a packaged install's missing helper points at dnf reinstall"
+assert_contains "$(cat "$TESTTMP/skew.txt")" \
+  "polkit action not installed: $TESTTMP/no-such.policy. Reinstall it with: sudo dnf reinstall kempt" \
+  "...and so does its missing polkit action"
+assert_not_contains "$(cat "$TESTTMP/skew.txt")" "install.sh" \
+  "...and nothing tells a package user to run install.sh"
+pkg_state="$(KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" "$NOGIT/bin/kempt" check 2>/dev/null)" || true
+assert_contains "$(jq -r .error <<<"$pkg_state")" \
+  "dnf check failed: root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)" \
+  "a packaged check names the package fix for a missing helper"
+
 # --- the store copy that shadows a packaged widget ----------------------------------------------
 # The widget is installable on its own from the KDE Store, and kpackagetool6 puts what it installs
 # in the USER's plasmoid directory. The RPM puts its copy in /usr/share - and Plasma prefers the

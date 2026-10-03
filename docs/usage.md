@@ -115,8 +115,9 @@ The full schema is in [architecture.md](architecture.md#state-json-schema-v1).
 
 When a backend fails (network down, repo unavailable), `status` is `"stale"`, `error` holds the
 message, and the previous item lists are kept. A missing root helper reads
-`root helper not installed. Run ./install.sh (see: kempt doctor)`. A missing or corrupt state file
-starts from an empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
+`root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)`.
+On a checkout, it says `Run ./install.sh` instead. A missing or corrupt state file starts from an
+empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
 zero updates.
 
 | Exit | When |

@@ -1048,13 +1048,21 @@ stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing sp
 # A stderr tail from a privileged call, turned into something a human can act on. `timeout` reports
 # a MISSING helper as "timeout: failed to run command '<path>': No such file or directory", which
 # reads as "the update check timed out" and sends the reader hunting a network problem they do not
-# have; the real cause is that install.sh has never run. Anything else passes through untouched.
+# have; the real cause is a helper that was never installed. Anything else passes through untouched.
+# How to put Kempt's own files back. A checkout has install.sh, and a package does not ship it.
+reinstall_hint() {  # [again] → the fix for this kind of install, as a sentence without a full stop
+  if [[ -r "$KEMPT_ROOT/install.sh" ]]; then
+    printf 'Run ./install.sh%s' "${1:+ $1}"
+  else
+    printf 'Reinstall it with: sudo dnf reinstall kempt'
+  fi
+}
 explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or an authorization one
   local t="$1" h
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
-        printf '%s\n' "root helper not installed. Run ./install.sh (see: kempt doctor)"
+        printf '%s\n' "root helper not installed. $(reinstall_hint) (see: kempt doctor)"
         return 0
       fi
     done

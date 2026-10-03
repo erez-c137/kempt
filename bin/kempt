@@ -3030,7 +3030,7 @@ doctor_widget_engine() {
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path. Run ./install.sh"
+    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint)"
     return 0
   fi
   if [[ "$path" != "$annotated" ]]; then
@@ -3044,7 +3044,7 @@ doctor_helper() {  # label seam_path annotated_path
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
-    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. Run ./install.sh again"
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $(reinstall_hint again)"
   fi
   # The directory, too: whoever can write to it can rename the helper away and put their own file
   # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
@@ -3119,7 +3119,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. Run ./install.sh"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint)"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
