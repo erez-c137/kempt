@@ -1,19 +1,19 @@
 # Using the Kempt widget
 
-The Kempt widget sits in your panel, counts the updates waiting for you and installs them when you
-press **Update Now**. This page covers everything it shows and every button. You never need a
-terminal to use it.
+The Kempt widget sits in your system tray, counts the updates waiting for you and installs them
+when you press **Update Now**. This page covers everything it shows and every button. For everyday
+updates, you do not need a terminal.
 
 ## Where it lives: the system tray, or the panel itself
 
 **In the system tray** (the default). Kempt appears beside the volume and network icons. The first
 time, it may need a plasmashell restart or a new login. To hide it or move it behind the arrow:
 
-> Right-click the tray > **Configure System Tray...** > **Entries** > find **Kempt**.
+> Right-click the tray > **Configure System Tray…** > **Entries** > find **Kempt**.
 
 **On the panel.** Use this to place it somewhere specific, or make it larger:
 
-> Right-click the panel > **Add Widgets...** > search for **Kempt** > drag it onto the panel.
+> Right-click the panel > **Add Widgets…** > search for **Kempt** > drag it onto the panel.
 
 Using both gives you two Kempt icons, so you probably want to turn one off.
 
@@ -24,7 +24,7 @@ Using both gives you two Kempt icons, so you probably want to turn one off.
 | Update icon with a count badge | Updates pending | What an update would change now, held packages left out. The tooltip names the first three, session-critical ones such as the kernel first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still counts held packages. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and that check's time. |
-| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The popup offers **Check Installation**. |
+| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**. |
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 
@@ -35,7 +35,7 @@ chosen, there is no badge, but the icon still changes and the tooltip has the co
 **Medium** and **Large**. The sizes are under `widget_icon_size` in
 [configuration.md](configuration.md#keys).
 
-## The popup
+## Inside the widget
 
 Click the icon. Here, updates are pending, a restart is owed and the update has a kernel:
 
@@ -91,34 +91,36 @@ says it while the widget is closed. It is also in the icon's right-click menu an
 **More actions** menu.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
-the tray's own heading has the arrow and the gear, so the popup hides its copies.
+the tray's own heading has the arrow and the gear, so the widget hides its copies.
 
 ### Messages
 
-Messages appear only when they apply, and **at most two show at once**, the ones lower in this list
-left out. If that hides the restart message, the footer says `restart pending` instead.
+Messages appear only when they apply. **At most two show at once**, and the ones lower in this
+list wait. If that hides the restart message, the footer says `restart pending` instead.
 
 1. **The engine is missing or will not run.** *"Nothing can check for updates yet."*, with the
    install commands and **Copy Commands**. Or, under **Kempt's engine will not run**, *"The engine
    is installed but cannot start, so nothing can check for updates."*, with **Check Installation**
-   and **Copy Command**. Either one
-   shows alone. See [install.md](install.md#installing-from-the-kde-store-first).
-2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`, or
-   `Update failed: <the reason>`, or what Kempt said about a button press that failed. After an
-   answer to message 8 or 9, it says what changed. When **Check for Updates** fails over earlier
-   counts, it says so, and that the counts are from the last check. **Show Log** is on it
-   when a *run* recorded a log file, as every run does, including installs during a restart,
-   unless the log could not be saved. When the message tells you to run `kempt doctor`, it adds
-   **Check Installation**. A run's summary goes when you close the popup or a check starts. Other
-   reports stay until your next press. One that worked also goes when a check starts, and the
-   check-failed note when counts come back fresh.
+   and **Copy Command**. Either one shows alone. See
+   [install.md](install.md#installing-from-the-kde-store-first).
+2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
+   `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
+   it says what changed. After a failed **Check for Updates**, it says the counts are from the last
+   check that worked.
+
+   **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
+   message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
+   starts. A report that something worked also goes when a check starts. The note about a failed
+   check goes when fresh counts arrive, or when you ask for a check. Other reports stay until your
+   next press.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
 4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
-   staged, restart to install it. If it is downloaded but not started, or a restart skipped it,
-   run `sudo dnf5 system-upgrade reboot` to install it, or `sudo dnf5 offline clean` to drop it.
-   If it did not finish, the message says to run `sudo dnf5 offline log` to see why. While it is
-   stored, Kempt will not stage updates, and **Update Now** still updates live.
+   staged, restart to install it. If it did not finish, the message says to run
+   `sudo dnf5 offline log` to see why. If it is downloaded but not started, or a restart skipped
+   it, the widget does not name the commands. They are `sudo dnf5 system-upgrade reboot` to install
+   it, and `sudo dnf5 offline clean` to drop it. While it is stored, Kempt will not stage updates,
+   and **Update Now** still updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
 6. **Restart to apply installed updates**, with **Restart…** and a close button. See
@@ -136,16 +138,18 @@ left out. If that hides the restart message, the footer says `restart pending` i
 8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
    install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches
    **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
-   hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)).
+   hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)). To go back
+   later, set **Run updates in** to **Terminal window**, or run `kempt config set surface terminal`.
 9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-   from Kempt's, and its checks can make an update wait."** It shows after message 8 when that one
-   is showing, while Discover's notifier starts with your session. **Turn Off Discover's Notifier**
-   turns it off for you. **Keep Discover's Notifier** changes nothing. Either answer hides the
-   message for good, and the popup shows what was done. Settings can turn the notifier back on.
+   from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
+   starts with your session. If message 8 is showing, it waits until you answer that one.
+   **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
+   nothing. Either answer hides the message for good. The **Discover** row in settings turns the
+   notifier back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 100 MB to free, or an amount Kempt could not measure. **Show What** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
-    saw. If the list changed, or removing needs an administrator, nothing is removed and the popup
+    saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
     says so. When **Unused Flatpak runtimes** is **Remove after updates**, the message adds
     *"Kempt removes them after the next update."* and the button reads **Free Up Space Now**.
     Closing the message hides it until the list changes or Plasma restarts.
@@ -154,8 +158,7 @@ left out. If that hides the restart message, the footer says `restart pending` i
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
 or says it found none. **Show Full Report** shows the whole report, which you can select and copy.
 **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even when two
-others are up. It goes when you close it (even mid-check), close the popup, ask for a check, or when
-an update starts.
+others are up. It goes when you close it, close the widget, ask for a check, or start an update.
 
 ### The staged banner
 
@@ -177,8 +180,12 @@ because there is no way to edit a stored update and the restart would still inst
 ```
 
 With several held packages it names the first and counts the rest:
-`You held kernel-core and 2 more after the next-restart install was prepared, so they still
-install. Rebuild it to skip them, or stop holding them to keep the current plan.`
+
+```
+ (!) You held kernel-core and 2 more after the next-restart install was
+     prepared, so they still install. Rebuild it to skip them, or stop
+     holding them to keep the current plan.
+```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
 `may`:
@@ -199,10 +206,9 @@ staged.
 > Builds the staged update again with your current holds. Asks for authorization; if the rebuild
 > fails, the current staged update is removed.
 
-dnf5 deletes the old staged update before building the new one, so a failed rebuild
-removes the current staged update, and the restart installs nothing. A rebuild reuses the
-packages already downloaded. If the staged update changed after the banner was drawn, nothing runs
-and the popup says `The staged update changed since this was offered. Nothing was rebuilt; check the
+A failed rebuild leaves nothing staged, because dnf5 deletes the old staged update first. A rebuild
+reuses the packages already downloaded. If the staged update changed after the banner was drawn,
+nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
 banner above.`
 
 **Discard Staged Update** is on every staged banner, with this tooltip:
@@ -210,8 +216,8 @@ banner above.`
 > Removes the update waiting for the next restart, so the restart installs nothing. Asks for
 > authorization, and deletes the packages it downloaded, so staging again downloads them again.
 
-The popup reports the result in the command's own words. If the staged update changed after the
-banner was drawn, nothing is discarded and the popup says so. While a Fedora release upgrade is
+The widget reports the result. If the staged update changed after the banner was drawn, nothing is
+discarded and the widget says so. While a Fedora release upgrade is
 stored, the button is not there.
 
 ### The list
@@ -242,11 +248,11 @@ next press or the next check.
 
 **Last update 18 min ago · 4 packages** expands to the previous run's package list and
 **Show Log**, plus **Check Installation** when a failed run's reason says to run `kempt doctor`. It
-takes at most a third of the popup and scrolls within that.
+takes at most a third of the widget and scrolls within that.
 
 ### Footer
 
-`Checked 4 min ago` counts up while the popup is open. Hover it for the full time. Before any check
+`Checked 4 min ago` counts up while the widget is open. Hover it for the full time. Before any check
 succeeds it reads `No successful check yet`. It can add:
 
 - ` · last check failed`.
@@ -266,26 +272,23 @@ it asks first (message 7 above), unless a Fedora release upgrade is stored.
 
 ### While an update runs
 
-The popup says where the update is running:
+The widget says where the update is running:
 
 - `Updating in a terminal window…`
 - `Updating in the background…`
 - `Updating…`, with the live log below, for **In this widget**
 - `Preparing the install for the next restart…`, when staging.
 
-You can close the popup meanwhile. If a run cannot start, the popup shows Kempt's message and its
-fix. The updating state ends when the run writes its new state, which a terminal run always does
-as the window closes. If it still says it is updating after the run has ended, press
-**Not updating? Check again**. If a run dies without writing its state, the widget gives up after
-three hours and checks again.
+You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and its
+fix. If it still says it is updating after the run has ended, press **Not updating? Check again**.
+If a run dies without writing its state, the widget gives up after three hours and checks again.
 
-### When the popup checks
+### When the widget checks
 
-**Opening the popup checks** when the last successful check is older than five minutes, or than
+**Opening the widget checks** when the last successful check is older than five minutes, or than
 your check interval if that is shorter, and on every open until a check succeeds. The counts on
-screen stay until the answer arrives. If a check is already running,
-the popup's request is *remembered* and one more check runs when it finishes, however many times
-you open it.
+screen stay until the answer arrives. If a check is already running, one more check runs when it
+finishes, however many times you open the widget.
 
 The widget also checks the package databases, its state file and the config file every 30
 seconds. A `dnf upgrade` in a terminal, a Discover run, another Kempt run or a settings change
@@ -313,16 +316,26 @@ off for good.
 
 ## Settings
 
-Right-click the widget > **Configure Kempt…**, or press the gear in the popup. Every setting is
+Right-click the widget > **Configure Kempt…**, or press the gear in the widget. Every setting is
 also in [configuration.md](configuration.md).
 
 **Apply** and **OK** both save. **Apply** keeps the dialog open, **OK** closes it. Closing with
 unsaved changes asks first. A change reaches the panel at the widget's next look at the config
-file (see [When the popup checks](#when-the-popup-checks)).
+file (see [When the widget checks](#when-the-widget-checks)).
 
-**Run updates in** is greyed out when *"Apply updates without asking for confirmation"* is off,
-because only a terminal window can ask. Runs then use a terminal, and **Install on Next Restart**
-still stages. Your choice comes back when you turn that option on again.
+**Include Flatpak apps** (`include_flatpak`, on by default) checks and updates Flatpak apps and
+runtimes along with dnf packages.
+
+**Apply updates without asking for confirmation** (`auto_accept`, on by default) answers dnf and
+Flatpak for you. With it off, **Run updates in** is greyed out, because only a terminal window can
+ask. Runs then use a terminal, and **Install on Next Restart** still stages. Your choice comes back
+when you turn the option on again.
+
+**Run updates in** (`surface`) is **Terminal window**, **In this widget** (the default),
+**In the background** or **On next reboot (offline)**.
+
+**Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
+The lowest value it offers is 15 minutes.
 
 **Restart reminders** (`restart_reminder`, on by default) controls the restart message and its
 **Restart…** button. With it off, the footer still says `restart pending`. Kempt never restarts on
@@ -363,4 +376,4 @@ Each button runs a command described in [usage.md](usage.md).
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | Every setting | `kempt config set` |
 
-The badge and the popup's own checks run `kempt check --coalesce`.
+The widget's automatic checks run `kempt check --coalesce`.

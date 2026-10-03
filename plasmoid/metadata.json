@@ -2,7 +2,7 @@
     "KPlugin": {
         "Id": "io.github.erez_c137.kempt",
         "Name": "Kempt",
-        "Description": "Tidy system updates for the Plasma desktop",
+        "Description": "Tidy dnf and Flatpak updates for Fedora KDE",
         "Icon": "kempt",
         "Category": "System Information",
         "Authors": [{ "Name": "Erez" }],

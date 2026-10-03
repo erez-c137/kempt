@@ -100,9 +100,9 @@ package stays ready for review at every release.
 
 - **A choice of panel icon:** the icon theme's own update icons, the Kempt comb, or any icon name.
 - **Translations.** The QML wraps its text in `i18n()`, but there is no translation domain,
-  catalogue or extraction step yet. Some popup sentences are also built from parts in `logic.js`,
+  catalogue or extraction step yet. Some widget sentences are also built from parts in `logic.js`,
   which translators cannot reorder. Both get fixed together. Until then Kempt is English only.
-- **Everyday words.** "System" and "Apps" in the popup in place of "dnf" and "flatpak", with the
+- **Everyday words.** "System" and "Apps" in the widget in place of "dnf" and "flatpak", with the
   full package list one click away.
 - **Update later.** "Tonight" or "only on Wi-Fi". Automatic staging may make it unnecessary.
 - **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
@@ -136,7 +136,7 @@ package stays ready for review at every release.
 - Other desktops, through a StatusNotifierItem tray app on the same command-line tool.
 - Firmware through fwupd, possibly. Firmware fails differently from packages, so it waits until the
   distribution backends are proven.
-- **dnf5daemon as an optional backend**, for live progress in the popup. Fedora KDE does not
+- **dnf5daemon as an optional backend**, for live progress in the widget. Fedora KDE does not
   install it by default. It cannot say whether a restart is needed or which packages are held. Its
   permissions are also broader than the one-user rule Kempt installs. This moves up if people ask
   for progress, or if Fedora installs dnf5daemon by default.

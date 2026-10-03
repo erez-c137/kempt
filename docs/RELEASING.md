@@ -132,8 +132,9 @@ shows up in its own list like any other update. Only checkout installs upgrade b
 
    `kempt-plasmoid` must install, and bring `kempt` of the same version with it.
 
-9. **Upload the widget to the KDE Store**, for people not on an RPM distribution. The archive is a
-   zip with `metadata.json` at the root, next to `contents/`:
+9. **Upload the widget to the KDE Store**, for people who find Kempt there. The widget then tells
+   them to install `kempt-plasmoid`. The archive is a zip with `metadata.json` at the root, next
+   to `contents/`:
 
    ```bash
    # zip -r only adds, so start from an empty archive or deleted files still ship.
@@ -152,7 +153,7 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    `VERSION`, and paste the same notes as the GitHub release.
 
    A store install has no `kempt` command behind it. Before uploading, unpack the archive on a
-   machine without the command-line tool and check the popup says *"Kempt's engine is not
+   machine without the command-line tool and check the widget says *"Kempt's engine is not
    installed"*.
 
 10. **Checkout installs upgrade by hand.** The command is a symlink into the checkout; the rest are

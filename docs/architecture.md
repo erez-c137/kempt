@@ -317,7 +317,7 @@ removal while the same set is on offer.
 | `refs` | With `removed`, what did go. With `failed`, `null`: anything from none to all of the set may be gone. |
 | `error` | When a removal failed: Flatpak's error line, at most 200 characters, or `Flatpak did not answer when asked what is unused`. |
 | `partial` | `true` when Flatpak failed after the removal began. `error` says why the rest stayed. |
-| `skipped` | `true` when the extensions were never tried: the first pass succeeded and Flatpak refused nothing, but the list between the passes could not be read. They keep their `since`, so no new hour's wait. The popup says so with `reclaimSkipped` in `logic.js`. |
+| `skipped` | `true` when the extensions were never tried: the first pass succeeded and Flatpak refused nothing, but the list between the passes could not be read. They keep their `since`, so no new hour's wait. The widget says so with `reclaimSkipped` in `logic.js`. |
 | `in_use` | Only when non-empty: as `id//branch`, the extensions Flatpak removed although it printed that an app uses them. It counts only apps installed after the list taken just before that pass. |
 
 ### The two offers
@@ -554,7 +554,7 @@ executor must be able to kill a stuck `kempt check`.
 | Instance | Lives in | Carries | Why it is separate |
 | --- | --- | --- | --- |
 | `executor` | `main.qml` | checks, holds, `run`, `summary`, config reads, the watcher poll | The actions. A `kempt check` can take two minutes. |
-| `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the popup shows it | The queue is first in, first out. Behind a two-minute check, tails would pile up ahead of every button press. |
+| `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the widget shows it | The queue is first in, first out. Behind a two-minute check, tails would pile up ahead of every button press. |
 | `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` takes milliseconds. Behind a check it would sit unsent with nothing on screen. |
 | `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog lives in its own object tree and cannot reach `main.qml`. It must also open while a check runs. |
 | `pwExecutor` | `configGeneral.qml` | `enable-passwordless` and `disable-passwordless`, and nothing else | Those two wait on a password dialog, and the page's other work must not wait behind them. |
@@ -564,7 +564,7 @@ instance rather than making the queue clever.
 
 **Rebuild Staged Update runs the same command as Install on Next Restart**
 (`kempt update --surface=offline`, detached with `setsid`), so there is one staging path to
-secure. A rebuild destroys the old transaction at once, and a popup can sit open for an hour. So
+secure. A rebuild destroys the old transaction at once, and the widget can sit open for an hour. So
 `rebuildStaged()` in `main.qml` first rereads `state.json`. It goes ahead only if the banner's
 stage (`vm.stagedStagedAt`) is still published and still raises a warning. Otherwise it redraws
 the banner and says the staged update changed. During a run it does nothing, like `stageOffline`.
@@ -574,8 +574,8 @@ once. The run has already published the armed stage, and a stale **Update Now** 
 
 ### What the message stack says to a screen reader
 
-Kirigami gives an `InlineMessage` **no accessible name**, so every message in the popup sets
-`Accessible.name: text`. That announces nothing without focus. So every announcement in the popup
+Kirigami gives an `InlineMessage` **no accessible name**, so every message in the widget sets
+`Accessible.name: text`. That announces nothing without focus. So every announcement in the widget
 goes through `announce(sentence, assertive)` in `FullRepresentation.qml`. It calls
 `Accessible.announce` (Qt 6.8 and later) and emits `announced(string)`, which tests listen to.
 `CompactRepresentation.qml` has its own `announce(sentence)` of the same shape, always polite, for
@@ -586,16 +586,16 @@ the panel icon.
 | `Holding X` / `No longer holding X` | Polite | The outcome of the person's own press. |
 | A hold that failed | Assertive | The row now carries an error and the padlock is live again. |
 | The staged banner, when its words change while it is visible | Assertive | The machine is saying that what it promised has changed. |
-| The post-run line and a failed press | Assertive | The answer the person was waiting for, and the popup may not have focus. |
+| The post-run line and a failed press | Assertive | The answer the person was waiting for, and the widget may not have focus. |
 | The question before session-critical updates | Polite | It answers the click on **Update Now**, and says the update has not started. |
-| The Check for Updates answer, `vm.checkAnswerText` | Polite | The person asked. The popup says it while open, the panel icon while closed. |
+| The Check for Updates answer, `vm.checkAnswerText` | Polite | The person asked. The widget says it while open, the panel icon while closed. |
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
 when hidden. The **Rebuild Staged Update** tooltip names its costs, and `Accessible.description`
 is bound to it, because the polkit dialog takes focus at once.
 
-### Where the popup's last-run line comes from
+### Where the widget's last-run line comes from
 
 The `Last update 18 min ago · 4 packages` row and the line shown after a run both come from
 **`kempt summary --json`**. `Logic.lastRunOf` in `logic.js` parses it into `main.qml`'s `lastRun`.
@@ -627,7 +627,7 @@ Three settings put Kempt in the system tray, and each fails silently when wrong:
 
 ### Why the widget is testable at all
 
-`logic.js` holds every derivation (badge, icon state, tooltip, popup rows, watcher comparison,
+`logic.js` holds every derivation (badge, icon state, tooltip, widget rows, watcher comparison,
 icon size) in engine-agnostic JavaScript, which node runs in `tests/test_widget_logic.sh`. The
 remaining QML is bindings, which the probes in `tests/qml/` execute against a stubbed `kempt`.
 [tests/README.md](../tests/README.md) says how to run both.
@@ -745,7 +745,7 @@ optional can be skipped.
 | `kempt_default` and `KEMPT_CONFIG_KEYS` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true`, and both are known keys | A default for `include_<name>`, or the backend is off wherever the config file never names it. The key in `KEMPT_CONFIG_KEYS`, so `config set` does not warn. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same meaning. |
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and its line in `usage` | A `--no-<name>` override and its usage line. Without it the backend can be switched off only in config. |
-| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the popup lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
+| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the widget lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
 | `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` | A title per `kind`, only if your backend writes `kind`. Without it the heading reads `<backend> <kind>`. |
 | The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm/rpmdb.sqlite`, `/var/lib/rpm` and `/var/lib/flatpak`, checked every 30s | Your package database's path. Without it an update applied in a terminal shows only after the next timed check. |
 | `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. |
