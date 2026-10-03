@@ -248,8 +248,10 @@ check's per-user items, and the widget says the apps for you only could not be c
 
 ### `metadata_refreshed`
 
-- It reads `$LAST_REFRESH_DNF_FILE`, or `$LAST_REFRESH_FILE` before the first dnf fetch that wrote
-  it. A Flatpak fetch alone does not move it.
+- It reads `$LAST_REFRESH_DNF_FILE`. It falls back to `$LAST_REFRESH_FILE` only on a box upgraded
+  from 0.1.7 that has had no Flatpak fetch since. The first Flatpak fetch keeps that old date as
+  the dnf stamp and writes `$LAST_REFRESH_FLATPAK_FILE`, which ends the fallback.
+- A Flatpak fetch alone does not move it. A box where only Flatpak fetches have worked has none.
 - A check answers from the cache, so this can be much older than `last_check`.
 - It is absent when nothing has ever been fetched.
 - The widget's footer shows `metadata N days old` past 24 hours. When a **Check for Updates**
