@@ -3698,11 +3698,13 @@ usage: kempt <command>
                         finished while this one waited (the widget's automatic checks). --strict
                         exits 1 when dnf or Flatpak failed, the apps for you only could not be
                         listed, or the previous state was served
-  update                run the update now (options from config; --no-flatpak, --surface=X override;
-                        --risky-ok leaves out the session-critical notification)
-  run [--print-command] launch an update where the config says (what the widget calls;
-                        --surface=X runs this one elsewhere; --risky-ok when the person
-                        already chose to install session-critical updates now)
+  update [--no-flatpak] [--surface=X] [--risky-ok]
+                        run the update now, in this process. The options override the config
+                        for this run. --risky-ok leaves out the session-critical notification
+  run [--print-command] [--surface=X] [--risky-ok]
+                        start an update where the config says, as Update Now does, and return.
+                        --surface=X runs this one elsewhere. --risky-ok as for update, but a
+                        terminal run still asks
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
@@ -3717,7 +3719,8 @@ usage: kempt <command>
   unstage               discard the staged offline update; the next restart installs nothing
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
-  config get|set        read/write settings
+  config get <key> [default] | config set <key> <value>
+                        read or write a setting
   discover-notifier off | on | keep | status [--json]
                         turn Discover's own update notifier off or back on for this user, keep
                         it as it is (the widget's answer), or say whether it is installed, on
@@ -3725,6 +3728,8 @@ usage: kempt <command>
   enable-passwordless | disable-passwordless
   --version | version | -V   print the version and exit
   help | --help | -h    print this list
+
+More: man kempt
 EOF
 }
 

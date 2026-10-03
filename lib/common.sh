@@ -310,6 +310,8 @@ config_enum_values() {  # key → accepted values, space separated, or nothing
 # Called from cmd_config and nowhere else, so config_set stays quiet for its internal callers.
 config_warn_unknown() {  # key value
   local k="$1" v="$2" vals
+  # A key config_set refuses gets its error alone, not a warning in front of it.
+  [[ "$k" =~ ^[a-z][a-z0-9_]+$ ]] || return 0
   if [[ " $KEMPT_CONFIG_KEYS " != *" $k "* ]]; then
     echo "warning: unknown setting '$k'. Kempt does not read it. Known settings: ${KEMPT_CONFIG_KEYS// /, }" >&2
     return 0

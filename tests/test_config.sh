@@ -98,6 +98,11 @@ assert_eq "$(config_get surface)" "bogus" "...the value really is written"
 grep -q "not a value surface accepts" "$ERR" \
   && echo "ok: ...and the warning names the key" \
   || { echo "FAIL: no invalid-value warning"; _fail=1; sed 's/^/    /' "$ERR"; }
+
+# A key config_set refuses gets that one error, with no unknown-setting warning before it.
+rc=0; "$KEMPT" config set Bad x 2>"$TESTTMP/cfg-badkey" >/dev/null || rc=$?
+assert_eq "$rc" "2" "an invalid key is refused with exit 2"
+assert_eq "$(cat "$TESTTMP/cfg-badkey")" "invalid config key: Bad" "...and only the invalid-key error is printed"
 for v in terminal popup background offline; do
   grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
 done
