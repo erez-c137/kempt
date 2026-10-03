@@ -380,6 +380,10 @@ assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which
 r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
 assert_eq "$(js "$r_empty.emptyStateText + \"|\" + $r_empty.problemNetwork")" \
   "The package lists have not been downloaded yet|false" "a refresh that failed silently claims no network cause"
+r_to="L.viewModel($(nc_state ',refresh_error:"dnf makecache timed out"'),false)"
+assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemNetwork + \"|\" + $r_to.problemHint")" \
+  "The package lists have not been downloaded yet|false|dnf could not download them. Its error is below." \
+  "a refresh that timed out is not called a network failure, and the hint says a refresh ran"
 old="L.viewModel($(nc_state ''),false)"
 assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
   "The package lists have not been downloaded yet|false|" \

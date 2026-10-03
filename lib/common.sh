@@ -1502,14 +1502,17 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # The two rules below are a different kind of thing - they are about this person's battery and
   # this person's bill - so a flag that quietly spent either would be worse than no flag at all.
   # due_fp is the shared gate. dnf has one exception: while no dnf refresh has ever worked and the
-  # latest one failed, there is no cache to check against, so the dnf arm is tried on every check.
-  # A Flatpak fetch beside it would otherwise hold dnf off for 3 hours. Once a dnf refresh has
-  # worked, a failing one waits for the gate like everything else.
+  # latest one failed, there is no cache to check against, so the dnf arm is tried again once the
+  # failure is 15 minutes old (the marker's mtime; one in the future counts as old). A Flatpak fetch
+  # beside it would otherwise hold dnf off for 3 hours, and a retry at every check would fetch every
+  # repo every few minutes. Once a dnf refresh has worked, a failing one waits for the gate.
   local due_fp=1 due_dnf
   if [[ "$force" != force ]] && (( now - last >= 0 && now - last < 10800 )); then due_fp=0; fi
   due_dnf=$due_fp
   if (( ! due_fp )) && [[ -f "$REFRESH_DNF_FAILED_FILE" && ! -f "$LAST_REFRESH_DNF_FILE" ]]; then
-    due_dnf=1
+    local failed_at
+    failed_at="$(stat -c %Y "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || echo 0)"
+    if (( now - failed_at < 0 || now - failed_at >= 900 )); then due_dnf=1; fi
   fi
   (( due_fp || due_dnf )) || return 0
   if on_battery; then log_refresh_skip "on battery"; return 0; fi
@@ -1521,18 +1524,20 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # Logged as its own step, because a failure here is invisible everywhere else: the check that
   # follows carries on against the cached metadata and reports status "ok", so a box whose metadata
   # has not refreshed for a week looks exactly like one that is up to date. The two skipped paths
-  # above emit nothing - nothing was attempted. Stderr stays discarded: this is a background
-  # best-effort step, and the consequence a user can act on is reported by the next check.
+  # above emit nothing - nothing was attempted. dnf's stderr is kept only as one redacted line in the
+  # failure marker (see refresh_error_line), which the next check publishes beside its own result.
   local errf
   if (( due_dnf )); then
     errf="$(mktemp)"
-    if priv_refresh refresh >/dev/null 2>"$errf"; then
+    local rc=0
+    priv_refresh refresh >/dev/null 2>"$errf" || rc=$?
+    if (( rc == 0 )); then
       ok=1
       touch "$LAST_REFRESH_DNF_FILE" || true
       rm -f "$REFRESH_DNF_FAILED_FILE" || true
       log_event "refresh ok"
     else
-      refresh_error_line "$errf" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
+      refresh_error_line "$errf" "$rc" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
       log_event "refresh failed"
     fi
     rm -f "$errf"
@@ -1562,16 +1567,31 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   return 0
 }
 
-# One line of a failed dnf refresh, for state.json: the first line naming an error (librepo's
-# "Curl error (6): ..." says what went wrong), else the tail. A URL loses its user, password and
-# query string, which is where a private repo keeps its credentials. At most 200 bytes.
-refresh_error_line() {  # stderr file → one line
+# One line of a failed dnf refresh, for state.json. The first line naming an error (librepo's
+# "Curl error (6): ..." says what went wrong), else dnf5's first ">>> " status line (it carries an
+# HTTP status), else the tail, which loses its first word when the cut may have split it: a tail
+# starting inside a URL would start inside its credentials. Any "scheme://user:pass@", or any
+# "user:pass@" at all, is removed, and so is any query string up to a space or "]", which is where a
+# private repo keeps its token. A refresh that printed nothing is named by its exit status (124 is
+# `timeout`). At most 200 bytes, cut on a character boundary.
+refresh_error_line() {  # stderr file, exit status → one line
   local line
   line="$(grep -m1 -i 'error' "$1" 2>/dev/null | tr -d '\r')" || line=""
-  [[ -n "$line" ]] || line="$(stderr_tail "$1")"
-  printf '%s\n' "$line" \
-    | sed -E 's#(://)[^/@[:space:]]*@#\1#g; s#(://[^?[:space:]]*)\?[^][:space:]"]*#\1#g; s/^[[:space:]>]+//; s/[[:space:]]+$//' \
-    | cut -c1-200
+  [[ -n "$line" ]] || line="$(grep -m1 '^>>> ' "$1" 2>/dev/null | tr -d '\r')" || line=""
+  if [[ -z "$line" ]]; then
+    line="$(stderr_tail "$1" | tr -d '\r')"
+    if (( $(wc -c < "$1") > 200 )); then
+      if [[ "$line" == *' '* ]]; then line="${line#* }"; else line=""; fi
+    fi
+  fi
+  line="$(printf '%s\n' "$line" \
+    | sed -E 's#(://)[^/@[:space:]]*@#\1#g; s#[^/@[:space:]]+:[^/@[:space:]]*@##g; s#\?[^][:space:]]*##g; s/^[[:space:]>]+//; s/[[:space:]]+$//')"
+  if [[ -z "$line" ]]; then
+    if [[ "$2" == 124 ]]; then line="dnf makecache timed out"
+    else line="dnf makecache exited with status $2"; fi
+  fi
+  printf '%s\n' "$line" | LC_ALL=C cut -b1-200 \
+    | LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
 }
 
 on_battery() {
