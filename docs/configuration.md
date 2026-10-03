@@ -191,7 +191,7 @@ day.
 | `~/.local/state/kempt/snapshots/` | Before/after package lists used to produce the summary |
 | `~/.local/state/kempt/last_refresh` | Timestamp of the last metadata refresh, for the 3-hour interval |
 | `~/.local/state/kempt/last_refresh_dnf` | Timestamp of the last dnf metadata refresh that succeeded, for `metadata_refreshed` |
-| `~/.local/state/kempt/refresh_dnf_failed` | Empty marker: the latest dnf metadata refresh failed, for `backends.dnf.refresh_failed` |
+| `~/.local/state/kempt/refresh_dnf_failed` | One line of the latest dnf metadata refresh's error, while it failed, for `backends.dnf.refresh_error` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
