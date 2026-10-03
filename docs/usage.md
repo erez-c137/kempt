@@ -595,7 +595,8 @@ kempt doctor
 ```
 
 Checks this install, one line per check. Use it when the widget says it cannot check, or shows
-counts you do not trust. A missing root helper makes every check fail, so the counts never change.
+counts you do not trust. A missing root helper makes every dnf check fail, so the system package
+count never changes.
 
 On a checkout install:
 

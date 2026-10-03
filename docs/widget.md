@@ -110,7 +110,9 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
-   starts. Other reports stay until your next press.
+   starts. A report that something worked also goes when a check starts. The note about a failed
+   check goes when fresh counts arrive, or when you ask for a check. Other reports stay until your
+   next press.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
 4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
@@ -178,8 +180,12 @@ because there is no way to edit a stored update and the restart would still inst
 ```
 
 With several held packages it names the first and counts the rest:
-`You held kernel-core and 2 more after the next-restart install was prepared, so they still
-install. Rebuild it to skip them, or stop holding them to keep the current plan.`
+
+```
+ (!) You held kernel-core and 2 more after the next-restart install was
+     prepared, so they still install. Rebuild it to skip them, or stop
+     holding them to keep the current plan.
+```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
 `may`:
@@ -257,7 +263,7 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
-the changes.
+the changes. Below a megabyte it reads `< 1 MB`.
 
 **Update Now** installs the updates wherever **Run updates in** says. After a press it shows a
 spinner until Kempt answers, so one press starts one run. It is hidden when there is nothing to
@@ -370,4 +376,4 @@ Each button runs a command described in [usage.md](usage.md).
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | Every setting | `kempt config set` |
 
-The widget's own checks run `kempt check --coalesce`.
+The widget's automatic checks run `kempt check --coalesce`.

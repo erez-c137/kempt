@@ -139,10 +139,13 @@ kempt discover-notifier on    # first, if you turned off Discover's notifier
 sudo dnf remove kempt
 ```
 
-Removing `kempt` also removes `kempt-plasmoid` and every file the two packages installed. Two
-things stay. The passwordless rule is not part of the package, which is why
-`kempt disable-passwordless` comes first. Your `~/.config/kempt/` and `~/.local/state/kempt/` keep
-your settings, holds and update history.
+Removing `kempt` also removes `kempt-plasmoid` and every file the two packages installed. Some
+files are not part of the package, so they stay:
+
+- The passwordless rule. That is why `kempt disable-passwordless` comes first.
+- `~/.config/autostart/org.kde.discover.notifier.desktop`, if you turned Discover's notifier off.
+  That is why `kempt discover-notifier on` comes first.
+- `~/.config/kempt/` and `~/.local/state/kempt/`, with your settings, holds and update history.
 
 ## From a checkout (developers)
 
@@ -273,8 +276,8 @@ See [usage.md](usage.md#discover-notifier).
 
 ## Verify the install
 
-For either kind of install, run `kempt doctor` first, as in [Verify it](#verify-it).
-[usage.md](usage.md#doctor) says what each line means.
+For either kind of install, run `kempt doctor` first, as in [Verify it](#verify-it). It exits 0
+when every check passes. [usage.md](usage.md#doctor) says what each line means.
 
 Then check for updates:
 

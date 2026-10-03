@@ -54,10 +54,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A busy Flatpak gets the same plain reason as a busy dnf.** Another program can hold Flatpak's
   lock through all three tries. The summary, notification and history then say so and say to try
   again. Before, they showed Flatpak's raw error line. Both reasons now read as short sentences.
-- **Updates run in the widget by default.** A new install opens no terminal window. An
-  install that already had the terminal keeps it: the first `kempt` command after the upgrade
-  that reads or changes anything writes `surface=terminal` to the config file. A config file that names a surface is never
-  changed.
+- **Updates run in the widget by default.** A new install opens no terminal window. An install
+  that already had the terminal keeps it. The first `kempt` command after the upgrade, other than
+  help, the version and `discover-notifier status`, writes `surface=terminal` to the config file.
+  A config file that names a surface is never changed.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
   the update has not started, and a screen reader hears the question. Before, it started
@@ -81,7 +81,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt config set` with an invalid key prints one error.** The unknown-setting warning no longer
   comes before it.
 - **The install guide's removal steps are complete.** Run `kempt disable-passwordless`, and
-  `kempt discover-notifier on` if you turned Discover's notifier off, before `sudo dnf remove kempt`.
+  `kempt discover-notifier on` if you turned Discover's notifier off, before
+  `sudo dnf remove kempt`.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without a working engine says each thing once.** The header says Kempt's engine is
