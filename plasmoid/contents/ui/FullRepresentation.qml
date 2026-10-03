@@ -216,9 +216,10 @@ PlasmaExtras.Representation {
     // message goes away, so a banner that comes back says itself again.
     function speakMessage(item, assertive) {
         if (!item.visible) { item.spoken = ""; return; }
-        if (item.text === item.spoken) return;
-        item.spoken = item.text;
-        popup.announce(item.text, assertive);
+        const said = item.Accessible.name || item.text;
+        if (said === item.spoken) return;
+        item.spoken = said;
+        popup.announce(said, assertive);
     }
 
     // The report slot, which speaks for itself except while a Check for Updates answer lands: a
@@ -665,17 +666,21 @@ PlasmaExtras.Representation {
             // the same way the text does, and tests/test_widget_logic.sh guards the binding.
             type: popup.vm.stagedType === "warning"
                   ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
-            text: popup.vm.stagedMessage
-            // The flip has to arrive as WORDS. Without a name a screen reader announces the icon -
-            // "Positive", then later "Warning" - and the difference between the two banners would
+            // The plain banner shows only what the header does not say. Its accessible name, and
+            // what is announced, is the whole sentence (popup.speakMessage reads the name).
+            text: popup.vm.stagedBanner
+            // The flip has to arrive as WORDS. Without a name a screen reader announces the icon,
+            // "Positive" and later "Warning", and the difference between the two banners would
             // be a colour, which for that person is no difference at all.
-            Accessible.name: text
+            Accessible.name: popup.vm.stagedMessage
             visible: popup.shows("staged")
             // ...and it has to be HEARD, not merely readable. See popup.speakMessage. Assertive,
             // because this is not the outcome of a press: it is the machine telling the person
             // that what they were promised has changed under them.
             property string spoken: ""
-            onTextChanged: popup.speakMessage(stagedMessage, true)
+            // On the whole sentence, which changes with the count while the banner may not.
+            readonly property string sentence: popup.vm.stagedMessage
+            onSentenceChanged: popup.speakMessage(stagedMessage, true)
             onVisibleChanged: popup.speakMessage(stagedMessage, true)
             actions: [
                 Kirigami.Action {
@@ -800,8 +805,10 @@ PlasmaExtras.Representation {
             type: Kirigami.MessageType.Information
             // The same words become a question after Update Now on a surface that cannot ask for
             // itself (logic.js, updateAsksFirst): staging, recommended, or installing now. The
-            // lead-in says the click did not start anything.
+            // lead-in says the click did not start anything, and the question ends it on screen
+            // as it does out loud.
             text: asking ? Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
+                           + " " + Logic.COPY.riskyAskQuestion
                          : popup.vm.riskyMessage
             Accessible.name: text
             readonly property bool asking: popup.shows("riskyChoice")
@@ -813,8 +820,7 @@ PlasmaExtras.Representation {
                 if (!asking) return;
                 popup.focusRiskyChoice(function () {
                     if (!riskyMessage.asking) return;
-                    popup.announce(Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
-                                   + " " + Logic.COPY.riskyAskQuestion, false);
+                    popup.announce(riskyMessage.text, false);
                 });
             }
             actions: [
@@ -1136,7 +1142,7 @@ PlasmaExtras.Representation {
                                     Layout.leftMargin: Kirigami.Units.smallSpacing
                                     Layout.bottomMargin: Kirigami.Units.smallSpacing
                                     visible: modelData.held === true
-                                    text: i18n("Held packages are skipped by Kempt only.")
+                                    text: i18n("Kempt skips these. Other updaters still see them.")
                                     wrapMode: Text.Wrap
                                     opacity: 0.7
                                     font: Kirigami.Theme.smallFont
@@ -1222,8 +1228,23 @@ PlasmaExtras.Representation {
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.remedyCommand.length > 0
                              ? i18n("Check Installation can find out why.")
-                             : ""
+                             : popup.vm.problemNetwork ? i18n("Check your network connection.") : ""
                 helpfulAction: doctorPlaceholderAction
+                // The tool's own words, in small print under the plain headline, for anyone who
+                // needs them. Selectable, so they can be pasted into a search or a bug report.
+                PlaceholderDetail { id: placeholderDetail; text: popup.vm.problemDetail }
+            }
+
+            component PlaceholderDetail: Kirigami.SelectableLabel {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+                Layout.alignment: Qt.AlignHCenter
+                visible: text.length > 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                font: Kirigami.Theme.smallFont
+                opacity: 0.7
+                Accessible.name: text
             }
 
             // The placeholder's button. Enabled whenever the explanation names the command, so it
@@ -1249,6 +1270,7 @@ PlasmaExtras.Representation {
                 text: placeholder.text
                 explanation: placeholder.explanation
                 helpfulAction: doctorPlaceholderAction
+                PlaceholderDetail { text: popup.vm.problemDetail }
             }
             PlasmaExtras.PlaceholderMessage {
                 id: placeholderWords
@@ -1257,6 +1279,7 @@ PlasmaExtras.Representation {
                 text: placeholder.text
                 explanation: placeholder.explanation
                 helpfulAction: doctorPlaceholderAction
+                PlaceholderDetail { text: popup.vm.problemDetail }
             }
         }
 
@@ -1432,8 +1455,12 @@ PlasmaExtras.Representation {
                 // for a restart, and this button would start it again, live, over the top of it.
                 // ...and the fourth is a machine dnf cannot update at all, where the run would
                 // abort in pre-flight whatever it was asked to do.
+                // ...and the fifth is the risky question: while it is open, its two buttons are the
+                // answers, and a third that asks the same question again is noise. It comes back
+                // when the question closes, however that happens (main.qml, riskyChoiceOpen).
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed && popup.vm.updateOffered
+                         && !riskyMessage.asking
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather
@@ -1517,6 +1544,9 @@ PlasmaExtras.Representation {
                 default:           return i18n("Updating in a terminal window…");
                 }
             }
+            // Not for a run in this widget: the header already says "Updating…", and the log
+            // under it shows where.
+            visible: popup.plasmoidItem.runningSurface !== "popup"
             wrapMode: Text.WordWrap
         }
 
@@ -1530,12 +1560,16 @@ PlasmaExtras.Representation {
         // animateClick, nothing that answers Space. This pane's whole problem is a keyboard left on
         // a control nobody is drawing, so its one control has to be a real one; a flat ToolButton
         // is Plasma's own low-emphasis action.
+        // The icon is what makes it read as a button rather than a line of text. Pulled left by its
+        // padding, so the icon lines up with the text above and below it.
         PlasmaComponents.ToolButton {
             id: checkAgainButton
             Layout.alignment: Qt.AlignLeft
+            Layout.leftMargin: -leftPadding
             flat: true
-            display: PlasmaComponents.AbstractButton.TextOnly
-            text: i18n("Not updating? Check again")
+            icon.name: "view-refresh"
+            display: PlasmaComponents.AbstractButton.TextBesideIcon
+            text: i18n("Not Updating? Check Again")
             // Refuses while the check it started is running, so it cannot be pressed twice into the
             // same answer. Disabled rather than hidden: this is the pane's only control, and a
             // control that leaves the screen takes the keyboard with it.
@@ -1559,7 +1593,9 @@ PlasmaExtras.Representation {
             Layout.fillHeight: true
             visible: popup.plasmoidItem.runningSurface === "popup"
             clip: true
-            contentWidth: logText.paintedWidth
+            // Long lines wrap rather than run off the edge: a package name has no spaces, so
+            // they break anywhere.
+            contentWidth: width
             contentHeight: logText.paintedHeight
             boundsBehavior: Flickable.StopAtBounds
 
@@ -1571,7 +1607,7 @@ PlasmaExtras.Representation {
             onHeightChanged: pin()
             onMovementEnded: stickToBottom = (contentY >= contentHeight - height - Kirigami.Units.gridUnit)
 
-            PlasmaComponents.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+            PlasmaComponents.ScrollBar.vertical: PlasmaComponents.ScrollBar { id: logScroll }
 
             Text {
                 id: logText
@@ -1580,7 +1616,8 @@ PlasmaExtras.Representation {
                 // The theme's own fixed-width font, not a hardcoded "monospace": dnf output is
                 // column-aligned and the user's chosen mono font is the one that will render it.
                 font: Kirigami.Theme.fixedWidthFont
-                wrapMode: Text.NoWrap
+                width: logFlick.width - logScroll.width
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
         }
 

@@ -1106,8 +1106,10 @@ p.check("...and Update Now GONE, because the work it would start is already done
         lev("updateButton.visible"), False)
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
         "and not spoken", said(), ["61 updates are staged and install on the next restart"])
-p.check("...saying how many updates the restart will install",
-        lev("stagedMessage.text"),
+p.check("...showing only what the header does not already say",
+        lev("stagedMessage.text"), "They install when you restart.")
+p.check("...while its accessible name is the whole sentence, with the count",
+        lev("stagedMessage.Accessible.name"),
         "61 updates are staged and install on the next restart")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
@@ -1149,7 +1151,7 @@ p.check("...and the staged message stands its button down rather than showing a 
 STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", None)
 state(STAGED_NOCOUNT)
 p.check("an unknown count loses the number, not the sentence",
-        lev("stagedMessage.text"), ev("Logic.COPY.stagedUnknownCount"))
+        lev("stagedMessage.Accessible.name"), ev("Logic.COPY.stagedUnknownCount"))
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
@@ -1951,10 +1953,10 @@ p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
 settle()
 stack("after Check Installation on an engine that will not start",
       "engineFaultMessage", "doctorMessage")
-p.check("...saying why doctor could not start, in the shell's words",
-        lev("doctorMessage.text"),
-        "Kempt could not check its installation: sh: line 1: /home/u/.local/bin/kempt:"
-        " Permission denied")
+p.check("...saying doctor could not start, in plain words",
+        lev("doctorMessage.text"), ev("Logic.COPY.doctorCouldNotRun"))
+p.check("...with the shell's own words in the full report",
+        ev("root.doctorReport"), "sh: line 1: /home/u/.local/bin/kempt: Permission denied")
 p.check("...with one Copy Command between the two messages, not two",
         [lev("doctorMessage.actions[1].visible"),
          json.loads(str(lev("JSON.stringify(" + _VISIBLE_ACTIONS + ")"))).count("Copy Command")],
@@ -2081,6 +2083,22 @@ p.check("...with Check Installation under it",
 p.check("...which the two measuring copies carry too, so the fit counts its height",
         [lev("placeholderFull.helpfulAction === placeholder.helpfulAction"),
          lev("placeholderWords.helpfulAction === placeholder.helpfulAction")], [True, True])
+p.check("...under a plain headline, with the CLI's own words in small print",
+        [lev("placeholder.text"), lev("placeholderDetail.visible"), lev("placeholderDetail.text")],
+        ["The check failed", True, "kempt: command not found"])
+# A check that could not reach a server: its own headline and hint, and no Check Installation.
+ev('root.cliError = "dnf check failed: Curl error (6): Couldn\'t resolve host name for https://mirrors.fedoraproject.org/metalink?repo=fedora-44"')
+p.pump(50)
+p.check("a network failure says so in plain words",
+        [lev("placeholder.text"), lev("placeholder.explanation")],
+        ["Kempt could not reach the update servers", "Check your network connection."])
+p.check("...offers no Check Installation, since nothing is broken",
+        lev("placeholder.helpfulAction.enabled"), False)
+p.check("...and keeps the raw error in small print",
+        [lev("placeholderDetail.visible"), "Curl error (6)" in str(lev("placeholderDetail.text"))],
+        [True, True])
+ev('root.cliError = "kempt: command not found"')
+p.pump(50)
 open(DOCTOROUT, "w").write(DOCTOR_OK)
 p.clear_calls()
 lev("placeholder.helpfulAction.trigger()")
@@ -2587,7 +2605,7 @@ p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"
 p.check("...and the kernel message states the risk without recommending the restart install",
         "next restart" in str(lev("riskyMessage.text")), False)
 p.check("...while still saying a session-critical package is pending",
-        "session-critical pending" in str(lev("riskyMessage.text")), True)
+        "the running desktop depends on" in str(lev("riskyMessage.text")), True)
 # ...and the press itself is unreachable, which is the point of the whole exercise.
 _before_ru = p.call_count("update")
 p.check("Install on Next Restart is not offered at all",
@@ -2647,8 +2665,11 @@ settle()
 p.check("Update Now on a session-critical set in the popup starts nothing",
         p.call_count("run") - runs_before, 0)
 _lead = ev("Logic.COPY.riskyAskLead")
-p.check("...and says so first, on screen",
-        lev("riskyMessage.text"), _lead + " " + ev("root.vm.riskyMessage"))
+p.check("...and says so first, on screen, ending on the question",
+        lev("riskyMessage.text"),
+        _lead + " " + ev("root.vm.riskyMessage") + " " + ev("Logic.COPY.riskyAskQuestion"))
+p.check("...with Update Now off the footer while the question is open",
+        lev("updateButton.visible"), False)
 p.check("...and out loud, once, ending on the question the buttons answer",
         said(), [_lead + " " + ev("root.vm.riskyMessage") + " " + ev("Logic.COPY.riskyAskQuestion")])
 p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
@@ -2669,10 +2690,14 @@ p.check("Install Now runs the update, saying the person already chose to install
         p.calls_matching("run")[-1:], ["run --risky-ok"])
 p.check("...and the choice closes", ev("root.riskyChoiceOpen"), False)
 p.check("...leaving the plain message for after the run", lev("riskyMessage.asking"), False)
+p.check("...and Update Now hidden only by the run now, not by the question",
+        [ev("root.riskyChoiceOpen"), ev("root.updating"), lev("updateButton.visible")], [False, True, False])
 p.check("...without the lead-in", lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
+p.check("...and Update Now back on the footer once the run is over",
+        lev("updateButton.visible"), True)
 
 # ...on an engine older than this widget, which refuses --risky-ok with exit 2 and launches
 # nothing. The person has chosen, so the run is asked for once more without the option.
@@ -3171,7 +3196,7 @@ p.check("...as a heading, which is what a screen reader navigates a list by",
 # person their pending updates are skipped.
 KEMPT_ONLY = ('(function find(o) {'
               ' if (o.text !== undefined'
-              '     && String(o.text) === "Held packages are skipped by Kempt only.")'
+              '     && String(o.text) === "Kempt skips these. Other updaters still see them.")'
               '   return o.visible;'
               ' for (var i = 0; i < o.children.length; i++) {'
               '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
@@ -3482,7 +3507,18 @@ _ASSEMBLED_IN_LOGIC = {
     "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
     "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
     "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
-    "riskyAskQuestion",     # -> FullRepresentation's risky announcement, at its end
+    "riskyAskQuestion",     # -> FullRepresentation's risky message and announcement, at its end
+    "riskySummaryOne",      # -> riskySummaryOf -> vm.riskyMessage, with no route to the next restart
+    "riskySummaryMore",     # -> riskySummaryOf -> vm.riskyMessage (a count and the family list)
+    "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
+    "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
+    "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
+    "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
+    "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
+    "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read
+    "checkNetworkShort",    # -> vm.tooltipSub, for a network failure
+    "checkFailedShort",     # -> vm.tooltipSub, for any other failure
+    "lastSuccessfulCheck",  # -> vm.tooltipSub while stale (a relative time goes into the %1)
     "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed

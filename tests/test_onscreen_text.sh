@@ -118,7 +118,7 @@ for f in sorted(glob.glob(os.path.join(sys.argv[1], "*.qml"))):
             print(f"{os.path.basename(f)}:{n}\t{text}")
 PY
 assert_eq "$(grep -c '\.qml:' "$TEXT" | awk '{print ($1 > 50)}')" "1" "the .qml literals were collected"
-assert_eq "$(grep -c 'Stopped waiting for the update' "$TEXT")" "1" "main.qml's own messages are collected"
+assert_eq "$(grep -c 'stopped waiting for the update to report back' "$TEXT")" "1" "main.qml's own messages are collected"
 
 # --- 3. the CLI ---------------------------------------------------------------------------------
 # The first double-quoted argument of the calls that put a sentence in front of a person, and the

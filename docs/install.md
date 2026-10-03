@@ -207,7 +207,13 @@ installed**, and the message under it says:
 
 > Nothing can check for updates yet.
 >
-> On Fedora: sudo dnf copr enable erez-c137/kempt, then sudo dnf install kempt-plasmoid. Other systems: github.com/erez-c137/kempt
+> To install it on Fedora, run:
+>
+> sudo dnf copr enable erez-c137/kempt
+>
+> sudo dnf install kempt-plasmoid
+>
+> On other systems, see github.com/erez-c137/kempt.
 
 The panel icon stays dim, with no badge. Install the package and press the popup's refresh
 button, or wait for the next scheduled check. If the CLI is installed but cannot run, the popup

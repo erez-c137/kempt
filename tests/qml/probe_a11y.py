@@ -677,7 +677,7 @@ p.check("...with the one line a dnf user needs under it, because they read versi
   (function walk(o) {
      if (hit) return;
      if (o.text !== undefined
-         && String(o.text) === "Held packages are skipped by Kempt only." && o.visible) {
+         && String(o.text) === "Kempt skips these. Other updaters still see them." && o.visible) {
        hit = true; return;
      }
      for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
@@ -759,7 +759,8 @@ _popup = _code("FullRepresentation.qml")
 _raw = open(os.path.join(harness.UI, "FullRepresentation.qml")).read()
 _stack = _raw[_raw.index("Kirigami.InlineMessage {"):_raw.index("--- the list, and what stands")]
 p.check("every message in the stack announces its own words",
-        _stack.count("Accessible.name: text"), _stack.count("Kirigami.InlineMessage {"))
+        _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage"),
+        _stack.count("Kirigami.InlineMessage {"))
 
 # ==================================================================================================
 # The pins that keep the drivable seams honest.
