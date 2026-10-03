@@ -68,9 +68,20 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   break a sentence with a dash, and they use the words you see on screen.
 - **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
   They describe what Kempt does in the same words as the rest of the release.
+- **The widget's summary names Fedora.** The KDE Store, Add Widgets and software centres read
+  "Tidy dnf and Flatpak updates for Fedora KDE".
+- **`kempt --help` shows the options of `update`, `run` and `config`.** It ends with a pointer to
+  `man kempt`.
 
 ### Fixed
 
+- **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`
+  said to run `./install.sh`, which the package does not ship. They now say
+  `sudo dnf reinstall kempt`. A checkout still gets the `./install.sh` advice.
+- **`kempt config set` with an invalid key prints one error.** The unknown-setting warning no longer
+  comes before it.
+- **The install guide's removal steps are complete.** Run `kempt disable-passwordless`, and
+  `kempt discover-notifier on` if you turned Discover's notifier off, before `sudo dnf remove kempt`.
 - **A busy dnf no longer hides a Flatpak update.** When another program held dnf's lock but
   Flatpak still updated apps, the reason said "Nothing was installed". It now leaves that out.
 - **The widget without a working engine says each thing once.** The header says Kempt's engine is
