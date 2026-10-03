@@ -3030,7 +3030,7 @@ doctor_widget_engine() {
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint)"
+    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint "")"
     return 0
   fi
   if [[ "$path" != "$annotated" ]]; then
@@ -3119,7 +3119,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint)"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint "")"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \

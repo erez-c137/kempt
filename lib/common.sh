@@ -1064,7 +1064,7 @@ explain_helper_error() {  # stderr-tail → the tail, the missing-helper message
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
-        printf '%s\n' "root helper not installed. $(reinstall_hint) (see: kempt doctor)"
+        printf '%s\n' "root helper not installed. $(reinstall_hint "") (see: kempt doctor)"
         return 0
       fi
     done
