@@ -286,7 +286,8 @@ If a run dies without writing its state, the widget gives up after three hours a
 
 **Opening the widget checks** when the last successful check is older than five minutes or your
 check interval, whichever is shorter, and on every open until a check succeeds. The counts on
-screen stay until the answer arrives. If a check is already running, one more runs when it finishes, however often you open the widget.
+screen stay until the answer arrives. If a check is already running, one more runs when it
+finishes, however often you open the widget.
 
 Every 30 seconds the widget also checks the package databases, its state file and the config
 file. A `dnf upgrade` in a terminal, a Discover run, another Kempt run or a settings change shows

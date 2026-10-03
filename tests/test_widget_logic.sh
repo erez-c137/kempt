@@ -3743,14 +3743,14 @@ done < <(js 'L.COPY.engineMissingInstall'; echo)
 # whatever prompted this request. The page used to say the opposite.
 assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
   "widget.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'the popup.s request is \*remembered\*' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'If a check is already running, one more runs when it$' "$WIDGET_DOC")" "1" \
   "...it describes the coalescing the code actually does"
 
 # Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
 # harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
 assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
   "widget.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'when a \*run\* recorded a log file' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'opens the run.s log, when there is one' "$WIDGET_DOC")" "1" \
   "...it says when the button is there instead"
 assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
   "...and the QML really does bind both Show Log buttons to a log path being present"
@@ -3784,7 +3784,7 @@ assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart ins
 # page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
 # could pass with the popup section saying nothing at all.
 POPUP_DOC="$TESTTMP/widget-popup.md"
-awk '/^## The popup$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
+awk '/^## Inside the widget$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
 assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
   "premise: docs/widget.md still has a popup section to read"
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
@@ -3792,7 +3792,7 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
 # wherever it quotes a banner.
 assert_eq "$(grep -q 'asks for authorization' "$POPUP_DOC" && echo yes || echo no)" "yes" \
   "the popup section says the rebuild asks for authorization"
-assert_eq "$(grep -c 'removes the current staged update' "$POPUP_DOC")" "1" \
+assert_eq "$(grep -q 'if it fails, *$' "$POPUP_DOC" && grep -q 'nothing stays staged' "$POPUP_DOC" && echo 1 || echo 0)" "1" \
   "...and that a rebuild that fails removes the staged update it was replacing"
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"
