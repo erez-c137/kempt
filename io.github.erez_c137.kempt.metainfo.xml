@@ -57,7 +57,7 @@
     </screenshot>
     <screenshot>
       <caption>The settings page: where updates run, check interval and restart reminders</caption>
-      <image type="source" width="845" height="940">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-settings.png</image>
+      <image type="source" width="845" height="1031">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
