@@ -88,7 +88,7 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
 The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
-open it, so two widgets cost one check. **Check for Updates**, **Not updating? Check again** and a
+open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check Again** and a
 hold always run a check of their own.
 
 **Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
@@ -223,11 +223,13 @@ K menu, or `reboot` days later. Kempt never restarts the machine itself.
 A check runs just before staging, and its count is the one the widget and the event log report. If
 it fails, Kempt stages anyway with the previous count. Flatpak has no restart install, so an
 offline run still updates Flatpak apps live. Until the restart, the staged packages still show as
-pending, and the widget stops offering to stage them again. It says:
+pending, and the widget stops offering to stage them again. The CLI says:
 
 ```
 61 updates are staged and install on the next restart
 ```
+
+The widget puts the count in its header and says `They install when you restart.`
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
 discards it. The run fails with `the updates were staged, but could not be set to install on the

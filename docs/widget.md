@@ -1,8 +1,7 @@
 # Using the Kempt widget
 
 The Kempt widget sits in your system tray, counts the updates waiting for you and installs them
-when you press **Update Now**. This page covers everything it shows and every button. For everyday
-updates, you do not need a terminal.
+when you press **Update Now**. For everyday updates, you do not need a terminal.
 
 ## Where it lives: the system tray, or the panel itself
 
@@ -24,6 +23,7 @@ Using both gives you two Kempt icons, so you probably want to turn one off.
 | Update icon with a count badge | Updates pending | What an update would change now, held packages left out. The tooltip names the first three, session-critical ones such as the kernel first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still counts held packages. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and that check's time. |
+| Small restart emblem, bottom left | Restart pending | A restart is owed and restart reminders are on. |
 | Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**. |
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
@@ -37,7 +37,7 @@ chosen, there is no badge, but the icon still changes and the tooltip has the co
 
 ## Inside the widget
 
-Click the icon. Here, updates are pending, a restart is owed and the update has a kernel:
+Click the icon. Here, updates are pending, a restart is owed and a kernel is included:
 
 ```
  3 updates available                                 [refresh] [gear]   <- header
@@ -55,7 +55,7 @@ Click the icon. Here, updates are pending, a restart is owed and the update has 
    org.mozilla.firefox                                        [🔓]
    140 → 141
  Held
- Held packages are skipped by Kempt only.
+ Kempt skips these. Other updaters still see them.
    kernel-core                                                [🔒]
    Held  6.15.1 → 6.15.3
 
@@ -79,7 +79,8 @@ The header reads one of:
   (see [install.md](install.md#installing-from-the-kde-store-first)).
 - `Kempt's engine will not run`, when the program is there and cannot start.
 - `Kempt cannot check for updates`, when running the program failed or no check has ever
-  succeeded.
+  succeeded. The tooltip says `Cannot check for updates`. The raw error shows small below. A network failure adds
+  `Kempt could not reach the update servers` and `Check your network connection.` Other failures add `The check failed` and `Check Installation can find out why.`
 - `Could not read the update state`, usually because the widget is older than the program.
 
 **Check for Updates**, the circular arrow, fetches fresh package lists, which can take minutes,
@@ -87,7 +88,7 @@ then checks. On battery or a metered connection it checks without fetching. Afte
 check, a message says so (message 2), the footer adds `last check failed`, and this button's tooltip
 gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or update
 runs, it is greyed out with a spinner. A screen reader reads its answer, and the panel icon
-says it while the widget is closed. It is also in the icon's right-click menu and the tray's
+says it when the widget is closed. It is also in the icon's right-click menu and the tray's
 **More actions** menu.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
@@ -118,8 +119,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
    staged, restart to install it. If it did not finish, the message says to run
    `sudo dnf5 offline log` to see why. If it is downloaded but not started, or a restart skipped
-   it, the widget does not name the commands. They are `sudo dnf5 system-upgrade reboot` to install
-   it, and `sudo dnf5 offline clean` to drop it. While it is stored, Kempt will not stage updates,
+   it, the widget does not name the commands: `sudo dnf5 system-upgrade reboot` installs it and
+   `sudo dnf5 offline clean` drops it. While it is stored, Kempt will not stage updates,
    and **Update Now** still updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
@@ -130,13 +131,13 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    Without a kernel, it names the desktop packages in the update: `This update touches 20 packages
    the running desktop depends on (dbus, glibc, kf6, mesa, ...). The safest way is to install them
    on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
-   staged. When you press **Update Now** and updates run outside a terminal, it asks first: it
-   moves to the top (below a Check Installation result), says the update has not started, adds
-   **Install Now**, and gives **Install on Next Restart** the keyboard focus. In a terminal, the
-   terminal asks instead. While a Fedora release upgrade is stored, it does not ask, and **Update
-   Now** updates live.
+   staged. When you press **Update Now** and updates run outside a terminal, it asks first. The
+   message moves to the top (below a Check Installation result), starts *"Nothing is installed
+   yet."*, ends *"Install now, or on the next restart?"* and adds **Install Now**. **Install on Next
+   Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
+   release upgrade is stored, it does not ask, and **Update Now** updates live.
 8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
-   install that kept the terminal when it upgraded to 0.1.8. **Use This Widget** switches
+   install that kept the terminal on upgrading to 0.1.8. **Use This Widget** switches
    **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
    hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)). To go back
    later, set **Run updates in** to **Terminal window**, or run `kempt config set surface terminal`.
@@ -152,9 +153,9 @@ list wait. If that hides the restart message, the footer says `restart pending` 
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
     says so. When **Unused Flatpak runtimes** is **Remove after updates**, the message adds
     *"Kempt removes them after the next update."* and the button reads **Free Up Space Now**.
-    Closing the message hides it until the list changes or Plasma restarts.
+    Closing it hides it until the list changes or Plasma restarts.
 
-**Check Installation** checks Kempt's own files and settings, without a password. A message under
+**Check Installation** checks Kempt's own files and settings without a password. A message under
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
 or says it found none. **Show Full Report** shows the whole report, which you can select and copy.
 **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even when two
@@ -166,7 +167,7 @@ others are up. It goes when you close it, close the widget, ask for a check, or 
 banner is usually green, and has its own **Restart…** when the restart message is not showing one:
 
 ```
- (=) 61 updates are staged and install on the next restart   [Restart…]
+ (=) They install when you restart.   [Restart…]
 ```
 
 If you hold a package that is already in the staged update, the banner turns into a warning,
@@ -207,7 +208,7 @@ staged.
 > fails, the current staged update is removed.
 
 A failed rebuild leaves nothing staged, because dnf5 deletes the old staged update first. A rebuild
-reuses the packages already downloaded. If the staged update changed after the banner was drawn,
+reuses the downloaded packages. If the staged update changed after the banner was drawn,
 nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
 banner above.`
 
@@ -217,8 +218,7 @@ banner above.`
 > authorization, and deletes the packages it downloaded, so staging again downloads them again.
 
 The widget reports the result. If the staged update changed after the banner was drawn, nothing is
-discarded and the widget says so. While a Fedora release upgrade is
-stored, the button is not there.
+discarded and the widget says so. While a Fedora release upgrade is stored, the button is not there.
 
 ### The list
 
@@ -238,8 +238,8 @@ version line only when Flatpak publishes one, and no padlock, because runtimes c
   update again.*
 
 For a package the update would add, the padlock reads *Skip installing brandnew*. A held row says
-**Held** before its version. The **Held** heading says *Held packages are skipped by Kempt only.*,
-because a `sudo dnf upgrade` in a terminal ignores them.
+**Held** before its version. The **Held** heading says *Kempt skips these. Other updaters still see them.*,
+because a `sudo dnf upgrade` in a terminal ignores holds.
 
 A pressed padlock turns into a spinner and the others wait. The row moves to its new group after the
 next check, and keyboard focus follows it. A screen reader hears *Holding
@@ -248,7 +248,7 @@ next press or the next check.
 
 **Last update 18 min ago · 4 packages** expands to the previous run's package list and
 **Show Log**, plus **Check Installation** when a failed run's reason says to run `kempt doctor`. It
-takes at most a third of the widget and scrolls within that.
+takes at most a third of the widget and scrolls.
 
 ### Footer
 
@@ -266,9 +266,9 @@ The size leaves out new dependencies and held items, and overstates Flatpak, whi
 the changes. Below a megabyte it reads `< 1 MB`.
 
 **Update Now** installs the updates wherever **Run updates in** says. After a press it shows a
-spinner until Kempt answers, so one press starts one run. It is hidden when there is nothing to
-update, and while an update is staged. When the update includes a kernel or other desktop packages,
-it asks first (message 7 above), unless a Fedora release upgrade is stored.
+spinner until Kempt answers, so one press starts one run. It is hidden when nothing is pending, while
+an update is staged, and while its question is open. For kernel or desktop updates it asks first
+(message 7), unless a Fedora release upgrade is stored.
 
 ### While an update runs
 
@@ -279,20 +279,18 @@ The widget says where the update is running:
 - `Updating…`, with the live log below, for **In this widget**
 - `Preparing the install for the next restart…`, when staging.
 
-You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and its
-fix. If it still says it is updating after the run has ended, press **Not updating? Check again**.
+You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check Again**.
 If a run dies without writing its state, the widget gives up after three hours and checks again.
 
 ### When the widget checks
 
-**Opening the widget checks** when the last successful check is older than five minutes, or than
-your check interval if that is shorter, and on every open until a check succeeds. The counts on
-screen stay until the answer arrives. If a check is already running, one more check runs when it
-finishes, however many times you open the widget.
+**Opening the widget checks** when the last successful check is older than five minutes or your
+check interval, whichever is shorter, and on every open until a check succeeds. The counts on
+screen stay until the answer arrives. If a check is already running, one more runs when it finishes, however often you open the widget.
 
-The widget also checks the package databases, its state file and the config file every 30
-seconds. A `dnf upgrade` in a terminal, a Discover run, another Kempt run or a settings change
-shows up without you asking. For a minute after a check, the widget ignores changes that check
+Every 30 seconds the widget also checks the package databases, its state file and the config
+file. A `dnf upgrade` in a terminal, a Discover run, another Kempt run or a settings change shows
+up without you asking. For a minute after a check, the widget ignores changes that check
 made.
 
 ### When nothing is pending
@@ -305,18 +303,18 @@ check could not run Kempt at all, it says so there, with **Check Installation** 
 
 ### About the restart
 
-**Restart…** opens KDE's restart prompt, which lets your apps save and which you can cancel. If
-the prompt cannot open, the message says why.
+**Restart…** opens KDE's restart prompt, which lets your apps save and can be cancelled. If it
+cannot open, the message says why.
 
-The updates are already installed. Running programs, and the kernel, keep the old versions until
+The updates are already installed. Running programs and the kernel keep the old versions until
 they restart. A staged update is the other way round: it installs during the restart.
 
-The **x** hides the message until you next log in to Plasma. **Restart reminders** below turns it
-off for good.
+The **x** hides the message until you next log in to Plasma. **Restart reminders** turns it off
+for good.
 
 ## Settings
 
-Right-click the widget > **Configure Kempt…**, or press the gear in the widget. Every setting is
+Right-click the widget > **Configure Kempt…**, or press its gear. Every setting is
 also in [configuration.md](configuration.md).
 
 **Apply** and **OK** both save. **Apply** keeps the dialog open, **OK** closes it. Closing with
@@ -346,7 +344,7 @@ or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are
 updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each asks for
-your password and shows the result under the buttons. Which is active cannot be shown, because only
+your password and shows the result under the buttons. Which is active cannot be shown: only
 root can read the polkit rules. What the first one allows is in
 [security.md](security.md#passwordless-mode).
 
