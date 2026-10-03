@@ -23,8 +23,7 @@ Using both gives you two Kempt icons, so you probably want to turn one off.
 | Update icon with a count badge | Updates pending | What an update would change now, held packages left out. The tooltip names the first three, session-critical ones such as the kernel first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still counts held packages. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and that check's time. |
-| Small restart emblem, bottom left | Restart pending | A restart is owed and restart reminders are on. |
-| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**. |
+| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**, unless the update servers could not be reached. |
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 

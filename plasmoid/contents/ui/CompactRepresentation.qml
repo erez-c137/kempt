@@ -121,32 +121,6 @@ Item {
         anchors.bottom: mainIcon.bottom
     }
 
-    // A restart is owed. The same corner and size as the error emblem, which it never meets: an
-    // error has no state to read reboot_needed from. Without it the panel icon looks exactly like
-    // one with updates waiting. Off with the restart reminder, like the popup's message.
-    // Drawn as a mask on the badge's own disc: the theme's full-colour reboot icon is dark blue,
-    // which vanishes on a dark panel at 22 px.
-    Rectangle {
-        id: restartEmblem
-        visible: !warningEmblem.visible && compactRoot.iconState !== "updating"
-                 && !!compactRoot.vm && compactRoot.vm.rebootNeeded === true
-                 && compactRoot.plasmoidItem.restartReminder !== false
-        width: Math.round(compactRoot.iconSize * 0.45)
-        height: width
-        radius: width / 2
-        color: Kirigami.Theme.highlightColor
-        anchors.left: mainIcon.left
-        anchors.bottom: mainIcon.bottom
-
-        Kirigami.Icon {
-            anchors.fill: parent
-            anchors.margins: Math.max(1, Math.round(parent.width * 0.15))
-            source: "system-reboot-symbolic"
-            isMask: true
-            color: Kirigami.Theme.highlightedTextColor
-        }
-    }
-
     PlasmaComponents.BusyIndicator {
         id: busy
         visible: compactRoot.iconState === "updating"

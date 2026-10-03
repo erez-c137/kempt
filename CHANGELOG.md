@@ -115,8 +115,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A screen reader still hears the whole sentence with the count.
 - **An update in progress shows its log in full.** Long log lines wrap, the popup no longer
   repeats "Updating…" over the log, and **Not Updating? Check Again** is a button.
-- **The panel icon shows a pending restart.** A small restart emblem sits on the icon until the
-  restart.
 - **Settings read the same size throughout.** The notes under Discover's notifier and password
   prompts use the small font, like the other notes.
 - **Check for Updates tells a screen reader what it found.** The line at the top is read out, such
