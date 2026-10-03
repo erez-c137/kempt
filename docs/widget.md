@@ -23,7 +23,7 @@ Using both gives you two Kempt icons, so you probably want to turn one off.
 | Update icon with a count badge | Updates pending | What an update would change now, held packages left out. The tooltip names the first three, session-critical ones such as the kernel first. |
 | Plain update icon, no badge | Up to date | Nothing to do. The tooltip still counts held packages. |
 | Same as before, badge kept | Last check failed | The counts are from the last check that worked. The tooltip gives the reason and that check's time. |
-| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**, unless the update servers could not be reached. |
+| Warning emblem | Error | Kempt could not run, or could not read its state. The tooltip names the problem. The widget offers **Check Installation**, unless the update servers could not be reached or the package lists are missing. |
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 
@@ -78,17 +78,16 @@ The header reads one of:
   (see [install.md](install.md#installing-from-the-kde-store-first)).
 - `Kempt's engine will not run`, when the program is there and cannot start.
 - `Kempt cannot check for updates`, when running the program failed or no check has ever
-  succeeded. The tooltip says `Cannot check for updates`. The raw error shows small below. A network failure adds
-  `Kempt could not reach the update servers` and `Check your network connection.` Other failures add `The check failed` and `Check Installation can find out why.`
+  succeeded. Below it are a headline and the raw error. The headline is `Kempt
+  could not reach the update servers`, `The package lists have not been downloaded yet` or `The
+  check failed`. Only the last offers **Check Installation**.
 - `Could not read the update state`, usually because the widget is older than the program.
 
-**Check for Updates**, the circular arrow, fetches fresh package lists, which can take minutes,
-then checks. On battery or a metered connection it checks without fetching. After a failed
+**Check for Updates**, the circular arrow, fetches fresh package lists, then checks. On battery or a metered connection it checks without fetching. After a failed
 check, a message says so (message 2), the footer adds `last check failed`, and this button's tooltip
 gives the reason, such as `dnf check failed: repo 'updates' unavailable`. While a check or update
 runs, it is greyed out with a spinner. A screen reader reads its answer, and the panel icon
-says it when the widget is closed. It is also in the icon's right-click menu and the tray's
-**More actions** menu.
+says it when the widget is closed. It is also in the right-click and **More actions** menus.
 
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has the arrow and the gear, so the widget hides its copies.
