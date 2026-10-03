@@ -1,6 +1,6 @@
 .TH KEMPT 1 "2026-10-03" "Kempt" "User Commands"
 .SH NAME
-kempt \- system updates for Fedora, from the terminal or the Plasma panel
+kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasma panel
 .SH SYNOPSIS
 .B kempt
 .I command
@@ -127,7 +127,7 @@ When session\-critical packages are pending, a terminal run asks first: stage fo
 restart, update now, or abort. Enter, Ctrl\-D or a second unknown answer aborts, with exit 0 and
 nothing changed. A run that cannot ask sends a notification and carries on.
 .B \-\-risky\-ok
-leaves that notification out. The popup passes it after
+leaves that notification out. The widget passes it after
 .BR "Install Now" .
 .IP
 .B \-\-surface=offline
@@ -245,9 +245,8 @@ and
 .B "sudo dnf5 offline clean"
 removes it.
 .IP
-Run it when the widget shows nothing pending and you are unsure why. A missing root helper makes
-.B check
-report zero updates with exit 0.
+Run it when the widget says it cannot check, or shows counts you do not trust. A missing root
+helper makes every check fail, so the counts never change.
 .IP
 The report ends with the install. In a checkout,
 .BR helpers: ", " policy: " and " widget:

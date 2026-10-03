@@ -161,8 +161,8 @@ Docs, comments, commit messages, issues and the widget's text all follow these r
 5. No self-praise (`robust`, `carefully`, `deliberately`).
 6. State the rule. The story of how it came about goes in the commit.
 7. Use the words the reader sees, such as **Update Now** and **Held**. Code words such as
-   surface, harvest or seam stay out of user-facing text. Name the place: "the popup", not "on
-   screen".
+   surface, harvest or seam stay out of user-facing text. Name the place: "the widget", or the
+   control by its label, not "on screen". `popup` is only the setting value.
 8. Say each thing once, in one place, and link to it.
 9. Cut what the reader does not need.
 10. Check every command, setting, default and exit code against the code. When a doc and the code
@@ -188,10 +188,10 @@ Everyone who reads this repository has only this repository. So, in docs and in 
   `CODE_OF_CONDUCT.md`.
 - **Nothing personal in screenshots.** Check the package names and everything else in the frame.
 
-`tests/test_docs.sh` checks what a search can find. To check for em dashes yourself:
+`tests/test_docs.sh` checks what a search can find. To check for em and en dashes yourself:
 
 ```bash
-grep -rnP '\x{2014}' *.md docs/*.md docs/man/   # expect no output
+grep -rnP '[\x{2013}\x{2014}]' *.md docs/*.md docs/man/   # expect no output
 ```
 
 ## Bumping the version
@@ -252,7 +252,7 @@ because each one has a new `%changelog` date.
 One commit per change. Present tense, with a type prefix, like the existing log:
 
 ```
-feat: flatpak backend - pending parser + stub-driven check
+feat: flatpak backend with a pending parser and a stub-driven check
 fix: an update that already changed the system always writes its history entry
 docs: install guide
 ```

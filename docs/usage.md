@@ -84,17 +84,17 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | Option | Effect |
 | --- | --- |
 | `--refresh` | Fetches package metadata now instead of waiting out the 3-hour interval. On battery or a metered connection it still skips the fetch. dnf and Flatpak each give up after 2 minutes. |
-| `--coalesce` | When this check waited for another that then succeeded, stamped a later second (`last_check` has whole seconds) with `status` `"ok"`, that state answers for this one. Nothing is queried or written, and the event log says `check shared`. `--refresh` turns it off. |
+| `--coalesce` | Reuses the answer of a check this one waited for, when that check succeeded and finished in a later second. Nothing is queried or written, and the event log says `check shared`. `--refresh` turns it off. |
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
-The widget passes `--coalesce` for its timer, its file watcher, the popup opening and its startup
-check, so two widgets cost one check. **Check for Updates**, **Check again** and a hold always run
-a check of their own.
+The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
+open it, so two widgets cost one check. **Check for Updates**, **Not updating? Check again** and a
+hold always run a check of their own.
 
 **Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
 refreshes them at most once every 3 hours, which is the only network use, and skips that on battery
 or a metered connection. On a fresh install the first check refreshes before it asks, and a backend
-that cannot reports `stale` until a refresh succeeds. Old metadata shows in the popup footer, in
+that cannot reports `stale` until a refresh succeeds. Old metadata shows in the widget's footer, in
 `kempt doctor`, and in the event log, which records a skipped refresh once a day.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's record
@@ -143,7 +143,7 @@ kempt update --surface=offline    # stage it; applies on the next reboot
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
 | `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On next reboot (offline)**). An unknown value logs a warning and uses `terminal`. |
-| `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The popup passes it after **Install Now**. |
+| `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
 With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
 answer dnf's prompt. `kempt run` then stages in a terminal too, and turns every other `--surface=`
@@ -214,15 +214,15 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 
 ### Installing on the next restart
 
-`--surface=offline`, the popup's **Install on Next Restart**, downloads the whole update, stores it
+`--surface=offline`, the widget's **Install on Next Restart**, downloads the whole update, stores it
 and tells the system to install it during the next restart. Nothing is installed while you work.
-Both steps share one password prompt, so **any** restart installs it: the popup's **Restart…**, the
+Both steps share one password prompt, so **any** restart installs it: the widget's **Restart…**, the
 K menu, or `reboot` days later. Kempt never restarts the machine itself.
 
-A check runs just before staging, and its count is the one the popup and the event log report. If
+A check runs just before staging, and its count is the one the widget and the event log report. If
 it fails, Kempt stages anyway with the previous count. Flatpak has no restart install, so an
 offline run still updates Flatpak apps live. Until the restart, the staged packages still show as
-pending, and the popup stops offering to stage them again. It says:
+pending, and the widget stops offering to stage them again. It says:
 
 ```
 61 updates are staged and install on the next restart
@@ -593,8 +593,8 @@ log keeps pkexec's own wording.
 kempt doctor
 ```
 
-Checks this install, one line per check. Use it when the widget shows nothing pending and you are
-unsure why: a missing root helper makes `kempt check` report zero updates with exit 0.
+Checks this install, one line per check. Use it when the widget says it cannot check, or shows
+counts you do not trust. A missing root helper makes every check fail, so the counts never change.
 
 On a checkout install:
 
@@ -792,7 +792,7 @@ Reads or writes a setting, as the widget's settings do. With no value stored, `g
 [configuration.md](configuration.md).
 
 ```bash
-kempt config get surface           # terminal
+kempt config get surface           # popup, on a new install
 kempt config set surface offline
 kempt config get refresh_interval_min   # 60
 ```

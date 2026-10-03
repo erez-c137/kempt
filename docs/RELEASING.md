@@ -152,7 +152,7 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    `VERSION`, and paste the same notes as the GitHub release.
 
    A store install has no `kempt` command behind it. Before uploading, unpack the archive on a
-   machine without the command-line tool and check the popup says *"Kempt's engine is not
+   machine without the command-line tool and check the widget says *"Kempt's engine is not
    installed"*.
 
 10. **Checkout installs upgrade by hand.** The command is a symlink into the checkout; the rest are
