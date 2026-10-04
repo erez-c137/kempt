@@ -74,6 +74,12 @@ PlasmaExtras.Representation {
 
     collapseMarginsHint: true
 
+    // Room between the popup's border and everything in it, on both sides. collapseMarginsHint
+    // hands the edges to us, and what the dialog leaves there depends on the Plasma style: some
+    // leave nothing visible, and the rows touched the border. The SVG cannot tell us where its
+    // visible border is, so the inset is always added.
+    readonly property real edgeInset: Kirigami.Units.largeSpacing
+
     // --- the keyboard ------------------------------------------------------------------------------
     // All of this is about the popup as a WHOLE - which key reaches it, and what holds focus the
     // moment it appears - so it sits above the three rows rather than inside any one of them.
@@ -399,6 +405,9 @@ PlasmaExtras.Representation {
     // to be stacked in this toolbar were messages rather than controls, and they are InlineMessages
     // in the content area now.
     header: PlasmaExtras.PlasmoidHeading {
+        // PlasmoidHeading sets no side padding of its own, so this lines it up with the content.
+        leftPadding: popup.edgeInset
+        rightPadding: popup.edgeInset
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
@@ -526,6 +535,8 @@ PlasmaExtras.Representation {
     // is contentData, so this is reparented into the content area and the footer can never overlap.
     ColumnLayout {
         anchors.fill: parent
+        anchors.leftMargin: popup.edgeInset
+        anchors.rightMargin: popup.edgeInset
         spacing: Kirigami.Units.smallSpacing
         // A run of ours replaces this whole pane with the log tail below.
         visible: !popup.plasmoidItem.updating
@@ -1024,6 +1035,43 @@ PlasmaExtras.Representation {
             }
         }
 
+        // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
+        // the counts are. Information, because those counts are still the best known. It goes at
+        // the next check, whoever starts it, or with its close button.
+        Kirigami.InlineMessage {
+            id: fetchMissedMessage
+            Component.onCompleted: popup.plainTextMessage(fetchMissedMessage)
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            showCloseButton: true
+            // Passed to speakMessage as it is, as on the staged banner: Accessible.name follows
+            // `text` a binding later, so reading it in this handler would say the previous one.
+            readonly property string sentence: popup.vm.fetchMissedMessage
+            text: sentence
+            Accessible.name: text
+            visible: popup.shows("fetchMissed")
+            // Polite. While the check's answer lands, that answer says this sentence itself.
+            property string spoken: ""
+            function speak() {
+                if (popup.plasmoidItem.answeringCheck) {
+                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? sentence : "";
+                    return;
+                }
+                popup.speakMessage(fetchMissedMessage, false, sentence);
+            }
+            onSentenceChanged: speak()
+            // The close button breaks the visibility binding, as on the restart message: turn it
+            // into a dismissal and put the binding back.
+            onVisibleChanged: {
+                if (visible) { speak(); return; }
+                fetchMissedMessage.spoken = "";
+                if (!popup.closedByButton(fetchMissedMessage, "fetchMissed")) return;
+                popup.plasmoidItem.dismissFetchMissed();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return popup.shows("fetchMissed"); });
+            }
+        }
+
         // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
         // wrong, and LAST in the order (logic.js, MESSAGE_ORDER): the offer keeps until the next open.
         // Show What adds one line per runtime under the sentence, so the name read out lists them too.
@@ -1399,6 +1447,8 @@ PlasmaExtras.Representation {
     // expendable because the contract says the host may replace it. Update Now
     // must exist on every host, and a footer keeps it in reach while a 1200-row list scrolls.
     footer: PlasmaExtras.PlasmoidHeading {
+        leftPadding: popup.edgeInset
+        rightPadding: popup.edgeInset
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
@@ -1511,6 +1561,8 @@ PlasmaExtras.Representation {
         id: updatingPane
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
+        anchors.leftMargin: popup.edgeInset
+        anchors.rightMargin: popup.edgeInset
         visible: popup.plasmoidItem.updating
         spacing: Kirigami.Units.smallSpacing
 

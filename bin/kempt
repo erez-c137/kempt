@@ -663,6 +663,12 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # "battery", "metered" or absent: this check's metadata fetch was due and did not run.
+  if [[ -n "${REFRESH_SKIPPED:-}" ]] \
+     && merged="$(jq --arg r "$REFRESH_SKIPPED" '. + {refresh_skipped: $r}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # true or absent, like image_based: the popup's one offer of the popup default, to an install
   # surface_migrate kept on the terminal.
   if surface_offer_pending \

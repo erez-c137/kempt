@@ -1487,7 +1487,11 @@ log_refresh_skip() {  # reason
 }
 
 maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
-  [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && return 0
+  # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
+  # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
+  # skipped fetch from a failed one, and does not read an old failure marker as this check's.
+  REFRESH_SKIPPED=""
+  if [[ -n "${KEMPT_SKIP_REFRESH:-}" ]]; then REFRESH_SKIPPED=off; return 0; fi
   local force="${1:-}"
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
@@ -1515,8 +1519,9 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
     if (( now - failed_at < 0 || now - failed_at >= 900 )); then due_dnf=1; fi
   fi
   (( due_fp || due_dnf )) || return 0
-  if on_battery; then log_refresh_skip "on battery"; return 0; fi
-  if metered_connection; then log_refresh_skip "the connection is metered"; return 0; fi
+  if on_battery; then REFRESH_SKIPPED=battery; log_refresh_skip "on battery"; return 0; fi
+  # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
+  if metered_connection; then REFRESH_SKIPPED=metered; log_refresh_skip "the connection is metered"; return 0; fi
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
   # keep in step with this one. `ok` records whether ANY fetch landed; see the stamp at the bottom.
