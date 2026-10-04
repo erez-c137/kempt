@@ -2591,7 +2591,7 @@ function viewModel(state, updating, cliError, opts) {
     // this by itself would leave logic.js unable to tell whether it had.
     // `reportShown` is the one input this file cannot derive - the post-run line and a failed press
     // are main.qml's own state, not the CLI's.
-    // A Check for Updates whose fetch did not land. Shown until a check fetches, the next press, or
+    // A Check for Updates whose fetch did not land. Shown until the next check, whoever starts it, or
     // its close button (opts.fetchMissedDismissed).
     var fetchMissedMessage = usable && !updating && !noEngine
         ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
