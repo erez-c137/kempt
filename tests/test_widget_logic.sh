@@ -2056,6 +2056,53 @@ assert_eq "$(js 'L.checkFailedOverOf(124)')" "The check did not finish. The coun
   "...a timeout over held counts says the check did not finish"
 assert_eq "$(js 'L.checkFailedOverOf(1)')" "The check failed. The counts shown are from the last check." \
   "...any other failure says the check failed"
+# A Check for Updates whose fetch did not land gets a notice: why, and how old the lists are. The
+# press is at 12:02 and its own check wrote last_check at 12:02:30; the lists are from 09:00.
+fm_state() {  # extra-fields (a JS object body), e.g. 'refresh_skipped:"battery"'
+  printf '{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:02:30+03:00",last_check:"2026-08-26T12:02:30+03:00",metadata_refreshed:"2026-08-26T09:00:00+03:00",backends:{dnf:{actionable:0,held:0,items:[]}},%s}' "${1:-_x:0}"
+}
+fm() {  # extra-fields askedMs field [more opts]
+  js "L.viewModel($(fm_state "$1"),false,\"\",{nowMs:$NOW,refreshAskedMs:$2${4:+,$4}}).$3"
+}
+NETERR='backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443 after 3 ms: Could not connect to server"}}'
+assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage)" \
+  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+  "a press whose fetch failed on the network says Kempt could not reach the update servers"
+assert_eq "$(fm "$NETERR" "$ASKED" messageSlots)" '["fetchMissed"]' "...in its own message slot"
+assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago" \
+  "...and the footer leaves the age to the notice, so it is said once"
+assert_eq "$(fm "$NETERR" "$ASKED" checkAnswerText)" \
+  "Up to date. Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+  "...and the spoken answer says the same"
+assert_eq "$(fm 'backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (22): The requested URL returned error: 404"}}' "$ASKED" fetchMissedMessage)" \
+  "Kempt could not download fresh package lists. The counts are from lists 3 hours old." \
+  "a fetch that reached a server and failed says only that it could not download"
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedMessage)" \
+  "Kempt waits for mains power to download fresh package lists. The counts are from lists 3 hours old." \
+  "a fetch skipped on battery says Kempt waits for mains power"
+assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" fetchMissedMessage)" \
+  "Kempt waits for an unmetered connection to download fresh package lists. The counts are from lists 3 hours old." \
+  "...one skipped on a metered link says so, even with an older refresh error on record"
+assert_eq "$(fm '' "$ASKED" fetchMissedMessage)" \
+  "Kempt did not get fresh package lists. The counts are from lists 3 hours old." \
+  "an engine that publishes neither reason gets the lead that claims no cause"
+assert_eq "$(fm "metadata_refreshed:\"2026-08-26T12:02:10+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+  "a later press whose fetch worked clears it, whatever refresh_error a later gate left"
+assert_eq "$(fm "$NETERR" 0 fetchMissedMessage)" "" "an automatic check never shows it"
+assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+  "...nor does a state another check wrote before the press"
+assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+  "...nor a stale check, which reports its own failure"
+assert_eq "$(fm "$NETERR" "$ASKED" messageSlots fetchMissedDismissed:true)" '[]' \
+  "the close button takes it off screen"
+assert_eq "$(fm "$NETERR" "$ASKED" footerText fetchMissedDismissed:true)" "Checked 1 min ago · metadata 3 hours old" \
+  "...and the footer says the age again"
+assert_eq "$(js "L.fetchMissedOf($(fm_state "$NETERR"), $ASKED, 0)")" \
+  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+  "with the popup's clock stopped, the age is measured from the press"
+assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, $ASKED)")" \
+  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists less than a minute old." \
+  "...and lists fetched seconds before the press are less than a minute old"
 # Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
 # waits up to 30 s, so the widget waits longer than that before it calls the write lost.
 assert_eq "$(js 'L.ANSWER_TIMEOUT_MS >= 35000')" "true" \
@@ -3135,7 +3182,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

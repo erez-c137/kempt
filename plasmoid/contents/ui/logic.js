@@ -239,6 +239,15 @@ var COPY = {
     // The age of the counts in the stale tooltip. %1 is a relative time ("1 day ago").
     lastSuccessfulCheck: "Last successful check %1",
     countsFrom: "The counts are from %1.",
+    // A Check for Updates whose fetch did not land, over counts the check still answered from the
+    // lists already here. One lead says why, then fetchCountsFrom says how old those lists are.
+    // %1 is an age such as "3 hours old".
+    fetchNoServers: "Kempt could not reach the update servers to download fresh package lists.",
+    fetchFailed: "Kempt could not download fresh package lists.",
+    fetchWaitsForPower: "Kempt waits for mains power to download fresh package lists.",
+    fetchWaitsForUnmetered: "Kempt waits for an unmetered connection to download fresh package lists.",
+    fetchMissed: "Kempt did not get fresh package lists.",
+    fetchCountsFrom: "The counts are from lists %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
@@ -1108,6 +1117,8 @@ var MESSAGE_CAP = 2;
 
 // Priority order, and each position is an argument:
 //   report   what the person just did. First: it answers a question asked seconds ago.
+//   fetchMissed  a Check for Updates whose fetch did not land. The same kind of answer, and
+//            closable, so it gives its slot back.
 //   staged   what the next restart will install, and whether a hold landed behind it. The one
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
@@ -1123,7 +1134,7 @@ var MESSAGE_CAP = 2;
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
 // only one of the two is ever on screen.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
+var MESSAGE_ORDER = ["riskyChoice", "report", "fetchMissed", "imageBased", "releaseUpgrade", "staged", "restart",
                      "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -1410,6 +1421,42 @@ function refreshMissed(state, askedMs) {
     if (!state || typeof state !== "object" || !isFinite(asked) || asked <= 0) return false;
     var at = stampMs(state.metadata_refreshed);
     return isFinite(at) && at < Math.floor(asked / 1000) * 1000;
+}
+
+// fetchMissedOf(state, askedMs, nowMs) -> the notice for a Check for Updates press whose fetch did
+// not land, or "". Only for the state that press's own check wrote (last_check at or after it): a
+// state served while another check held the lock tried nothing. A stale check has its own report.
+// The lead comes from what the check published. A press passes the 3-hour gate, so with no
+// refresh_skipped the fetch ran, and a missed one left refresh_error behind. An engine older than
+// both fields gets the lead that says only what is known.
+function fetchMissedOf(state, askedMs, nowMs) {
+    if (!refreshMissed(state, askedMs) || state.status === "stale") return "";
+    var asked = Math.floor(Number(askedMs) / 1000) * 1000;
+    var checked = stampMs(state.last_check);
+    if (!isFinite(checked) || checked < asked) return "";
+    // The press is a real time even while the popup's clock is not running.
+    var now = Math.max(typeof nowMs === "number" && isFinite(nowMs) ? nowMs : 0, Number(askedMs));
+    var age = ageWords(now - stampMs(state.metadata_refreshed));
+    if (age === "") return "";
+    var err = state.backends && typeof state.backends === "object" && state.backends.dnf
+        && typeof state.backends.dnf.refresh_error === "string"
+        ? firstLineOf(state.backends.dnf.refresh_error) : "";
+    var lead = state.refresh_skipped === "battery" ? COPY.fetchWaitsForPower
+        : state.refresh_skipped === "metered" ? COPY.fetchWaitsForUnmetered
+        : err === "" ? COPY.fetchMissed
+        : REFRESH_NETWORK_RE.test(err) ? COPY.fetchNoServers : COPY.fetchFailed;
+    return lead + " " + COPY.fetchCountsFrom.replace("%1", age);
+}
+
+// ageWords(ms) -> "5 min old", "3 hours old", "2 days old", or "" for an age that is not one.
+function ageWords(age) {
+    if (typeof age !== "number" || !isFinite(age) || age < 0) return "";
+    if (age < 60000) return "less than a minute old";
+    var days = Math.floor(age / METADATA_STALE_MS);
+    if (days >= 1) return days + (days === 1 ? " day old" : " days old");
+    var hours = Math.floor(age / 3600000);
+    if (hours >= 1) return hours + (hours === 1 ? " hour old" : " hours old");
+    return Math.floor(age / 60000) + " min old";
 }
 
 // --- the check command ------------------------------------------------------------------------
@@ -2539,9 +2586,14 @@ function viewModel(state, updating, cliError, opts) {
     // this by itself would leave logic.js unable to tell whether it had.
     // `reportShown` is the one input this file cannot derive - the post-run line and a failed press
     // are main.qml's own state, not the CLI's.
+    // A Check for Updates whose fetch did not land. Shown until a check fetches, the next press, or
+    // its close button (opts.fetchMissedDismissed).
+    var fetchMissedMessage = usable && !updating && !noEngine
+        ? fetchMissedOf(state, opts.refreshAskedMs, opts.nowMs) : "";
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         report: opts.reportShown === true && !(staged && opts.reportRepeatsStaged === true),
+        fetchMissed: fetchMissedMessage !== "" && opts.fetchMissedDismissed !== true,
         // Check Installation's result, or its busy line: main.qml's own state, like the report.
         // Never hidden with a report that repeats the staged message: it says something else.
         doctor: opts.doctorShown === true && !updating,
@@ -2596,7 +2648,8 @@ function viewModel(state, updating, cliError, opts) {
         // from may be a week old, and only this line can tell the person that.
         var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs,
                                       refreshMissed(state, opts.refreshAskedMs) ? 60000 : undefined);
-        if (metaAge !== "") footerParts.push(metaAge);
+        // ...unless the notice above is saying it already.
+        if (metaAge !== "" && messageSlots.indexOf("fetchMissed") < 0) footerParts.push(metaAge);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
@@ -2631,6 +2684,7 @@ function viewModel(state, updating, cliError, opts) {
     if (!updating && !noEngine && checkUnfinished !== "") checkAnswerText = checkUnfinished;
     else if (!updating && !noEngine && usable) {
         if (stale) checkAnswerText = staleAnswerOf(state, opts.nowMs);
+        else if (fetchMissedMessage !== "") checkAnswerText = headerText + ". " + fetchMissedMessage;
         else if (metaAge !== "" && refreshMissed(state, opts.refreshAskedMs)) {
             checkAnswerText = headerText + ". " + metaAge.charAt(0).toUpperCase() + metaAge.slice(1);
         }
@@ -2677,6 +2731,9 @@ function viewModel(state, updating, cliError, opts) {
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
         stagedMessage: stagedMessage,
+        // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
+        // the "fetchMissed" slot. Empty when there is nothing to say.
+        fetchMissedMessage: fetchMissedMessage,
         // What the banner shows: the plain one gives way to the header's count.
         stagedBanner: stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
@@ -2788,6 +2845,7 @@ if (typeof module !== "undefined" && module.exports) {
         relativeTime: relativeTime,
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         refreshMissed: refreshMissed,
+        fetchMissedOf: fetchMissedOf,
         checkArgs: checkArgs,
         CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,

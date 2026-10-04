@@ -213,6 +213,7 @@ cope with that.
 | `download_bytes` | integer, optional | The sum of the per-backend keys. Omitted if any **enabled** backend omitted its own. Additive. |
 | `reboot_needed` | boolean | Whether a restart is owed **now**, asked on every check. `false` means **nothing to say**, because a check that could not tell also answers `false`. Render no "no restart needed" line from it. Additive. |
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
+| `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason. Absent otherwise. Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
@@ -255,7 +256,9 @@ check's per-user items, and the widget says the apps for you only could not be c
   yet when fetches have run, and never refreshed when none has.
 - A check answers from the cache, so this can be much older than `last_check`.
 - The widget's footer shows `metadata N days old` past 24 hours. When a **Check for Updates**
-  press got no fetch, it shows the age from a minute up (`Logic.refreshMissed`).
+  press got no fetch, a message gives the age and why: `refresh_skipped`, else
+  `backends.dnf.refresh_error` (`Logic.fetchMissedOf`). The footer shows the age instead while that
+  message is closed or crowded out (`Logic.refreshMissed`).
 
 ### `offline_staged`
 

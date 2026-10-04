@@ -14,7 +14,7 @@ time, it may need a plasmashell restart or a new login. To hide it or move it be
 
 > Right-click the panel > **Add Widgets…** > search for **Kempt** > drag it onto the panel.
 
-Using both gives you two Kempt icons, so you probably want to turn one off.
+Using both gives you two icons.
 
 ## What the panel icon means
 
@@ -106,7 +106,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
    `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
-   check that worked.
+   check that worked. If the press got no fresh lists, another message says why and how old they
+   are, until closed or a fetch works.
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
@@ -206,8 +207,7 @@ staged.
 > Builds the staged update again with your current holds. Asks for authorization; if the rebuild
 > fails, the current staged update is removed.
 
-A failed rebuild leaves nothing staged, because dnf5 deletes the old staged update first. A rebuild
-reuses the downloaded packages. If the staged update changed after the banner was drawn,
+A rebuild reuses the downloaded packages. If the staged update changed after the banner was drawn,
 nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
 banner above.`
 
@@ -256,7 +256,8 @@ succeeds it reads `No successful check yet`. It can add:
 
 - ` · last check failed`.
 - ` · apps for you only not checked`, when the apps installed for you alone could not be listed.
-- ` · metadata 2 days old`, after 24 hours, or sooner when **Check for Updates** could not fetch.
+- ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
+  closed.
 - ` · 1 held`
 - ` · ~140 MB`, the estimated download, when known and there is something to update.
 - ` · restart pending`, when a restart is owed and its message is not showing.

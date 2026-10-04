@@ -146,6 +146,9 @@ PlasmoidItem {
     // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
     // unused runtimes is offered again; not persisted, like restartDismissed.
     property string reclaimDismissed: ""
+    // The Check for Updates press (its refreshAskedMs) whose missed-fetch notice was closed. A
+    // later press can show the notice again.
+    property double fetchMissedClosedFor: 0
     // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
     property bool reclaimRunning: false
 
@@ -287,6 +290,8 @@ PlasmoidItem {
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
+                                                fetchMissedDismissed: fetchMissedClosedFor > 0
+                                                    && fetchMissedClosedFor === refreshAskedMs,
                                                 engineFault: engineFault,
                                                 // What a run started NOW would actually do. The
                                                 // popup needs it because the refusals the CLI
@@ -1012,6 +1017,10 @@ PlasmoidItem {
     // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
     function dismissReclaim() {
         reclaimDismissed = vm.reclaimDigest;
+    }
+
+    function dismissFetchMissed() {
+        fetchMissedClosedFor = refreshAskedMs;
     }
 
     // The one-time offer's answer, either way, written as the setting itself: setting the surface

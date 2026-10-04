@@ -2278,6 +2278,46 @@ p.check("a Check for Updates whose fetch did not happen says how old the lists a
 p.check("...in the footer's own words", "metadata 3 hours old" in str(lev("footerLabel.text")),
         True)
 
+# The same press answered by this check, with the fetch failed for want of a network. A message
+# says so in plain words and the answer reads it; closing it brings the footer's age back, and the
+# next good fetch does not bring the message back.
+_failed = dict(_missed, last_check=(datetime.datetime.now().astimezone()
+                                    + datetime.timedelta(seconds=5)).isoformat(timespec="seconds"))
+_failed["backends"] = json.loads(json.dumps(_missed["backends"]))
+_failed["backends"]["dnf"]["refresh_error"] = (
+    "Curl error (7): Could not connect to server for https://mirrors.example/repomd.xml")
+open(os.path.join(p.sandbox, "state-fetch-failed.json"), "w").write(json.dumps(_failed))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-failed.json"))
+_fetch_words = (ev("Logic.COPY.fetchNoServers") + " "
+                + ev("Logic.COPY.fetchCountsFrom").replace("%1", "3 hours old"))
+hush()
+ev("checkAction.trigger()")
+settle()
+p.check("a Check for Updates that could not reach the servers says so in a message",
+        [lev("fetchMissedMessage.visible"), lev("fetchMissedMessage.text"),
+         lev("fetchMissedMessage.type === Kirigami.MessageType.Information")],
+        [True, _fetch_words, True])
+p.check("...and the answer reads it, once", said(), ["Up to date. " + _fetch_words])
+p.check("...and the footer leaves the age to the message",
+        "metadata" in str(lev("footerLabel.text")), False)
+lev("fetchMissedMessage.visible = false")
+settle()
+p.check("closing it keeps it closed for this press",
+        [ev("root.fetchMissedClosedFor === root.refreshAskedMs"), lev("fetchMissedMessage.visible")],
+        [True, False])
+p.check("...and the footer gives the age again",
+        "metadata 3 hours old" in str(lev("footerLabel.text")), True)
+_fetched = dict(_failed, metadata_refreshed=datetime.datetime.now().astimezone().isoformat(
+    timespec="seconds"), backends=_missed["backends"], last_check=(
+        datetime.datetime.now().astimezone() + datetime.timedelta(seconds=5)).isoformat(
+            timespec="seconds"))
+open(os.path.join(p.sandbox, "state-fetched.json"), "w").write(json.dumps(_fetched))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetched.json"))
+ev("checkAction.trigger()")
+settle()
+p.check("a later Check for Updates that fetched shows no message",
+        [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage")], [False, ""])
+
 # The engine missing or refusing to run. The line at the top says which, and so does the answer.
 for _rc, _words in (("127", "Kempt's engine is not installed"),
                     ("126", "Kempt's engine will not run")):
@@ -3523,6 +3563,12 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedFor",       # -> staleAnswerOf -> vm.checkAnswerText (dnf and Flatpak into the %1)
     "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
     "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
+    "fetchNoServers",       # -> fetchMissedOf -> vm.fetchMissedMessage, for a network failure
+    "fetchFailed",          # -> fetchMissedOf, for any other failed fetch
+    "fetchWaitsForPower",   # -> fetchMissedOf, for a fetch skipped on battery
+    "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
+    "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
+    "fetchCountsFrom",      # -> fetchMissedOf, joined on with the age of the lists in the %1
     "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
     "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
     "riskyAskQuestion",     # -> FullRepresentation's risky message and announcement, at its end

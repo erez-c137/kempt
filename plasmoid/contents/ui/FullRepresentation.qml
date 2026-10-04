@@ -1035,6 +1035,40 @@ PlasmaExtras.Representation {
             }
         }
 
+        // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
+        // the counts are. Information, because those counts are still the best known. It goes when
+        // a check fetches, at the next press, or with its close button.
+        Kirigami.InlineMessage {
+            id: fetchMissedMessage
+            Component.onCompleted: popup.plainTextMessage(fetchMissedMessage)
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            showCloseButton: true
+            text: popup.vm.fetchMissedMessage
+            Accessible.name: text
+            visible: popup.shows("fetchMissed")
+            // Polite. While the check's answer lands, that answer says this sentence itself.
+            property string spoken: ""
+            function speak() {
+                if (popup.plasmoidItem.answeringCheck) {
+                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? fetchMissedMessage.text : "";
+                    return;
+                }
+                popup.speakMessage(fetchMissedMessage, false);
+            }
+            onTextChanged: speak()
+            // The close button breaks the visibility binding, as on the restart message: turn it
+            // into a dismissal and put the binding back.
+            onVisibleChanged: {
+                if (visible) { speak(); return; }
+                fetchMissedMessage.spoken = "";
+                if (!popup.closedByButton(fetchMissedMessage, "fetchMissed")) return;
+                popup.plasmoidItem.dismissFetchMissed();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return popup.shows("fetchMissed"); });
+            }
+        }
+
         // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
         // wrong, and LAST in the order (logic.js, MESSAGE_ORDER): the offer keeps until the next open.
         // Show What adds one line per runtime under the sentence, so the name read out lists them too.

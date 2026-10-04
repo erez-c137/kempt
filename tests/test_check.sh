@@ -480,6 +480,29 @@ assert_eq "$(( $(skips) - skips_before ))" "2" \
 
 assert_exit 2 "check still refuses an option it does not know" "$KEMPT" check --refesh
 
+# A skipped fetch is published, so the widget can tell it from one that failed. busctl is how
+# metered_connection asks NetworkManager, so a stub on PATH stands in for a metered link.
+mkdir -p "$TESTTMP/metered-bin"
+printf '#!/usr/bin/env bash\necho "u 1"\n' > "$TESTTMP/metered-bin/busctl"
+chmod +x "$TESTTMP/metered-bin/busctl"
+if on_battery; then _skip_want=battery; else _skip_want=metered; fi
+st_skip="$(PATH="$TESTTMP/metered-bin:$PATH" "$KEMPT" check --refresh 2>/dev/null)"
+assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_skip")" "$_skip_want" \
+  "a check whose fetch was skipped says why in refresh_skipped"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 1; }
+  maybe_refresh_metadata force
+  echo "$REFRESH_SKIPPED" > "$TESTTMP/refresh-skipped-mains"
+) >/dev/null 2>&1
+assert_eq "$(cat "$TESTTMP/refresh-skipped-mains")" "" "...and a fetch that ran leaves it empty"
+(
+  on_battery() { return 0; }
+  maybe_refresh_metadata force
+  echo "$REFRESH_SKIPPED" > "$TESTTMP/refresh-skipped-battery"
+) >/dev/null 2>&1
+assert_eq "$(cat "$TESTTMP/refresh-skipped-battery")" "battery" "...and battery is named as battery"
+
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
 export KEMPT_SKIP_REFRESH=1   # back to deterministic after the gating section above
 
