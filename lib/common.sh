@@ -1487,10 +1487,11 @@ log_refresh_skip() {  # reason
 }
 
 maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
-  # Why a fetch that was due did not run: battery or metered, else empty. cmd_check publishes it
-  # as refresh_skipped, so the widget can tell a skipped fetch from a failed one.
+  # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
+  # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
+  # skipped fetch from a failed one, and does not read an old failure marker as this check's.
   REFRESH_SKIPPED=""
-  [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && return 0
+  if [[ -n "${KEMPT_SKIP_REFRESH:-}" ]]; then REFRESH_SKIPPED=off; return 0; fi
   local force="${1:-}"
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat

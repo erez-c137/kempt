@@ -502,6 +502,12 @@ assert_eq "$(cat "$TESTTMP/refresh-skipped-mains")" "" "...and a fetch that ran 
   echo "$REFRESH_SKIPPED" > "$TESTTMP/refresh-skipped-battery"
 ) >/dev/null 2>&1
 assert_eq "$(cat "$TESTTMP/refresh-skipped-battery")" "battery" "...and battery is named as battery"
+# Refreshing turned off fetches nothing, so an old failure marker must not read as this check's.
+echo "Curl error (6): Could not resolve host: mirrors.fedoraproject.org" > "$REFRESH_DNF_FAILED_FILE"
+st_off="$(KEMPT_SKIP_REFRESH=1 "$KEMPT" check --refresh 2>/dev/null)"
+assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_off")" "off" \
+  "...and with refreshing turned off it says off, beside the old failure it did not retry"
+rm -f "$REFRESH_DNF_FAILED_FILE"
 
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
 export KEMPT_SKIP_REFRESH=1   # back to deterministic after the gating section above
