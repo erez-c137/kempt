@@ -132,6 +132,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A hold or a setting no longer reports a failure while Kempt is still saving it.** The widget
   and Settings gave up after 15 seconds, while another `kempt` command can make a write wait 30.
   They now wait 40 seconds, and a timeout says the change may not have been made.
+- **The widget keeps its contents clear of its border in every Plasma style.** Some styles leave
+  no room at the edges, and the package names and padlocks touched the border. The header,
+  messages, rows and footer now share one inset on both sides.
 
 ## [0.1.7] - 2026-10-02
 

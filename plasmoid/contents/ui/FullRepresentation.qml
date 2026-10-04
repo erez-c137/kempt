@@ -74,6 +74,12 @@ PlasmaExtras.Representation {
 
     collapseMarginsHint: true
 
+    // Room between the popup's border and everything in it, on both sides. collapseMarginsHint
+    // hands the edges to us, and what the dialog leaves there depends on the Plasma style: some
+    // leave nothing visible, and the rows touched the border. The SVG cannot tell us where its
+    // visible border is, so the inset is always added.
+    readonly property real edgeInset: Kirigami.Units.largeSpacing
+
     // --- the keyboard ------------------------------------------------------------------------------
     // All of this is about the popup as a WHOLE - which key reaches it, and what holds focus the
     // moment it appears - so it sits above the three rows rather than inside any one of them.
@@ -399,6 +405,9 @@ PlasmaExtras.Representation {
     // to be stacked in this toolbar were messages rather than controls, and they are InlineMessages
     // in the content area now.
     header: PlasmaExtras.PlasmoidHeading {
+        // PlasmoidHeading sets no side padding of its own, so this lines it up with the content.
+        leftPadding: popup.edgeInset
+        rightPadding: popup.edgeInset
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
@@ -526,6 +535,8 @@ PlasmaExtras.Representation {
     // is contentData, so this is reparented into the content area and the footer can never overlap.
     ColumnLayout {
         anchors.fill: parent
+        anchors.leftMargin: popup.edgeInset
+        anchors.rightMargin: popup.edgeInset
         spacing: Kirigami.Units.smallSpacing
         // A run of ours replaces this whole pane with the log tail below.
         visible: !popup.plasmoidItem.updating
@@ -1399,6 +1410,8 @@ PlasmaExtras.Representation {
     // expendable because the contract says the host may replace it. Update Now
     // must exist on every host, and a footer keeps it in reach while a 1200-row list scrolls.
     footer: PlasmaExtras.PlasmoidHeading {
+        leftPadding: popup.edgeInset
+        rightPadding: popup.edgeInset
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
@@ -1511,6 +1524,8 @@ PlasmaExtras.Representation {
         id: updatingPane
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
+        anchors.leftMargin: Kirigami.Units.smallSpacing + popup.edgeInset
+        anchors.rightMargin: Kirigami.Units.smallSpacing + popup.edgeInset
         visible: popup.plasmoidItem.updating
         spacing: Kirigami.Units.smallSpacing
 
