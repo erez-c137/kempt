@@ -2057,13 +2057,15 @@ assert_eq "$(js 'L.checkFailedOverOf(124)')" "The check did not finish. The coun
 assert_eq "$(js 'L.checkFailedOverOf(1)')" "The check failed. The counts shown are from the last check." \
   "...any other failure says the check failed"
 # A Check for Updates whose fetch did not land gets a notice: why, and how old the lists are. The
-# press is at 12:02 and its own check wrote last_check at 12:02:30; the lists are from 09:00.
+# press is at 12:02 and its own check wrote last_check at 12:02:30, which main.qml records as
+# refreshCheckStamp; the lists are from 09:00.
 fm_state() {  # extra-fields (a JS object body), e.g. 'refresh_skipped:"battery"'
   printf '{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:02:30+03:00",last_check:"2026-08-26T12:02:30+03:00",metadata_refreshed:"2026-08-26T09:00:00+03:00",backends:{dnf:{actionable:0,held:0,items:[]}},%s}' "${1:-_x:0}"
 }
 fm() {  # extra-fields askedMs field [more opts]
-  js "L.viewModel($(fm_state "$1"),false,\"\",{nowMs:$NOW,refreshAskedMs:$2${4:+,$4}}).$3"
+  js "L.viewModel($(fm_state "$1"),false,\"\",{nowMs:$NOW,refreshAskedMs:$2,refreshCheckStamp:\"$FM_STAMP\"${4:+,$4}}).$3"
 }
+FM_STAMP="2026-08-26T12:02:30+03:00"
 NETERR='backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443 after 3 ms: Could not connect to server"}}'
 assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage)" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
@@ -2089,7 +2091,14 @@ assert_eq "$(fm '' "$ASKED" fetchMissedMessage)" \
 assert_eq "$(fm "metadata_refreshed:\"2026-08-26T12:02:10+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
   "a later press whose fetch worked clears it, whatever refresh_error a later gate left"
 assert_eq "$(fm "$NETERR" 0 fetchMissedMessage)" "" "an automatic check never shows it"
-assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm 'last_check:"2026-08-26T12:30:00+03:00"' "$ASKED" fetchMissedMessage)" "" \
+  "...and an automatic check after the press takes it away"
+assert_eq "$(fm "last_check:\"2026-08-26T12:30:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+  "...even with an old refresh error still on record"
+assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage 'refreshCheckStamp:""')" "" \
+  "...as does a press whose own check gave no state"
+assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage \
+             'refreshCheckStamp:"2026-08-26T11:50:00+03:00"')" "" \
   "...nor does a state another check wrote before the press"
 assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
   "...nor a stale check, which reports its own failure"
@@ -2097,10 +2106,18 @@ assert_eq "$(fm "$NETERR" "$ASKED" messageSlots fetchMissedDismissed:true)" '[]'
   "the close button takes it off screen"
 assert_eq "$(fm "$NETERR" "$ASKED" footerText fetchMissedDismissed:true)" "Checked 1 min ago · metadata 3 hours old" \
   "...and the footer says the age again"
-assert_eq "$(js "L.fetchMissedOf($(fm_state "$NETERR"), $ASKED, 0)")" \
+assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
-  "with the popup's clock stopped, the age is measured from the press"
-assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, $ASKED)")" \
+  "the age is measured at the check, so the sentence does not change while the widget is open"
+assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedMessage)" \
+  "Kempt did not get fresh package lists. The counts are from lists 3 hours old." \
+  "with refreshing turned off, an old refresh error is not read as this check's"
+assert_eq "$(js 'JSON.stringify(L.messageStack({report:true, fetchMissed:true, staged:true}))')" \
+  '["report","staged"]' "the staged banner outranks the notice"
+assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true},$NETERR" "$ASKED" footerText reportShown:true)" \
+  "Checked 1 min ago · metadata 3 hours old" \
+  "...and the footer gives the age when the notice is crowded out"
+assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists less than a minute old." \
   "...and lists fetched seconds before the press are less than a minute old"
 # Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which

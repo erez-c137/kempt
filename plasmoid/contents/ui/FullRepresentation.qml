@@ -1036,27 +1036,30 @@ PlasmaExtras.Representation {
         }
 
         // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
-        // the counts are. Information, because those counts are still the best known. It goes when
-        // a check fetches, at the next press, or with its close button.
+        // the counts are. Information, because those counts are still the best known. It goes at
+        // the next check, whoever starts it, or with its close button.
         Kirigami.InlineMessage {
             id: fetchMissedMessage
             Component.onCompleted: popup.plainTextMessage(fetchMissedMessage)
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
             showCloseButton: true
-            text: popup.vm.fetchMissedMessage
+            // Passed to speakMessage as it is, as on the staged banner: Accessible.name follows
+            // `text` a binding later, so reading it in this handler would say the previous one.
+            readonly property string sentence: popup.vm.fetchMissedMessage
+            text: sentence
             Accessible.name: text
             visible: popup.shows("fetchMissed")
             // Polite. While the check's answer lands, that answer says this sentence itself.
             property string spoken: ""
             function speak() {
                 if (popup.plasmoidItem.answeringCheck) {
-                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? fetchMissedMessage.text : "";
+                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? sentence : "";
                     return;
                 }
-                popup.speakMessage(fetchMissedMessage, false);
+                popup.speakMessage(fetchMissedMessage, false, sentence);
             }
-            onTextChanged: speak()
+            onSentenceChanged: speak()
             // The close button breaks the visibility binding, as on the restart message: turn it
             // into a dismissal and put the binding back.
             onVisibleChanged: {
@@ -1558,8 +1561,8 @@ PlasmaExtras.Representation {
         id: updatingPane
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
-        anchors.leftMargin: Kirigami.Units.smallSpacing + popup.edgeInset
-        anchors.rightMargin: Kirigami.Units.smallSpacing + popup.edgeInset
+        anchors.leftMargin: popup.edgeInset
+        anchors.rightMargin: popup.edgeInset
         visible: popup.plasmoidItem.updating
         spacing: Kirigami.Units.smallSpacing
 

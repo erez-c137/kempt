@@ -106,8 +106,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
    `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
-   check that worked. If the press got no fresh lists, another message says why and how old they
-   are, until closed or a fetch works.
+   check that worked. If the press got no fresh lists, another message says why and gives their
+   age, until closed or the next check.
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
@@ -257,7 +257,7 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · last check failed`.
 - ` · apps for you only not checked`, when the apps installed for you alone could not be listed.
 - ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
-  closed.
+  not showing.
 - ` · 1 held`
 - ` · ~140 MB`, the estimated download, when known and there is something to update.
 - ` · restart pending`, when a restart is owed and its message is not showing.

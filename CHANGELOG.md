@@ -39,7 +39,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`state.json` can carry two optional fields, `surface_offer` and `discover_offer`.** Each is
   `true` while the widget may make that offer, and absent otherwise.
 - **`state.json` can carry `refresh_skipped`.** It is `"battery"` or `"metered"` when the check's
-  metadata fetch was due and did not run for that reason, and absent otherwise.
+  metadata fetch was due and did not run for that reason, and `"off"` when `KEMPT_SKIP_REFRESH`
+  turns fetching off.
 - **The history entry is a documented format.** `docs/architecture.md` describes the entry that
   `kempt summary --json` and `kempt history --json` print.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
@@ -134,10 +135,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A hold or a setting no longer reports a failure while Kempt is still saving it.** The widget
   and Settings gave up after 15 seconds, while another `kempt` command can make a write wait 30.
   They now wait 40 seconds, and a timeout says the change may not have been made.
-- **Check for Updates says when it could not get fresh package lists.** Before, the counts from
-  old lists looked like a fresh answer. Now a message says Kempt could not reach the update servers,
-  could not download the lists, or waits for mains power or an unmetered connection, and how old the
-  lists are. A screen reader hears the same. It goes when you close it or a fetch works.
+- **Check for Updates says when it could not get fresh package lists.** A message says why, such
+  as no network or running on battery, and how old the lists are. A screen reader hears the same.
+  It goes when you close it or at the next check.
 - **The widget keeps its contents clear of its border in every Plasma style.** Some styles leave
   no room at the edges, and the package names and padlocks touched the border. The header,
   messages, rows and footer now share one inset on both sides.

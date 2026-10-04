@@ -2300,6 +2300,43 @@ p.check("a Check for Updates that could not reach the servers says so in a messa
 p.check("...and the answer reads it, once", said(), ["Up to date. " + _fetch_words])
 p.check("...and the footer leaves the age to the message",
         "metadata" in str(lev("footerLabel.text")), False)
+# The age is the lists' age at the check, so the clock moving does not rewrite or re-read it.
+hush()
+ev("root.nowMs = Date.now() + 3600000")
+p.pump(80)
+p.check("an hour on the clock leaves the sentence as it was, and says nothing",
+        [lev("fetchMissedMessage.text"), said()], [_fetch_words, []])
+ev("root.refreshClock()")
+# New words while it is on screen, outside a check's answer: the new sentence is the one read.
+# Same last_check, so the message stays up and only its words change.
+_power = dict(_failed, refresh_skipped="battery")
+_power_words = (ev("Logic.COPY.fetchWaitsForPower") + " "
+                + ev("Logic.COPY.fetchCountsFrom").replace("%1", "3 hours old"))
+hush()
+ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(_power)))
+settle()
+p.check("new words on the message are read as the new sentence, not the one before",
+        [lev("fetchMissedMessage.text"), said()], [_power_words, [_power_words]])
+# Any later check takes the notice away: its state is not the one the press was answered with.
+_auto = dict(_failed, last_check=(datetime.datetime.now().astimezone()
+                                  + datetime.timedelta(seconds=8)).isoformat(timespec="seconds"))
+open(os.path.join(p.sandbox, "state-fetch-auto.json"), "w").write(json.dumps(_auto))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-auto.json"))
+hush()
+ev("root.doCheck(true)")
+settle()
+p.check("an automatic check after the press takes the message away, quietly",
+        [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage"), said()],
+        [False, "", []])
+# Back to a press that missed, for the close button.
+_failed["last_check"] = (datetime.datetime.now().astimezone()
+                         + datetime.timedelta(seconds=5)).isoformat(timespec="seconds")
+open(os.path.join(p.sandbox, "state-fetch-failed.json"), "w").write(json.dumps(_failed))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-failed.json"))
+ev("checkAction.trigger()")
+settle()
+p.check("premise: a new press that missed shows the message again",
+        lev("fetchMissedMessage.visible"), True)
 lev("fetchMissedMessage.visible = false")
 settle()
 p.check("closing it keeps it closed for this press",

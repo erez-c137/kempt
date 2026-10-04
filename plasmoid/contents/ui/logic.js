@@ -1117,25 +1117,25 @@ var MESSAGE_CAP = 2;
 
 // Priority order, and each position is an argument:
 //   report   what the person just did. First: it answers a question asked seconds ago.
-//   fetchMissed  a Check for Updates whose fetch did not land. The same kind of answer, and
-//            closable, so it gives its slot back.
 //   staged   what the next restart will install, and whether a hold landed behind it. The one
 //            message that changes what the rest of the popup may offer.
-//   restart  a restart is owed. Displaced most cheaply of the four: the footer says "restart
-//            pending" whenever this message is not on screen, so the fact is never lost.
+//   restart  a restart is owed. The footer says "restart pending" whenever this message is not on
+//            screen, so the fact is never lost.
+//   fetchMissed  a Check for Updates whose fetch did not land. Below the banners, whose buttons
+//            act on the system: when it is crowded out the footer gives the lists' age instead.
 //   kernel   the offline recommendation: advice about a transaction that will still be there next
 //            time the popup is opened.
 //   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
-// `releaseUpgrade` sits second, above Kempt's own staged transaction: the next restart replaces
-// the whole operating system, which outranks anything below it, and it is the reason the offline
+// `releaseUpgrade` sits below the report and imageBased, above Kempt's own staged transaction:
+// the next restart replaces the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
 // only one of the two is ever on screen.
-var MESSAGE_ORDER = ["riskyChoice", "report", "fetchMissed", "imageBased", "releaseUpgrade", "staged", "restart",
-                     "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
+                     "fetchMissed", "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1423,27 +1423,32 @@ function refreshMissed(state, askedMs) {
     return isFinite(at) && at < Math.floor(asked / 1000) * 1000;
 }
 
-// fetchMissedOf(state, askedMs, nowMs) -> the notice for a Check for Updates press whose fetch did
-// not land, or "". Only for the state that press's own check wrote (last_check at or after it): a
-// state served while another check held the lock tried nothing. A stale check has its own report.
+// fetchMissedOf(state, askedMs, pressStamp) -> the notice for a Check for Updates press whose fetch
+// did not land, or "". Only while the state on screen is the one that press's own check answered
+// with: `pressStamp` is that answer's last_check (main.qml records it), so the next check, whoever
+// starts it, takes the notice away. A state served while another check held the lock (last_check
+// before the press) tried nothing. A stale check has its own report.
 // The lead comes from what the check published. A press passes the 3-hour gate, so with no
 // refresh_skipped the fetch ran, and a missed one left refresh_error behind. An engine older than
-// both fields gets the lead that says only what is known.
-function fetchMissedOf(state, askedMs, nowMs) {
+// both fields, or one with refreshing turned off, gets the lead that says only what is known.
+// The age is measured at the check, not now, so the sentence does not change while it is on
+// screen and a screen reader hears it once.
+function fetchMissedOf(state, askedMs, pressStamp) {
     if (!refreshMissed(state, askedMs) || state.status === "stale") return "";
+    if (typeof pressStamp !== "string" || pressStamp === "" || state.last_check !== pressStamp) {
+        return "";
+    }
     var asked = Math.floor(Number(askedMs) / 1000) * 1000;
     var checked = stampMs(state.last_check);
     if (!isFinite(checked) || checked < asked) return "";
-    // The press is a real time even while the popup's clock is not running.
-    var now = Math.max(typeof nowMs === "number" && isFinite(nowMs) ? nowMs : 0, Number(askedMs));
-    var age = ageWords(now - stampMs(state.metadata_refreshed));
+    var age = ageWords(checked - stampMs(state.metadata_refreshed));
     if (age === "") return "";
     var err = state.backends && typeof state.backends === "object" && state.backends.dnf
         && typeof state.backends.dnf.refresh_error === "string"
         ? firstLineOf(state.backends.dnf.refresh_error) : "";
     var lead = state.refresh_skipped === "battery" ? COPY.fetchWaitsForPower
         : state.refresh_skipped === "metered" ? COPY.fetchWaitsForUnmetered
-        : err === "" ? COPY.fetchMissed
+        : err === "" || typeof state.refresh_skipped === "string" ? COPY.fetchMissed
         : REFRESH_NETWORK_RE.test(err) ? COPY.fetchNoServers : COPY.fetchFailed;
     return lead + " " + COPY.fetchCountsFrom.replace("%1", age);
 }
@@ -2589,7 +2594,7 @@ function viewModel(state, updating, cliError, opts) {
     // A Check for Updates whose fetch did not land. Shown until a check fetches, the next press, or
     // its close button (opts.fetchMissedDismissed).
     var fetchMissedMessage = usable && !updating && !noEngine
-        ? fetchMissedOf(state, opts.refreshAskedMs, opts.nowMs) : "";
+        ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         report: opts.reportShown === true && !(staged && opts.reportRepeatsStaged === true),

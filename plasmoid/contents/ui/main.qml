@@ -149,6 +149,10 @@ PlasmoidItem {
     // The Check for Updates press (its refreshAskedMs) whose missed-fetch notice was closed. A
     // later press can show the notice again.
     property double fetchMissedClosedFor: 0
+    // The last_check of the state the latest Check for Updates press was answered with. The
+    // missed-fetch notice shows only while that state is the one on screen, so any later check,
+    // automatic or not, takes it away.
+    property string refreshCheckStamp: ""
     // True while Free Up Space waits for `kempt reclaim`, which can take minutes: the button says so.
     property bool reclaimRunning: false
 
@@ -287,6 +291,7 @@ PlasmoidItem {
     readonly property var vm: Logic.viewModel(kemptState, updating, cliError,
                                               { nowMs: nowMs,
                                                 refreshAskedMs: refreshAskedMs,
+                                                refreshCheckStamp: refreshCheckStamp,
                                                 restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
@@ -457,6 +462,10 @@ PlasmoidItem {
             // Set across the assignments below, so the footer stays quiet while they land and the
             // announcement after them is the only one. Cleared once it has been made.
             root.answeringCheck = fresh;
+            if (fresh) {
+                root.refreshCheckStamp = parsed !== null && typeof parsed.last_check === "string"
+                    ? parsed.last_check : "";
+            }
             if (parsed !== null) {
                 root.kemptState = parsed;
                 // Fresh counts answer the failed check's note, whoever asked for them.
