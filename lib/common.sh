@@ -429,6 +429,9 @@ DISCOVER_PATTERN="^${KEMPT_DISCOVER_BIN}( |\$)"
 # How long `on` waits for a started notifier to appear, in tenths of a second, before it tries the
 # binary itself and then says it could not start it.
 KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
+# Discover's own update settings. `UseUnattendedUpdates=true` under [Global] makes the notifier
+# download updates and prepare them for the next restart by itself, through PackageKit.
+KEMPT_DISCOVER_UPDATES_CONF="${KEMPT_DISCOVER_UPDATES_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/PlasmaDiscoverUpdates}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
 # The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
@@ -474,6 +477,22 @@ discover_effective_entry() {
 discover_enabled() {
   discover_installed || return 1
   discover_entry_starts "$(discover_effective_entry)"
+}
+
+# → 0 when Discover is set to install updates by itself. Read as text, never with kreadconfig6,
+# which may be absent: section and key matched exactly, the value compared without case, and any
+# file that cannot be read answers no.
+discover_unattended() {
+  [[ -f "$KEMPT_DISCOVER_UPDATES_CONF" && -r "$KEMPT_DISCOVER_UPDATES_CONF" ]] || return 1
+  head -c 65536 "$KEMPT_DISCOVER_UPDATES_CONF" 2>/dev/null | awk '
+    /^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]]/, "", sec); next }
+    sec == "[Global]" && index($0, "=") > 0 {
+      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k)
+      if (k == "UseUnattendedUpdates") {
+        v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v); r = tolower(v)
+      }
+    }
+    END { exit (r == "true" ? 0 : 1) }'
 }
 
 discover_running() {

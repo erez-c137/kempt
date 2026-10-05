@@ -45,6 +45,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kempt summary --json` and `kempt history --json` print.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
   that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
+- **`kempt doctor` says when Discover installs updates on restart by itself.** Its prepared update
+  replaces one Kempt staged. The row is `info`, or `WARN` when updates run on the next restart.
+  It shows only while Discover's notifier starts with your session or is running. `WARN` is a new
+  level and never counts as a problem.
 
 ### Changed
 

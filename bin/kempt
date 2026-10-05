@@ -2984,6 +2984,9 @@ cmd_log() {
 DOCTOR_FAILS=0
 doctor_ok()   { printf 'ok    %s\n' "$1"; }
 doctor_info() { printf 'info  %s\n' "$1"; }
+# Something that works against what the settings ask for, without being broken. Not a failure:
+# the exit status and the widget's verdict count only FAIL.
+doctor_warn() { printf 'WARN  %s\n' "$1"; }
 doctor_fail() { printf 'FAIL  %s\n' "$1"; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 )); }
 
 # The hold that arrived after the stage. INFO and not FAIL: a package installing despite a hold is
@@ -3343,6 +3346,17 @@ doctor_other_updater_row() {
   discover_installed || return 0
   local entry
   entry="$(discover_effective_entry)"
+  # Discover installing updates by itself, while its notifier is there to do it. Its prepared
+  # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
+  # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
+  if { discover_entry_starts "$entry" || discover_running; } && discover_unattended; then
+    local unattended="Discover is set to install updates by itself on restart ($KEMPT_DISCOVER_UPDATES_CONF). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
+    if [[ "$(config_get surface)" == offline ]]; then
+      doctor_warn "$unattended"
+    else
+      doctor_info "$unattended"
+    fi
+  fi
   if discover_entry_starts "$entry"; then
     doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run kempt discover-notifier off or use Turn Off Discover's Notifier in the widget"
     return 0

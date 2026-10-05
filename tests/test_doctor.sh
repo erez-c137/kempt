@@ -1221,6 +1221,35 @@ notifier_entry "$USER_AUTOSTART/$NOTIFIER" "NotShowIn=KDE;"
 assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
   "...and neither is one that excludes this desktop"
 
+# Discover set to install updates by itself. Its prepared update takes /system-update and dnf5
+# leaves that symlink alone, so the next restart installs Discover's update, not Kempt's stage.
+# Reported only while the notifier that does it starts here or is running, and WARN only when
+# Kempt is set to stage.
+UNATTENDED='Discover is set to install updates by itself on restart'
+printf '[Global]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
+export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/discover-updates"
+assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" \
+  "the setting is not reported while the notifier neither starts here nor runs"
+assert_eq "$(KEMPT_DISCOVER_PGREP=true doctor_with_autostart | grep -c "^info  $UNATTENDED" || true)" "1" \
+  "...but is while it runs"
+rm -f "$USER_AUTOSTART/$NOTIFIER"
+saved_surface="$("$KEMPT" config get surface)"
+"$KEMPT" config set surface popup
+out="$(doctor_with_autostart)"
+assert_eq "$(grep -c "^info  $UNATTENDED" <<<"$out" || true)" "1" "a notifier that starts here and installs by itself is reported as info"
+assert_contains "$out" "the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off" \
+  "...saying what it does to a stage, and the command"
+"$KEMPT" config set surface offline
+out="$(doctor_with_autostart)"
+assert_eq "$(grep -c "^WARN  $UNATTENDED" <<<"$out" || true)" "1" "...and as WARN when Kempt is set to stage"
+assert_exit 0 "...which never makes the checkup fail" env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor
+printf '[Global]\nUseUnattendedUpdates=false\n' > "$TESTTMP/discover-updates"
+assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "the setting turned off is not reported"
+printf '[Other]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
+assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "...nor the key in another section"
+"$KEMPT" config set surface "$saved_surface"
+export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
+
 rm -f "$USER_AUTOSTART/$NOTIFIER" "$SYS_AUTOSTART/$NOTIFIER"
 
 # Several problems at once still exit 1 and still report every one of them: a checkup that stops

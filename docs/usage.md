@@ -636,7 +636,7 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Lines are `ok`, `info` or `FAIL`. Every check runs, so one pass shows every problem. The last five
+Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem. Every check runs, so one pass shows every problem. The last five
 events follow.
 
 | Exit | When |
@@ -667,7 +667,9 @@ What a `FAIL` means:
 The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
 when the notifier is off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
-**Turn Off Discover's Notifier**. `./install.sh` offers the same.
+**Turn Off Discover's Notifier**. `./install.sh` offers the same. A second row says when Discover
+installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
+Kempt installs on the next restart.
 
 ### The staged transaction
 

@@ -44,7 +44,7 @@ The CLI is a separate package so that it does not pull in a desktop. `kempt-plas
 adds the widget when it installs or upgrades the CLI. With `install_weak_deps=False`, run
 `sudo dnf install kempt-plasmoid` once.
 
-From then on, `dnf` keeps everything in step. The whole tree is root-owned, and nothing in it is
+After that, `dnf` keeps everything in step. The whole tree is root-owned, and nothing in it is
 a symlink into your home directory.
 
 ### What the package installs
@@ -80,7 +80,8 @@ Kempt icons. Both places, and how to turn either off, are in
 ### Discover's notifier
 
 When Discover's update notifier is installed, the widget offers once to turn it off. Discover
-itself keeps working. To turn the notifier back on, use the **Discover** row in the widget's
+itself keeps working. If Discover installs updates on restart by itself, its update replaces one
+Kempt staged. To turn the notifier back on, use the **Discover** row in the widget's
 settings, or run `kempt discover-notifier on`. [The opt-out](#the-discover-notifier-opt-out) says
 what it changes.
 
@@ -90,8 +91,8 @@ what it changes.
 kempt doctor
 ```
 
-On a packaged machine that has not run anything yet, expect something like this. Some rows, such
-as one about Discover's notifier, depend on what else is installed.
+On a packaged machine that has not run anything yet, expect something like this. Some rows
+depend on what else is installed.
 
 ```
 info  kempt 0.1.x (/usr/share/kempt)
@@ -197,8 +198,7 @@ sends this signal so a running Plasma rescans its icon directories:
 dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0
 ```
 
-If Add Widgets still shows a placeholder icon, log out and back in. The installer prints that
-too.
+If Add Widgets still shows a placeholder icon, log out and back in.
 
 If `kpackagetool6` is missing, the widget is skipped with a note and everything else installs.
 

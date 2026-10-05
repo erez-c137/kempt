@@ -113,6 +113,8 @@ sandbox() {  # fresh dirs per test file; call first
   # `kempt discover-notifier` finds, stops and starts the real notifier of the session running the
   # suite. Never from a test: pgrep finds nothing, pkill stops nothing, and both starters are paths
   # that do not exist. Files that test those steps point them at their own stubs.
+  # Discover's update settings: none, so no test reads a developer's own.
+  export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
   export KEMPT_DISCOVER_PGREP="false" KEMPT_DISCOVER_PKILL="false"
   export KEMPT_DISCOVER_START="$TESTTMP/UNSTUBBED-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/UNSTUBBED-notifier"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
