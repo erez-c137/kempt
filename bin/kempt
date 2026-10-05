@@ -2379,9 +2379,10 @@ harvest_offline() {
   # transaction is gone with it: applying one removes all three of the toml, the /system-update
   # symlink and transaction.json. While any of that is still there, something ELSE moved the set,
   # and harvesting would name the other tool's packages and drop a still-armed marker.
-  # ...with one exception: every staged package is now installed at its staged version. Then
-  # another updater installed the same updates on this restart (PackageKit, preparing them behind
-  # dnf5's back, replaces the symlink and leaves dnf5's state at `ready`), and the stage is done.
+  # ...with one exception: every staged package is now installed at its staged version or newer
+  # (offline_stage_satisfied). Then another updater installed the same updates, on this restart or
+  # before it (PackageKit, preparing them behind dnf5's back, replaces the symlink and leaves dnf5's
+  # state at `ready`), and the stage is done.
   local installed_elsewhere=false
   if [[ "$toml_status" != absent ]]; then
     if [[ "$toml_status" != ready ]] \
@@ -2422,7 +2423,7 @@ harvest_offline() {
     # dnf5's history cannot name this one: the run was another updater's, under another command,
     # from the same starting point. What it can say is settled already, so the report keeps the
     # packages Kempt staged and the entry says how they arrived.
-    hsurface="offline (installed on restart)"
+    hsurface="offline (installed by another updater)"
     local staged_names=""
     staged_names="$(offline_txjson_names)" || staged_names=""
     report="$(report_keep_names "$report" "$staged_names")"
@@ -2530,10 +2531,11 @@ harvest_offline() {
   # it is said even when the entry above could not be written - a restart that installed sixty
   # packages must not pass in silence just because there was nowhere to file the details.
   if [[ "$installed_elsewhere" == true ]]; then
-    # Once: the marker is gone after this. Who installed them is left out, because what the
-    # person asked for is what matters, and the history entry has the packages.
+    # Once: the marker is gone after this. Who installed them, and when, is left out: it may have
+    # been the restart or a live run before it, and the sentence is true of both. What the person
+    # asked for is what matters, and the history entry has the packages.
     log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
-    notify "Kempt" "Your updates were installed on restart."
+    notify "Kempt" "Your staged updates are installed."
   elif [[ "$verdict" == did-not-run ]]; then
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.

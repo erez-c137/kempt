@@ -263,8 +263,8 @@ A Flatpak-only run leaves it alone.
 while an update is staged, Kempt leaves the stage alone and records it once. If something replaces
 the staged update, the next check tells you once. After the restart, Kempt reports only its own
 transaction from dnf5's history. If that did not run, the history entry and the notification say
-`restart (staged update did not run)`. If another updater installed exactly the staged packages,
-the entry says `offline (installed on restart)`.
+`restart (staged update did not run)`. If another updater installed the staged packages or newer
+ones, the entry says `offline (installed by another updater)`.
 
 ### A snapshot before every update
 

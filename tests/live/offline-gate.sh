@@ -509,11 +509,11 @@ rm -f "$LINK"
 before_hist=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
 : > /tmp/gate-notifications
 KEMPT_BOOT_ID=s16-boot "$K" check >/dev/null 2>&1
-has "announced once as installed" "$(notes)" "Your updates were installed on restart."
+has "announced once as installed" "$(notes)" "Your staged updates are installed."
 hasnt "...never as unable to install" "$(notes)" "can no longer install"
 is "the marker is consumed" "$(marker)" ""
 is "one history entry" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$((before_hist + 1))"
-is "...saying how it arrived" "$(jq -r .surface "$(ls -1t "$STATE"/history/*.json | head -1)")" "offline (installed on restart)"
+is "...saying how it arrived" "$(jq -r .surface "$(ls -1t "$STATE"/history/*.json | head -1)")" "offline (installed by another updater)"
 is "dnf5 still holds the stage it never ran" "$(toml_status)" "ready"
 d=$("$K" doctor 2>&1)
 has "doctor explains the leftover" "$d" "whose updates are already installed"

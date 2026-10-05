@@ -1836,26 +1836,101 @@ offline_link_state() {  # → none | dnf5 | other
   fi
 }
 
-# Is every package the stored transaction installs already installed, at the version it names?
+# rpm's version comparison (rpmvercmp in rpm's lib/rpmvercmp.c), for one version or release field.
+# Written out here rather than asked of rpm: the tests run on boxes with no rpm at all, and this is
+# the rule a newer build is told by. Segments are runs of digits or of letters, anything else
+# separates them; digits beat letters, a longer number beats a shorter one, and `~` sorts before
+# everything (1.0~rc1 is older than 1.0) while `^` sorts after the end (1.0^git1 is newer than 1.0
+# and older than 1.0.1).
+rpm_vercmp() {  # a b → prints -1, 0 or 1
+  local LC_ALL=C   # byte order, as rpm's strcmp has it, and not the locale's
+  local a="$1" b="$2" sa sb isnum
+  if [[ "$a" == "$b" ]]; then printf '0\n'; return 0; fi
+  while [[ -n "$a" || -n "$b" ]]; do
+    while [[ -n "$a" && "${a:0:1}" != [[:alnum:]~^] ]]; do a="${a:1}"; done
+    while [[ -n "$b" && "${b:0:1}" != [[:alnum:]~^] ]]; do b="${b:1}"; done
+    if [[ "${a:0:1}" == "~" || "${b:0:1}" == "~" ]]; then
+      if [[ "${a:0:1}" != "~" ]]; then printf '1\n'; return 0; fi
+      if [[ "${b:0:1}" != "~" ]]; then printf -- '-1\n'; return 0; fi
+      a="${a:1}"; b="${b:1}"; continue
+    fi
+    if [[ "${a:0:1}" == "^" || "${b:0:1}" == "^" ]]; then
+      if [[ -z "$a" ]]; then printf -- '-1\n'; return 0; fi
+      if [[ -z "$b" ]]; then printf '1\n'; return 0; fi
+      if [[ "${a:0:1}" != "^" ]]; then printf '1\n'; return 0; fi
+      if [[ "${b:0:1}" != "^" ]]; then printf -- '-1\n'; return 0; fi
+      a="${a:1}"; b="${b:1}"; continue
+    fi
+    [[ -n "$a" && -n "$b" ]] || break
+    if [[ "${a:0:1}" == [0-9] ]]; then
+      isnum=1; sa="${a%%[^0-9]*}"; sb="${b%%[^0-9]*}"
+    else
+      isnum=0; sa="${a%%[^[:alpha:]]*}"; sb="${b%%[^[:alpha:]]*}"
+    fi
+    a="${a:${#sa}}"; b="${b:${#sb}}"
+    # A run of digits against a run of letters: the digits are newer.
+    if [[ -z "$sb" ]]; then
+      if (( isnum )); then printf '1\n'; else printf -- '-1\n'; fi
+      return 0
+    fi
+    if (( isnum )); then
+      sa="${sa#"${sa%%[^0]*}"}"; sb="${sb#"${sb%%[^0]*}"}"   # leading zeros do not count
+      if (( ${#sa} != ${#sb} )); then
+        if (( ${#sa} > ${#sb} )); then printf '1\n'; else printf -- '-1\n'; fi
+        return 0
+      fi
+    fi
+    if [[ "$sa" != "$sb" ]]; then
+      if [[ "$sa" < "$sb" ]]; then printf -- '-1\n'; else printf '1\n'; fi
+      return 0
+    fi
+  done
+  if [[ -z "$a" && -z "$b" ]]; then printf '0\n'
+  elif [[ -n "$a" ]]; then printf '1\n'
+  else printf -- '-1\n'; fi
+}
+
+# Two EVRs written `epoch:version-release`, the epoch always present: the epoch as a number, then
+# the version, then the release, each by rpm_vercmp.
+rpm_evrcmp() {  # e:v-r e:v-r → prints -1, 0 or 1
+  local ea="${1%%:*}" eb="${2%%:*}" va="${1#*:}" vb="${2#*:}" ra rb c
+  ra="${va##*-}"; rb="${vb##*-}"; va="${va%-*}"; vb="${vb%-*}"
+  if (( 10#$ea != 10#$eb )); then
+    if (( 10#$ea > 10#$eb )); then printf '1\n'; else printf -- '-1\n'; fi
+    return 0
+  fi
+  c="$(rpm_vercmp "$va" "$vb")"
+  if [[ "$c" != 0 ]]; then printf '%s\n' "$c"; return 0; fi
+  rpm_vercmp "$ra" "$rb"
+}
+
+# Has the stored transaction already happened, by whatever means? Every package it installs must
+# be installed at its staged version or a newer one, and every package it removes must be gone.
 # This tells "another updater installed the same updates" apart from a stage that could not run:
-# PackageKit can prepare the same packages and install them on the restart, leaving dnf5's state
-# at `ready` for a transaction nothing will run.
-# Compared as whole NEVRAs with the epoch written out on both sides (transaction.json leaves out
-# epoch 0), so the architecture counts, and an installonly kernel matches when the staged build is
-# among the ones installed. Anything less is not satisfied: a partial install, a file that does not
-# read, or a newer build installed since. A newer build is not the stage, and Kempt never reports
-# a stage as installed over packages it did not stage.
-offline_stage_satisfied() {  # → 0 when every staged package is installed at its staged version
+# PackageKit can prepare the same packages and install them on the restart, leaving dnf5's state at
+# `ready` for a transaction nothing will run. It prepares them when it gets round to it, often
+# hours after Kempt staged, so a package with a newer build in between arrives newer.
+# Compared per name and architecture (an installonly kernel matches when any installed build is
+# the staged one or newer), with the epoch written out on both sides (transaction.json leaves out
+# epoch 0), by rpm's own ordering (rpm_evrcmp).
+#   Upgrade, Install   installed at the staged EVR or newer
+#   Downgrade          installed at exactly the staged EVR: a newer one means it did not happen
+#   Reinstall          installed at the staged EVR or newer, and proves nothing on its own
+#   Remove             that exact build no longer installed
+# Anything less is not satisfied: a partial install, a file that does not read, or a transaction
+# with nothing in it that shows it ran (empty, or only reinstalls, which an untouched box passes).
+offline_stage_satisfied() {  # → 0 when the stored transaction's changes are all on the box
   [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
-  local sz want have missing
+  local sz want have line
   sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
   (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
   # The shape guards of offline_txjson_names: any surprise is an error, and then no answer.
+  # One line per entry that matters: action, name.arch, epoch:version-release.
   want="$(jq -r -n '
       def norm($n):
         [ $n | capture("^(?<n>.+)-((?<e>[0-9]+):)?(?<v>[^-:]+)-(?<r>[^-:]+)\\.(?<a>[^.-]+)$") ]
         | if length != 1 then error("nevra") else .[0] end
-        | "\(.n)-\(.e // "0"):\(.v)-\(.r).\(.a)";
+        | "\(.n).\(.a)\t\(.e // "0"):\(.v)-\(.r)";
       ([inputs][0] // error("no document")) as $t
       | if ($t | type) != "object" then error("not an object") else . end
       | ($t.version // "1.0") as $v
@@ -1866,8 +1941,8 @@ offline_stage_satisfied() {  # → 0 when every staged package is installed at i
           | if type != "object" then error("entry") else . end
           | if (.nevra | type) != "string" then error("nevra") else . end ] as $entries
       | $entries[]
-      | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
-      | norm(.nevra)' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
+      | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall","Remove"] | index($a) != null)
+      | "\(.action)\t\(norm(.nevra))"' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
   [[ -n "$want" ]] || return 1
   if [[ -n "$KEMPT_RPM_QA_CMD" ]]; then
     # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
@@ -1877,8 +1952,32 @@ offline_stage_satisfied() {  # → 0 when every staged package is installed at i
     have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 1
   fi
   [[ -n "$have" ]] || return 1
-  missing="$(LC_ALL=C comm -23 <(LC_ALL=C sort -u <<<"$want") <(LC_ALL=C sort -u <<<"$have"))" || return 1
-  [[ -z "$missing" ]]
+  # Installed builds by name.arch, each `epoch:version-release`, newline-separated.
+  local -A inst=()
+  local n e vr a key
+  local nevra_re='^(.+)-([0-9]+):([^-:]+-[^-:]+)\.([^.-]+)$'
+  while IFS= read -r line; do
+    [[ "$line" =~ $nevra_re ]] || continue
+    n="${BASH_REMATCH[1]}"; e="${BASH_REMATCH[2]}"; vr="${BASH_REMATCH[3]}"; a="${BASH_REMATCH[4]}"
+    inst["$n.$a"]+="$e:$vr"$'\n'
+  done <<<"$have"
+  local action evr got proof=false found c
+  while IFS=$'\t' read -r action key evr; do
+    found=false
+    while IFS= read -r got; do
+      [[ -n "$got" ]] || continue
+      case "$action" in
+        Downgrade|Remove) [[ "$got" == "$evr" ]] && { found=true; break; } ;;
+        *) c="$(rpm_evrcmp "$got" "$evr")"; [[ "$c" != -1 ]] && { found=true; break; } ;;
+      esac
+    done <<<"${inst[$key]:-}"
+    case "$action" in
+      Remove) [[ "$found" == false ]] || return 1; proof=true ;;
+      Reinstall) [[ "$found" == true ]] || return 1 ;;
+      *) [[ "$found" == true ]] || return 1; proof=true ;;
+    esac
+  done <<<"$want"
+  [[ "$proof" == true ]]
 }
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same

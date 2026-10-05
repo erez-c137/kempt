@@ -447,8 +447,11 @@ reads the system (`harvest_offline`):
 | yes | ready | present | different | unchanged | Still pending: the restart has not run it yet |
 | yes | ready | **gone** | different | unchanged | **Detour boot.** systemd removes the symlink once `system-update.target` is reached, so this boot walked past the transaction. Announce once, set `armed: false`, never clear |
 | yes | present, not `ready` | - | different | unchanged | **Detour boot.** Same three rules |
-| yes | `ready` | gone or another updater's | different | changed, with every staged package installed at its staged version | **Installed by another updater.** One history entry with surface `offline (installed on restart)`, narrowed to the staged packages. Announced once, marker cleared |
-| yes | `ready` | gone or another updater's | different | changed, with any staged package missing or at another version | **Detour boot.** Same three rules |
+| yes | `ready` | gone or another updater's | different | unchanged, with every staged change already on the box | **Installed before the restart.** Marker cleared, `offline stage installed by another updater (before the restart)`. Nothing to report, because the restart changed nothing |
+| yes | present, not `ready` | - | different | unchanged, with every staged change already on the box | **Installed before the restart.** Same as the row above |
+| yes | `ready` | gone or another updater's | different | changed, with every staged change on the box | **Installed by another updater.** One history entry with surface `offline (installed by another updater)`, narrowed to the staged packages. Announced once, marker cleared |
+| yes | present, not `ready` | - | different | changed, with every staged change on the box | **Installed by another updater.** Same as the row above |
+| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, with any staged change missing | **Detour boot.** Same three rules |
 | yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)). Surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
 | yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker stays |
 

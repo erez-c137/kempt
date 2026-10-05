@@ -981,7 +981,47 @@ assert_exit 1 "...nor for another architecture" -- satisfied "$pk_tx" "$TESTTMP/
 grep -v '^kernel-core-0:6.20' "$pk_qa" > "$TESTTMP/pk-qa-kernel"
 assert_exit 1 "...nor when the staged kernel is not among the kernels installed" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-kernel"
 sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.1-1/' "$pk_qa" > "$TESTTMP/pk-qa-newer"
-assert_exit 1 "...nor at a newer version: the stage is not what was installed" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-newer"
+assert_exit 0 "...while a newer build than the staged one counts: the box has moved past the stage" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-newer"
+sed 's/^librepo-0:1.21.0-1/librepo-0:1.20.9-1/' "$pk_qa" > "$TESTTMP/pk-qa-older"
+assert_exit 1 "...and an older one does not" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-older"
+sed 's/^aardvark-dns-2:1.18.0/aardvark-dns-3:1.0.0/' "$pk_qa" > "$TESTTMP/pk-qa-epoch-up"
+assert_exit 0 "...a higher epoch is newer whatever the version says" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-epoch-up"
+sed 's/^aardvark-dns-2:1.18.0/aardvark-dns-1:9.0.0/' "$pk_qa" > "$TESTTMP/pk-qa-epoch-down"
+assert_exit 1 "...and a lower epoch is older whatever the version says" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-epoch-down"
+sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.0~rc1-1/' "$pk_qa" > "$TESTTMP/pk-qa-tilde"
+assert_exit 1 "...a ~ pre-release sorts before the release it leads to" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-tilde"
+sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.0^git1-1/' "$pk_qa" > "$TESTTMP/pk-qa-caret"
+assert_exit 0 "...and a ^ snapshot sorts after it" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-caret"
+sed 's/^librepo-0:1.21.0-1.fc44/librepo-0:1.21.0-10.fc44/' "$pk_qa" > "$TESTTMP/pk-qa-release"
+assert_exit 0 "...release 10 is newer than release 1, by number and not by text" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-release"
+# rpm's ordering itself, against cases from rpm's own test suite (checked against rpm.vercmp).
+vercmp() { bash -c 'source "$1/lib/common.sh"; rpm_vercmp "$2" "$3"' _ "$REPO_ROOT" "$1" "$2"; }
+vc_bad=""
+for vc in "1.0 1.0 0" "2.0.1 2.0 1" "5.5p10 5.5p1 1" "10xyz 10.1xyz -1" "xyz.4 8 -1" "6.0.rc1 6.0 1" \
+          "1.0aa 1.0a 1" "10.0001 10.0039 -1" "2.0 2_0 0" "1.0~rc1 1.0 -1" "1.0~rc1~git123 1.0~rc1 -1" \
+          "1.0^ 1.0 1" "1.0^git1 1.01 -1" "1.0^20160101 1.0.1 -1" "1.0~rc1^git1 1.0~rc1 1" \
+          "1.0^git1~pre 1.0^git1 -1" "001 1 0" "1.0a 1.0B 1"; do
+  read -r va vb want <<<"$vc"
+  [[ "$(vercmp "$va" "$vb")" == "$want" ]] || vc_bad+=" $va/$vb"
+done
+assert_eq "$vc_bad" "" "versions are ordered as rpm orders them, ~ and ^ included"
+# The other actions. A downgrade is done only at exactly its build; a removal only when that build
+# is gone; and reinstalls alone prove nothing, because a box nothing touched already passes them.
+act_tx() { printf '{"version":"1.0","rpms":[%s]}\n' "$1" > "$TESTTMP/pk-tx-act.json"; }
+act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Downgrade"}'
+assert_exit 0 "a staged downgrade installed at its build is done" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"bash-5.3.8-1.fc44.x86_64","action":"Downgrade"}'
+assert_exit 1 "...and not done while a newer build is installed" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"kernel-core-6.19.3-200.fc44.x86_64","action":"Remove"},{"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install"}'
+assert_exit 1 "a staged removal is not done while that build is still installed" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"kernel-core-6.18.0-200.fc44.x86_64","action":"Remove"},{"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install"}'
+assert_exit 0 "...and done once it is gone, other builds of it staying" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Reinstall"}'
+assert_exit 1 "a transaction of reinstalls alone is never called done" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Reinstall"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
+assert_exit 0 "...though a reinstall beside a real change does not stop it" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"zsh-5.9-1.fc44.x86_64","action":"Reinstall"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
+assert_exit 1 "...while a reinstalled package that is not installed at all does" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
 : > "$TESTTMP/pk-qa-empty"
 assert_exit 1 "...and an rpm that lists nothing proves nothing" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-empty"
 printf '{"version":"1.0","rpms":[]}\n' > "$TESTTMP/pk-tx-empty.json"
@@ -996,13 +1036,13 @@ stage_marker boot-before-reboot 3
 before_pk="$(events_since 'offline stage installed by another updater')"
 : > "$notify_log"
 KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your updates were installed on restart." \
+assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
   "a stage another updater installed on the restart is announced once, as installed"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
 assert_eq "$(events_since 'offline stage installed by another updater')" "$((before_pk + 1))" "...and one event records it"
 pk_hist="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -1)"
-assert_eq "$(jq -r .surface "$pk_hist" 2>/dev/null)" "offline (installed on restart)" "...and the history entry says how it arrived"
+assert_eq "$(jq -r .surface "$pk_hist" 2>/dev/null)" "offline (installed by another updater)" "...and the history entry says how it arrived"
 assert_eq "$(jq -r '[.backends.dnf[] | arrays | .[].name] | sort | join(" ")' "$pk_hist" 2>/dev/null)" \
   "aardvark-dns kernel-core librepo" "...naming the staged packages and not 7zip, which nothing staged"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and nothing is published as pending"
@@ -1024,8 +1064,11 @@ rm -f "$marker" "$pre"
 stage_marker boot-before-reboot 3
 : > "$notify_log"
 PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_exit 0 "a newer build installed elsewhere is not called the stage" -- grep -q 'can no longer install' "$notify_log"
+assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
+  "a newer build installed elsewhere is announced as installed, with no advice to stage again"
+assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 rm -f "$marker" "$pre"
+rm -rf "$KEMPT_STATE_DIR/history"
 
 # The doctor, afterwards: dnf5 still keeps the transaction, and says `ready`. One line explains it,
 # and none of the rows that would call it pending or broken.
