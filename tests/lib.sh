@@ -98,6 +98,13 @@ sandbox() {  # fresh dirs per test file; call first
   # $TESTTMP/no-system-update themselves.
   ln -sfn "$TESTTMP" "$TESTTMP/system-update"
   export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
+  # ...and the symlink is dnf5's because it points here. A link pointing anywhere else is another
+  # updater's, which a test makes on purpose.
+  export KEMPT_OFFLINE_DATADIR="$TESTTMP"
+  # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
+  # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
+  # command that fails reads as "cannot tell", which is never satisfied.
+  export KEMPT_RPM_QA_CMD="$TESTTMP/UNSTUBBED-rpm-qa"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
@@ -106,6 +113,8 @@ sandbox() {  # fresh dirs per test file; call first
   # `kempt discover-notifier` finds, stops and starts the real notifier of the session running the
   # suite. Never from a test: pgrep finds nothing, pkill stops nothing, and both starters are paths
   # that do not exist. Files that test those steps point them at their own stubs.
+  # Discover's update settings: none, so no test reads a developer's own.
+  export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
   export KEMPT_DISCOVER_PGREP="false" KEMPT_DISCOVER_PKILL="false"
   export KEMPT_DISCOVER_START="$TESTTMP/UNSTUBBED-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/UNSTUBBED-notifier"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL

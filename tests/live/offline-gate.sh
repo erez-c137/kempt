@@ -481,6 +481,46 @@ KEMPT_BOOT_ID=s15-boot "$K" check >/dev/null 2>&1
 is "after the restart it is not reported as Kempt's" "$(jq -r .surface "$(newest_hist)")" "restart (staged update did not run)"
 is "marker consumed" "$(marker)" ""
 
+section "S16 another updater prepares the restart, then installs the same packages"
+# What Discover's notifier does through PackageKit: it unlinks /system-update and points it at
+# PackageKit's prepared update, leaving dnf5's state at `ready`. dnf5 will not run behind a symlink
+# that is not its own, so Kempt's stage is not armed while it stands. The restart then installs
+# PackageKit's set, which is often exactly the staged one. That install is modelled by installing
+# the staged packages from dnf5's own download, and systemd removing the symlink afterwards.
+# Last, because it installs what is pending, and the sections before it need pending updates.
+dnf5 -y -q offline clean >/dev/null 2>&1; rm -f "$LINK" "$STATE/offline_staged.json"
+"$K" update --surface=offline --no-flatpak > /tmp/s16.out 2>&1
+is "armed" "$(toml_status)" "ready"
+ln -sfn /var/lib/PackageKit/prepared-update "$LINK"
+"$K" check >/dev/null 2>&1
+is "behind another updater's symlink nothing is published as pending" \
+  "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
+is "...and the stage is published as blocked" "$(jq -r '.offline_stage_blocked | type' "$STATE/state.json")" "object"
+d=$("$K" doctor 2>&1)
+has "doctor says another updater has prepared the restart" "$d" "another updater has prepared the next restart"
+"$K" unstage >/dev/null 2>&1; urc=$?
+is "unstage refuses while that symlink stands" "$urc" "5"
+is "...and dnf5 still holds the stage" "$(toml_status)" "ready"
+is "...and the other updater's symlink still stands" "$(readlink "$LINK")" "/var/lib/PackageKit/prepared-update"
+mapfile -t s16_rpms < <(jq -r '.rpms[] | select(.action=="Upgrade" or .action=="Install") | .package_path' "$TXJSON")
+echo "  installing the ${#s16_rpms[@]} staged packages the way another updater would"
+dnf5 -y -q install "${s16_rpms[@]}" >/dev/null 2>&1 || bad "the staged packages did not install"
+rm -f "$LINK"
+before_hist=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
+: > /tmp/gate-notifications
+KEMPT_BOOT_ID=s16-boot "$K" check >/dev/null 2>&1
+has "announced once as installed" "$(notes)" "Your staged updates are installed."
+hasnt "...never as unable to install" "$(notes)" "can no longer install"
+is "the marker is consumed" "$(marker)" ""
+is "one history entry" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$((before_hist + 1))"
+is "...saying how it arrived" "$(jq -r .surface "$(ls -1t "$STATE"/history/*.json | head -1)")" "offline (installed by another updater)"
+is "dnf5 still holds the stage it never ran" "$(toml_status)" "ready"
+d=$("$K" doctor 2>&1)
+has "doctor explains the leftover" "$d" "whose updates are already installed"
+hasnt "...and calls nothing unable to install" "$(grep -E '^FAIL' <<<"$d")" "can never install"
+"$K" unstage >/dev/null 2>&1
+is "with the symlink gone, unstage removes the leftover" "$(toml_status)" "absent"
+
 echo
 echo "GATE: $pass ok, $fail FAIL"
 (( fail == 0 ))

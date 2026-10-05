@@ -2356,6 +2356,11 @@ p.check("a later Check for Updates that fetched shows no message",
         [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage")], [False, ""])
 
 # The engine missing or refusing to run. The line at the top says which, and so does the answer.
+# Pressed a second or more after the lists above were stamped, and before that state's last_check:
+# the window in which the previous answer's stamp, read beside this press's time, would make that
+# answer look like this press's own and flash a missed-fetch notice. Without the wait the case
+# passed or failed on how busy the machine was.
+time.sleep(1.5)
 for _rc, _words in (("127", "Kempt's engine is not installed"),
                     ("126", "Kempt's engine will not run")):
     open(CHECKRC, "w").write(_rc)
@@ -3613,6 +3618,7 @@ _ASSEMBLED_IN_LOGIC = {
     "riskySummaryMore",     # -> riskySummaryOf -> vm.riskyMessage (a count and the family list)
     "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
+    "stageBlocked",         # -> vm.stagedBanner and vm.stagedMessage, behind another updater's restart
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
     "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache

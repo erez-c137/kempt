@@ -286,6 +286,12 @@ var COPY = {
     stagedHeaderTail: "updates staged for the next restart",
     stagedHeaderUnknown: "Updates staged for the next restart",
 
+    // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
+    // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
+    // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
+    stageBlocked: "Another updater has prepared the next restart, so the updates Kempt staged "
+        + "will not install then.",
+
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
     // contradiction one level down. "%1"/"%2" because these are the only entries whose
@@ -2352,6 +2358,14 @@ function viewModel(state, updating, cliError, opts) {
         (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf);
     var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
+    // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the
+    // staged slot as a warning and offers none of its actions: no restart (the restart installs the
+    // other update), no rebuild (it would land behind the same symlink), and no discard (the CLI
+    // refuses one, since dnf5 offline clean would cancel the other update too). An object is all
+    // that is read: the sentence needs neither the count nor the stamp.
+    var stageBlocked = usable && !releaseUpgrade && !staged && !imageBased
+        && !!state.offline_stage_blocked && typeof state.offline_stage_blocked === "object"
+        && !isArray(state.offline_stage_blocked);
     // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
     // variant, so "which banner is this" is decided in exactly one place.
     var stagedWarning = stagedVariant.type === "warning";
@@ -2597,7 +2611,10 @@ function viewModel(state, updating, cliError, opts) {
         ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
-        report: opts.reportShown === true && !(staged && opts.reportRepeatsStaged === true),
+        // ...and while a blocked stage is up, a report saying the stage installs on the next restart
+        // is the very promise that warning takes back, so it gives way the same way.
+        report: opts.reportShown === true
+            && !((staged || stageBlocked) && opts.reportRepeatsStaged === true),
         fetchMissed: fetchMissedMessage !== "" && opts.fetchMissedDismissed !== true,
         // Check Installation's result, or its busy line: main.qml's own state, like the report.
         // Never hidden with a report that repeats the staged message: it says something else.
@@ -2605,7 +2622,7 @@ function viewModel(state, updating, cliError, opts) {
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
-        staged: staged,
+        staged: staged || stageBlocked,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
         // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
@@ -2735,12 +2752,13 @@ function viewModel(state, updating, cliError, opts) {
         riskyMessage: riskyMessage,
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
-        stagedMessage: stagedMessage,
+        stagedMessage: stageBlocked ? COPY.stageBlocked : stagedMessage,
         // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
         // the "fetchMissed" slot. Empty when there is nothing to say.
         fetchMissedMessage: fetchMissedMessage,
         // What the banner shows: the plain one gives way to the header's count.
-        stagedBanner: stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
+        stagedBanner: stageBlocked ? COPY.stageBlocked
+            : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
@@ -2748,7 +2766,9 @@ function viewModel(state, updating, cliError, opts) {
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
-        stagedType: stagedVariant.type,
+        stagedType: stageBlocked ? "warning" : stagedVariant.type,
+        // The blocked stage above: in the staged slot, with no action of its own.
+        stageBlocked: stageBlocked,
         // Never two Restart… buttons in one popup: the restart Warning already carries one
         // whenever it is on screen.
         // ...and never a Restart… on a warning variant at all, which is the stricter rule and the

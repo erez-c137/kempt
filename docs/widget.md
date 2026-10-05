@@ -164,7 +164,7 @@ others are up. It goes when you close it, close the widget, ask for a check, or 
 ### The staged banner
 
 **Install on Next Restart** downloads an update now and installs it during the next restart. The
-banner is usually green, and has its own **Restart…** when the restart message is not showing one:
+banner is usually green, with its own **Restart…** when the restart message has none:
 
 ```
  (=) They install when you restart.   [Restart…]
@@ -211,13 +211,20 @@ A rebuild reuses the downloaded packages. If the staged update changed after the
 nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
 banner above.`
 
-**Discard Staged Update** is on every staged banner, with this tooltip:
+**Discard Staged Update** has this tooltip:
 
 > Removes the update waiting for the next restart, so the restart installs nothing. Asks for
 > authorization, and deletes the packages it downloaded, so staging again downloads them again.
 
-The widget reports the result. If the staged update changed after the banner was drawn, nothing is
-discarded and the widget says so. While a Fedora release upgrade is stored, the button is not there.
+If the staged update changed after the banner was drawn, nothing is discarded and the widget says
+so. While a Fedora release upgrade is stored, the button is not there.
+
+If another updater has prepared the next restart, the banner warns, with no buttons:
+
+```
+ (!) Another updater has prepared the next restart, so the updates Kempt
+     staged will not install then.
+```
 
 ### The list
 

@@ -263,7 +263,8 @@ A Flatpak-only run leaves it alone.
 while an update is staged, Kempt leaves the stage alone and records it once. If something replaces
 the staged update, the next check tells you once. After the restart, Kempt reports only its own
 transaction from dnf5's history. If that did not run, the history entry and the notification say
-`restart (staged update did not run)`.
+`restart (staged update did not run)`. If another updater installed the staged packages or newer
+ones, the entry says `offline (installed by another updater)`.
 
 ### A snapshot before every update
 
@@ -352,7 +353,7 @@ record of the stage only once dnf5 confirms the transaction is gone.
 | 1 | The root helper failed, or dnf5 still has the transaction. Kempt keeps its record. |
 | 2 | Any argument. |
 | 3 | Another update is running. |
-| 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, or the root helper refused. |
+| 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, another updater has prepared the next restart and discarding would cancel that too, or the root helper refused. |
 
 ## reclaim
 
@@ -548,6 +549,8 @@ The wording is fixed, so you can search it:
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
 | `offline stage cannot install (...) - announced` | The staged update can no longer install on a restart. |
 | `offline stage replaced outside Kempt (<what differs>) - announced` | The staged update is no longer the one Kempt made. |
+| `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
+| `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
 | `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |
 | `harvest applied (<counts>)` | After a restart, the staged update had installed. |
 | `harvest found the staged transaction did not run (<counts>)` | After a restart, a different transaction had run. The history entry says `restart (staged update did not run)`. |
@@ -557,6 +560,7 @@ The wording is fixed, so you can search it:
 | `harvest log not written (state directory unwritable?)` | The log for a restart install could not be saved, so that run has no **Show Log**. |
 | `unstage discarded the staged update` | `kempt unstage` removed the staged update. |
 | `unstage refused (<what is stored>)` / `unstage refused by the root helper` | A Fedora release upgrade is stored, so `kempt unstage` changed nothing. |
+| `unstage refused (another updater has prepared the next restart)` | Discarding would also cancel the other updater's restart update. Run it again after the restart. |
 | `unstage found nothing staged` | Nothing was staged. |
 | `unstage cleared a marker with no transaction under it` | The stage was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
@@ -633,8 +637,8 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Lines are `ok`, `info` or `FAIL`. Every check runs, so one pass shows every problem. The last five
-events follow.
+Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem. One pass shows every
+problem. The last five events follow.
 
 | Exit | When |
 | --- | --- |
@@ -664,7 +668,9 @@ What a `FAIL` means:
 The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
 when the notifier is off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
-**Turn Off Discover's Notifier**. `./install.sh` offers the same.
+**Turn Off Discover's Notifier**. `./install.sh` offers the same. A second row says when Discover
+installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
+Kempt installs on the next restart.
 
 ### The staged transaction
 
@@ -679,6 +685,9 @@ here when neither exists.
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
 | `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
+| `info  dnf5 still keeps an offline transaction whose updates are already installed ...` | Another updater installed the same updates. It will not run. `kempt unstage` removes it. |
+| `info  staged update: another updater has prepared the next restart ...` | The next restart installs that update, not Kempt's. |
+| `info  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. |
 | `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |

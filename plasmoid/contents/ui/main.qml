@@ -453,7 +453,6 @@ PlasmoidItem {
                      function(stdout, stderr, rc) {
             root.checking = false;
             root.checkingRefresh = false;
-            if (fresh) root.refreshAskedMs = askedMs;
             // Stamped for EVERY completed check, whatever it answered: the quiet window below is
             // about the writes a check makes, and it makes those either way.
             root.lastCheckFinished = Date.now();
@@ -462,9 +461,14 @@ PlasmoidItem {
             // Set across the assignments below, so the footer stays quiet while they land and the
             // announcement after them is the only one. Cleared once it has been made.
             root.answeringCheck = fresh;
+            // The stamp before the press time, never after: every binding re-runs between the two,
+            // and the new press time beside the previous answer's stamp reads that answer as this
+            // press's own. A check with no engine (exit 127) then flashed, and spoke, a missed-fetch
+            // notice for a fetch it never tried.
             if (fresh) {
                 root.refreshCheckStamp = parsed !== null && typeof parsed.last_check === "string"
                     ? parsed.last_check : "";
+                root.refreshAskedMs = askedMs;
             }
             if (parsed !== null) {
                 root.kemptState = parsed;

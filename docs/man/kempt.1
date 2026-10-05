@@ -163,11 +163,11 @@ Exit 0 means the update started. The state file and
 have the result. Exit 5: the terminal window did not open within five seconds.
 .TP
 .B unstage
-Discard the update staged for the next restart, so the next restart installs nothing. It asks for
-your password once, or says so without asking when nothing is staged. Kempt clears its record only
-once dnf5 confirms the transaction is gone. Exit 1: the root helper failed, or dnf5 still has the
-transaction. Exit 3: another update is running. Exit 5: a Fedora release upgrade is stored, or the
-root helper refused.
+Discard the update staged for the next restart. It asks for your password once, unless nothing is
+staged. Kempt keeps its record until dnf5 confirms the transaction is gone. Exit 1: the root helper
+failed, or dnf5 still has the transaction. Exit 3: another update is running. Exit 5: a Fedora
+release upgrade is stored, another updater has prepared the next restart, or the root helper
+refused.
 .TP
 .BR reclaim " [" \-\-list "] [" \-y "] [" \-\-expect= \c
 .IR digest ]
@@ -234,7 +234,7 @@ It answers "did the change I just made land?", which the run logs and history ca
 .TP
 .B doctor
 Check this install and print one line per check, marked
-.BR ok ", " info " or " FAIL .
+.BR ok ", " info ", " WARN " or " FAIL .
 It covers the root helpers and the polkit action, the tools Kempt needs, the configuration file,
 the state directory and any staged update. Every check runs, and the last five events follow.
 Exit 1 when any line is

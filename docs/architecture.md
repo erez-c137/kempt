@@ -215,6 +215,7 @@ cope with that.
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
 | `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason, `"off"` whenever `KEMPT_SKIP_REFRESH` turns fetching off. Absent otherwise. Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
+| `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
 | `release_upgrade` | object, optional | A stored Fedora release upgrade. See [below](#release_upgrade). Absent, never `null`, when there is none. Additive. |
@@ -291,6 +292,7 @@ Present **only** while dnf5 has a Fedora release upgrade stored: `system_release
 | --- | --- |
 | `downloaded` | `download-complete` |
 | `armed` | `ready` and the `/system-update` symlink, so the next restart installs it |
+| `foreign` | `ready`, but the symlink points to another updater's prepared update, so the next restart installs that instead |
 | `stranded` | `ready` with the symlink gone, so no restart runs it |
 | `incomplete` | `download-incomplete`, `transaction-incomplete` or an unknown status |
 
@@ -445,6 +447,11 @@ reads the system (`harvest_offline`):
 | yes | ready | present | different | unchanged | Still pending: the restart has not run it yet |
 | yes | ready | **gone** | different | unchanged | **Detour boot.** systemd removes the symlink once `system-update.target` is reached, so this boot walked past the transaction. Announce once, set `armed: false`, never clear |
 | yes | present, not `ready` | - | different | unchanged | **Detour boot.** Same three rules |
+| yes | `ready` | gone or another updater's | different | unchanged, with every staged change already on the box | **Installed before the restart.** Marker cleared, `offline stage installed by another updater (before the restart)`. Nothing to report, because the restart changed nothing |
+| yes | present, not `ready` | - | different | unchanged, with every staged change already on the box | **Installed before the restart.** Same as the row above |
+| yes | `ready` | gone or another updater's | different | changed, with every staged change on the box | **Installed by another updater.** One history entry with surface `offline (installed by another updater)`, narrowed to the staged packages. Announced once, marker cleared |
+| yes | present, not `ready` | - | different | changed, with every staged change on the box | **Installed by another updater.** Same as the row above |
+| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, with any staged change missing | **Detour boot.** Same three rules |
 | yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)). Surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
 | yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker stays |
 
@@ -460,6 +467,15 @@ same-boot `download-complete`, which is a stage still being written.
 
 `offline_staged_state` publishes nothing unless dnf5 says `ready`, so the staged banner disappears
 as soon as the transaction stops being armed.
+
+**Another updater.** Discover's notifier, through PackageKit, can point `/system-update` at its
+own prepared update, leaving dnf5's state at `ready`. A stage behind that symlink is not armed. The
+check publishes `offline_stage_blocked` in place of `offline_staged`
+(`offline_stage_blocked_state()`). The restart often installs the same packages.
+`offline_stage_satisfied()` tells: each staged package must be installed at its staged version or
+newer, and each staged removal gone. `kempt unstage` refuses while that symlink stands, because
+`dnf5 offline clean` would remove it and cancel the other update. A superseding live run, or an
+empty stage, drops only Kempt's marker there.
 
 ### Which transaction ran
 
@@ -869,8 +885,11 @@ missing path, unless the row says otherwise.
 | `KEMPT_DISCOVER_PGREP`, `KEMPT_DISCOVER_PKILL` | `pgrep`, `pkill` | How `kempt discover-notifier` finds and stops this user's running notifier. `tests/lib.sh` points both at `false` |
 | `KEMPT_DISCOVER_START` | `kstart` | What `kempt discover-notifier on` starts the notifier with, as `--application org.kde.discover.notifier`, detached. `on` waits up to `KEMPT_DISCOVER_START_POLLS` tenths of a second (default 30) for pgrep to find it. Stubbed |
 | `KEMPT_DISCOVER_BIN` | `/usr/libexec/DiscoverNotifier` | Started directly, detached, when there is no `kstart` or it started nothing. Also the start of the command line pgrep and pkill match. Stubbed |
+| `KEMPT_DISCOVER_UPDATES_CONF` | `~/.config/PlasmaDiscoverUpdates` | Discover's update settings. `kempt doctor` reads `UseUnattendedUpdates` under `[Global]` as text. Never written. `tests/lib.sh` points it at a missing file |
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. Stubbed |
-| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. `lstat`ed only, by `kempt doctor`. Stubbed |
+| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. Never written or followed: its presence and its text decide whether it is dnf5's. Stubbed |
+| `KEMPT_OFFLINE_DATADIR` | `/usr/lib/sysimage/libdnf5/offline` | Where dnf5 points `/system-update`. A symlink pointing anywhere else is another updater's, so dnf5's transaction is not armed. `tests/lib.sh` points it at the test directory |
+| `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |

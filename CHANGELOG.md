@@ -45,6 +45,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kempt summary --json` and `kempt history --json` print.
 - **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
   that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
+- **`kempt doctor` says when Discover installs updates on restart by itself.** Its prepared update
+  replaces one Kempt staged. The row is `info`, or `WARN` when updates run on the next restart.
+  It shows only while Discover's notifier starts with your session or is running. `WARN` is a new
+  level and never counts as a problem.
 
 ### Changed
 
@@ -141,6 +145,18 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget keeps its contents clear of its border in every Plasma style.** Some styles leave
   no room at the edges, and the package names and padlocks touched the border. The header,
   messages, rows and footer now share one inset on both sides.
+- **Updates another updater installed are no longer called stuck.** When Discover's notifier
+  installed the updates Kempt staged, Kempt said they could no longer install. It now checks that
+  each staged package is installed at its staged version or newer. It then records the run as
+  `offline (installed by another updater)` and says once that your staged updates are installed.
+- **A staged update behind another updater's restart is no longer promised.** When another updater
+  has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
+  `kempt unstage` waits until after the restart, because discarding would cancel the other update
+  too. A live update or an empty stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
+- **The widget no longer promises a staged update that another updater has displaced.** When
+  another updater has prepared the next restart, the staged banner becomes a warning that the
+  updates Kempt staged will not install then. It has no buttons. `state.json` carries this as
+  `offline_stage_blocked`.
 
 ## [0.1.7] - 2026-10-02
 
