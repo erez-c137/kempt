@@ -2318,6 +2318,31 @@ assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
   "a staged transaction with no restart message offers the restart itself"
 assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
+
+# --- vm.stageBlocked: a stage another updater's restart stands in front of ----------------------
+# Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
+# Kempt's stage does not install then. The CLI publishes offline_stage_blocked and never
+# offline_staged for it. The staged slot carries it as a warning, and offers no action at all.
+BLK=',offline_stage_blocked:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
+assert_eq "$(vm '{}' "$BLK" 0 'stageBlocked')" "true" "a blocked stage is read"
+assert_eq "$(vm '{}' "$BLK" 0 'stagedBanner')" \
+  "Another updater has prepared the next restart, so the updates Kempt staged will not install then." \
+  "...and says the next restart installs something else"
+assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" "$(vm '{}' "$BLK" 0 'stagedBanner')" "...as its whole sentence"
+assert_eq "$(vm '{}' "$BLK" 0 'stagedType')" "warning" "...as a warning"
+assert_eq "$(vm '{}' "$BLK" 0 'messageSlots.indexOf("staged") >= 0')" "true" "...in the staged slot"
+assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowRebuild, v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$BLK"),false,\"\",{}))")" \
+  "false,false,false,false" "...with no restart, rebuild or discard, and nothing armed"
+assert_eq "$(vm '{}' "$BLK" 0 'headerText.indexOf("staged") < 0')" "true" "...and the header promises nothing"
+assert_eq "$(vm '{}' "$STG$BLK" 0 'stagedBanner')" "They install when you restart." \
+  "an armed stage wins over a stray blocked key"
+assert_eq "$(vm '{}' "$BLK,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}" 0 'stageBlocked')" "false" \
+  "...and so does a stored release upgrade, which has its own message"
+assert_eq "$(vm '{}' ',offline_stage_blocked:"yes"' 0 'stageBlocked')" "false" "a blocked key of the wrong type is ignored"
+assert_eq "$(vm '{}' ',offline_stage_blocked:[1]' 0 'stageBlocked')" "false" "...an array included"
+assert_eq "$(vm '{}' '' 0 'stageBlocked')" "false" "...and no key is no blocked stage"
+assert_eq "$(js "L.viewModel($(st "$BLK"),false,\"\",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf(\"report\")")" "-1" \
+  "a staging run's report gives way to the blocked stage it would contradict"
 assert_eq "$(vm '{restartReminder:false}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
   "...and takes it back when that message is switched off"
 assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
@@ -3199,7 +3224,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

@@ -3613,6 +3613,7 @@ _ASSEMBLED_IN_LOGIC = {
     "riskySummaryMore",     # -> riskySummaryOf -> vm.riskyMessage (a count and the family list)
     "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
+    "stageBlocked",         # -> vm.stagedBanner and vm.stagedMessage, behind another updater's restart
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
     "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
