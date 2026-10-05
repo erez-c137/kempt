@@ -2519,7 +2519,7 @@ harvest_offline() {
   # either way, and a check that dies here never runs again.
   local hlog_head="Kempt staged this update and dnf5 installed it during the restart."
   if [[ "$installed_elsewhere" == true ]]; then
-    hlog_head="Kempt staged this update, and another updater installed the same packages during the restart."
+    hlog_head="Kempt staged this update, and another updater installed the same packages."
   fi
   if [[ -n "$hist" ]]; then
     if { printf '%s\n' \
