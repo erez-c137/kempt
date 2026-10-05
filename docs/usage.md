@@ -549,7 +549,8 @@ The wording is fixed, so you can search it:
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
 | `offline stage cannot install (...) - announced` | The staged update can no longer install on a restart. |
 | `offline stage replaced outside Kempt (<what differs>) - announced` | The staged update is no longer the one Kempt made. |
-| `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages on the restart. The history entry says `offline (installed on restart)`. |
+| `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
+| `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
 | `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |
 | `harvest applied (<counts>)` | After a restart, the staged update had installed. |
 | `harvest found the staged transaction did not run (<counts>)` | After a restart, a different transaction had run. The history entry says `restart (staged update did not run)`. |

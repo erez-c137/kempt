@@ -468,13 +468,14 @@ same-boot `download-complete`, which is a stage still being written.
 `offline_staged_state` publishes nothing unless dnf5 says `ready`, so the staged banner disappears
 as soon as the transaction stops being armed.
 
-**Another updater.** Discover's notifier, through PackageKit, can prepare its own restart update.
-It points `/system-update` at that update and leaves dnf5's state at `ready`. dnf5 refuses to run
-behind a symlink that is not its own, so a stage behind one is not armed. The check publishes
-`offline_stage_blocked` in place of `offline_staged` (`offline_stage_blocked_state()`). The restart
-often installs the same packages. `offline_stage_satisfied()` tells: every staged package must be
-installed at exactly its staged version. A newer one does not count. `kempt unstage` refuses while
-that symlink stands, because `dnf5 offline clean` would remove it and cancel the other update.
+**Another updater.** Discover's notifier, through PackageKit, can point `/system-update` at its
+own prepared update, leaving dnf5's state at `ready`. A stage behind that symlink is not armed. The
+check publishes `offline_stage_blocked` in place of `offline_staged`
+(`offline_stage_blocked_state()`). The restart often installs the same packages.
+`offline_stage_satisfied()` tells: each staged package must be installed at its staged version or
+newer, and each staged removal gone. `kempt unstage` refuses while that symlink stands, because
+`dnf5 offline clean` would remove it and cancel the other update. A superseding live run, or an
+empty stage, drops only Kempt's marker there.
 
 ### Which transaction ran
 

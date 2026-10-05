@@ -692,6 +692,31 @@ grep -q 'Nothing to stage, because every pending update is held. The update stag
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .staged_nothing "$ndhist")" "held" "...and the history entry records nothing staged, because of holds"
 
+# ...but not behind another updater's /system-update. dnf5's clean removes that symlink whoever
+# made it, so it would cancel the other updater's restart install; the old transaction cannot
+# install behind it anyway. The clean is skipped and only Kempt's marker goes.
+"$KEMPT" unhold dnf:bash >/dev/null 2>&1
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+nf_pre="$(jq -r .pre_snapshot "$marker")"
+"$KEMPT" hold dnf:bash >/dev/null 2>&1
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+ndrc=0
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.nothing" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || ndrc=$?
+assert_eq "$ndrc" "0" "an empty stage behind another updater's symlink is not a failure"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and the clean that would remove that symlink is never run"
+assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...nor the arm"
+assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot copy" -- test ! -f "$nf_pre"
+grep -q 'offline stage left in place (another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the log says why the stored one stayed" \
+  || { echo "FAIL: no event for the stage left in place"; _fail=1; }
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Nothing to stage, because every pending update is held" \
+  "...and the notification claims no removal"
+
 # ...and when the clean fails, the old transaction still installs, held package included: that is
 # a failed run that names the command, never a success.
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
@@ -1368,6 +1393,27 @@ ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
 comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
 assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom harvest"
 assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" "the entry is the live run, not a mislabelled harvest"
+
+# The same supersede behind another updater's /system-update: dnf5's clean would remove that
+# symlink too, and with it the other updater's restart install. Kempt's stage cannot install
+# behind it anyway, so only the marker goes, and the clean is never run.
+cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+sup_pre="$(jq -r .pre_snapshot "$marker")"
+push_history_back
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+: > "$WORLD/apply-calls"
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
+  "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "a live run behind another updater's symlink never runs the clean that would remove it"
+assert_exit 0 "...while the superseded marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot copy" -- test ! -f "$sup_pre"
+grep -q 'offline marker dropped (superseded by live update, another updater has prepared the next restart)' \
+  "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the log says why only the marker went" \
+  || { echo "FAIL: no event for the marker dropped behind another updater's symlink"; _fail=1; }
 
 # A run that installed no rpm cannot have invalidated anything: the stage stays, and the reboot
 # that applies it is still reported. This is the flatpak-only run, and it is the reason the

@@ -145,15 +145,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget keeps its contents clear of its border in every Plasma style.** Some styles leave
   no room at the edges, and the package names and padlocks touched the border. The header,
   messages, rows and footer now share one inset on both sides.
-- **Updates installed on restart by another updater are no longer called stuck.** When Discover's
-  notifier prepared the same updates Kempt staged, Kempt said the staged update could no longer
-  install. It now checks that every staged package is installed at its staged version. It then
-  records the run as `offline (installed on restart)` and says once that your updates were
-  installed.
+- **Updates another updater installed are no longer called stuck.** When Discover's notifier
+  installed the updates Kempt staged, Kempt said they could no longer install. It now checks that
+  each staged package is installed at its staged version or newer. It then records the run as
+  `offline (installed by another updater)` and says once that your staged updates are installed.
 - **A staged update behind another updater's restart is no longer promised.** When another updater
   has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
   `kempt unstage` waits until after the restart, because discarding would cancel the other update
-  too. Doctor also explains a leftover transaction whose updates are already installed.
+  too. A live update or an empty stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
 - **The widget no longer promises a staged update that another updater has displaced.** When
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as

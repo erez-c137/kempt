@@ -1259,7 +1259,14 @@ reconcile_stage_after_live_run() {
         # clean here would then destroy a Fedora release upgrade to tidy up a stage that dnf5 had
         # already thrown away. The marker is the only thing that is ours, so the marker is what
         # goes; the transaction is left exactly where it is.
-        if ! stored_relup="$(offline_release_upgrade)"; then
+        # ...and never clean behind another updater's /system-update either: dnf5's clean removes
+        # that symlink whoever made it, and with it the other updater's restart install. Our stage
+        # cannot install behind it anyway, so again only the marker goes.
+        local sup_foreign=false
+        [[ "$(offline_link_state)" == other ]] && sup_foreign=true
+        if [[ "$sup_foreign" == true ]]; then
+          :
+        elif ! stored_relup="$(offline_release_upgrade)"; then
           apply_with_retry "$log" priv_apply dnf-offline-clean || sup_clean_rc=$?
           # The helper checks again as root. A release upgrade stored between the check above and
           # the clean is refused there, and then the marker goes exactly as it does above.
@@ -1267,7 +1274,10 @@ reconcile_stage_after_live_run() {
             stored_relup="$(offline_release_upgrade)" || stored_relup=""
           fi
         fi
-        if [[ -n "$stored_relup" ]]; then
+        if [[ "$sup_foreign" == true ]]; then
+          rm -f "$OFFLINE_MARKER" "$mpre"
+          log_event "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
+        elif [[ -n "$stored_relup" ]]; then
           rm -f "$OFFLINE_MARKER" "$mpre"
           log_event "offline marker dropped (a release upgrade ($stored_relup) replaced our stage)"
         elif [[ $sup_clean_rc -eq 0 ]]; then
@@ -1515,8 +1525,25 @@ cmd_update() {
         # stored files untouched - so a real stage is never mistaken for an empty one.
         # The old transaction goes, through the clean the unwinds below already use, and the run
         # ends exactly as an empty stage over nothing does.
-        apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
-        if [[ $clean_rc -eq 0 ]]; then
+        # Behind another updater's /system-update the clean is skipped: it would remove that
+        # symlink too and cancel the other updater's restart install, and the old transaction
+        # cannot install behind it anyway. Only Kempt's marker goes.
+        local nothing_foreign=false
+        if [[ "$(offline_link_state)" == other ]]; then
+          nothing_foreign=true
+        else
+          apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        fi
+        if [[ "$nothing_foreign" == true ]]; then
+          staged_nothing=true
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          if [[ -n "$held_dnf" ]]; then
+            log_event "offline stage found nothing to stage (every pending update is held)"
+          else
+            log_event "offline stage found nothing to stage"
+          fi
+          log_event "offline stage left in place (another updater has prepared the next restart)"
+        elif [[ $clean_rc -eq 0 ]]; then
           staged_nothing=true; stage_discarded=true
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           if [[ -n "$held_dnf" ]]; then
