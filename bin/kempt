@@ -645,10 +645,19 @@ cmd_check() {
      && [[ -n "$scoped" ]]; then
     state="$scoped"
   fi
+  # A stage another updater's symlink stands in front of. Merged in like the blocks below, and
+  # guarded the same way: a failure leaves the state as assembled.
+  local blocked_json merged
+  blocked_json="$(offline_stage_blocked_state 2>/dev/null)" || blocked_json=""
+  if [[ -n "$blocked_json" ]] \
+     && merged="$(jq --argjson b "$blocked_json" '. + {offline_stage_blocked: $b}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
   # say in the check's status. Guarded at every step (set -e, and this runs inside the check lock):
   # a helper, du or jq that fails leaves the state exactly as assembled, never a failed check.
-  local reclaim_json merged
+  local reclaim_json
   reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
   if [[ -n "$reclaim_json" ]] \
      && merged="$(jq --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}' <<<"$state" 2>/dev/null)" \
@@ -1355,6 +1364,7 @@ cmd_update() {
       # and the remedy named is the one that applies to the state it is actually in.
       case "$(offline_release_upgrade_state)" in
         armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart. Staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
+        foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Staging updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
         stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Staging updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
         incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish (dnf5 says \"$(offline_system_status)\"). Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
         *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
@@ -1558,7 +1568,13 @@ cmd_update() {
       # must land in "nothing staged, and the user told" - never "the old one is gone and nothing
       # says so". `dnf5 offline clean` is idempotent, so this is best-effort like the arm's.
       if [[ "$had_stage" == true ]]; then
-        if offline_armed; then
+        if [[ "$(offline_system_status)" == ready && "$(offline_link_state)" == other ]]; then
+          # The same untouched transaction, behind another updater's symlink. The clean below would
+          # remove that symlink too and cancel the other updater's restart install, so nothing is
+          # unwound, and the sentence says what the next restart does.
+          reason_override="could not rebuild the staged update. The previous one is unchanged, but another updater has prepared the next restart, so it will not install then"
+          log_event "offline restage failed (previous stage intact)"
+        elif offline_armed; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
           # leaves the armed one untouched, toml and symlink included. Nothing to unwind, and a
           # clean would throw away a stage the user still counts on. The marker stays.
@@ -1830,6 +1846,15 @@ cmd_update() {
     log_event "run failed rc=$run_rc: $reason"
   fi
 
+  # A stage that worked behind another updater's symlink: dnf5 makes /system-update only when it is
+  # absent, so the arm succeeded and the next restart still installs the other updater's set.
+  local stage_blocked=false
+  if [[ "$surface" == offline && "$status" == ok && "$staged_nothing" != true \
+        && "$(offline_link_state)" == other ]]; then
+    stage_blocked=true
+    log_warn "$log" "warning: another updater has prepared the next restart, so the updates staged here will not install then. See: kempt doctor"
+  fi
+
   # tell the human. Both readers take the entry as a FILE, and on the one path where neither the
   # history nor a temp file could be written there is no file to give them - so they are skipped
   # rather than handed a path that does not exist, which would end the run here on jq's rc. The
@@ -1857,6 +1882,8 @@ cmd_update() {
       # Kempt's record of it, so the promise is kept and the limit stated in the same breath - this
       # is the one notification that has to carry both, because every later surface will be silent.
       notify "Kempt" "Updates are staged and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
+    elif [[ "$stage_blocked" == true ]]; then
+      notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
     elif [[ "$status" == "ok" ]]; then
@@ -2207,10 +2234,12 @@ clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the mar
   log_event "offline marker cleared (stage gone)"
 }
 
-# The restart happened, the package set did not move, and the transaction is still there but is
-# not `ready`: the boot symlink stood over a transaction nothing could apply, so the restart
-# detoured into the offline updater, installed nothing and came back - and no later restart can
-# install it either, because only `dnf5 offline reboot` arms one.
+# The restart happened and the transaction is still stored, but no restart will run it: it is not
+# `ready`, or its symlink is gone or belongs to another updater. harvest_offline calls this from
+# two places. With the package set unchanged, the restart installed nothing. With the set moved,
+# something else changed packages, and the staged ones are not all installed
+# (offline_stage_satisfied), so the stage did not happen by other means either. Either way only
+# `dnf5 offline reboot` can arm it again.
 # The one branch that must NOT CLEAR: the marker is what lets `kempt doctor` say "staged update
 # can never install"; without it that row degrades to "staged outside Kempt".
 # The announce-once key is the marker itself - `armed: false` IS the record that this was said,
@@ -2258,6 +2287,26 @@ reconcile_replaced_stage() {
   return 0
 }
 
+# A run report narrowed to the named packages. Kept whole when there is nothing to narrow by or the
+# filter fails: the identification still stands, only the precision is lost. An empty list is a
+# source not saying what it touched, never a restart that touched nothing. `. as $x` before index(),
+# for the trap mark_held carries the note about. Same trade as the live twin in cmd_update.
+report_keep_names() {  # report-json names → report-json
+  local keep_f filtered
+  if [[ -z "$2" ]]; then printf '%s\n' "$1"; return 0; fi
+  keep_f="$(mktemp)"
+  if printf '%s\n' "$2" > "$keep_f" \
+     && filtered="$(jq -c --rawfile k "$keep_f" '
+                   ($k | split("\n") | map(select(length > 0))) as $keep
+                   | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
+                   <<<"$1" 2>/dev/null)" && [[ -n "$filtered" ]]; then
+    printf '%s\n' "$filtered"
+  else
+    printf '%s\n' "$1"
+  fi
+  rm -f "$keep_f"
+}
+
 harvest_offline() {
   local pre now_snap ts report hist boot toml_status marker
   # ONE defensive read, and nothing below runs without it. Every branch here either clears the
@@ -2299,17 +2348,29 @@ harvest_offline() {
     rm -f "$now_snap"
     if [[ "$toml_status" == absent ]]; then
       clear_gone_stage "$pre" "$marker"
-    elif [[ "$toml_status" != ready ]]; then
+    elif [[ "$toml_status" != ready ]] \
+         || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
       # Present but not armed, across a boot that changed: the detour above. Anything but `ready`
       # counts, including a status this build has never heard of - the only one a restart can
-      # install is the one that made the symlink.
-      reconcile_detour_stage "$marker" "$toml_status"
-    elif [[ -n "$boot" && "$boot" != unknown && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
-      # `ready` and yet no /system-update: arming is TWO things, the status and the symlink, and
-      # systemd removes the symlink once system-update.target is reached
-      # (systemd.offline-updates(7)) - so a boot that came and went leaving `ready` did not run
-      # the transaction, and no later one will either.
-      reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+      # install is the one that made the symlink. So does `ready` with no /system-update of
+      # dnf5's: arming is TWO things, the status and the symlink, and systemd removes the symlink
+      # once system-update.target is reached (systemd.offline-updates(7)) - so a boot that came
+      # and went leaving `ready` did not run the transaction, and no later one will either.
+      if offline_stage_satisfied; then
+        # ...unless every staged package was installed before this restart. The restart changed
+        # nothing, so there is nothing to report: the stage is done, and dnf5's leftover is
+        # doctor's to explain.
+        if offline_marker_still "$marker"; then
+          rm -f "$OFFLINE_MARKER" "$pre"
+          log_event "offline stage installed by another updater (before the restart)"
+        else
+          log_event "offline marker kept (a new stage arrived while the check ran)"
+        fi
+      elif [[ "$toml_status" != ready ]]; then
+        reconcile_detour_stage "$marker" "$toml_status"
+      else
+        reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+      fi
     fi
     return 0
   fi
@@ -2318,21 +2379,34 @@ harvest_offline() {
   # transaction is gone with it: applying one removes all three of the toml, the /system-update
   # symlink and transaction.json. While any of that is still there, something ELSE moved the set,
   # and harvesting would name the other tool's packages and drop a still-armed marker.
+  # ...with one exception: every staged package is now installed at its staged version. Then
+  # another updater installed the same updates on this restart (PackageKit, preparing them behind
+  # dnf5's back, replaces the symlink and leaves dnf5's state at `ready`), and the stage is done.
+  local installed_elsewhere=false
   if [[ "$toml_status" != absent ]]; then
-    rm -f "$now_snap"
     if [[ "$toml_status" != ready ]] \
-       || [[ -n "$boot" && "$boot" != unknown && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
-      reconcile_detour_stage "$marker" "$toml_status"
+       || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
+      if offline_stage_satisfied; then
+        installed_elsewhere=true
+      else
+        rm -f "$now_snap"
+        reconcile_detour_stage "$marker" "$toml_status"
+        return 0
+      fi
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
       # now stale - a later harvest diffs against a set the other tool already moved - which is why
       # that harvest keeps only what dnf5's history says the stage touched, when the history can say.
+      rm -f "$now_snap"
       offline_marker_still "$marker" || return 0   # a newer stage owns the file now
       log_event "harvest deferred: packages moved outside Kempt while the stage is still armed"
       jq -c '. + {set_moved: true}' <<<"$marker" | write_offline_marker \
         || echo "warning: could not record that the package set moved under a staged update" >&2
+      return 0
+    else
+      rm -f "$now_snap"
+      return 0
     fi
-    return 0
   fi
   ts="$(date +%Y%m%dT%H%M%S)"
   report="$(tsv_diff_updates "$pre" "$now_snap")" \
@@ -2344,29 +2418,23 @@ harvest_offline() {
   #   did-not-run  the report stays the whole snapshot diff, and the entry says it is not the stage
   #   cannot tell  the whole snapshot diff under the usual surface
   local attribution="" verdict="" txid="" hsurface="offline (applied on reboot)"
-  if attribution="$(offline_history_attribution "$marker")"; then
+  if [[ "$installed_elsewhere" == true ]]; then
+    # dnf5's history cannot name this one: the run was another updater's, under another command,
+    # from the same starting point. What it can say is settled already, so the report keeps the
+    # packages Kempt staged and the entry says how they arrived.
+    hsurface="offline (installed on restart)"
+    local staged_names=""
+    staged_names="$(offline_txjson_names)" || staged_names=""
+    report="$(report_keep_names "$report" "$staged_names")"
+  elif attribution="$(offline_history_attribution "$marker")"; then
     verdict="${attribution%%$'\n'*}"
   fi
   case "$verdict" in
     "applied "*)
       txid="${verdict#applied }"
-      local keep_f filtered keep=""
+      local keep=""
       if [[ "$attribution" == *$'\n'* ]]; then keep="${attribution#*$'\n'}"; fi
-      # `. as $x` before index(), for the trap mark_held carries the note about. A filter that fails
-      # keeps the whole diff: the identification still stands, only the precision is lost. So does
-      # a filter with nothing in it - an entry naming no packages is dnf5 not saying what it
-      # touched, never a restart that touched nothing. Same trade as the live twin in cmd_update.
-      if [[ -n "$keep" ]]; then
-        keep_f="$(mktemp)"
-        if printf '%s\n' "$keep" > "$keep_f" \
-           && filtered="$(jq -c --rawfile k "$keep_f" '
-                         ($k | split("\n") | map(select(length > 0))) as $keep
-                         | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
-                         <<<"$report" 2>/dev/null)" && [[ -n "$filtered" ]]; then
-          report="$filtered"
-        fi
-        rm -f "$keep_f"
-      fi ;;
+      report="$(report_keep_names "$report" "$keep")" ;;
     did-not-run)
       hsurface="restart (staged update did not run)" ;;
   esac
@@ -2421,9 +2489,13 @@ harvest_offline() {
   # button. If the log cannot be written the entry goes back to log:"" and the popup hides the
   # action again. Never fatal, for the reason written above this block - the marker is cleared
   # either way, and a check that dies here never runs again.
+  local hlog_head="Kempt staged this update and dnf5 installed it during the restart."
+  if [[ "$installed_elsewhere" == true ]]; then
+    hlog_head="Kempt staged this update, and another updater installed the same packages during the restart."
+  fi
   if [[ -n "$hist" ]]; then
     if { printf '%s\n' \
-           "Kempt staged this update and dnf5 installed it during the restart." \
+           "$hlog_head" \
            "Kempt was not running at the time, so this file is Kempt's own record rather than" \
            "captured output: the packages below are the difference between the snapshot taken when" \
            "the transaction was staged and the packages present after the restart." \
@@ -2457,7 +2529,12 @@ harvest_offline() {
   # The only place the reboot's own result is recorded: the run that staged it ended a boot ago. So
   # it is said even when the entry above could not be written - a restart that installed sixty
   # packages must not pass in silence just because there was nowhere to file the details.
-  if [[ "$verdict" == did-not-run ]]; then
+  if [[ "$installed_elsewhere" == true ]]; then
+    # Once: the marker is gone after this. Who installed them is left out, because what the
+    # person asked for is what matters, and the history entry has the packages.
+    log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
+    notify "Kempt" "Your updates were installed on restart."
+  elif [[ "$verdict" == did-not-run ]]; then
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
     log_event "harvest found the staged transaction did not run${harvested:+ ($harvested)}"
@@ -2624,6 +2701,14 @@ cmd_unstage() {
     return 0
   fi
 
+  # `dnf5 offline clean` removes /system-update whoever made it. While another updater's symlink
+  # stands, discarding Kempt's stage would cancel that updater's restart install too, so this waits
+  # for the restart that runs it.
+  if [[ "$(offline_link_state)" == other ]]; then
+    echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. After the restart, run kempt unstage again." >&2
+    log_event "unstage refused (another updater has prepared the next restart)"
+    exit 5
+  fi
   # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
   # one short verb rather than a transaction. A package lock held by something else fails plainly.
   local rc=0
@@ -3363,13 +3448,33 @@ doctor_files_row() {
   fi
 }
 
+# dnf5 still holds a transaction at `ready` whose packages are all installed, with no symlink of
+# its own in front of it: another updater installed the same updates. Nothing will run it again.
+# Advice only. `kempt unstage` removes it, but `dnf5 offline clean` also removes another updater's
+# symlink, so while one stands the advice waits for the restart.
+doctor_stale_done_row() {  # link-state
+  if [[ "$1" == other ]]; then
+    doctor_info "dnf5 still keeps an offline transaction whose updates are already installed. It will not run again. To remove it after the next restart, run: kempt unstage"
+  else
+    doctor_info "dnf5 still keeps an offline transaction whose updates are already installed. It will not run again. To remove it, run: kempt unstage"
+  fi
+}
+
 doctor_offline_rows() {
   # The staged offline transaction, read as TWO facts side by side rather than reconciled - which
   # makes this doctor's line and nobody else's. Every other surface reads them together and
   # publishes one answer, so a marker over a transaction that can never install looks from outside
   # exactly like a pending update. Silent when there is neither, which is most boxes.
-  local dr_toml dr_count dr_marker
+  local dr_toml dr_count dr_marker dr_link dr_done=false
   dr_toml="$(offline_system_status)"
+  # Whose the boot symlink is, and whether what dnf5 holds is already installed. Together they
+  # settle the case where another updater prepared the next restart and installed the same
+  # packages: dnf5 still says `ready`, and no restart will run it.
+  dr_link="$(offline_link_state)"
+  if [[ "$dr_toml" == ready && "$dr_link" != dnf5 ]] && ! offline_release_upgrade >/dev/null \
+     && offline_stage_satisfied; then
+    dr_done=true
+  fi
   # Read the way every other reader reads it - never raw jq, which answers `empty` for a torn file
   # and would fall through to the armed row below. offline_marker_read refuses an empty,
   # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
@@ -3389,18 +3494,24 @@ doctor_offline_rows() {
     dr_count="$(jq -r '.staged // empty' <<<"$dr_marker" 2>/dev/null || true)"
     case "$dr_toml" in
       ready)
+        # Only dnf5's own symlink makes that promise. Without it the rows further down say what
+        # the next restart does instead.
+        if [[ "$dr_link" != dnf5 ]]; then
+          [[ "$dr_done" == true ]] && doctor_stale_done_row "$dr_link"
         # One package is its own sentence, verb included; zero is plural.
-        if [[ "$dr_count" == 1 ]]; then
+        elif [[ "$dr_count" == 1 ]]; then
           doctor_info "staged update: 1 package installs on the next restart"
         elif [[ "$dr_count" =~ ^[0-9]+$ ]]; then
           doctor_info "staged update: $dr_count packages install on the next restart"
         else
           doctor_info "staged update: it installs on the next restart"
         fi
-        # Both only for `ready`: what an unarmed transaction holds, and whether Kempt built it,
-        # are questions about a transaction that is not going to run.
-        doctor_staged_conflict_row
-        doctor_staged_drift_row "$dr_marker" ;;
+        # Both only for an armed stage: what an unarmed transaction holds, and whether Kempt built
+        # it, are questions about a transaction that is not going to run.
+        if [[ "$dr_link" == dnf5 ]]; then
+          doctor_staged_conflict_row
+          doctor_staged_drift_row "$dr_marker"
+        fi ;;
       absent)
         # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it.
         doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
@@ -3432,6 +3543,8 @@ doctor_offline_rows() {
       case "$(offline_release_upgrade_state)" in
         armed)
           doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Kempt will not stage updates over it, because that would cancel it" ;;
+        foreign)
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. Kempt will not stage updates while it is there, because that would cancel it" ;;
         stranded)
           # `ready` with no boot symlink. Its own state, because the other sentences each say
           # something this one disproves: it is not waiting for a restart, and "downloaded but not
@@ -3447,6 +3560,8 @@ doctor_offline_rows() {
         *)
           doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
       esac
+    elif [[ "$dr_done" == true ]]; then
+      doctor_stale_done_row "$dr_link"
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\"). See: dnf5 offline status"
     fi
@@ -3459,13 +3574,25 @@ doctor_offline_rows() {
   # marker - the symlink is the boot's business, the marker is Kempt's.
   # -L is lstat: the symlink itself, never its target. system-update-generator does not resolve it
   # either, so a dangling one detours the boot exactly as a live one does.
-  if [[ -L "$KEMPT_OFFLINE_LINK" && "$dr_toml" != ready ]]; then
+  # Another updater's symlink is that updater's business: PackageKit points it at its own prepared
+  # update, and the restart installs that. What it changes for Kempt is said here, once.
+  if [[ "$dr_link" == other ]]; then
+    local dr_target
+    dr_target="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"
+    if [[ -n "$dr_marker" && "$dr_toml" == ready && "$dr_done" == false ]]; then
+      doctor_info "staged update: another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the update Kempt staged will not install then"
+    elif [[ "$dr_toml" == ready && "$dr_done" == false ]] && ! offline_release_upgrade >/dev/null; then
+      doctor_info "another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the transaction dnf5 holds will not install then"
+    else
+      doctor_info "another updater has prepared the next restart: $KEMPT_OFFLINE_LINK points to $dr_target"
+    fi
+  elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready ]]; then
     if [[ "$dr_toml" == absent ]]; then
       doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
     else
       doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
-  elif [[ "$dr_toml" == ready && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+  elif [[ "$dr_toml" == ready && "$dr_link" == none && "$dr_done" == false ]]; then
     # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
     # transaction and no future one can install it either - see reconcile_detour_stage. Without
     # this row every surface calls it a pending install, forever.

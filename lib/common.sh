@@ -132,10 +132,18 @@ KEMPT_DNF_HISTORY_CMD="${KEMPT_DNF_HISTORY_CMD:-dnf5}"
 # `dnf5 offline reboot` creates it; the toml above only says what the transaction thinks it is, and
 # the two can disagree - a re-stage destroys the old transaction and leaves the symlink standing,
 # which is a boot that detours into the offline updater and installs nothing. Any live dnf5
-# transaction removes it too, leaving the toml at `ready`. Always read with lstat and never a test
-# of the target: the generator does not care whether the
-# target resolves, so neither may we. A seam because a test cannot create /system-update.
+# transaction removes it too, leaving the toml at `ready`. Its presence is read with lstat, never
+# a test of the target: the generator does not care whether the target resolves, so neither may
+# we. Whose it is comes from its text (offline_link_state). A seam because a test cannot create
+# /system-update.
 KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
+# Where dnf5 points that symlink: its offline data directory, the target `dnf5 offline reboot`
+# writes (libdnf5's DEFAULT_DATADIR under the install root). PackageKit points the same symlink at
+# its own prepared update instead, and then the next restart is PackageKit's, not dnf5's.
+KEMPT_OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline}"
+# Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
+# whether a stored transaction's packages are already installed (offline_stage_satisfied).
+KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -1743,14 +1751,15 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # The REFUSAL above deliberately does not ask this - staging over a downloaded transaction destroys
 # it just as thoroughly as over an armed one - but "it installs on the next restart" is false here,
 # and saying it sends somebody to restart a machine that will come back exactly as it was.
-# FOUR states, and they are NOT dnf5's four status words rearranged. Arming is two things -
+# FIVE states, and they are NOT dnf5's four status words rearranged. Arming is two things -
 # `dnf5 offline reboot` writes the status AND creates /system-update - and systemd removes the
-# symlink once system-update.target is reached - so one status word splits into two states, while
+# symlink once system-update.target is reached - so one status word splits into three states, while
 # every word meaning "did not finish" collapses into one. So:
 #
 #   downloaded  status `download-complete`: the packages are on disk and nothing has armed them.
 #               Where `dnf5 system-upgrade download` leaves one, and where a box can sit for days.
-#   armed       `ready` AND the symlink: the next restart installs it.
+#   armed       `ready` AND dnf5's symlink: the next restart installs it.
+#   foreign     `ready`, and the symlink is another updater's: the next restart runs that instead.
 #   stranded    `ready` and NO symlink: a restart has already walked past it, and no later one will
 #               run it either - only re-arming can.
 #   incomplete  any other word, including one this build has never seen: dnf5 recorded a
@@ -1761,9 +1770,18 @@ offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
 # "installs on the next restart" promises something no restart will do. offline_staged_state
 # refuses to publish Kempt's OWN stage in the stranded state for the same reason.
 # lstat, never resolved: system-update-generator does not resolve it either.
-offline_release_upgrade_state() {  # → downloaded | armed | stranded | incomplete
+offline_release_upgrade_state() {  # → downloaded | armed | stranded | foreign | incomplete
   case "$(offline_system_status)" in
-    ready)             [[ -L "$KEMPT_OFFLINE_LINK" ]] && printf 'armed\n' || printf 'stranded\n' ;;
+    # `foreign`: `ready`, with the symlink pointing at another updater's prepared update. That
+    # restart is the other updater's, and dnf5 exits without running anything ("Another offline
+    # transaction tool is running"). A reader that does not know the word treats it as downloaded,
+    # which promises nothing.
+    ready)
+      case "$(offline_link_state)" in
+        dnf5)  printf 'armed\n' ;;
+        other) printf 'foreign\n' ;;
+        *)     printf 'stranded\n' ;;
+      esac ;;
     download-complete) printf 'downloaded\n' ;;
     # download-incomplete, transaction-incomplete, and any word a later dnf5 invents. NOT folded
     # into `downloaded`: "has been downloaded" quoting a status of `download-incomplete` says the
@@ -1781,6 +1799,68 @@ offline_release_upgrade_state() {  # → downloaded | armed | stranded | incompl
 # the status alone: any live dnf5 transaction, run in a terminal outside Kempt, removes
 # /system-update and leaves the toml at `ready`, which is `stranded` - a stage no restart runs.
 offline_armed() { [[ "$(offline_release_upgrade_state)" == armed ]]; }
+
+# Whose the boot symlink is: none, dnf5's (it points at dnf5's offline directory), or another
+# updater's. PackageKit replaces the symlink whenever it prepares an update, while dnf5 only
+# creates one when none is there, so a dnf5 stage can be `ready` behind PackageKit's symlink.
+# The text of the link decides, or the same file reached another way: dnf5's own check before it
+# runs a transaction is std::filesystem::equivalent, which `-ef` mirrors.
+offline_link_state() {  # → none | dnf5 | other
+  [[ -L "$KEMPT_OFFLINE_LINK" ]] || { printf 'none\n'; return 0; }
+  local t
+  t="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null)" || t=""
+  if [[ -n "$t" && "${t%/}" == "${KEMPT_OFFLINE_DATADIR%/}" ]] \
+     || [[ "$KEMPT_OFFLINE_LINK" -ef "$KEMPT_OFFLINE_DATADIR" ]]; then
+    printf 'dnf5\n'
+  else
+    printf 'other\n'
+  fi
+}
+
+# Is every package the stored transaction installs already installed, at the version it names?
+# This tells "another updater installed the same updates" apart from a stage that could not run:
+# PackageKit can prepare the same packages and install them on the restart, leaving dnf5's state
+# at `ready` for a transaction nothing will run.
+# Compared as whole NEVRAs with the epoch written out on both sides (transaction.json leaves out
+# epoch 0), so the architecture counts, and an installonly kernel matches when the staged build is
+# among the ones installed. Anything less is not satisfied: a partial install, a file that does not
+# read, or a newer build installed since. A newer build is not the stage, and Kempt never reports
+# a stage as installed over packages it did not stage.
+offline_stage_satisfied() {  # → 0 when every staged package is installed at its staged version
+  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
+  local sz want have missing
+  sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
+  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
+  # The shape guards of offline_txjson_names: any surprise is an error, and then no answer.
+  want="$(jq -r -n '
+      def norm($n):
+        [ $n | capture("^(?<n>.+)-((?<e>[0-9]+):)?(?<v>[^-:]+)-(?<r>[^-:]+)\\.(?<a>[^.-]+)$") ]
+        | if length != 1 then error("nevra") else .[0] end
+        | "\(.n)-\(.e // "0"):\(.v)-\(.r).\(.a)";
+      ([inputs][0] // error("no document")) as $t
+      | if ($t | type) != "object" then error("not an object") else . end
+      | ($t.version // "1.0") as $v
+      | if ($v | type) != "string" or ($v | startswith("1.") | not) then error("version") else . end
+      | ($t.rpms) as $r
+      | if ($r | type) != "array" then error("rpms") else . end
+      | [ $r[]
+          | if type != "object" then error("entry") else . end
+          | if (.nevra | type) != "string" then error("nevra") else . end ] as $entries
+      | $entries[]
+      | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall"] | index($a) != null)
+      | norm(.nevra)' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
+  [[ -n "$want" ]] || return 1
+  if [[ -n "$KEMPT_RPM_QA_CMD" ]]; then
+    # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
+    # shellcheck disable=SC2086
+    have="$($KEMPT_RPM_QA_CMD 2>/dev/null)" || return 1
+  else
+    have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 1
+  fi
+  [[ -n "$have" ]] || return 1
+  missing="$(LC_ALL=C comm -23 <(LC_ALL=C sort -u <<<"$want") <(LC_ALL=C sort -u <<<"$have"))" || return 1
+  [[ -z "$missing" ]]
+}
 
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
@@ -2049,8 +2129,11 @@ live_history_attribution() {  # before-id command-line → id, then names; rc 1 
       | if ($l | type) != "array" then error("not an array") else . end
       | [ $l[]
           | if type != "object" then error("entry") else . end
+          # null is what dnf5 records for a transaction PackageKit ran: another command, never
+          # the one Kempt ran. Any other type is a shape this build does not know.
           | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
-               or (.command_line | type) != "string" then error("fields") else . end
+               or ((.command_line | type) as $c | $c != "string" and $c != "null")
+            then error("fields") else . end
           | select(.id > $before and .command_line == $cmd) ]
       | (length | tostring), (.[] | .id | tostring)' <<<"$list" 2>/dev/null)" || return 1
   n="${out%%$'\n'*}"
@@ -2101,8 +2184,10 @@ offline_history_attribution() {  # marker-json → verdict, then names; rc 1 = c
       | if ($l | type) != "array" then error("not an array") else . end
       | [ $l[]
           | if type != "object" then error("entry") else . end
+          # A null command_line is a PackageKit transaction: another command, as above.
           | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
-               or (.start_time | type) != "number" or (.command_line | type) != "string"
+               or (.start_time | type) != "number"
+               or ((.command_line | type) as $c | $c != "string" and $c != "null")
             then error("fields") else . end
           | select(.start_time >= $since - 86400) ]
       | (length | tostring), (.[] | "\(.id) \(.command_line == $cmd)")' <<<"$list" 2>/dev/null)" || return 1
@@ -2319,6 +2404,23 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
       holds_conflict: $conflict, names_source: $nsrc}' <<<"$marker"
 }
 
+# Kempt's stage, when it is `ready` but another updater's symlink decides the next restart: that
+# restart runs the other updater, and dnf5 exits without installing Kempt's stage. Published beside
+# offline_staged rather than inside it, because a reader that predates this key reads the
+# presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
+# otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
+# is then done, not blocked) publish nothing.
+offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
+  local marker
+  marker="$(offline_marker_read)"
+  [[ -n "$marker" ]] || return 0
+  [[ "$(offline_release_upgrade_state)" == foreign ]] || return 0
+  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
+  offline_release_upgrade >/dev/null && return 0
+  offline_stage_satisfied && return 0
+  jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker"
+}
+
 # Put what the next restart will install into the state file NOW, without a check.
 #
 # THE PROBLEM IT EXISTS FOR: `offline_staged` is normally computed by a check, and cmd_update ends
@@ -2368,12 +2470,20 @@ publish_staged_state() {
   # `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or
   # holds more than one document (see cmd_check). select yields NOTHING on either, so `out` is
   # empty and the file is left exactly as it was for the check behind us to rewrite properly.
+  # offline_stage_blocked travels with it: a stage just armed behind another updater's symlink
+  # is published as what it is, not as nothing.
+  local blocked
+  blocked="$(offline_stage_blocked_state)" || blocked=""
   if [[ -n "$staged" ]]; then
     out="$(jq -c -n --argjson st "$staged" \
-             '[inputs][0] | select(type == "object") | .offline_staged = $st' \
+             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  elif [[ -n "$blocked" ]]; then
+    out="$(jq -c -n --argjson b "$blocked" \
+             '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   else
-    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged)' \
+    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   fi
   [[ -n "$out" ]] || return 0

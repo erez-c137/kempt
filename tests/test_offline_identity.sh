@@ -447,4 +447,16 @@ live_run
 live_cannot_tell "the history has no entry for an id its own list named"
 mv "$TESTTMP/live-info-10.json" "$TESTTMP/live-info/dnf-history-info-10.json"
 
+
+# A transaction PackageKit ran has no command line, and dnf5 lists it with command_line null. That
+# is another command, not a history of another shape: one such entry must not blind either reader.
+jq '[.[0] | .id = 9 | .command_line = null] + .' "$FIXTURES/dnf-history-list.json" > "$TESTTMP/list-pk.json"
+assert_eq "$(HIST_LIST="$TESTTMP/list-pk.json" bash -c 'source "$1/lib/common.sh"; live_history_attribution 7 "dnf5 upgrade --offline -y --exclude=nano"' _ "$REPO_ROOT" | head -1)" \
+  "8" "an entry with no command line is another command to the live reader"
+mkdir -p "$TESTTMP/info-pk"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/info-pk/"
+jq '.[0].id = 9 | .[0].rpmdb_version_begin = .[0].rpmdb_version_end' "$FIXTURES/dnf-history-info-8.json" \
+  > "$TESTTMP/info-pk/dnf-history-info-9.json"
+HIST_LIST="$TESTTMP/list-pk.json" HIST_INFO="$TESTTMP/info-pk" harvest "$MARKER_REPLACED"
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "8" "...and to the restart's reader"
+
 finish

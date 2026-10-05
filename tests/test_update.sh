@@ -417,6 +417,26 @@ cp "$TESTTMP/marker.before-publish" "$marker"
 cp "$TESTTMP/pre.before-publish" "$pre"
 cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
 
+# A stage made while another updater's symlink stands. dnf5 creates /system-update only when it is
+# absent, so the arm succeeds and the next restart installs the other updater's update. The run
+# must not promise the restart. Borrowed and given back like the section above.
+cp "$marker" "$TESTTMP/marker.before-foreign"
+cp "$pre" "$TESTTMP/pre.before-foreign"
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+: > "$WORLD/notifications"
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/foreign.err" || true
+assert_contains "$(cat "$WORLD/notifications")" "another updater has prepared the next restart, so they will not install then" \
+  "a stage behind another updater's symlink is not promised for the restart"
+assert_not_contains "$(cat "$WORLD/notifications")" "install on the next restart" "...in any words"
+assert_contains "$(cat "$TESTTMP/foreign.err")" "the updates staged here will not install then" "...and the terminal says so too"
+assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
+  "$(jq -r '.staged' "$marker")" "...and the state carries the blocked stage for the widget"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "...not a pending one"
+cp "$TESTTMP/marker.before-foreign" "$marker"
+cp "$TESTTMP/pre.before-foreign" "$pre"
+cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
+
 
 # An arm that fails leaves a transaction that would sit in the offline directory forever, telling
 # every later check and the doctor that an install is pending when nothing will ever apply it. So

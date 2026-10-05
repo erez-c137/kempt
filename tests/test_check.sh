@@ -949,6 +949,114 @@ rm -f "$marker" "$pre"
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"   # armed again: both halves
 
+# --- the stage another updater installed on the restart ------------------------------------------
+# Discover's notifier, through PackageKit, prepares its own restart update: it replaces the
+# /system-update symlink with one pointing at PackageKit's prepared update and leaves dnf5's state
+# at `ready`. The restart then installs PackageKit's set, which is often exactly the set Kempt
+# staged. Before this, Kempt read that as a detour and said "can no longer install" about updates
+# that were installed. The test is the packages themselves: every staged NEVRA installed (epoch 0
+# omitted the way transaction.json omits it), and nothing else counts.
+pk_tx="$TESTTMP/pk-transaction.json"
+cat > "$pk_tx" <<'JSON'
+{"version":"1.0","rpms":[
+ {"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade","reason":"Dependency","repo_id":"updates"},
+ {"nevra":"aardvark-dns-2:1.18.0-1.fc44.x86_64","action":"Upgrade","reason":"User","repo_id":"updates"},
+ {"nevra":"aardvark-dns-2:1.17.1-1.fc44.x86_64","action":"Replaced","reason":"User","repo_id":"@System"},
+ {"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install","reason":"User","repo_id":"updates"}]}
+JSON
+pk_after="$TESTTMP/pk-after.tsv"
+{ sed -e 's/^aardvark-dns\t.*/aardvark-dns\t2:1.18.0-1.fc44/' -e 's/^7zip\t.*/7zip\t26.03-1.fc44/' \
+    "$FIXTURES/rpm-installed.tsv"
+  printf 'librepo\t1.21.0-1.fc44\nkernel-core\t6.20.1-200.fc44\n'; } | LC_ALL=C sort > "$pk_after"
+pk_qa="$TESTTMP/pk-rpm-qa"
+printf '%s\n' librepo-0:1.21.0-1.fc44.x86_64 aardvark-dns-2:1.18.0-1.fc44.x86_64 \
+  kernel-core-0:6.19.3-200.fc44.x86_64 kernel-core-0:6.20.1-200.fc44.x86_64 bash-0:5.3.9-1.fc44.x86_64 > "$pk_qa"
+satisfied() { KEMPT_OFFLINE_TXJSON="$1" KEMPT_RPM_QA_CMD="cat $2" \
+  bash -c 'source "$1/lib/common.sh"; offline_stage_satisfied' _ "$REPO_ROOT"; }
+assert_exit 0 "every staged package installed at its staged version is a stage done" -- satisfied "$pk_tx" "$pk_qa"
+sed 's/^aardvark-dns-2:/aardvark-dns-0:/' "$pk_qa" > "$TESTTMP/pk-qa-epoch"
+assert_exit 1 "...but not at another epoch" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-epoch"
+sed 's/^librepo-0:1.21.0-1.fc44.x86_64/librepo-0:1.21.0-1.fc44.i686/' "$pk_qa" > "$TESTTMP/pk-qa-arch"
+assert_exit 1 "...nor for another architecture" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-arch"
+grep -v '^kernel-core-0:6.20' "$pk_qa" > "$TESTTMP/pk-qa-kernel"
+assert_exit 1 "...nor when the staged kernel is not among the kernels installed" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-kernel"
+sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.1-1/' "$pk_qa" > "$TESTTMP/pk-qa-newer"
+assert_exit 1 "...nor at a newer version: the stage is not what was installed" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-newer"
+: > "$TESTTMP/pk-qa-empty"
+assert_exit 1 "...and an rpm that lists nothing proves nothing" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-empty"
+printf '{"version":"1.0","rpms":[]}\n' > "$TESTTMP/pk-tx-empty.json"
+assert_exit 1 "...nor does a transaction that names nothing" -- satisfied "$TESTTMP/pk-tx-empty.json" "$pk_qa"
+
+# The restart, seen from the check after it: dnf5's state still `ready`, no symlink (systemd removed
+# PackageKit's once the update ran), and the package set moved to include every staged package.
+pk_check() { KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat ${PK_QA:-$pk_qa}" detour_check; }
+export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+rm -rf "$KEMPT_STATE_DIR/history"
+stage_marker boot-before-reboot 3
+before_pk="$(events_since 'offline stage installed by another updater')"
+: > "$notify_log"
+KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+assert_eq "$(cat "$notify_log")" "Kempt Your updates were installed on restart." \
+  "a stage another updater installed on the restart is announced once, as installed"
+assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
+assert_eq "$(events_since 'offline stage installed by another updater')" "$((before_pk + 1))" "...and one event records it"
+pk_hist="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -1)"
+assert_eq "$(jq -r .surface "$pk_hist" 2>/dev/null)" "offline (installed on restart)" "...and the history entry says how it arrived"
+assert_eq "$(jq -r '[.backends.dnf[] | arrays | .[].name] | sort | join(" ")' "$pk_hist" 2>/dev/null)" \
+  "aardvark-dns kernel-core librepo" "...naming the staged packages and not 7zip, which nothing staged"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and nothing is published as pending"
+: > "$notify_log"
+KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+assert_eq "$(cat "$notify_log")" "" "...and the next check says nothing more"
+rm -rf "$KEMPT_STATE_DIR/history"   # the race case further down counts entries from empty
+
+# Not every staged package arrived: the restart installed something else, and the stage is the
+# detour it always was.
+stage_marker boot-before-reboot 3
+: > "$notify_log"
+PK_QA="$TESTTMP/pk-qa-kernel" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+grep -q 'can no longer install' "$notify_log" \
+  && echo "ok: a stage only partly installed elsewhere is still the detour" \
+  || { echo "FAIL: a partly installed stage was not announced as unable to install"; _fail=1; }
+assert_eq "$(jq -r '.armed' "$marker")" "false" "...and its marker is demoted, not consumed"
+rm -f "$marker" "$pre"
+stage_marker boot-before-reboot 3
+: > "$notify_log"
+PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+assert_exit 0 "a newer build installed elsewhere is not called the stage" -- grep -q 'can no longer install' "$notify_log"
+rm -f "$marker" "$pre"
+
+# The doctor, afterwards: dnf5 still keeps the transaction, and says `ready`. One line explains it,
+# and none of the rows that would call it pending or broken.
+doc="$(KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$doc" "dnf5 still keeps an offline transaction whose updates are already installed. It will not run again. To remove it, run: kempt unstage" \
+  "doctor names a transaction whose updates are already installed"
+assert_not_contains "$doc" "staged outside Kempt" "...instead of calling it someone else's stage"
+assert_not_contains "$doc" "can never install" "...or a transaction a restart walked past"
+
+# Another updater's symlink still standing in front of a stage that is not installed: the next
+# restart installs that updater's set. Kempt's stage is not armed, so it is not published as
+# pending, and the widget gets the one fact it needs to say so.
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/pk-system-update"
+export KEMPT_OFFLINE_LINK="$TESTTMP/pk-system-update"
+stage_marker boot-t4 3
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "a stage behind another updater's symlink is not pending"
+assert_eq "$(jq -r '.offline_stage_blocked.count' "$st")" "3" "...and is published as blocked, with its count"
+assert_exit 1 "...so offline_armed says no" -- bash -c 'source "$1/lib/common.sh"; offline_armed' _ "$REPO_ROOT"
+doc="$("$KEMPT" doctor 2>&1 || true)"
+assert_contains "$doc" "staged update: another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to /var/lib/PackageKit/prepared-update), so the update Kempt staged will not install then" \
+  "doctor says what the next restart installs instead"
+assert_not_contains "$doc" "install on the next restart" "...and promises nothing"
+assert_exit 5 "unstage refuses while another updater's symlink stands" -- "$KEMPT" unstage
+assert_exit 0 "...and discards nothing" -- test -f "$marker"
+assert_eq "$(events_since 'unstage refused (another updater has prepared the next restart)')" "1" "...and logs why"
+rm -f "$marker" "$pre"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("offline_stage_blocked")' "$st")" "false" "with no marker, nothing is published as blocked"
+export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
+
 # --- the hold that arrived after the stage, published for every surface --------------------------
 # The trap this closes, in one sequence: stage 83 packages, learn something about the kernel, run
 # `kempt hold dnf:kernel-core`, restart - and kernel-core installs, because dnf5 built that
