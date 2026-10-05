@@ -73,7 +73,7 @@ for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
             'package metadata' \
             'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine'; do
-  grep -E '^(ok|info|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
+  grep -E '^(ok|info|WARN|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done
 assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
@@ -635,7 +635,7 @@ rm -f "$NOGIT/install.sh"
 env KEMPT_POLICY_FILE="$S_POLICY" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/skew.txt")" 'info  install: packaged, so the package manager keeps these files in step' \
   "a packaged install says so"
-grep -qE '^(ok|info|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
+grep -qE '^(ok|info|WARN|FAIL)  (helpers|policy|widget):' "$TESTTMP/skew.txt" \
   && { echo "FAIL: a packaged install still compared against a checkout"; _fail=1; } \
   || echo "ok: ...and skips the comparison entirely"
 
@@ -788,7 +788,7 @@ doctor_out() { "$KEMPT" doctor > "$TESTTMP/staged.txt" 2>&1 || true; }
 # transaction that does not exist is noise on every box that has never staged one.
 rm -f "$D_MARKER"
 KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out   # nothing staged means no symlink either
-grep -qiE '^(ok|info|FAIL)  .*staged' "$TESTTMP/staged.txt" \
+grep -qiE '^(ok|info|WARN|FAIL)  .*staged' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a box with nothing staged still reported on it"; _fail=1; } \
   || echo "ok: no staged transaction, no line about one"
 
@@ -1247,6 +1247,18 @@ printf '[Global]\nUseUnattendedUpdates=false\n' > "$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "the setting turned off is not reported"
 printf '[Other]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "...nor the key in another section"
+# The parser on its own, against the shapes KConfig writes: KDE's `[$i]` lock on the key, the group
+# or the whole file is not part of the name, a bool may be written 1, and the last line wins.
+unatt() { printf "$1" > "$TESTTMP/discover-updates"
+  bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
+assert_exit 0 "a key locked with [\$i] is still the key" -- unatt '[Global]\nUseUnattendedUpdates[$i]=true\n'
+assert_exit 0 "...and so is a key in a locked group" -- unatt '[Global][$i]\nUseUnattendedUpdates=true\n'
+assert_exit 0 "...or in a locked file" -- unatt '[$i]\n[Global]\nUseUnattendedUpdates=true\n'
+assert_exit 0 "1 reads as true" -- unatt '[Global]\nUseUnattendedUpdates=1\n'
+assert_exit 0 "...and so does On, spaces and a CRLF line ending included" -- unatt '[Global]\nUseUnattendedUpdates = On \r\n'
+assert_exit 1 "0 reads as false" -- unatt '[Global]\nUseUnattendedUpdates=0\n'
+assert_exit 1 "the last line wins" -- unatt '[Global]\nUseUnattendedUpdates=true\nUseUnattendedUpdates=false\n'
+assert_exit 1 "a commented line is not the setting" -- unatt '[Global]\n#UseUnattendedUpdates=true\n'
 "$KEMPT" config set surface "$saved_surface"
 export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
 

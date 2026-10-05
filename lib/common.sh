@@ -481,18 +481,24 @@ discover_enabled() {
 
 # → 0 when Discover is set to install updates by itself. Read as text, never with kreadconfig6,
 # which may be absent: section and key matched exactly, the value compared without case, and any
-# file that cannot be read answers no.
+# file that cannot be read answers no. KDE's `[$i]` markers (an administrator's lock, on the key,
+# the group or the whole file) are not part of the name. True, on, yes and 1 count as true, the
+# values KConfig writes or accepts for a bool.
 discover_unattended() {
   [[ -f "$KEMPT_DISCOVER_UPDATES_CONF" && -r "$KEMPT_DISCOVER_UPDATES_CONF" ]] || return 1
   head -c 65536 "$KEMPT_DISCOVER_UPDATES_CONF" 2>/dev/null | awk '
-    /^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]]/, "", sec); next }
+    /^[[:space:]]*\[/ {
+      s = $0; gsub(/[[:space:]]/, "", s); gsub(/\[\$[A-Za-z]+\]/, "", s)
+      if (s != "") sec = s
+      next
+    }
     sec == "[Global]" && index($0, "=") > 0 {
-      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k)
+      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k); gsub(/\[\$[A-Za-z]+\]/, "", k)
       if (k == "UseUnattendedUpdates") {
         v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v); r = tolower(v)
       }
     }
-    END { exit (r == "true" ? 0 : 1) }'
+    END { exit ((r == "true" || r == "on" || r == "yes" || r == "1") ? 0 : 1) }'
 }
 
 discover_running() {
