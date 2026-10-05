@@ -353,7 +353,7 @@ record of the stage only once dnf5 confirms the transaction is gone.
 | 1 | The root helper failed, or dnf5 still has the transaction. Kempt keeps its record. |
 | 2 | Any argument. |
 | 3 | Another update is running. |
-| 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, or the root helper refused. |
+| 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, another updater has prepared the next restart and discarding would cancel that too, or the root helper refused. |
 
 ## reclaim
 
@@ -637,8 +637,8 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem. Every check runs, so one pass shows every problem. The last five
-events follow.
+Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem. One pass shows every
+problem. The last five events follow.
 
 | Exit | When |
 | --- | --- |
