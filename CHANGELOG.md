@@ -402,7 +402,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **An update run says which dnf transaction it was.** A run reads dnf5's own transaction history
   on both sides of the upgrade, and when one new entry ran the command Kempt ran, the run reports
   that transaction's packages rather than everything that changed on the machine while it was
-  going - so an install somebody started in another window is no longer counted as part of your
+  going, so an install somebody started in another window is no longer counted as part of your
   update. Its id is recorded as `transaction_id` in `kempt summary --json`, for `dnf5 history info`.
   Staged updates have been identified this way since 0.1.4; this is the same answer for the runs
   that install right away. When dnf5's history cannot say, the run is reported exactly as before.
@@ -484,7 +484,7 @@ works and is no longer listed in the help.
 - **The session-critical warning says what the packages are, and counts them honestly.** Before a
   live update of packages the running desktop depends on, Kempt lists them one family per row. That
   listing collapses a family to a single row, but the tail counted packages, so six mesa packages
-  read as one name and "... and 5 more" - five risks that did not exist. Each row now carries its own
+  read as one name and "... and 5 more", five risks that did not exist. Each row now carries its own
   count, the tail counts the families it did not show, and every row leads with a plain-language name
   instead of a package name: `graphics drivers (mesa)`, `the Linux kernel (kernel-core)`. The popup
   and the notification use the same words. Names Kempt ships no description for are left exactly as

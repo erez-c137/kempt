@@ -183,6 +183,24 @@ else
   done < <(printf '%s\n' "${!WORD_BUDGET[@]}" | sort)
 fi
 
+# CHANGELOG.md and the man page are NOT run through tools/prose-check.py, on purpose. The changelog
+# is a record of what changed, so the history words the check flags ("no longer", "an earlier
+# version") are its job, and it is 15,000 words of past releases; the man page is roff, which the
+# Markdown reader mistakes for 33-word sentences. They get the dash rules below instead, and the
+# man page its word budget.
+# Customer-facing text: no em dash, and no " - " aside (rephrase or use a comma). Headings
+# ("## [0.1.8] - Unreleased") and the two quoted messages the program prints with that dash stay.
+# The man page spells dashes as roff escapes too: \(em, \(en, \[em], \[en], and \- between spaces as an
+# aside. Its NAME line ("kempt \- ...") needs that escape, so it is excluded by content.
+MAN="${MAN_PAGE:-$REPO_ROOT/docs/man/kempt.1}"
+roff_dash='\\\((em|en)|\\\[(em|en)\]| \\- '
+dashes="$(grep -nE '—|–' "$REPO_ROOT/CHANGELOG.md" "$MAN" | cut -d: -f1,2 | tr '\n' ' ' || true)"
+dashes+="$(grep -nE "$roff_dash" "$MAN" | grep -vE '^[0-9]+:kempt \\- ' | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
+asides="$(grep -nE ' - ' "$REPO_ROOT/CHANGELOG.md" | grep -vE '^[0-9]+:## \[|Nothing to stage - |Updates staged - they' | cut -d: -f1 | tr '\n' ' ' || true)"
+asides+="$(grep -nE ' - ' "$MAN" | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
+assert_eq "${dashes% }" "" "CHANGELOG.md and the man page have no em or en dash"
+assert_eq "${asides% }" "" "CHANGELOG.md and the man page have no ' - ' aside (line numbers)"
+
 MAN_BUDGET=2300
 man_words="$(sed -E 's/^\.[A-Za-z]+ ?//; s/\\f[BIRP]//g; s/\\[-c]//g' "$REPO_ROOT/docs/man/kempt.1" | wc -w)"
 if (( man_words > MAN_BUDGET )); then
