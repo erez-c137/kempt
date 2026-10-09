@@ -3426,8 +3426,9 @@ doctor_other_updater_row() {
   # Discover installing updates by itself, while its notifier is there to do it. Its prepared
   # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
   # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
-  if { discover_entry_starts "$entry" || discover_running; } && discover_unattended; then
-    local unattended="Discover is set to install updates by itself on restart ($KEMPT_DISCOVER_UPDATES_CONF). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
+  local decided
+  if { discover_entry_starts "$entry" || discover_running; } && decided="$(discover_unattended)"; then
+    local unattended="Discover is set to install updates by itself on restart ($decided). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
     if [[ "$(config_get surface)" == offline ]]; then
       doctor_warn "$unattended"
     else
