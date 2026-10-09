@@ -69,9 +69,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   leaves the footer while the question is open. Before, it started them straight away.
   `auto_accept=false` still sends every run to the terminal.
 - **With updates set to run on the next restart, the footer button reads Install on Next
-  Restart.** Before, it read **Update Now**, which sounds like installing right away. Its tooltip,
-  and the one on the restart choice, now say that system updates install during the restart and
-  Flatpak apps update now.
+  Restart.** Before, it read **Update Now**, which sounds like installing right away. It does so
+  with "ask before applying" on as well, since that run stages too. With only Flatpak apps pending,
+  or every system update held, nothing stages and it still reads **Update Now**. Its tooltip, and
+  the one on the restart choice, say that system updates install during the restart. They add that
+  Flatpak apps update now only when some are waiting.
 - **A staging run says what it staged.** `kempt history` and `kempt summary` read "78 updates
   staged for the next restart" where they said "no package changes" and "0 updated". The history
   entry carries the count as `staged`. Older entries read the same, without the number.
