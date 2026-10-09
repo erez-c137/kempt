@@ -31,6 +31,9 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .RB [ \-y ]
 .RB [ \-\-expect=\fIdigest\fR ]
 .br
+.B kempt status
+.RB [ \-\-json ]
+.br
 .B kempt summary
 .RI [ N ]
 .br
@@ -200,6 +203,13 @@ and no terminal to ask at. Exit 6: the list is not the set you were shown, or pa
 unused less than an hour ago. Exit 1: Flatpak failed, possibly after removing some. Run
 .B "kempt reclaim \-\-list"
 to see what is left.
+.TP
+.BR status " [" \-\-json ]
+Say what the last check found: the count, each section with its first names, held, security and
+staged updates, a restart owed, when the check ran and the last update. It only reads, so it
+answers during a check or an update.
+.B \-\-json
+prints the saved state instead. Exit 1: no state, an unreadable one, or a failed last check.
 .TP
 .BR summary " [" \c
 .IR N ]

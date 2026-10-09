@@ -9,6 +9,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`kempt status`** says in words what the last check found, and writes nothing.
 - **Security updates can announce themselves.** Turn on **Security updates** in the widget's
   settings, or run `kempt config set notify_security true`. Each new set of system security
   updates then gets one notification, and the panel icon asks for attention until you open the
