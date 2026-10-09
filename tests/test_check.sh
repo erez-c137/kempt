@@ -113,6 +113,28 @@ assert_eq "$(jq -r .last_success <<<"$state4")" "$(jq -r .last_success <<<"$stat
 assert_eq "$(jq -r '.last_success != null' <<<"$state4")" "true" "preserved last_success is non-null"
 assert_eq "$(jq -r '.error | startswith("dnf check failed")' <<<"$state4")" "true" "stale error names the failing backend"
 
+# Both check errors go through the same redactor as the refresh error before they reach the state.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+echo "Failed to download https://bob:p@ss@w0rd@repohost:8080/aBcD1234eFgH5678iJkL/x?token=SECRET1 for $HOME/.cache/x" >&2
+exit 1
+STUB
+state_red="$("$KEMPT" check)"
+assert_contains "$(jq -r .error <<<"$state_red")" "dnf check failed: Failed to download https://repohost:8080/***/x for ~/.cache/x" \
+  "the dnf check error loses credentials, path tokens, the query and the home path"
+printf '#!/usr/bin/env bash\necho "error: While fetching https://u:pw@dlhost/repo/summary#t0ken: refused" >&2\nexit 1\n' \
+  > "$TESTTMP/fp-fail-red"; chmod +x "$TESTTMP/fp-fail-red"
+"$KEMPT" config set include_flatpak true
+state_red="$(KEMPT_FLATPAK_REMOTE_CMD="$TESTTMP/fp-fail-red" "$KEMPT" check)"
+"$KEMPT" config set include_flatpak false
+assert_contains "$(jq -r .error <<<"$state_red")" "flatpak check failed: error: While fetching https://dlhost/repo/summary refused" \
+  "...and so does the flatpak check error"
+assert_not_contains "$(jq -r .error <<<"$state_red")" "pw@" "...with nothing of the password left"
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+
 # --strict: the same failed check exits 1 for a script, and still prints and writes the state.
 # Without it the exit code stays 0, as the widget expects.
 assert_exit 0 "a failed check without --strict exits 0" "$KEMPT" check
@@ -306,8 +328,8 @@ STUB
   assert_eq "$(rel "$long https://h/r/repomd.xml?token=SECRETTOKEN123 [404]\n>>> Status code: 404 for https://h/r?token=SECRETTOKEN123\n")" \
     "Status code: 404 for https://h/r" "with no error line, dnf's >>> status line is used, without its query"
   pad="$(printf 'z%.0s' {1..176})"  # puts the 200-byte cut at "n=SECRETTOKEN123"
-  assert_eq "$(rel "$long https://h/r?token=SECRETTOKEN123 [404] $pad\n")" "[404] $pad" \
-    "a cut tail loses its first word, so a query cut in half does not survive"
+  assert_eq "$(rel "$long https://h/r?token=SECRETTOKEN123 [404] $pad\n")" "https://h/r [404] $pad" \
+    "the query is removed before the tail is cut, and a word the cut splits is dropped"
   assert_eq "$(rel "$(printf 'y%.0s' {1..190})https://user:pw@h/r [404]\n")" "[404]" \
     "...nor credentials cut in half"
   assert_eq "$(rel "fetch: https://h/r?token=abc\"def&k=SECRET2 [x]\n")" "fetch: https://h/r [x]" \
@@ -318,6 +340,34 @@ STUB
     "the line is at most 200 bytes and ends on a whole character"
   assert_eq "$(rel "" 124)|$(rel "  \n" 2)" "dnf makecache timed out|dnf makecache exited with status 2" \
     "a refresh that printed nothing is named by how it ended"
+
+  # The redactor itself, with the inputs that defeat a simple pattern.
+  red() { printf '%b' "$1" | redact_error_text; }
+  assert_eq "$(red 'GET https://bob:p@ss@w0rd@hosta/r failed')" "GET https://hosta/r failed" \
+    "a password holding @ is removed up to the last @ before the host"
+  assert_eq "$(red 'GET https://:tok@h/r and ftp://anon@h/r')" "GET https://h/r and ftp://h/r" \
+    "...an empty user or a user alone too"
+  assert_eq "$(red 'at https://h/r/x9F3kQ7mZ2pL8vB4nC6d/repodata/repomd.xml')" "at https://h/r/***/repodata/repomd.xml" \
+    "a token in a URL path is removed"
+  assert_eq "$(red 'at https://h/tkn-ab12CD34ef56GH78ij90/r')" "at https://h/tkn-***/r" "...after a prefix too"
+  assert_eq "$(red 'at https://h/550e8400-e29b-41d4-a716-446655440000/r')" "at https://h/***/r" "...and a UUID"
+  assert_eq "$(red 'at https://h/fedora-cisco-openh264/44/x86_64/os/')" "at https://h/fedora-cisco-openh264/44/x86_64/os/" \
+    "...while ordinary path words stay"
+  assert_eq "$(red 'at https://h/r#access_token=abc and https://h/r?a=1#b [x]')" "at https://h/r and https://h/r [x]" \
+    "a fragment is removed, and the bracket after it stays"
+  assert_eq "$(red 'cut tail: ss@host/r and u:p@ss@h2')" "cut tail: ss@host/r and h2" \
+    "a bare user:password@ is removed, @ in the password included"
+  assert_eq "$(HOME=/home/ann red 'in /home/ann/.cache, /home/ann and /home/anne/x')" "in ~/.cache, ~ and /home/anne/x" \
+    "the home directory becomes ~, and only as a whole path"
+  assert_eq "$(HOME=/ red 'in /etc/x')" "in /etc/x" "...and a home of / changes nothing"
+  assert_eq "$(red 'Is it? Yes.\r\nNext line')" "Is it? Yes. Next line" "a question mark in prose stays, and lines join"
+  assert_eq "$(red 'see HTTPS://U:P@H/x?y and git+ssh://me:pw@h:22/r')" "see HTTPS://H/x and git+ssh://h:22/r" \
+    "any scheme, in any case"
+  tail_f="$TESTTMP/tail.err"
+  { printf 'z%.0s' {1..5000}; printf ' https://user:p@ss@h/r?token=SECRET9 [404]\n'; } > "$tail_f"
+  assert_eq "$(stderr_tail "$tail_f")" "https://h/r [404]" "a long stderr is redacted before its last 200 bytes are taken"
+  { printf 'https://user:secret%.0s' {1..300}; printf '@h/r [404]\n'; } > "$tail_f"
+  assert_not_contains "$(stderr_tail "$tail_f")" "secret" "...so a credential longer than the window does not leak"
 
   # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
   rm -f "$LAST_REFRESH_FILE"

@@ -195,7 +195,7 @@ cope with that.
 | `last_check` | ISO 8601 with offset | When this check ran, successful or not. |
 | `last_success` | ISO 8601, or `null` | When a check last succeeded. `null` until the first success. Kept at its old value while `status` is `stale`. |
 | `status` | `"ok"` or `"stale"` | `stale` means at least one backend failed and its previous items were reused. |
-| `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. |
+| `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. Each ends with at most 200 bytes of the tool's output, redacted as for `refresh_error`. |
 | `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
@@ -205,7 +205,7 @@ cope with that.
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every runtime. **A runtime's identity is its `name` and `branch` together.** Anything that keys items by name must key on the pair where this is present. Additive. |
 | `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name. **Absent means unknown, never zero.** Additive. |
 | `backends.flatpak.scopes` | object, optional | Only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. See [below](#flatpak-scopes). Additive. |
-| `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes, with any `user:password@` and any query string removed. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
+| `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes. URL credentials, queries, fragments and token-shaped path parts are removed, and your home directory is written as `~`. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item has a `size_bytes`**. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |

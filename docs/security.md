@@ -244,7 +244,8 @@ run outcomes, and the exit status of each `enable-passwordless` or `disable-pass
 
 It holds no password, token, polkit cookie or other credential. Kempt handles none: polkit does
 all authentication, and the CLI sees only an exit status. It copies no command output either. A
-failed run adds one line, at most 120 characters, taken from its own log file.
+failed run adds one line, at most 120 characters, taken from its own log file. URL credentials,
+queries and token-shaped path parts are removed from it first, and your home directory becomes `~`.
 
 The config line, `config set <key>=<value> (was <old>)`, records values, so pasting `kempt log`
 output into a bug report pastes your settings.

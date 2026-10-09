@@ -1089,13 +1089,84 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
   fi
 }
 
-# The tail of a captured stderr file, flattened to one line for a JSON string or a warning, in one
-# place because all three callers need the same pipeline. The trailing `sed` is not cosmetic:
-# `tr '\n' ' '` turns the file's final newline into a SPACE, and command substitution strips
-# newlines but not spaces, so without it every error ends in one - inside state.json's `error`,
-# for every reader to render.
-stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing space
-  tail -c 200 "$1" | tr '\n' ' ' | sed 's/ *$//'
+# The one redactor for text a tool printed that Kempt then shows or keeps: state.json's errors, the
+# notification, the history entry and the event log. A password may hold an unencoded "@", so a
+# URL loses everything up to the LAST "@" before its host. It also loses its query, its #fragment
+# and any path part shaped like a token (16 or more letters and digits with a digit among them, or
+# a UUID). A bare user:password@ and any ?query outside a URL go too, and $HOME is written as ~.
+# One line out, with no length cap: each caller cuts the result to its own limit.
+redact_error_text() {  # stdin → one line
+  LC_ALL=C awk '
+    function path(p,   o, seg) {
+      gsub(/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/, "***", p)
+      o = ""
+      while (match(p, /[A-Za-z0-9]+/)) {
+        seg = substr(p, RSTART, RLENGTH)
+        if (RLENGTH >= 16 && seg ~ /[0-9]/) seg = "***"
+        o = o substr(p, 1, RSTART - 1) seg
+        p = substr(p, RSTART + RLENGTH)
+      }
+      return o p
+    }
+    function url(u,   auth, rest, i, q, tail) {
+      if (match(u, /[\/?#]/)) { auth = substr(u, 1, RSTART - 1); rest = substr(u, RSTART) }
+      else { auth = u; rest = "" }
+      for (i = length(auth); i > 0; i--) if (substr(auth, i, 1) == "@") { auth = substr(auth, i + 1); break }
+      tail = ""
+      if (match(rest, /[?#]/)) {
+        q = substr(rest, RSTART); rest = substr(rest, 1, RSTART - 1)
+        if (match(q, /\]/)) tail = substr(q, RSTART)
+      }
+      return auth path(rest) tail
+    }
+    { gsub(/\r/, ""); buf = (NR == 1 ? $0 : buf " " $0) }
+    END {
+      s = buf; home = ENVIRON["HOME"]; sub(/\/+$/, "", home)
+      if (home != "") {
+        o = ""
+        while ((i = index(s, home)) > 0) {
+          c = substr(s, i + length(home), 1)
+          if (c == "" || c !~ /[A-Za-z0-9._-]/) o = o substr(s, 1, i - 1) "~"
+          else o = o substr(s, 1, i - 1 + length(home))
+          s = substr(s, i + length(home))
+        }
+        s = o s
+      }
+      o = ""
+      while (match(s, /[A-Za-z][A-Za-z0-9+.-]*:\/\//)) {
+        o = o substr(s, 1, RSTART + RLENGTH - 1); s = substr(s, RSTART + RLENGTH)
+        if (match(s, /[ \t]/)) { u = substr(s, 1, RSTART - 1); s = substr(s, RSTART) } else { u = s; s = "" }
+        o = o url(u)
+      }
+      s = o s
+      gsub(/[^\/@ \t]+:[^\/ \t]*@/, "", s)
+      gsub(/\?[^] \t]+/, "", s)
+      sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+      print s
+    }'
+}
+
+# One line cut to at most N bytes, on a character boundary.
+cap_bytes() {  # N; stdin → stdout
+  LC_ALL=C cut -b1-"$1" | LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
+}
+
+# The end of a captured stderr file as one redacted line of at most 200 bytes, for state.json or a
+# warning. The redaction runs before the cut, so a cut can never land inside a credential. A cut
+# that lands inside a word drops that word.
+stderr_tail() {  # file → one line
+  local n
+  n="$(wc -c < "$1" 2>/dev/null)" || n=0
+  tail -c 4096 "$1" 2>/dev/null \
+    | { if (( n > 4096 )); then sed -E '1s/^[^[:space:]]*//'; else cat; fi; } \
+    | redact_error_text \
+    | LC_ALL=C awk '{
+        s = $0
+        if (length(s) > 200) {
+          c = substr(s, length(s) - 200, 1); s = substr(s, length(s) - 199)
+          if (c != " ") { i = index(s, " "); s = i ? substr(s, i + 1) : "" }
+        }
+        sub(/^ +/, "", s); sub(/ +$/, "", s); print s }'
 }
 
 # A stderr tail from a privileged call, turned into something a human can act on. `timeout` reports
@@ -1164,15 +1235,15 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # first line: a package manager's log opens with repository chatter, and reporting "Updating
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
 # where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
-# heading is never the reason). Indentation stripped and capped at 120 characters, because this ends
-# up in a notification body.
+# heading is never the reason). Redacted, and capped at 120 characters, because this ends up in a
+# notification body.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
   [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
-  line="$(friendly_error "$line")"
+  line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
 }
 notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
@@ -1617,29 +1688,23 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
 
 # One line of a failed dnf refresh, for state.json. The first line naming an error (librepo's
 # "Curl error (6): ..." says what went wrong), else dnf5's first ">>> " status line (it carries an
-# HTTP status), else the tail, which loses its first word when the cut may have split it: a tail
-# starting inside a URL would start inside its credentials. Any "scheme://user:pass@", or any
-# "user:pass@" at all, is removed, and so is any query string up to a space or "]", which is where a
-# private repo keeps its token. A refresh that printed nothing is named by its exit status (124 is
-# `timeout`). At most 200 bytes, cut on a character boundary.
+# HTTP status), else the end of the output. Each goes through redact_error_text. A refresh that
+# printed nothing is named by its exit status (124 is `timeout`). At most 200 bytes.
 refresh_error_line() {  # stderr file, exit status → one line
   local line
-  line="$(grep -m1 -i 'error' "$1" 2>/dev/null | tr -d '\r')" || line=""
-  [[ -n "$line" ]] || line="$(grep -m1 '^>>> ' "$1" 2>/dev/null | tr -d '\r')" || line=""
-  if [[ -z "$line" ]]; then
-    line="$(stderr_tail "$1" | tr -d '\r')"
-    if (( $(wc -c < "$1") > 200 )); then
-      if [[ "$line" == *' '* ]]; then line="${line#* }"; else line=""; fi
-    fi
+  line="$(grep -m1 -i 'error' "$1" 2>/dev/null)" || line=""
+  [[ -n "$line" ]] || line="$(grep -m1 '^>>> ' "$1" 2>/dev/null)" || line=""
+  if [[ -n "$line" ]]; then
+    line="$(printf '%s\n' "$line" | redact_error_text)"
+  else
+    line="$(stderr_tail "$1")"
   fi
-  line="$(printf '%s\n' "$line" \
-    | sed -E 's#(://)[^/@[:space:]]*@#\1#g; s#[^/@[:space:]]+:[^/@[:space:]]*@##g; s#\?[^][:space:]]*##g; s/^[[:space:]>]+//; s/[[:space:]]+$//')"
+  line="$(printf '%s\n' "$line" | sed -E 's/^[[:space:]>]+//; s/[[:space:]]+$//')"
   if [[ -z "$line" ]]; then
     if [[ "$2" == 124 ]]; then line="dnf makecache timed out"
     else line="dnf makecache exited with status $2"; fi
   fi
-  printf '%s\n' "$line" | LC_ALL=C cut -b1-200 \
-    | LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
+  printf '%s\n' "$line" | cap_bytes 200
 }
 
 on_battery() {
