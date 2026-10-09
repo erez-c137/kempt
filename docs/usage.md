@@ -11,6 +11,7 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt run`](#run) | Starts an update where your settings say and returns at once |
 | [`kempt unstage`](#unstage) | Discards the update staged for the next restart |
 | [`kempt reclaim`](#reclaim) | Removes the Flatpak runtimes no installed app uses |
+| [`kempt status`](#status) | Says what the last check found, in words |
 | [`kempt summary`, `kempt history`](#summary-and-history) | Shows one past run, or lists them all |
 | [`kempt log`](#log) | Shows what Kempt did, when, and whether the widget did it |
 | [`kempt doctor`](#doctor) | Checks this install and names anything broken |
@@ -25,7 +26,7 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 
 ```bash
 # Morning: what is waiting?
-kempt check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
+kempt status
 
 # Never update this one:
 kempt hold dnf:nvidia-driver
@@ -417,6 +418,35 @@ terminal. A removal writes an event line and no history entry.
 | 3 | Another update is running. |
 | 5 | Nothing removed: run as root, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
 | 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
+
+## status
+
+```
+kempt status [--json]
+```
+
+Says what the last check found, as the widget's header does: how many updates wait, each section
+with its first few names, what is held, security updates, a staged update and a restart owed. The
+footer says when the check ran and how old the package lists were, then the last update.
+
+```
+10 updates available
+
+System (dnf): 7 updates for kernel-core, bash, curl, tar, and 3 more
+Apps (flatpak): 3 updates for org.gimp.GIMP, net.mkiol.SpeechNote and org.mozilla.firefox
+
+Checked 2 hours ago · lists 2 days old
+Last update 3 days ago · 41 updated
+```
+
+It never runs a check, takes no lock and writes nothing, so it answers during a check or an
+update. While an update, a reclaim or an unstage runs, it says Kempt is changing the system.
+`kempt check` refreshes what it reads.
+
+`--json` prints the saved state, the same document `kempt check` prints. With no state it prints
+nothing and exits 1. Otherwise it exits 0.
+
+Without `--json`, exit 1 means there is no state, it cannot be read, or the last check failed.
 
 ## summary and history
 

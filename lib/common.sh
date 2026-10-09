@@ -3354,13 +3354,15 @@ history_phrase() {  # history-json-file → one phrase
 # only place the marker and dnf5's status have already been reconciled.
 # The count can legitimately be unknown (a marker written before the field existed), and the
 # sentence drops the figure rather than printing "null" or guessing a number.
-staged_summary_line() {  # → one line, or nothing
+# The argument lets a caller that has already read the state hand over that same copy (kempt status
+# passes /dev/stdin), so one command never answers from two different reads.
+staged_summary_line() {  # [state file, the published one by default] → one line, or nothing
   local s
   # The "staged:" prefix is what separates "no staged transaction" from "a staged transaction with
   # no count": both would otherwise reach the caller as an empty string.
   s="$(jq -r -n '[inputs][0].offline_staged? // empty
                  | select(type == "object")
-                 | "staged:" + ((.count // "") | tostring)' "$STATE_FILE" 2>/dev/null || true)"
+                 | "staged:" + ((.count // "") | tostring)' "${1:-$STATE_FILE}" 2>/dev/null || true)"
   [[ "$s" == staged:* ]] || return 0
   local n="${s#staged:}"
   # `== 1`, not `<= 1`: zero is plural in English ("0 updates install"). Same singular/plural rule
@@ -3494,3 +3496,177 @@ render_summary() {  # history-json-file → human text
     (if .reboot_needed then "Restart needed" else empty end)
   ' "$1"
 }
+
+# --- kempt status: the widget's header, read from the published state ---------------------------
+# The widget derives what it shows in plasmoid/contents/ui/logic.js, and a terminal over SSH has no
+# JavaScript to run it with. So the few rules `kempt status` needs are ported here, and
+# tests/test_status.sh holds the two copies together: for each fixture and a fixed clock, the header
+# and the numbers must match what logic.js derives, and every string below that mirrors a COPY entry
+# must equal it. Only those rules: the rest of status is this side's own wording.
+# NO APOSTROPHES IN HERE: these jq programs are single-quoted bash strings, and one closes them.
+
+# Time words, as logic.js says them (formatStamp, relativeTime, metadataAgeText). $now is in whole
+# seconds, so the minute and hour buckets fall where the widget's millisecond ones do.
+# shellcheck disable=SC2034,SC2016  # a jq program, read by cmd_status in bin/kempt
+KEMPT_JQ_TIME='
+  def line0: split("\n")[0] | sub("^\\s+"; "") | sub("\\s+$"; "");
+  def fmt_stamp:
+    if type != "string" then "never" else line0 as $s
+    | if $s == "" then "never" else
+        ([$s | capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})T(?<t>[0-9]{2}:[0-9]{2})")] | .[0]) as $m
+        | if $m == null then $s else
+            ([$s | capture("(?<z>Z|[+-][0-9]{2}:?[0-9]{2})$")] | .[0]) as $z
+            | $m.d + " " + $m.t
+              + (if $z == null then "" elif $z.z == "Z" then " +00:00"
+                 else " " + $z.z[0:3] + ":" + $z.z[-2:] end)
+          end
+      end
+    end;
+  def renderable_stamp: type == "string" and (line0 | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}"));
+  def stamp_s:
+    if type != "string" then null else
+      ([line0 | capture("^(?<y>[0-9]{4})-(?<mo>[0-9]{2})-(?<d>[0-9]{2})T(?<h>[0-9]{2}):(?<mi>[0-9]{2}):(?<s>[0-9]{2})(?:\\.[0-9]+)?(?<z>Z|[+-][0-9]{2}:?[0-9]{2})?$")]
+       | .[0]) as $m
+      | if $m == null then null else
+          ($m.mo | tonumber) as $mo | ($m.d | tonumber) as $d | ($m.h | tonumber) as $h
+          | ($m.mi | tonumber) as $mi | ($m.s | tonumber) as $sec
+          | if $mo < 1 or $mo > 12 or $d < 1 or $d > 31 or $h > 23 or $mi > 59 or $sec > 60 then null
+            else
+              (if $m.z == null or $m.z == "Z" then 0
+               else ($m.z[1:] | gsub(":"; "")) as $dg
+                    | (($dg[0:2] | tonumber) * 60 + ($dg[2:] | tonumber)) * 60
+                      * (if $m.z[0:1] == "-" then -1 else 1 end) end) as $off
+              | ([($m.y | tonumber), $mo - 1, $d, $h, $mi, $sec, 0, 0] | mktime) - $off
+            end
+        end
+    end;
+  def rel_time($now):
+    (stamp_s) as $at
+    | if $at == null or ($now | type) != "number" then fmt_stamp else ($now - $at) as $age
+      | if $age < 0 then fmt_stamp
+        elif $age < 60 then "just now"
+        elif $age < 3600 then ($age / 60 | floor) as $n | (if $n == 1 then "1 min ago" else "\($n) min ago" end)
+        elif $age < 86400 then ($age / 3600 | floor) as $n | (if $n == 1 then "1 hour ago" else "\($n) hours ago" end)
+        elif ($age / 86400 | floor) <= 7 then ($age / 86400 | floor) as $n
+             | (if $n == 1 then "1 day ago" else "\($n) days ago" end)
+        else fmt_stamp end
+      end;
+  def meta_age($now):
+    (stamp_s) as $at
+    | if $at == null or ($now | type) != "number" or ($now - $at) < 86400 then ""
+      else (($now - $at) / 86400 | floor) as $n
+           | "lists \($n) " + (if $n == 1 then "day old" else "days old" end) end;
+'
+
+# The status facts from one state document. Input: the document, or null when there is none.
+# Output: records of TAG, a unit separator and a value, one per line, which cmd_status turns into
+# lines (names_phrase and staged_summary_line are shell, so the joining happens there).
+#   H header   P problem detail   S section title, US, count   N a name in that section
+#   L held count   M a held name   C security count   G staged   R restart owed   F footer   X exit
+# shellcheck disable=SC2034,SC2016  # a jq program, read by cmd_status in bin/kempt
+KEMPT_JQ_STATUS='
+  def status_copy: {
+    upToDate: "Up to date",
+    held: "held",
+    userAppsUncheckedShort: "apps for you only not checked",
+    stagedHeaderOne: "1 update staged for the next restart",
+    stagedHeaderTail: "updates staged for the next restart",
+    stagedHeaderUnknown: "Updates staged for the next restart",
+    restartMessage: "Restart to apply installed updates",
+    noSuccessfulCheckYet: "No successful check yet",
+    lastCheckFailed: "last check failed"
+  };
+  def section_titles: {dnf: "System (dnf)", flatpak: "Apps (flatpak)"};
+  def kind_titles: {flatpak: {runtime: "Flatpak runtimes"}};
+  def dot: " · ";
+  def truthy: . != null and . != false and . != 0 and . != "";
+  def clean: tostring | gsub("[[:cntrl:]]"; " ");
+  def first_line:
+    if type == "string" then ([split("\n")[] | sub("^\\s+"; "") | sub("\\s+$"; "") | select(. != "")] | .[0] // "")
+    else "" end;
+  def usable_state:
+    type == "object"
+    and (if (.schema | type) == "number" and .schema != 1 then false
+         else (.actionable | type) == "number" or ((.backends | type) == "object" or (.backends | type) == "array") end);
+  def kind_of: if .kind == null then "" else (.kind | tostring) end;
+  # A runtime is keyed id/branch; people read "id branch", as kempt summary prints it.
+  def dispname: tostring | split("/") as $p
+                | if ($p | length) > 1 then (($p[0:-1] | join("/")) + " " + $p[-1]) else . end;
+  def ordered_unique: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+  # logic.js collectItems: the enabled backends in their order, each one pending section for
+  # items with no kind and one per kind after it, and the held items apart.
+  def collect:
+    (if (.backends | type) == "object" then .backends else {} end) as $b
+    | [("dnf", "flatpak") | select(. as $k | $b[$k] | truthy)] as $first
+    | ($first + [$b | keys_unsorted[] | select(. as $k | ($first | any(.[]; . == $k)) | not)]) as $keys
+    | [ $keys[] as $k | $b[$k] | select(type == "object" and .enabled != false)
+        | (if (.items | type) == "array" then .items else [] end)
+        | map(if type == "object" then . else {} end)
+        | {key: $k, pending: map(select((.held | truthy) | not)), held: map(select(.held | truthy))} ] as $bs
+    | { sections: [ $bs[] as $e
+          | ( ($e.pending | map(select(kind_of == "")) | select(length > 0)
+               | {title: (section_titles[$e.key] // $e.key), items: .}),
+              ( $e.pending | map(kind_of) | map(select(. != "")) | ordered_unique | .[] as $kd
+               | {title: ((kind_titles[$e.key] // {})[$kd] // ($e.key + " " + $kd)),
+                  items: [$e.pending[] | select(kind_of == $kd)]} ) ) ],
+        held: [$bs[].held[]] };
+  def status_records($now):
+    if . == null then
+      "H\u001fNo update data yet", "F\u001f" + status_copy.noSuccessfulCheckYet, "X\u001f1"
+    elif (usable_state | not) then
+      "H\u001fCould not read the update state", "X\u001f1"
+    else
+      . as $s
+      | collect as $c
+      | (($c.sections | length) > 0 or ($c.held | length) > 0) as $walked
+      | ([$c.sections[].items | length] | add // 0) as $counted
+      | (if $walked then $counted elif ($s.actionable | type) == "number" then $s.actionable else $counted end) as $actionable
+      | (if $walked then ($c.held | length) elif ($s.held_total | type) == "number" then $s.held_total
+         else ($c.held | length) end) as $held_total
+      | ($s.status == "stale") as $stale
+      | (($s.last_success | type) == "string" and ($s.last_success | sub("^\\s+"; "") | sub("\\s+$"; "")) != "") as $ever
+      | ($stale and ($ever | not) and ($walked | not)) as $never_answered
+      | ((($s.backends | type) == "object") and (($s.backends.flatpak | type) == "object")
+         and (($s.backends.flatpak.scopes | type) == "object") and $s.backends.flatpak.scopes.user == "failed") as $user_unchecked
+      | ((($s.release_upgrade | type) == "object") and (($s.release_upgrade.to | type) == "string")
+         and (($s.release_upgrade.from | type) == "string") and $s.release_upgrade.to != ""
+         and $s.release_upgrade.from != "") as $release_upgrade
+      | (($release_upgrade | not) and ($s.offline_staged | type) == "object") as $staged
+      | (if $never_answered then "Kempt cannot check for updates"
+         elif $staged then
+           ($s.offline_staged.count) as $n
+           | (if ($n | type) != "number" or $n < 0 then status_copy.stagedHeaderUnknown
+              elif $n == 1 then status_copy.stagedHeaderOne
+              else ($n | tostring) + " " + status_copy.stagedHeaderTail end)
+         elif $actionable == 0 then
+           (if $held_total > 0 then status_copy.upToDate + dot + ($held_total | tostring) + " " + status_copy.held
+            elif $user_unchecked then status_copy.upToDate + dot + status_copy.userAppsUncheckedShort
+            else status_copy.upToDate end)
+         elif $actionable == 1 then "1 update available"
+         else ($actionable | tostring) + " updates available" end) as $header
+      | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky
+      | "H\u001f" + ($header | clean),
+        (if $never_answered then ($s.error | first_line | select(. != "") | "P\u001f" + (. | clean)) else empty end),
+        ( $c.sections[]
+          | "S\u001f" + (.title | clean) + "\u001f" + (.items | length | tostring),
+            ( [.items[] | select(.name != null and .name != "") | .name | tostring]
+              | (map(select(. as $n | $risky | any(.[]; . == $n))) + map(select(. as $n | $risky | any(.[]; . == $n) | not)))
+              | .[] | "N\u001f" + (dispname | clean) ) ),
+        (if $held_total > 0 then
+           "L\u001f" + ($held_total | tostring),
+           ($c.held[] | select(.name != null and .name != "") | "M\u001f" + (.name | dispname | clean))
+         else empty end),
+        ( ($s.security | if type == "object" and (.count | type) == "number" and .count >= 1
+                         then "C\u001f" + (.count | floor | tostring) else empty end) ),
+        (if $staged then "G\u001f1" else empty end),
+        (if $s.reboot_needed == true then "R\u001f" + status_copy.restartMessage else empty end),
+        ( [ (if ($ever | not) then status_copy.noSuccessfulCheckYet
+             elif ($s.last_success | renderable_stamp) then "Checked " + ($s.last_success | rel_time($now))
+             else empty end),
+            (if $stale then status_copy.lastCheckFailed else empty end),
+            (if $user_unchecked then status_copy.userAppsUncheckedShort else empty end),
+            ($s.metadata_refreshed | meta_age($now) | select(. != "")) ]
+          | "F\u001f" + (join(dot) | clean) ),
+        "X\u001f" + (if $never_answered or $stale then "1" else "0" end)
+    end;
+'
