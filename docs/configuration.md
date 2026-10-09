@@ -203,7 +203,7 @@ day.
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
-| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
+| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history
 entry is a full ISO 8601 string with the offset.

@@ -129,12 +129,12 @@ Rules for the state directory:
   whole old file or the whole new one. The temp sits next to its destination.
 - **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps, `reclaim-out.*` copies and
   `run-start.*` tokens.
-- **`log_event` never fails a command.** It always returns 0 and never blocks. Its `via` column is
+- **`log_event` never fails a command.** It always returns 0 and waits at most 5 seconds for its lock. Its `via` column is
   `widget` when `KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 - **An update applied on a restart gets a log Kempt writes itself**, from the snapshot diff.
   Kempt was not running, so there was no output to capture.
 
-Four files in the state directory are `flock` targets:
+Six files in the state directory are `flock` targets:
 
 | Lock | Serialises | Notes |
 | --- | --- | --- |
@@ -142,6 +142,8 @@ Four files in the state directory are `flock` targets:
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
 | `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold` | Each rewrites a whole config file. It lives in the state directory because the config directory is the user's. |
+| `state.lock` | Each write to `state.json`, and a run's read and write of `offline_staged` | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
+| `events.lock` | Appends to `events.log` and its trim | Held for milliseconds. After 5 seconds the line is appended and the trim waits. |
 
 [usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
 

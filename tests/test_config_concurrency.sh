@@ -98,4 +98,50 @@ got="$(timeout 1 "$KEMPT" config get reader_probe)" || got="BLOCKED"
 flock -u 6; exec 6>&-
 assert_eq "$got" "held" "a reader answers within a second while a writer holds the lock"
 
+# --- the event log: two writers against the trim --------------------------------------------------
+# Two writers race the first line, then append 600 numbered lines each over a log one line short of
+# its 2500 cap. A line appended between the trim's read and its rename would leave a gap.
+EV="$KEMPT_STATE_DIR/events.log"
+rm -f "$EV"
+( for i in $(seq 1 50); do log_event "first A $i"; done ) &
+( for i in $(seq 1 50); do log_event "first B $i"; done ) &
+wait
+assert_eq "$(grep -c ' first [AB] ' "$EV")" "100" "two writers creating the event log keep all 100 lines"
+assert_eq "$(stat -c %a "$EV")" "600" "...and the log is 0600"
+seq 1 2499 | sed 's/^/2026-01-01T00:00:00+00:00 cli filler /' > "$EV"
+( for i in $(seq 1 600); do log_event "seq A $i"; done ) &
+( for i in $(seq 1 600); do log_event "seq B $i"; done ) &
+wait
+suffix_ok() {  # writer → "ok" when its lines are 1..600 with only a prefix trimmed away
+  grep -oE " seq $1 [0-9]+\$" "$EV" | awk '{ print $3 }' \
+    | awk 'NR == 1 { p = $1; next } $1 != p + 1 { bad = 1 } { p = $1 } END { print (!bad && p == 600) ? "ok" : "gap" }'
+}
+assert_eq "$(suffix_ok A)|$(suffix_ok B)" "ok|ok" "two writers across the trim lose no line of either"
+assert_eq "$(( $(wc -l < "$EV") <= 2500 ))" "1" "...and the log stays within its cap"
+# The loop above rarely lands inside the trim's window, so this pins the mechanism: while
+# events.lock is held, a line waits, and it lands once the lock is released.
+before="$(wc -l < "$EV")"
+exec 3>>"$KEMPT_STATE_DIR/events.lock"; flock 3
+log_event "waited" &
+sleep 1
+held="$(wc -l < "$EV")"
+flock -u 3; exec 3>&-
+wait
+assert_eq "$held|$(grep -c ' waited$' "$EV")" "$before|1" "a line waits for events.lock, then lands"
+
+# --- the state file: a run's publish against write_state ------------------------------------------
+# Writer A owns .seq and writes 1..300. Writer B republishes the stage the whole time. A stale
+# write from B would put an older .seq back, which A sees before its next write.
+offline_staged_state() { echo '{"count":1}'; }
+offline_stage_blocked_state() { :; }
+echo '{"seq":0}' > "$STATE_FILE"
+( for i in $(seq 1 300); do
+    [[ "$(jq -r .seq "$STATE_FILE")" == "$(( i - 1 ))" ]] || echo "stale before $i" >> "$TESTTMP/stale"
+    jq -c -n --argjson i "$i" '{seq: $i, offline_staged: {count: 1}}' | write_state
+  done; touch "$TESTTMP/a-done" ) &
+( until [[ -e "$TESTTMP/a-done" ]]; do publish_staged_state; done ) &
+wait
+assert_eq "$(cat "$TESTTMP/stale" 2>/dev/null)" "" "a publish racing write_state never puts back an older state"
+assert_eq "$(jq -c . "$STATE_FILE")" '{"seq":300,"offline_staged":{"count":1}}' "...and the last write stands"
+
 finish
