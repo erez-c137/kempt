@@ -82,10 +82,11 @@ guard_stored_release_upgrade() {  # verb → returns, or exits REFUSED
 
 # systemd boots into an offline update whenever /system-update exists (systemd.offline-updates(7)).
 # dnf5 points it at its offline directory. PackageKit, which Discover uses, points it at its own
-# prepared update. Then the next restart belongs to that updater: `dnf5 offline clean` would delete
-# its link and cancel its install, and arming would mark a transaction no restart runs. So both
-# verbs refuse unless the path is absent or a link to dnf5's directory, the same rule the CLI's
-# offline_link_state applies, written out here because root never sources the CLI's library.
+# prepared update. Then the next restart belongs to that updater, and `dnf5 offline clean` would
+# delete its link and cancel its install. So the clean refuses unless the path is absent or a link
+# to dnf5's directory, the same rule the CLI's offline_link_state applies, written out here because
+# root never sources the CLI's library. The arm is not guarded: dnf5 creates the link only when the
+# path is absent, so it cannot replace another updater's, and the CLI reports that stage as blocked.
 # The link text is read once and judged as read, so nothing swaps it between test and use. -ef is
 # dnf5's own test (std::filesystem::equivalent). Anything else at the path, a link that cannot be
 # read included, is refused. Only root can write to /, so no user can change the answer.
@@ -142,7 +143,6 @@ case "$verb" in
   dnf-offline-arm)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
-    guard_foreign_system_update "$verb"
     run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
     ;;
   # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt

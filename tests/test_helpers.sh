@@ -150,10 +150,10 @@ grep -qF 'A live upgrade is not refused' "$SEC_DOC" \
   && echo "ok: docs/security.md names the live upgrade as outside the stored-transaction guard" \
   || { echo "FAIL: docs/security.md does not say the live upgrade is unguarded"; _fail=1; }
 
-# --- arm and clean leave another updater's /system-update alone -----------------------------------
+# --- clean leaves another updater's /system-update alone -----------------------------------------
 # PackageKit (Discover) points /system-update at its own prepared update. dnf5's clean would delete
-# that link and cancel its install, and an arm behind it marks a transaction no restart runs. So
-# both verbs refuse, as root, unless the path is absent or dnf5's link. The stage is not affected.
+# that link and cancel its install, so the clean refuses, as root, unless the path is absent or
+# dnf5's link. Arm and stage go ahead: dnf5 creates the link only when the path is absent.
 foreign_line() { printf 'kempt-apply: refusing %s: another updater has prepared the next restart (%s is not dnf5'"'"'s)\n' "$1" "$2"; }
 FL="$TESTTMP/fl"; mkdir -p "$FL/offline" "$FL/pk-prepared" "$FL/alias-parent"
 ln -sfn "$FL/pk-prepared" "$FL/foreign-link"
@@ -163,19 +163,27 @@ ln -sfn offline "$FL/relative-link"                       # relative, from the l
 ln -sfn "$FL/offline/" "$FL/slash-link"                   # the same text with a trailing slash
 ln -sfn "$FL/offline" "$FL/alias-parent/offline-alias"
 ln -sfn "$FL/alias-parent/offline-alias" "$FL/equivalent-link"   # another path to the same directory
-for v in dnf-offline-arm dnf-offline-clean; do
+for v in dnf-offline-clean; do
   for l in foreign-link dangling-link regular-file; do
     assert_exit "$REFUSED_RC" "$v is refused behind $l at /system-update" -- \
       env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
         KEMPT_OFFLINE_LINK="$FL/$l" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" "$v"
     assert_eq "$(cat "$TESTTMP/last_output")" "$(foreign_line "$v" "$FL/$l")" "...and says why, running nothing"
   done
+done
+for v in dnf-offline-arm dnf-offline-clean; do
   for l in no-such-link relative-link slash-link equivalent-link; do
     assert_exit 0 "$v goes ahead when /system-update is ${l/no-such-link/absent}" -- \
       env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
         KEMPT_OFFLINE_LINK="$FL/$l" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" "$v"
     assert_eq "$(cat "$TESTTMP/last_output")" "${offline_cmd[$v]}" "...and builds its usual command"
   done
+done
+for l in foreign-link dangling-link regular-file; do
+  assert_exit 0 "the arm goes ahead behind $l, since dnf5 leaves an existing link alone" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
+      KEMPT_OFFLINE_LINK="$FL/$l" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" dnf-offline-arm
+  assert_eq "$(cat "$TESTTMP/last_output")" "${offline_cmd[dnf-offline-arm]}" "...and builds its usual command"
 done
 assert_exit 0 "the stage is not refused behind another updater's link" -- \
   env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \

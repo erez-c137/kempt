@@ -177,10 +177,11 @@ up.
 
 ### The helper leaves another updater's restart alone
 
-`dnf-offline-arm` and `dnf-offline-clean` also exit 3 while `/system-update` exists and is not a
-link to dnf5's offline directory. That path then belongs to another updater, such as PackageKit
-for Discover, and its update installs on the next restart. `dnf5 offline clean` would delete the
-link and cancel that install. The helper reads the link once and judges the text it read. Only
+`dnf-offline-clean` also exits 3 while `/system-update` exists and is not a link to dnf5's
+offline directory. That path then belongs to another updater, such as PackageKit for Discover,
+and its update installs on the next restart. `dnf5 offline clean` would delete the link and cancel
+that install. `dnf-offline-arm` is not refused, because dnf5 creates the link only when the path
+is absent and so cannot replace it. The helper reads the link once and judges the text it read. Only
 root can write to `/`, so no user can change the answer. As root the path is fixed, as for the
 state file.
 
