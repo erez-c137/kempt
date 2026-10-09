@@ -3302,7 +3302,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3589,7 +3589,7 @@ assert_exit 0 "...and every completed check stamps the window it opens" -- \
 qml_block() { awk -v pat="$2" '!f && $0 ~ pat { f = 1 } f { print } f && /^    }$/ { exit }' "$1"; }
 MQ="$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "doCheck builds its command and its timeout from Logic" -- \
-  grep -qF 'executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
+  grep -qF 'executor.run(kemptCmd + Logic.checkArgs(auto, fresh, spend), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...and only for a literal true, so a caller that passes nothing is manual" -- \
   grep -qF 'var auto = automatic === true;' "$MQ"
 for site in 'id: checkTimer' 'id: postRunCheck' 'id: firstCheckRetry' 'function popupOpened' \
@@ -3609,7 +3609,7 @@ assert_contains "$(qml_block "$MQ" 'id: checkAction')" "root.doCheck(false, true
   "the menu's Check for Updates runs its own check, and fetches"
 assert_contains "$(grep -F 'plasmoidItem.doCheck(' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" \
   "plasmoidItem.doCheck(false, true)" "the popup's Check for Updates button runs its own check, and fetches"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again, watchedAgain);" \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again || anywayAgain, watchedAgain, anywayAgain);" \
   "...and the deferred check it becomes fetches"
 assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "Check for Updates passes --refresh"
 assert_eq "$(js 'L.checkArgs(true, false)')" " check --coalesce" "...an automatic check passes --coalesce"
@@ -3631,7 +3631,7 @@ assert_eq "${helper_bound#* }" "${cli_refresh_s:-missing}" \
 assert_eq "$(js "L.CHECK_TIMEOUT_MS >= L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000 + ${helper_bound%% *}000")" "true" \
   "...with room for its ${helper_bound%% *} s grace before SIGKILL"
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
-  grep -qF 'Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,' "$MQ"
+  grep -qF 'Logic.checkArgs(auto, fresh, spend), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \
   grep -qF 'timeout "$KEMPT_REFRESH_TIMEOUT" $cmd' "$REPO_ROOT/backends/flatpak.sh"
 # The menu entry stays enabled during a check. A press during a running fetch must not queue a
@@ -3640,8 +3640,103 @@ assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (fresh && !checkingR
   "a Check for Updates during a running fetch does not queue another fetch"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked = true;" \
   "a person's request folded into a running check is remembered as a person's"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again, watchedAgain);" \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again || anywayAgain, watchedAgain, anywayAgain);" \
   "...and the deferred check it becomes does not coalesce"
+
+# --- Download Anyway: never automatic, and only from its own button -------------------------------
+# One press runs one check that passes the battery and metering rules. Nothing automatic may ask
+# for that: it spends the person's power or data.
+assert_eq "$(js 'L.checkArgs(false, true, true)')" " check --anyway" "Download Anyway passes --anyway"
+assert_eq "$(js 'L.checkArgs(true, true, true)')" " check --refresh" "...never for an automatic check"
+assert_eq "$(js 'L.checkArgs(false, false, true)')" " check" "...nor for a check that is not a fetch"
+assert_eq "$(js 'L.checkArgs(true, false, true)')" " check --coalesce" "...nor for an automatic cache check"
+assert_eq "$(js 'L.checkArgs(false, true, "yes")')" " check --refresh" "...and only for a literal true"
+assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "...so Check for Updates still passes --refresh"
+# The button on the missed-fetch message: battery and metered only.
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway)" "battery" \
+  "a fetch skipped on battery offers Download Anyway"
+assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" fetchMissedAnyway)" "metered" \
+  "...one skipped on a metered link offers it too"
+assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedAnyway)" "" \
+  "...fetching turned off offers no button, since no press overrides the setting"
+assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedAnyway)" "" "...nor does a fetch that failed"
+assert_eq "$(fm 'refresh_skipped:"battery"' 0 fetchMissedAnyway)" "" "...nor an automatic check, which shows no message"
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway 'refreshCheckStamp:""')" "" \
+  "...nor a press whose own check gave no state"
+# ...and under the placeholder over lists never downloaded.
+assert_eq "$(js "L.viewModel($(nc_skip battery),false).problemAnyway")" "battery" \
+  "lists never downloaded on battery offer Download Anyway under the hint"
+assert_eq "$(js "L.viewModel($(nc_skip metered),false).problemAnyway")" "metered" \
+  "...and on a metered connection"
+assert_eq "$(js "L.viewModel($(nc_skip off),false).problemAnyway")" "" \
+  "...but not with fetching turned off"
+assert_eq "$(js "L.viewModel($(nc_state ''),false).problemAnyway")" "" \
+  "...nor when nothing skipped the fetch"
+assert_eq "$(js "L.viewModel($(nc_state ',refresh_error:"Curl error (22): 404"'),false).problemAnyway")" "" \
+  "...nor beside a refresh that failed"
+assert_eq "$(js "L.viewModel(null,false,\"kempt: boom\").problemAnyway")" "" \
+  "...nor with no state at all"
+# A refresh error on record can be older than this check's skip. The skip wins, so the hint and the
+# button stay, and the old error is only the detail.
+nc_skip_err() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,refresh_skipped:"%s",backends:{dnf:{enabled:true,items:[],refresh_error:%s}}}' "$nocache" "$1" "$(printf '%s' "$2" | jq -Rs .)"; }
+skip_old="L.viewModel($(nc_skip_err battery 'Curl error (22): 404'),false)"
+assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemDetail")" \
+  "battery|Plug in, then press Check for Updates.|Curl error (22): 404" \
+  "a skip on battery over an older refresh error keeps the hint and Download Anyway, with the error as the detail"
+skip_old="L.viewModel($(nc_skip_err metered "$neterr"),false)"
+assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemNetwork")" \
+  "metered|Switch to an unmetered connection, then press Check for Updates.|false" \
+  "...and a metered skip over an older network error is not called a network failure"
+assert_eq "$(js "L.viewModel($(nc_skip_err off 'Curl error (22): 404'),false).problemHint")" \
+  "dnf could not download them. Its error is below." \
+  "...while with fetching turned off the refresh error still says why"
+# A press whose check waited out another check's lock got the state from before it.
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:00+03:00"}, Date.parse("2026-08-26T12:00:05+03:00"))')" "true" \
+  "servedBeforePress: last_check before the press"
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:05+03:00"}, Date.parse("2026-08-26T12:00:05+03:00") + 900)')" "false" \
+  "...not one in the same second, since last_check has whole seconds"
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:09+03:00"}, Date.parse("2026-08-26T12:00:05+03:00"))')" "false" \
+  "...nor one after it"
+assert_eq "$(js 'L.servedBeforePress({}, Date.parse("2026-08-26T12:00:05+03:00")) + "|" + L.servedBeforePress({last_check:"2026-08-26T12:00:00+03:00"}, 0) + "|" + L.servedBeforePress(null, 5)')" \
+  "false|false|false" "...and no stamp or no press time makes no claim"
+assert_eq "$(js 'L.anywayReasonOf("battery") + "|" + L.anywayReasonOf("metered") + "|" + L.anywayReasonOf("off") + "|" + L.anywayReasonOf(undefined)')" \
+  "battery|metered||" "anywayReasonOf passes battery and metered only"
+# The literal lives in one line of logic.js, in checkArgs. main.qml never writes it: the boolean
+# that reaches checkArgs comes only from downloadAnyway() and the replay of its press.
+LJ="$REPO_ROOT/plasmoid/contents/ui/logic.js"
+assert_eq "$(grep -v '^ *//' "$LJ" | grep -c -- '--anyway')" "1" "logic.js writes --anyway in one line"
+assert_contains "$(awk '/^function checkArgs/,/^}/' "$LJ")" '" check --anyway"' "...inside checkArgs"
+assert_eq "$(grep -c -- '--anyway' "$MQ" || true)" "0" "main.qml never writes --anyway, not even in a comment"
+assert_eq "$(grep -c 'recheckAnyway = true' "$MQ")" "1" "recheckAnyway is set in one place"
+assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking) recheckAnyway = true;" \
+  "...the handler, so a press during a running check is honoured"
+assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking && checkingAnyway) return;" \
+  "...and a press during a check that already passes the rules queues nothing, not even a plain check"
+assert_eq "$(qml_block "$MQ" 'function downloadAnyway' | grep -n 'checking && checkingAnyway) return;\|if (checking) recheckAnyway = true;' | cut -d: -f2- | tr -d ' ')" \
+  "$(printf '%s\n%s' 'if(checking&&checkingAnyway)return;' 'if(checking)recheckAnyway=true;')" \
+  "...that return comes first"
+assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "doCheck(false, true, false, true);" \
+  "...which runs a person's fetch that passes the rules"
+assert_eq "$(grep -cE 'doCheck\([^,)]*,[^,)]*,[^,)]*, *true\)' "$MQ")" "1" \
+  "no other doCheck call in main.qml passes anyway as true"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "var anywayAgain = asked && root.recheckAnyway && !root.updating;" \
+  "a folded press is replayed only into a check a person asked for, and never during a run"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (spend && Logic.servedBeforePress(parsed, askedMs)) {" \
+  "a press answered with the state from before it is noticed"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");' \
+  "...and asked for again, as a note the next check takes back"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.actionMessage = root.checkFailNote;" \
+  "...shown where a failed check's note is"
+assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Download Anyway again." \
+  "...in the wording the table specifies"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.recheckAnyway = false;" \
+  "...and cleared with the other recheck flags"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "var spend = anyway === true && fresh && !auto;" \
+  "doCheck ignores anyway on an automatic check or one that does not fetch"
+assert_eq "$(grep -rh 'downloadAnyway()' "$REPO_ROOT/plasmoid/contents/ui/" | grep -cv '^ *//')" "3" \
+  "downloadAnyway() is defined once and called by the two Download Anyway buttons only"
+assert_eq "$(grep -c 'plasmoidItem.downloadAnyway()' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
+  "...both in the popup"
 
 # --- the settings page's apply path -------------------------------------------------------------
 # These are structural rather than behavioural - the page needs a real QML engine to drive, which

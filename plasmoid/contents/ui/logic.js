@@ -257,6 +257,14 @@ var COPY = {
     fetchWaitsForPower: "Kempt waits for mains power to download fresh package lists.",
     fetchWaitsForUnmetered: "Kempt waits for an unmetered connection to download fresh package lists.",
     fetchMissed: "Kempt did not get fresh package lists.",
+    // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
+    // one check that downloads anyway. Its tooltip follows the reason the check published.
+    downloadAnyway: "Download Anyway",
+    downloadAnywayPowerTip: "Downloads fresh package lists now, on battery power.",
+    downloadAnywayMeteredTip: "Downloads fresh package lists now over this metered connection.",
+    // A press whose check waited out another check's lock: the CLI served the state from before
+    // the press and downloaded nothing, so the press is asked for again.
+    anywayLost: "Another check was running. Press Download Anyway again.",
     fetchCountsFrom: "The counts are from lists %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
@@ -1505,6 +1513,23 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     return lead + " " + COPY.fetchCountsFrom.replace("%1", age);
 }
 
+// servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state
+// some earlier check wrote: last_check before the press, which is what the CLI prints when another
+// check held the lock past its wait. Both are floored to whole seconds, as last_check is. No
+// stamp, no claim.
+function servedBeforePress(state, askedMs) {
+    var asked = Number(askedMs);
+    if (!state || typeof state !== "object" || !isFinite(asked) || asked <= 0) return false;
+    var checked = stampMs(state.last_check);
+    return isFinite(checked) && checked < Math.floor(asked / 1000) * 1000;
+}
+
+// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Download Anyway can pass the rule
+// that skipped the fetch, else "". Fetching turned off ("off") is a setting no press overrides.
+function anywayReasonOf(refreshSkipped) {
+    return refreshSkipped === "battery" || refreshSkipped === "metered" ? refreshSkipped : "";
+}
+
 // ageWords(ms) -> "5 min old", "3 hours old", "2 days old", or "" for an age that is not one.
 function ageWords(age) {
     if (typeof age !== "number" || !isFinite(age) || age < 0) return "";
@@ -1517,10 +1542,13 @@ function ageWords(age) {
 }
 
 // --- the check command ------------------------------------------------------------------------
-// checkArgs(automatic, refresh) -> what doCheck appends to `kempt`. Check for Updates fetches fresh
-// metadata (`--refresh`). The checks nobody asked for coalesce and keep the CLI's 3-hour interval.
-// Any other press (a hold, Check again) runs a check of its own from the cache.
-function checkArgs(automatic, refresh) {
+// checkArgs(automatic, refresh, anyway) -> what doCheck appends to `kempt`. Check for Updates fetches
+// fresh metadata (`--refresh`). Download Anyway also passes the battery and metering rules, and
+// only for a press: never for a check nobody asked for. The checks nobody asked for coalesce and
+// keep the CLI's 3-hour interval. Any other press (a hold, Check again) runs a check of its own
+// from the cache.
+function checkArgs(automatic, refresh, anyway) {
+    if (anyway === true && refresh === true && automatic !== true) return " check --anyway";
     if (refresh === true) return " check --refresh";
     return automatic === true ? " check --coalesce" : " check";
 }
@@ -2161,7 +2189,8 @@ var NO_CACHE_RE = /no cache for repository/i;
 // timeout sentence is already plain, so it has no detail.
 // The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
 // part is one. dnf's "no cache" counts as one only when dnf's own refresh error (a string while
-// the latest refresh failed) is a network error. A text that names kempt doctor never is.
+// the latest refresh failed) is a network error and this check did not skip the fetch on battery
+// or a metered link. A text that names kempt doctor never is.
 function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
     var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
@@ -2173,7 +2202,11 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
                    hint: COPY.checkFailedHint };
     if (mentionsDoctor(raw)) return failed;
     var refreshError = typeof dnfRefreshError === "string" ? firstLineOf(dnfRefreshError) : null;
-    var refreshNetwork = refreshError !== null && REFRESH_NETWORK_RE.test(refreshError);
+    // A fetch this check skipped on battery or a metered link was never tried, so an older
+    // network error on record does not explain the missing lists.
+    var skippedByRule = refreshSkipped === "battery" || refreshSkipped === "metered";
+    var refreshNetwork = refreshError !== null && !skippedByRule
+        && REFRESH_NETWORK_RE.test(refreshError);
     var parts = raw.split(/; (?=(?:dnf|flatpak) check failed\b)/);
     var network = 0, noCache = 0;
     for (var i = 0; i < parts.length; i++) {
@@ -2186,16 +2219,22 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
                  hint: COPY.checkNetworkHint };
     }
     if (noCache === parts.length) {
-        // A refresh that failed says why in its own words. With none on record it was skipped,
-        // which happens on battery and on a metered connection.
-        return refreshError !== null && refreshError !== ""
+        // This check's own skip comes first: a refresh error on record can be older than it, and
+        // the power and metered hints are the ones Download Anyway sits under. That error is still
+        // the detail. Otherwise a refresh that failed says why in its own words, and with none on
+        // record it was skipped or turned off.
+        var hasRefreshError = refreshError !== null && refreshError !== "";
+        if (skippedByRule) {
+            return { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
+                     detail: hasRefreshError ? refreshError : raw,
+                     hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
+                         : COPY.checkNoCacheMeteredHint };
+        }
+        return hasRefreshError
             ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
                 detail: refreshError, hint: COPY.checkRefreshFailedHint }
             : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
-                hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
-                    : refreshSkipped === "metered" ? COPY.checkNoCacheMeteredHint
-                    : refreshSkipped === "off" ? COPY.checkNoCacheOffHint
-                    : COPY.checkNoCacheHint };
+                hint: refreshSkipped === "off" ? COPY.checkNoCacheOffHint : COPY.checkNoCacheHint };
     }
     return failed;
 }
@@ -2812,6 +2851,14 @@ function viewModel(state, updating, cliError, opts) {
         // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
         // the "fetchMissed" slot. Empty when there is nothing to say.
         fetchMissedMessage: fetchMissedMessage,
+        // Why that message may offer Download Anyway: "battery", "metered", or "" for no button.
+        fetchMissedAnyway: fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
+        // The same for the placeholder over lists never downloaded: only under the battery and
+        // metered hints, so never beside Check Installation or fetching turned off. A refresh
+        // error from before is only the detail there (checkProblemOf).
+        problemAnyway: usable && problemNoCache && remedyCommand === ""
+            && (problemHint === COPY.checkNoCachePowerHint || problemHint === COPY.checkNoCacheMeteredHint)
+            ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
         stagedBanner: stageBlocked ? COPY.stageBlocked
             : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
@@ -2933,6 +2980,8 @@ if (typeof module !== "undefined" && module.exports) {
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         refreshMissed: refreshMissed,
         fetchMissedOf: fetchMissedOf,
+        anywayReasonOf: anywayReasonOf,
+        servedBeforePress: servedBeforePress,
         checkArgs: checkArgs,
         CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,

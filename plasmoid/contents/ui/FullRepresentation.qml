@@ -1053,6 +1053,20 @@ PlasmaExtras.Representation {
             text: sentence
             Accessible.name: text
             visible: popup.shows("fetchMissed")
+            // On battery or a metered connection, one press downloads the lists anyway.
+            actions: [
+                Kirigami.Action {
+                    id: fetchAnywayAction
+                    text: i18n("Download Anyway")
+                    icon.name: "download"
+                    visible: popup.vm.fetchMissedAnyway.length > 0
+                    tooltip: popup.vm.fetchMissedAnyway === "metered"
+                             ? i18n("Downloads fresh package lists now over this metered connection.")
+                             : i18n("Downloads fresh package lists now, on battery power.")
+                    enabled: visible && !popup.plasmoidItem.updating
+                    onTriggered: source => popup.plasmoidItem.downloadAnyway()
+                }
+            ]
             // Polite. While the check's answer lands, that answer says this sentence itself.
             property string spoken: ""
             function speak() {
@@ -1281,7 +1295,8 @@ PlasmaExtras.Representation {
                           : (popup.vm.iconState === "unknown" ? "view-refresh" : "update-none")
                 text: popup.vm.emptyStateText
                 explanation: popup.vm.problemHint
-                helpfulAction: doctorPlaceholderAction
+                helpfulAction: popup.vm.problemAnyway.length > 0 ? anywayPlaceholderAction
+                                                                 : doctorPlaceholderAction
                 // The tool's own words, in small print under the plain headline, for anyone who
                 // needs them. Selectable, so they can be pasted into a search or a bug report.
                 PlaceholderDetail { id: placeholderDetail; text: popup.vm.problemDetail }
@@ -1310,6 +1325,20 @@ PlasmaExtras.Representation {
                 onTriggered: source => popup.plasmoidItem.runDoctor()
             }
 
+            // ...or, under the battery and metered hints, Download Anyway: the lists were never
+            // downloaded, and one press fetches them now. Enabled while a check runs: the press
+            // runs next.
+            Kirigami.Action {
+                id: anywayPlaceholderAction
+                text: i18n("Download Anyway")
+                icon.name: "download"
+                tooltip: popup.vm.problemAnyway === "metered"
+                         ? i18n("Downloads fresh package lists now over this metered connection.")
+                         : i18n("Downloads fresh package lists now, on battery power.")
+                enabled: popup.vm.problemAnyway.length > 0 && !popup.plasmoidItem.updating
+                onTriggered: source => popup.plasmoidItem.downloadAnyway()
+            }
+
             // Two copies of the placeholder, never shown, to measure it with and without the
             // icon: its own height cannot be the test, because the test changes it. Copies rather
             // than arithmetic on its parts, because PlaceholderMessage adds space of its own: a sum
@@ -1321,7 +1350,7 @@ PlasmaExtras.Representation {
                 iconName: "update-none"
                 text: placeholder.text
                 explanation: placeholder.explanation
-                helpfulAction: doctorPlaceholderAction
+                helpfulAction: placeholder.helpfulAction
                 PlaceholderDetail { text: popup.vm.problemDetail }
             }
             PlasmaExtras.PlaceholderMessage {
@@ -1330,7 +1359,7 @@ PlasmaExtras.Representation {
                 width: placeholder.width
                 text: placeholder.text
                 explanation: placeholder.explanation
-                helpfulAction: doctorPlaceholderAction
+                helpfulAction: placeholder.helpfulAction
                 PlaceholderDetail { text: popup.vm.problemDetail }
             }
         }

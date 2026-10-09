@@ -509,6 +509,106 @@ assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_off")" "off" \
   "...and with refreshing turned off it says off, beside the old failure it did not retry"
 rm -f "$REFRESH_DNF_FAILED_FILE"
 
+# --- Download Anyway: one check, by request, past the battery and metering rules ------------------
+# --anyway implies --refresh and passes the two rules --refresh may not. Each override is logged,
+# every time, and the check publishes no refresh_skipped, so the widget's message clears.
+anyways() { grep -c 'refresh anyway' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
+rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+anyways_before="$(anyways)"
+(
+  on_battery() { return 0; }
+  metered_connection() { return 1; }
+  maybe_refresh_metadata force anyway
+  echo "$REFRESH_SKIPPED" > "$TESTTMP/anyway-skipped-battery"
+) >/dev/null 2>&1
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "1" \
+  "--anyway fetches on battery"
+assert_eq "$(cat "$TESTTMP/anyway-skipped-battery")" "" "...and leaves refresh_skipped empty"
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'refresh anyway (on battery)$')" "1" \
+  "...and logs the override as on battery"
+rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
+(
+  on_battery() { return 1; }
+  metered_connection() { return 0; }
+  maybe_refresh_metadata force anyway
+  echo "$REFRESH_SKIPPED" > "$TESTTMP/anyway-skipped-metered"
+) >/dev/null 2>&1
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "1" \
+  "--anyway fetches on a metered connection"
+assert_eq "$(cat "$TESTTMP/anyway-skipped-metered")" "" "...and leaves refresh_skipped empty"
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'refresh anyway (the connection is metered)$')" "1" \
+  "...and logs the override as metered"
+# Logged every time, unlike the once-a-day skip line: each one spent power or data.
+rm -f "$LAST_REFRESH_FILE"
+( on_battery() { return 0; }; metered_connection() { return 1; }; maybe_refresh_metadata force anyway ) >/dev/null 2>&1
+assert_eq "$(( $(anyways) - anyways_before ))" "3" "every override is logged, not once a day"
+# On mains power and an unmetered link there is nothing to override, so nothing is logged.
+rm -f "$LAST_REFRESH_FILE"
+anyways_before="$(anyways)"
+( on_battery() { return 1; }; metered_connection() { return 1; }; maybe_refresh_metadata force anyway ) >/dev/null 2>&1
+assert_eq "$(( $(anyways) - anyways_before ))" "0" "...and nothing is logged when no rule was passed"
+# The history is for runs. A check with --anyway adds no entry.
+hist_count() { find "$HIST_DIR" -type f 2>/dev/null | wc -l; }
+hist_before="$(hist_count)"
+
+# End to end, on a metered link through the busctl stub (this box may be on battery instead; then
+# the battery rule is the one passed). The refresh helper records its environment: --anyway is an
+# argument, never an exported variable, so nothing the check starts can inherit it.
+cat > "$TESTTMP/refresh-env-stub" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) cat "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+  refresh) echo refreshed >> "$TESTTMP/refresh-calls"; env | grep -icE '^[^=]*anyway[^=]*=|=(--)?anyway$' >> "$TESTTMP/refresh-env" ; exit 0 ;;
+esac
+STUB
+chmod +x "$TESTTMP/refresh-env-stub"
+rm -f "$TESTTMP/refresh-calls" "$TESTTMP/refresh-env"
+if on_battery; then _anyway_why="on battery"; else _anyway_why="the connection is metered"; fi
+st_plain="$(PATH="$TESTTMP/metered-bin:$PATH" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-env-stub" \
+            "$KEMPT" check --refresh 2>/dev/null)"
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)|$(jq -r '.refresh_skipped // "absent"' <<<"$st_plain")" \
+  "0|$_skip_want" "check --refresh on that link still skips the fetch"
+st_any="$(PATH="$TESTTMP/metered-bin:$PATH" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-env-stub" \
+          "$KEMPT" check --anyway 2>/dev/null)"
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "1" \
+  "check --anyway fetches there, with no --refresh beside it"
+assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_any")" "absent" \
+  "...and publishes no refresh_skipped"
+assert_eq "$(jq -r '.refresh_skipped // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" \
+  "...in the state file too"
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c "refresh anyway ($_anyway_why)$")" "1" \
+  "...and logs refresh anyway ($_anyway_why)"
+assert_eq "$(cat "$TESTTMP/refresh-env" 2>/dev/null)" "0" \
+  "...and the refresh helper inherits no variable that carries it"
+assert_eq "$(hist_count)" "$hist_before" "...and writes no history entry"
+# The off switch still wins: tests and a box with fetching turned off.
+rm -f "$TESTTMP/refresh-calls"
+st_any_off="$(KEMPT_SKIP_REFRESH=1 PATH="$TESTTMP/metered-bin:$PATH" "$KEMPT" check --anyway 2>"$TESTTMP/any-off.err")"
+assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)|$(jq -r '.refresh_skipped // "absent"' <<<"$st_any_off")" \
+  "0|off" "KEMPT_SKIP_REFRESH still skips with --anyway, and says off"
+assert_eq "$(grep -c '^warning: nothing was downloaded; KEMPT_SKIP_REFRESH turns fetching off$' "$TESTTMP/any-off.err")" "1" \
+  "...and warns on stderr, in one line, that it downloaded nothing"
+KEMPT_SKIP_REFRESH=1 "$KEMPT" check --refresh >/dev/null 2>"$TESTTMP/refresh-off.err" || true
+assert_not_contains "$(cat "$TESTTMP/refresh-off.err")" "KEMPT_SKIP_REFRESH" \
+  "...a warning a check without --anyway does not give"
+assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
+
+# A check started inside Kempt (after a run, an unstage, a reclaim) never passes --anyway. cmd_check
+# reads it as an argument only, so every internal call must pass no arguments at all, and nothing
+# may export a variable that carries it.
+internal_calls="$(grep -nE '(^|[^_a-z])cmd_check( |$)' "$REPO_ROOT/bin/kempt" | grep -v 'cmd_check()' \
+                  | grep -vF 'check)   shift; cmd_check "$@" ;;' | grep -v '^[0-9]*: *#')"
+assert_eq "$(grep -c . <<<"$internal_calls")" "8" "bin/kempt has its eight internal checks (premise)"
+assert_eq "$(grep -cvE 'cmd_check >/dev/null 2>&1 \|\| true$' <<<"$internal_calls")" "0" \
+  "...and every one runs cmd_check with no arguments, so none can pass --anyway"
+assert_eq "$(grep -ciE 'export[^#]*anyway|KEMPT_ANYWAY' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
+             | awk -F: '{ s += $NF } END { print s + 0 }')" "0" \
+  "...and no variable carrying it is exported"
+assert_eq "$(grep -c -- '--anyway)' "$REPO_ROOT/bin/kempt")" "1" "--anyway is parsed in one place"
+assert_eq "$(grep -n -- '--anyway)' "$REPO_ROOT/bin/kempt" | cut -d: -f1 | while read -r l; do
+               awk -v l="$l" 'NR <= l && /^[a-z_]+\(\) *\{/ { f = $1 } NR == l { print f; exit }' "$REPO_ROOT/bin/kempt"; done)" \
+  "cmd_check()" "...and that place is cmd_check"
+
 # --- risky-transaction detection: the CLI half of the spec's offline recommendation ---
 export KEMPT_SKIP_REFRESH=1   # back to deterministic after the gating section above
 
@@ -1254,7 +1354,16 @@ served_rc=$?
 # --strict over the same wait: the previous state is still printed, and the exit says it is old.
 strict_served_rc=0
 KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check --strict > "$TESTTMP/strict-served.json" 2>/dev/null || strict_served_rc=$?
+# --anyway over the same wait: the previous state is served, and stderr says nothing was downloaded.
+KEMPT_CHECK_LOCK_WAIT=1 "$KEMPT" check --anyway > "$TESTTMP/anyway-served.json" 2>"$TESTTMP/anyway-served.err" || true
 kill "$lock_holder" 2>/dev/null; wait "$lock_holder" 2>/dev/null || true
+assert_eq "$(jq -r '.marker' "$TESTTMP/anyway-served.json" 2>/dev/null)" "FIRST" \
+  "check --anyway that cannot take the lock prints the previous state"
+assert_contains "$(cat "$TESTTMP/anyway-served.err")" \
+  "warning: nothing was downloaded; run kempt check --anyway again when the other check ends" \
+  "...and warns on stderr that it downloaded nothing"
+assert_not_contains "$(cat "$TESTTMP/served.err")" "nothing was downloaded" \
+  "...a warning a plain check does not give"
 assert_eq "$strict_served_rc" "1" "check --strict that cannot take the lock exits 1"
 assert_eq "$(jq -r '.marker' "$TESTTMP/strict-served.json" 2>/dev/null)" "FIRST" \
   "...and still prints the previous state"

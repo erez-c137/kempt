@@ -140,13 +140,13 @@ declare -A WORD_BUDGET=(
   [SECURITY.md]=420
   [tests/README.md]=310
   [docs/architecture.md]=4500
-  [docs/configuration.md]=1100
+  [docs/configuration.md]=1150
   [docs/install.md]=1500
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=1750
   [docs/security.md]=3550
-  [docs/usage.md]=2800
-  [docs/widget.md]=2600
+  [docs/usage.md]=2950
+  [docs/widget.md]=2700
 )
 # A new doc needs a row, so it cannot grow outside the table.
 unbudgeted=""

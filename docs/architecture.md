@@ -535,7 +535,9 @@ only when that installation exists, with the same answer in this table.
 Both fetches run from `maybe_refresh_metadata` in `lib/common.sh`, under the policy in
 [configuration.md](configuration.md#refresh-cadence). A fetch never fails the check that follows.
 One `$LAST_REFRESH_FILE` stamps both, written when either succeeded. `kempt check --refresh`
-overrides the interval only.
+overrides the interval only. `--anyway` also passes the battery and metering rules, for that one
+check. It is an argument to `maybe_refresh_metadata`, never an environment variable, so the
+internal checks after a run cannot inherit it. In the widget only `downloadAnyway()` asks for it.
 
 - The dnf fetch goes through the root helper (`priv_refresh`), because it fills root's cache,
   which the update uses.

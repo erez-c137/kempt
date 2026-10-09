@@ -9,6 +9,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Download Anyway fetches package lists on battery or a metered connection, once.** When a
+  check skipped the download for one of those reasons, the widget offers **Download Anyway**.
+  In a terminal, run `kempt check --anyway`. Nothing automatic ever does this. The event log says
+  `refresh anyway`.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
   could not answer. It also exits 1 when another check held the lock and the previous state was
   served. And it exits 1 when the apps for you only could not be listed. The state then still says
