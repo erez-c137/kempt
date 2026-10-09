@@ -2522,6 +2522,9 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   # anyway would re-make, on every check, the promise reconcile_detour_stage exists to withdraw.
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
+  # ...and one recorded as REPLACED describes a stage that is no longer what dnf5 holds. The next
+  # restart installs somebody else's transaction, so publishing Kempt's count would promise it.
+  jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1 && return 0
   # A stored RELEASE upgrade is proof the transaction is not ours, whatever the marker says. dnf5
   # keeps one stored transaction; Kempt only ever runs `dnf5 upgrade --offline` at the releasever
   # the box is already on, so a transaction whose target differs from the system's cannot be one
