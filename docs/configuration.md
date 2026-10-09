@@ -111,13 +111,13 @@ when it finishes.
 | `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "Press any key to close…" prompt. | Watching it happen. The only surface that can answer prompts. |
 | `popup` (default) | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
 | `background` | Silent detached run, with a desktop notification and the counts when done. | Updating while you work. |
-| `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next reboot, and the first `kempt check` after that reboot records the result. The widget's button reads **Install on Next Restart**. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |
+| `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next restart, and the first `kempt check` after that restart records the result. The widget's button reads **Install on Next Restart**. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |
 
 The `terminal` surface needs a terminal emulator, `konsole` by default. Without one, `kempt run`
 exits 4. To use another emulator that supports `-e`, set `KEMPT_TERMINAL`.
 
-Only the terminal can ask before installing kernel, systemd or desktop updates. On the other
-surfaces, **Update Now** asks in the widget first, and offers **Install on Next Restart** or
+The terminal asks before installing kernel, systemd or desktop updates. On the other surfaces,
+**Update Now** asks in the widget first, and offers **Install on Next Restart** or
 **Install Now**.
 
 ### Upgrading from an older Kempt
