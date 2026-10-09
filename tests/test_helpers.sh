@@ -150,6 +150,44 @@ grep -qF 'A live upgrade is not refused' "$SEC_DOC" \
   && echo "ok: docs/security.md names the live upgrade as outside the stored-transaction guard" \
   || { echo "FAIL: docs/security.md does not say the live upgrade is unguarded"; _fail=1; }
 
+# --- arm and clean leave another updater's /system-update alone -----------------------------------
+# PackageKit (Discover) points /system-update at its own prepared update. dnf5's clean would delete
+# that link and cancel its install, and an arm behind it marks a transaction no restart runs. So
+# both verbs refuse, as root, unless the path is absent or dnf5's link. The stage is not affected.
+foreign_line() { printf 'kempt-apply: refusing %s: another updater has prepared the next restart (%s is not dnf5'"'"'s)\n' "$1" "$2"; }
+FL="$TESTTMP/fl"; mkdir -p "$FL/offline" "$FL/pk-prepared" "$FL/alias-parent"
+ln -sfn "$FL/pk-prepared" "$FL/foreign-link"
+ln -sfn "$FL/gone" "$FL/dangling-link"
+: > "$FL/regular-file"
+ln -sfn offline "$FL/relative-link"                       # relative, from the link's own directory
+ln -sfn "$FL/offline/" "$FL/slash-link"                   # the same text with a trailing slash
+ln -sfn "$FL/offline" "$FL/alias-parent/offline-alias"
+ln -sfn "$FL/alias-parent/offline-alias" "$FL/equivalent-link"   # another path to the same directory
+for v in dnf-offline-arm dnf-offline-clean; do
+  for l in foreign-link dangling-link regular-file; do
+    assert_exit "$REFUSED_RC" "$v is refused behind $l at /system-update" -- \
+      env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
+        KEMPT_OFFLINE_LINK="$FL/$l" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" "$v"
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(foreign_line "$v" "$FL/$l")" "...and says why, running nothing"
+  done
+  for l in no-such-link relative-link slash-link equivalent-link; do
+    assert_exit 0 "$v goes ahead when /system-update is ${l/no-such-link/absent}" -- \
+      env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
+        KEMPT_OFFLINE_LINK="$FL/$l" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" "$v"
+    assert_eq "$(cat "$TESTTMP/last_output")" "${offline_cmd[$v]}" "...and builds its usual command"
+  done
+done
+assert_exit 0 "the stage is not refused behind another updater's link" -- \
+  env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
+    KEMPT_OFFLINE_LINK="$FL/foreign-link" KEMPT_OFFLINE_DATADIR="$FL/offline" bash "$AH" dnf-offline-stage -y
+# The CLI's reading of the same refusal, so its messages name the right cause.
+assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LINK="$FL/foreign-link" \
+  KEMPT_OFFLINE_DATADIR="$FL/offline" bash -c 'source "$1/lib/common.sh"; apply_refusal_reason' _ "$REPO_ROOT")" \
+  "another updater has prepared the next restart" "the CLI names another updater's restart as the reason"
+assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LINK="$FL/regular-file" \
+  KEMPT_OFFLINE_DATADIR="$FL/offline" bash -c 'source "$1/lib/common.sh"; apply_refusal_reason' _ "$REPO_ROOT")" \
+  "another updater has prepared the next restart" "...also when the path is not a link at all"
+
 # --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
 # Sourced, so the umask and limits the helper set can be read back after its ECHO line. The caller
 # sets umask 000, a file size limit and core files on. Each must be undone before dnf5 would run.
@@ -197,6 +235,12 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
   assert_exit 0 "as root, the seam cannot invent a release upgrade either" -- \
     as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
   assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 offline clean -y" "...the real path is empty, so the verb goes ahead"
+  if [[ ! -e /system-update && ! -L /system-update ]]; then
+    assert_exit 0 "as root, the link seam cannot invent another updater's restart" -- \
+      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_LINK="$FL/foreign-link" KEMPT_OFFLINE_DATADIR="$FL/offline"
+  else
+    skip "root link-seam test: this box has a /system-update of its own"
+  fi
 else
   skip "root-path seam test - needs unprivileged user and mount namespaces and $LIBDNF5"
 fi

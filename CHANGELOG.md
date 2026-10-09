@@ -164,6 +164,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of whoever started them. A refresh needs no password, so anyone at the desk could make root write
   metadata, downloads and staged updates that every user could change. The helpers now set their
   own. `kempt doctor` warns about cache files an earlier version left open, with the fix.
+- **Kempt no longer cancels another updater's restart install.** While Discover or PackageKit has
+  prepared the next restart, the root helper refuses to discard or arm a staged update. A discard
+  would have removed the other updater's install.
 
 ## [0.1.7] - 2026-10-02
 

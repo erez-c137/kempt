@@ -1066,7 +1066,8 @@ priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC}
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
 # kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
-# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. The
+# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. It
+# also refuses arm and clean while /system-update is there and is not dnf5's link. The
 # helper decides that as root, on its own, so the CLI's pre-flight is not the only guard. Nothing ran
 # and nothing changed when it does. A caller that sees this status must not unwind with another
 # offline verb (the helper refuses that too, for the same reason) and must not advise
@@ -1077,6 +1078,8 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
   local relup
   if relup="$(offline_release_upgrade)"; then
     printf 'a Fedora release upgrade (%s) is stored\n' "$relup"
+  elif [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]]; then
+    printf 'another updater has prepared the next restart\n'
   else
     printf 'the stored offline transaction could not be read\n'
   fi

@@ -80,6 +80,34 @@ guard_stored_release_upgrade() {  # verb → returns, or exits REFUSED
   exit "$REFUSED"
 }
 
+# systemd boots into an offline update whenever /system-update exists (systemd.offline-updates(7)).
+# dnf5 points it at its offline directory. PackageKit, which Discover uses, points it at its own
+# prepared update. Then the next restart belongs to that updater: `dnf5 offline clean` would delete
+# its link and cancel its install, and arming would mark a transaction no restart runs. So both
+# verbs refuse unless the path is absent or a link to dnf5's directory, the same rule the CLI's
+# offline_link_state applies, written out here because root never sources the CLI's library.
+# The link text is read once and judged as read, so nothing swaps it between test and use. -ef is
+# dnf5's own test (std::filesystem::equivalent). Anything else at the path, a link that cannot be
+# read included, is refused. Only root can write to /, so no user can change the answer.
+# Seams as for the state file: honoured only for an unprivileged caller.
+SYSTEM_UPDATE=/system-update
+OFFLINE_DATADIR=/usr/lib/sysimage/libdnf5/offline
+if [[ $EUID -ne 0 ]]; then
+  SYSTEM_UPDATE="${KEMPT_OFFLINE_LINK:-$SYSTEM_UPDATE}"
+  OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-$OFFLINE_DATADIR}"
+fi
+
+guard_foreign_system_update() {  # verb → returns, or exits REFUSED
+  [[ -e "$SYSTEM_UPDATE" || -L "$SYSTEM_UPDATE" ]] || return 0
+  local t
+  if t="$(readlink -- "$SYSTEM_UPDATE" 2>/dev/null)" && [[ -n "$t" ]]; then
+    [[ "$t" == /* ]] || t="${SYSTEM_UPDATE%/*}/$t"   # a relative link starts from its own directory
+    if [[ "${t%/}" == "${OFFLINE_DATADIR%/}" || "$t" -ef "$OFFLINE_DATADIR" ]]; then return 0; fi
+  fi
+  echo "kempt-apply: refusing $1: another updater has prepared the next restart ($SYSTEM_UPDATE is not dnf5's)" >&2
+  exit "$REFUSED"
+}
+
 verb="${1:-}"; shift || true
 case "$verb" in
   dnf-upgrade|dnf-offline-stage)
@@ -114,6 +142,7 @@ case "$verb" in
   dnf-offline-arm)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
+    guard_foreign_system_update "$verb"
     run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
     ;;
   # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
@@ -123,6 +152,7 @@ case "$verb" in
   dnf-offline-clean)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
+    guard_foreign_system_update "$verb"
     run dnf5 offline clean -y
     ;;
   *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
