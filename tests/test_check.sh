@@ -396,6 +396,18 @@ STUB
     "a password holding ? or / is still removed up to the host"
   assert_eq "$(red '(see https://h/r?token=abc) <https://h/r?k=v> "https://h/r?a=b"')" '(see https://h/r) <https://h/r> "https://h/r"' \
     "the bracket or quote that closes a query stays"
+  assert_eq "$(red 'GET https://bob:p@ss/w0rd@h/r and https://bob:123/x@h/r')" "GET https://h/r and https://h/r" \
+    "a password holding @ and / goes up to the last @ that a host follows"
+  assert_eq "$(red 'x https://h/r?token=ab]SECRETTAIL [https://h/r?a=b]')" "x https://h/r [https://h/r]" \
+    "a bracket inside a query does not end it, and one that closes the word stays"
+  assert_eq "$(red 'at https://h.lan:8443/results/@kdesig/x')" "at https://h.lan:8443/results/@kdesig/x" \
+    "a host with a port keeps an @ in its path"
+  assert_eq "$(red 'pull oci+https://registry.lan:5000/repo@sha256:abcd')" "pull oci+https://registry.lan:5000/repo@sha256:abcd" \
+    "...and so does a registry digest"
+  assert_eq "$(red 'at https://[::1]:8080/r@x/y and https://u:pw@[::1]:8080/r')" "at https://[::1]:8080/r@x/y and https://[::1]:8080/r" \
+    "...and an IPv6 host, while userinfo in front of one still goes"
+  assert_eq "$(red 'GET https://u:pw@h/r?t=1,https://v:pw2@h2/s?k=2')" "GET https://h/r,https://h2/s" \
+    "URLs glued with a comma are each redacted"
   big="$TESTTMP/big.err"
   { for i in $(seq 1 20000); do printf 'word%s https://u:pw@h/r?t=%s ' "$i" "$i"; done; echo; } > "$big"
   t0=$(date +%s%N); out="$(redact_error_text < "$big")"; t1=$(date +%s%N)

@@ -1157,17 +1157,22 @@ redact_error_text() {  # stdin → one line
       }
       return o p
     }
-    # A ":" before the first "@", ahead of any / ? #, marks userinfo whose password may hold
-    # those characters. It then runs to the last "@" before the next "/" after the first "@".
-    function url(u,   at, pre, c, r, i, auth, rest, q, tail) {
+    function hostlike(t) { return t ~ /^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]+)?([\/?#]|$)/ }
+    # A ":" before the first "@", ahead of any / ? #, marks userinfo whose password may hold those
+    # characters, unless the text starts with "[" or is a dotted host or localhost with a port and a
+    # path. Userinfo runs to the last "@" that a host follows, or failing that to the last "@".
+    function url(u,   at, pre, c, r, i, j, auth, rest, q, tail) {
       at = index(u, "@"); pre = (at ? substr(u, 1, at - 1) : "")
       c = index(pre, ":"); r = match(pre, /[\/?#]/) ? RSTART : 0
+      if (pre ~ /^\[/ || (match(pre, /^[A-Za-z0-9.-]+:[0-9]+[\/?#]/) \
+          && (substr(pre, 1, c - 1) ~ /\./ || substr(pre, 1, c - 1) == "localhost"))) c = 0
       if (at && c && (!r || c < r)) {
-        rest = substr(u, at + 1)
-        i = match(rest, /\//) ? RSTART : length(rest) + 1
-        auth = substr(rest, 1, i - 1); rest = substr(rest, i)
-        for (i = length(auth); i > 0; i--) if (substr(auth, i, 1) == "@") { auth = substr(auth, i + 1); break }
-        u = auth rest
+        j = 0
+        for (i = length(u); i >= at; i--) if (substr(u, i, 1) == "@") {
+          if (!j) j = i
+          if (hostlike(substr(u, i + 1))) { j = i; break }
+        }
+        u = substr(u, j + 1)
       }
       if (match(u, /[\/?#]/)) { auth = substr(u, 1, RSTART - 1); rest = substr(u, RSTART) }
       else { auth = u; rest = "" }
@@ -1179,12 +1184,9 @@ redact_error_text() {  # stdin → one line
       }
       return auth path(rest) tail
     }
-    # What follows a removed query: a "]" and the rest, or only the closing quotes and brackets
-    # that end the word. A quote mid-query does not end it, so nothing after the quote leaks.
-    function qtail(q) {
-      if (match(q, /\]/)) return substr(q, RSTART)
-      return match(q, /["\047()<>]+$/) ? substr(q, RSTART) : ""
-    }
+    # What follows a removed query: only the closing quotes and brackets that end the word. Anything
+    # else after a quote or a bracket is still part of the query, so it cannot leak.
+    function qtail(q) { return match(q, /[]"\047()<>]+$/) ? substr(q, RSTART) : "" }
     # The input is capped at 8 KiB, ending on a whole word: the loops below are quadratic.
     BEGIN { cap = 8192 }
     { gsub(/\r/, ""); if (n <= cap) buf = (NR == 1 ? $0 : buf " " $0); n += length($0) + 1 }
@@ -1205,6 +1207,8 @@ redact_error_text() {  # stdin → one line
       while (match(s, /[A-Za-z][A-Za-z0-9+.-]*:\/\//)) {
         o = o substr(s, 1, RSTART + RLENGTH - 1); s = substr(s, RSTART + RLENGTH)
         if (match(s, /[ \t]/)) { u = substr(s, 1, RSTART - 1); s = substr(s, RSTART) } else { u = s; s = "" }
+        # URLs glued with a comma are taken one at a time.
+        if (match(u, /,[A-Za-z][A-Za-z0-9+.-]*:\/\//)) { s = substr(u, RSTART) s; u = substr(u, 1, RSTART - 1) }
         o = o url(u)
       }
       s = o s
