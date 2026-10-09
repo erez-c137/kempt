@@ -190,9 +190,14 @@ fi
 # man page its word budget.
 # Customer-facing text: no em dash, and no " - " aside (rephrase or use a comma). Headings
 # ("## [0.1.8] - Unreleased") and the two quoted messages the program prints with that dash stay.
-dashes="$(grep -nE '—|–' "$REPO_ROOT/CHANGELOG.md" "$REPO_ROOT/docs/man/kempt.1" | cut -d: -f1,2 | tr '\n' ' ' || true)"
+# The man page spells dashes as roff escapes too: \(em, \(en, \[em], \[en], and \- between spaces as an
+# aside. Its NAME line ("kempt \- ...") needs that escape, so it is excluded by content.
+MAN="${MAN_PAGE:-$REPO_ROOT/docs/man/kempt.1}"
+roff_dash='\\\((em|en)|\\\[(em|en)\]| \\- '
+dashes="$(grep -nE '—|–' "$REPO_ROOT/CHANGELOG.md" "$MAN" | cut -d: -f1,2 | tr '\n' ' ' || true)"
+dashes+="$(grep -nE "$roff_dash" "$MAN" | grep -vE '^[0-9]+:kempt \\- ' | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
 asides="$(grep -nE ' - ' "$REPO_ROOT/CHANGELOG.md" | grep -vE '^[0-9]+:## \[|Nothing to stage - |Updates staged - they' | cut -d: -f1 | tr '\n' ' ' || true)"
-asides+="$(grep -nE ' - ' "$REPO_ROOT/docs/man/kempt.1" | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
+asides+="$(grep -nE ' - ' "$MAN" | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
 assert_eq "${dashes% }" "" "CHANGELOG.md and the man page have no em or en dash"
 assert_eq "${asides% }" "" "CHANGELOG.md and the man page have no ' - ' aside (line numbers)"
 

@@ -41,14 +41,19 @@ pycount() {
   # Only THIS checkout's probes: `python* <script>` where the script is probe_*.py or safe_probe.py
   # inside $QMLDIR, by resolved path. Matching the word anywhere on a command line counted another
   # worktree's run, a shell whose grep pattern names safe_probe, and any job quoting it.
-  local n=0 p pid cwd base script
+  local n=0 p pid cwd base script a
   local -a argv
   local qd; qd="$(readlink -f "${1:-$QMLDIR}")"
   for p in /proc/[0-9]*/cmdline; do
     pid="${p#/proc/}"; pid="${pid%/cmdline}"
     { mapfile -d "" -t argv < "$p"; } 2>/dev/null || continue
     [[ ${#argv[@]} -ge 2 && "${argv[0]##*/}" == python* ]] || continue
-    script="${argv[1]}"; base="${script##*/}"
+    # The first argument that is not a flag, so `python3 -u probe_x.py` counts. A relative path is
+    # resolved against the process's CURRENT cwd: a probe that chdirs after starting is out of scope.
+    script=""
+    for a in "${argv[@]:1}"; do [[ "$a" == -* ]] || { script="$a"; break; }; done
+    [[ -n "$script" ]] || continue
+    base="${script##*/}"
     [[ "$base" == safe_probe.py || "$base" == probe_*.py ]] || continue
     if [[ "$script" != /* ]]; then
       cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || { n=$((n + 1)); continue; }  # fail closed
@@ -70,11 +75,12 @@ baseline="$(pycount)"
 mkdir -p "$TESTTMP/elsewhere"
 printf 'import time\ntime.sleep(60)\n' > "$TESTTMP/elsewhere/probe_fake.py"
 python3 "$TESTTMP/elsewhere/probe_fake.py" & _fake1=$!
+python3 -u "$TESTTMP/elsewhere/probe_fake.py" & _fake3=$!
 bash -c 'sleep 60; : safe_probe probe_x' & _fake2=$!
 sleep 0.5
 assert_eq "$(pycount)" "$baseline" "a probe-named process outside this checkout is not counted"
-assert_eq "$(pycount "$TESTTMP/elsewhere")" "1" "...and the census does count one in the directory it is asked about"
-kill "$_fake1" "$_fake2" 2>/dev/null; wait "$_fake1" "$_fake2" 2>/dev/null || true
+assert_eq "$(pycount "$TESTTMP/elsewhere")" "2" "...and the census does count them in the directory it is asked about, with or without a flag like -u"
+kill "$_fake1" "$_fake2" "$_fake3" 2>/dev/null; wait "$_fake1" "$_fake2" "$_fake3" 2>/dev/null || true
 
 run_probe() {  # probe_name
   # Separate statements on purpose: bash expands every word of a `local` BEFORE it assigns any

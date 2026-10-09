@@ -38,7 +38,12 @@ def is_own_probe(pid, cmdline):
     argv = cmdline.split(b"\0")
     if len(argv) < 2 or not os.path.basename(argv[0]).startswith(b"python"):
         return False
-    script = os.fsdecode(argv[1])
+    # First argument that is not a flag, so `python3 -u probe_x.py` counts. A relative path resolves
+    # against the process's CURRENT cwd: a probe that chdirs after starting is out of scope.
+    rest = [a for a in argv[1:] if not a.startswith(b"-")]
+    if not rest:
+        return False
+    script = os.fsdecode(rest[0])
     base = os.path.basename(script)
     if not (base == "safe_probe.py" or (base.startswith("probe_") and base.endswith(".py"))):
         return False

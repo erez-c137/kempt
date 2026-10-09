@@ -56,6 +56,8 @@ RPMFILE=$(ls /localrepo/kempt-[0-9]*.noarch.rpm | head -1)
 dnf -y -q install rpmlint man-db groff-base >/dev/null 2>&1
 if command -v rpmlint >/dev/null 2>&1; then
   lint="$(rpmlint /localrepo/*.rpm 2>&1)"
+  grep -qE '[0-9]+ packages and [0-9]+ specfiles checked' <<<"$lint" \
+    && ok "rpmlint ran and printed its summary" || bad "rpmlint printed no summary, so it may not have checked anything" "$(tail -3 <<<"$lint")"
   is "rpmlint reports no errors" "$(grep -c ': E: ' <<<"$lint")" "0"
   other="$(grep ': W: ' <<<"$lint" | grep -vE 'package-with-huge-docs|no-documentation|setlocale' || true)"
   [[ -z "$other" ]] && ok "...and no warning beyond the known ones" || bad "rpmlint has an unlisted warning" "$other"
@@ -119,8 +121,10 @@ for h in kempt-refresh kempt-apply; do
 done
 for pair in kempt-refresh:/usr/libexec/kempt-refresh kempt-apply:/usr/libexec/kempt-apply \
             kempt-flatpak-unused:/usr/share/kempt/libexec/kempt-flatpak-unused; do
-  is "${pair%%:*} is byte-for-byte the repo's" \
-     "$(sha256sum < "${pair#*:}")" "$(sha256sum < "$SRC/libexec/${pair%%:*}")"
+  inst_sha="$(sha256sum < "${pair#*:}" 2>/dev/null | cut -c1-64)"
+  repo_sha="$(sha256sum < "$SRC/libexec/${pair%%:*}" 2>/dev/null | cut -c1-64)"
+  [[ ${#inst_sha} -eq 64 && ${#repo_sha} -eq 64 ]] || bad "${pair%%:*}: a hash is missing, so nothing was compared" "'$inst_sha' '$repo_sha'"
+  is "${pair%%:*} is byte-for-byte the repo's" "$inst_sha" "$repo_sha"
 done
 [[ -f /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy ]] \
   && ok "the polkit policy is installed" || bad "no polkit policy"
@@ -200,6 +204,7 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   # default was the terminal, that meant the terminal, and the upgrade must keep it so.
   su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt/history ~/.local/state/kempt/snapshots && cd ~/.local/state/kempt && echo "{}" > state.json && echo "{}" > history/20250101T000000.json && echo pkg > snapshots/offline-pre-1.tsv'
   mine="$(su - alice -c 'cd ~/.local/state/kempt && sha256sum state.json history/* snapshots/*')"
+  is "the state set to be preserved has its three files" "$(grep -c '^[0-9a-f]\{64\}  ' <<<"$mine")" "3"
   dnf -y -q --setopt=tsflags= upgrade "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1 \
     || dnf -y -q --setopt=tsflags= --allowerasing install "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1
   is "the CLI ends on this build" "$(rpm -q --qf '%{VERSION}' kempt)" "$VER"
@@ -222,13 +227,17 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   # Back to the release it came from, if the repository still carries it. A downgrade is the
   # rollback somebody reaches for when an update misbehaves.
   if [[ "$prev" != "$VER" ]]; then
+    # Only a repository with nothing older excuses a failed downgrade; otherwise it is a failure.
+    older="$(dnf --disablerepo=local --showduplicates list kempt 2>/dev/null | awk -v p="$VER" '$1 ~ /^kempt\./ && $2 !~ "^"p { n++ } END { print n+0 }')"
     if dnf -y -q --disablerepo=local --setopt=tsflags= downgrade kempt kempt-plasmoid >/dev/null 2>&1; then
       is "a downgrade returns the CLI to $prev" "$(rpm -q --qf '%{VERSION}' kempt)" "$prev"
       is "...and the widget with it" "$(rpm -q --qf '%{VERSION}' kempt-plasmoid)" "$prev"
       is "...both verifying clean" "$(rpm -V kempt kempt-plasmoid >/dev/null 2>&1 && echo clean || echo dirty)" "clean"
       is "...and the CLI still runs" "$(su - alice -c 'kempt --version')" "kempt $prev"
+    elif [[ "$older" == 0 ]]; then
+      echo "note: the repository carries nothing older than $VER, so the downgrade was NOT checked (manual Phase 3 step)"
     else
-      echo "note: the repository no longer carries $prev, so the downgrade was NOT checked (manual Phase 3 step)"
+      bad "the downgrade failed although the repository lists an older kempt"
     fi
   else
     echo "note: the repository publishes $VER already, so there is no older release to downgrade to"
