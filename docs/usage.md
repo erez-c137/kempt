@@ -402,9 +402,7 @@ What it removes:
   `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
-group) logged in at the desktop. Over the network, or from an account that is not an administrator,
-nothing is removed. Run it as yourself, too: as root or with `sudo`, Flatpak cannot see your own
-apps, so Kempt removes nothing.
+group) logged in at the desktop, so over the network nothing is removed.
 
 With `reclaim=automatic` (see [configuration](configuration.md#keys)), a successful update removes
 the offered set, and its summary says how much was freed, under **Unused Flatpak runtimes** in a
@@ -707,10 +705,9 @@ when the notifier is off for you, and `info` when it starts with your session, n
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
-A `shutdown during package installs` row is `ok` when `rpm-plugin-systemd-inhibit`, or an enabled
-`libdnf5-plugin-systemd-inhibit`, stops a shutdown mid-install, and `WARN` with neither. `dnf cache`
-and `dnf state` rows are `WARN` when other users can change root's dnf files, which an earlier Kempt
-could cause, and name the `chmod` that fixes it.
+`shutdown during package installs` is `WARN` unless `rpm-plugin-systemd-inhibit`, or an enabled
+`libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` and `dnf state` are `WARN` when other
+users can change root's dnf files, and name the `chmod` that fixes it.
 
 ### The staged transaction
 

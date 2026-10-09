@@ -266,9 +266,8 @@ Turn off Discover's update notifier for this user? [Y/n]
 
 Yes runs `kempt discover-notifier off`. It writes a user-level autostart override at
 `~/.config/autostart/org.kde.discover.notifier.desktop`, a copy of the system entry with
-`Hidden=true`, and stops any running `DiscoverNotifier`. If you already had your own file there,
-Kempt keeps it next to the new one, ending in `.before-kempt`. Nothing system-wide changes. To undo
-it:
+`Hidden=true`, and stops any running `DiscoverNotifier`. Your own file there, if any, is kept
+beside it, ending in `.before-kempt`. Nothing system-wide changes. To undo it:
 
 ```bash
 kempt discover-notifier on
@@ -276,13 +275,13 @@ kempt discover-notifier on
 
 That puts your own file back, or removes Kempt's, and starts the notifier again.
 
-`n` or `no` leaves the notifier alone. With no terminal to read an answer from, the installer
-leaves the notifier on and says so. Either way, `kempt discover-notifier off` turns it off later.
+`n` or `no` leaves the notifier on, and so does a run with no terminal to answer in. Either way,
+`kempt discover-notifier off` turns it off later.
 See [usage.md](usage.md#discover-notifier).
 
 ## Verify the install
 
-For either kind of install, run `kempt doctor` first, as in [Verify it](#verify-it). It exits 0
+On either kind of install, run `kempt doctor` first, as in [Verify it](#verify-it). It exits 0
 when every check passes. [usage.md](usage.md#doctor) says what each line means.
 
 Then check for updates:
@@ -364,7 +363,7 @@ find /tmp/stage -type f -o -type l
 ./install.sh --destdir /tmp/stage --uninstall
 ```
 
-The test suite uses this path. It is also the starting point for packaging.
+The test suite and packaging both start from this path.
 
 ## Uninstall
 

@@ -196,10 +196,9 @@ its own. A pinned runtime is never removed: use
 .B "flatpak pin"
 to keep one.
 .IP
-It never asks for a password. Removing needs an administrator logged in at the desktop, and it
-refuses to run as root. Exit 5: nothing removed, because it ran as root with
-.B KEMPT_ALLOW_ROOT=1
-set, Flatpak is off or missing,
+It never asks for a password. Removing needs an administrator logged in at the desktop. Exit 5: nothing removed, because it ran as root with
+.BR KEMPT_ALLOW_ROOT=1 ,
+Flatpak is off or missing,
 .B reclaim=off
 is set, removing needs an administrator, or there is no
 .B \-y
