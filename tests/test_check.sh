@@ -871,7 +871,7 @@ before_marker="$(jq -Sc . "$marker")"
 detour_check
 assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
 assert_eq "$(cat "$notify_log")" \
-  "Kempt Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean." \
+  "Kempt Your staged update can no longer install on a restart. To stage it again, run kempt update --surface=offline. To remove it, run sudo dnf5 offline clean." \
   "...the one notification that keeps the banner's disappearance from being silent"
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
@@ -1335,7 +1335,7 @@ assert_eq "$(jq -r '.armed' "$marker")" "true" "...and stays armed, because it i
 assert_eq "$(jq -r '.staged_at' "$marker")" "MOVED" "...and is still the stage that was made"
 assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "$hist_before" \
   "...and no history entry is invented for an install that did not happen"
-grep -q 'applied on reboot' "$notify_log" \
+grep -q 'installed during the restart' "$notify_log" \
   && { echo "FAIL: announced somebody else's packages as the staged update installing"; _fail=1; } \
   || echo "ok: ...and the user is not told their staged update was applied"
 assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \

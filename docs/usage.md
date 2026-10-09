@@ -252,7 +252,7 @@ your own while it waited removed the restart trigger, though dnf5 still calls it
 check tells you once:
 
 ```
-Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean.
+Your staged update can no longer install on a restart. To stage it again, run kempt update --surface=offline. To remove it, run sudo dnf5 offline clean.
 ```
 
 **A live update replaces the stage.** A staged update is built against the installed packages, so
@@ -480,7 +480,7 @@ kempt history
 
 ```
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
-2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
+2026-08-23T09:41:02+03:00  restart (staged update installed)  ok  41 updated
 2026-08-22T23:10:37+03:00  offline  ok  41 updates staged for the next restart
 2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
 ```

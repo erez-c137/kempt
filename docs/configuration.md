@@ -136,7 +136,8 @@ Kempt recommends this path when session-critical packages are pending. Flatpak a
 **live** in the same run, because Flatpak has no restart install.
 
 The first `kempt check` after the restart records the result in `kempt history` as
-`offline (applied on reboot)`, with a notification. A `dnf install` or live run before the restart
+`restart (staged update installed)`, with a notification. The entry's stored surface is
+`offline (applied on reboot)`. A `dnf install` or live run before the restart
 is never mistaken for it, because Kempt waits for a new boot session. If dnf5's history cannot say
 which transaction ran, the report shows every package change since staging, including other tools'.
 [Installing on the next restart](usage.md#installing-on-the-next-restart) has the rest.
@@ -165,8 +166,9 @@ Kempt runs two schedules:
   every 3 hours, dnf's own default. It skips the refresh on battery power, or on a connection
   NetworkManager reports as metered.
 
-The time of the last successful refresh is in `~/.local/state/kempt/last_refresh`. Delete it to
-force a refresh on the next check. Set `KEMPT_SKIP_REFRESH=1` to turn refreshing off.
+The time of the last successful refresh is in `~/.local/state/kempt/last_refresh`. Delete it, and
+the next check on mains power and an unmetered connection refreshes. Set `KEMPT_SKIP_REFRESH=1` to
+turn refreshing off.
 
 `kempt check --refresh` fetches now, ignoring the 3-hour interval. It still skips the fetch on
 battery or a metered connection. The widget's **Check for Updates** runs it. When that press gets

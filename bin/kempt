@@ -967,10 +967,10 @@ recommend_offline_if_risky() {
         # shellcheck disable=SC2001
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
-        # The tail names the offline surface only when it is available: recommending it while a
-        # release upgrade is stored points at a run that aborts in pre-flight.
-        local tail_advice=". Consider Install on Next Restart in the widget, or: kempt update --surface=offline"
-        [[ "$relup_blocks" == true ]] && tail_advice=""
+        # Sent as the live install starts, so it says what is happening and what to do after.
+        # No restart advice while a release upgrade is stored: a restart could install that.
+        local tail_advice=". Restart when it finishes."
+        [[ "$relup_blocks" == true ]] && tail_advice="."
         # The same vocabulary the terminal listing and the popup use: family_label, or the bare
         # family when Kempt ships no label for it. A notification calling mesa "mesa" while the
         # terminal calls it graphics drivers is one transaction described two ways.
@@ -981,8 +981,10 @@ recommend_offline_if_risky() {
                     done | paste -sd, - | sed 's/,/, /g')"
         (( fam_n > 4 )) && fam_disp="$fam_disp, ..."
         # --risky-ok: the popup already asked, and the person chose Install Now over this advice.
+        local pkg_word=packages
+        (( rcount == 1 )) && pkg_word=package
         [[ -n "$risky_ok" ]] \
-          || notify "Kempt" "$rcount session-critical packages pending ($fam_disp)$tail_advice"
+          || notify "Kempt" "Installing $rcount $pkg_word the running desktop depends on ($fam_disp)$tail_advice"
       fi
     fi
   fi
@@ -1949,10 +1951,11 @@ cmd_update() {
             && "${RECLAIM_BYTES:-0}" != 0 ]]; then
         freed_tail=", ~$(human_bytes "$RECLAIM_BYTES") freed"
       fi
-      notify "Kempt" "${phrase:-Update finished}$freed_tail$([[ "$reboot" == "true" ]] && echo ', reboot needed')"
+      notify "Kempt" "${phrase:-Update finished}$freed_tail$([[ "$reboot" == "true" ]] && echo ', restart needed')"
     else
       # The same reason the summary and the event line carry: "see the log" is not an answer.
-      notify "Kempt" "Update FAILED${reason:+ ($reason)}. See $log$notify_tail"
+      # The widget's Last update row has Show Log for this run.
+      notify "Kempt" "Update failed${reason:+: ${reason%.}}$notify_tail. Open Kempt and press Show Log."
     fi
   fi
   # The copy the summary was rendered from, when it could not be installed into the history.
@@ -2251,7 +2254,7 @@ cmd_history() {  # [--json]: every run, newest first; --json as one array of his
     # listing down - every other run is still perfectly readable.
     # history_phrase counts installs and removals as well as upgrades, and names what a staging
     # run staged.
-    if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
+    if row="$(jq -r "$KEMPT_JQ_COUNTS"'[.timestamp, surface_label, .status] | join("  ")' "$f" 2>/dev/null)" \
        && [[ -n "$row" ]] \
        && phrase="$(history_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
       # The reason, on the rows that have one, or a failed row sends the reader to a log file
@@ -2309,7 +2312,7 @@ reconcile_detour_stage() {  # marker-json toml-status
   # write below is a read-modify-write of a file `kempt update` owns under a different lock.
   offline_marker_still "$1" || {
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
-  notify "Kempt" "Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean."
+  notify "Kempt" "Your staged update can no longer install on a restart. To stage it again, run kempt update --surface=offline. To remove it, run sudo dnf5 offline clean."
   log_event "offline stage cannot install (status $2) - announced"
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
@@ -2599,10 +2602,10 @@ harvest_offline() {
     notify "Kempt" "The update Kempt staged did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
   elif [[ -n "$harvested" ]]; then
     log_event "harvest applied ($harvested)"
-    notify "Kempt" "Staged updates were applied on reboot: $harvested"
+    notify "Kempt" "Staged updates were installed during the restart: $harvested"
   else
     log_event "harvest applied (the result could not be recorded)"
-    notify "Kempt" "Staged updates were applied on reboot"
+    notify "Kempt" "Staged updates were installed during the restart."
   fi
 }
 
@@ -3433,7 +3436,7 @@ doctor_metadata_row() {
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.
   if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
-    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
+    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
     return 0
   fi
   if [[ -z "$iso" ]]; then
@@ -3446,7 +3449,7 @@ doctor_metadata_row() {
   else
     local word=days
     if [[ "$days" == 1 ]]; then word=day; fi
-    doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. Force one with: kempt check --refresh"
+    doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch one now, plug in or switch to an unmetered connection, then run: kempt check --refresh"
   fi
 }
 
@@ -3968,7 +3971,7 @@ usage: kempt <command>
                         history entries
   log [-n N]            recent events: what Kempt did, when, and from where (default 30)
   doctor                check this install: helpers, polkit action, tools, config, state
-  hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still notify
+  hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still listed
   unhold <same>         remove a hold
   holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                         arguments, on one line, to reuse by hand

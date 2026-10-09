@@ -199,7 +199,7 @@ assert_eq "$(reported)" "curl zsh" \
   "...and the report is that entry's packages: patch, which something else installed across the same restart, is not in it"
 assert_eq "$(jq -r '.backends.dnf.updated[] | select(.name == "curl") | "\(.from) \(.to)"' "$HH")" \
   "8.18.0-9.fc44 8.18.0-10.fc44" "...with the versions the snapshots saw"
-assert_eq "$(notified 'were applied on reboot')" "1" "...and announced as applied"
+assert_eq "$(notified 'were installed during the restart')" "1" "...and announced as applied"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...and so is its snapshot copy" -- test ! -f "$PRE"
 # How long it took is dnf5's own record of that entry: 1789500336 to 1789500337.
@@ -238,7 +238,7 @@ assert_eq "$(jq -r .surface "$HH")" "restart (staged update did not run)" \
 assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "absent" "...names no transaction as Kempt's"
 assert_eq "$(reported)" "curl patch zsh" "...and keeps the whole snapshot diff as the report"
 assert_eq "$(notified 'did not run on the restart')" "1" "...and says the staged update did not run"
-assert_eq "$(notified 'were applied on reboot')" "0" "...never that it was applied"
+assert_eq "$(notified 'were installed during the restart')" "0" "...never that it was applied"
 assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and gives it no duration"
 assert_eq "$(events_like 'harvest found the staged transaction did not run (2 updated, +1 installed)')" "1" \
   "...and the event carries the counts of what did change"

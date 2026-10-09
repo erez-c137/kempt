@@ -2783,6 +2783,11 @@ KEMPT_JQ_COUNTS='
       + (if .stage_blocked == true then " staged, but another updater has prepared the next restart"
          else " staged for the next restart" end)
     else empty end;
+  # How a run reads in kempt history and kempt summary. The stored surface of a harvested
+  # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
+  def surface_label:
+    if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
+    else .surface end;
 '
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
@@ -2889,7 +2894,7 @@ render_summary() {  # history-json-file → human text
     # `.error // ""`: entries written before the field existed have no .error at all, and a
     # summary of an old run must still render rather than printing "null".
     # No duration is written when none was measured (a restart whose dnf5 record has no times).
-    "Kempt - " + .timestamp + " (" + .surface
+    "Kempt - " + .timestamp + " (" + surface_label
       + (if (.duration_sec | type) == "number" then ", " + (.duration_sec|tostring) + "s" else "" end) + ") "
       + (if .status == "ok" then "✓"
          else "FAILED. See " + .log

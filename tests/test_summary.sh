@@ -215,8 +215,12 @@ stg_entry "$sf" '{"staged":0}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  updates staged for the next restart" \
   "a staged count of 0 reads as unknown, never as 0 updates staged"
 stg_entry "$sf" '{"surface":"offline (applied on reboot)"}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline (applied on reboot)  ok  no package changes" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  restart (staged update installed)  ok  no package changes" \
   "the restart that applied it is a different row and keeps the counts"
+assert_eq "$("$KEMPT" summary | head -1 | grep -c '(restart (staged update installed)')" "1" \
+  "...and the summary names it the same way, while the entry keeps its stored surface"
+assert_eq "$("$KEMPT" summary --json | jq -r .surface)" "offline (applied on reboot)" \
+  "...which scripts still read as it was written"
 rm -f "$sf"; mv "$TESTTMP/hist-aside"/*.json "$HIST_DIR/"
 
 # --- beyond the plan: the shapes cmd_update actually writes ---

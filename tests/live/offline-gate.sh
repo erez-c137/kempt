@@ -331,7 +331,7 @@ is "dnf5 kept the transaction" "$(toml_status)" "ready"
                  || ok "...and silently dropped the boot symlink, which is the whole finding"
 KEMPT_BOOT_ID=s11-boot "$K" check >/dev/null 2>&1
 is "no history entry was fabricated" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$before_hist"
-hasnt "...and nothing was announced as applied" "$(notes)" "were applied on reboot"
+hasnt "...and nothing was announced as applied" "$(notes)" "were installed during the restart"
 has "the user is told the stage can no longer install" "$(notes)" "can no longer install on a restart"
 is "the marker is demoted, not deleted" "$(jq -r '.armed' <<<"$(marker)")" "false"
 is "...and nothing is published as pending" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
@@ -368,7 +368,7 @@ is "the stage is still fully armed" "$(toml_status)" "ready"
 [[ -L "$LINK" ]] && ok "...symlink included" || bad "the symlink was not restored"
 KEMPT_BOOT_ID=s12-boot "$K" check >/dev/null 2>&1
 is "no history entry was fabricated" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$before_hist"
-hasnt "nothing was announced as applied" "$(notes)" "were applied on reboot"
+hasnt "nothing was announced as applied" "$(notes)" "were installed during the restart"
 hasnt "...and nothing was announced as dead either" "$(notes)" "can no longer install"
 [[ -n "$(marker)" ]] && ok "the armed stage keeps its marker" || bad "the marker of an armed stage was deleted"
 is "...still armed" "$(jq -r '.armed' <<<"$(marker)")" "true"
@@ -429,7 +429,7 @@ is "...naming dnf5's own history entry for it" "$(jq -r '.transaction_id // "abs
 [[ -n "$(reported "$h")" ]] && ok "...with a report" || bad "the report is empty"
 lacks_name "the outside install is not reported as part of the stage" "$(reported "$h")" "$OUT"
 is "...and every reported package is one the stage carried" "$(comm -23 <(reported "$h") <(printf '%s\n' "$staged13"))" ""
-has "notification: applied" "$(notes)" "were applied on reboot"
+has "notification: applied" "$(notes)" "were installed during the restart"
 is "marker consumed" "$(marker)" ""
 "$K" unhold "dnf:$P1" >/dev/null 2>&1
 
@@ -456,7 +456,7 @@ is "one entry for the restart" "$(ls -1 "$STATE/history" | wc -l)" "$((n_hist + 
 is "...which says the staged update did not run" "$(jq -r .surface "$h")" "restart (staged update did not run)"
 is "...and names no transaction as Kempt's" "$(jq -r '.transaction_id // "absent"' "$h")" "absent"
 has "notification: did not run" "$(notes)" "did not run on the restart"
-hasnt "...never that it was applied" "$(notes)" "were applied on reboot"
+hasnt "...never that it was applied" "$(notes)" "were installed during the restart"
 has "event: did not run" "$(events)" "harvest found the staged transaction did not run"
 is "marker consumed" "$(marker)" ""
 
