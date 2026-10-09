@@ -76,7 +76,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Flatpak apps update now only when some are waiting.
 - **A staging run says what it staged.** `kempt history` and `kempt summary` read "78 updates
   staged for the next restart" where they said "no package changes" and "0 updated". The history
-  entry carries the count as `staged`. Older entries read the same, without the number.
+  entry carries the count as `staged`, and `stage_blocked` when another updater has prepared the
+  next restart. Older entries read the same, without the number. A run whose Flatpak half failed
+  still says what it staged.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
@@ -162,7 +164,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A staged update behind another updater's restart is no longer promised.** When another updater
   has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
   `kempt unstage` waits until after the restart, because discarding would cancel the other update
-  too. A live update, an empty stage or a failed stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
+  too. A live update, an empty stage or a failed stage leaves it alone as well, and a failed stage
+  says to try again after the restart. `kempt history` and `kempt summary` say a stage made then
+  will not install at the restart. Doctor also explains a leftover transaction whose updates are
+  already installed.
 - **The widget no longer promises a staged update that another updater has displaced.** When
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as

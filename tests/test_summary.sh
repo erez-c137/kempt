@@ -196,9 +196,24 @@ assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  3 updat
 stg_entry "$sf" '{"staged_nothing":"held"}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  no package changes" \
   "a stage that staged nothing promises no restart"
-stg_entry "$sf" '{"status":"failed","error":"boom"}'
+stg_entry "$sf" '{"status":"failed","error":"boom","backends":{"dnf":{"status":"failed","skipped_held":[],"updated":[],"added":[],"removed":[]},"flatpak":{"status":"skipped","skipped_held":[],"updated":[],"added":[],"removed":[]}}}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  failed  no package changes  (boom)" \
   "a failed staging run staged nothing, and says so"
+# A failed Flatpak half fails the run, but the dnf half staged and armed: the stage is still there.
+stg_entry "$sf" '{"status":"failed","error":"boom","staged":7,"backends":{"dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},"flatpak":{"status":"failed","skipped_held":[],"updated":[],"added":[],"removed":[]}}}'
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  failed  7 updates staged for the next restart  (boom)" \
+  "a run whose Flatpak half failed still says what its dnf half staged"
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): 7 updates staged for the next restart" \
+  "...and so does its summary, never 0 updated"
+# A stage behind another updater's /system-update will not install at the next restart.
+stg_entry "$sf" '{"staged":5,"stage_blocked":true}'
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  5 updates staged, but another updater has prepared the next restart" \
+  "a stage behind another updater's restart does not promise to install then"
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): 5 updates staged, but another updater has prepared the next restart" \
+  "...in the summary too"
+stg_entry "$sf" '{"staged":0}'
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  updates staged for the next restart" \
+  "a staged count of 0 reads as unknown, never as 0 updates staged"
 stg_entry "$sf" '{"surface":"offline (applied on reboot)"}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline (applied on reboot)  ok  no package changes" \
   "the restart that applied it is a different row and keeps the counts"

@@ -358,7 +358,8 @@ tolerate absence.
 | `backends.<name>.status` | string | The backend's outcome. |
 | `backends.<name>.skipped_held` | array of strings | Held names the run left out. |
 | `transaction_id` | number, optional | On a live run or a harvest, when dnf5's history named the transaction. |
-| `staged` | number, optional | On a staging run that staged updates: how many. |
+| `staged` | number, optional | On a staging run that staged updates: how many. Never 0. |
+| `stage_blocked` | `true`, optional | On a staging run whose stage worked while another updater held `/system-update`, so it does not install at the next restart. |
 | `staged_nothing` | string, optional | On a staging run that staged nothing: `"held"` or `"nothing_pending"`. The widget treats any other value as an ordinary stage. |
 | `backends.flatpak.scopes` | object, optional | On a live run, only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome. A per-user set that cannot be listed before or after the run records `user` as failed and fails the run. |
 | `backends.flatpak.eol` | array, optional | On a live run: one `{id, branch, kind, apps, reason}` per end-of-life ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far. |
@@ -474,9 +475,10 @@ own prepared update, leaving dnf5's state at `ready`. A stage behind that symlin
 check publishes `offline_stage_blocked` in place of `offline_staged`
 (`offline_stage_blocked_state()`). The restart often installs the same packages.
 `offline_stage_satisfied()` tells: each staged package must be installed at its staged version or
-newer, and each staged removal gone. A kept old kernel does not count. `kempt unstage` refuses while that symlink stands, because
-`dnf5 offline clean` would remove it and cancel the other update. A superseding live run, an
-empty stage or a failed stage drops only Kempt's marker there.
+newer, and each staged removal gone. An old kernel that is still installed does not block it.
+`kempt unstage` refuses while that symlink stands, because `dnf5 offline clean` would remove it
+and cancel the other update. A superseding live run, an empty stage or a failed stage drops only
+Kempt's marker there. A stage that works there is recorded with `stage_blocked`.
 
 ### Which transaction ran
 
@@ -890,7 +892,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. Stubbed |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. Never written or followed: its presence and its text decide whether it is dnf5's. Stubbed |
 | `KEMPT_OFFLINE_DATADIR` | `/usr/lib/sysimage/libdnf5/offline` | Where dnf5 points `/system-update`. A symlink pointing anywhere else is another updater's, so dnf5's transaction is not armed. `tests/lib.sh` points it at the test directory |
-| `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so a kept old kernel does not count against a stage another updater installed. Points at a missing file in the tests |
+| `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so an old kernel that is still installed does not count against a stage another updater installed. Points at a missing file in the tests |
 | `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |

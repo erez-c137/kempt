@@ -2750,13 +2750,18 @@ KEMPT_JQ_COUNTS='
       (if r > 0 then "-" + (r|tostring) + " removed"   else empty end) ]
     | if length == 0 then "no package changes" else join(", ") end;
   # A staging run changes no package until the restart, so "no package changes" is true and
-  # misleading. Same test as the widget (lastRunOf): ok, surface offline, and something staged.
-  # Entries from older builds have no staged count, and the phrase then leaves it out.
+  # misleading. Keyed on the dnf half, not the run: a failed Flatpak half fails the run but leaves
+  # the stage armed. Entries from older builds have no staged count or dnf status, and the phrase
+  # then leaves the count out and reads the run status. A stage made while another updater holds
+  # /system-update says it will not install then (stage_blocked).
   def stage_phrase:
-    if .status == "ok" and .surface == "offline" and (.staged_nothing // "") == "" then
-      (if (.staged | type) == "number" then
+    if .surface == "offline" and (.backends.dnf.status? // .status) == "ok"
+       and (.staged_nothing // "") == "" then
+      (if (.staged | type) == "number" and .staged > 0 then
          (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
-       else "updates" end) + " staged for the next restart"
+       else "updates" end)
+      + (if .stage_blocked == true then " staged, but another updater has prepared the next restart"
+         else " staged for the next restart" end)
     else empty end;
 '
 
