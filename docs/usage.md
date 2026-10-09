@@ -88,7 +88,7 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
 The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
-open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check Again** and a
+open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check for Updates** and a
 hold always run a check of their own.
 
 **Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
@@ -143,7 +143,7 @@ kempt update --surface=offline    # stage it; applies on the next reboot
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On next reboot (offline)**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
 With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can

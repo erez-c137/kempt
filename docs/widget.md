@@ -116,12 +116,11 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    next press.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
-4. **A Fedora release upgrade is stored.** It says which state the upgrade is in. If it is
-   staged, restart to install it. If it did not finish, the message says to run
-   `sudo dnf5 offline log` to see why. If it is downloaded but not started, or a restart skipped
-   it, the widget does not name the commands: `sudo dnf5 system-upgrade reboot` installs it and
-   `sudo dnf5 offline clean` drops it. While it is stored, Kempt will not stage updates,
-   and **Update Now** still updates live.
+4. **A Fedora release upgrade is stored.** It says which state the upgrade is in, and what to do.
+   If it is staged, restart to install it. If it is downloaded but not started, or a restart
+   skipped it, `sudo dnf5 system-upgrade reboot` installs it. If it did not finish,
+   `sudo dnf5 offline log` shows why. In every state, `sudo dnf5 offline clean` removes it. While
+   it is stored, Kempt will not stage updates, and **Update Now** still updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
 6. **Restart to apply installed updates**, with **Restart…** and a close button. See
@@ -175,27 +174,27 @@ If you hold a package that is already in the staged update, the banner turns int
 because there is no way to edit a stored update and the restart would still install it:
 
 ```
- (!) You held kernel-core after the next-restart install was prepared, so it
-     still installs. Rebuild it to skip kernel-core, or stop holding kernel-core
-     to keep the current plan. Rebuilding asks for authorization; if it fails,
+ (!) You held kernel-core after the update was staged, so it still installs.
+     Rebuild the staged update to skip kernel-core, or stop holding kernel-core
+     to keep the current plan. Rebuilding asks for your password. If it fails,
      nothing stays staged.                          [Rebuild Staged Update]
 ```
 
 With several held packages it names the first and counts the rest:
 
 ```
- (!) You held kernel-core and 2 more after the next-restart install was
-     prepared, so they still install. Rebuild it to skip them, or stop
-     holding them to keep the current plan.
+ (!) You held kernel-core and 2 more after the update was staged, so they
+     still install. Rebuild the staged update to skip them, or stop holding
+     them to keep the current plan.
 ```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
 `may`:
 
 ```
- (!) You added holds after the next-restart install was prepared, so it may
-     still install held packages. Rebuild it to apply your holds. Rebuilding
-     asks for authorization; if it fails, nothing stays staged.
+ (!) You added holds after the update was staged, so it may still install
+     held packages. Rebuild the staged update to apply your holds. Rebuilding
+     asks for your password. If it fails, nothing stays staged.
                                                     [Rebuild Staged Update]
 ```
 
@@ -205,7 +204,7 @@ staged.
 
 **Rebuild Staged Update** has this tooltip:
 
-> Builds the staged update again with your current holds. Asks for authorization; if the rebuild
+> Builds the staged update again with your current holds. Asks for your password. If the rebuild
 > fails, the current staged update is removed.
 
 A rebuild reuses the downloaded packages. If the staged update changed after the banner was drawn,
@@ -215,7 +214,7 @@ banner above.`
 **Discard Staged Update** has this tooltip:
 
 > Removes the update waiting for the next restart, so the restart installs nothing. Asks for
-> authorization, and deletes the packages it downloaded, so staging again downloads them again.
+> your password, and deletes the packages it downloaded, so staging again downloads them again.
 
 If the staged update changed after the banner was drawn, nothing is discarded and the widget says
 so. While a Fedora release upgrade is stored, the button is not there.
@@ -224,7 +223,8 @@ If another updater has prepared the next restart, the banner warns, with no butt
 
 ```
  (!) Another updater has prepared the next restart, so the updates Kempt
-     staged will not install then.
+     staged will not install then. Restart to let that update install. Kempt
+     then shows what is still pending.
 ```
 
 ### The list
@@ -267,14 +267,14 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known and something is pending.
+- ` · ~140 MB`, the estimated download, when known and something is pending but not staged.
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
 the changes. Below a megabyte it reads `< 1 MB`.
 
-**Update Now** runs updates wherever **Run updates in** says. With **On next reboot
-(offline)** and system updates pending, it reads **Install on Next Restart**. A press shows a
+**Update Now** runs updates wherever **Run updates in** says. With **On the next
+restart** and system updates pending, it reads **Install on Next Restart**. A press shows a
 spinner until Kempt answers. It hides when nothing is pending, an update is staged, or its question
 is open. Kernel or desktop updates make it ask first (message 7), unless a release upgrade is
 stored.
@@ -286,9 +286,9 @@ The widget says where the update is running:
 - `Updating in a terminal window…`
 - `Updating in the background…`
 - `Updating…`, with the live log below, for **In this widget**
-- `Preparing the install for the next restart…`, when staging.
+- `Staging updates for the next restart…`, when staging.
 
-You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check Again**.
+You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check for Updates**.
 If a run dies without writing its state, the widget gives up after three hours and checks again.
 
 ### When the widget checks
@@ -340,7 +340,7 @@ ask. Runs then use a terminal, and **Install on Next Restart** still stages. You
 when you turn the option on again.
 
 **Run updates in** (`surface`) is **Terminal window**, **In this widget** (the default),
-**In the background** or **On next reboot (offline)**.
+**In the background** or **On the next restart**.
 
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.
