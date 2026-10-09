@@ -456,7 +456,7 @@ assert_exit 0 "no flatpak: the listing is not run" \
 
 # --- the command behind the reboot verdict -----------------------------------------------------
 # `kempt check` is the hourly, detached path, so when this command cannot run its
-# "warning: reboot check failed (rc=127)" goes to a stderr nobody is attached to, and the event
+# "warning: restart check failed (rc=127)" goes to a stderr nobody is attached to, and the event
 # log records nothing about it either. reboot_needed then answers false on every check forever,
 # which is the safe direction and is also indistinguishable from "no restart is owed". Doctor is
 # where a permanently broken check becomes visible instead.

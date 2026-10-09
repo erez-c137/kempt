@@ -30,10 +30,10 @@ kempt check | jq '{actionable, held_total, risky: (.risky_pending | length)}'
 # Never update this one:
 kempt hold dnf:nvidia-driver
 
-# Kernel or Qt in the list? Stage it, then reboot when convenient:
+# Kernel or Qt in the list? Stage it, then restart when convenient:
 kempt update --surface=offline
 
-# After the reboot, a check records the result in history:
+# After the restart, a check records the result in history:
 kempt check >/dev/null
 kempt summary
 
@@ -137,7 +137,7 @@ Runs the update now, in this process. Flags override the config file for this ru
 ```bash
 kempt update                      # everything, per config
 kempt update --no-flatpak         # this run: system packages only
-kempt update --surface=offline    # stage it; applies on the next reboot
+kempt update --surface=offline    # stage it; installs on the next restart
 ```
 
 | Option | Effect |
@@ -222,7 +222,7 @@ K menu, or `reboot` days later. Kempt never restarts the machine itself.
 
 A check runs just before staging, and its count is the one the widget and the event log report. If
 it fails, Kempt stages anyway with the previous count. Flatpak has no restart install, so an
-offline run still updates Flatpak apps live. Until the restart, the staged packages still show as
+staging run still updates Flatpak apps live. Until the restart, the staged packages still show as
 pending, and the widget stops offering to stage them again. The CLI says:
 
 ```
@@ -252,7 +252,7 @@ your own while it waited removed the restart trigger, though dnf5 still calls it
 check tells you once:
 
 ```
-Your staged update can no longer install on a restart. To stage it again, run kempt update --surface=offline. To remove it, run sudo dnf5 offline clean.
+Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.
 ```
 
 **A live update replaces the stage.** A staged update is built against the installed packages, so
@@ -264,7 +264,7 @@ while an update is staged, Kempt leaves the stage alone and records it once. If 
 the staged update, the next check tells you once. After the restart, Kempt reports only its own
 transaction from dnf5's history. If that did not run, the history entry and the notification say
 `restart (staged update did not run)`. If another updater installed the staged packages or newer
-ones, the entry says `offline (installed by another updater)`.
+ones, the history shows `staged update (installed by another updater)`.
 
 ### A snapshot before every update
 
@@ -434,7 +434,7 @@ System (dnf): 2 updated, +1 installed
 Apps (flatpak): 1 updated
   net.mkiol.SpeechNote 4.8.4 → 4.8.5
 Held (skipped): vim-common
-Reboot: needed
+Restart needed
 ```
 
 Holds that kept packages back add:
@@ -775,7 +775,7 @@ The staged update still contains kernel-core and installs it on the next restart
 When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).
 ```
 
-Rebuilding asks for your password. After `sudo dnf5 offline clean`, the next restart installs
+Rebuilding may ask for your password. After `sudo dnf5 offline clean`, the next restart installs
 nothing.
 
 If Kempt cannot read what the staged update contains, it warns anyway:

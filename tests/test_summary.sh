@@ -36,7 +36,7 @@ s="$(render_summary "$HIST_DIR/20260824T120000.json")"
 grep -q 'kernel-core 6.15.3 → 6.15.4' <<<"$s" && echo "ok: dnf line" || { echo "FAIL: dnf line"; _fail=1; }
 grep -q 'org.gimp.GIMP 2.10 → 2.11' <<<"$s" && echo "ok: flatpak line" || { echo "FAIL: fp line"; _fail=1; }
 grep -q 'Held (skipped): vim-common' <<<"$s" && echo "ok: held surfaced" || { echo "FAIL: held"; _fail=1; }
-grep -q 'Reboot: needed' <<<"$s" && echo "ok: reboot line" || { echo "FAIL: reboot"; _fail=1; }
+grep -q 'Restart needed' <<<"$s" && echo "ok: reboot line" || { echo "FAIL: reboot"; _fail=1; }
 
 # --- what the holds COST this run ---------------------------------------------------------------
 # "Held (skipped): vim-common" names them. This answers the question somebody actually asks when
@@ -221,6 +221,11 @@ assert_eq "$("$KEMPT" summary | head -1 | grep -c '(restart (staged update insta
   "...and the summary names it the same way, while the entry keeps its stored surface"
 assert_eq "$("$KEMPT" summary --json | jq -r .surface)" "offline (applied on reboot)" \
   "...which scripts still read as it was written"
+stg_entry "$sf" '{"surface":"offline (installed by another updater)"}'
+assert_eq "$("$KEMPT" history | grep -c '  staged update (installed by another updater)  ')" "1" \
+  "a stage another updater installed reads in the same words"
+assert_eq "$("$KEMPT" summary --json | jq -r .surface)" "offline (installed by another updater)" \
+  "...and keeps its stored surface too"
 rm -f "$sf"; mv "$TESTTMP/hist-aside"/*.json "$HIST_DIR/"
 
 # --- beyond the plan: the shapes cmd_update actually writes ---

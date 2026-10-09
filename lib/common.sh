@@ -2790,6 +2790,8 @@ KEMPT_JQ_COUNTS='
   # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
   def surface_label:
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
+    elif .surface == "offline (installed by another updater)"
+    then "staged update (installed by another updater)"
     else .surface end;
 '
 
@@ -2958,6 +2960,6 @@ render_summary() {  # history-json-file → human text
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not
     # needed" was this file telling the reader something Kempt does not know.
-    (if .reboot_needed then "Reboot: needed" else empty end)
+    (if .reboot_needed then "Restart needed" else empty end)
   ' "$1"
 }

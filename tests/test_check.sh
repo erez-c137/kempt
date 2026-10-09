@@ -871,7 +871,7 @@ before_marker="$(jq -Sc . "$marker")"
 detour_check
 assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
 assert_eq "$(cat "$notify_log")" \
-  "Kempt Your staged update can no longer install on a restart. To stage it again, run kempt update --surface=offline. To remove it, run sudo dnf5 offline clean." \
+  "Kempt Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean." \
   "...the one notification that keeps the banner's disappearance from being silent"
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
