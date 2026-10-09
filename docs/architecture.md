@@ -475,8 +475,8 @@ check publishes `offline_stage_blocked` in place of `offline_staged`
 (`offline_stage_blocked_state()`). The restart often installs the same packages.
 `offline_stage_satisfied()` tells: each staged package must be installed at its staged version or
 newer, and each staged removal gone. `kempt unstage` refuses while that symlink stands, because
-`dnf5 offline clean` would remove it and cancel the other update. A superseding live run, or an
-empty stage, drops only Kempt's marker there.
+`dnf5 offline clean` would remove it and cancel the other update. A superseding live run, an
+empty stage or a failed stage drops only Kempt's marker there.
 
 ### Which transaction ran
 

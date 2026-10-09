@@ -159,7 +159,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A staged update behind another updater's restart is no longer promised.** When another updater
   has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
   `kempt unstage` waits until after the restart, because discarding would cancel the other update
-  too. A live update or an empty stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
+  too. A live update, an empty stage or a failed stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
 - **The widget no longer promises a staged update that another updater has displaced.** When
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as

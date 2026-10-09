@@ -1571,7 +1571,15 @@ cmd_update() {
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
-        apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        # Behind another updater's /system-update the clean is skipped, as on the supersede path:
+        # it would remove that symlink and cancel the other updater's restart install. The stage
+        # replaced whatever the old marker described, so only the marker goes.
+        if [[ "$(offline_link_state)" == other ]]; then
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          log_event "offline stage left in place (another updater has prepared the next restart)"
+        else
+          apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        fi
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
           log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
@@ -1610,6 +1618,13 @@ cmd_update() {
           # It is stale, and takes the clean below like any other leftover.
           reason_override="could not rebuild the staged update. The previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
+        elif [[ "$(offline_link_state)" == other ]]; then
+          # dnf5 replaced the previous transaction before failing, so the old marker describes
+          # nothing. The clean would remove another updater's /system-update and cancel its
+          # restart install, so only the marker goes.
+          reason_override="could not rebuild the staged update. Another updater has prepared the next restart, so nothing staged by Kempt installs then"
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
           # The marker described a transaction that no longer exists: the re-stage destroyed it,
