@@ -23,9 +23,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `refresh anyway`.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
   could not answer. It also exits 1 when another check held the lock and the previous state was
-  served. And it exits 1 when the per-user Flatpak apps could not be listed. The state then still
-  says `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of
-  these exit 0.
+  served. And it exits 1 when the Flatpak apps installed for you only could not be listed. The state
+  then still says `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`,
+  all of these exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
 - **The widget checks its own installation.** Where it said to run `kempt doctor` in a terminal,
@@ -51,7 +51,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`state.json` can carry two optional fields, `surface_offer` and `discover_offer`.** Each is
   `true` while the widget may make that offer, and absent otherwise.
 - **`state.json` can carry `refresh_skipped`.** It is `"battery"` or `"metered"` when the check's
-  metadata fetch was due and did not run for that reason, and `"off"` when `KEMPT_SKIP_REFRESH`
+  package list fetch was due and did not run for that reason, and `"off"` when `KEMPT_SKIP_REFRESH`
   turns fetching off.
 - **The history entry is a documented format.** `docs/architecture.md` describes the entry that
   `kempt summary --json` and `kempt history --json` print.
@@ -77,10 +77,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A busy Flatpak gets the same plain reason as a busy dnf.** Another program can hold Flatpak's
   lock through all three tries. The summary, notification and history then say so and say to try
   again. Before, they showed Flatpak's raw error line. Both reasons now read as short sentences.
-- **Updates run in the widget by default.** A new install opens no terminal window. An install
-  that already had the terminal keeps it. The first `kempt` command after the upgrade, other than
-  help, the version, `status` and `discover-notifier status`, writes `surface=terminal` to the config file.
-  A config file that names a surface is never changed.
+- **Updates run in the widget by default.** A new install opens no terminal window. An install that
+  already had the terminal keeps it. The first `kempt` command after the upgrade, other than help,
+  the version, `status` and `discover-notifier status`, writes `surface=terminal` to the config
+  file. A config file that names a surface is never changed.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says
   nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
@@ -99,10 +99,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   still says what it staged.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
-- **Messages from the widget and the `kempt` command read as short sentences.** They no longer
-  break a sentence with a dash, and they use the words you see on screen. The Held note reads "Kempt skips these. Other
-  updaters still see them." The commands to install a missing engine each get a line. A failed
-  installation check points to the full report. A run that stops reporting back says the list
+- **Messages from the widget and the `kempt` command read as short sentences.** They no longer break
+  a sentence with a dash, and they use the words you see on screen. The Held note reads "Kempt skips
+  these. Other updaters still see them." The commands to install a missing engine each get a line. A
+  failed installation check points to the full report. A run that stops reporting back says the list
   shows what is pending now. A long list of desktop packages ends in "…".
 - **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
   They describe what Kempt does in the same words as the rest of the release.
@@ -140,9 +140,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kempt log --raw` prints it.
 - **The widget's footer says `lists 2 days old`**, not `metadata 2 days old`, once the package
   lists are over a day old.
-- **Show What is now Show Runtimes**, and the Free Up Space button, tooltip and progress text read
-  the same everywhere. When the engine is missing, the widget now says how to install the engine
-  and where to find other ways.
+- **The Show What button is now Show Runtimes**, and the Free Up Space button, tooltip and progress
+  text read the same everywhere. When the engine is missing, the widget now says how to install the
+  engine and where to find other ways.
 - **The staged banner counts the updates it leaves out.** Updates published after staging, and
   pending Flatpak apps, are not in the staged update. The banner adds `2 other updates are not in
   the staged update.` `state.json` can carry `offline_staged.not_staged`, the dnf part of that count.
@@ -175,10 +175,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt doctor` no longer FAILs over a KDE Store widget when no packaged widget is installed.**
   The store copy is then the only widget, not a shadow of one. Doctor notes it and says to install
   `kempt-plasmoid` first, then remove the store copy. It still FAILs when both copies are there.
-- **A Check for Updates that fails over earlier counts says so.** Before, the counts stayed and
-  nothing changed on screen. Now a message says the check failed or did not finish, and that the
-  counts shown are from the last check. A check that ran out of time no longer shows "timeout after"
-  and a number of milliseconds.
+- **A failed Check for Updates says so when it leaves earlier counts on screen.** Before, the counts
+  stayed and nothing changed on screen. Now a message says the check failed or did not finish, and
+  that the counts shown are from the last check. A check that ran out of time no longer shows
+  "timeout after" and a number of milliseconds.
 - **A first check that fails says why in plain words.** "Kempt could not reach the update
   servers" appears only when every failed part is a network failure. For dnf, its own metadata
   refresh must have failed with one, such as a host that would not resolve. That message offers no
@@ -252,11 +252,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
-- **Root's dnf files can no longer be left open to other users.** The root helpers kept the umask
-  of whoever started them. A refresh needs no password, so anyone at the desk could make root write
+- **Root's dnf files can no longer be left open to other users.** The root helpers kept the umask of
+  whoever started them. A refresh needs no password, so anyone at the desk could make root write
   package metadata that every user could change. Updates you installed or staged were exposed the
-  same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about files an earlier
-  version left open, with the fix.
+  same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about
+  files an earlier version left open, with the fix.
 - **Kempt no longer cancels another updater's restart install.** While Discover or PackageKit has
   prepared the next restart, the root helper refuses to discard a staged update. A discard would
   have removed the other updater's install.
