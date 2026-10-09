@@ -167,7 +167,7 @@ for rel in ("bin/kempt", "lib/common.sh", "backends/dnf.sh", "backends/flatpak.s
         print(f"{rel}:{m.group(1)}\t{m.group(2)}")
 PY
 assert_eq "$(grep -c '^bin/kempt:' "$TEXT" | awk '{print ($1 > 100)}')" "1" "the CLI's messages were collected"
-assert_eq "$(grep -cE 'Try again in a few minutes|Restart when it finishes' "$TEXT")" "2" \
+assert_eq "$(grep -cE 'Try again in a few minutes|Restart after it finishes' "$TEXT")" "2" \
   "sentences kept in KEMPT_ variables and in *_tail/*_advice endings are collected"
 
 # --- the allowlist ------------------------------------------------------------------------------

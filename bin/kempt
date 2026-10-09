@@ -849,8 +849,8 @@ preflight_abort() {  # message
 
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
-# Reads: surface, risky_ok. Writes: surface. Answering "s" at the prompt switches this run to
-# offline.
+# Reads: surface, risky_ok. Writes: surface, risky_advice. Answering "s" at the prompt switches this
+# run to offline. risky_advice is the notification, sent only once the run really starts.
 recommend_offline_if_risky() {
   # Recommends, never blocks; an offline run IS the recommendation, so it is
   # never nagged.
@@ -967,9 +967,10 @@ recommend_offline_if_risky() {
         # shellcheck disable=SC2001
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
-        # Sent as the live install starts, so it says what is happening and what to do after.
+        # Kept, not sent: the lock and the pre-flights come after this, and any of them can still
+        # stop the run. cmd_update sends it at "run start", when the install is really happening.
         # No restart advice while a release upgrade is stored: a restart could install that.
-        local tail_advice=". Restart when it finishes."
+        local tail_advice=". Restart after it finishes."
         [[ "$relup_blocks" == true ]] && tail_advice="."
         # The same vocabulary the terminal listing and the popup use: family_label, or the bare
         # family when Kempt ships no label for it. A notification calling mesa "mesa" while the
@@ -983,8 +984,9 @@ recommend_offline_if_risky() {
         # --risky-ok: the popup already asked, and the person chose Install Now over this advice.
         local pkg_word=packages
         (( rcount == 1 )) && pkg_word=package
+        # "session", not "desktop": the kernel is in the list.
         [[ -n "$risky_ok" ]] \
-          || notify "Kempt" "Installing $rcount $pkg_word the running desktop depends on ($fam_disp)$tail_advice"
+          || risky_advice="This update includes $rcount $pkg_word your running session depends on ($fam_disp)$tail_advice"
       fi
     fi
   fi
@@ -1365,6 +1367,7 @@ cmd_update() {
   # Only the OFFLINE surface. A live run does not replace the stored transaction, and refusing
   # ordinary updates because a release upgrade is waiting would be a bigger imposition than the one
   # this avoids - which is also why this sits after the surface is resolved rather than before.
+  local risky_advice=""
   recommend_offline_if_risky
   # AFTER the recommendation, and that ordering is the whole point: `[s]tage offline` at that prompt
   # SETS $surface, so a gate placed before it is bypassed by Kempt's own advice - and the stage then
@@ -1409,6 +1412,7 @@ cmd_update() {
   # Recorded here and not a line earlier: everything above can still decline to run without
   # touching the system. Past this point the system changes.
   log_event "run start surface=$surface"
+  [[ -n "$risky_advice" ]] && notify "Kempt" "$risky_advice"
 
   # dnf
   run_heading "$log" "System (dnf)"
