@@ -47,6 +47,30 @@ su - builder -c "rpmdev-setuptree && cp /tmp/kempt-$VER.tar.gz ~/rpmbuild/SOURCE
 mkdir -p /localrepo && cp /home/builder/rpmbuild/RPMS/noarch/*.rpm /localrepo/ && createrepo_c -q /localrepo
 printf '[local]\nname=local\nbaseurl=file:///localrepo\nenabled=1\ngpgcheck=0\n' > /etc/yum.repos.d/local.repo
 
+sec "the built package, linted"
+# rpmlint, with the warnings docs/RELEASING.md describes as known filtered out: package-with-huge-docs
+# (the guides are the point of the package), no-documentation on the widget package (its licence is
+# its only file; the guides ship with the CLI) and setlocale (depends on the build shell). An
+# error, or any OTHER warning, fails; it is read before it is waved through.
+RPMFILE=$(ls /localrepo/kempt-[0-9]*.noarch.rpm | head -1)
+dnf -y -q install rpmlint man-db groff-base >/dev/null 2>&1
+if command -v rpmlint >/dev/null 2>&1; then
+  lint="$(rpmlint /localrepo/*.rpm 2>&1)"
+  is "rpmlint reports no errors" "$(grep -c ': E: ' <<<"$lint")" "0"
+  other="$(grep ': W: ' <<<"$lint" | grep -vE 'package-with-huge-docs|no-documentation|setlocale' || true)"
+  [[ -z "$other" ]] && ok "...and no warning beyond the known ones" || bad "rpmlint has an unlisted warning" "$other"
+else
+  echo "note: rpmlint could not be installed, so the package was NOT linted"
+fi
+is "the package ships no configuration file, so there is no .rpmnew case" \
+   "$(rpm -qcp "$RPMFILE" | wc -l)" "0"
+if command -v man >/dev/null 2>&1; then
+  mw="$(MANWIDTH=80 man --warnings -l "$SRC/docs/man/kempt.1" 2>&1 >/dev/null)"
+  [[ -z "$mw" ]] && ok "man kempt renders with no warnings" || bad "the man page renders with warnings" "$(head -3 <<<"$mw")"
+else
+  echo "note: man could not be installed, so the man page render was NOT checked"
+fi
+
 sec "the Flatpak listing's dependencies come only with flatpak"
 # Asked of the transaction dnf would run (--assumeno), before anything is installed. Weak
 # dependencies are off, or the Recommends on flatpak would bring it in on both sides.
@@ -92,6 +116,11 @@ for h in kempt-refresh kempt-apply; do
   is "$h runs bash in privileged mode" "$(head -1 /usr/libexec/$h)" "#!/usr/bin/bash -p"
   is "...owned by root, not group or world writable" \
      "$(stat -c '%U:%G %a' /usr/libexec/$h)" "root:root 755"
+done
+for pair in kempt-refresh:/usr/libexec/kempt-refresh kempt-apply:/usr/libexec/kempt-apply \
+            kempt-flatpak-unused:/usr/share/kempt/libexec/kempt-flatpak-unused; do
+  is "${pair%%:*} is byte-for-byte the repo's" \
+     "$(sha256sum < "${pair#*:}")" "$(sha256sum < "$SRC/libexec/${pair%%:*}")"
 done
 [[ -f /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy ]] \
   && ok "the polkit policy is installed" || bad "no polkit policy"
@@ -148,6 +177,9 @@ dnf -y remove kempt-plasmoid kempt >/dev/null 2>&1
 [[ ! -e /usr/libexec/kempt-apply ]] && ok "the root helpers are gone" || bad "a root helper survived"
 [[ ! -e /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy ]] \
   && ok "the polkit action is gone" || bad "the polkit action survived"
+left="$(find /usr /etc \( -path '/etc/yum.repos.d' -o -path '/usr/share/doc/kempt-*' \) -prune -o \
+          \( -iname '*kempt*' -o -path '*/kempt/*' \) -print 2>/dev/null)"
+is "nothing named for Kempt is left under /usr or /etc" "$left" ""
 [[ -e /home/alice/.config/kempt/config ]] \
   && ok "...and the user's own settings are left alone, as a package should" \
   || echo "note: alice had no config to keep"
@@ -166,7 +198,8 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   fi
   # Somebody who has used Kempt and never chose a surface: a state file and no config. When the
   # default was the terminal, that meant the terminal, and the upgrade must keep it so.
-  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt && echo "{}" > ~/.local/state/kempt/state.json'
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt/history ~/.local/state/kempt/snapshots && cd ~/.local/state/kempt && echo "{}" > state.json && echo "{}" > history/20250101T000000.json && echo pkg > snapshots/offline-pre-1.tsv'
+  mine="$(su - alice -c 'cd ~/.local/state/kempt && sha256sum state.json history/* snapshots/*')"
   dnf -y -q --setopt=tsflags= upgrade "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1 \
     || dnf -y -q --setopt=tsflags= --allowerasing install "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1
   is "the CLI ends on this build" "$(rpm -q --qf '%{VERSION}' kempt)" "$VER"
@@ -177,8 +210,29 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   [[ -f "$PDIR/metadata.json" ]] && ok "...and the widget is still where Plasma looks" \
     || bad "the upgrade left no widget behind"
   is "...at this version" "$(jq -r '.KPlugin.Version' $PDIR/metadata.json)" "$VER"
+  # Read BEFORE the next kempt command runs, since running one is allowed to write.
+  is "the user's state, history and snapshots survive the upgrade untouched" \
+     "$(su - alice -c 'cd ~/.local/state/kempt && sha256sum state.json history/* snapshots/*')" "$mine"
   is "an install that used the terminal keeps it across the upgrade" \
      "$(su - alice -c 'kempt config get surface')" "terminal"
+  # The other install that predates the default: a config with a setting and no state at all.
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.config/kempt && echo "notify_security=false" > ~/.config/kempt/config'
+  is "an install with only a settings file keeps the terminal too" \
+     "$(su - alice -c 'kempt config get surface')" "terminal"
+  # Back to the release it came from, if the repository still carries it. A downgrade is the
+  # rollback somebody reaches for when an update misbehaves.
+  if [[ "$prev" != "$VER" ]]; then
+    if dnf -y -q --disablerepo=local --setopt=tsflags= downgrade kempt kempt-plasmoid >/dev/null 2>&1; then
+      is "a downgrade returns the CLI to $prev" "$(rpm -q --qf '%{VERSION}' kempt)" "$prev"
+      is "...and the widget with it" "$(rpm -q --qf '%{VERSION}' kempt-plasmoid)" "$prev"
+      is "...both verifying clean" "$(rpm -V kempt kempt-plasmoid >/dev/null 2>&1 && echo clean || echo dirty)" "clean"
+      is "...and the CLI still runs" "$(su - alice -c 'kempt --version')" "kempt $prev"
+    else
+      echo "note: the repository no longer carries $prev, so the downgrade was NOT checked (manual Phase 3 step)"
+    fi
+  else
+    echo "note: the repository publishes $VER already, so there is no older release to downgrade to"
+  fi
 else
   echo "note: the COPR repository could not be reached, so the upgrade path was NOT checked"
 fi
