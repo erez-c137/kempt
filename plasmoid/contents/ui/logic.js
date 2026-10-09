@@ -2135,11 +2135,12 @@ function checkErrorOf(rc, stderr) {
 
 // The words of a check that could not reach a server. Bare "timed out" is left out: a lock or a
 // polkit prompt can time out too. The dnf check is cache-only, so these come from flatpak; dnf
-// says only that it has no cache, and NO_CACHE_RE below handles that.
+// says only that it has no cache, and NO_CACHE_RE below handles that. librepo's "Curl error",
+// "Cannot download" and "All mirrors were tried" are not here: flatpak never prints them.
 var NETWORK_ERROR_RE = new RegExp([
-    "curl error", "could(n't| not) resolve", "temporary failure in name resolution",
-    "name or service not known", "error resolving", "cannot download", "failed to download",
-    "all mirrors were tried", "could(n't| not) connect", "connection (refused|reset|timed out)",
+    "could(n't| not) resolve", "temporary failure in name resolution",
+    "name or service not known", "error resolving", "failed to download",
+    "could(n't| not) connect", "connection (refused|reset|timed out)",
     "operation timed out", "timeout was reached", "network is unreachable", "no route to host",
     "while fetching"
 ].join("|"), "i");
