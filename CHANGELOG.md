@@ -146,9 +146,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Show What is now Show Runtimes**, and the Free Up Space button, tooltip and progress text read
   the same everywhere. When the engine is missing, the widget now says how to install the engine
   and where to find other ways.
-- **The staged banner says when other updates wait.** Updates published after staging, and
-  pending Flatpak apps, are not in the staged update. The banner adds `2 other updates wait for
-  your next update.` `state.json` can carry `offline_staged.not_staged`, the dnf part of that count.
+- **The staged banner counts the updates it leaves out.** Updates published after staging, and
+  pending Flatpak apps, are not in the staged update. The banner adds `2 other updates are not in
+  the staged update.` `state.json` can carry `offline_staged.not_staged`, the dnf part of that count.
 
 ### Fixed
 

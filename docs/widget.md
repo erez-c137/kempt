@@ -170,8 +170,8 @@ restart message has none:
  (=) They install when you restart.   [Restart…]
 ```
 
-Updates that come out after staging, and pending Flatpak apps, are not in the staged update. The
-banner then adds `2 other updates wait for your next update.`
+Updates that come out after staging, and pending Flatpak apps, are not in it. The banner then
+adds `2 other updates are not in the staged update.`
 
 If you hold a package that is already in the staged update, the banner turns into a warning,
 because there is no way to edit a stored update and the restart would still install it:

@@ -1107,15 +1107,15 @@ p.check("...and Update Now GONE, because the work it would start is already done
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
         "and not spoken", said(),
         ["61 updates are staged and install on the next restart. "
-         "3 other updates wait for your next update."])
+         "3 other updates are not in the staged update."])
 # The fixture's three pending Flatpak apps are not in the stage, so the banner says they wait.
 p.check("...showing only what the header does not already say",
         lev("stagedMessage.text"),
-        "They install when you restart. 3 other updates wait for your next update.")
+        "They install when you restart. 3 other updates are not in the staged update.")
 p.check("...while its accessible name is the whole sentence, with the count",
         lev("stagedMessage.Accessible.name"),
         "61 updates are staged and install on the next restart. "
-        "3 other updates wait for your next update.")
+        "3 other updates are not in the staged update.")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...and offering the restart, since no restart message is carrying it",

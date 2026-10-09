@@ -291,10 +291,11 @@ var COPY = {
     stagedBannerOne: "It installs when you restart.",
     stagedBannerMore: "They install when you restart.",
     // ...and the updates the stage leaves out: dnf updates published after it was built
-    // (offline_staged.not_staged) and pending Flatpak apps, which never stage. The next update
-    // takes them, live or by rebuilding the stage.
-    stagedOthersOne: "1 other update waits for your next update.",
-    stagedOthersMore: "%1 other updates wait for your next update.",
+    // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
+    // about the stage, never a promise of when they install: dnf may skip some of them, and the
+    // Flatpak list can be stale after a failed check.
+    stagedOthersOne: "1 other update is not in the staged update.",
+    stagedOthersMore: "%1 other updates are not in the staged update.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
