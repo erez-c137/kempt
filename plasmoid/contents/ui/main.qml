@@ -103,8 +103,9 @@ PlasmoidItem {
     property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
-    // A Check for Updates that answered nothing while a state is held: the sentence put in
-    // actionMessage for it, so the next check can take back that report and no other. It is also
+    // A Check for Updates that answered nothing while a state is held, or a Download Anyway press
+    // answered with the state from before it: the sentence put in actionMessage for it, so the
+    // next check can take back that report and no other. It is also
     // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
     property string checkFailNote: ""
     function clearCheckFailNote() {
@@ -489,6 +490,13 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
+                // A Download Anyway press whose check gave up waiting on another check's lock: the
+                // CLI printed the state from before the press and downloaded nothing. Said here,
+                // after the line above that clears the note, or the press would look ignored.
+                if (spend && Logic.servedBeforePress(parsed, askedMs)) {
+                    root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");
+                    root.actionMessage = root.checkFailNote;
+                }
             } else if (rc === 127) {
                 // Nothing to run. cliError is cleared so the popup shows one message about one
                 // situation instead of both.
@@ -550,8 +558,9 @@ PlasmoidItem {
                 var again = root.recheckRefresh;
                 var watchedAgain = root.recheckWatched;
                 // A Download Anyway press folded in is honoured once, and only by a check a person
-                // asked for, never by an automatic one.
-                var anywayAgain = asked && root.recheckAnyway;
+                // asked for, never by an automatic one. Not during a run either, where the button
+                // itself does nothing: a run that started since the press drops it.
+                var anywayAgain = asked && root.recheckAnyway && !root.updating;
                 root.recheckPending = false;
                 root.recheckAsked = false;
                 root.recheckRefresh = false;
@@ -1052,10 +1061,12 @@ PlasmoidItem {
 
     // Download Anyway: one check that fetches even on battery or a metered connection. Only this
     // press asks for that. During a check it is remembered and runs next, unless the running check
-    // already passes the rules. During a run it does nothing, like Check for Updates' button.
+    // already passes the rules: then a second press adds nothing, not even a plain check. During a
+    // run it does nothing, like Check for Updates' button.
     function downloadAnyway() {
         if (updating) return;
-        if (checking && !checkingAnyway) recheckAnyway = true;
+        if (checking && checkingAnyway) return;
+        if (checking) recheckAnyway = true;
         doCheck(false, true, false, true);
     }
 

@@ -3676,6 +3676,29 @@ assert_eq "$(js "L.viewModel($(nc_state ',refresh_error:"Curl error (22): 404"')
   "...nor beside a refresh that failed"
 assert_eq "$(js "L.viewModel(null,false,\"kempt: boom\").problemAnyway")" "" \
   "...nor with no state at all"
+# A refresh error on record can be older than this check's skip. The skip wins, so the hint and the
+# button stay, and the old error is only the detail.
+nc_skip_err() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,refresh_skipped:"%s",backends:{dnf:{enabled:true,items:[],refresh_error:%s}}}' "$nocache" "$1" "$(printf '%s' "$2" | jq -Rs .)"; }
+skip_old="L.viewModel($(nc_skip_err battery 'Curl error (22): 404'),false)"
+assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemDetail")" \
+  "battery|Plug in, then press Check for Updates.|Curl error (22): 404" \
+  "a skip on battery over an older refresh error keeps the hint and Download Anyway, with the error as the detail"
+skip_old="L.viewModel($(nc_skip_err metered "$neterr"),false)"
+assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemNetwork")" \
+  "metered|Switch to an unmetered connection, then press Check for Updates.|false" \
+  "...and a metered skip over an older network error is not called a network failure"
+assert_eq "$(js "L.viewModel($(nc_skip_err off 'Curl error (22): 404'),false).problemHint")" \
+  "dnf could not download them. Its error is below." \
+  "...while with fetching turned off the refresh error still says why"
+# A press whose check waited out another check's lock got the state from before it.
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:00+03:00"}, Date.parse("2026-08-26T12:00:05+03:00"))')" "true" \
+  "servedBeforePress: last_check before the press"
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:05+03:00"}, Date.parse("2026-08-26T12:00:05+03:00") + 900)')" "false" \
+  "...not one in the same second, since last_check has whole seconds"
+assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:09+03:00"}, Date.parse("2026-08-26T12:00:05+03:00"))')" "false" \
+  "...nor one after it"
+assert_eq "$(js 'L.servedBeforePress({}, Date.parse("2026-08-26T12:00:05+03:00")) + "|" + L.servedBeforePress({last_check:"2026-08-26T12:00:00+03:00"}, 0) + "|" + L.servedBeforePress(null, 5)')" \
+  "false|false|false" "...and no stamp or no press time makes no claim"
 assert_eq "$(js 'L.anywayReasonOf("battery") + "|" + L.anywayReasonOf("metered") + "|" + L.anywayReasonOf("off") + "|" + L.anywayReasonOf(undefined)')" \
   "battery|metered||" "anywayReasonOf passes battery and metered only"
 # The literal lives in one line of logic.js, in checkArgs. main.qml never writes it: the boolean
@@ -3683,18 +3706,29 @@ assert_eq "$(js 'L.anywayReasonOf("battery") + "|" + L.anywayReasonOf("metered")
 LJ="$REPO_ROOT/plasmoid/contents/ui/logic.js"
 assert_eq "$(grep -v '^ *//' "$LJ" | grep -c -- '--anyway')" "1" "logic.js writes --anyway in one line"
 assert_contains "$(awk '/^function checkArgs/,/^}/' "$LJ")" '" check --anyway"' "...inside checkArgs"
-assert_eq "$(grep -c -- '--anyway' "$MQ")" \
-  "$(qml_block "$MQ" 'function downloadAnyway' | grep -c -- '--anyway' || true)" \
-  "main.qml has no --anyway outside the Download Anyway handler"
+assert_eq "$(grep -c -- '--anyway' "$MQ" || true)" "0" "main.qml never writes --anyway, not even in a comment"
 assert_eq "$(grep -c 'recheckAnyway = true' "$MQ")" "1" "recheckAnyway is set in one place"
-assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking && !checkingAnyway) recheckAnyway = true;" \
+assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking) recheckAnyway = true;" \
   "...the handler, so a press during a running check is honoured"
+assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking && checkingAnyway) return;" \
+  "...and a press during a check that already passes the rules queues nothing, not even a plain check"
+assert_eq "$(qml_block "$MQ" 'function downloadAnyway' | grep -n 'checking && checkingAnyway) return;\|if (checking) recheckAnyway = true;' | cut -d: -f2- | tr -d ' ')" \
+  "$(printf '%s\n%s' 'if(checking&&checkingAnyway)return;' 'if(checking)recheckAnyway=true;')" \
+  "...that return comes first"
 assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "doCheck(false, true, false, true);" \
   "...which runs a person's fetch that passes the rules"
 assert_eq "$(grep -cE 'doCheck\([^,)]*,[^,)]*,[^,)]*, *true\)' "$MQ")" "1" \
   "no other doCheck call in main.qml passes anyway as true"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "var anywayAgain = asked && root.recheckAnyway;" \
-  "a folded press is replayed only into a check a person asked for"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "var anywayAgain = asked && root.recheckAnyway && !root.updating;" \
+  "a folded press is replayed only into a check a person asked for, and never during a run"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (spend && Logic.servedBeforePress(parsed, askedMs)) {" \
+  "a press answered with the state from before it is noticed"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");' \
+  "...and asked for again, as a note the next check takes back"
+assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.actionMessage = root.checkFailNote;" \
+  "...shown where a failed check's note is"
+assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Download Anyway again." \
+  "...in the wording the table specifies"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.recheckAnyway = false;" \
   "...and cleared with the other recheck flags"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "var spend = anyway === true && fresh && !auto;" \
