@@ -3053,22 +3053,25 @@ cmd_reclaim() {
   return $rc
 }
 
-# `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
-# already one fact per line in a fixed vocabulary, meant to be read with grep.
+# `kempt log` - the event log, newest last, in plain words (events_plain). The file keeps its
+# fixed vocabulary, one fact per line, for grep; --raw prints those lines as they are.
 cmd_log() {
-  local n=30
+  local n=30 raw=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] \
-            || { echo "usage: kempt log [-n N]  (N >= 1)" >&2; exit 2; }
+            || { echo "usage: kempt log [-n N] [--raw]  (N >= 1)" >&2; exit 2; }
           n="$2"; shift 2 ;;
-      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N]" >&2; exit 2 ;;
+      --raw) raw=1; shift ;;
+      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N] [--raw]" >&2; exit 2 ;;
     esac
   done
   # No file yet is the ordinary state of a fresh install, not an error - same answer shape as
   # `kempt summary` on a box with no runs: a sentence on STDOUT and exit 0.
   [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
-  tail -n "$n" "$EVENTS_FILE"
+  if [[ -n "$raw" ]]; then tail -n "$n" "$EVENTS_FILE"
+  else tail -n "$n" "$EVENTS_FILE" | events_plain
+  fi
 }
 
 # --- kempt doctor ---
@@ -3831,7 +3834,7 @@ doctor_recent_events() {
   echo
   echo "Recent events (kempt log):"
   if [[ -s "$EVENTS_FILE" ]]; then
-    tail -n 5 "$EVENTS_FILE" | sed 's/^/  /'
+    tail -n 5 "$EVENTS_FILE" | events_plain "  "
   else
     echo "  none"
   fi
@@ -4031,7 +4034,8 @@ EOF
 EOF
     ;;
     log) cat <<'EOF'
-  log [-n N]            recent events: what Kempt did, when, and from where (default 30)
+  log [-n N] [--raw]    recent events: what Kempt did, when, and from where (default 30).
+                        --raw prints the lines as events.log stores them
 EOF
     ;;
     doctor) cat <<'EOF'

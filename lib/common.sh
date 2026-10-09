@@ -235,6 +235,143 @@ kempt_init_dirs() {
 # because a log line is never worth changing the exit status of the command that emitted it, and it
 # blocks for at most 5 seconds on events.lock. A state directory that cannot be written simply gets
 # no events.
+# --- the event log, in plain words ----------------------------------------------------------------
+# events.log keeps its fixed vocabulary on disk: tests, scripts and the widget read it, and
+# docs/usage.md lists every line. `kempt log` and doctor's last events show each line in plain words
+# instead. A line this does not know is shown as written. Sets EVENT_PLAIN rather than printing, so
+# a long log costs no subshell per line.
+event_count_phrase() {  # n singular plural → "1 update" | "3 updates" | "? updates"
+  if [[ "$1" == 1 ]]; then EVENT_COUNT="1 $2"; else EVENT_COUNT="$1 $3"; fi
+}
+event_where_phrase() {  # surface → where a run went, in the widget's settings words
+  case "$1" in
+    terminal) EVENT_WHERE="in a terminal window" ;;
+    popup) EVENT_WHERE="in the widget" ;;
+    background) EVENT_WHERE="in the background" ;;
+    offline) EVENT_WHERE="to stage for the next restart" ;;
+    *) EVENT_WHERE="($1)" ;;
+  esac
+}
+event_plain() {  # event text → EVENT_PLAIN
+  local t="$1" rest
+  EVENT_PLAIN="$t"
+  case "$t" in
+    "check ok "*)
+      if [[ "$t" =~ ^check\ ok\ actionable=([0-9]+|\?)\ held=([0-9]+|\?)$ ]]; then
+        event_count_phrase "${BASH_REMATCH[1]}" "update to install" "updates to install"
+        EVENT_PLAIN="Checked: $EVENT_COUNT"
+        [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
+      fi ;;
+    "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
+    "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
+    "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
+    "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
+    "refresh flatpak ok") EVENT_PLAIN="Flatpak lists downloaded" ;;
+    "refresh flatpak failed") EVENT_PLAIN="Flatpak lists could not be downloaded" ;;
+    "refresh skipped "*) EVENT_PLAIN="Package lists not downloaded ${t#refresh skipped }" ;;
+    "refresh anyway "*) EVENT_PLAIN="Downloading package lists anyway ${t#refresh anyway }" ;;
+    "run start surface="*)
+      event_where_phrase "${t#run start surface=}"; EVENT_PLAIN="Update started $EVENT_WHERE" ;;
+    "run did not start: "*) EVENT_PLAIN="Update did not start: ${t#run did not start: }" ;;
+    "run done "*)
+      if [[ "$t" =~ ^run\ done\ rc=0\ updated=([0-9]+|\?)\ reboot=(needed|no)$ ]]; then
+        EVENT_PLAIN="Update finished: ${BASH_REMATCH[1]} updated"
+        if [[ "${BASH_REMATCH[2]}" == needed ]]; then EVENT_PLAIN+=", restart needed"; fi
+      fi ;;
+    "run failed rc="*)
+      if [[ "$t" =~ ^run\ failed\ rc=([0-9]+):\ (.*)$ ]]; then
+        EVENT_PLAIN="Update failed (exit code ${BASH_REMATCH[1]}): ${BASH_REMATCH[2]}"
+      fi ;;
+    "offline staged "*)
+      rest="${t#offline staged }"
+      if [[ "$rest" =~ ^([0-9]+|\?)(.*)$ ]]; then
+        event_count_phrase "${BASH_REMATCH[1]}" "update" "updates"
+        EVENT_PLAIN="$EVENT_COUNT staged for the next restart${BASH_REMATCH[2]}"
+      fi ;;
+    "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
+    "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
+    "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
+    "offline stage installed by another updater"*)
+      EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
+    "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
+    "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
+    "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
+    "harvest found the staged transaction did not run"*)
+      EVENT_PLAIN="After the restart: the staged update did not run${t#harvest found the staged transaction did not run}" ;;
+    "harvest skipped snapshot failed")
+      EVENT_PLAIN="After the restart: the installed packages could not be read, so the result was not recorded" ;;
+    "harvest cleared stale marker") EVENT_PLAIN="After the restart: an old record of a staged update was cleared" ;;
+    "harvest deferred: "*)
+      EVENT_PLAIN="Restart result not recorded yet: packages changed outside Kempt while an update is staged" ;;
+    "harvest entry not written"*) EVENT_PLAIN="Restart result not saved${t#harvest entry not written}" ;;
+    "harvest log not written"*) EVENT_PLAIN="Restart log not saved${t#harvest log not written}" ;;
+    "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
+    "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
+    "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
+    "unstage cleared a marker with no transaction under it")
+      EVENT_PLAIN="Discard: the staged update was already gone, so its record was cleared" ;;
+    "unstage refused"*) EVENT_PLAIN="Discard refused${t#unstage refused}" ;;
+    "unstage failed rc="*) EVENT_PLAIN="Discard failed (exit code ${t#unstage failed rc=})" ;;
+    "unstage left a transaction behind"*) EVENT_PLAIN="Discard left the staged update in place${t#unstage left a transaction behind}" ;;
+    "reclaim removed "*)
+      if [[ "$t" =~ ^reclaim\ removed\ ([0-9]+)\ runtimes\ \(([0-9]+|\?)\ bytes\)\ rc=([0-9]+|\?)(.*)$ ]]; then
+        local rn="${BASH_REMATCH[1]}" rb="${BASH_REMATCH[2]}" rrc="${BASH_REMATCH[3]}" rtail="${BASH_REMATCH[4]}"
+        event_count_phrase "$rn" "unused runtime" "unused runtimes"
+        EVENT_PLAIN="Removed $EVENT_COUNT"
+        if [[ "$rb" != "?" ]]; then EVENT_PLAIN+=", $(human_bytes "$rb" 2>/dev/null || echo "$rb bytes")"; fi
+        [[ "$rrc" == 0 ]] || EVENT_PLAIN+=", Flatpak exit code $rrc"
+        rtail="${rtail/, in use: /, including extensions an app uses: }"
+        EVENT_PLAIN+="$rtail"
+      fi ;;
+    "reclaim found nothing to remove") EVENT_PLAIN="Unused runtimes: nothing to remove" ;;
+    "reclaim changed (digest), nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, the list changed" ;;
+    "reclaim changed (unstable), nothing removed")
+      EVENT_PLAIN="Unused runtimes: nothing removed, some became unused less than an hour ago" ;;
+    "reclaim changed (new), nothing removed")
+      EVENT_PLAIN="Unused runtimes: nothing removed, one was installed during the update" ;;
+    "reclaim needs authorization, nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, an administrator is needed" ;;
+    "reclaim failed (flatpak did not answer)") EVENT_PLAIN="Unused runtimes: Flatpak did not answer" ;;
+    "reclaim failed rc="*)
+      if [[ "$t" =~ ^reclaim\ failed\ rc=([0-9]+|\?)(.*)$ ]]; then
+        EVENT_PLAIN="Unused runtimes: removal failed (exit code ${BASH_REMATCH[1]})${BASH_REMATCH[2]}"
+      fi ;;
+    "reclaim refused (running as root)") EVENT_PLAIN="Unused runtimes: refused, Kempt ran as root" ;;
+    "reclaim refused (reclaim=off)") EVENT_PLAIN="Unused runtimes: refused, the reclaim setting is off" ;;
+    "passwordless enable rc=0") EVENT_PLAIN="Passwordless updates turned on" ;;
+    "passwordless enable rc="*) EVENT_PLAIN="Passwordless updates not turned on (exit code ${t#passwordless enable rc=})" ;;
+    "passwordless disable rc=0") EVENT_PLAIN="Passwordless updates turned off" ;;
+    "passwordless disable rc="*) EVENT_PLAIN="Passwordless updates not turned off (exit code ${t#passwordless disable rc=})" ;;
+    "discover-notifier off") EVENT_PLAIN="Discover's update notifier turned off" ;;
+    "discover-notifier on") EVENT_PLAIN="Discover's update notifier turned on" ;;
+    "discover-notifier keep") EVENT_PLAIN="Discover's update notifier kept as it is" ;;
+    "config set "*)
+      if [[ "$t" =~ ^config\ set\ ([a-z][a-z0-9_]+)=(.*)\ \(was\ (.*)\)$ ]]; then
+        local k="${BASH_REMATCH[1]}" v="${BASH_REMATCH[2]}" o="${BASH_REMATCH[3]}"
+        if [[ "$k" == surface ]]; then v="$(surface_word "$v")"; o="$(surface_word "$o")"; fi
+        [[ "$o" != unset ]] || o="not set"
+        EVENT_PLAIN="Setting $k changed to $v (was $o)"
+      fi ;;
+    "hold "*) EVENT_PLAIN="Held ${t#hold }" ;;
+    "unhold "*) EVENT_PLAIN="No longer held: ${t#unhold }" ;;
+  esac
+  # A notification the line records, in words.
+  [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
+}
+
+# Event lines from stdin, in plain words. A line that is not `<timestamp> <via> <text>` is printed
+# as it is.
+events_plain() {  # [prefix]; stdin: events.log lines
+  local ts via text
+  while IFS=' ' read -r ts via text; do
+    if [[ -n "$text" ]]; then
+      event_plain "$text"
+      printf '%s%s %s %s\n' "${1:-}" "$ts" "$via" "$EVENT_PLAIN"
+    else
+      printf '%s%s\n' "${1:-}" "$ts${via:+ $via}"
+    fi
+  done
+}
+
 log_event() {  # text
   local via=cli
   # The widget prefixes every command it runs with KEMPT_VIA=widget (plasmoid main.qml and

@@ -130,6 +130,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A run counts the dnf step as done only when it confirms it.** A dnf step that ends any other
   way now fails the run, and no staged update is promised.
 
+- **`kempt log` shows each event in plain words.** `check ok actionable=78 held=1` reads
+  `Checked: 78 updates to install, 1 held`, and `harvest applied` reads `Staged update installed
+  on restart`. `kempt doctor`'s last events read the same. `events.log` keeps its wording, and
+  `kempt log --raw` prints it.
+
 ### Fixed
 
 - **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`

@@ -504,7 +504,7 @@ kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)
 ## log
 
 ```
-kempt log [-n N]
+kempt log [-n N] [--raw]
 ```
 
 One line per thing Kempt did, newest last. `-n` sets how many lines to show (default 30). With
@@ -515,16 +515,17 @@ kempt log -n 6
 ```
 
 ```
-2026-08-26T20:58:03+03:00 cli refresh ok
-2026-08-26T20:58:11+03:00 cli check ok actionable=7 held=1
-2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
-2026-08-26T21:11:02+03:00 widget run start surface=background
-2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
-2026-08-26T21:14:41+03:00 widget check ok actionable=0 held=1
+2026-08-26T20:58:03+03:00 cli Package lists downloaded
+2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
+2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
+2026-08-26T21:11:02+03:00 widget Update started in the background
+2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
+2026-08-26T21:14:41+03:00 widget Checked: 0 updates to install, 1 held
 ```
 
 Each line is `<timestamp> <via> <what happened>`, where `via` is `widget` or `cli` (a terminal, a
-script or a timer).
+script or a timer). `--raw` prints the lines as the file stores them, in the words of the table
+below.
 
 | Exit | When |
 | --- | --- |
@@ -532,7 +533,7 @@ script or a timer).
 | 2 | `-n` without a positive whole number, or an unknown option. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600, trimmed to the last 2000 lines past 2500.
-The wording is fixed, so you can search it:
+Its wording is fixed, so you can search it:
 
 | Line | Written when |
 | --- | --- |
@@ -635,9 +636,9 @@ ok    widget: match checkout
 ok    widget engine: /home/you/src/kempt/bin/kempt
 
 Recent events (kempt log):
-  2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
-  2026-08-26T21:11:02+03:00 widget run start surface=background
-  2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
+  2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
+  2026-08-26T21:11:02+03:00 widget Update started in the background
+  2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 
 kempt doctor: all checks passed
 ```

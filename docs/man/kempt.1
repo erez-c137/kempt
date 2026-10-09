@@ -42,6 +42,7 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .B kempt log
 .RB [ \-n
 .IR N ]
+.RB [ \-\-raw ]
 .br
 .B kempt doctor
 .br
@@ -223,10 +224,15 @@ entries, or
 A damaged entry is left out and named on stderr.
 .TP
 .BR log " [" \-n " " \c
-.IR N ]
-Print the event log, newest last.
+.IR N "] [" \c
+.BR \-\-raw ]
+Print the event log, newest last, as sentences.
 .I N
-defaults to 30. Each line is
+defaults to 30.
+.B \-\-raw
+prints the lines as
+.I events.log
+stores them. Each line is
 .IR "timestamp via text" ,
 where
 .I via
