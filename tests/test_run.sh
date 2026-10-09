@@ -18,9 +18,9 @@ assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt 
 "$KEMPT" config set surface background
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=background)" "background plan"
 "$KEMPT" config set surface popup
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=popup)" "popup plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "popup plan"
 # --risky-ok, after Install Now in the popup, reaches the detached update and nothing else.
-assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=widget)" \
   "Install Now passes --risky-ok on to a detached update"
 "$KEMPT" config set surface offline
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "offline plan"
@@ -68,9 +68,9 @@ grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknow
 # --surface=widget, both run detached in the widget.
 "$KEMPT" config set auto_accept true
 sed -i 's/^surface=.*/surface=widget/' "$KEMPT_CONFIG_DIR/config"
-assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update (surface=widget)" \
   "a hand-written surface=widget runs in the widget, with no warning"
-assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update (surface=widget)" \
   "--surface=widget is accepted as the widget"
 assert_contains "$("$KEMPT" run --print-command --surface=bogus 2>&1)" "use terminal, widget, background or offline" \
   "an unknown --surface value names widget among the choices"
@@ -90,7 +90,7 @@ assert_eq "$("$KEMPT" run --surface=offline --print-command)" "detached: kempt u
 # override passed on, a terminal asked for by name would stage in that window instead.
 assert_eq "$("$KEMPT" run --print-command --surface=terminal)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
   "--surface=terminal on a box configured to stage opens a terminal that updates live"
-assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=widget)" \
   "...a surface is read the way the setting is, trimmed and case-folded"
 "$KEMPT" config set auto_accept false
 assert_eq "$("$KEMPT" run --print-command --surface=offline)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=offline" \

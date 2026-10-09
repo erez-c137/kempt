@@ -82,6 +82,15 @@ done
 assert_eq "$("$KEMPT" help check)" "$("$KEMPT" check --help)" "kempt help check prints what kempt check --help does"
 assert_exit 2 "kempt help with a command Kempt does not have is a usage error" "$KEMPT" help bogus
 assert_exit 2 "...and so is --help after one" "$KEMPT" bogus --help
+# A command's help takes nothing after it, and an empty name is shown as one.
+assert_exit 2 "help with an extra word after the command is a usage error" "$KEMPT" help check extra
+assert_contains "$(cat "$TESTTMP/last_output")" "unknown option: extra" "...naming the extra word"
+assert_exit 2 "help with an empty name is a usage error" "$KEMPT" help ''
+assert_contains "$(cat "$TESTTMP/last_output")" "unknown command: ''" "...and shows the empty name as ''"
+assert_contains "$("$KEMPT" summary --help)" "usage: kempt summary [N | --json]" \
+  "summary's help is one synopsis, so each description belongs to it"
+assert_contains "$("$KEMPT" help enable-passwordless)" "an administrator's password once" \
+  "enable-passwordless says whose password it asks for"
 # security-ack is the widget's: its --help answers, and the full usage leaves it out.
 assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --expect=DIGEST" \
   "the internal security-ack still answers --help, without running"

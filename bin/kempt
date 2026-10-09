@@ -2243,7 +2243,7 @@ cmd_run() {
       exit 5
     fi
   else
-    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$surface)"; return 0; fi
+    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
     local self_q surface_q
     printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
     setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
@@ -4286,9 +4286,9 @@ EOF
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
                         for this run. --no-flatpak updates system packages only. --surface=X
-                        picks where it runs: terminal, widget, background, or offline to stage
-                        it for the next restart. --risky-ok leaves out the session-critical
-                        notification
+                        picks where it runs: terminal, widget, background or offline, which
+                        stages it for the next restart. --risky-ok leaves out the
+                        session-critical notification
 EOF
     ;;
     run) cat <<'EOF'
@@ -4307,9 +4307,9 @@ EOF
 EOF
     ;;
     summary) cat <<'EOF'
-  summary [N]           human summary of the last (or Nth-last) run
-  summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                        or if the newest entry is damaged)
+  summary [N | --json]  human summary of the last (or Nth-last) run. --json prints the newest
+                        run's history entry, verbatim JSON (nothing if no runs yet, or if the
+                        newest entry is damaged)
 EOF
     ;;
     history) cat <<'EOF'
@@ -4366,7 +4366,7 @@ EOF
     ;;
     enable-passwordless) cat <<'EOF'
   enable-passwordless   let your desktop session install dnf updates without a password. Asks
-                        for your password once, to install a polkit rule
+                        for an administrator's password once, to install a polkit rule
 EOF
     ;;
     disable-passwordless) cat <<'EOF'
@@ -4422,7 +4422,7 @@ usage_of() {  # command
 # own. A command Kempt does not have is a usage error, as it is without the flag.
 if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
   usage_of "$1" && exit 0
-  echo "unknown command: $1" >&2; usage >&2; exit 2
+  echo "unknown command: ${1:-''}" >&2; usage >&2; exit 2
 fi
 
 # Kempt is a per-user tool: as root it would read and write root's config and state, and the
@@ -4468,8 +4468,10 @@ case "${1:-help}" in
   version|--version|-V) shift; cmd_version "$@" ;;
   help|--help|-h)
     if [[ $# -le 1 ]]; then usage
-    elif [[ $# -eq 2 ]] && usage_of "$2"; then :
-    else echo "unknown command: $2" >&2; usage >&2; exit 2
+    elif ! usage_of "$2" >/dev/null; then
+      echo "unknown command: ${2:-''}" >&2; usage >&2; exit 2
+    elif [[ $# -gt 2 ]]; then echo "unknown option: $3" >&2; exit 2
+    else usage_of "$2"
     fi ;;
-  *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
+  *) echo "unknown command: ${1:-''}" >&2; usage >&2; exit 2 ;;
 esac
