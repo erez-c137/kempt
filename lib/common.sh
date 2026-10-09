@@ -2022,6 +2022,14 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
   [[ "$proof" == true ]]
 }
 
+# offline_stage_satisfied, asked about the stage a marker records. It reads dnf5's stored
+# transaction, and once a check has found that replaced, the stored one is somebody else's: its
+# packages being installed says nothing about Kempt's stage.
+offline_marker_stage_satisfied() {  # marker-json → 0 when the stage it records is installed
+  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
+  offline_stage_satisfied
+}
+
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
 # come from two places (dnf5's stored transaction, or the check made just before staging) and a name
@@ -2573,7 +2581,7 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
 # offline_staged rather than inside it, because a reader that predates this key reads the
 # presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
 # otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
-# is then done, not blocked) publish nothing.
+# is then done, not blocked) publish nothing. A replaced stage is never done that way.
 offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
@@ -2581,7 +2589,7 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   [[ "$(offline_release_upgrade_state)" == foreign ]] || return 0
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
   offline_release_upgrade >/dev/null && return 0
-  offline_stage_satisfied && return 0
+  offline_marker_stage_satisfied "$marker" && return 0
   jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker"
 }
 

@@ -2412,7 +2412,7 @@ harvest_offline() {
       # dnf5's: arming is TWO things, the status and the symlink, and systemd removes the symlink
       # once system-update.target is reached (systemd.offline-updates(7)) - so a boot that came
       # and went leaving `ready` did not run the transaction, and no later one will either.
-      if offline_stage_satisfied; then
+      if offline_marker_stage_satisfied "$marker"; then
         # ...unless every staged package was installed before this restart. The restart changed
         # nothing, so there is nothing to report: the stage is done, and dnf5's leftover is
         # doctor's to explain.
@@ -2443,7 +2443,7 @@ harvest_offline() {
   if [[ "$toml_status" != absent ]]; then
     if [[ "$toml_status" != ready ]] \
        || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
-      if offline_stage_satisfied; then
+      if offline_marker_stage_satisfied "$marker"; then
         installed_elsewhere=true
       else
         rm -f "$now_snap"

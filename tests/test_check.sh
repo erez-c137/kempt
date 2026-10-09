@@ -1093,6 +1093,27 @@ assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 rm -f "$marker" "$pre"
 rm -rf "$KEMPT_STATE_DIR/history"
 
+# A stage a check already found replaced: the stored transaction is somebody else's, so its
+# packages being installed says nothing about Kempt's stage. Never "installed", in either branch.
+stage_marker boot-before-reboot 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+: > "$notify_log"
+KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+assert_not_contains "$(cat "$notify_log")" "staged updates are installed" \
+  "a replaced stage is never announced as installed when the stored transaction is"
+assert_eq "$(jq -r '.armed' "$marker" 2>/dev/null)" "false" "...and its marker is demoted, not consumed"
+assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | wc -l)" "0" "...and no history entry claims it"
+rm -f "$marker" "$pre"
+stage_marker boot-before-reboot 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+before_pk="$(events_since 'offline stage installed by another updater')"
+pk_check   # the package set did not move across the restart
+assert_eq "$(events_since 'offline stage installed by another updater')" "$before_pk" \
+  "...nor cleared as installed before the restart when the package set did not move"
+assert_exit 0 "...which keeps its marker" -- test -f "$marker"
+rm -f "$marker" "$pre"
+rm -rf "$KEMPT_STATE_DIR/history"
+
 # The doctor, afterwards: dnf5 still keeps the transaction, and says `ready`. One line explains it,
 # and none of the rows that would call it pending or broken.
 doc="$(KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" doctor 2>&1 || true)"
@@ -1118,6 +1139,18 @@ assert_not_contains "$doc" "install on the next restart" "...and promises nothin
 assert_exit 5 "unstage refuses while another updater's symlink stands" -- "$KEMPT" unstage
 assert_exit 0 "...and discards nothing" -- test -f "$marker"
 assert_eq "$(events_since 'unstage refused (another updater has prepared the next restart)')" "1" "...and logs why"
+rm -f "$marker" "$pre"
+# A replaced stage behind that symlink, where the stored transaction's packages are all installed:
+# that proves nothing about Kempt's stage, so it is still published as blocked.
+stage_marker boot-t4 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "3" \
+  "a replaced stage is published as blocked even when the stored transaction is installed"
+stage_marker boot-t4 3
+KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "absent" \
+  "...while Kempt's own stage, installed, is done and not blocked"
 rm -f "$marker" "$pre"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r 'has("offline_stage_blocked")' "$st")" "false" "with no marker, nothing is published as blocked"
