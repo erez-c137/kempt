@@ -102,13 +102,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `--json` keep the old value.
 - **Messages say what to do next.** Release-upgrade banners give the install and remove commands,
   including for an upgrade behind another updater's restart. A failed update names its log. A
-  lost stage gets one remedy. Prompts name the **Check for Updates** button, rebuild and discard
-  say they may ask for your password, and Settings notes lose their double negatives.
+  staged update that can no longer install names the commands to stage it again or remove it.
+  Prompts name the **Check for Updates** button, and rebuild and discard say they may ask for your
+  password.
 - **Messages state the rules as they are.** On battery or a metered connection, `--refresh` does
   not fetch either. Doctor and the guide say so, and the widget says whether to plug in or switch
-  networks. `kempt --help` says a hold
-  skips a package in updates but still lists it. The Discover offer says Kempt shows updates on
-  its panel icon and sends no notification for them.
+  networks. `kempt --help` says a hold skips a package in updates but still lists it. The Discover
+  offer says Kempt shows updates on its panel icon and sends no notification for them. Settings
+  notes lose their double negatives.
 - **The widget hides the download size while an update is staged**, since nothing is left to
   download.
 
