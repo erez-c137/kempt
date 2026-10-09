@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The keyboard and the screen reader (Task P4).
+"""The keyboard and the screen reader.
 
 The one probe in this directory that builds a WINDOW, and it is worth being plain about why,
 because every other probe here deliberately does not.
@@ -12,7 +12,7 @@ has nowhere to be delivered. Measured on this box, 2026-08-27:
     offscreen window   focus=True   activeFocus=True    Tab: focus really moves, in order
 
 So a probe with no window can only assert that the QML SAYS the right thing. That is exactly the
-kind of assertion this kit exists to avoid, and P4 is the task where it would matter most - "the
+kind of assertion this kit exists to avoid, and keyboard access is where it would matter most - "the
 pin is reachable by Tab" is a claim about Qt's focus chain, not about our source. Hence one
 offscreen QQuickWindow, here and nowhere else. The other probes stay windowless on purpose: their
 assertions were all written under those conditions, and giving them a window would change what
@@ -20,7 +20,7 @@ they are measuring.
 
 What is still NOT drivable, and it is the same wall probe_popup describes: `root.expanded` is
 AppletQuickItem's C++ property and its setter dereferences an applet that does not exist out
-here, so writing it SEGFAULTS the process. Both halves of P4 therefore travel through named
+here, so writing it SEGFAULTS the process. Both halves of the keyboard path therefore travel through named
 seams that a real panel also uses:
 
     open    root.popupOpened()  ->  signal popupShown()  ->  the popup's focusPrimary()
@@ -361,7 +361,7 @@ p.check("...so its action is the stop after the header, and the restart message'
         walk(len(expected)), expected)
 
 # The state this widget is actually FOR. A weekly Fedora update is fifty to two hundred packages,
-# and a ListView only builds the delegates near its viewport - so before P4's scroll-into-view,
+# and a ListView only builds the delegates near its viewport - so before the scroll-into-view,
 # the focus chain simply ended at whichever row happened to exist and Tab jumped out of the list.
 # Measured on the 24-package fixture before the fix: 17 of 24 pins reachable, the other 7 not
 # reachable by keyboard at all.
@@ -442,7 +442,7 @@ p.check("...each one saying exactly what its tooltip says, so the two can never 
          lev("configureButton.Accessible.name") == lev("configureButton.text")],
         [True, True])
 # ...and the description is the second thing a screen reader reads, so it is the slot for what
-# pressing this DOES. Bound to `text` it was the label spoken twice and nothing learned (a11y P4).
+# pressing this DOES. Bound to `text` it was the label spoken twice and nothing learned.
 p.check("the Refresh icon also says what pressing it does",
         lev("refreshButton.Accessible.description"),
         "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
@@ -749,7 +749,7 @@ for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     p.check("...and an explicit accessible name, because `text` alone was measured empty",
             _s.count("Accessible.name: text") >= _s.count("IconOnly"), True)
     # The bug the count above cannot see: a description that is the name read back. It passes a
-    # count and says nothing (a11y P4), so it is forbidden outright.
+    # count and says nothing, so it is forbidden outright.
     p.check("...and no icon-only button describes itself with its own label",
             "Accessible.description: text" in _s, False)
 

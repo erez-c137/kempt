@@ -74,6 +74,8 @@
           updates, Kempt asks whether to install now or on the next restart. An install that used
           the terminal keeps it, and the widget offers the switch once. The widget can check its
           own installation, and it can turn off Discover's update notifier so you see one count.
+          This release also fixes a security issue: the root helpers now set their own file
+          permissions, so files root writes for dnf can no longer be left open to other users.
         </p>
       </description>
     </release>

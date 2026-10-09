@@ -50,8 +50,8 @@ heading.
 ## tests/fixtures/rpm-installed.tsv
 **Captured-live**, 2026-08-24, via
 `LC_ALL=C rpm -qa --queryformat '%{NAME}\t%{EVR}\n' | sort` against this box's real installed
-package database, filtered to the names referenced above plus 3 extra real rows for realism
-(per the plan's Task 2 Step 1 command). Every EVR in this file is a genuine currently-installed
+package database, filtered to the names referenced above plus 3 extra real rows for realism.
+Every EVR in this file is a genuine currently-installed
 version - nothing here is invented. `brandnew` was deliberately NOT added (see guard row
 above - that's the point of the guard).
 
@@ -148,7 +148,7 @@ kernel builds, the everyday case), and `zsh` ×1 as a single-version control tha
 collapsing untouched. Deliberately kept in RAW (uncollapsed) form - that is the entire point.
 
 ## tests/fixtures/snap-before.tsv / tests/fixtures/snap-after.tsv
-**Hand-written**, per the plan's literal Task 2 Step 3 content - not live-captured; these exist
+**Hand-written**, not live-captured; these exist
 purely to give `tsv_diff_updates` a deterministic before/after pair. No comment-marker line:
 both files are consumed directly by `join`, which requires every line to be a real TSV data
 row, so a leading `#` line would break the diff instead of being skipped. Encodes: one
@@ -232,7 +232,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
 
 - **state-schema-v0.json** - **derived**, `jq 'del(.risky_pending)'` over state-live.json,
   re-derived with it at every re-capture so the two always share a timestamp. Stands
-  in for a state file written before Task 13.5 added that additive key: schema-1 readers must
+  in for a state file written before that additive key was added: schema-1 readers must
   tolerate its absence, and there is no way to make today's CLI emit one.
 - **state-reboot-needed.json** - **derived**, `jq '. + {reboot_needed: true}'` over
   state-live.json, so the two are identical field for field apart from that one key (and it lands

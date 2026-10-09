@@ -105,8 +105,8 @@ is printed and nothing is queried.
 .B \-\-refresh
 turns it off.
 .B \-\-strict
-exits 1 when the answer is not current: a backend failed, the per\-user Flatpak apps could not be
-listed, or another check held the lock and the previous state was printed.
+exits 1 when the answer is not current: a backend failed, the Flatpak apps installed for you only
+could not be listed, or another check held the lock and the previous state was printed.
 .IP
 When a backend fails, its
 .B status
@@ -196,8 +196,10 @@ its own. A pinned runtime is never removed: use
 .B "flatpak pin"
 to keep one.
 .IP
-It never asks for a password. Removing needs an administrator logged in at the desktop, and it
-refuses to run as root. Exit 5: nothing removed, because it ran as root, Flatpak is off or missing,
+It never asks for a password. Removing needs an administrator logged in at the desktop. Exit 5: nothing removed, because it ran as root with
+.B KEMPT_ALLOW_ROOT=1
+set or under sudo or pkexec,
+Flatpak is off or missing,
 .B reclaim=off
 is set, removing needs an administrator, or there is no
 .B \-y
