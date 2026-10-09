@@ -729,7 +729,7 @@ PlasmaExtras.Representation {
                     // Accessible.description carries the identical words because a polkit dialog
                     // takes the focus the moment this is pressed - a screen-reader user who has not
                     // heard the cost by then hears it never.
-                    tooltip: i18n("Builds the staged update again with your current holds. Asks for your password. If the rebuild fails, the current staged update is removed.")
+                    tooltip: i18n("Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed.")
                     Accessible.description: tooltip
                     // Shown by the view model, and disabled while a staging action is already
                     // pending (main.qml, actionPending): a second press would queue a second
@@ -757,7 +757,7 @@ PlasmaExtras.Representation {
                     // cache, and this deletes it. Accessible.description carries the identical
                     // words for the identical reason - a polkit dialog takes the focus the moment
                     // this is pressed.
-                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. Asks for your password, and deletes the packages it downloaded, so staging again downloads them again.")
+                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending

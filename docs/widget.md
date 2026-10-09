@@ -116,11 +116,12 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    next press.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
    Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
-4. **A Fedora release upgrade is stored.** It says which state the upgrade is in, and what to do.
+4. **A Fedora release upgrade is stored.** It names the upgrade's state and the next step.
    If it is staged, restart to install it. If it is downloaded but not started, or a restart
    skipped it, `sudo dnf5 system-upgrade reboot` installs it. If it did not finish,
-   `sudo dnf5 offline log` shows why. In every state, `sudo dnf5 offline clean` removes it. While
-   it is stored, Kempt will not stage updates, and **Update Now** still updates live.
+   `sudo dnf5 offline log` shows why. Behind another updater's restart, it waits for that one.
+   `sudo dnf5 offline clean` always removes it. While it is stored, Kempt will not stage updates,
+   and **Update Now** updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
 6. **Restart to apply installed updates**, with **Restart…** and a close button. See
@@ -176,8 +177,8 @@ because there is no way to edit a stored update and the restart would still inst
 ```
  (!) You held kernel-core after the update was staged, so it still installs.
      Rebuild the staged update to skip kernel-core, or stop holding kernel-core
-     to keep the current plan. Rebuilding asks for your password. If it fails,
-     nothing stays staged.                          [Rebuild Staged Update]
+     to keep the current plan. Rebuilding may ask for your password. If it
+     fails, nothing stays staged.                   [Rebuild Staged Update]
 ```
 
 With several held packages it names the first and counts the rest:
@@ -194,7 +195,7 @@ When Kempt cannot read what the staged update contains and you hold dnf packages
 ```
  (!) You added holds after the update was staged, so it may still install
      held packages. Rebuild the staged update to apply your holds. Rebuilding
-     asks for your password. If it fails, nothing stays staged.
+     may ask for your password. If it fails, nothing stays staged.
                                                     [Rebuild Staged Update]
 ```
 
@@ -204,7 +205,7 @@ staged.
 
 **Rebuild Staged Update** has this tooltip:
 
-> Builds the staged update again with your current holds. Asks for your password. If the rebuild
+> Builds the staged update again with your current holds. May ask for your password. If the rebuild
 > fails, the current staged update is removed.
 
 A rebuild reuses the downloaded packages. If the staged update changed after the banner was drawn,
@@ -213,8 +214,8 @@ banner above.`
 
 **Discard Staged Update** has this tooltip:
 
-> Removes the update waiting for the next restart, so the restart installs nothing. Asks for
-> your password, and deletes the packages it downloaded, so staging again downloads them again.
+> Removes the update waiting for the next restart, so the restart installs nothing. May ask for
+> your password. It deletes the packages it downloaded, so staging again downloads them again.
 
 If the staged update changed after the banner was drawn, nothing is discarded and the widget says
 so. While a Fedora release upgrade is stored, the button is not there.
@@ -267,7 +268,7 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known and something is pending but not staged.
+- ` · ~140 MB`, the estimated download, when known, something is pending, and no update is staged.
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only

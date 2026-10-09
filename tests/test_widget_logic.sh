@@ -396,8 +396,16 @@ old="L.viewModel($(nc_state ''),false)"
 assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
   "The package lists have not been downloaded yet|false|" \
   "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
-assert_eq "$(js "$old.problemHint")" "Plug in, or switch to an unmetered connection, then press Check for Updates." \
-  "...and says when the lists download"
+assert_eq "$(js "$old.problemHint")" "Press Check for Updates to download them." \
+  "...and says how to download them"
+nc_skip() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,refresh_skipped:"%s",backends:{dnf:{enabled:true,items:[]}}}' "$nocache" "$1"; }
+assert_eq "$(js "L.viewModel($(nc_skip battery),false).problemHint")" "Plug in, then press Check for Updates." \
+  "...on battery it says to plug in, since a refresh never runs there"
+assert_eq "$(js "L.viewModel($(nc_skip metered),false).problemHint")" \
+  "Switch to an unmetered connection, then press Check for Updates." \
+  "...on a metered connection it says to switch, since a refresh never runs there"
+assert_eq "$(js "L.viewModel($(nc_skip off),false).problemHint")" "Press Check for Updates to download them." \
+  "...and with fetching turned off it promises nothing about power or the network"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
   "...but no cache after a refresh with a network error is"
@@ -590,6 +598,16 @@ assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart went by without 
   "a stranded upgrade says a restart went by without installing it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
   "...and never promises the next restart will install it"
+# The FIFTH: dnf5 says ready, and the boot symlink is another updater's. The CLI publishes it as
+# "foreign". Read as downloaded it would tell a person to run system-upgrade reboot now, which the
+# other updater's restart would win.
+ruF="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}})"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"another updater has prepared the next restart\") >= 0")" "true" \
+  "an upgrade behind another updater's restart says so"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"After that restart, sudo dnf5 system-upgrade reboot\") >= 0")" "true" \
+  "...and says its own command works only after that restart"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "false" \
+  "...and is not read as a downloaded one"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
   "...nor calls a transaction that WAS armed one that was never started"
 assert_eq "$(js "$ruS.offlineStageOffered")" "false" \
@@ -2473,7 +2491,7 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" 
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedType')" "warning" \
   "a hold on a package the staged update contains flips the banner to a warning"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core after the update was staged, so it still installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the current plan. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You held kernel-core after the update was staged, so it still installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...naming the package, what the next restart will do with it, both remedies and the cost"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the Restart… button goes away: offering it here is offering the thing they feared"
@@ -2489,7 +2507,7 @@ assert_eq "$(sv "$CONF1" "$NOBK" 'stagedConflictNames')" '["kernel-core"]' \
 # kernel-modules into one decision, which is right for "what is risky about this transaction" and
 # wrong here, where the person is owed the count of packages their holds did not stop.
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You held kernel-core and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "three held packages read as the first one and a count, with every word moved to the plural"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedType')" "warning" "...still a warning"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedConflictNames')" \
@@ -2497,7 +2515,7 @@ assert_eq "$(sv "$CONF3" "$NOBK" 'stagedConflictNames')" \
 # Two is the boundary the singular must not catch: one other package is "and 1 more", not a second
 # whole sentence, and it is still the plural everywhere else.
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","systemd"],names_source:"transaction"}' "$NOBK" 'stagedMessage')" \
-  "You held glibc and 1 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You held glibc and 1 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...and two is the plural with a 1 in it, not the singular"
 
 # names_source "none" means the staged package list could not be read AT ALL - an older stage, or a
@@ -2507,7 +2525,7 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","syst
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedType')" "warning" \
   "an unreadable staged list over a held dnf package warns rather than reassuring"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedMessage')" \
-  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...saying may, because that is what is known"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRebuild')" "true" \
   "...and offering the same rebuild, which applies every current hold whatever the list said"
@@ -2693,13 +2711,13 @@ CONF1='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict
 CONF3='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:["dbus","glibc","systemd"],names_source:"transaction"}'
 CONFU='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:[],names_source:"none"}'
 assert_eq "$(js "L.stagedVariantOf($CONF1,true).message")" \
-  "You held dbus after the update was staged, so it still installs. Rebuild the staged update to skip dbus, or stop holding dbus to keep the current plan. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You held dbus after the update was staged, so it still installs. Rebuild the staged update to skip dbus, or stop holding dbus to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "one held package: the user's order of events, both remedies, and the cost as a second sentence"
 assert_eq "$(js "L.stagedVariantOf($CONF3,true).message")" \
-  "You held dbus and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You held dbus and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...three of them: the first named, the rest counted, and every word moving with the number"
 assert_eq "$(js "L.stagedVariantOf($CONFU,true).message")" \
-  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...and a list that could not be read says may, and still carries the cost"
 # %1 appears three times in the singular template, so a replace() that stops at the first one would
 # ship a banner reading "Rebuild it to skip %1".
@@ -3162,12 +3180,12 @@ assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
 # The cost, as the banner's SECOND SENTENCE rather than as a tooltip nobody has hovered. It is the
 # one fact that decides whether pressing the button is a good idea.
 assert_eq "$(js 'L.COPY.stagedRebuildCost')" \
-  "Rebuilding asks for your password. If it fails, nothing stays staged." \
+  "Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "copy: what pressing Rebuild Staged Update costs, in the banner itself"
 assert_eq "$(js 'L.COPY.stagedRebuildAction')" "Rebuild Staged Update" \
   "copy: the one action a conflict banner offers"
 assert_eq "$(js 'L.COPY.stagedRebuildTooltip')" \
-  "Builds the staged update again with your current holds. Asks for your password. If the rebuild fails, the current staged update is removed." \
+  "Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed." \
   "copy: ...disclosing the authorization and the discard cost, which is what makes it consent"
 assert_eq "$(js 'L.COPY.stagedChanged')" \
   "The staged update changed since this was offered. Nothing was rebuilt; check the banner above." \
@@ -3183,7 +3201,7 @@ assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Staged Update" \
 # rebuild reuses dnf5's package cache, and this deletes it. Stated as what happens next time
 # rather than as a warning, because the cost is only paid by someone who stages again.
 assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
-  "Removes the update waiting for the next restart, so the restart installs nothing. Asks for your password, and deletes the packages it downloaded, so staging again downloads them again." \
+  "Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again." \
   "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
 # One sentence per outcome, for the run that said nothing itself. Each says what happened and what
 # can be done about it; none of them is silence.
@@ -3983,9 +4001,9 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
 # that cost was stated; the banner carries it as its own second sentence now, so the page quotes it
 # wherever it quotes a banner.
-assert_eq "$(grep -q 'asks for your password' "$POPUP_DOC" && echo yes || echo no)" "yes" \
-  "the popup section says the rebuild asks for your password"
-assert_eq "$(grep -q 'If it fails, *$' "$POPUP_DOC" && grep -q 'nothing stays staged' "$POPUP_DOC" && echo 1 || echo 0)" "1" \
+assert_eq "$(grep -q 'may ask for your password' "$POPUP_DOC" && echo yes || echo no)" "yes" \
+  "the popup section says the rebuild may ask for your password"
+assert_eq "$(tr -s ' \n' '  ' < "$POPUP_DOC" | grep -q 'If it fails, nothing stays staged' && echo 1 || echo 0)" "1" \
   "...and that a rebuild that fails removes the staged update it was replacing"
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"

@@ -233,7 +233,11 @@ var COPY = {
     // dnf has no package lists and no network failure explains why. Doctor reports nothing
     // wrong here, so neither hint offers Check Installation.
     checkNoCacheHeadline: "The package lists have not been downloaded yet",
-    checkNoCacheHint: "Plug in, or switch to an unmetered connection, then press Check for Updates.",
+    // Which one follows the check's refresh_skipped. The CLI tests power first, so a computer on
+    // battery AND a metered connection is told to plug in, and the next check names the network.
+    checkNoCacheHint: "Press Check for Updates to download them.",
+    checkNoCachePowerHint: "Plug in, then press Check for Updates.",
+    checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
     checkRefreshFailedHint: "dnf could not download them. Its error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
@@ -321,7 +325,7 @@ var COPY = {
         + "Rebuild the staged update to apply your holds.",
     // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
     // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedRebuildCost: "Rebuilding asks for your password. If it fails, nothing stays staged.",
+    stagedRebuildCost: "Rebuilding may ask for your password. If it fails, nothing stays staged.",
 
     // The one action a warning variant offers, and its whole cost. Both facts are real: it runs
     // `kempt update --surface=offline`, a privileged verb, and dnf5 destroys the stored
@@ -330,7 +334,7 @@ var COPY = {
     // cache (container-measured) - and says "removed", the CLI's own word for it.
     stagedRebuildAction: "Rebuild Staged Update",
     stagedRebuildTooltip:
-        "Builds the staged update again with your current holds. Asks for your password. "
+        "Builds the staged update again with your current holds. May ask for your password. "
         + "If the rebuild fails, the current staged update is removed.",
     // What the rebuild says instead of acting when the stage it was offered over is not the stage
     // on disk any more - the only sentence that stops a press with no effect being
@@ -353,7 +357,7 @@ var COPY = {
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
         "Removes the update waiting for the next restart, so the restart installs nothing. "
-        + "Asks for your password, and deletes the packages it downloaded, so staging again "
+        + "May ask for your password. It deletes the packages it downloaded, so staging again "
         + "downloads them again.",
     // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
@@ -453,6 +457,9 @@ var COPY = {
     // started during a restart and stopped part way. "Downloaded" would say the opposite of the
     // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
     releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened. To remove it, run sudo dnf5 offline clean.",
+    // The fifth: dnf5 says ready, but /system-update points at another updater's prepared update,
+    // so the next restart runs that instead. The upgrade's own commands work only after it.
+    releaseUpgradeForeign: "A Fedora %1 upgrade is stored, but another updater has prepared the next restart, so it will not install then. After that restart, sudo dnf5 system-upgrade reboot installs the upgrade and sudo dnf5 offline clean removes it.",
     releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
     // ...and only where it is true. A box configured to run updates on the next reboot has no
     // "update now" to fall back on: staging IS what its button does, and that is the thing being
@@ -2146,14 +2153,14 @@ var REFRESH_NETWORK_RE = new RegExp([
 // dnf5 --cacheonly with no metadata: 'Cache-only enabled but no cache for repository "fedora"'.
 var NO_CACHE_RE = /no cache for repository/i;
 
-// checkProblemOf(text, dnfRefreshError) -> {network, noCache, headline, detail, hint} for a check
+// checkProblemOf(text, dnfRefreshError, refreshSkipped) -> {network, noCache, headline, detail, hint} for a check
 // that answered nothing and left no counts. The headline is plain words, and the hint the line
 // under it. The tool's first line is kept as the detail, for the small print. The widget's own
 // timeout sentence is already plain, so it has no detail.
 // The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
 // part is one. dnf's "no cache" counts as one only when dnf's own refresh error (a string while
 // the latest refresh failed) is a network error. A text that names kempt doctor never is.
-function checkProblemOf(text, dnfRefreshError) {
+function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
     var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
     if (raw === "") return none;
@@ -2183,7 +2190,9 @@ function checkProblemOf(text, dnfRefreshError) {
             ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
                 detail: refreshError, hint: COPY.checkRefreshFailedHint }
             : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
-                hint: COPY.checkNoCacheHint };
+                hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
+                    : refreshSkipped === "metered" ? COPY.checkNoCacheMeteredHint
+                    : COPY.checkNoCacheHint };
     }
     return failed;
 }
@@ -2367,7 +2376,7 @@ function viewModel(state, updating, cliError, opts) {
     // a box can sit for days; `stranded` is `ready` with the boot symlink gone, which a restart has
     // already walked past. Anything this file does not recognise - including a state file from a
     // CLI that published no state at all - reads as `downloaded`, the one that promises nothing.
-    var REL_STATES = ["armed", "stranded", "incomplete", "downloaded"];
+    var REL_STATES = ["armed", "stranded", "incomplete", "downloaded", "foreign"];
     var relState = (releaseUpgrade && REL_STATES.indexOf(relUp.state) >= 0)
         ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
@@ -2382,6 +2391,7 @@ function viewModel(state, updating, cliError, opts) {
         : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
          : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
          : relState === "incomplete" ? COPY.releaseUpgradeIncomplete.replace("%1", relTo)
+         : relState === "foreign"    ? COPY.releaseUpgradeForeign.replace("%1", relTo)
                                      : COPY.releaseUpgradeReady.replace("%1", relTo))
           + " " + COPY.releaseUpgradeNoStage
           + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
@@ -2519,7 +2529,8 @@ function viewModel(state, updating, cliError, opts) {
             : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
         if (problemRaw !== "") {
             var problem = checkProblemOf(problemRaw, usable && !!state.backends
-                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined);
+                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined,
+                usable ? state.refresh_skipped : undefined);
             problemText = problem.headline;
             problemDetail = problem.detail;
             problemNetwork = problem.network;

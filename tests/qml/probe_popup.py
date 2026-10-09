@@ -1187,7 +1187,7 @@ CONFLICT3 = conflict_from("state-risky-heavy.json", "state-staged-conflict3.json
 # a box that is holding dnf packages is owed the vague warning instead of the reassurance.
 GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [], "none")
 
-REBUILD_TIP = ("Builds the staged update again with your current holds. Asks for "
+REBUILD_TIP = ("Builds the staged update again with your current holds. May ask for "
                "your password. If the rebuild fails, the current staged update is removed.")
 
 _sev("clear()")
@@ -1198,7 +1198,7 @@ p.check("...the banner tells it in the person's own order of events, with both w
         lev("stagedMessage.text"),
         "You held kernel-core after the update was staged, so it still"
         " installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the"
-        " current plan. Rebuilding asks for your password. If it fails, nothing stays staged.")
+        " current plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1287,7 +1287,7 @@ p.check("three held packages read as the first one and a count, every word moved
         lev("stagedMessage.text"),
         "You held kernel-core and 2 more after the update was staged, so they"
         " still install. Rebuild the staged update to skip them, or stop holding them to keep the current"
-        " plan. Rebuilding asks for your password. If it fails, nothing stays staged.")
+        " plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
@@ -1295,7 +1295,7 @@ stack("with a staged list that could not be read and dnf packages held", "staged
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
         "You added holds after the update was staged, so it may still install"
-        " held packages. Rebuild the staged update to apply your holds. Rebuilding asks for"
+        " held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for"
         " your password. If it fails, nothing stays staged.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
@@ -3586,6 +3586,7 @@ _ASSEMBLED_IN_LOGIC = {
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
     "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed state
+    "releaseUpgradeForeign",  # -> vm.releaseUpgradeMessage, behind another updater's restart
     "releaseUpgradeStranded",  # -> vm.releaseUpgradeMessage, for `ready` with the boot symlink gone
     "releaseUpgradeIncomplete",  # -> vm.releaseUpgradeMessage, for a transaction that did not finish
     "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
@@ -3625,6 +3626,8 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedHint",      # -> checkProblemOf -> vm.problemHint, beside Check Installation
     "checkNetworkHint",     # -> checkProblemOf -> vm.problemHint, for a network failure
     "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
+    "checkNoCachePowerHint",  # -> checkProblemOf, for lists never downloaded on battery
+    "checkNoCacheMeteredHint",  # -> checkProblemOf, for lists never downloaded on a metered connection
     "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read

@@ -627,7 +627,7 @@ KCM.SimpleKCM {
         }
 
         QQC2.Label {
-            text: i18n("When this is off, there is no message or button. The status line still ends \"restart pending\". Kempt never restarts your computer on its own.")
+            text: i18n("When this is off, there is no message or button, and the status line ends \"restart pending\" when a restart is needed. Kempt never restarts your computer on its own.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8
