@@ -2365,26 +2365,27 @@ cmd_history() {  # [--json]: every run, newest first; --json as one array of his
   (( ${#files[@]} )) || echo "no update runs recorded yet"
 }
 
-status_last_run() {  # now-epoch → "Last update ..." for the newest readable history entry, or nothing
+status_last_run() {  # now-epoch → "Last update ..." for the newest history entry, or nothing
   local f files=() line phrase failed
   # The listing cmd_summary uses, and its reasons (byte order, ls as the existence filter).
   # shellcheck disable=SC2012
   while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
     < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
-  for f in ${files[@]+"${files[@]}"}; do
-    # An entry that cannot be dated gets no line, as in the widget's Last update row.
-    line="$(jq -r -n --argjson now "$1" "$KEMPT_JQ_TIME"'
-              [inputs] | select(length == 1 and (.[0] | type == "object")) | .[0]
-              | select(.timestamp | renderable_stamp)
-              | (.timestamp | rel_time($now)) + "\u001f" + (if .status == "ok" then "" else "failed" end)' \
-              "$f" 2>/dev/null)" || line=""
-    [[ -n "$line" ]] || continue
-    phrase="$(history_phrase "$f" 2>/dev/null)" || phrase=""
-    [[ -n "$phrase" ]] || continue
-    failed="${line#*$'\x1f'}"
-    printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
-    return 0
-  done
+  # The newest entry only, as `summary --json` and the widget read it: a damaged newest entry gets no
+  # line, never an older run passed off as the last one.
+  f="${files[0]:-}"
+  [[ -n "$f" ]] || return 0
+  # An entry that cannot be dated gets no line, as in the widget's Last update row.
+  line="$(jq -r -n --argjson now "$1" "$KEMPT_JQ_TIME"'
+            [inputs] | select(length == 1 and (.[0] | type == "object")) | .[0]
+            | select(.timestamp | renderable_stamp)
+            | (.timestamp | rel_time($now)) + "\u001f" + (if .status == "ok" then "" else "failed" end)' \
+            "$f" 2>/dev/null)" || line=""
+  [[ -n "$line" ]] || return 0
+  phrase="$(history_phrase "$f" 2>/dev/null)" || phrase=""
+  [[ -n "$phrase" ]] || return 0
+  failed="${line#*$'\x1f'}"
+  printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
 }
 
 cmd_status() {  # [--json]: what the last check found, in words; reads only

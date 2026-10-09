@@ -141,7 +141,7 @@ cat > "$HIST_DIR/20260826T090000.json" <<'EOF'
 EOF
 assert_eq "$(status | tail -n 1)" "Last update 1 day ago · no package changes · failed" "a failed run says so"
 echo '{not json' > "$HIST_DIR/20260827T090000.json"
-assert_eq "$(status | tail -n 1)" "Last update 1 day ago · no package changes · failed" "a damaged newest entry is passed over"
+assert_not_contains "$(status)" "Last update" "a damaged newest entry gets no line, not an older run"
 rm -f "$HIST_DIR"/*.json
 
 # --- --json ----------------------------------------------------------------------------------------
