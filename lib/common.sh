@@ -1160,22 +1160,17 @@ redact_error_text() {  # stdin → one line
       }
       return o p
     }
-    function hostlike(t) { return t ~ /^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]+)?([\/?#]|$)/ }
     # A ":" before the first "@", ahead of any / ? #, marks userinfo whose password may hold those
     # characters, unless the text starts with "[" or is a dotted host or localhost with a port and a
-    # path. Userinfo runs to the last "@" that a host follows, or failing that to the last "@".
-    function url(u,   at, pre, c, r, i, j, auth, rest, q, tail) {
+    # path. Userinfo runs to the last "@": an "@" in the path after it costs the text before it,
+    # never a password, since what follows a host can be any punctuation.
+    function url(u,   at, pre, c, r, i, auth, rest, q, tail) {
       at = index(u, "@"); pre = (at ? substr(u, 1, at - 1) : "")
       c = index(pre, ":"); r = match(pre, /[\/?#]/) ? RSTART : 0
       if (pre ~ /^\[/ || (match(pre, /^[A-Za-z0-9.-]+:[0-9]+[\/?#]/) \
           && (substr(pre, 1, c - 1) ~ /\./ || substr(pre, 1, c - 1) == "localhost"))) c = 0
       if (at && c && (!r || c < r)) {
-        j = 0
-        for (i = length(u); i >= at; i--) if (substr(u, i, 1) == "@") {
-          if (!j) j = i
-          if (hostlike(substr(u, i + 1))) { j = i; break }
-        }
-        u = substr(u, j + 1)
+        for (i = length(u); i >= at; i--) if (substr(u, i, 1) == "@") { u = substr(u, i + 1); break }
       }
       if (match(u, /[\/?#]/)) { auth = substr(u, 1, RSTART - 1); rest = substr(u, RSTART) }
       else { auth = u; rest = "" }
