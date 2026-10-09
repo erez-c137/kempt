@@ -48,7 +48,7 @@ assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update
   "--dry-run still does what it always did"
 assert_eq "$("$KEMPT" run --dry-run)" "$("$KEMPT" run --print-command)" \
   "...and exactly what the new spelling does"
-assert_eq "$("$KEMPT" help | grep -c -- '--print-command')" "1" \
+assert_eq "$("$KEMPT" help | grep -c -- '--print-command' | awk '{print ($1 >= 1)}')" "1" \
   "the usage text offers the new spelling"
 assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
   "...and does not offer the old one"

@@ -19,7 +19,7 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
 | [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
 | [`kempt --version`](#--version) | Prints the version |
-| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each |
+| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each. `kempt help <command>` or `kempt <command> --help` prints one command's usage. |
 
 ## A typical day
 
@@ -126,13 +126,13 @@ zero updates.
 | Exit | When |
 | --- | --- |
 | 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
-| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), apps for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
+| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), per-user Flatpak apps that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
 | 2 | Unknown option. |
 
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|popup|background|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=terminal|widget|background|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -146,7 +146,7 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
 With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
@@ -297,7 +297,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|popup|background|offline] [--risky-ok]
+kempt run [--print-command] [--surface=terminal|widget|background|offline] [--risky-ok]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
@@ -819,7 +819,7 @@ kempt config get refresh_interval_min   # 60
 newer widget can use keys this version does not know:
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, background, offline
 ```
 
 Setting `surface` also answers the widget's one-time offer to run updates in the widget.

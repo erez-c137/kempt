@@ -3984,57 +3984,152 @@ cmd_disable_passwordless() {
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
 #   7 update only: another program held the dnf or Flatpak lock through all three tries
 #   8 run as root: every command but help, version and `discover-notifier status` refuses
-usage() {
-  cat <<'EOF'
-usage: kempt <command>
+# One block per command, in the order `kempt help` lists them. A block is the command's synopsis
+# lines (two spaces in), each followed by its description at column 24. `kempt help` prints them
+# all; `kempt <command> --help` and `kempt help <command>` print one (usage_of).
+KEMPT_USAGE_ORDER="check update run summary history log doctor hold unhold holds unstage reclaim config
+discover-notifier enable-passwordless disable-passwordless version help"
+usage_block() {  # command → its block, or nothing for a command Kempt does not have
+  case "$1" in
+    check) cat <<'EOF'
   check [--refresh] [--anyway] [--coalesce] [--strict]
                         refresh pending-updates state (JSON to stdout). --refresh fetches package
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules. --anyway downloads package lists now, even on
                         battery or a metered connection. --coalesce accepts the answer of a check
                         that finished while this one waited (the widget's automatic checks).
-                        --strict exits 1 when dnf or Flatpak failed, the apps for you only could
-                        not be listed, or the previous state was served
+                        --strict exits 1 when dnf or Flatpak failed, the per-user Flatpak apps
+                        could not be listed, or the previous state was served
+EOF
+    ;;
+    update) cat <<'EOF'
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
-                        for this run. --risky-ok leaves out the session-critical notification
+                        for this run. --no-flatpak updates system packages only. --surface=X
+                        picks where it runs: terminal, widget, background, or offline to stage
+                        it for the next restart. --risky-ok leaves out the session-critical
+                        notification
+EOF
+    ;;
+    run) cat <<'EOF'
   run [--print-command] [--surface=X] [--risky-ok]
                         start an update where the config says, as Update Now does, and return.
-                        --surface=X runs this one elsewhere. --risky-ok as for update, but a
-                        terminal run still asks
+                        --print-command prints the launch command and starts nothing.
+                        --surface=X runs this one elsewhere: terminal, widget, background or
+                        offline. --risky-ok as for update, but a terminal run still asks
+EOF
+    ;;
+    summary) cat <<'EOF'
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
+EOF
+    ;;
+    history) cat <<'EOF'
   history [--json]      list past runs, newest first; --json prints them as a JSON array of
                         history entries
+EOF
+    ;;
+    log) cat <<'EOF'
   log [-n N]            recent events: what Kempt did, when, and from where (default 30)
+EOF
+    ;;
+    doctor) cat <<'EOF'
   doctor                check this install: helpers, polkit action, tools, config, state
-  hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still listed
-  unhold <same>         remove a hold
+EOF
+    ;;
+    hold) cat <<'EOF'
+  hold dnf:<pkg> | flatpak:<app.id>
+                        skip in updates, still listed
+EOF
+    ;;
+    unhold) cat <<'EOF'
+  unhold dnf:<pkg> | flatpak:<app.id>
+                        remove a hold
+EOF
+    ;;
+    holds) cat <<'EOF'
   holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                         arguments, on one line, to reuse by hand
+EOF
+    ;;
+    unstage) cat <<'EOF'
   unstage               discard the staged offline update; the next restart installs nothing
+EOF
+    ;;
+    reclaim) cat <<'EOF'
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
-  config get <key> [default] | config set <key> <value>
-                        read or write a setting
+EOF
+    ;;
+    config) cat <<'EOF'
+  config get <key> [default]
+  config set <key> <value>
+                        read or write a setting. surface takes terminal, widget, background
+                        or offline
+EOF
+    ;;
+    discover-notifier) cat <<'EOF'
   discover-notifier off | on | keep | status [--json]
                         turn Discover's own update notifier off or back on for this user, keep
                         it as it is (the widget's answer), or say whether it is installed, on
                         and running
-  enable-passwordless | disable-passwordless
-  --version | version | -V   print the version and exit
-  help | --help | -h    print this list
-
-More: man kempt
 EOF
+    ;;
+    enable-passwordless) cat <<'EOF'
+  enable-passwordless   let your desktop session install dnf updates without a password. Asks
+                        for your password once, to install a polkit rule
+EOF
+    ;;
+    disable-passwordless) cat <<'EOF'
+  disable-passwordless  remove that rule, so dnf updates ask for a password again
+EOF
+    ;;
+    version|--version|-V) cat <<'EOF'
+  --version | version | -V   print the version and exit
+EOF
+    ;;
+    help|--help|-h) cat <<'EOF'
+  help [command] | --help | -h
+                        print this list, or one command's usage
+EOF
+    ;;
+  esac
+}
+
+usage() {
+  local c
+  echo "usage: kempt <command>"
+  for c in $KEMPT_USAGE_ORDER; do usage_block "$c"; done
+  printf '\nMore: man kempt\n'
+}
+
+# One command's usage: its synopsis lines as "usage: kempt ...", then its description. Returns 1,
+# printing nothing, for a command Kempt does not have.
+usage_of() {  # command
+  local block
+  block="$(usage_block "$1")"
+  [[ -n "$block" ]] || return 1
+  awk '
+    /^  [^ ]/ {
+      line = substr($0, 3); desc = ""
+      if (match(line, /   *[^ ]/)) { desc = substr(line, RSTART); line = substr(line, 1, RSTART - 1) }
+      sub(/^ +/, "", desc)
+      print (n++ ? "       kempt " : "usage: kempt ") line
+      if (desc != "") d[nd++] = desc
+      next
+    }
+    { sub(/^ +/, ""); d[nd++] = $0 }
+    END { if (nd) print ""; for (i = 0; i < nd; i++) print "  " d[i] }' <<<"$block"
+  printf '\nMore: man kempt\n'
 }
 
 # --help or -h right after any command asks for help, and gets it before the command runs or
-# parses anything, so `kempt update --help` can never start an update.
+# parses anything, so `kempt update --help` can never start an update. The help is that command's
+# own. A command Kempt does not have is a usage error, as it is without the flag.
 if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
-  usage
-  exit 0
+  usage_of "$1" && exit 0
+  echo "unknown command: $1" >&2; usage >&2; exit 2
 fi
 
 # Kempt is a per-user tool: as root it would read and write root's config and state, and the
@@ -4076,6 +4171,10 @@ case "${1:-help}" in
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;
-  help|--help|-h) usage ;;
+  help|--help|-h)
+    if [[ $# -le 1 ]]; then usage
+    elif [[ $# -eq 2 ]] && usage_of "$2"; then :
+    else echo "unknown command: $2" >&2; usage >&2; exit 2
+    fi ;;
   *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac

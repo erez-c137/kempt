@@ -70,6 +70,7 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .RB [ \-\-json ]
 .br
 .B kempt help
+.RI [ command ]
 .br
 .B kempt \-\-version
 .SH DESCRIPTION
@@ -100,7 +101,7 @@ is printed and nothing is queried.
 .B \-\-refresh
 turns it off.
 .B \-\-strict
-exits 1 when the answer is not current: a backend failed, the apps for you only could not be
+exits 1 when the answer is not current: a backend failed, the per\-user Flatpak apps could not be
 listed, or another check held the lock and the previous state was printed.
 .IP
 When a backend fails, its
@@ -121,7 +122,7 @@ Run the update now, in this process. Options override the configuration file for
 updates system packages only.
 .B \-\-surface=
 picks where the run happens:
-.BR terminal ", " popup ", " background " or " offline .
+.BR terminal ", " widget ", " background " or " offline .
 An unknown value logs a warning and uses
 .BR terminal .
 Held items are skipped, and the summary lists them.
@@ -345,10 +346,18 @@ file, or
 .RB ' "kempt unknown" '
 without one.
 .TP
-.BR help ", " \-\-help ", " \-h
+.BR help " [" \c
+.IR command "], " \c
+.BR \-\-help ", " \-h
 Print the command list. A bare
 .B kempt
 prints it too, and an unknown command prints it on stderr and exits 2.
+.BI "help " command
+prints that command's usage, and so does
+.B \-\-help
+or
+.B \-h
+right after a command.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config

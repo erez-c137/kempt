@@ -15,7 +15,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `refresh anyway`.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
   could not answer. It also exits 1 when another check held the lock and the previous state was
-  served. And it exits 1 when the apps for you only could not be listed. The state then still says
+  served. And it exits 1 when the per-user Flatpak apps could not be listed. The state then still says
   `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these
   exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
@@ -57,6 +57,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`widget` is another name for the `popup` surface.** `kempt config set surface widget` stores
   `popup`, and `--surface=widget` runs in the widget. `kempt history`, `kempt summary` and
   `kempt doctor` say `widget` where they said `popup`.
+
+- **`kempt <command> --help` prints that command's own usage**, and so does `kempt help <command>`.
+  The help for `--surface=` lists its values, and `enable-passwordless` and
+  `disable-passwordless` say what they do.
 
 ### Changed
 
