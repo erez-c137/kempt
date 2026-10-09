@@ -93,6 +93,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "Tidy dnf and Flatpak updates for Fedora KDE".
 - **`kempt --help` shows the options of `update`, `run` and `config`.** It ends with a pointer to
   `man kempt`.
+- **`kempt doctor` counts warnings in its last line.** It reads `no problems, 1 warning` or
+  `2 problems found, 1 warning`, and `all checks passed` only when nothing was flagged. The exit
+  codes are unchanged.
+- **Messages use one set of restart words.** The widget, notifications and the history say
+  "staged update" and "next restart" for Kempt's own restart path. A history row that recorded
+  `offline (applied on reboot)` now reads `restart (staged update installed)`. The stored entry
+  and `--json` keep the old value.
+- **Messages say what to do next.** Release-upgrade banners give the install and remove commands.
+  The another-updater banner says to restart. A failed update says `Open Kempt and press Show
+  Log.` Prompts name the **Check for Updates** button, rebuild and discard say they ask for your
+  password, and Settings notes lose their double negatives.
+- **Messages state the rules as they are.** On battery or a metered connection, `--refresh` does
+  not fetch either, and doctor, the widget and the guide now say so. `kempt --help` says a hold
+  skips a package in updates but still lists it. The Discover offer says Kempt shows updates on
+  its panel icon and sends no notification for them.
+- **The widget hides the download size while an update is staged**, since nothing is left to
+  download.
 
 ### Fixed
 
@@ -172,6 +189,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as
   `offline_stage_blocked`.
+
+- **`kempt check --coalesce` no longer trusts a check stamped in the future.** A `last_check`
+  more than a minute ahead of the clock counts as stale, so a clock set back cannot freeze the
+  widget on an old answer.
+- **A staged update replaced outside Kempt is never reported as installed.** After the restart,
+  Kempt no longer names it in history or notifications as its own, and a blocked stage is
+  reported as blocked.
 
 ### Security
 
