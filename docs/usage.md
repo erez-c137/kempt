@@ -436,7 +436,8 @@ Last update 3 days ago · 41 updated
 ```
 
 It never runs a check, takes no lock and writes nothing, so it answers during a check or an
-update, and says when an update is running. `kempt check` refreshes what it reads.
+update. While an update, a reclaim or an unstage runs, it says Kempt is changing the system.
+`kempt check` refreshes what it reads.
 
 `--json` prints the saved state, the same document `kempt check` prints. With no state it prints
 nothing.

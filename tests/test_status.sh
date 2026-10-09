@@ -167,8 +167,8 @@ exec 5>"$LOCK_FILE"; flock -n 5
 rc=0; out="$(timeout 10 "$KEMPT" status 2>&1)" || rc=$?
 exec 5>&-
 assert_eq "$rc" "0" "status answers while the update lock is held"
-assert_eq "$(sed -n 2p <<<"$out")" "An update is running" "...and says an update is running"
-assert_not_contains "$(status)" "An update is running" "a free lock says nothing"
+assert_eq "$(sed -n 2p <<<"$out")" "Kempt is changing the system right now" "...and says Kempt is changing the system"
+assert_not_contains "$(status)" "changing the system" "a free lock says nothing"
 
 # --- read only -------------------------------------------------------------------------------------
 # Nothing in the state or config directory changes: no file appears, none is rewritten.

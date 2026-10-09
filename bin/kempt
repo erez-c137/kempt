@@ -2438,8 +2438,9 @@ cmd_status() {  # [--json]: what the last check found, in words; reads only
   status_flush_section
 
   printf '%s\n' "$header"
-  # The same probe Update Now's wrapper makes: another process holds the update lock.
-  update_running_elsewhere && echo "An update is running"
+  # The same probe Update Now's wrapper makes: another process holds the update lock, which an
+  # update, a reclaim and an unstage all take.
+  update_running_elsewhere && echo "Kempt is changing the system right now"
   [[ -n "$detail" ]] && printf '%s\n' "$detail"
 
   # While a stage is armed the pending sections and the security count read as work still waiting,
