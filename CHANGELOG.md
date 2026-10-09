@@ -141,6 +141,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The README no longer says the tray count always matches what gets installed.** Updates
+  published after a check can join the update, and the README now says when.
 - **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`
   said to run `./install.sh`, which the package does not ship. They now say
   `sudo dnf reinstall kempt`. A checkout still gets the `./install.sh` advice.
