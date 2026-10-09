@@ -141,6 +141,11 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # writes (libdnf5's DEFAULT_DATADIR under the install root). PackageKit points the same symlink at
 # its own prepared update instead, and then the next restart is PackageKit's, not dnf5's.
 KEMPT_OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline}"
+# dnf5's system cache, which root writes on every refresh. `kempt doctor` only reads it, to find
+# world-writable files left by a release whose root helpers kept the caller's umask.
+KEMPT_DNF_CACHE_DIR="${KEMPT_DNF_CACHE_DIR:-/var/cache/libdnf5}"
+# dnf5's system state, where the apply verbs write. Read by `kempt doctor` for the same reason.
+KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
@@ -1063,7 +1068,8 @@ priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC}
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
 # kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
-# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. The
+# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. It
+# also refuses clean while /system-update is there and is not dnf5's link. The
 # helper decides that as root, on its own, so the CLI's pre-flight is not the only guard. Nothing ran
 # and nothing changed when it does. A caller that sees this status must not unwind with another
 # offline verb (the helper refuses that too, for the same reason) and must not advise
@@ -1074,6 +1080,8 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
   local relup
   if relup="$(offline_release_upgrade)"; then
     printf 'a Fedora release upgrade (%s) is stored\n' "$relup"
+  elif [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]]; then
+    printf 'another updater has prepared the next restart\n'
   else
     printf 'the stored offline transaction could not be read\n'
   fi

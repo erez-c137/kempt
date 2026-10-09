@@ -4,6 +4,14 @@
 # bash from reading BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH, GLOBIGNORE or exported functions
 # from the caller (see kempt-apply). PATH is exported, so the pinned lookup order reaches dnf5's own
 # children too.
+# pkexec passes on the caller's umask and resource limits, so both are reset before anything else.
+# The umask keeps root's dnf5 from writing group- or world-writable files into its cache.
+# The file size limit goes so a limit the caller chose cannot cut a root write short. Core files
+# go off so a crash leaves no copy of root's memory on disk. Raising a limit can fail outside root,
+# which is only the test suite, and must not stop the helper there.
+umask 022
+ulimit -c 0
+ulimit -f unlimited 2>/dev/null || true
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8

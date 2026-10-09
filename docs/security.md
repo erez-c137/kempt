@@ -122,6 +122,11 @@ dnf5 would reboot the moment the transaction is armed.
 `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged transaction. At worst it
 throws away updates that were still waiting to install.
 
+Both helpers set `umask 022` before anything else. They also turn off core files and lift the file
+size limit. pkexec passes on the caller's umask and limits, and a refresh needs no password.
+Without the reset, anyone at the desk could make root write cache files that other users can
+change.
+
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
 
@@ -169,6 +174,16 @@ restarting into it.
 
 When `kempt update` gets exit 3, it reports what is stored and runs no other offline verb to clean
 up.
+
+### The helper leaves another updater's restart alone
+
+`dnf-offline-clean` also exits 3 while `/system-update` exists and is not a link to dnf5's
+offline directory. That path then belongs to another updater, such as PackageKit for Discover,
+and its update installs on the next restart. `dnf5 offline clean` would delete the link and cancel
+that install. `dnf-offline-arm` is not refused, because dnf5 creates the link only when the path
+is absent and so cannot replace it. The helper reads the link once and judges the text it read. Only
+root can write to `/`, so no user can change the answer. As root the path is fixed, as for the
+state file.
 
 ## The retention window
 

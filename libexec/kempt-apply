@@ -10,6 +10,15 @@
 # cannot run code before the first line below. /usr/bin/bash because that is the path the package
 # ships. PATH is exported, so the pinned lookup order reaches dnf5's own children (rpm scriptlets
 # run as root) too.
+# pkexec passes on the caller's umask and resource limits, so both are reset before anything else.
+# The umask keeps root's dnf5 from writing group- or world-writable files into its cache, its
+# downloads or the offline directory.
+# The file size limit goes so a limit the caller chose cannot cut a root write short. Core files
+# go off so a crash leaves no copy of root's memory on disk. Raising a limit can fail outside root,
+# which is only the test suite, and must not stop the helper there.
+umask 022
+ulimit -c 0
+ulimit -f unlimited 2>/dev/null || true
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
@@ -71,6 +80,35 @@ guard_stored_release_upgrade() {  # verb → returns, or exits REFUSED
   exit "$REFUSED"
 }
 
+# systemd boots into an offline update whenever /system-update exists (systemd.offline-updates(7)).
+# dnf5 points it at its offline directory. PackageKit, which Discover uses, points it at its own
+# prepared update. Then the next restart belongs to that updater, and `dnf5 offline clean` would
+# delete its link and cancel its install. So the clean refuses unless the path is absent or a link
+# to dnf5's directory, the same rule the CLI's offline_link_state applies, written out here because
+# root never sources the CLI's library. The arm is not guarded: dnf5 creates the link only when the
+# path is absent, so it cannot replace another updater's, and the CLI reports that stage as blocked.
+# The link text is read once and judged as read, so nothing swaps it between test and use. -ef is
+# dnf5's own test (std::filesystem::equivalent). Anything else at the path, a link that cannot be
+# read included, is refused. Only root can write to /, so no user can change the answer.
+# Seams as for the state file: honoured only for an unprivileged caller.
+SYSTEM_UPDATE=/system-update
+OFFLINE_DATADIR=/usr/lib/sysimage/libdnf5/offline
+if [[ $EUID -ne 0 ]]; then
+  SYSTEM_UPDATE="${KEMPT_OFFLINE_LINK:-$SYSTEM_UPDATE}"
+  OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-$OFFLINE_DATADIR}"
+fi
+
+guard_foreign_system_update() {  # verb → returns, or exits REFUSED
+  [[ -e "$SYSTEM_UPDATE" || -L "$SYSTEM_UPDATE" ]] || return 0
+  local t
+  if t="$(readlink -- "$SYSTEM_UPDATE" 2>/dev/null)" && [[ -n "$t" ]]; then
+    [[ "$t" == /* ]] || t="${SYSTEM_UPDATE%/*}/$t"   # a relative link starts from its own directory
+    if [[ "${t%/}" == "${OFFLINE_DATADIR%/}" || "$t" -ef "$OFFLINE_DATADIR" ]]; then return 0; fi
+  fi
+  echo "kempt-apply: refusing $1: another updater has prepared the next restart ($SYSTEM_UPDATE is not dnf5's)" >&2
+  exit "$REFUSED"
+}
+
 verb="${1:-}"; shift || true
 case "$verb" in
   dnf-upgrade|dnf-offline-stage)
@@ -114,6 +152,7 @@ case "$verb" in
   dnf-offline-clean)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
+    guard_foreign_system_update "$verb"
     run dnf5 offline clean -y
     ;;
   *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
