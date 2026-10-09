@@ -729,7 +729,7 @@ PlasmaExtras.Representation {
                     // Accessible.description carries the identical words because a polkit dialog
                     // takes the focus the moment this is pressed - a screen-reader user who has not
                     // heard the cost by then hears it never.
-                    tooltip: i18n("Builds the staged update again with your current holds. Asks for authorization; if the rebuild fails, the current staged update is removed.")
+                    tooltip: i18n("Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed.")
                     Accessible.description: tooltip
                     // Shown by the view model, and disabled while a staging action is already
                     // pending (main.qml, actionPending): a second press would queue a second
@@ -757,7 +757,7 @@ PlasmaExtras.Representation {
                     // cache, and this deletes it. Accessible.description carries the identical
                     // words for the identical reason - a polkit dialog takes the focus the moment
                     // this is pressed.
-                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. Asks for authorization, and deletes the packages it downloaded, so staging again downloads them again.")
+                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending
@@ -903,7 +903,7 @@ PlasmaExtras.Representation {
             id: discoverOfferMessage
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
-            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait.")
+            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.")
             Accessible.name: text
             visible: popup.shows("discoverOffer")
             actions: [
@@ -1608,7 +1608,7 @@ PlasmaExtras.Representation {
                 switch (popup.plasmoidItem.runningSurface) {
                 case "popup":      return i18n("Updating…");
                 case "background": return i18n("Updating in the background…");
-                case "offline":    return i18n("Preparing the install for the next restart…");
+                case "offline":    return i18n("Staging updates for the next restart…");
                 default:           return i18n("Updating in a terminal window…");
                 }
             }
@@ -1637,7 +1637,7 @@ PlasmaExtras.Representation {
             flat: true
             icon.name: "view-refresh"
             display: PlasmaComponents.AbstractButton.TextBesideIcon
-            text: i18n("Not Updating? Check Again")
+            text: i18n("Not Updating? Check for Updates")
             // Refuses while the check it started is running, so it cannot be pressed twice into the
             // same answer. Disabled rather than hidden: this is the pane's only control, and a
             // control that leaves the screen takes the keyboard with it.

@@ -121,12 +121,12 @@ var COPY = {
     updatingTerminal: "Updating in a terminal window…",
     updatingBackground: "Updating in the background…",
     updatingHere: "Updating…",
-    updatingOffline: "Preparing the install for the next restart…",
+    updatingOffline: "Staging updates for the next restart…",
     // ...and the way out. Only a state.json change ends the updating state, and a terminal run
     // that is aborted or closed never writes one - so without this the popup sits on an empty pane
     // until a three-hour guard fires. On the default configuration that is what a first-timer gets
     // for taking the default answer to Kempt's one question.
-    notUpdatingCheckAgain: "Not Updating? Check Again",
+    notUpdatingCheckAgain: "Not Updating? Check for Updates",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
     // it. The tooltip names what waits for the restart and what does not: Flatpak has no offline
@@ -160,7 +160,7 @@ var COPY = {
 
     // The one offer to turn off Discover's own update notifier, while it starts with the session.
     // Turning it back on is in Settings, under the same name.
-    discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait.",
+    discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
     discoverOfferOff: "Turn Off Discover's Notifier",
     discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
@@ -183,10 +183,10 @@ var COPY = {
     // ...and the same recommendation with no kernel in the set. The family list is kept, capped
     // where the count sentence caps it, because it is the evidence for the claim.
     riskySessionOne:
-        "This update touches 1 package the running desktop depends on (%1). "
+        "This update touches 1 package your running session depends on (%1). "
         + "The safest way is to install it on the next restart.",
     riskySessionMore:
-        "This update touches %1 packages the running desktop depends on (%2). "
+        "This update touches %1 packages your running session depends on (%2). "
         + "The safest way is to install them on the next restart.",
     // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
     // because nothing else says the click did not start a run, and the question ends what is read
@@ -194,8 +194,8 @@ var COPY = {
     riskyAskLead: "Nothing is installed yet.",
     riskyAskQuestion: "Install on the next restart, or now?",
     // The same risk with no advice, for a box with no route to the next restart.
-    riskySummaryOne: "1 pending update touches a package the running desktop depends on (%1).",
-    riskySummaryMore: "%1 pending updates touch packages the running desktop depends on (%2).",
+    riskySummaryOne: "1 pending update touches a package your running session depends on (%1).",
+    riskySummaryMore: "%1 pending updates touch packages your running session depends on (%2).",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
@@ -233,7 +233,13 @@ var COPY = {
     // dnf has no package lists and no network failure explains why. Doctor reports nothing
     // wrong here, so neither hint offers Check Installation.
     checkNoCacheHeadline: "The package lists have not been downloaded yet",
-    checkNoCacheHint: "Kempt downloads them at a check on mains power and an unmetered connection.",
+    // Which one follows the check's refresh_skipped. The CLI tests power first, so a computer on
+    // battery AND a metered connection is told to plug in, and the next check names the network.
+    checkNoCacheHint: "Press Check for Updates to download them.",
+    checkNoCachePowerHint: "Plug in, then press Check for Updates.",
+    checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
+    // KEMPT_SKIP_REFRESH turns fetching off, so no press can download them.
+    checkNoCacheOffHint: "Fetching package lists is turned off.",
     checkRefreshFailedHint: "dnf could not download them. Its error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
@@ -294,32 +300,34 @@ var COPY = {
     // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
     // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
     stageBlocked: "Another updater has prepared the next restart, so the updates Kempt staged "
-        + "will not install then.",
+        + "will not install then. Restart to let that update install. Kempt then shows what is "
+        + "still pending.",
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
     // contradiction one level down. "%1"/"%2" because these are the only entries whose
-    // subject is a package name from another program, and spec section 7 requires them stated as
-    // sentences rather than head/tail fragments; stagedVariantOf substitutes.
+    // subject is a package name from another program, and a sentence with a name in it must be
+    // one whole translatable string, never a head and a tail glued together; stagedVariantOf
+    // substitutes.
     // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
     // is right for "what is risky here" and wrong here, where the person is owed the number of
     // packages their holds did not stop. In the USER'S order of events, with BOTH remedies: named
     // after the mechanism it has no antecedent once the green banner is gone.
     stagedConflictOne:
-        "You held %1 after the next-restart install was prepared, so it still installs. "
-        + "Rebuild it to skip %1, or stop holding %1 to keep the current plan.",
+        "You held %1 after the update was staged, so it still installs. "
+        + "Rebuild the staged update to skip %1, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
-        "You held %1 and %2 more after the next-restart install was prepared, so they still "
-        + "install. Rebuild it to skip them, or stop holding them to keep the current plan.",
+        "You held %1 and %2 more after the update was staged, so they still install. "
+        + "Rebuild the staged update to skip them, or stop holding them to keep the current plan.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
-        "You added holds after the next-restart install was prepared, so it may still install "
-        + "held packages. Rebuild it to apply your holds.",
+        "You added holds after the update was staged, so it may still install held packages. "
+        + "Rebuild the staged update to apply your holds.",
     // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
     // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedRebuildCost: "Rebuilding asks for authorization; if it fails, nothing stays staged.",
+    stagedRebuildCost: "Rebuilding may ask for your password. If it fails, nothing stays staged.",
 
     // The one action a warning variant offers, and its whole cost. Both facts are real: it runs
     // `kempt update --surface=offline`, a privileged verb, and dnf5 destroys the stored
@@ -328,8 +336,8 @@ var COPY = {
     // cache (container-measured) - and says "removed", the CLI's own word for it.
     stagedRebuildAction: "Rebuild Staged Update",
     stagedRebuildTooltip:
-        "Builds the staged update again with your current holds. Asks for authorization; "
-        + "if the rebuild fails, the current staged update is removed.",
+        "Builds the staged update again with your current holds. May ask for your password. "
+        + "If the rebuild fails, the current staged update is removed.",
     // What the rebuild says instead of acting when the stage it was offered over is not the stage
     // on disk any more - the only sentence that stops a press with no effect being
     // indistinguishable from a broken button. main.qml assigns it, like restartFailed.
@@ -351,7 +359,7 @@ var COPY = {
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
         "Removes the update waiting for the next restart, so the restart installs nothing. "
-        + "Asks for authorization, and deletes the packages it downloaded, so staging again "
+        + "May ask for your password. It deletes the packages it downloaded, so staging again "
         + "downloads them again.",
     // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
@@ -436,27 +444,30 @@ var COPY = {
     // transaction for that and for an ordinary offline update alike, so staging updates for a
     // restart would cancel it - and re-downloading a release upgrade is gigabytes. The CLI refuses
     // to; this is the popup saying so before the press rather than after it.
-    // Two entries, joined: what is true, then what it means for this widget. The first alone is
-    // what the tooltip takes, because a panel hover is not the place for the second.
-    releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart.",
+    // Two entries, joined: what is true and the commands that install or remove it, then what it
+    // means for this widget. Text only: a Copy button cannot offer two commands with one payload.
+    releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart. To remove it, run sudo dnf5 offline clean.",
     // ...and the state a release upgrade actually spends most of its life in: downloaded, and not
     // started. Nothing installs on any restart until somebody arms it, so saying it does would send
     // a person to restart a machine that comes back exactly as it was.
-    releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet.",
+    releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
     // The third state, which reads as neither of the others: it WAS armed, and a restart has
     // already been past it without running it. Nothing further will until somebody arms it again,
     // so "installs on the next restart" and "not started yet" are both false here.
-    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart went by without installing it, and no restart will install it now.",
+    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart went by without installing it. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
     // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
     // started during a restart and stopped part way. "Downloaded" would say the opposite of the
     // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
-    releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened.",
+    releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened. To remove it, run sudo dnf5 offline clean.",
+    // The fifth: dnf5 says ready, but /system-update points at another updater's prepared update,
+    // so the next restart runs that instead. The upgrade's own commands work only after it.
+    releaseUpgradeForeign: "A Fedora %1 upgrade is stored, but another updater has prepared the next restart, so it will not install then. After that restart, sudo dnf5 system-upgrade reboot installs the upgrade and sudo dnf5 offline clean removes it.",
     releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
     // ...and only where it is true. A box configured to run updates on the next reboot has no
     // "update now" to fall back on: staging IS what its button does, and that is the thing being
     // refused. Saying otherwise would send a person to press it and watch the run decline.
     releaseUpgradeLiveStillWorks: "Updating now still works.",
-    releaseUpgradeNoRoute: "This box is set to install updates on the next restart, so there is nothing to press until the upgrade is dealt with.",
+    releaseUpgradeNoRoute: "This computer is set to install updates on the next restart, so there is nothing to press until the upgrade is installed or removed.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
@@ -498,11 +509,11 @@ var COPY = {
     // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
     reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more.",
     // Flatpak failed and Kempt could not read what is left afterwards.
-    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left.",
+    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left.",
     reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
     reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
-    reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Check again in a few minutes.",
+    reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.",
     // The Last update row and the line after a run, when automatic reclaim removed something.
     reclaimFreedTail: "%1 freed",
     reclaimRemovedOne: "1 unused runtime removed",
@@ -517,7 +528,7 @@ var DOT = " \u00b7 ";
 // "~", never "up to": the figure has error in BOTH directions, so any wording implying a ceiling
 // is false - dnf pulls in dependencies `--upgrades` never listed, flatpak transfers ostree deltas
 // far smaller than the published size, and a transaction already staged offline is downloaded in
-// full while the number still counts it.
+// full while the number still counts it, so the view model shows no figure while a stage is armed.
 // Under a megabyte it says "< 1 MB": nobody decides differently between 300 kB and 800 kB, and a
 // number that small next to an update button invites the reader to think it is precise.
 // "" for absent, zero, negative or not-a-number, and empty means render NOTHING: no "unknown",
@@ -1065,7 +1076,7 @@ function riskyFamiliesOf(names) {
     return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
 }
 
-// "20 pending updates touch packages the running desktop depends on (dbus, glibc, kernel, kf6,
+// "20 pending updates touch packages your running session depends on (dbus, glibc, kernel, kf6,
 // ...).", from the same family names as the CLI's notification. Drawn only where the
 // recommendation below cannot be: there is no route to the next restart.
 function riskySummaryOf(names) {
@@ -2144,14 +2155,14 @@ var REFRESH_NETWORK_RE = new RegExp([
 // dnf5 --cacheonly with no metadata: 'Cache-only enabled but no cache for repository "fedora"'.
 var NO_CACHE_RE = /no cache for repository/i;
 
-// checkProblemOf(text, dnfRefreshError) -> {network, noCache, headline, detail, hint} for a check
+// checkProblemOf(text, dnfRefreshError, refreshSkipped) -> {network, noCache, headline, detail, hint} for a check
 // that answered nothing and left no counts. The headline is plain words, and the hint the line
 // under it. The tool's first line is kept as the detail, for the small print. The widget's own
 // timeout sentence is already plain, so it has no detail.
 // The CLI joins the dnf and flatpak failures with "; ". It is a network failure only when every
 // part is one. dnf's "no cache" counts as one only when dnf's own refresh error (a string while
 // the latest refresh failed) is a network error. A text that names kempt doctor never is.
-function checkProblemOf(text, dnfRefreshError) {
+function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
     var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
     if (raw === "") return none;
@@ -2181,7 +2192,10 @@ function checkProblemOf(text, dnfRefreshError) {
             ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
                 detail: refreshError, hint: COPY.checkRefreshFailedHint }
             : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
-                hint: COPY.checkNoCacheHint };
+                hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
+                    : refreshSkipped === "metered" ? COPY.checkNoCacheMeteredHint
+                    : refreshSkipped === "off" ? COPY.checkNoCacheOffHint
+                    : COPY.checkNoCacheHint };
     }
     return failed;
 }
@@ -2365,7 +2379,7 @@ function viewModel(state, updating, cliError, opts) {
     // a box can sit for days; `stranded` is `ready` with the boot symlink gone, which a restart has
     // already walked past. Anything this file does not recognise - including a state file from a
     // CLI that published no state at all - reads as `downloaded`, the one that promises nothing.
-    var REL_STATES = ["armed", "stranded", "incomplete", "downloaded"];
+    var REL_STATES = ["armed", "stranded", "incomplete", "downloaded", "foreign"];
     var relState = (releaseUpgrade && REL_STATES.indexOf(relUp.state) >= 0)
         ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
@@ -2380,6 +2394,7 @@ function viewModel(state, updating, cliError, opts) {
         : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
          : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
          : relState === "incomplete" ? COPY.releaseUpgradeIncomplete.replace("%1", relTo)
+         : relState === "foreign"    ? COPY.releaseUpgradeForeign.replace("%1", relTo)
                                      : COPY.releaseUpgradeReady.replace("%1", relTo))
           + " " + COPY.releaseUpgradeNoStage
           + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
@@ -2517,7 +2532,8 @@ function viewModel(state, updating, cliError, opts) {
             : (neverAnswered ? staleReason : "");                    // it ran, and told us why not
         if (problemRaw !== "") {
             var problem = checkProblemOf(problemRaw, usable && !!state.backends
-                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined);
+                && !!state.backends.dnf ? state.backends.dnf.refresh_error : undefined,
+                usable ? state.refresh_skipped : undefined);
             problemText = problem.headline;
             problemDetail = problem.detail;
             problemNetwork = problem.network;
@@ -2547,8 +2563,9 @@ function viewModel(state, updating, cliError, opts) {
 
     // Read only out of a state this build can read, like every optional key: a schema-1 reader
     // tolerates the key being absent (every file written before this existed) and being the wrong
-    // type. formatDownload answers "" to both.
-    var downloadText = usable ? formatDownload(state.download_bytes) : "";
+    // type. formatDownload answers "" to both. Nothing while a stage is armed: its packages are
+    // already downloaded, and "to download" beside them is false.
+    var downloadText = usable && !staged ? formatDownload(state.download_bytes) : "";
 
     var subParts = [];
     // The fact, and only the fact. The install commands belong in the popup, where they can be

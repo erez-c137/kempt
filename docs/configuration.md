@@ -37,9 +37,9 @@ half a minute.
 | `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
-| `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, but the status line still ends `restart pending`. Nothing restarts on its own either way. |
+| `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, and the status line ends `restart pending` when a restart is needed. Nothing restarts on its own either way. |
 | `reclaim` | `ask`, `automatic`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
-| `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the offline recommendation and `risky_pending`. |
+| `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the advice to install on the next restart and `risky_pending`. |
 
 You can store other keys too. Any key matching `^[a-z][a-z0-9_]+$` is accepted, but nothing reads
 it. `kempt config get` on a key with no value and no default prints an empty line.
@@ -136,7 +136,8 @@ Kempt recommends this path when session-critical packages are pending. Flatpak a
 **live** in the same run, because Flatpak has no restart install.
 
 The first `kempt check` after the restart records the result in `kempt history` as
-`offline (applied on reboot)`, with a notification. A `dnf install` or live run before the restart
+`restart (staged update installed)`, with a notification. The entry's stored surface is
+`offline (applied on reboot)`. A `dnf install` or live run before the restart
 is never mistaken for it, because Kempt waits for a new boot session. If dnf5's history cannot say
 which transaction ran, the report shows every package change since staging, including other tools'.
 [Installing on the next restart](usage.md#installing-on-the-next-restart) has the rest.
@@ -165,8 +166,9 @@ Kempt runs two schedules:
   every 3 hours, dnf's own default. It skips the refresh on battery power, or on a connection
   NetworkManager reports as metered.
 
-The time of the last successful refresh is in `~/.local/state/kempt/last_refresh`. Delete it to
-force a refresh on the next check. Set `KEMPT_SKIP_REFRESH=1` to turn refreshing off.
+The time of the last successful refresh is in `~/.local/state/kempt/last_refresh`. Delete it, and
+the next check on mains power and an unmetered connection refreshes. Set `KEMPT_SKIP_REFRESH=1` to
+turn refreshing off.
 
 `kempt check --refresh` fetches now, ignoring the 3-hour interval. It still skips the fetch on
 battery or a metered connection. The widget's **Check for Updates** runs it. When that press gets
@@ -193,7 +195,7 @@ day.
 | `~/.local/state/kempt/last_refresh_dnf` | Timestamp of the last dnf metadata refresh that succeeded, for `metadata_refreshed` |
 | `~/.local/state/kempt/refresh_dnf_failed` | One line of the latest dnf metadata refresh's error, while it failed, for `backends.dnf.refresh_error` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
-| `~/.local/state/kempt/offline_staged.json` | Marker for a staged update awaiting a reboot |
+| `~/.local/state/kempt/offline_staged.json` | Marker for a staged update waiting for the next restart |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
 | `~/.local/state/kempt/surface-migrated` | Empty marker: the [upgrade step](#upgrading-from-an-older-kempt) has run |
 | `~/.local/state/kempt/surface-offer` | Empty marker: the widget's one offer is still open |

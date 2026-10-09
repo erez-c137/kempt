@@ -149,6 +149,14 @@ assert_eq "$(js "L.viewModel($noact,false).footerText.indexOf(\"MB\") >= 0")" "f
   "no actionable updates, no figure in the footer"
 assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
   "...and none in the tooltip"
+# A stage is armed: its packages are already downloaded, so neither the footer nor the tooltip
+# offers a figure "to download".
+dl_staged="$(printf '%s' "$dl_state" | sed 's/}$/,offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:3,armed:true}}/')"
+assert_eq "$(js "L.viewModel($dl_staged,false).footerText.indexOf(\"MB\") >= 0")" "false" \
+  "while a stage is armed, no download figure in the footer"
+assert_eq "$(js "L.viewModel($dl_staged,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
+  "...and none in the tooltip"
+assert_eq "$(js "L.viewModel($dl_staged,false).downloadText")" "" "...and none published"
 
 # --- the tooltip names what is pending ------------------------------------------------------------
 # A count says how many, not what. Three names are enough to recognise a kernel or a browser from
@@ -388,8 +396,16 @@ old="L.viewModel($(nc_state ''),false)"
 assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
   "The package lists have not been downloaded yet|false|" \
   "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
-assert_eq "$(js "$old.problemHint")" "Kempt downloads them at a check on mains power and an unmetered connection." \
-  "...and says when the lists download"
+assert_eq "$(js "$old.problemHint")" "Press Check for Updates to download them." \
+  "...and says how to download them"
+nc_skip() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actionable:0,held_total:0,refresh_skipped:"%s",backends:{dnf:{enabled:true,items:[]}}}' "$nocache" "$1"; }
+assert_eq "$(js "L.viewModel($(nc_skip battery),false).problemHint")" "Plug in, then press Check for Updates." \
+  "...on battery it says to plug in, since a refresh never runs there"
+assert_eq "$(js "L.viewModel($(nc_skip metered),false).problemHint")" \
+  "Switch to an unmetered connection, then press Check for Updates." \
+  "...on a metered connection it says to switch, since a refresh never runs there"
+assert_eq "$(js "L.viewModel($(nc_skip off),false).problemHint")" "Fetching package lists is turned off." \
+  "...and with fetching turned off it promises no download at all"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
   "...but no cache after a refresh with a network error is"
@@ -582,6 +598,16 @@ assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart went by without 
   "a stranded upgrade says a restart went by without installing it"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
   "...and never promises the next restart will install it"
+# The FIFTH: dnf5 says ready, and the boot symlink is another updater's. The CLI publishes it as
+# "foreign". Read as downloaded it would tell a person to run system-upgrade reboot now, which the
+# other updater's restart would win.
+ruF="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}})"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"another updater has prepared the next restart\") >= 0")" "true" \
+  "an upgrade behind another updater's restart says so"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"After that restart, sudo dnf5 system-upgrade reboot\") >= 0")" "true" \
+  "...and says its own command works only after that restart"
+assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "false" \
+  "...and is not read as a downloaded one"
 assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
   "...nor calls a transaction that WAS armed one that was never started"
 assert_eq "$(js "$ruS.offlineStageOffered")" "false" \
@@ -627,7 +653,7 @@ assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing s
 # half to lose. So the summary sentence stands in: the same fact, advising nothing.
 assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade","kernel"]' \
   "the risk is still on screen beside the release upgrade"
-assert_eq "$(js "$ru.riskyMessage.indexOf(\"the running desktop depends on\") >= 0")" "true" \
+assert_eq "$(js "$ru.riskyMessage.indexOf(\"your running session depends on\") >= 0")" "true" \
   "...as the summary, which states the risk"
 assert_eq "$(js "$ru.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
   "...and not the recommendation, which would advise a button that is not there"
@@ -819,7 +845,7 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), f
   "it waits until the widget has looked for the CLI's answered marker"
 assert_eq "$(js 'L.messageStack({kernel: true, discoverOffer: true, reclaim: true})')" '["kernel","discoverOffer"]' \
   "it waits below the risky advice and above the reclaim offer"
-assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait." \
+assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them." \
   "its sentences, which say why"
 assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
@@ -1143,7 +1169,7 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
 more=""; if (( n_fams > 4 )); then more=", …"; fi
-expect_risky="$n_risky pending updates touch packages the running desktop depends on ($shown$more)."
+expect_risky="$n_risky pending updates touch packages your running session depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
 assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
   "the offline recommendation names the count and the first four families, exactly like the CLI"
@@ -1226,17 +1252,17 @@ done
 # NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
 # the count-and-families phrase, which is what the popup showed before this existed.
 assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" \
-  "This update touches 1 package the running desktop depends on (akmod). The safest way is to install it on the next restart." \
+  "This update touches 1 package your running session depends on (akmod). The safest way is to install it on the next restart." \
   "the driver without a kernel gets the same recommendation in the singular, not a kernel sentence"
 assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
-  "This update touches 2 packages the running desktop depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
+  "This update touches 2 packages your running session depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
   "a risky set with no kernel in it recommends the same button, and says what is in it in words"
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
 # The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
+  "This update touches 6 packages your running session depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -2295,7 +2321,7 @@ assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "
 # reads it today keeps working.
 assert_eq "$(js 'V("risky-heavy",false).riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
   "a captured risky transaction with kernel-core in it names the kernel"
-assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("the running desktop depends on") >= 0')" "true" \
+assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("your running session depends on") >= 0')" "true" \
   "...while riskySummary keeps its own, unchanged phrasing"
 assert_eq "$(js 'V("live",false).riskyMessage')" "" "an everyday transaction raises no message"
 assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
@@ -2315,10 +2341,10 @@ assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
   "...nor is an object that merely carries a length"
 # The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
-  "2 pending updates touch packages the running desktop depends on (the core system library, the Linux kernel)." \
+  "2 pending updates touch packages your running session depends on (the core system library, the Linux kernel)." \
   "a genuine array still derives the summary it always did, now in the shared vocabulary"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]},false).riskySummary')" \
-  "1 pending update touches a package the running desktop depends on (the core system library)." \
+  "1 pending update touches a package your running session depends on (the core system library)." \
   "...and one is an update, singular"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
@@ -2378,7 +2404,7 @@ assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
 BLK=',offline_stage_blocked:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
 assert_eq "$(vm '{}' "$BLK" 0 'stageBlocked')" "true" "a blocked stage is read"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedBanner')" \
-  "Another updater has prepared the next restart, so the updates Kempt staged will not install then." \
+  "Another updater has prepared the next restart, so the updates Kempt staged will not install then. Restart to let that update install. Kempt then shows what is still pending." \
   "...and says the next restart installs something else"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" "$(vm '{}' "$BLK" 0 'stagedBanner')" "...as its whole sentence"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedType')" "warning" "...as a warning"
@@ -2465,7 +2491,7 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" 
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedType')" "warning" \
   "a hold on a package the staged update contains flips the banner to a warning"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core after the next-restart install was prepared, so it still installs. Rebuild it to skip kernel-core, or stop holding kernel-core to keep the current plan. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You held kernel-core after the update was staged, so it still installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...naming the package, what the next restart will do with it, both remedies and the cost"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the Restart… button goes away: offering it here is offering the thing they feared"
@@ -2481,7 +2507,7 @@ assert_eq "$(sv "$CONF1" "$NOBK" 'stagedConflictNames')" '["kernel-core"]' \
 # kernel-modules into one decision, which is right for "what is risky about this transaction" and
 # wrong here, where the person is owed the count of packages their holds did not stop.
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core and 2 more after the next-restart install was prepared, so they still install. Rebuild it to skip them, or stop holding them to keep the current plan. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You held kernel-core and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "three held packages read as the first one and a count, with every word moved to the plural"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedType')" "warning" "...still a warning"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedConflictNames')" \
@@ -2489,7 +2515,7 @@ assert_eq "$(sv "$CONF3" "$NOBK" 'stagedConflictNames')" \
 # Two is the boundary the singular must not catch: one other package is "and 1 more", not a second
 # whole sentence, and it is still the plural everywhere else.
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","systemd"],names_source:"transaction"}' "$NOBK" 'stagedMessage')" \
-  "You held glibc and 1 more after the next-restart install was prepared, so they still install. Rebuild it to skip them, or stop holding them to keep the current plan. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You held glibc and 1 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...and two is the plural with a 1 in it, not the singular"
 
 # names_source "none" means the staged package list could not be read AT ALL - an older stage, or a
@@ -2499,7 +2525,7 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","syst
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedType')" "warning" \
   "an unreadable staged list over a held dnf package warns rather than reassuring"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedMessage')" \
-  "You added holds after the next-restart install was prepared, so it may still install held packages. Rebuild it to apply your holds. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...saying may, because that is what is known"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRebuild')" "true" \
   "...and offering the same rebuild, which applies every current hold whatever the list said"
@@ -2685,13 +2711,13 @@ CONF1='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict
 CONF3='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:["dbus","glibc","systemd"],names_source:"transaction"}'
 CONFU='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:[],names_source:"none"}'
 assert_eq "$(js "L.stagedVariantOf($CONF1,true).message")" \
-  "You held dbus after the next-restart install was prepared, so it still installs. Rebuild it to skip dbus, or stop holding dbus to keep the current plan. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You held dbus after the update was staged, so it still installs. Rebuild the staged update to skip dbus, or stop holding dbus to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "one held package: the user's order of events, both remedies, and the cost as a second sentence"
 assert_eq "$(js "L.stagedVariantOf($CONF3,true).message")" \
-  "You held dbus and 2 more after the next-restart install was prepared, so they still install. Rebuild it to skip them, or stop holding them to keep the current plan. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You held dbus and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...three of them: the first named, the rest counted, and every word moving with the number"
 assert_eq "$(js "L.stagedVariantOf($CONFU,true).message")" \
-  "You added holds after the next-restart install was prepared, so it may still install held packages. Rebuild it to apply your holds. Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "...and a list that could not be read says may, and still carries the cost"
 # %1 appears three times in the singular template, so a replace() that stops at the first one would
 # ship a banner reading "Rebuild it to skip %1".
@@ -2906,7 +2932,7 @@ assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped' | 
 # Flatpak failed and what is left could not be read: never "Nothing was removed".
 RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
-  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Refresh to see what is left."}' \
+  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left."}' \
   "a removal whose outcome is unknown says it may be partial"
 assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null}), $RC_PRESS).text.indexOf('Nothing was removed')")" \
   "-1" "...and a record with refs null never reads as nothing removed"
@@ -2942,7 +2968,7 @@ assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_pk + $_un + 5 * $_ls + 2 * $_du + $_
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
 assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \
-  '{"ok":false,"text":"Kempt stopped waiting. The removal may still finish. Check again in a few minutes."}' \
+  '{"ok":false,"text":"Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes."}' \
   "the widget giving up says the removal may still finish"
 assert_eq "$(js "L.reclaimOutcomeOf(124, '', 'Flatpak could not remove them. See: kempt log', null, $RC_PRESS).text")" \
   "Flatpak could not remove them. See: kempt log" "...but an exit 124 the CLI explained keeps its words"
@@ -3081,9 +3107,9 @@ assert_eq "$(js 'L.COPY.updatingBackground')" "Updating in the background…" \
   "copy: ...or says there is no window to look for"
 assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
   "copy: ...or nothing at all, when the output is arriving right here"
-assert_eq "$(js 'L.COPY.updatingOffline')" "Preparing the install for the next restart…" \
+assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart…" \
   "copy: ...and staging is not updating, so it does not say updating"
-assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check Again" \
+assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check for Updates" \
   "copy: the way out of a pane that is waiting for a run nobody is running any more"
 # One surface, one sentence, and no surface without one: the pane switches on the running surface
 # and a fifth value would draw an empty label.
@@ -3113,10 +3139,10 @@ assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
   "This update includes a kernel and the NVIDIA driver. The safest way is to install them on the next restart, so nothing changes under the running desktop." \
   "copy: and the one that names the driver too"
 assert_eq "$(js 'L.COPY.riskySessionOne')" \
-  "This update touches 1 package the running desktop depends on (%1). The safest way is to install it on the next restart." \
+  "This update touches 1 package your running session depends on (%1). The safest way is to install it on the next restart." \
   "copy: a session-critical set with no kernel in it, in the singular"
 assert_eq "$(js 'L.COPY.riskySessionMore')" \
-  "This update touches %1 packages the running desktop depends on (%2). The safest way is to install them on the next restart." \
+  "This update touches %1 packages your running session depends on (%2). The safest way is to install them on the next restart." \
   "copy: ...and in the plural, where the count and the pronoun move together"
 assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
 assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
@@ -3143,23 +3169,23 @@ assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates staged for the next rest
 # and left "Staged" with no antecedent once the green banner was gone, and the second way out -
 # stop holding the package and the plan stands - was offered nowhere at all.
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
-  "You held %1 after the next-restart install was prepared, so it still installs. Rebuild it to skip %1, or stop holding %1 to keep the current plan." \
+  "You held %1 after the update was staged, so it still installs. Rebuild the staged update to skip %1, or stop holding %1 to keep the current plan." \
   "copy: the staged banner when one held package is in the transaction anyway"
 assert_eq "$(js 'L.COPY.stagedConflictMore')" \
-  "You held %1 and %2 more after the next-restart install was prepared, so they still install. Rebuild it to skip them, or stop holding them to keep the current plan." \
+  "You held %1 and %2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan." \
   "copy: ...and when there are more of them, named first and counted after"
 assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
-  "You added holds after the next-restart install was prepared, so it may still install held packages. Rebuild it to apply your holds." \
+  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds." \
   "copy: ...and when the staged list could not be read, which is a may and not a does"
 # The cost, as the banner's SECOND SENTENCE rather than as a tooltip nobody has hovered. It is the
 # one fact that decides whether pressing the button is a good idea.
 assert_eq "$(js 'L.COPY.stagedRebuildCost')" \
-  "Rebuilding asks for authorization; if it fails, nothing stays staged." \
+  "Rebuilding may ask for your password. If it fails, nothing stays staged." \
   "copy: what pressing Rebuild Staged Update costs, in the banner itself"
 assert_eq "$(js 'L.COPY.stagedRebuildAction')" "Rebuild Staged Update" \
   "copy: the one action a conflict banner offers"
 assert_eq "$(js 'L.COPY.stagedRebuildTooltip')" \
-  "Builds the staged update again with your current holds. Asks for authorization; if the rebuild fails, the current staged update is removed." \
+  "Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed." \
   "copy: ...disclosing the authorization and the discard cost, which is what makes it consent"
 assert_eq "$(js 'L.COPY.stagedChanged')" \
   "The staged update changed since this was offered. Nothing was rebuilt; check the banner above." \
@@ -3175,7 +3201,7 @@ assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Staged Update" \
 # rebuild reuses dnf5's package cache, and this deletes it. Stated as what happens next time
 # rather than as a warning, because the cost is only paid by someone who stages again.
 assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
-  "Removes the update waiting for the next restart, so the restart installs nothing. Asks for authorization, and deletes the packages it downloaded, so staging again downloads them again." \
+  "Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again." \
   "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
 # One sentence per outcome, for the run that said nothing itself. Each says what happened and what
 # can be done about it; none of them is silence.
@@ -3960,11 +3986,11 @@ assert_eq "$(grep -qF "$(js 'L.COPY.stagedRebuildAction')" "$WIDGET_DOC" && echo
   "docs/widget.md calls the action by the name on the button"
 assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
   "...and the other action on that banner by the name on ITS button"
-assert_eq "$(grep -c 'You held kernel-core after the next-restart install was prepared' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'You held kernel-core after the update was staged' "$WIDGET_DOC")" "1" \
   "...the singular conflict banner too"
-assert_eq "$(grep -c 'You held kernel-core and 2 more after the next-restart install' "$WIDGET_DOC")" "1" \
+assert_eq "$(grep -c 'You held kernel-core and 2 more after the update was' "$WIDGET_DOC")" "1" \
   "...and the plural one"
-# The tooltip is where the authorization and the discard cost are disclosed, so the page must carry
+# The tooltip is where the password prompt and the discard cost are disclosed, so the page must carry
 # both facts where a widget user will read them. Scoped to the popup section rather than the whole
 # page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
 # could pass with the popup section saying nothing at all.
@@ -3975,9 +4001,9 @@ assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
 # Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
 # that cost was stated; the banner carries it as its own second sentence now, so the page quotes it
 # wherever it quotes a banner.
-assert_eq "$(grep -q 'asks for authorization' "$POPUP_DOC" && echo yes || echo no)" "yes" \
-  "the popup section says the rebuild asks for authorization"
-assert_eq "$(grep -q 'if it fails, *$' "$POPUP_DOC" && grep -q 'nothing stays staged' "$POPUP_DOC" && echo 1 || echo 0)" "1" \
+assert_eq "$(grep -q 'may ask for your password' "$POPUP_DOC" && echo yes || echo no)" "yes" \
+  "the popup section says the rebuild may ask for your password"
+assert_eq "$(tr -s ' \n' '  ' < "$POPUP_DOC" | grep -q 'If it fails, nothing stays staged' && echo 1 || echo 0)" "1" \
   "...and that a rebuild that fails removes the staged update it was replacing"
 assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
   "...and that the pin never reaches into a transaction dnf5 has already stored"

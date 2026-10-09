@@ -1187,8 +1187,8 @@ CONFLICT3 = conflict_from("state-risky-heavy.json", "state-staged-conflict3.json
 # a box that is holding dnf packages is owed the vague warning instead of the reassurance.
 GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [], "none")
 
-REBUILD_TIP = ("Builds the staged update again with your current holds. Asks for "
-               "authorization; if the rebuild fails, the current staged update is removed.")
+REBUILD_TIP = ("Builds the staged update again with your current holds. May ask for "
+               "your password. If the rebuild fails, the current staged update is removed.")
 
 _sev("clear()")
 state(CONFLICT1)
@@ -1196,9 +1196,9 @@ stack("with a hold on a package the staged update contains", "stagedMessage")
 p.check("...the banner tells it in the person's own order of events, with both ways out and "
         "the cost of the one on the button",
         lev("stagedMessage.text"),
-        "You held kernel-core after the next-restart install was prepared, so it still"
-        " installs. Rebuild it to skip kernel-core, or stop holding kernel-core to keep the"
-        " current plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
+        "You held kernel-core after the update was staged, so it still"
+        " installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the"
+        " current plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1285,18 +1285,18 @@ p.pump(80)
 state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
-        "You held kernel-core and 2 more after the next-restart install was prepared, so they"
-        " still install. Rebuild it to skip them, or stop holding them to keep the current"
-        " plan. Rebuilding asks for authorization; if it fails, nothing stays staged.")
+        "You held kernel-core and 2 more after the update was staged, so they"
+        " still install. Rebuild the staged update to skip them, or stop holding them to keep the current"
+        " plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
 stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
-        "You added holds after the next-restart install was prepared, so it may still install"
-        " held packages. Rebuild it to apply your holds. Rebuilding asks for authorization;"
-        " if it fails, nothing stays staged.")
+        "You added holds after the update was staged, so it may still install"
+        " held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for"
+        " your password. If it fails, nothing stays staged.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
 p.check("...offering the same rebuild, which applies every current hold whatever the list said",
@@ -2693,7 +2693,7 @@ p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"
 p.check("...and the kernel message states the risk without recommending the restart install",
         "next restart" in str(lev("riskyMessage.text")), False)
 p.check("...while still saying a session-critical package is pending",
-        "the running desktop depends on" in str(lev("riskyMessage.text")), True)
+        "your running session depends on" in str(lev("riskyMessage.text")), True)
 # ...and the press itself is unreachable, which is the point of the whole exercise.
 _before_ru = p.call_count("update")
 p.check("Install on Next Restart is not offered at all",
@@ -3586,6 +3586,7 @@ _ASSEMBLED_IN_LOGIC = {
     "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
     "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
     "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed state
+    "releaseUpgradeForeign",  # -> vm.releaseUpgradeMessage, behind another updater's restart
     "releaseUpgradeStranded",  # -> vm.releaseUpgradeMessage, for `ready` with the boot symlink gone
     "releaseUpgradeIncomplete",  # -> vm.releaseUpgradeMessage, for a transaction that did not finish
     "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
@@ -3625,6 +3626,9 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedHint",      # -> checkProblemOf -> vm.problemHint, beside Check Installation
     "checkNetworkHint",     # -> checkProblemOf -> vm.problemHint, for a network failure
     "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
+    "checkNoCachePowerHint",  # -> checkProblemOf, for lists never downloaded on battery
+    "checkNoCacheMeteredHint",  # -> checkProblemOf, for lists never downloaded on a metered connection
+    "checkNoCacheOffHint",  # -> checkProblemOf, for lists never downloaded with fetching turned off
     "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read

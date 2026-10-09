@@ -1096,15 +1096,16 @@ PlasmoidItem {
         // A history entry old enough (or damaged enough) to have no log is an ordinary event, not
         // corruption - and `xdg-open ''` opens the user's home directory.
         if (target === "") {
-            actionMessage = "That run did not record a log file.";
+            actionMessage = i18n("That run did not record a log file.");
             return;
         }
         executor.run("xdg-open " + Logic.shellQuote(target), 10000, function(stdout, stderr, rc) {
             // The path is in the message on purpose: whatever went wrong with the handler, the
             // user can still open that file themselves.
             if (rc !== 0) {
-                root.actionMessage = "Could not open " + target
-                    + (Logic.firstLineOf(stderr) !== "" ? ": " + Logic.firstLineOf(stderr) : ".");
+                root.actionMessage = Logic.firstLineOf(stderr) !== ""
+                    ? i18n("Could not open %1: %2", target, Logic.firstLineOf(stderr))
+                    : i18n("Could not open %1.", target);
             }
         });
     }
@@ -1380,7 +1381,7 @@ PlasmoidItem {
         onTriggered: {
             root.updating = false;
             root.runningSurface = "";
-            root.actionMessage = "Kempt stopped waiting for the update to report back. The list shows what is pending now.";
+            root.actionMessage = i18n("Kempt stopped waiting for the update to report back. The list shows what is pending now.");
             root.doCheck();
         }
     }

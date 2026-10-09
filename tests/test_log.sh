@@ -263,7 +263,8 @@ assert_eq "$(grep -c "FAILED. See .* ($FRIENDLY)" <<<"$("$KEMPT" summary)")" "1"
   "...so the summary explains the failure instead of pointing at a log file"
 assert_eq "$(grep -c "($FRIENDLY)" <<<"$("$KEMPT" history)")" "1" \
   "...and so does the history listing"
-assert_eq "$(grep -c "Update FAILED ($FRIENDLY)" "$WORLD/notifications")" "1" \
+failrun="$(jq -r '.log' "$failhist")"
+assert_eq "$(grep -cF "Update failed: ${FRIENDLY%.}. Press Show Log in Kempt, or open $failrun." "$WORLD/notifications")" "1" \
   "...and the notification, which is the only one of these a detached run's user sees"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-stub"
 

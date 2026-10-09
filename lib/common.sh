@@ -2022,6 +2022,14 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
   [[ "$proof" == true ]]
 }
 
+# offline_stage_satisfied, asked about the stage a marker records. It reads dnf5's stored
+# transaction, and once a check has found that replaced, the stored one is somebody else's: its
+# packages being installed says nothing about Kempt's stage.
+offline_marker_stage_satisfied() {  # marker-json → 0 when the stage it records is installed
+  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
+  offline_stage_satisfied
+}
+
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
 # come from two places (dnf5's stored transaction, or the check made just before staging) and a name
@@ -2423,14 +2431,18 @@ KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 # started even earlier; `>` on truncated seconds proves last_check came after the request, at the
 # price of a redundant check when the two land in the same second. `>=` would serve an answer
 # older than the question.
+# A last_check more than a minute ahead of the clock is stale too. The clock was stepped back after
+# that check (NTP, a dual-boot RTC in local time), and adopting it would freeze every coalesced
+# check on that state until the clock caught up.
 state_checked_since() {  # requested-epoch → state on stdout, or 1
-  local doc at
+  local doc at now
   [[ "$1" =~ ^[0-9]+$ ]] || return 1
   doc="$(jq -e -n '[inputs] | select(length == 1) | .[0]
                    | select(type == "object" and .status == "ok" and (.last_check | type) == "string")' \
            "$STATE_FILE" 2>/dev/null)" || return 1
   at="$(date -d "$(jq -r '.last_check' <<<"$doc")" +%s 2>/dev/null)" || return 1
-  [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 )) || return 1
+  now="$(date +%s)"
+  [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 && at <= now + 60 )) || return 1
   printf '%s\n' "$doc"
 }
 
@@ -2510,6 +2522,9 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   # anyway would re-make, on every check, the promise reconcile_detour_stage exists to withdraw.
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
+  # ...and one recorded as REPLACED describes a stage that is no longer what dnf5 holds. The next
+  # restart installs somebody else's transaction, so publishing Kempt's count would promise it.
+  jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1 && return 0
   # A stored RELEASE upgrade is proof the transaction is not ours, whatever the marker says. dnf5
   # keeps one stored transaction; Kempt only ever runs `dnf5 upgrade --offline` at the releasever
   # the box is already on, so a transaction whose target differs from the system's cannot be one
@@ -2569,7 +2584,7 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
 # offline_staged rather than inside it, because a reader that predates this key reads the
 # presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
 # otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
-# is then done, not blocked) publish nothing.
+# is then done, not blocked) publish nothing. A replaced stage is never done that way.
 offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
@@ -2577,7 +2592,7 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   [[ "$(offline_release_upgrade_state)" == foreign ]] || return 0
   jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
   offline_release_upgrade >/dev/null && return 0
-  offline_stage_satisfied && return 0
+  offline_marker_stage_satisfied "$marker" && return 0
   jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker"
 }
 
@@ -2771,6 +2786,13 @@ KEMPT_JQ_COUNTS='
       + (if .stage_blocked == true then " staged, but another updater has prepared the next restart"
          else " staged for the next restart" end)
     else empty end;
+  # How a run reads in kempt history and kempt summary. The stored surface of a harvested
+  # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
+  def surface_label:
+    if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
+    elif .surface == "offline (installed by another updater)"
+    then "staged update (installed by another updater)"
+    else .surface end;
 '
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
@@ -2877,7 +2899,7 @@ render_summary() {  # history-json-file → human text
     # `.error // ""`: entries written before the field existed have no .error at all, and a
     # summary of an old run must still render rather than printing "null".
     # No duration is written when none was measured (a restart whose dnf5 record has no times).
-    "Kempt - " + .timestamp + " (" + .surface
+    "Kempt - " + .timestamp + " (" + surface_label
       + (if (.duration_sec | type) == "number" then ", " + (.duration_sec|tostring) + "s" else "" end) + ") "
       + (if .status == "ok" then "✓"
          else "FAILED. See " + .log
@@ -2938,6 +2960,6 @@ render_summary() {  # history-json-file → human text
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not
     # needed" was this file telling the reader something Kempt does not know.
-    (if .reboot_needed then "Reboot: needed" else empty end)
+    (if .reboot_needed then "Restart needed" else empty end)
   ' "$1"
 }

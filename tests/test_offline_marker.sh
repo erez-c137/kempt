@@ -310,4 +310,20 @@ assert_eq "$(jq -r '.offline_staged.count' "$st")" "7" \
   "a check holding the lock does not delay the staged fact, which is the whole point of publishing it"
 kill "$lockpid" 2>/dev/null; wait "$lockpid" 2>/dev/null || true
 
+# A marker recorded as REPLACED is not published as Kempt's stage: dnf5 holds somebody else's
+# transaction, and the next restart installs that. The same marker without the flag still is.
+replaced_staged() {  # replaced-flag → offline_staged_state's output
+  ( source "$REPO_ROOT/lib/common.sh" >/dev/null 2>&1; set +e
+    kempt_init_dirs
+    export KEMPT_OFFLINE_DATADIR="$TESTTMP/rp-offline"; mkdir -p "$KEMPT_OFFLINE_DATADIR"
+    export KEMPT_OFFLINE_LINK="$TESTTMP/rp-system-update"
+    rm -rf "$KEMPT_OFFLINE_LINK"; ln -s "$KEMPT_OFFLINE_DATADIR" "$KEMPT_OFFLINE_LINK"
+    export KEMPT_OFFLINE_TXJSON="$TESTTMP/rp-no-tx.json"
+    jq -n --argjson r "$1" '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x", boot_id:"b",
+                            staged:61, armed:true, replaced:$r}' > "$OFFLINE_MARKER"
+    offline_staged_state; rm -f "$OFFLINE_MARKER" )
+}
+assert_eq "$(replaced_staged false | jq -r .count)" "61" "premise: an armed stage of Kempt's is published"
+assert_eq "$(replaced_staged true)" "" "a stage replaced outside Kempt is not published as Kempt's"
+
 finish

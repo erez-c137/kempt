@@ -157,7 +157,7 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
     case "$rc:$verdict" in
       1:true)  echo true ;;
       0:false) echo false ;;
-      *) echo "warning: reboot check could not answer (rc=$rc, no verdict in dnf5's JSON)" >&2; echo false ;;
+      *) echo "warning: restart check could not answer (rc=$rc, no verdict in dnf5's JSON)" >&2; echo false ;;
     esac
     return 0
   fi
@@ -165,8 +165,8 @@ dnf_reboot_needed() {  # → prints true|false, from purely LOCAL facts (rpm ins
   case $rc in
     1) if grep -qE '^[[:space:]]+\* [^[:space:]]' <<<"$out" \
           || grep -qF 'Reboot is required' <<<"$out"; then echo true
-       else echo "warning: reboot check could not answer (rc=1, no restart evidence)" >&2; echo false; fi ;;
+       else echo "warning: restart check could not answer (rc=1, no restart evidence)" >&2; echo false; fi ;;
     0) echo false ;;
-    *) echo "warning: reboot check failed (rc=$rc)" >&2; echo false ;;
+    *) echo "warning: restart check failed (rc=$rc)" >&2; echo false ;;
   esac
 }

@@ -135,7 +135,7 @@ assert_eq "$(dnf_reboot_needed 2>/dev/null)" "true" "reboot check rc 1 WITH the 
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-2"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "reboot check unexpected rc → false, never a hang"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
-assert_eq "$(grep -q 'warning: reboot check failed' <<<"$_err" && echo yes || echo no)" "yes" "unexpected rc warns on stderr"
+assert_eq "$(grep -q 'warning: restart check failed' <<<"$_err" && echo yes || echo no)" "yes" "unexpected rc warns on stderr"
 
 # The regression this whole shape exists for. Before `--disablerepo='*'`, a box whose user cache
 # had never been filled (the default: kempt-refresh fills root's, not the user's) got exactly this
@@ -143,7 +143,7 @@ assert_eq "$(grep -q 'warning: reboot check failed' <<<"$_err" && echo yes || ec
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-silent"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "rc 1 with NOTHING on stdout → false: it could not answer"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
-assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+assert_eq "$(grep -q 'warning: restart check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
   "...and says so, rather than answering false silently"
 
 # Blank stdout is not a package list either. Nobody has seen the real dnf5 emit this - it is here
@@ -159,7 +159,7 @@ chmod +x "$TESTTMP/dnf-stub-1-blank"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-blank"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "rc 1 with only whitespace on stdout → false: still no evidence"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
-assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+assert_eq "$(grep -q 'warning: restart check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
   "...and warns, exactly as the empty-stdout case does"
 
 # rc 1 with NOISE on stdout, which is the case the "non-empty stdout" test never could tell apart
@@ -181,7 +181,7 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-stub-1-noise"
 assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" \
   "rc 1 with prose on stdout but no package list → false: prose is not evidence"
 _err="$(dnf_reboot_needed 2>&1 >/dev/null)"
-assert_eq "$(grep -q 'warning: reboot check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
+assert_eq "$(grep -q 'warning: restart check could not answer' <<<"$_err" && echo yes || echo no)" "yes" \
   "...and warns, exactly as the empty-stdout case does"
 
 # ...and the other half of that rule: dnf5's own verdict sentence counts on its own. The real
@@ -237,7 +237,7 @@ assert_eq "$(dnf_reboot_needed 2>&1)" "false" "JSON: reboot_required false with 
 for c in disagree shape empty; do
   export KEMPT_DNF_CMD="$TESTTMP/nr-$c"
   assert_eq "$(dnf_reboot_needed 2>/dev/null)" "false" "JSON: $c → false"
-  assert_eq "$(dnf_reboot_needed 2>&1 >/dev/null | grep -c 'warning: reboot check could not answer')" "1" "...and warns"
+  assert_eq "$(dnf_reboot_needed 2>&1 >/dev/null | grep -c 'warning: restart check could not answer')" "1" "...and warns"
 done
 export KEMPT_DNF_CMD="$TESTTMP/dnf-argv"
 dnf_reboot_needed >/dev/null 2>&1

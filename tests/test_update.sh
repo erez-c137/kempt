@@ -473,7 +473,7 @@ assert_eq "$(jq -r .error "$armhist")" "the updates were staged, but could not b
   "...naming the step that failed, not the first error-shaped line in the log"
 grep -q 'run failed rc=1: the updates were staged, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
-grep -q 'FAILED' "$WORLD/notifications" \
+grep -q 'Update failed: ' "$WORLD/notifications" \
   && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
 
 # The unwind is best-effort by design: `dnf5 offline clean` failing on top of an arm that already
@@ -1189,7 +1189,7 @@ grep -qE '^      graphics drivers \(mesa\) +2 packages' <<<"$unl" \
   printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
 : > "$WORLD/notifications"
 "$KEMPT" update --surface=background >/dev/null 2>&1
-grep -q '20 session-critical packages pending (the Linux kernel, KDE framework libraries, the window manager, graphics drivers, ...)' "$WORLD/notifications" \
+grep -qF 'This update includes 20 packages your running session depends on (the Linux kernel, KDE framework libraries, the window manager, graphics drivers, ...). Restart after it finishes.' "$WORLD/notifications" \
   && echo "ok: notification summarises by family, capped at 4" || { echo "FAIL: family summary - got: $(cat "$WORLD/notifications")"; _fail=1; }
 grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked into the notification"; _fail=1; } \
   || echo "ok: no wall of package names in a notification"
@@ -1197,7 +1197,7 @@ grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked 
 # again. The run itself goes ahead exactly as before.
 : > "$WORLD/notifications"; : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=popup --risky-ok >/dev/null 2>&1
-assert_eq "$(grep -c 'session-critical' "$WORLD/notifications")" "0" \
+assert_eq "$(grep -c 'running session depends on' "$WORLD/notifications")" "0" \
   "after Install Now in the popup, no session-critical notification"
 assert_eq "$(grep -c 'APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "...and the update still runs, live"
 # A terminal still asks, whatever the popup heard.
@@ -1225,8 +1225,21 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: background surface
 # detached surface: nobody is there to answer a prompt, so it warns and proceeds
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 "$KEMPT" update --surface=background >/dev/null 2>&1
-grep -q 'session-critical' "$WORLD/notifications" && echo "ok: detached surface gets a heads-up" || { echo "FAIL: detached heads-up"; _fail=1; }
+grep -q 'running session depends on' "$WORLD/notifications" && echo "ok: detached surface gets a heads-up" || { echo "FAIL: detached heads-up"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface proceeds anyway" || { echo "FAIL: detached proceed"; _fail=1; }
+
+# The heads-up says the install is happening, so it waits for the run to really start. Another
+# run holding the lock stops this one before anything is installed, and nothing may be announced.
+: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
+( flock -n 9 && sleep 3 ) 9>"$KEMPT_STATE_DIR/lock" &
+lockpid=$!
+sleep 0.4
+lockrc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || lockrc=$?
+assert_eq "$lockrc" "3" "premise: the run is stopped by the held lock"
+assert_eq "$(grep -c 'running session depends on' "$WORLD/notifications")" "0" \
+  "a run stopped by the lock sends no session-critical heads-up"
+assert_eq "$(grep -c 'APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...because it installed nothing"
+kill "$lockpid" 2>/dev/null; wait "$lockpid" 2>/dev/null || true
 
 # an offline run is already the recommendation - it must not nag about taking its own advice
 : > "$WORLD/notifications"
@@ -1813,7 +1826,7 @@ grep -q 'harvest entry not written' "$KEMPT_STATE_DIR/events.log" \
   || { echo "FAIL: nothing says the harvest entry was lost"; _fail=1; }
 # A restart that installed packages must not pass in silence just because there was nowhere to file
 # the details.
-grep -q 'applied on reboot' "$WORLD/notifications" \
+grep -q 'installed during the restart' "$WORLD/notifications" \
   && echo "ok: ...and the restart is still announced, without the counts it could not compute" \
   || { echo "FAIL: the applied restart was never announced"; _fail=1; }
 transaction_armed

@@ -431,7 +431,7 @@ KCM.SimpleKCM {
 
         QQC2.Label {
             visible: !autoAccept.checked
-            text: i18n("With confirmation on, updates can only run in a terminal window. The other choices have no way to ask you. Your choice below is kept for when you turn confirmation off again.")
+            text: i18n("When this is off, updates run in a terminal window so dnf can ask you. Your choice below comes back when you turn it on.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
@@ -497,7 +497,7 @@ KCM.SimpleKCM {
                 { key: "terminal",   label: i18n("Terminal window") },
                 { key: "popup",      label: i18n("In this widget") },
                 { key: "background", label: i18n("In the background") },
-                { key: "offline",    label: i18n("On next reboot (offline)") }
+                { key: "offline",    label: i18n("On the next restart") }
             ]
 
             QQC2.RadioButton {
@@ -627,7 +627,7 @@ KCM.SimpleKCM {
         }
 
         QQC2.Label {
-            text: i18n("With this off there is no message and no button. The status line in this widget still ends \"restart pending\", because that is a fact about your machine rather than a reminder. Nothing ever restarts on its own either way.")
+            text: i18n("When this is off, there is no message or button, and the status line ends \"restart pending\" when a restart is needed. Kempt never restarts your computer on its own.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8

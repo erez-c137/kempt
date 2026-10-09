@@ -871,7 +871,7 @@ before_marker="$(jq -Sc . "$marker")"
 detour_check
 assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
 assert_eq "$(cat "$notify_log")" \
-  "Kempt Your staged update can no longer install on a restart. Re-stage it, or run sudo dnf5 offline clean." \
+  "Kempt Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean." \
   "...the one notification that keeps the banner's disappearance from being silent"
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
@@ -1093,6 +1093,27 @@ assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 rm -f "$marker" "$pre"
 rm -rf "$KEMPT_STATE_DIR/history"
 
+# A stage a check already found replaced: the stored transaction is somebody else's, so its
+# packages being installed says nothing about Kempt's stage. Never "installed", in either branch.
+stage_marker boot-before-reboot 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+: > "$notify_log"
+KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
+assert_not_contains "$(cat "$notify_log")" "staged updates are installed" \
+  "a replaced stage is never announced as installed when the stored transaction is"
+assert_eq "$(jq -r '.armed' "$marker" 2>/dev/null)" "false" "...and its marker is demoted, not consumed"
+assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | wc -l)" "0" "...and no history entry claims it"
+rm -f "$marker" "$pre"
+stage_marker boot-before-reboot 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+before_pk="$(events_since 'offline stage installed by another updater')"
+pk_check   # the package set did not move across the restart
+assert_eq "$(events_since 'offline stage installed by another updater')" "$before_pk" \
+  "...nor cleared as installed before the restart when the package set did not move"
+assert_exit 0 "...which keeps its marker" -- test -f "$marker"
+rm -f "$marker" "$pre"
+rm -rf "$KEMPT_STATE_DIR/history"
+
 # The doctor, afterwards: dnf5 still keeps the transaction, and says `ready`. One line explains it,
 # and none of the rows that would call it pending or broken.
 doc="$(KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" doctor 2>&1 || true)"
@@ -1118,6 +1139,18 @@ assert_not_contains "$doc" "install on the next restart" "...and promises nothin
 assert_exit 5 "unstage refuses while another updater's symlink stands" -- "$KEMPT" unstage
 assert_exit 0 "...and discards nothing" -- test -f "$marker"
 assert_eq "$(events_since 'unstage refused (another updater has prepared the next restart)')" "1" "...and logs why"
+rm -f "$marker" "$pre"
+# A replaced stage behind that symlink, where the stored transaction's packages are all installed:
+# that proves nothing about Kempt's stage, so it is still published as blocked.
+stage_marker boot-t4 3
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "3" \
+  "a replaced stage is published as blocked even when the stored transaction is installed"
+stage_marker boot-t4 3
+KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "absent" \
+  "...while Kempt's own stage, installed, is done and not blocked"
 rm -f "$marker" "$pre"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r 'has("offline_stage_blocked")' "$st")" "false" "with no marker, nothing is published as blocked"
@@ -1302,7 +1335,7 @@ assert_eq "$(jq -r '.armed' "$marker")" "true" "...and stays armed, because it i
 assert_eq "$(jq -r '.staged_at' "$marker")" "MOVED" "...and is still the stage that was made"
 assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "$hist_before" \
   "...and no history entry is invented for an install that did not happen"
-grep -q 'applied on reboot' "$notify_log" \
+grep -q 'installed during the restart' "$notify_log" \
   && { echo "FAIL: announced somebody else's packages as the staged update installing"; _fail=1; } \
   || echo "ok: ...and the user is not told their staged update was applied"
 assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
@@ -1462,7 +1495,19 @@ same_sec() {  # offset-seconds → state_checked_since's rc for a last_check tha
 assert_eq "$(same_sec 0)" "1" "a last_check in the request's own second does not count as after it"
 assert_eq "$(same_sec 1)" "0" "...and one a second later does"
 assert_eq "$(same_sec -1)" "1" "...and one a second earlier does not"
+# A last_check ahead of the clock: the clock was stepped back after that check. Within a minute it
+# still counts, past a minute it is stale, or every coalesced check would adopt it until then.
+assert_eq "$(same_sec 50)" "0" "a last_check under a minute ahead of the clock still counts"
+assert_eq "$(same_sec 120)" "1" "...and one two minutes ahead is stale"
 rm -f "$same_sec_state"
+
+# End to end: a state stamped three hours ahead with a count no check produced. A coalesced check
+# runs a real one and replaces it, in place of serving it.
+jq -n --arg t "$(date -Is -d '+3 hours')" '{schema:1, last_check:$t, status:"ok", marker:"FUTURE"}' > "$STATE_FILE"
+rm -f "$TESTTMP/dnf-queries"
+future_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/recording-helper" "$KEMPT" check --coalesce)"
+assert_eq "$(dnf_queries)" "1" "a --coalesce check over a last_check hours ahead of the clock runs a real check"
+assert_eq "$(jq -r '.marker // "none"' <<<"$future_out")" "none" "...and does not serve the future-stamped state"
 
 # write_state is the one door into state.json, and it refuses anything that is not exactly one JSON
 # object. Each case is what a failed producer hands it: nothing at all (assemble_state failing

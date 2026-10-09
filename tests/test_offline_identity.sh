@@ -109,6 +109,8 @@ assert_eq "$(notified 'replaced outside Kempt')" "0" "...and nothing is announce
 export KEMPT_OFFLINE_TOML="$REPLACED_TOML" KEMPT_OFFLINE_TXJSON="$REPLACED_TX"
 "$KEMPT" check >/dev/null
 assert_eq "$(notified 'replaced outside Kempt')" "1" "a stage replaced outside Kempt is announced"
+assert_eq "$(notified 'next restart will not install it. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.')" "1" \
+  "...with the same remedy a stage that can no longer install gets"
 assert_eq "$(events_like 'offline stage replaced outside Kempt (command, packages) - announced')" "1" \
   "...and the event names what differs: the command and the packages, not the cookie"
 assert_eq "$(jq -r '.replaced // "absent"' "$marker")" "true" "...and the marker records it"
@@ -116,6 +118,16 @@ assert_eq "$(jq -r .staged_at "$marker")" "$staged_at" "...and is still the mark
 "$KEMPT" check >/dev/null
 assert_eq "$(notified 'replaced outside Kempt')" "1" "...said once, not once per check"
 assert_eq "$(events_like 'offline stage replaced outside Kempt')" "1" "...in the event log too"
+# ...and when what replaced it is a Fedora release upgrade, neither command is offered: a stage
+# would be refused, and a clean would delete the upgrade.
+jq -c 'del(.replaced)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+: > "$WORLD/notifications"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" "$KEMPT" check >/dev/null
+assert_eq "$(notified 'replaced outside Kempt')" "1" "a stage replaced by a release upgrade is announced"
+assert_eq "$(notified 'A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor')" "1" \
+  "...with the release-upgrade remedy"
+assert_eq "$(notified 'offline clean')" "0" "...and no clean that would delete the upgrade"
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 
 # Another cookie on its own is enough: a transaction built against another rpm database.
 jq -c 'del(.replaced)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
@@ -199,7 +211,7 @@ assert_eq "$(reported)" "curl zsh" \
   "...and the report is that entry's packages: patch, which something else installed across the same restart, is not in it"
 assert_eq "$(jq -r '.backends.dnf.updated[] | select(.name == "curl") | "\(.from) \(.to)"' "$HH")" \
   "8.18.0-9.fc44 8.18.0-10.fc44" "...with the versions the snapshots saw"
-assert_eq "$(notified 'were applied on reboot')" "1" "...and announced as applied"
+assert_eq "$(notified 'were installed during the restart')" "1" "...and announced as applied"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...and so is its snapshot copy" -- test ! -f "$PRE"
 # How long it took is dnf5's own record of that entry: 1789500336 to 1789500337.
@@ -238,7 +250,7 @@ assert_eq "$(jq -r .surface "$HH")" "restart (staged update did not run)" \
 assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "absent" "...names no transaction as Kempt's"
 assert_eq "$(reported)" "curl patch zsh" "...and keeps the whole snapshot diff as the report"
 assert_eq "$(notified 'did not run on the restart')" "1" "...and says the staged update did not run"
-assert_eq "$(notified 'were applied on reboot')" "0" "...never that it was applied"
+assert_eq "$(notified 'were installed during the restart')" "0" "...never that it was applied"
 assert_eq "$(jq -r 'has("duration_sec")' "$HH")" "false" "...and gives it no duration"
 assert_eq "$(events_like 'harvest found the staged transaction did not run (2 updated, +1 installed)')" "1" \
   "...and the event carries the counts of what did change"
