@@ -263,14 +263,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Root's dnf files can no longer be left open to other users.** The root helpers kept the umask
   of whoever started them. A refresh needs no password, so anyone at the desk could make root write
   package metadata that every user could change. Updates you installed or staged were exposed the
-  same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about files an earlier version left open, with the fix.
+  same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about files an earlier
+  version left open, with the fix.
 - **Kempt no longer cancels another updater's restart install.** While Discover or PackageKit has
   prepared the next restart, the root helper refuses to discard a staged update. A discard would
   have removed the other updater's install.
 - **Error messages no longer carry passwords, tokens or your home path.** Check and refresh errors
   lose URL credentials, even a password holding `@`, `/` or `?`, as well as queries, fragments and
   token-shaped path parts. This happens before they reach the state, the widget or a notification.
-  Your home directory becomes `~`. This covers `error` and `backends.dnf.refresh_error`.
+  Your home directory becomes `~`. This covers `error`, `backends.dnf.refresh_error`, and the
+  reason a failed update gives in history, the event log and its notification.
 
 ## [0.1.7] - 2026-10-02
 
