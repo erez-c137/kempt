@@ -57,6 +57,36 @@ No successful check yet · last check failed" "never answered: the problem and t
 assert_eq "$(status_rc)" "1" "never answered exits 1"
 jq '.error = "first line\nsecond line"' "$FIXTURES/state-broken.json" > "$STATE_FILE"
 assert_eq "$(status | sed -n 2p)" "first line" "the detail is the error's first line only"
+# Never answered offline: dnf with no cache says only "Cache-only enabled but no cache", and the
+# refresh error says why. The detail is the refresh error's first line, after plain words.
+jq '.error = "dnf check failed: Cache-only enabled but no cache for repository \"fedora\""
+    | .backends.dnf.refresh_error = "Curl error (6): Could not resolve host: mirrors.fedoraproject.org\nmore"' \
+  "$FIXTURES/state-broken.json" > "$STATE_FILE"
+out="$(status)"
+assert_eq "$(sed -n 2p <<<"$out")" \
+  "Package lists have never been downloaded: Curl error (6): Could not resolve host: mirrors.fedoraproject.org" \
+  "never answered offline: the detail says the lists were never downloaded, and why"
+assert_not_contains "$out" "Cache-only" "...never dnf's raw no-cache text"
+assert_not_contains "$out" "could not be downloaded" "...and the footer does not say it twice"
+# Counts over lists Kempt did not fetch (no metadata_refreshed) with a failed fetch: the footer says
+# the lists could not be downloaded, so the counts do not read as current.
+jq 'del(.metadata_refreshed) | .backends.dnf.refresh_error = "Curl error (7): Failed to connect"' \
+  "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_eq "$(status | tail -n 1)" "Checked 2 days ago · package lists could not be downloaded" \
+  "a failed fetch over counts already here: the footer says the lists could not be downloaded"
+put live
+assert_not_contains "$(status)" "could not be downloaded" "...and with no refresh error it says nothing of the kind"
+# Refreshing turned off: the refresh error is from a download Kempt no longer tries, so the footer
+# says nothing about it, as the widget does.
+jq 'del(.metadata_refreshed) | .refresh_skipped = "off" | .backends.dnf.refresh_error = "Curl error (7): Failed to connect"' \
+  "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_not_contains "$(status)" "could not be downloaded" "...nor with refreshing turned off"
+# A never-answered failure that is not dnf's no-cache text keeps its own reason, whatever refresh
+# error is on record. kempt doctor gives the same one (test_doctor.sh).
+jq '.error = "dnf check failed: Error: GPG check FAILED" | .backends.dnf.refresh_error = "Status code: 404"' \
+  "$FIXTURES/state-broken.json" > "$STATE_FILE"
+assert_eq "$(status | sed -n 2p)" "dnf check failed: Error: GPG check FAILED" \
+  "a failure other than no cache keeps its reason, not the never-downloaded words"
 
 put held-only
 out="$(status)"

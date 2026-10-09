@@ -23,6 +23,12 @@ KEMPT_FLATPAK_REMOTE_CMD="${KEMPT_FLATPAK_REMOTE_CMD:-flatpak remote-ls --update
 # the cache lives in the user's own home, and root would only widen the privileged surface.
 KEMPT_FLATPAK_REFRESH_CMD="${KEMPT_FLATPAK_REFRESH_CMD:-flatpak remote-ls --updates --system --app --columns=application,version,download-size}"
 KEMPT_FLATPAK_LIST_CMD="${KEMPT_FLATPAK_LIST_CMD:-flatpak list --system --app --columns=application,version}"
+# The installation's configured remotes, one name per line. Local, no network. With none there is
+# nothing to fetch, and the refresh says nothing rather than claiming a download that did not run.
+KEMPT_FLATPAK_REMOTES_CMD="${KEMPT_FLATPAK_REMOTES_CMD:-flatpak remotes --system --columns=name}"
+# Seconds. The listing is local, so a hang is a fault: it costs this much, then the fetch runs as
+# if remotes exist, and a check stays inside the widget's wait.
+KEMPT_FLATPAK_REMOTES_TIMEOUT="${KEMPT_FLATPAK_REMOTES_TIMEOUT:-10}"
 
 # The runtime twins of the two queries above. `flatpak update` with no ref updates applications AND
 # runtimes (flatpak-update(1): "If no REF is given, everything is updated"; --app and --runtime are
@@ -95,6 +101,7 @@ KEMPT_FLATPAK_USER_REMOTE_CMD="${KEMPT_FLATPAK_USER_REMOTE_CMD:-flatpak remote-l
 # Fills ~/.local/share/flatpak's own summary cache, which the --cached query above reads.
 KEMPT_FLATPAK_USER_REFRESH_CMD="${KEMPT_FLATPAK_USER_REFRESH_CMD:-flatpak remote-ls --updates --user --app --columns=application,version,download-size}"
 KEMPT_FLATPAK_USER_LIST_CMD="${KEMPT_FLATPAK_USER_LIST_CMD:-flatpak list --user --app --columns=application,version}"
+KEMPT_FLATPAK_USER_REMOTES_CMD="${KEMPT_FLATPAK_USER_REMOTES_CMD:-flatpak remotes --user --columns=name}"
 KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="${KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD:-flatpak remote-ls --updates --user --runtime --cached --columns=application,branch,version,download-size}"
 KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="${KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD:-flatpak list --user --runtime --columns=application,branch,version}"
 KEMPT_FLATPAK_USER_SNAP_CMD="${KEMPT_FLATPAK_USER_SNAP_CMD:-flatpak list --user --app --columns=application,version,active}"
@@ -445,13 +452,24 @@ flatpak_report_scopes() {  # stdin: report JSON → the same report, per-user it
 # failing fails the step. KEMPT_REFRESH_TIMEOUT bounds each one, so a stalled remote cannot hold
 # the check lock forever. It runs as this user, so the timeout can stop it. The widget's
 # CHECK_TIMEOUT_MS allows for one bound per installation.
+# 0 when every installation with a remote fetched, 1 when one failed, 2 when no installation has a
+# remote, so nothing was fetched at all. A remotes list that cannot be read, or does not answer in
+# KEMPT_FLATPAK_REMOTES_TIMEOUT, counts as remotes: the fetch runs and its own status decides.
 flatpak_refresh() {
-  local scope cmd rc=0
+  local scope cmd remotes rc=0 fetched=0
   for scope in $(flatpak_scopes); do
+    cmd="$(flatpak_cmd "$scope" REMOTES_CMD)"
+    # shellcheck disable=SC2086  # the seam carries its own arguments
+    if remotes="$(timeout "$KEMPT_FLATPAK_REMOTES_TIMEOUT" $cmd 2>/dev/null 9>&-)" \
+       && [[ -z "${remotes//[[:space:]]/}" ]]; then
+      continue
+    fi
+    fetched=1
     cmd="$(flatpak_cmd "$scope" REFRESH_CMD)"
     # shellcheck disable=SC2086  # the seam carries its own arguments
     timeout "$KEMPT_REFRESH_TIMEOUT" $cmd >/dev/null 2>&1 9>&- || rc=1
   done
+  (( fetched )) || return 2
   return $rc
 }
 

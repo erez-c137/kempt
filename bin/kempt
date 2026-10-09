@@ -3701,8 +3701,21 @@ doctor_other_updater_row() {
 }
 
 doctor_metadata_row() {
-  local iso days
+  local iso days failed=""
   iso="$(metadata_refreshed_iso)"
+  # The latest dnf fetch failed (offline, or the servers would not answer). A WARN, beside the age
+  # row below: every check answers from the lists already here, and those can be old or missing.
+  # Not while refreshing is off: the marker is from a download Kempt no longer tries, and the
+  # advice below would fetch nothing. The widget stays quiet then too.
+  local refresh_off=""
+  [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && refresh_off=1
+  [[ -s "$STATE_FILE" ]] \
+    && [[ "$(jq -r -n '[inputs][0] | select(type == "object") | .refresh_skipped // empty | tostring' "$STATE_FILE" 2>/dev/null)" == off ]] \
+    && refresh_off=1
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" && -z "$refresh_off" ]]; then
+    failed="$(head -n 1 "$REFRESH_DNF_FAILED_FILE" 2>/dev/null | tr -d '[:cntrl:]' | cap_bytes 200)" || failed=""
+    doctor_warn "package lists: the last download failed${failed:+ ($failed)}. Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh"
+  fi
   # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.
@@ -3722,6 +3735,24 @@ doctor_metadata_row() {
     if [[ "$days" == 1 ]]; then word=day; fi
     doctor_info "package lists are $days $word old ($iso). Checks answer from them. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch them now, on mains power and an unmetered connection, run: kempt check --refresh"
   fi
+}
+
+# The last check failed. A WARN with the first line of its error, so a box where every check fails
+# (offline, a broken repo) cannot read "no problems" with nothing beside it. dnf's no-cache text
+# reads as kempt status words it, through the same jq def (check_problem).
+doctor_last_check_row() {
+  local line
+  [[ -s "$STATE_FILE" ]] || return 0
+  line="$(jq -r -n "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
+            [inputs][0] | select(type == "object" and .status == "stale")
+            | check_problem as $why
+            | ((.last_success | type) == "string" and (.last_success | sub("^\\s+"; "")) != "") as $ever
+            | "last check failed" + (if $why != "" then ": " + $why else "" end) + ". "
+              + (if $ever then "The counts Kempt shows are from an earlier check"
+                 else "There are no counts yet" end)' "$STATE_FILE" 2>/dev/null \
+          | tr -d '[:cntrl:]' | cap_bytes 400)" || line=""
+  [[ -n "$line" ]] && doctor_warn "$line"
+  return 0
 }
 
 # Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
@@ -4130,6 +4161,7 @@ cmd_doctor() {
   doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
+  doctor_last_check_row
   doctor_dnf_cache_row
   doctor_inhibit_row
   doctor_config_row

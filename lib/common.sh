@@ -2104,12 +2104,15 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
   # stays unprivileged: flatpak_refresh runs as this user, never through priv_refresh, so the
   # no-dialog polkit action remains dnf-only.
   if (( due_fp )) && is_true "$(config_get include_flatpak)"; then
-    if flatpak_refresh; then
-      ok=1
-      log_event "refresh flatpak ok"
-    else
-      log_event "refresh flatpak failed"
-    fi
+    local fp_rc=0
+    flatpak_refresh || fp_rc=$?
+    # 2 is no Flatpak remote at all: nothing was downloaded, so no line claims a download, and no
+    # stamp postpones the fetch a remote added later needs.
+    case "$fp_rc" in
+      0) ok=1; log_event "refresh flatpak ok" ;;
+      2) ;;
+      *) log_event "refresh flatpak failed" ;;
+    esac
   fi
   # Stamped when ANY arm succeeded, never per-arm and never only on a clean sweep. The marker
   # rate-limits the NETWORK step, so a flatpak summary just fetched must not be fetched again on
@@ -3606,6 +3609,23 @@ KEMPT_JQ_STATUS='
   def first_line:
     if type == "string" then ([split("\n")[] | sub("^\\s+"; "") | sub("\\s+$"; "") | select(. != "")] | .[0] // "")
     else "" end;
+  # A failed check, in plain words when its error is dnf saying it has no cache ("Cache-only
+  # enabled but no cache for repository ..."): the refresh error says why there is none. After an
+  # earlier check succeeded the lists were downloaded once (dnf clean all can empty the cache), so
+  # that case says "could not be downloaded", not "never". Otherwise
+  # the first line of the error, or "". kempt status and kempt doctor both print this, so the two
+  # cannot give different reasons for one state.
+  def check_problem:
+    if type != "object" then "" else
+      (.error | first_line) as $err
+      | (if ((.backends | type) == "object") and ((.backends.dnf | type) == "object")
+            and ((.backends.dnf.refresh_error | type) == "string")
+         then .backends.dnf.refresh_error | first_line else "" end) as $fetch
+      | if ($err | test("no cache"; "i")) and $fetch != "" then
+          (if (.last_success | type) == "string" and .last_success != ""
+           then "Package lists could not be downloaded: " else "Package lists have never been downloaded: " end) + $fetch
+        else $err end
+    end;
   def usable_state:
     type == "object"
     and (if (.schema | type) == "number" and .schema != 1 then false
@@ -3648,6 +3668,8 @@ KEMPT_JQ_STATUS='
       | ($s.status == "stale") as $stale
       | (($s.last_success | type) == "string" and ($s.last_success | sub("^\\s+"; "") | sub("\\s+$"; "")) != "") as $ever
       | ($stale and ($ever | not) and ($walked | not)) as $never_answered
+      | ((($s.backends | type) == "object") and (($s.backends.dnf | type) == "object")
+         and (($s.backends.dnf.refresh_error | type) == "string") and $s.refresh_skipped != "off") as $fetch_failed
       | ((($s.backends | type) == "object") and (($s.backends.flatpak | type) == "object")
          and (($s.backends.flatpak.scopes | type) == "object") and $s.backends.flatpak.scopes.user == "failed") as $user_unchecked
       | ((($s.release_upgrade | type) == "object") and (($s.release_upgrade.to | type) == "string")
@@ -3668,7 +3690,7 @@ KEMPT_JQ_STATUS='
          else ($actionable | tostring) + " updates available" end) as $header
       | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky
       | "H\u001f" + ($header | clean),
-        (if $never_answered then ($s.error | first_line | select(. != "") | "P\u001f" + (. | clean)) else empty end),
+        (if $never_answered then ($s | check_problem | select(. != "") | "P\u001f" + (. | clean)) else empty end),
         ( $c.sections[]
           | "S\u001f" + (.title | clean) + "\u001f" + (.items | length | tostring),
             ( [.items[] | select(.name != null and .name != "") | .name | tostring]
@@ -3687,6 +3709,10 @@ KEMPT_JQ_STATUS='
              else empty end),
             (if $stale then status_copy.lastCheckFailed else empty end),
             (if $user_unchecked then status_copy.userAppsUncheckedShort else empty end),
+            # The counts above came from the lists already here, which may be old even with no
+            # metadata_refreshed to date them (lists dnf or Discover fetched). Said once: a box
+            # that never answered says it in its problem line.
+            (if $fetch_failed and ($never_answered | not) then "package lists could not be downloaded" else empty end),
             ($s.metadata_refreshed | meta_age($now) | select(. != "")) ]
           | "F\u001f" + (join(dot) | clean) ),
         "X\u001f" + (if $never_answered or $stale then "1" else "0" end)

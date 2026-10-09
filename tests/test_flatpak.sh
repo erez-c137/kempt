@@ -139,6 +139,28 @@ assert_exit 0 "...having actually run the seam" -- test -f "$TESTTMP/fp-refresh-
 # event lines apart and a box whose summary is a month old reports a healthy refresh every time.
 export KEMPT_FLATPAK_REFRESH_CMD="false"
 assert_exit 1 "flatpak_refresh propagates failure" flatpak_refresh
+# No remote configured: there is nothing to download, so the fetch does not run and the status is
+# its own (2), never the 0 that would let the caller say lists were downloaded.
+rm -f "$TESTTMP/fp-refresh-ran"
+export KEMPT_FLATPAK_REFRESH_CMD="$TESTTMP/fp-refresh-noisy"
+KEMPT_FLATPAK_REMOTES_CMD=true \
+  assert_exit 2 "with no Flatpak remote, flatpak_refresh says nothing was fetched" flatpak_refresh
+assert_exit 1 "...without running the fetch" -- test -f "$TESTTMP/fp-refresh-ran"
+KEMPT_FLATPAK_REMOTES_CMD=false \
+  assert_exit 0 "a remotes list that cannot be read still lets the fetch run" flatpak_refresh
+assert_exit 0 "...and it did run" -- test -f "$TESTTMP/fp-refresh-ran"
+# A remotes listing that hangs is cut short by its own timeout, not the refresh's, and the fetch
+# runs as if remotes exist.
+rm -f "$TESTTMP/fp-refresh-ran"
+t0=$(date +%s)
+KEMPT_FLATPAK_REMOTES_CMD="sleep 30" KEMPT_FLATPAK_REMOTES_TIMEOUT=1 KEMPT_REFRESH_TIMEOUT=60 \
+  assert_exit 0 "a remotes listing that hangs still lets the fetch run" flatpak_refresh
+elapsed=$(( $(date +%s) - t0 ))
+assert_exit 0 "...which did run" -- test -f "$TESTTMP/fp-refresh-ran"
+assert_eq "$(( elapsed < 10 ))" "1" "...after the listing's short timeout, not the refresh's (${elapsed}s)"
+assert_eq "$(bash -c "unset KEMPT_FLATPAK_REMOTES_TIMEOUT; source '$REPO_ROOT/backends/flatpak.sh' 2>/dev/null; echo \$KEMPT_FLATPAK_REMOTES_TIMEOUT")" "10" \
+  "the listing's timeout defaults to 10 seconds"
+export KEMPT_FLATPAK_REFRESH_CMD="false"
 
 # --- the apply arm ---------------------------------------------------------------------------------
 # It runs as the user: no pkexec, no root helper, no Kempt polkit action. What is asserted here is
