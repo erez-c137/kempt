@@ -2555,8 +2555,8 @@ KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 
 # `kempt check --coalesce`: prints state.json and returns 0 when it is ONE object, status "ok", whose
 # last_check is provably later than the epoch second in $1 (when the coalescing check was asked
-# for). Anything else - no file, a corrupt or multi-document one, a stale status, no readable
-# last_check - returns 1, and the caller runs a real check: the safe side.
+# for). Anything else - no file, a corrupt or multi-document one, a stale status, a last_check not
+# in Kempt's own ISO 8601 form - returns 1, and the caller runs a real check: the safe side.
 # STRICTLY later, in whole seconds, because last_check has whole seconds and so does $1. A check
 # stamped in the same second as the request may have been stamped BEFORE it, from a query that
 # started even earlier; `>` on truncated seconds proves last_check came after the request, at the
@@ -2571,7 +2571,11 @@ state_checked_since() {  # requested-epoch → state on stdout, or 1
   doc="$(jq -e -n '[inputs] | select(length == 1) | .[0]
                    | select(type == "object" and .status == "ok" and (.last_check | type) == "string")' \
            "$STATE_FILE" 2>/dev/null)" || return 1
-  at="$(date -d "$(jq -r '.last_check' <<<"$doc")" +%s 2>/dev/null)" || return 1
+  # Only the form `date -Is` writes. date -d also reads "now", "tomorrow" and bare dates, and none
+  # of those is a check that ran.
+  at="$(jq -r '.last_check' <<<"$doc")"
+  [[ "$at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$ ]] || return 1
+  at="$(date -d "$at" +%s 2>/dev/null)" || return 1
   now="$(date +%s)"
   [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 && at <= now + 60 )) || return 1
   printf '%s\n' "$doc"

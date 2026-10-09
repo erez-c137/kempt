@@ -1575,6 +1575,14 @@ assert_eq "$(same_sec -1)" "1" "...and one a second earlier does not"
 # still counts, past a minute it is stale, or every coalesced check would adopt it until then.
 assert_eq "$(same_sec 50)" "0" "a last_check under a minute ahead of the clock still counts"
 assert_eq "$(same_sec 120)" "1" "...and one two minutes ahead is stale"
+# Only the ISO 8601 form Kempt writes counts. date -d reads "now" or "tomorrow" happily, and a
+# state carrying one would answer every coalesced check.
+lc_form() { jq -n --arg t "$1" '{last_check:$t, status:"ok"}' > "$same_sec_state"
+  if STATE_FILE="$same_sec_state" state_checked_since "$(( $(date +%s) - 3600 ))" >/dev/null; then echo 0; else echo 1; fi; }
+assert_eq "$(lc_form "$(date -Is)")" "0" "a last_check in date -Is form counts"
+for f in now "+30 minutes" "$(date +%F)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -Is) " "$(date +%s)" "$(date -Ins)"; do
+  assert_eq "$(lc_form "$f")" "1" "a last_check of '$f' does not"
+done
 rm -f "$same_sec_state"
 
 # End to end: a state stamped three hours ahead with a count no check produced. A coalesced check
