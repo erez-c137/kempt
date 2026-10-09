@@ -11,6 +11,10 @@ KEMPT_DNF_SIZES_CMD="${KEMPT_DNF_SIZES_CMD:-}"
 # refresh` keeps current as root, and the only cache Kempt maintains; the seam is how a hermetic
 # test drives both branches of dnf_sizes' readability guard.
 KEMPT_DNF_SYSTEM_CACHE="${KEMPT_DNF_SYSTEM_CACHE:-/var/cache/libdnf5}"
+# The security advisory query (dnf_security_query). Unset means KEMPT_DNF_CMD. Its own seam for the
+# reason the size query has one: the files that point KEMPT_DNF_CMD at a needs-restarting stub must
+# not have that stub answer an advisory question too.
+KEMPT_DNF_ADVISORY_CMD="${KEMPT_DNF_ADVISORY_CMD:-}"
 
 dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
   # Both branches share the SAME sort tail: a stub's rows must reach collapse_versions in the
@@ -116,6 +120,51 @@ dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY 
                 END { for (n in s) print n "\t" s[n] }' \
   | sort -t "$(printf '\t')" -k1,1 || true
   return 0
+}
+
+# Which pending system updates fix a security advisory, from the updateinfo already in the cache.
+# Asked only for a person who turned notify_security on, and only after the dnf check answered.
+# Cache-only (-C) and against the system cache, for the reasons dnf_sizes gives: no network, and
+# the same metadata the check was answered from. dnf5 prints `[]` under exit 0 when nothing is due.
+# The rows (dnf5 5.2.18 on Fedora 43 and 5.4 on Fedora 44 alike) are
+#   {"name": "FEDORA-2026-...", "type": "security", "severity": "...", "nevra": "...", "buildtime": ...}
+# where `name` is the ADVISORY id, not the package. Unlike dnf_sizes this one reports failure: a
+# question nobody answered must not read as "no security updates".
+dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did not answer
+  local cache=()
+  [[ -r "$KEMPT_DNF_SYSTEM_CACHE" ]] && cache=(--setopt=cachedir="$KEMPT_DNF_SYSTEM_CACHE")
+  # Unquoted on purpose: a seam holds a command with arguments (see dnf_sizes).
+  # shellcheck disable=SC2086
+  timeout 30 ${KEMPT_DNF_ADVISORY_CMD:-$KEMPT_DNF_CMD} "${cache[@]}" -C -q \
+    advisory list --security --updates --json </dev/null 2>/dev/null
+}
+
+# The advisory rows, read against the pending dnf items (after mark_held). By content, never by
+# position: the top level must be a list and every row an object with a string `name` and `nevra`,
+# or the whole answer is refused (rc≠0), because a partly read answer would under-report. Ids that
+# do not look like an advisory id are dropped. The package name is the NEVRA without its `.arch`
+# and its `-[epoch:]version-release`. Output:
+#   known       ids whose package is pending at all, held or not (what the seen file may keep)
+#   advisories  ids whose package is pending and not held, at most 200
+#   packages    those packages, as the pending items name them and in their order
+# The names come from the items, never from the NEVRA, so they are the names the widget lists and
+# have already passed KEMPT_NAME_RE.
+dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSON → JSON object
+  jq -c --slurpfile items "$1" '
+    def pkgname: sub("\\.[^.]*$"; "") | sub("-[^-]*-[^-]*$"; "");
+    (reduce ($items[0] // [])[] as $i ({}; .[$i.name | tostring] = ($i.held == true))) as $pend
+    | if type != "array" then error("not a list") else . end
+    | map(if type == "object" and (.name | type) == "string" and (.nevra | type) == "string"
+          then {id: .name, pkg: (.nevra | pkgname)} else error("a row without a name and nevra") end)
+    | map(select(.id | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")))
+    | unique
+    | [.[] | select($pend[.pkg] != null)] as $known
+    | [$known[] | select($pend[.pkg] == false)] as $open
+    | ($open | map(.pkg) | unique) as $pkgs
+    | { known: ($known | map(.id) | unique),
+        advisories: ($open | map(.id) | unique | .[:200]),
+        packages: [($items[0] // [])[] | select(.held != true) | .name | tostring
+                   | select(. as $n | $pkgs | index([$n]) != null)] }'
 }
 
 dnf_snapshot() { dnf_installed_lookup; }   # → TSV to stdout

@@ -1687,6 +1687,164 @@ out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "a notifier that is off is not offered"
 export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
 
+# --- notify_security: one notification per new set of security updates --------------------------
+# The advisory stub records how it was called and answers from two files, so each case below sets
+# what dnf5 says and how it exits. The notifier is a recorder: nothing reaches a real desktop.
+cat > "$TESTTMP/advisory-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/advisory-calls"
+cat "$TESTTMP/advisory-out"
+exit "\$(cat "$TESTTMP/advisory-rc")"
+STUB
+chmod +x "$TESTTMP/advisory-stub"
+cat > "$TESTTMP/notify-recorder" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/notified"
+STUB
+chmod +x "$TESTTMP/notify-recorder"
+export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/advisory-stub" KEMPT_NOTIFY="$TESTTMP/notify-recorder"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
+export KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/no-system-cache"
+echo 0 > "$TESTTMP/advisory-rc"
+# Duplicates, a second arch of one package, an epoch, an arch nobody has heard of, a package that is
+# not pending, and an id that is not an advisory id (markup, which must never reach a notification).
+adv_row() { printf '{"name":"%s","type":"security","severity":"Important","nevra":"%s","buildtime":1791422147}' "$1" "$2"; }
+adv_set() { { printf '['; local first=1 r; for r in "$@"; do [[ -n "$first" ]] || printf ','; first=""; printf '%s' "$r"; done; printf ']\n'; } > "$TESTTMP/advisory-out"; }
+base_rows=("$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)" "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)"
+           "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.i686)" "$(adv_row FEDORA-2026-t1 tar-2:1.35-9.fc44.x86_64)"
+           "$(adv_row FEDORA-2026-g1 git-core-2.55.1-1.fc44.zz9)" "$(adv_row FEDORA-2026-n1 notpending-1.0-1.fc44.noarch)"
+           "$(adv_row '<b>x</b>' bash-5.3.10-1.fc44.x86_64)")
+adv_set "${base_rows[@]}"
+notes() { if [[ -f "$TESTTMP/notified" ]]; then grep -c . "$TESTTMP/notified"; else echo 0; fi; }
+sec_seen() { jq -c ".$1" "$KEMPT_STATE_DIR/security-seen.json"; }
+rm -f "$KEMPT_STATE_DIR/security-seen.json"
+
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$([[ -e "$TESTTMP/advisory-calls" ]] && echo asked || echo never)" "never" "with notify_security off, dnf is never asked about advisories"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "...and the state carries no security block"
+assert_eq "$("$KEMPT" config get notify_security)" "false" "notify_security is off by default"
+
+"$KEMPT" config set notify_security true
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '.security | {count, packages, advisories, attention}' <<<"$out")" \
+  '{"count":3,"packages":["curl","git-core","tar"],"advisories":["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"],"attention":true}' \
+  "the block names each pending package once, whatever its arch, epoch or duplicate rows"
+assert_eq "$(jq -r '.security.digest | test("^[0-9a-f]{16}$")' <<<"$out")" "true" "...with a 16-character digest"
+assert_eq "$(jq -c '.security' "$STATE_FILE")" "$(jq -c '.security' <<<"$out")" "...and it is written"
+assert_eq "$(jq -r .schema <<<"$out")" "1" "...additively: the schema does not move"
+assert_contains "$(cat "$TESTTMP/advisory-calls")" "-C -q advisory list --security --updates --json" "the query is cache-only and asks for security updates as JSON"
+assert_not_contains "$(cat "$TESTTMP/advisory-calls")" "cachedir" "...and names no cache directory it cannot read"
+assert_eq "$(notes)" "1" "a new set sends one notification"
+assert_eq "$(cat "$TESTTMP/notified")" "Kempt Security updates are waiting for curl, git-core and tar." "...naming the packages"
+assert_eq "$(events_since 'security notified count=3')" "1" "...and the event log says so"
+assert_eq "$(sec_seen notified)" '["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"]' "...and the advisories are recorded as announced"
+
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "1" "the same set again sends nothing"
+
+mkdir -p "$TESTTMP/readable-cache"
+KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/readable-cache" "$KEMPT" check >/dev/null 2>&1
+assert_contains "$(tail -1 "$TESTTMP/advisory-calls")" "--setopt=cachedir=$TESTTMP/readable-cache" "a readable system cache is the one asked"
+
+# A hold takes curl out of the block, and letting go brings it back: the same advisory, not news.
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '.security.packages' <<<"$out")" '["git-core","tar"]' "a held package drops out of the block"
+assert_contains "$(sec_seen notified)" "FEDORA-2026-c1" "...but its advisory stays on record while the package is pending"
+"$KEMPT" unhold dnf:curl >/dev/null 2>&1
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "1" "a set that shrinks and grows back sends nothing"
+
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b2 bash-5.3.10-1.fc44.x86_64)"
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "2" "a new advisory sends a notification again"
+assert_eq "$(tail -1 "$TESTTMP/notified")" "Kempt Security updates are waiting for bash, curl, git-core and tar." "...naming the whole set"
+
+# The widget's acknowledgement: only for the set it showed.
+digest="$(jq -r '.security.digest' "$STATE_FILE")"
+assert_exit 2 "security-ack refuses a digest that is not one" -- "$KEMPT" security-ack --expect=nope
+assert_exit 6 "security-ack refuses a set it was not shown" -- "$KEMPT" security-ack --expect=0123456789abcdef
+assert_eq "$(jq -r '.security.attention' "$STATE_FILE")" "true" "...and records nothing"
+assert_exit 0 "security-ack takes the digest the check published" -- "$KEMPT" security-ack --expect="$digest"
+assert_eq "$(jq -r '.security.attention' "$STATE_FILE")" "false" "...and the panel stops asking at once"
+assert_eq "$(sec_seen acknowledged)" '["FEDORA-2026-b2","FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"]' "...because the set is recorded as seen"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -r '.security.attention' <<<"$out")" "false" "...and the next check keeps it, so a restart does not ask again"
+assert_eq "$(jq -r '.security.count' <<<"$out")" "4" "...while the count stays until they are installed"
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b2 bash-5.3.10-1.fc44.x86_64)" "$(adv_row FEDORA-2026-b3 brandnew-1.0-1.fc44.x86_64)"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -r '.security.attention' <<<"$out")" "true" "an advisory nobody has seen asks again"
+
+# No session bus (a timer with no desktop): nothing is sent, nothing is recorded, and the next check
+# that has one says it.
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b4 aajohan-comfortaa-fonts-3.106-1.fc44.noarch)"
+n_before="$(notes)"
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$TESTTMP/no-runtime" "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "$n_before" "with no session bus nothing is sent"
+assert_not_contains "$(sec_seen notified)" "FEDORA-2026-b4" "...and the advisory is not recorded as announced"
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "$(( n_before + 1 ))" "...so the next check with a session bus announces it"
+
+# An armed stage: the person already chose to install them.
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-s5 brandnew-1.0-1.fc44.x86_64)" "$(adv_row FEDORA-2026-s6 bash-5.3.10-1.fc44.x86_64)"
+rm -f "$KEMPT_STATE_DIR/security-seen.json"
+stage_marker boot-t4 7
+n_before="$(notes)"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -r '.offline_staged.armed' <<<"$out")" "true" "(a stage is armed)"
+assert_eq "$(notes)" "$n_before" "an armed stage sends no notification"
+assert_eq "$(jq -r '.security.attention' <<<"$out")" "false" "...and the panel does not ask"
+rm -f "$marker"
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(notes)" "$(( n_before + 1 ))" "...and with the stage gone the set is announced"
+
+# A package that is installed takes its advisory off the record.
+cat > "$TESTTMP/refresh-no-curl" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  check) grep -v '^curl' "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
+esac
+STUB
+chmod +x "$TESTTMP/refresh-no-curl"
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-no-curl" "$KEMPT" check >/dev/null 2>&1
+assert_not_contains "$(sec_seen notified)" "FEDORA-2026-c1" "an advisory whose package is no longer pending leaves the seen file"
+
+# Failures publish nothing, send nothing and leave the seen file alone.
+seen_before="$(cat "$KEMPT_STATE_DIR/security-seen.json")"
+n_before="$(notes)"
+echo 'Error: something dnf5 said' > "$TESTTMP/advisory-out"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["ok",false]' "unreadable output publishes no block and the check stays ok"
+assert_eq "$(events_since 'security check failed')" "1" "...and the event log says the security check failed"
+assert_eq "$(cat "$KEMPT_STATE_DIR/security-seen.json")" "$seen_before" "...and the seen file is untouched"
+echo '[{"name":"FEDORA-2026-x","nevra":7}]' > "$TESTTMP/advisory-out"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a row of the wrong shape refuses the whole answer"
+adv_set "${base_rows[@]}"; echo 1 > "$TESTTMP/advisory-rc"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a non-zero exit publishes no block"
+assert_eq "$(events_since 'security check failed')" "3" "...and is logged"
+assert_eq "$(notes)" "$n_before" "...and no failure sends anything"
+echo 0 > "$TESTTMP/advisory-rc"; echo '[]' > "$TESTTMP/advisory-out"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '.security | {count, attention, digest}' <<<"$out")" '{"count":0,"attention":false,"digest":""}' "nothing due is a block with nothing in it"
+
+# dnf not answering, or an image-based system: no question at all.
+: > "$TESTTMP/advisory-calls"
+cat > "$TESTTMP/refresh-check-fails" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+chmod +x "$TESTTMP/refresh-check-fails"
+out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-check-fails" "$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["stale",false]' "when dnf did not answer there is no block"
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "...and advisories are not asked about"
+KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "an image-based system is never asked"
+"$KEMPT" config set notify_security false
+export KEMPT_NOTIFY="true" KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
+unset DBUS_SESSION_BUS_ADDRESS KEMPT_DNF_SYSTEM_CACHE
+
 # --- per-user Flatpak apps -------------------------------------------------------------------------
 # Apps installed with --user are outside every --system listing, so a box with only those said
 # "Everything is up to date" over pending updates. They are counted, sized and marked in the state.

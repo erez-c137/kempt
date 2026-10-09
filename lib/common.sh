@@ -110,6 +110,9 @@ RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
 # second exists while the popup still owes an install it pinned to the terminal its one offer.
 SURFACE_MIGRATED_FILE="$KEMPT_STATE_DIR/surface-migrated"
 SURFACE_OFFER_FILE="$KEMPT_STATE_DIR/surface-offer"
+# The security advisories already announced and already seen, for notify_security:
+# {"notified": [ids], "acknowledged": [ids]}. Written under the writers' lock (see security_update).
+SECURITY_SEEN_FILE="$KEMPT_STATE_DIR/security-seen.json"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -307,7 +310,7 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
@@ -368,6 +371,9 @@ kempt_default() {  # key → default ("" if unknown)
     # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
     # reclaim_mode for how a value is read.
     reclaim) echo ask ;;
+    # A desktop notification when pending system updates fix a security advisory. Off unless asked
+    # for: the query costs a second per check, and a notification nobody asked for is noise.
+    notify_security) echo false ;;
     *) echo "" ;;
   esac
 }
@@ -1177,6 +1183,97 @@ run_failure_reason() {  # log-file → one line, possibly empty
 }
 notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
+
+# --- the security notification (notify_security) ----------------------------------------------
+# notify, saying whether it worked. A security advisory counts as announced only when a
+# notification was delivered: one tried from a timer with no session bus is tried again by the
+# next check that has one. Bounded, because a check is waiting on it.
+session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
+notify_delivered() { session_bus_present || return 1; timeout 10 "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1; }
+
+# The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
+# shape reads as empty, which at worst announces a set once more.
+security_seen_read() {
+  local s
+  s="$(jq -c -n '[inputs][0] | if type == "object" then
+          {notified: [(.notified // [])[]? | strings], acknowledged: [(.acknowledged // [])[]? | strings]}
+        else error("not an object") end' "$SECURITY_SEEN_FILE" 2>/dev/null)" || s=""
+  [[ "$s" == \{* ]] || s='{"notified":[],"acknowledged":[]}'
+  printf '%s\n' "$s"
+}
+
+# What a set of advisories is called when the widget acknowledges it: 16 hex characters of the
+# sha256 of the sorted ids, as reclaim_digest names a set of runtimes. Nothing for an empty set.
+security_digest() {  # stdin: one id per line → digest, or nothing
+  local lines
+  lines="$(grep -v '^$' | sort -u)" || true
+  [[ -n "$lines" ]] || return 0
+  printf '%s\n' "$lines" | sha256sum | cut -c1-16
+}
+
+# The block a check publishes as state.json's `security`, and the seen file kept in step with it.
+# The caller holds the writers' lock. $1 is dnf_security_parse's answer; $2 and $3 are true when a
+# stage is armed and when an update is running, either of which means the panel does not ask.
+# An id leaves the seen file only when its package is no longer pending at all (installed, or gone
+# from the repositories): a set that shrinks because of a hold and grows back is not news.
+# Prints the block on the first line and the ids to announce on the second (space separated, and
+# empty when there is nothing new). rc≠0 leaves the seen file as it was.
+security_update() {  # parsed armed busy
+  local seen out block fresh digest
+  seen="$(security_seen_read)"
+  out="$(jq -c --argjson s "$seen" --argjson armed "$2" --argjson busy "$3" '
+    def keep($k): [.[] | select(IN($k[]))] | .[-200:];
+    . as $p
+    | ($s.notified | keep($p.known)) as $n
+    | ($s.acknowledged | keep($p.known)) as $a
+    | {seen: {notified: $n, acknowledged: $a},
+       fresh: [$p.advisories[] | select((IN($n[]) or IN($a[])) | not)],
+       block: {count: ($p.packages | length), packages: $p.packages, advisories: $p.advisories,
+               attention: (([$p.advisories[] | select(IN($a[]) | not)] | length) > 0
+                           and ($armed | not) and ($busy | not))}}' <<<"$1" 2>/dev/null)" || return 1
+  [[ "$out" == \{* ]] || return 1
+  digest="$(jq -r '.block.advisories[]' <<<"$out" | security_digest)"
+  block="$(jq -c --arg d "$digest" '.block + {digest: $d}' <<<"$out")" || return 1
+  fresh="$(jq -r '.fresh | join(" ")' <<<"$out")" || return 1
+  if [[ "$(jq -c '.seen' <<<"$out")" != "$seen" ]]; then
+    jq -c '.seen' <<<"$out" | atomic_write "$SECURITY_SEEN_FILE" 2>/dev/null || true
+  fi
+  printf '%s\n%s\n' "$block" "$fresh"
+}
+
+# Whether ANOTHER process holds the update lock: the probe cmd_run makes, and -E for the reason it
+# gives. fd 8 open in this shell is cmd_update's own closing check, after its run, which is not an
+# update running.
+update_running_elsewhere() {
+  [[ -e "$LOCK_FILE" ]] || return 1
+  { true >&8; } 2>/dev/null && return 1
+  local rc=0
+  flock -n -E 75 "$LOCK_FILE" true 2>/dev/null || rc=$?
+  [[ $rc -eq 75 ]]
+}
+
+# Adds ids to one list of the seen file. The caller holds the writers' lock.
+security_seen_add() {  # list(notified|acknowledged) id...
+  local list="$1"; shift
+  [[ $# -gt 0 ]] || return 0
+  security_seen_read \
+    | jq -c --arg l "$list" '.[$l] = ((.[$l] - $ARGS.positional) + $ARGS.positional | .[-200:])' \
+         --args "$@" \
+    | atomic_write "$SECURITY_SEEN_FILE"
+}
+
+# The notification's one sentence. The names are the pending items' own, already KEMPT_NAME_RE-clean.
+security_notice() {  # stdin: one package name per line → the body
+  local names n
+  names="$(cat)"
+  n="$(grep -c . <<<"$names" || true)"
+  [[ "${n:-0}" -gt 0 ]] || return 0
+  if [[ "$n" -eq 1 ]]; then
+    printf 'A security update is waiting for %s.\n' "$names"
+  else
+    printf 'Security updates are waiting for %s.\n' "$(names_phrase <<<"$names")"
+  fi
+}
 
 # --- passwordless polkit rule rendering ---
 # Split out of bin/kempt so the render and its self-check are unit-testable without touching
