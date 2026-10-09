@@ -321,6 +321,16 @@ STUB
   KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
   assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
     "once a dnf refresh has worked, a failing one waits for the gate"
+  # The same failure 15 minutes on, first with a cache to check against and then with none.
+  mkdir -p "$TESTTMP/dnf-cache/fedora-0123/repodata"; : > "$TESTTMP/dnf-cache/fedora-0123/repodata/repomd.xml"
+  touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"
+  KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
+    "...even 15 minutes on, while its cache is there"
+  rm -rf "$TESTTMP/dnf-cache/fedora-0123"
+  KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "3" \
+    "...but with no usable cache it is tried again once 15 minutes old"
 
   # The published line never carries a credential, even from a tail cut inside a URL.
   rel() { printf '%b' "$1" > "$TESTTMP/rel.err"; refresh_error_line "$TESTTMP/rel.err" "${2:-1}"; }

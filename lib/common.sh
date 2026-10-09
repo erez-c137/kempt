@@ -1632,6 +1632,15 @@ log_refresh_skip() {  # reason
   return 0
 }
 
+# Whether dnf5's system cache holds metadata for at least one repository the check can read.
+dnf_cache_usable() {
+  local f
+  for f in "$KEMPT_DNF_CACHE_DIR"/*/repodata/repomd.xml; do
+    [[ -r "$f" ]] && return 0
+  done
+  return 1
+}
+
 maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
   # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
@@ -1651,15 +1660,16 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   # the mirrors, and somebody standing at the machine asking for fresh metadata may overrule it.
   # The two rules below are a different kind of thing - they are about this person's battery and
   # this person's bill - so a flag that quietly spent either would be worse than no flag at all.
-  # due_fp is the shared gate. dnf has one exception: while no dnf refresh has ever worked and the
-  # latest one failed, there is no cache to check against, so the dnf arm is tried again once the
-  # failure is 15 minutes old (the marker's mtime; one in the future counts as old). A Flatpak fetch
-  # beside it would otherwise hold dnf off for 3 hours, and a retry at every check would fetch every
-  # repo every few minutes. Once a dnf refresh has worked, a failing one waits for the gate.
+  # due_fp is the shared gate. dnf has one exception: while the latest dnf refresh failed and there
+  # is no cache to check against (no dnf refresh ever worked, or the cache is gone), the dnf arm is
+  # tried again once the failure is 15 minutes old (the marker's mtime; one in the future counts as
+  # old). A Flatpak fetch beside it would otherwise hold dnf off for 3 hours, and a retry at every
+  # check would fetch every repo every few minutes. With a cache, a failing one waits for the gate.
   local due_fp=1 due_dnf
   if [[ "$force" != force ]] && (( now - last >= 0 && now - last < 10800 )); then due_fp=0; fi
   due_dnf=$due_fp
-  if (( ! due_fp )) && [[ -f "$REFRESH_DNF_FAILED_FILE" && ! -f "$LAST_REFRESH_DNF_FILE" ]]; then
+  if (( ! due_fp )) && [[ -f "$REFRESH_DNF_FAILED_FILE" ]] \
+     && { [[ ! -f "$LAST_REFRESH_DNF_FILE" ]] || ! dnf_cache_usable; }; then
     local failed_at
     failed_at="$(stat -c %Y "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || echo 0)"
     if (( now - failed_at < 0 || now - failed_at >= 900 )); then due_dnf=1; fi
