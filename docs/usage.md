@@ -638,8 +638,8 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem. One pass shows every
-problem. The last five events follow.
+Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem, and the last line counts
+problems and warnings. One pass shows every problem. The last five events follow.
 
 | Exit | When |
 | --- | --- |

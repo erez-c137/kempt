@@ -1243,6 +1243,8 @@ assert_contains "$out" "the next restart installs that and not an update Kempt s
 out="$(doctor_with_autostart)"
 assert_eq "$(grep -c "^WARN  $UNATTENDED" <<<"$out" || true)" "1" "...and as WARN when Kempt is set to stage"
 assert_exit 0 "...which never makes the checkup fail" env KEMPT_XDG_AUTOSTART_DIR="$SYS_AUTOSTART" "$KEMPT" doctor
+assert_eq "$(tail -1 <<<"$out")" "kempt doctor: no problems, 1 warning" \
+  "...and the report ends by counting the warning, not with all checks passed"
 printf '[Global]\nUseUnattendedUpdates=false\n' > "$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "the setting turned off is not reported"
 printf '[Other]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
@@ -1290,6 +1292,7 @@ chmod 666 "$DC/updates-1/repodata/repomd.xml"
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC/updates-1/repodata/repomd.xml)" \
   "a world-writable file in the cache is a WARN naming it"
+assert_contains "$(tail -1 "$TESTTMP/dc.txt")" ", 1 warning" "...and the last line counts it"
 assert_contains "$(cat "$TESTTMP/dc.txt")" "Fix it with: sudo chmod -R go-w $DC && sudo dnf5 clean all" \
   "...with the command that fixes it, the clean included while nothing is stored"
 # The clean deletes a stored transaction's packages, so with one stored it waits for kempt unstage.

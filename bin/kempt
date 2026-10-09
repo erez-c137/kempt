@@ -3040,11 +3040,12 @@ cmd_log() {
 # Every check runs and every problem is printed: stopping at the first sends the user round the
 # loop once per problem.
 DOCTOR_FAILS=0
+DOCTOR_WARNS=0
 doctor_ok()   { printf 'ok    %s\n' "$1"; }
 doctor_info() { printf 'info  %s\n' "$1"; }
 # Something that works against what the settings ask for, without being broken. Not a failure:
 # the exit status and the widget's verdict count only FAIL.
-doctor_warn() { printf 'WARN  %s\n' "$1"; }
+doctor_warn() { printf 'WARN  %s\n' "$1"; DOCTOR_WARNS=$(( DOCTOR_WARNS + 1 )); }
 doctor_fail() { printf 'FAIL  %s\n' "$1"; DOCTOR_FAILS=$(( DOCTOR_FAILS + 1 )); }
 
 # The hold that arrived after the stage. INFO and not FAIL: a package installing despite a hold is
@@ -3825,13 +3826,19 @@ cmd_doctor() {
 
   doctor_recent_events
 
+  # Warnings never change the exit status, but the last line counts them: "all checks passed"
+  # right under a WARN reads as if the WARN did not count.
+  local warned=""
+  if [[ $DOCTOR_WARNS -eq 1 ]]; then warned="1 warning"
+  elif [[ $DOCTOR_WARNS -gt 1 ]]; then warned="$DOCTOR_WARNS warnings"; fi
   if [[ $DOCTOR_FAILS -eq 0 ]]; then
-    echo "kempt doctor: all checks passed"
+    if [[ -n "$warned" ]]; then echo "kempt doctor: no problems, $warned"
+    else echo "kempt doctor: all checks passed"; fi
     return 0
   fi
   local word=problems
   if [[ $DOCTOR_FAILS -eq 1 ]]; then word=problem; fi
-  echo "kempt doctor: $DOCTOR_FAILS $word found"
+  echo "kempt doctor: $DOCTOR_FAILS $word found${warned:+, $warned}"
   return 1
 }
 
