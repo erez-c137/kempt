@@ -26,6 +26,9 @@ KEMPT_FLATPAK_LIST_CMD="${KEMPT_FLATPAK_LIST_CMD:-flatpak list --system --app --
 # The installation's configured remotes, one name per line. Local, no network. With none there is
 # nothing to fetch, and the refresh says nothing rather than claiming a download that did not run.
 KEMPT_FLATPAK_REMOTES_CMD="${KEMPT_FLATPAK_REMOTES_CMD:-flatpak remotes --system --columns=name}"
+# Seconds. The listing is local, so a hang is a fault: it costs this much, then the fetch runs as
+# if remotes exist, and a check stays inside the widget's wait.
+KEMPT_FLATPAK_REMOTES_TIMEOUT="${KEMPT_FLATPAK_REMOTES_TIMEOUT:-10}"
 
 # The runtime twins of the two queries above. `flatpak update` with no ref updates applications AND
 # runtimes (flatpak-update(1): "If no REF is given, everything is updated"; --app and --runtime are
@@ -450,14 +453,14 @@ flatpak_report_scopes() {  # stdin: report JSON → the same report, per-user it
 # the check lock forever. It runs as this user, so the timeout can stop it. The widget's
 # CHECK_TIMEOUT_MS allows for one bound per installation.
 # 0 when every installation with a remote fetched, 1 when one failed, 2 when no installation has a
-# remote, so nothing was fetched at all. A remotes list that cannot be read counts as remotes: the
-# fetch runs and its own status decides.
+# remote, so nothing was fetched at all. A remotes list that cannot be read, or does not answer in
+# KEMPT_FLATPAK_REMOTES_TIMEOUT, counts as remotes: the fetch runs and its own status decides.
 flatpak_refresh() {
   local scope cmd remotes rc=0 fetched=0
   for scope in $(flatpak_scopes); do
     cmd="$(flatpak_cmd "$scope" REMOTES_CMD)"
     # shellcheck disable=SC2086  # the seam carries its own arguments
-    if remotes="$(timeout "$KEMPT_REFRESH_TIMEOUT" $cmd 2>/dev/null 9>&-)" \
+    if remotes="$(timeout "$KEMPT_FLATPAK_REMOTES_TIMEOUT" $cmd 2>/dev/null 9>&-)" \
        && [[ -z "${remotes//[[:space:]]/}" ]]; then
       continue
     fi

@@ -3705,7 +3705,14 @@ doctor_metadata_row() {
   iso="$(metadata_refreshed_iso)"
   # The latest dnf fetch failed (offline, or the servers would not answer). A WARN, beside the age
   # row below: every check answers from the lists already here, and those can be old or missing.
-  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]]; then
+  # Not while refreshing is off: the marker is from a download Kempt no longer tries, and the
+  # advice below would fetch nothing. The widget stays quiet then too.
+  local refresh_off=""
+  [[ -n "${KEMPT_SKIP_REFRESH:-}" ]] && refresh_off=1
+  [[ -s "$STATE_FILE" ]] \
+    && [[ "$(jq -r -n '[inputs][0] | select(type == "object") | .refresh_skipped // empty | tostring' "$STATE_FILE" 2>/dev/null)" == off ]] \
+    && refresh_off=1
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" && -z "$refresh_off" ]]; then
     failed="$(head -n 1 "$REFRESH_DNF_FAILED_FILE" 2>/dev/null | tr -d '[:cntrl:]' | cap_bytes 200)" || failed=""
     doctor_warn "package lists: the last download failed${failed:+ ($failed)}. Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh"
   fi
@@ -3732,17 +3739,14 @@ doctor_metadata_row() {
 
 # The last check failed. A WARN with the first line of its error, so a box where every check fails
 # (offline, a broken repo) cannot read "no problems" with nothing beside it. dnf's no-cache text
-# reads as kempt status words it, through the same jq def (lists_never_downloaded).
+# reads as kempt status words it, through the same jq def (check_problem).
 doctor_last_check_row() {
   local line
   [[ -s "$STATE_FILE" ]] || return 0
   line="$(jq -r -n "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
             [inputs][0] | select(type == "object" and .status == "stale")
-            | (.error | first_line) as $err
-            | (lists_never_downloaded) as $plain
+            | check_problem as $why
             | ((.last_success | type) == "string" and (.last_success | sub("^\\s+"; "")) != "") as $ever
-            | (if ($err | test("Cache-only enabled but no cache|no cache"; "i")) and $plain != "" then $plain
-               else $err end) as $why
             | "last check failed" + (if $why != "" then ": " + $why else "" end) + ". "
               + (if $ever then "The counts Kempt shows are from an earlier check"
                  else "There are no counts yet" end)' "$STATE_FILE" 2>/dev/null \

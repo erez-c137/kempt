@@ -76,6 +76,17 @@ assert_eq "$(status | tail -n 1)" "Checked 2 days ago · package lists could not
   "a failed fetch over counts already here: the footer says the lists could not be downloaded"
 put live
 assert_not_contains "$(status)" "could not be downloaded" "...and with no refresh error it says nothing of the kind"
+# Refreshing turned off: the refresh error is from a download Kempt no longer tries, so the footer
+# says nothing about it, as the widget does.
+jq 'del(.metadata_refreshed) | .refresh_skipped = "off" | .backends.dnf.refresh_error = "Curl error (7): Failed to connect"' \
+  "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_not_contains "$(status)" "could not be downloaded" "...nor with refreshing turned off"
+# A never-answered failure that is not dnf's no-cache text keeps its own reason, whatever refresh
+# error is on record. kempt doctor gives the same one (test_doctor.sh).
+jq '.error = "dnf check failed: Error: GPG check FAILED" | .backends.dnf.refresh_error = "Status code: 404"' \
+  "$FIXTURES/state-broken.json" > "$STATE_FILE"
+assert_eq "$(status | sed -n 2p)" "dnf check failed: Error: GPG check FAILED" \
+  "a failure other than no cache keeps its reason, not the never-downloaded words"
 
 put held-only
 out="$(status)"

@@ -1433,6 +1433,21 @@ assert_contains "$(cat "$TESTTMP/off.txt")" \
   "dnf's no-cache text becomes the plain words kempt status prints"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "Cache-only" "...never dnf's raw text"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "if any" "...and no hedge after the counts"
+# The same reason kempt status gives (test_status.sh): a failure other than no cache keeps its own.
+printf '%s\n' '{"schema":1,"status":"stale","error":"dnf check failed: Error: GPG check FAILED","actionable":0,"backends":{"dnf":{"refresh_error":"Status code: 404"}}}' > "$STATE_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/off.txt")" "WARN  last check failed: dnf check failed: Error: GPG check FAILED. There are no counts yet" \
+  "a failure other than no cache keeps its reason, as kempt status gives it"
+# Refreshing turned off: the marker is from a download Kempt no longer tries, and the advice would
+# fetch nothing, so there is no download row. The marker stays.
+printf 'Curl error (6): Could not resolve host\n' > "$REFRESH_DNF_FAILED_FILE"
+printf '%s\n' '{"schema":1,"status":"ok","actionable":0,"refresh_skipped":"off","backends":{}}' > "$STATE_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "the last download failed" "with refreshing turned off, no download row"
+assert_exit 0 "...and the marker is left in place" -- test -f "$REFRESH_DNF_FAILED_FILE"
+printf '%s\n' '{"schema":1,"status":"ok","actionable":0,"backends":{}}' > "$STATE_FILE"
+KEMPT_SKIP_REFRESH=1 "$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "the last download failed" "...the same when the switch is set for this run"
 printf '%s\n' '{"schema":1,"status":"ok","actionable":0,"backends":{}}' > "$STATE_FILE"
 rm -f "$REFRESH_DNF_FAILED_FILE"
 "$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
