@@ -284,6 +284,11 @@ var COPY = {
     // The full sentence above stays its accessible name and what is announced.
     stagedBannerOne: "It installs when you restart.",
     stagedBannerMore: "They install when you restart.",
+    // ...and the updates the stage leaves out: dnf updates published after it was built
+    // (offline_staged.not_staged) and pending Flatpak apps, which never stage. The next update
+    // takes them, live or by rebuilding the stage.
+    stagedOthersOne: "1 other update waits for your next update.",
+    stagedOthersMore: "%1 other updates wait for your next update.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
@@ -1297,7 +1302,18 @@ function stagedHeaderOf(staged) {
     return n === 1 ? COPY.stagedHeaderOne : n + " " + COPY.stagedHeaderTail;
 }
 
-// stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words:
+// stagedOthersOf(staged, fpPending) -> the sentence for updates the stage leaves out, or "".
+// not_staged is the CLI's count, absent when it could not compare; fpPending is the Flatpak count.
+function stagedOthersOf(staged, fpPending) {
+    var n = 0;
+    if (staged && typeof staged.not_staged === "number" && isFinite(staged.not_staged)
+        && staged.not_staged > 0) n += Math.floor(staged.not_staged);
+    if (typeof fpPending === "number" && isFinite(fpPending) && fpPending > 0) n += Math.floor(fpPending);
+    if (n === 0) return "";
+    return n === 1 ? COPY.stagedOthersOne : fill(COPY.stagedOthersMore, "%1", String(n));
+}
+
+// stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
 //   { type: "positive" | "warning", message, banner, conflictNames: [...], stagedAt: "" }
 // banner is set on the plain variant only; viewModel shows a warning's whole message.
 //
@@ -1322,13 +1338,16 @@ function stagedHeaderOf(staged) {
 // Everything malformed falls back to the plain banner and nothing throws. The ONE asymmetry is
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
-function stagedVariantOf(staged, heldDnf) {
+function stagedVariantOf(staged, heldDnf, fpPending) {
     var plain = { type: "positive", message: stagedMessageOf(staged), banner: "", conflictNames: [],
                   stagedAt: "" };
     if (plain.message === "") return plain;
     // The plain banner sits under a header that already gives the count, so it shows only the
     // rest. A warning shows its whole message.
     plain.banner = staged.count === 1 ? COPY.stagedBannerOne : COPY.stagedBannerMore;
+    // On the whole sentence too, which is the banner's accessible name and what is announced.
+    var others = stagedOthersOf(staged, fpPending);
+    if (others !== "") { plain.banner += " " + others; plain.message += ". " + others; }
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -2457,7 +2476,8 @@ function viewModel(state, updating, cliError, opts) {
     // an older one wrote, and it is what stops the popup showing both banners - the second of which
     // tells the reader to press a Rebuild button the first has just taken away.
     var stagedVariant = stagedVariantOf(
-        (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf);
+        (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf,
+        usable ? backendActionable(state, "flatpak") : 0);
     var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
     // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the

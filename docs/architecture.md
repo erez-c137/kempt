@@ -276,6 +276,7 @@ Present **only** while Kempt staged a transaction **and** dnf5 reports it armed:
 | `armed` | `true` | Always `true`. |
 | `holds_conflict` | array of strings | dnf packages in the staged transaction **and** held now. A restart installs them despite the hold. Sorted, unique, dnf only. Read it with `names_source`. Additive. |
 | `names_source` | `"transaction"`, `"marker"` or `"none"` | What an **empty** `holds_conflict` means. Additive. |
+| `not_staged` | integer | Pending dnf updates, not held, that the staged transaction leaves out. Absent when the check got no dnf answer or `names_source` is `none`. Additive. |
 
 - `transaction`: dnf5's stored transaction was read live, and empty means no conflict.
 - `marker`: that read failed and the marker's transaction-derived list was used. Empty still means

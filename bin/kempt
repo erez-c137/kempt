@@ -614,8 +614,16 @@ cmd_check() {
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   # AFTER harvest_offline, where the marker's lifecycle is decided: a stage it just consumed or
   # cleared must not be published one line later as still pending.
-  local staged_state
-  staged_state="$(offline_staged_state)"
+  # The pending names go along only when dnf ANSWERED (dnf_priced): the previous state's items are
+  # not news about what arrived after the stage. Held packages are left out, since the stage skips
+  # them on purpose.
+  local staged_state pend_f=""
+  if [[ "$dnf_priced" == true ]] && pend_f="$(mktemp 2>/dev/null)"; then
+    jq -r '.[] | select(.held != true) | .name' <<<"$dnf_items" > "$pend_f" 2>/dev/null \
+      || { rm -f "$pend_f"; pend_f=""; }
+  fi
+  staged_state="$(offline_staged_state "$pend_f")"
+  [[ -z "$pend_f" ]] || rm -f "$pend_f"
   # dnf5 keeps ONE stored transaction for ordinary offline updates and Fedora release upgrades
   # alike, so a staged release upgrade is a fact about what the offline surface can do right now:
   # staging over it cancels it, and Kempt refuses to. Published so the widget can say so and stop

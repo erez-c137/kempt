@@ -15,9 +15,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `refresh anyway`.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
   could not answer. It also exits 1 when another check held the lock and the previous state was
-  served. And it exits 1 when the per-user Flatpak apps could not be listed. The state then still says
-  `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these
-  exit 0.
+  served. And it exits 1 when the per-user Flatpak apps could not be listed. The state then still
+  says `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of
+  these exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
 - **The widget checks its own installation.** Where it said to run `kempt doctor` in a terminal,
@@ -138,6 +138,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Show What is now Show Runtimes**, and the Free Up Space button, tooltip and progress text read
   the same everywhere. When the engine is missing, the widget now says how to install the engine
   and where to find other ways.
+- **The staged banner says when other updates wait.** Updates published after staging, and
+  pending Flatpak apps, are not in the staged update. The banner adds `2 other updates wait for
+  your next update.` `state.json` can carry `offline_staged.not_staged`, the dnf part of that count.
 
 ### Fixed
 

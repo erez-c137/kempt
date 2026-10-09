@@ -2735,6 +2735,23 @@ ARMED_PLAIN='{staged_at:"x",count:61,armed:true}'
 assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
   "61 updates are staged and install on the next restart" \
   "an ordinary armed stage still says what the restart will do, and nothing about rebuilding"
+# Updates the stage leaves out ride the plain banner: dnf ones the CLI counted, plus Flatpak apps,
+# which never stage. Absent, zero or malformed counts add nothing.
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).banner")" \
+  "They install when you restart. 2 other updates wait for your next update." \
+  "dnf updates published after the stage are named as waiting for the next update"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:1,armed:true,not_staged:0},false,1).banner")" \
+  "It installs when you restart. 1 other update waits for your next update." \
+  "...a pending Flatpak app counts too, and one reads as one"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,3).banner")" \
+  "They install when you restart. 5 other updates wait for your next update." "...and the two add up"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:'2'},false).banner")" \
+  "They install when you restart." "...a count that is not a number adds nothing"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true},false,0).banner")" \
+  "They install when you restart." "...and with nothing left out the banner is unchanged"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).message")" \
+  "61 updates are staged and install on the next restart. 2 other updates wait for your next update." \
+  "...and the whole sentence, the accessible name, says it too"
 
 # --- the message stack, capped at two (panel proposal 6 / decision D5) ---------------------------
 # Five messages left the list 95 px tall at the default popup size (26x24 grid units = 468x432),

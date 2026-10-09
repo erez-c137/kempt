@@ -2873,7 +2873,10 @@ offline_marker_read() {  # → the marker as one line of JSON, or nothing
 # `transaction` and `marker` (both transaction-derived) and CANNOT TELL under `none` (a legacy
 # marker, or names from a check, which cannot see resolver-added packages). docs/architecture.md's
 # state.json table is the full contract each value carries.
-offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_source} JSON, or nothing
+# $1, optional: a file of the dnf updates the check found pending and not held, one name a line.
+# With it, and with the staged names readable, `not_staged` counts the pending ones the stage leaves
+# out: updates published after the stage was built. Absent whenever either list is missing.
+offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, holds_conflict, names_source[, not_staged]} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
@@ -2896,7 +2899,7 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   # that sixty-one packages install on the next restart when what installs is a whole new Fedora.
   # The marker is dropped by the next live run's reconcile; until then it simply says nothing.
   offline_release_upgrade >/dev/null && return 0
-  local names="" names_source=none
+  local names="" names_source=none not_staged=""
   if names="$(offline_txjson_names)"; then
     names_source=transaction
   elif jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
@@ -2931,16 +2934,25 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
                     ($h | lines) as $hl
                     | [($n | lines)[] | . as $x | select($hl | index($x))] | unique')" \
         || { conflict='[]'; names_source=none; }
+      if [[ "$names_source" != none && -n "${1:-}" && -r "$1" ]]; then
+        not_staged="$(jq -n --rawfile n "$names_f" --rawfile p "$1" '
+                        def lines: split("\n") | map(select(length > 0));
+                        ($n | lines) as $nl
+                        | [($p | lines)[] | . as $x | select(($nl | index($x)) == null)]
+                        | unique | length')" || not_staged=""
+      fi
     else
       conflict='[]'; names_source=none
     fi
     rm -f "$names_f" "$holds_f"
   fi
+  [[ "$not_staged" =~ ^[0-9]+$ ]] || not_staged=""
   # count: markers written before the field existed carry no number, and null is the honest answer.
   # Every reader drops the figure from its sentence rather than inventing one.
-  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" \
+  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" --arg ns "$not_staged" \
     '{staged_at: (.staged_at // null), count: (.staged // null), armed: true,
-      holds_conflict: $conflict, names_source: $nsrc}' <<<"$marker"
+      holds_conflict: $conflict, names_source: $nsrc}
+     + (if $ns == "" then {} else {not_staged: ($ns | tonumber)} end)' <<<"$marker"
 }
 
 # Kempt's stage, when it is `ready` but another updater's symlink decides the next restart: that
@@ -2996,7 +3008,7 @@ publish_staged_state() {
   # offers to stage what is downloaded, or to upgrade live over it, which makes the CLI discard it
   # as superseded and throw the download away. Rule 1 of the schema, on the writing side: a reader
   # that learned nothing leaves what was there.
-  staged="$(offline_staged_state)" || return 0
+  staged="$(offline_staged_state "")" || return 0
   # state.lock rather than check.lock. The holder of check.lock is always a check that runs for
   # tens of seconds, and this exists to publish without that wait: tests/test_update.sh holds
   # check.lock for ten seconds and asserts a run publishes anyway. state.lock is held only for
