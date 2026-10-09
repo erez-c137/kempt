@@ -127,7 +127,7 @@ zero updates.
 | Exit | When |
 | --- | --- |
 | 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
-| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), per-user Flatpak apps that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
+| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), Flatpak apps installed for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
 | 2 | Unknown option. |
 
 ## update

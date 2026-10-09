@@ -4250,7 +4250,7 @@ cmd_disable_passwordless() {
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
 #   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
-#     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
+#     could not list the Flatpak apps installed for you only or served the previous state, `doctor` found a
 #     problem, or a writer
 #     (config set / hold / unhold / discover-notifier off|on|keep) could not take the writers' lock. docs/usage.md carries the
 #     same table. Keep the two in step.
@@ -4278,8 +4278,8 @@ usage_block() {  # command → its block, or nothing for a command Kempt does no
                         metered-connection rules. --anyway downloads package lists now, even on
                         battery or a metered connection. --coalesce accepts the answer of a check
                         that finished while this one waited (the widget's automatic checks).
-                        --strict exits 1 when dnf or Flatpak failed, the per-user Flatpak apps
-                        could not be listed, or the previous state was served
+                        --strict exits 1 when dnf or Flatpak failed, the Flatpak apps installed
+                        for you only could not be listed, or the previous state was served
 EOF
     ;;
     update) cat <<'EOF'
