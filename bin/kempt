@@ -3528,6 +3528,47 @@ doctor_dnf_cache_row() {
   fi
 }
 
+# Fedora asks systemd to hold off shutdown and sleep while packages install, through either of two
+# plugins: libdnf5's for the whole dnf transaction, rpm's for the install step. KDE's logout screen
+# shows nothing about the hold, so a person can think shutdown is broken. Read-only on both counts.
+doctor_inhibit_installed() {  # → the installed plugin names, one a line
+  local out
+  if [[ -n "$KEMPT_RPM_INHIBIT_CMD" ]]; then
+    out="$($KEMPT_RPM_INHIBIT_CMD 2>/dev/null)" || true
+  else
+    # rpm -q prints "package X is not installed" on stdout for a missing one, and exits non-zero.
+    out="$(rpm -q --qf '%{NAME}\n' libdnf5-plugin-systemd-inhibit rpm-plugin-systemd-inhibit \
+             2>/dev/null)" || true
+  fi
+  grep -xE 'libdnf5-plugin-systemd-inhibit|rpm-plugin-systemd-inhibit' <<<"$out" || true
+}
+
+doctor_inhibit_enabled() {  # → 0 when libdnf5 runs its systemd-inhibit plugin
+  [[ -r "$KEMPT_DNF_INHIBIT_CONF" ]] || return 1
+  # The last `enabled` in [main] wins. Absent means on. libdnf5 reads 0, no, false and off as off.
+  local v
+  v="$(awk '/^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]\[\]]/, "", sec); next }
+            sec == "main" && /^[[:space:]]*enabled[[:space:]]*=/ {
+              sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); val = tolower($0) }
+            END { print val }' "$KEMPT_DNF_INHIBIT_CONF" 2>/dev/null)" || return 1
+  [[ "$v" != 0 && "$v" != no && "$v" != false && "$v" != off ]]
+}
+
+doctor_inhibit_row() {
+  on_ostree && return 0
+  local have
+  have="$(doctor_inhibit_installed)"
+  if grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && doctor_inhibit_enabled; then
+    doctor_ok "shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit"
+  elif grep -qx rpm-plugin-systemd-inhibit <<<"$have"; then
+    doctor_ok "shutdown during package installs: blocked by rpm-plugin-systemd-inhibit"
+  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have"; then
+    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $KEMPT_DNF_INHIBIT_CONF. Set enabled = 1 there, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
+  else
+    doctor_warn "shutdown during package installs: not blocked. A shutdown or sleep while packages install can leave the system half updated. To block it, run: sudo dnf5 install rpm-plugin-systemd-inhibit"
+  fi
+}
+
 doctor_config_row() {
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
   # setting the user believes they wrote never applies. Validated exactly as config_set validates.
@@ -3863,6 +3904,7 @@ cmd_doctor() {
   doctor_other_updater_row
   doctor_metadata_row
   doctor_dnf_cache_row
+  doctor_inhibit_row
   doctor_config_row
   doctor_state_dir_row
   doctor_files_row

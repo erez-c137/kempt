@@ -114,6 +114,11 @@ sandbox() {  # fresh dirs per test file; call first
   # The installonly names rpm resolves. Unset, the box's own kernels would decide; poisoned, the
   # fixed kernel list stands in, which is what most tests want.
   export KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/UNSTUBBED-rpm-installonly"
+  # The shutdown-inhibit plugins kempt doctor looks for. Unset, the box's own rpm database and
+  # /etc/dnf would decide whether every doctor test grows a WARN. The rpm plugin stands installed,
+  # so the row is an ok line; test_doctor.sh points both elsewhere to test the other answers.
+  export KEMPT_RPM_INHIBIT_CMD="echo rpm-plugin-systemd-inhibit"
+  export KEMPT_DNF_INHIBIT_CONF="$TESTTMP/no-inhibit.conf"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have

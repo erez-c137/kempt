@@ -9,6 +9,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`kempt doctor` says whether shutdown waits while packages install.** It is ok with
+  `rpm-plugin-systemd-inhibit`, or with `libdnf5-plugin-systemd-inhibit` turned on, and a
+  warning with neither.
 - **Download Anyway fetches package lists on battery or a metered connection, once.** When a
   check skipped the download for one of those reasons, the widget offers **Download Anyway**.
   In a terminal, run `kempt check --anyway`. Nothing automatic ever does this. The event log says

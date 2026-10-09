@@ -161,6 +161,12 @@ KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
 # The installed names that provide installonlypkg(kernel) or installonlypkg(kernel-module), one
 # per line. Empty means the rpm query in offline_installonly_rpm_names.
 KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
+# Which of the two shutdown-inhibit plugins are installed, one name a line. Empty means the rpm query
+# in doctor_inhibit_installed. Read by `kempt doctor` only.
+KEMPT_RPM_INHIBIT_CMD="${KEMPT_RPM_INHIBIT_CMD:-}"
+# libdnf5's config for its systemd-inhibit plugin. libdnf5 loads a plugin only through its config
+# file, and runs it unless [main] sets enabled to false. Read, never written.
+KEMPT_DNF_INHIBIT_CONF="${KEMPT_DNF_INHIBIT_CONF:-/etc/dnf/libdnf5-plugins/00-systemd-inhibit.conf}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves

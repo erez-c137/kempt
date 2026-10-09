@@ -904,6 +904,8 @@ missing path, unless the row says otherwise.
 | `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so an old kernel that is still installed does not count against a stage another updater installed. Points at a missing file in the tests |
 | `KEMPT_RPM_INSTALLONLY_CMD` | (unset: `rpm -q --whatprovides` for `installonlypkg(kernel)`, `installonlypkg(kernel-module)`, `installonlypkg(vm)` and `multiversion(kernel)`) | Lists the installed installonly names, kmod and akmod builds included. With no names, a fixed list of kernel families stands in. Stubbed |
 | `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
+| `KEMPT_RPM_INHIBIT_CMD` | (unset: `rpm -q` for `libdnf5-plugin-systemd-inhibit` and `rpm-plugin-systemd-inhibit`) | Lists which shutdown-inhibit plugins are installed, for `kempt doctor`. `tests/lib.sh` pins it at the rpm plugin |
+| `KEMPT_DNF_INHIBIT_CONF` | `/etc/dnf/libdnf5-plugins/00-systemd-inhibit.conf` | libdnf5's config for its plugin. On when the file exists and `[main]` does not set `enabled` to 0, no, false or off. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
 | `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |

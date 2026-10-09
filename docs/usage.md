@@ -207,6 +207,10 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 `/run/ostree-booted`. `kempt doctor` reports it on its second line, and the widget hides
 **Update Now**.
 
+**Shutdown waits while packages install.** Fedora blocks shutdown and sleep during the install
+step, and KDE's logout screen does not say why. Stopping during the download is safe. `kempt
+doctor` says whether this protection is on.
+
 | Exit | When |
 | --- | --- |
 | 0 | Every backend succeeded, or you aborted at the prompt. |
