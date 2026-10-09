@@ -34,7 +34,7 @@ half a minute.
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
+| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
 | `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, and the status line ends `restart pending` when a restart is needed. Nothing restarts on its own either way. |
@@ -60,7 +60,7 @@ kempt config set surface bogus
 ```
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, background, offline
 ```
 
 The warning goes to stderr. The value is still written and the command still exits 0, because a

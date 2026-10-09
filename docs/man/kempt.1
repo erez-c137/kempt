@@ -295,6 +295,10 @@ Change a setting. Keys match
 .RB ' ^[a-z][a-z0-9_]+$ '
 and values are one line. An unknown key, or a value the key does not accept, gets a warning on
 stderr and is stored anyway, so a newer widget can use it.
+.B "config set surface widget"
+stores
+.BR popup ,
+the value the widget reads.
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets your active local session install dnf updates without a password.

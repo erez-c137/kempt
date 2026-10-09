@@ -725,9 +725,8 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   # config_set validates the KEY and stores the value as given - and the popup would then hide
   # Update Now for a box whose runs go to the terminal. The warning still names what was written,
   # not what it was read as.
-  local s="$1"
-  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
-  s="${s,,}"
+  local s
+  s="$(surface_canon "$1")"
   case "$s" in
     terminal|popup|background|offline) printf '%s\n' "$s" ;;
     *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
@@ -2061,12 +2060,10 @@ cmd_run() {
     # could turn a stage into a live update. Once only, so there is no "which one wins".
     --surface=*)
       [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
-      named_set=1; named="${a#--surface=}"
-      named="${named#"${named%%[![:space:]]*}"}"; named="${named%"${named##*[![:space:]]}"}"
-      named="${named,,}"
+      named_set=1; named="$(surface_canon "${a#--surface=}")"
       case "$named" in
         terminal|popup|background|offline) ;;
-        *) echo "unknown --surface value: ${a#--surface=} (use terminal, popup, background or offline)" >&2; exit 2 ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget, background or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -2650,8 +2647,12 @@ cmd_config() {
     set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
          # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
          # stops a newer widget writing a key it knows and this build does not.
-         config_warn_unknown "$2" "$3"
-         config_set "$2" "$3"
+         # `widget` is the word on screen for the stored `popup`, so both spellings are accepted and
+         # the file keeps the one older widgets read.
+         local v="$3"
+         [[ "$2" != surface || "$(surface_canon "$v")" != popup ]] || v=popup
+         config_warn_unknown "$2" "$v"
+         config_set "$2" "$v"
          # Choosing how updates run, here or in Settings, answers the popup's one offer.
          [[ "$2" != surface ]] || rm -f "$SURFACE_OFFER_FILE" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
@@ -3347,7 +3348,7 @@ doctor_tool_rows() {
   # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
   # warning nobody can act on.
   local surface auto term_needed=false
-  surface="$(config_get surface)"; auto="$(config_get auto_accept)"
+  surface="$(surface_canon "$(config_get surface)")"; auto="$(config_get auto_accept)"
   case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
   is_true "$auto" || term_needed=true
   if command -v "$KEMPT_TERMINAL" >/dev/null; then
@@ -3355,7 +3356,7 @@ doctor_tool_rows() {
   elif [[ "$term_needed" == true ]]; then
     doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
   else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$surface"
+    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$(surface_word "$surface")"
   fi
 
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded

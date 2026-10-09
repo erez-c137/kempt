@@ -956,6 +956,7 @@ for s in terminal popup background offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
 assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
+assert_eq "$(js 'L.resolveSurface(" Widget ")')" "popup" "widget is the CLI's other name for popup, as surface_canon reads it"
 assert_eq "$(js 'L.resolveSurface("")')" "terminal" "so does an empty one"
 assert_eq "$(js 'L.resolveSurface(null)')" "terminal" "and a missing one"
 assert_eq "$(js 'L.resolveSurface(" POPUP ")')" "popup" "case and whitespace do not hide a real surface"

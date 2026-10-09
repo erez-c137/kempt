@@ -610,8 +610,10 @@ function isTrue(value) {
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
 // anything unknown is `terminal`, because that is what the CLI itself would run.
+// `widget` is the CLI's other name for the stored `popup` (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+    if (s === "widget") s = "popup";
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
 }
 

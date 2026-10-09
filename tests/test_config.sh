@@ -103,7 +103,7 @@ grep -q "not a value surface accepts" "$ERR" \
 rc=0; "$KEMPT" config set Bad x 2>"$TESTTMP/cfg-badkey" >/dev/null || rc=$?
 assert_eq "$rc" "2" "an invalid key is refused with exit 2"
 assert_eq "$(cat "$TESTTMP/cfg-badkey")" "invalid config key: Bad" "...and only the invalid-key error is printed"
-for v in terminal popup background offline; do
+for v in terminal widget background offline; do
   grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
 done
 echo "ok: ...and lists every value it does accept"
@@ -175,6 +175,19 @@ assert_exit 0 "an aged orphan temp in the config dir is swept" -- test ! -e "$KE
 assert_exit 0 "...while a fresh one there is left alone" -- test -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
 assert_exit 0 "...and the config file itself is untouched" -- test -f "$KEMPT_CONFIG_DIR/config"
 rm -f "$KEMPT_CONFIG_DIR/.atomic.fresh"
+
+# --- surface: `widget` is the word the person sees, `popup` the value stored ----------------------
+# Older widgets and scripts read `popup`, so the file keeps it whichever spelling was typed.
+"$KEMPT" config set surface widget 2>"$TESTTMP/alias.err"
+assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")" "surface=popup" "config set surface widget stores popup"
+assert_eq "$(cat "$TESTTMP/alias.err")" "" "...with no warning, since widget is a value surface accepts"
+assert_eq "$("$KEMPT" config get surface)" "popup" "...and config get prints the stored value"
+"$KEMPT" config set surface " Widget " 2>/dev/null
+assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")" "surface=popup" "...trimmed and in any case, as surfaces are read"
+assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, background, offline" \
+  "the warning for an unknown surface names widget"
+assert_not_contains "$("$KEMPT" config set surface bogus 2>&1)" "popup" "...and never the stored word"
+assert_eq "$(surface_word popup)|$(surface_word offline)" "widget|offline" "surface_word shows popup as widget and leaves the rest"
 
 # The run-start token, swept on the same rule as the orphan temps above. `kempt run` drops one in
 # the state directory and the window it launches claims it by deleting it (wait_for_window), so a

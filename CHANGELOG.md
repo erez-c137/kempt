@@ -54,6 +54,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It shows only while Discover's notifier starts with your session or is running. `WARN` is a new
   level and never counts as a problem.
 
+- **`widget` is another name for the `popup` surface.** `kempt config set surface widget` stores
+  `popup`, and `--surface=widget` runs in the widget. `kempt history`, `kempt summary` and
+  `kempt doctor` say `widget` where they said `popup`.
+
 ### Changed
 
 - **`kempt update` exits 7, not 1, when another program had the package lock.** The program can be

@@ -340,6 +340,21 @@ config_enum_values() {  # key → accepted values, space separated, or nothing
   esac
 }
 
+# A surface as Kempt reads it: trimmed, lower-cased, and with `widget` read as `popup`. `widget` is
+# the word the person sees, and `popup` is the value stored, which older widgets and scripts read.
+surface_canon() {  # surface → canonical spelling (unknown values pass through, trimmed and lowered)
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
+  s="${s,,}"
+  [[ "$s" != widget ]] || s=popup
+  printf '%s\n' "$s"
+}
+
+# The word a person reads for a stored surface. Only `popup` differs.
+surface_word() {  # surface → user-facing word
+  if [[ "$1" == popup ]]; then printf 'widget\n'; else printf '%s\n' "$1"; fi
+}
+
 # What `config set` says when it did not recognise what was written. WARN, never refuse: an unknown
 # key may be one a newer widget or a later Kempt reads, and a CLI that refused would be the thing
 # that stopped it working. So the write goes through and the status stays 0; the only change is
@@ -357,6 +372,8 @@ config_warn_unknown() {  # key value
   vals="$(config_enum_values "$k")"
   [[ -n "$vals" ]] || return 0
   [[ " $vals " == *" $v "* ]] && return 0
+  # The accepted list in the words the person types: `widget` for the stored `popup`.
+  [[ "$k" != surface ]] || vals="${vals/popup/widget}"
   echo "warning: '$v' is not a value $k accepts. Accepted: ${vals// /, }" >&2
 }
 
@@ -3007,10 +3024,12 @@ KEMPT_JQ_COUNTS='
     else empty end;
   # How a run reads in kempt history and kempt summary. The stored surface of a harvested
   # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
+  # A run in the widget is stored as "popup" and shown as "widget".
   def surface_label:
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
     elif .surface == "offline (installed by another updater)"
     then "staged update (installed by another updater)"
+    elif .surface == "popup" then "widget"
     else .surface end;
 '
 
