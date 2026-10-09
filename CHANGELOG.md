@@ -112,6 +112,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   notes lose their double negatives.
 - **The widget hides the download size while an update is staged**, since nothing is left to
   download.
+- **`kempt` refuses to run as root, and exits 8.** As root it would use root's config and state,
+  and the passwordless rule would name root. Help, the version and `discover-notifier status`
+  still answer. `KEMPT_ALLOW_ROOT=1` lifts the refusal.
+- **A run counts the dnf step as done only when it confirms it.** A dnf step that ends any other
+  way now fails the run, and no staged update is promised.
 
 ### Fixed
 
@@ -200,6 +205,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reported as blocked. Before the restart, its count is no longer published as staged.
 - **The session-critical notification waits for the run to start.** A run stopped by another
   update's lock, or by a pre-flight check, said it was installing and then installed nothing.
+- **Two commands logging at once no longer lose a line.** The event log's trim could drop a line
+  another command appended during it. Appends and the trim now share `events.lock`.
+- **A check that finishes while a run publishes its stage keeps its result.** The run could write
+  back the state it read a moment before. Both now take `state.lock`.
+- **`kempt doctor` sees Discover's unattended updates set for the whole system.** It reads
+  `/etc/xdg/PlasmaDiscoverUpdates` under your own file, and an administrator's `[$i]` lock keeps
+  your value out. The row names the file that decided.
+- **A kept kmod or akmod build no longer marks a stage another updater installed as stuck.** Kempt
+  asks rpm which packages dnf keeps several builds of. The fixed kernel list stands in when rpm
+  names none.
+- **The widget no longer calls a repository error a network failure.** "Curl error", "Cannot
+  download" and "All mirrors were tried" mean a server answered. The widget now says the check
+  failed and offers **Check Installation**.
+- **A failed dnf refresh is also tried again after 15 minutes when the cache is gone.** Before, a
+  box whose cache was cleared waited three hours.
+- **`kempt check --coalesce` accepts only the `last_check` form Kempt writes.** A value such as
+  "now" or a bare date no longer answers a coalesced check.
 
 ### Security
 
@@ -210,6 +232,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Kempt no longer cancels another updater's restart install.** While Discover or PackageKit has
   prepared the next restart, the root helper refuses to discard a staged update. A discard would
   have removed the other updater's install.
+- **Error messages no longer carry passwords, tokens or your home path.** Check and refresh errors
+  lose URL credentials, queries, fragments and token-shaped path parts before they reach the
+  state, the widget or a notification. Your home directory becomes `~`, and the 200-byte cap
+  stays. This covers `error` and `backends.dnf.refresh_error`.
 
 ## [0.1.7] - 2026-10-02
 
