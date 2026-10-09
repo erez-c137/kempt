@@ -233,9 +233,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   prepared the next restart, the root helper refuses to discard a staged update. A discard would
   have removed the other updater's install.
 - **Error messages no longer carry passwords, tokens or your home path.** Check and refresh errors
-  lose URL credentials, queries, fragments and token-shaped path parts before they reach the
-  state, the widget or a notification. Your home directory becomes `~`, and the 200-byte cap
-  stays. This covers `error` and `backends.dnf.refresh_error`.
+  lose URL credentials, even a password holding `@`, `/` or `?`, as well as queries, fragments and
+  token-shaped path parts. This happens before they reach the state, the widget or a notification.
+  Your home directory becomes `~`. This covers `error` and `backends.dnf.refresh_error`.
 
 ## [0.1.7] - 2026-10-02
 

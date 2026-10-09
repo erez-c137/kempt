@@ -378,6 +378,21 @@ STUB
   assert_eq "$(stderr_tail "$tail_f")" "https://h/r [404]" "a long stderr is redacted before its last 200 bytes are taken"
   { printf 'https://user:secret%.0s' {1..300}; printf '@h/r [404]\n'; } > "$tail_f"
   assert_not_contains "$(stderr_tail "$tail_f")" "secret" "...so a credential longer than the window does not leak"
+  # Both parities, so the window starts inside a two-byte character once. sed in a UTF-8 locale
+  # cannot match that stray byte and used to keep the whole password.
+  for pad in 1 2; do
+    { printf 'https://bob:'; printf '\xc3\xa4%.0s' {1..3000}; printf '@h/r?token=%s [404]\n' "$(printf 'k%.0s' $(seq "$pad"))"; } > "$tail_f"
+    assert_eq "$(stderr_tail "$tail_f")" "[404]" "...nor one in a non-ASCII password (window parity $pad)"
+  done
+  assert_eq "$(red 'GET https://bob:pa?ss@hosta/r and https://bob:pa/ss@hosta/r#x')" "GET https://hosta/r and https://hosta/r" \
+    "a password holding ? or / is still removed up to the host"
+  assert_eq "$(red '(see https://h/r?token=abc) <https://h/r?k=v> "https://h/r?a=b"')" '(see https://h/r) <https://h/r> "https://h/r"' \
+    "the bracket or quote that closes a query stays"
+  big="$TESTTMP/big.err"
+  { for i in $(seq 1 20000); do printf 'word%s https://u:pw@h/r?t=%s ' "$i" "$i"; done; echo; } > "$big"
+  t0=$(date +%s%N); out="$(redact_error_text < "$big")"; t1=$(date +%s%N)
+  assert_eq "$(( (t1 - t0) / 1000000 < 2000 ))|$(( ${#out} <= 8192 ))" "1|1" "a megabyte of stderr is capped and redacted quickly"
+  assert_not_contains "$out" "pw@" "...and the capped text is still redacted"
 
   # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
   rm -f "$LAST_REFRESH_FILE"

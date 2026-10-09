@@ -1134,19 +1134,39 @@ redact_error_text() {  # stdin → one line
       }
       return o p
     }
-    function url(u,   auth, rest, i, q, tail) {
+    # A ":" before the first "@", ahead of any / ? #, marks userinfo whose password may hold
+    # those characters. It then runs to the last "@" before the next "/" after the first "@".
+    function url(u,   at, pre, c, r, i, auth, rest, q, tail) {
+      at = index(u, "@"); pre = (at ? substr(u, 1, at - 1) : "")
+      c = index(pre, ":"); r = match(pre, /[\/?#]/) ? RSTART : 0
+      if (at && c && (!r || c < r)) {
+        rest = substr(u, at + 1)
+        i = match(rest, /\//) ? RSTART : length(rest) + 1
+        auth = substr(rest, 1, i - 1); rest = substr(rest, i)
+        for (i = length(auth); i > 0; i--) if (substr(auth, i, 1) == "@") { auth = substr(auth, i + 1); break }
+        u = auth rest
+      }
       if (match(u, /[\/?#]/)) { auth = substr(u, 1, RSTART - 1); rest = substr(u, RSTART) }
       else { auth = u; rest = "" }
       for (i = length(auth); i > 0; i--) if (substr(auth, i, 1) == "@") { auth = substr(auth, i + 1); break }
       tail = ""
       if (match(rest, /[?#]/)) {
         q = substr(rest, RSTART); rest = substr(rest, 1, RSTART - 1)
-        if (match(q, /\]/)) tail = substr(q, RSTART)
+        tail = qtail(q)
       }
       return auth path(rest) tail
     }
-    { gsub(/\r/, ""); buf = (NR == 1 ? $0 : buf " " $0) }
+    # What follows a removed query: a "]" and the rest, or only the closing quotes and brackets
+    # that end the word. A quote mid-query does not end it, so nothing after the quote leaks.
+    function qtail(q) {
+      if (match(q, /\]/)) return substr(q, RSTART)
+      return match(q, /["\047()<>]+$/) ? substr(q, RSTART) : ""
+    }
+    # The input is capped at 8 KiB, ending on a whole word: the loops below are quadratic.
+    BEGIN { cap = 8192 }
+    { gsub(/\r/, ""); if (n <= cap) buf = (NR == 1 ? $0 : buf " " $0); n += length($0) + 1 }
     END {
+      if (length(buf) > cap) { buf = substr(buf, 1, cap); sub(/[^ \t]*$/, "", buf) }
       s = buf; home = ENVIRON["HOME"]; sub(/\/+$/, "", home)
       if (home != "") {
         o = ""
@@ -1166,7 +1186,12 @@ redact_error_text() {  # stdin → one line
       }
       s = o s
       gsub(/[^\/@ \t]+:[^\/ \t]*@/, "", s)
-      gsub(/\?[^] \t]+/, "", s)
+      o = ""
+      while (match(s, /\?[^ \t]+/)) {
+        q = substr(s, RSTART, RLENGTH); o = o substr(s, 1, RSTART - 1); s = substr(s, RSTART + RLENGTH)
+        o = o qtail(q)
+      }
+      s = o s
       sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
       print s
     }'
@@ -1184,7 +1209,7 @@ stderr_tail() {  # file → one line
   local n
   n="$(wc -c < "$1" 2>/dev/null)" || n=0
   tail -c 4096 "$1" 2>/dev/null \
-    | { if (( n > 4096 )); then sed -E '1s/^[^[:space:]]*//'; else cat; fi; } \
+    | { if (( n > 4096 )); then LC_ALL=C sed -E '1s/^[^[:space:]]*//'; else cat; fi; } \
     | redact_error_text \
     | LC_ALL=C awk '{
         s = $0
