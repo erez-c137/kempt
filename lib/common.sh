@@ -2423,14 +2423,18 @@ KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 # started even earlier; `>` on truncated seconds proves last_check came after the request, at the
 # price of a redundant check when the two land in the same second. `>=` would serve an answer
 # older than the question.
+# A last_check more than a minute ahead of the clock is stale too. The clock was stepped back after
+# that check (NTP, a dual-boot RTC in local time), and adopting it would freeze every coalesced
+# check on that state until the clock caught up.
 state_checked_since() {  # requested-epoch → state on stdout, or 1
-  local doc at
+  local doc at now
   [[ "$1" =~ ^[0-9]+$ ]] || return 1
   doc="$(jq -e -n '[inputs] | select(length == 1) | .[0]
                    | select(type == "object" and .status == "ok" and (.last_check | type) == "string")' \
            "$STATE_FILE" 2>/dev/null)" || return 1
   at="$(date -d "$(jq -r '.last_check' <<<"$doc")" +%s 2>/dev/null)" || return 1
-  [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 )) || return 1
+  now="$(date +%s)"
+  [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 && at <= now + 60 )) || return 1
   printf '%s\n' "$doc"
 }
 

@@ -1462,7 +1462,19 @@ same_sec() {  # offset-seconds → state_checked_since's rc for a last_check tha
 assert_eq "$(same_sec 0)" "1" "a last_check in the request's own second does not count as after it"
 assert_eq "$(same_sec 1)" "0" "...and one a second later does"
 assert_eq "$(same_sec -1)" "1" "...and one a second earlier does not"
+# A last_check ahead of the clock: the clock was stepped back after that check. Within a minute it
+# still counts, past a minute it is stale, or every coalesced check would adopt it until then.
+assert_eq "$(same_sec 50)" "0" "a last_check under a minute ahead of the clock still counts"
+assert_eq "$(same_sec 120)" "1" "...and one two minutes ahead is stale"
 rm -f "$same_sec_state"
+
+# End to end: a state stamped three hours ahead with a count no check produced. A coalesced check
+# runs a real one and replaces it, in place of serving it.
+jq -n --arg t "$(date -Is -d '+3 hours')" '{schema:1, last_check:$t, status:"ok", marker:"FUTURE"}' > "$STATE_FILE"
+rm -f "$TESTTMP/dnf-queries"
+future_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/recording-helper" "$KEMPT" check --coalesce)"
+assert_eq "$(dnf_queries)" "1" "a --coalesce check over a last_check hours ahead of the clock runs a real check"
+assert_eq "$(jq -r '.marker // "none"' <<<"$future_out")" "none" "...and does not serve the future-stamped state"
 
 # write_state is the one door into state.json, and it refuses anything that is not exactly one JSON
 # object. Each case is what a failed producer hands it: nothing at all (assemble_state failing
