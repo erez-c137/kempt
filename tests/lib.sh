@@ -104,6 +104,7 @@ sandbox() {  # fresh dirs per test file; call first
   # dnf5's system cache, which `kempt doctor` searches for world-writable files. A path that does not
   # exist, so the REAL /var/cache/libdnf5 never decides a doctor test.
   export KEMPT_DNF_CACHE_DIR="$TESTTMP/no-dnf-cache"
+  export KEMPT_DNF_SYSIMAGE_DIR="$TESTTMP/no-dnf-sysimage"
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.

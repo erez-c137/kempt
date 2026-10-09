@@ -1275,7 +1275,7 @@ assert_eq "$(grep -c '^FAIL  polkit action not installed' "$TESTTMP/last_output"
 assert_contains "$(cat "$TESTTMP/last_output")" '2 problems found' \
   "the summary counts them"
 
-# --- world-writable files in dnf5's cache, left by helpers that kept the caller's umask ----------
+# --- world-writable files in dnf5's cache and state, left by helpers that kept the caller's umask ----------
 # Reported with the fix, never repaired. Group-writable alone is not reported: root's files belong
 # to group root, and a umask of 002 sets that bit on every Fedora box that uses one.
 DC="$TESTTMP/dnf-cache"; mkdir -p "$DC/updates-1/repodata"
@@ -1290,10 +1290,25 @@ chmod 666 "$DC/updates-1/repodata/repomd.xml"
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC/updates-1/repodata/repomd.xml)" \
   "a world-writable file in the cache is a WARN naming it"
-assert_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all && sudo chmod -R go-w $DC" "...with the command that fixes it"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "Fix it with: sudo chmod -R go-w $DC && sudo dnf5 clean all" \
+  "...with the command that fixes it, the clean included while nothing is stored"
+# The clean deletes a stored transaction's packages, so with one stored it waits for kempt unstage.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dc.txt")" "Fix it with: sudo chmod -R go-w $DC. Then discard the staged update with kempt unstage, and run: sudo dnf5 clean all" \
+  "with an offline transaction stored, the fix leads with chmod and puts the clean after kempt unstage"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "go-w $DC && sudo dnf5 clean all" "...and never chains the clean straight on"
 assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "666" "...and doctor changes nothing itself"
 chmod 644 "$DC/updates-1/repodata/repomd.xml"; chmod 777 "$DC/updates-1"
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC" "a world-writable directory counts too"
+chmod 755 "$DC/updates-1"
+# dnf5's system state, which the apply verbs wrote with the caller's umask too.
+DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
+KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf state' "a state directory with nothing world-writable adds no row"
+: > "$DS/offline/transaction.json"; chmod 666 "$DS/offline/transaction.json"
+KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS/offline/transaction.json). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $DS" \
+  "a world-writable file in dnf5's state is a WARN with the chmod"
 
 finish

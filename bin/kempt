@@ -3421,15 +3421,31 @@ doctor_metadata_row() {
 }
 
 # Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
-# world-writable metadata in the cache, which any user could then alter. Group-writable is left out:
-# root's files belong to group root, and a common Fedora umask of 002 sets that bit harmlessly.
-# Reported, never repaired: the fix needs root, and the clean also drops anything altered.
+# world-writable files in dnf5's cache and state, which any user could then alter. Group-writable is
+# left out: root's files belong to group root, and a common Fedora umask of 002 sets that bit
+# harmlessly. Reported, never repaired, because the fix needs root.
+doctor_world_writable() {  # dir → the first world-writable entry under it, or nothing
+  [[ -d "$1" ]] || return 0
+  find "$1" -perm -0002 ! -type l -print -quit 2>/dev/null || true
+}
 doctor_dnf_cache_row() {
-  [[ -d "$KEMPT_DNF_CACHE_DIR" ]] || return 0
-  local hit
-  hit="$(find "$KEMPT_DNF_CACHE_DIR" -perm -0002 ! -type l -print -quit 2>/dev/null)" || true
-  [[ -n "$hit" ]] || return 0
-  doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo dnf5 clean all && sudo chmod -R go-w $KEMPT_DNF_CACHE_DIR"
+  local hit fix
+  hit="$(doctor_world_writable "$KEMPT_DNF_CACHE_DIR")"
+  if [[ -n "$hit" ]]; then
+    # dnf5 clean all also drops altered files, but it deletes a stored transaction's packages too.
+    # So it joins the fix only while nothing is stored.
+    fix="sudo chmod -R go-w $KEMPT_DNF_CACHE_DIR"
+    if [[ ! -e "$KEMPT_OFFLINE_TOML" && ! -L "$KEMPT_OFFLINE_TOML" ]]; then
+      fix+=" && sudo dnf5 clean all"
+    else
+      fix+=". Then discard the staged update with kempt unstage, and run: sudo dnf5 clean all"
+    fi
+    doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: $fix"
+  fi
+  hit="$(doctor_world_writable "$KEMPT_DNF_SYSIMAGE_DIR")"
+  if [[ -n "$hit" ]]; then
+    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $KEMPT_DNF_SYSIMAGE_DIR"
+  fi
 }
 
 doctor_config_row() {

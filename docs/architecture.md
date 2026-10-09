@@ -890,6 +890,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. Never written or followed: its presence and its text decide whether it is dnf5's. Stubbed |
 | `KEMPT_OFFLINE_DATADIR` | `/usr/lib/sysimage/libdnf5/offline` | Where dnf5 points `/system-update`. A symlink pointing anywhere else is another updater's, so dnf5's transaction is not armed. `libexec/kempt-apply` reads this and `KEMPT_OFFLINE_LINK` only when not root. `tests/lib.sh` points it at the test directory |
 | `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when a file in it is world-writable. `tests/lib.sh` points it at a path that does not exist |
+| `KEMPT_DNF_SYSIMAGE_DIR` | `/usr/lib/sysimage/libdnf5` | dnf5's system state. Checked by `kempt doctor` like the cache. `tests/lib.sh` points it at a path that does not exist |
 | `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
