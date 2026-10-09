@@ -220,7 +220,7 @@ var COPY = {
     noSuccessfulCheckYet: "No successful check yet",
     // A check that never answered. The first is the problem line when there is no state at all;
     // the other two are the report over counts we still hold, which otherwise change nothing on
-    // screen. Never the Executor's own "timeout after 510000ms": that is a log line, not a reason.
+    // screen. Never the Executor's own "timeout after 540000ms": that is a log line, not a reason.
     checkTimedOut: "The check did not finish in time.",
     checkUnfinished: "The check did not finish. The counts shown are from the last check.",
     checkFailedOver: "The check failed. The counts shown are from the last check.",
@@ -1235,10 +1235,10 @@ var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
 // KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
 // the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
-// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 120 s). 925 s in all,
+// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 150 s). 955 s in all,
 // plus over half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
-var RECLAIM_TIMEOUT_MS = 960000;
+var RECLAIM_TIMEOUT_MS = 990000;
 
 // The size on offer, or null when the CLI could not work it out. A value of the wrong type is
 // read as unknown, never coerced.
@@ -1562,13 +1562,15 @@ function checkArgs(automatic, refresh, anyway) {
 // How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
-// CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
-// (120 s) once per installation, system and per-user, and dnf's makecache. That one runs as root,
-// where the CLI's timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the
-// same 120 s, plus a 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
-// 120 + 240 + 120 + 30 = 510 s.
-var CHECK_BODY_MS = 120000;
-var CHECK_TIMEOUT_MS = 510000;
+// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for what
+// notify_security adds (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers'
+// lock and the 5 s notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
+// installation, system and per-user, and dnf's makecache. That one runs as root, where the CLI's
+// timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the same 120 s, plus a
+// 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
+// 150 + 240 + 120 + 30 = 540 s.
+var CHECK_BODY_MS = 150000;
+var CHECK_TIMEOUT_MS = 540000;
 
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK

@@ -1364,10 +1364,11 @@ PlasmoidItem {
     // an empty answer arms it again.
     // The post-run check, only when the CLI's own never arrived: a closing check that timed out on
     // the lock writes nothing, and the counts on screen would then stay the pre-run ones until
-    // the next scheduled check. Two minutes is a check without a fetch (Logic.CHECK_BODY_MS).
+    // the next scheduled check. Two and a half minutes is a check without a fetch
+    // (Logic.CHECK_BODY_MS).
     Timer {
         id: postRunCheck
-        interval: 120000
+        interval: 150000
         repeat: false
         onTriggered: root.doCheck(true)
     }

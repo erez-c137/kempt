@@ -2265,7 +2265,7 @@ done
 assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(1, "", "kempt: could not take the writers lock\nx", "x"))')" \
   '{"ok":false,"text":"kempt: could not take the writers lock"}' \
   "...and any other failure is the CLI's own reason"
-assert_eq "$(js 'L.checkErrorOf(124, "timeout after 510000ms")')" "The check did not finish in time." \
+assert_eq "$(js 'L.checkErrorOf(124, "timeout after 540000ms")')" "The check did not finish in time." \
   "with no state, the Executor's kill is a sentence, never its timeout text"
 assert_eq "$(js 'L.checkErrorOf(1, "kempt: the check could not run\nmore")')" "kempt: the check could not run" \
   "...and any other failure is the CLI's first stderr line"
@@ -3658,6 +3658,14 @@ assert_eq "${helper_bound#* }" "${cli_refresh_s:-missing}" \
   "...and the root helper stops dnf5's makecache after the same ${cli_refresh_s:-?} s"
 assert_eq "$(js "L.CHECK_TIMEOUT_MS >= L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000 + ${helper_bound%% *}000")" "true" \
   "...with room for its ${helper_bound%% *} s grace before SIGKILL"
+# ...and the check without its fetch covers what notify_security adds to it: the advisory query,
+# two waits for the writers' lock and the notification, read from lib/common.sh, on top of the
+# 120 s the check's own queries had before.
+_sq="$(sed -n 's/^SECURITY_QUERY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sl="$(sed -n 's/^SECURITY_LOCK_WAIT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sn="$(sed -n 's/^SECURITY_NOTIFY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+assert_eq "$(js "L.CHECK_BODY_MS >= 120000 + (${_sq:-999} + 2 * ${_sl:-999} + ${_sn:-999}) * 1000")" "true" \
+  "the check without its fetch leaves room for the security query (${_sq:-?} s), two lock waits (${_sl:-?} s) and the notification (${_sn:-?} s)"
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
   grep -qF 'Logic.checkArgs(auto, fresh, spend), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \
