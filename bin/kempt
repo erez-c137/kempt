@@ -3141,22 +3141,31 @@ cmd_security_ack() {
   done
   [[ -n "$expect" ]] || { echo "usage: kempt security-ack --expect=DIGEST" >&2; exit 2; }
   writer_lock || exit 1
-  local state ids patched
+  # state.lock as well, from the read to the write, so a run's publish_staged_state cannot write
+  # state.json in between and have its offline_staged undone by this patch of the older file. The
+  # order is check.lock, then the writers' lock, then state.lock, as everywhere. A lock file that
+  # cannot be opened, or a lock not had in 10 seconds, is skipped like write_state skips it.
+  local state ids patched lfd rc=0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
   state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
   if [[ -z "$state" || "$(jq -r '.security.digest? // empty' <<<"$state" 2>/dev/null)" != "$expect" ]]; then
-    writer_unlock
-    echo "The security updates changed since they were shown. Nothing was recorded." >&2
-    exit 6
+    rc=6
+  else
+    mapfile -t ids < <(jq -r '.security.advisories[]? | strings' <<<"$state")
+    _KEMPT_STATE_LOCK_HELD=1
+    if ! security_seen_add acknowledged "${ids[@]}" \
+       || ! patched="$(jq -c '.security.attention = false' <<<"$state")" \
+       || ! printf '%s\n' "$patched" | write_state; then
+      rc=1
+    fi
+    _KEMPT_STATE_LOCK_HELD=""
   fi
-  mapfile -t ids < <(jq -r '.security.advisories[]? | strings' <<<"$state")
-  if ! security_seen_add acknowledged "${ids[@]}" \
-     || ! patched="$(jq -c '.security.attention = false' <<<"$state")" \
-     || ! printf '%s\n' "$patched" | write_state; then
-    writer_unlock
-    echo "kempt: could not record that the security updates were seen" >&2
-    exit 1
-  fi
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
   writer_unlock
+  case $rc in
+    6) echo "The security updates changed since they were shown. Nothing was recorded." >&2; exit 6 ;;
+    1) echo "kempt: could not record that the security updates were seen" >&2; exit 1 ;;
+  esac
 }
 
 # `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is

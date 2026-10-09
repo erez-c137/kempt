@@ -2001,7 +2001,7 @@ rmdir "$KEMPT_STATE_DIR/security-seen.json"
 adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-w1 brandnew-1.0-1.fc44.x86_64)"
 seen_before="$(cat "$KEMPT_STATE_DIR/security-seen.json")"
 n_before="$(notes)"
-exec 5>>"$KEMPT_STATE_DIR/writer.lock"; flock 5
+exec {wfd}>>"$KEMPT_STATE_DIR/writer.lock"; flock "$wfd"
 t0="$(date +%s)"
 out="$("$KEMPT" check 2>/dev/null)"
 took=$(( $(date +%s) - t0 ))
@@ -2009,15 +2009,32 @@ assert_eq "$(( took >= 4 && took <= 15 ))" "1" "a wedged lock costs a check its 
 assert_eq "$(jq -r '.security.packages | index("brandnew") != null' <<<"$out")" "true" "...the block is still published"
 assert_eq "$(notes)" "$n_before" "...nothing is announced, since nothing could be recorded"
 assert_eq "$(cat "$KEMPT_STATE_DIR/security-seen.json")" "$seen_before" "...and the seen file is untouched"
-flock -u 5; exec 5>&-
+flock -u "$wfd"; exec {wfd}>&-
 "$KEMPT" config set notify_security false
-exec 5>>"$KEMPT_STATE_DIR/writer.lock"; flock 5
+exec {wfd}>>"$KEMPT_STATE_DIR/writer.lock"; flock "$wfd"
 t0="$(date +%s)"
 "$KEMPT" check >/dev/null 2>&1
 took=$(( $(date +%s) - t0 ))
-flock -u 5; exec 5>&-
+flock -u "$wfd"; exec {wfd}>&-
 assert_eq "$(( took < 4 ))" "1" "with notify_security off a check does not wait for the writers' lock (took ${took} s)"
 "$KEMPT" config set notify_security true
+
+# An acknowledgement and a run publishing its stage: the ack reads and patches state.json under
+# state.lock, so the stage written while it waits is not undone by its patch of the older file.
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-r1 brandnew-1.0-1.fc44.x86_64)"
+"$KEMPT" check >/dev/null 2>&1
+digest="$(jq -r '.security.digest' "$STATE_FILE")"
+assert_eq "$(jq -c '[.security.attention, has("offline_staged")]' "$STATE_FILE")" "[true,false]" "(a set to acknowledge, nothing staged)"
+exec {sfd}>>"$KEMPT_STATE_DIR/state.lock"; flock "$sfd"
+"$KEMPT" security-ack --expect="$digest" >/dev/null 2>&1 & ack_pid=$!
+sleep 1
+assert_eq "$(kill -0 "$ack_pid" 2>/dev/null && echo waiting || echo done)" "waiting" "security-ack waits for state.lock"
+publish_staged_state_write '{"staged_at":"2026-10-09T12:00:00+03:00","count":7,"armed":true}' ""
+flock -u "$sfd"; exec {sfd}>&-
+ack_rc=0; wait "$ack_pid" || ack_rc=$?
+assert_eq "$ack_rc" "0" "...then acknowledges"
+assert_eq "$(jq -c '[.security.attention, .offline_staged.count]' "$STATE_FILE")" "[false,7]" \
+  "...and the stage published while it waited survives its patch"
 
 # dnf not answering, or an image-based system: no question at all.
 : > "$TESTTMP/advisory-calls"
