@@ -175,14 +175,12 @@ assert_eq "$(grep -cE 'Try again in a few minutes|Restart after it finishes' "$T
 #   --surface=...            a command-line option, spelled as it is typed
 #   surface=VALUE            a config key and value, as `kempt config get` prints them
 #   config set surface       a command to type
-#   terminal, popup, ...     the values `--surface` accepts, listed in its own error
 #   KEMPT_NAME               an environment variable's name
 allow() {
   sed -E \
     -e 's/--surface(=[^ )]*)?//g' \
     -e 's/\bsurface=[^ )]*//g' \
     -e 's/kempt config set surface [a-z]+//g' \
-    -e 's/use terminal, popup, background or offline//g' \
     -e 's/\bKEMPT_[A-Z_]+//g'
 }
 

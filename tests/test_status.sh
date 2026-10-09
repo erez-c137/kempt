@@ -112,7 +112,7 @@ assert_contains "$out" "Checked 2 days ago · apps for you only not checked" "..
 
 # Old package lists: the metadata age joins the dateline past a day.
 jq '.metadata_refreshed = "2026-08-24T09:00:00+03:00"' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_contains "$(status)" "Checked 2 days ago · metadata 3 days old" "the metadata age, past 24 hours"
+assert_contains "$(status)" "Checked 2 days ago · lists 3 days old" "the lists age, past 24 hours"
 
 # Runtimes get their own section, named as people read them.
 jq '.backends.flatpak.items += [{name: "org.kde.Platform/6.9", from: "?", to: "?", held: false, kind: "runtime"}]

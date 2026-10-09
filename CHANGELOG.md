@@ -9,6 +9,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`kempt doctor` says whether shutdown waits while packages install.** It is ok with
+  `rpm-plugin-systemd-inhibit`, or with `libdnf5-plugin-systemd-inhibit` turned on, and a
+  warning with neither.
 - **`kempt status`** says in words what the last check found, and writes nothing.
 - **Security updates can announce themselves.** Turn on **Security updates** in the widget's
   settings, or run `kempt config set notify_security true`. Each new set of system security
@@ -20,9 +23,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `refresh anyway`.
 - **`kempt check --strict` tells a script when a check failed.** It exits 1 when dnf or Flatpak
   could not answer. It also exits 1 when another check held the lock and the previous state was
-  served. And it exits 1 when the apps for you only could not be listed. The state then still says
-  `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of these
-  exit 0.
+  served. And it exits 1 when the per-user Flatpak apps could not be listed. The state then still
+  says `"ok"`, and `.backends.flatpak.scopes.user` says `"failed"`. Without `--strict`, all of
+  these exit 0.
 - **`kempt history --json` prints every run as a JSON array**, newest first. Each element is the
   entry `kempt summary --json` prints. With no runs it prints `[]`.
 - **The widget checks its own installation.** Where it said to run `kempt doctor` in a terminal,
@@ -58,6 +61,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   replaces one Kempt staged. The row is `info`, or `WARN` when updates run on the next restart.
   It shows only while Discover's notifier starts with your session or is running. `WARN` is a new
   level and never counts as a problem.
+
+- **`widget` is another name for the `popup` surface.** `kempt config set surface widget` stores
+  `popup`, and `--surface=widget` runs in the widget. `kempt history`, `kempt summary` and
+  `kempt doctor` say `widget` where they said `popup`.
+
+- **`kempt <command> --help` prints that command's own usage**, and so does `kempt help <command>`.
+  The help for `--surface=` lists its values, and `enable-passwordless` and
+  `disable-passwordless` say what they do.
 
 ### Changed
 
@@ -126,9 +137,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `discover-notifier status` still answer. `KEMPT_ALLOW_ROOT=1` lifts the refusal.
 - **A run counts the dnf step as done only when it confirms it.** A dnf step that ends any other
   way now fails the run, and no staged update is promised.
+- **`kempt log` shows each event in plain words.** `check ok actionable=78 held=1` reads
+  `Checked: 78 updates to install, 1 held`, and `harvest applied` reads `Staged update installed
+  on restart`. `kempt doctor`'s last events read the same. `events.log` keeps its wording, and
+  `kempt log --raw` prints it.
+- **The widget's footer says `lists 2 days old`**, not `metadata 2 days old`, once the package
+  lists are over a day old.
+- **Show What is now Show Runtimes**, and the Free Up Space button, tooltip and progress text read
+  the same everywhere. When the engine is missing, the widget now says how to install the engine
+  and where to find other ways.
+- **The staged banner counts the updates it leaves out.** Updates published after staging, and
+  pending Flatpak apps, are not in the staged update. The banner adds `2 other updates are not in
+  the staged update.` `state.json` can carry `offline_staged.not_staged`, the dnf part of that count.
 
 ### Fixed
 
+- **The README no longer says the tray count always matches what gets installed.** Updates
+  published after a check can join the update, and the README now says when.
 - **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`
   said to run `./install.sh`, which the package does not ship. They now say
   `sudo dnf reinstall kempt`. A checkout still gets the `./install.sh` advice.

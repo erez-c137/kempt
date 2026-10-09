@@ -220,13 +220,13 @@ installed**, and the message under it says:
 
 > Nothing can check for updates yet.
 >
-> To install it on Fedora, run:
+> To install the engine on Fedora, run:
 >
 > sudo dnf copr enable erez-c137/kempt
 >
 > sudo dnf install kempt-plasmoid
 >
-> On other systems, see github.com/erez-c137/kempt.
+> For other ways to install it, see github.com/erez-c137/kempt.
 
 The panel icon stays dim, with no badge. Install the package and press **Check for Updates** in the
 widget, or wait for the next scheduled check. If the CLI is installed but cannot run, the widget

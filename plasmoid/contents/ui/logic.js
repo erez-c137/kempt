@@ -290,6 +290,12 @@ var COPY = {
     // The full sentence above stays its accessible name and what is announced.
     stagedBannerOne: "It installs when you restart.",
     stagedBannerMore: "They install when you restart.",
+    // ...and the updates the stage leaves out: dnf updates published after it was built
+    // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
+    // about the stage, never a promise of when they install: dnf may skip some of them, and the
+    // Flatpak list can be stale after a failed check.
+    stagedOthersOne: "1 other update is not in the staged update.",
+    stagedOthersMore: "%1 other updates are not in the staged update.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
@@ -417,10 +423,10 @@ var COPY = {
     engineMissing: "Nothing can check for updates yet.",
     // One command per line, so neither wraps in the middle.
     engineMissingInstall:
-        "To install it on Fedora, run:\n"
+        "To install the engine on Fedora, run:\n"
         + "sudo dnf copr enable erez-c137/kempt\n"
         + "sudo dnf install kempt-plasmoid\n"
-        + "On other systems, see github.com/erez-c137/kempt.",
+        + "For other ways to install it, see github.com/erez-c137/kempt.",
     // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
     // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
     // The tests drift-guard the two: every command this copies must appear verbatim in the other.
@@ -502,9 +508,15 @@ var COPY = {
     reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
     // Added with reclaim=automatic, where the next successful update removes them anyway.
     reclaimAutomatic: "Kempt removes them after the next update.",
-    // After a ref in the Show What list whose branch Flatpak marks end of life.
+    // After a ref in the Show Runtimes list whose branch Flatpak marks end of life.
     reclaimEol: "(no longer supported)",
-    reclaimShowWhat: "Show What",
+    // The offer's two buttons. Free Up Space Now in automatic mode, where the next update removes
+    // them anyway; Freeing Up Space… while it runs. The QML repeats each literal for i18n.
+    reclaimAction: "Free Up Space",
+    reclaimActionNow: "Free Up Space Now",
+    reclaimRunning: "Freeing Up Space…",
+    reclaimTooltip: "Removes the Flatpak runtimes listed under Show Runtimes.",
+    reclaimShowWhat: "Show Runtimes",
     // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
     reclaimFreed: "Freed %1.",
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
@@ -616,8 +628,10 @@ function isTrue(value) {
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
 // anything unknown is `terminal`, because that is what the CLI itself would run.
+// `widget` is the CLI's other name for the stored `popup` (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+    if (s === "widget") s = "popup";
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
 }
 
@@ -1295,7 +1309,18 @@ function stagedHeaderOf(staged) {
     return n === 1 ? COPY.stagedHeaderOne : n + " " + COPY.stagedHeaderTail;
 }
 
-// stagedVariantOf(staged, heldDnf) -> which of the three banners this stage gets, and its words:
+// stagedOthersOf(staged, fpPending) -> the sentence for updates the stage leaves out, or "".
+// not_staged is the CLI's count, absent when it could not compare; fpPending is the Flatpak count.
+function stagedOthersOf(staged, fpPending) {
+    var n = 0;
+    if (staged && typeof staged.not_staged === "number" && isFinite(staged.not_staged)
+        && staged.not_staged > 0) n += Math.floor(staged.not_staged);
+    if (typeof fpPending === "number" && isFinite(fpPending) && fpPending > 0) n += Math.floor(fpPending);
+    if (n === 0) return "";
+    return n === 1 ? COPY.stagedOthersOne : fill(COPY.stagedOthersMore, "%1", String(n));
+}
+
+// stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
 //   { type: "positive" | "warning", message, banner, conflictNames: [...], stagedAt: "" }
 // banner is set on the plain variant only; viewModel shows a warning's whole message.
 //
@@ -1320,13 +1345,16 @@ function stagedHeaderOf(staged) {
 // Everything malformed falls back to the plain banner and nothing throws. The ONE asymmetry is
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
-function stagedVariantOf(staged, heldDnf) {
+function stagedVariantOf(staged, heldDnf, fpPending) {
     var plain = { type: "positive", message: stagedMessageOf(staged), banner: "", conflictNames: [],
                   stagedAt: "" };
     if (plain.message === "") return plain;
     // The plain banner sits under a header that already gives the count, so it shows only the
     // rest. A warning shows its whole message.
     plain.banner = staged.count === 1 ? COPY.stagedBannerOne : COPY.stagedBannerMore;
+    // On the whole sentence too, which is the banner's accessible name and what is announced.
+    var others = stagedOthersOf(staged, fpPending);
+    if (others !== "") { plain.banner += " " + others; plain.message += ". " + others; }
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -1472,11 +1500,11 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
-        return "metadata " + days + (days === 1 ? " day old" : " days old");
+        return "lists " + days + (days === 1 ? " day old" : " days old");
     }
     var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return "metadata " + hours + (hours === 1 ? " hour old" : " hours old");
-    return "metadata " + Math.floor(age / 60000) + " min old";
+    if (hours >= 1) return "lists " + hours + (hours === 1 ? " hour old" : " hours old");
+    return "lists " + Math.floor(age / 60000) + " min old";
 }
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
@@ -2478,7 +2506,8 @@ function viewModel(state, updating, cliError, opts) {
     // an older one wrote, and it is what stops the popup showing both banners - the second of which
     // tells the reader to press a Rebuild button the first has just taken away.
     var stagedVariant = stagedVariantOf(
-        (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf);
+        (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf,
+        usable ? backendActionable(state, "flatpak") : 0);
     var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
     // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the
@@ -2991,7 +3020,7 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
-        // The reclaim offer: its line, one line per runtime for Show What, the digest the button
+        // The reclaim offer: its line, one line per runtime for Show Runtimes, the digest the button
         // passes to `kempt reclaim --expect`, and which of the two button labels applies.
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,

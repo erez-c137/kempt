@@ -174,6 +174,12 @@ KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
 # The installed names that provide installonlypkg(kernel) or installonlypkg(kernel-module), one
 # per line. Empty means the rpm query in offline_installonly_rpm_names.
 KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
+# Which of the two shutdown-inhibit plugins are installed, one name a line. Empty means the rpm query
+# in doctor_inhibit_installed. Read by `kempt doctor` only.
+KEMPT_RPM_INHIBIT_CMD="${KEMPT_RPM_INHIBIT_CMD:-}"
+# libdnf5's config for its systemd-inhibit plugin. libdnf5 loads a plugin only through its config
+# file, and runs it unless [main] sets enabled to false. Read, never written.
+KEMPT_DNF_INHIBIT_CONF="${KEMPT_DNF_INHIBIT_CONF:-/etc/dnf/libdnf5-plugins/00-systemd-inhibit.conf}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -248,6 +254,165 @@ kempt_init_dirs() {
 # because a log line is never worth changing the exit status of the command that emitted it, and it
 # blocks for at most 5 seconds on events.lock. A state directory that cannot be written simply gets
 # no events.
+# --- the event log, in plain words ----------------------------------------------------------------
+# events.log keeps its fixed vocabulary on disk: tests, scripts and the widget read it, and
+# docs/usage.md lists every line. `kempt log` and doctor's last events show each line in plain words
+# instead. A line this does not know is shown as written. Sets EVENT_PLAIN rather than printing, so
+# a long log costs no subshell per line.
+event_count_phrase() {  # n singular plural → "1 update" | "3 updates" | "? updates"
+  if [[ "$1" == 1 ]]; then EVENT_COUNT="1 $2"; else EVENT_COUNT="$1 $3"; fi
+}
+event_where_phrase() {  # surface → where a run went, in the widget's settings words
+  case "$1" in
+    terminal) EVENT_WHERE="in a terminal window" ;;
+    popup) EVENT_WHERE="in the widget" ;;
+    background) EVENT_WHERE="in the background" ;;
+    offline) EVENT_WHERE="to stage for the next restart" ;;
+    *) EVENT_WHERE="somewhere Kempt does not know ($1)" ;;
+  esac
+}
+event_plain() {  # event text → EVENT_PLAIN
+  local t="$1" rest
+  EVENT_PLAIN="$t"
+  case "$t" in
+    "check ok "*)
+      if [[ "$t" =~ ^check\ ok\ actionable=([0-9]+|\?)\ held=([0-9]+|\?)$ ]]; then
+        event_count_phrase "${BASH_REMATCH[1]}" "update to install" "updates to install"
+        EVENT_PLAIN="Checked: $EVENT_COUNT"
+        [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
+      fi ;;
+    "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
+    "security notified count="*)
+      if [[ "$t" =~ ^security\ notified\ count=([0-9]+|\?)$ ]]; then
+        EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
+      fi ;;
+    "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
+    "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
+    "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
+    "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
+    "refresh flatpak ok") EVENT_PLAIN="Flatpak lists downloaded" ;;
+    "refresh flatpak failed") EVENT_PLAIN="Flatpak lists could not be downloaded" ;;
+    "refresh skipped "*) EVENT_PLAIN="Package lists not downloaded ${t#refresh skipped }" ;;
+    "refresh anyway "*) EVENT_PLAIN="Downloading package lists anyway ${t#refresh anyway }" ;;
+    "run start surface="*)
+      event_where_phrase "${t#run start surface=}"; EVENT_PLAIN="Update started $EVENT_WHERE" ;;
+    "run did not start: "*) EVENT_PLAIN="Update did not start: ${t#run did not start: }" ;;
+    "run done "*)
+      if [[ "$t" =~ ^run\ done\ rc=0\ updated=([0-9]+|\?)\ reboot=(needed|no)$ ]]; then
+        EVENT_PLAIN="Update finished: ${BASH_REMATCH[1]} updated"
+        if [[ "${BASH_REMATCH[2]}" == needed ]]; then EVENT_PLAIN+=", restart needed"; fi
+      fi ;;
+    "run failed rc="*)
+      if [[ "$t" =~ ^run\ failed\ rc=([0-9]+):\ (.*)$ ]]; then
+        EVENT_PLAIN="Update failed (exit code ${BASH_REMATCH[1]}): ${BASH_REMATCH[2]}"
+      fi ;;
+    "offline staged "*)
+      rest="${t#offline staged }"
+      if [[ "$rest" =~ ^([0-9]+|\?)(.*)$ ]]; then
+        event_count_phrase "${BASH_REMATCH[1]}" "update" "updates"
+        rest="${BASH_REMATCH[2]}"
+        EVENT_PLAIN="$EVENT_COUNT staged for the next restart"
+        if [[ "$rest" =~ ^\ \(NOT\ recorded:\ (.*)\)$ ]]; then
+          EVENT_PLAIN+=", but not recorded, because ${BASH_REMATCH[1]}"
+        else
+          EVENT_PLAIN+="$rest"
+        fi
+      fi ;;
+    "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
+    "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
+    "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
+    "offline stage installed by another updater"*)
+      EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
+    "offline stage recorded without its package baseline"*)
+      EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
+    "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
+    "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
+    "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
+    "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
+    "harvest found the staged transaction did not run"*)
+      EVENT_PLAIN="After the restart: the staged update did not run${t#harvest found the staged transaction did not run}" ;;
+    "harvest skipped snapshot failed")
+      EVENT_PLAIN="After the restart: the installed packages could not be read, so the result was not recorded" ;;
+    "harvest cleared stale marker") EVENT_PLAIN="After the restart: an old record of a staged update was cleared" ;;
+    "harvest deferred: "*)
+      EVENT_PLAIN="Restart result not recorded yet: packages changed outside Kempt while an update is staged" ;;
+    "harvest entry not written"*) EVENT_PLAIN="Restart result not saved${t#harvest entry not written}" ;;
+    "harvest log not written"*) EVENT_PLAIN="Restart log not saved${t#harvest log not written}" ;;
+    "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
+    "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
+    "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
+    "unstage cleared a marker with no transaction under it")
+      EVENT_PLAIN="Discard: the staged update was already gone, so its record was cleared" ;;
+    "unstage refused by the root helper") EVENT_PLAIN="Discard was refused by Kempt's system helper" ;;
+    "unstage refused"*) EVENT_PLAIN="Discard refused${t#unstage refused}" ;;
+    "unstage failed rc="*) EVENT_PLAIN="Discard failed (exit code ${t#unstage failed rc=})" ;;
+    "unstage left a transaction behind"*) EVENT_PLAIN="Discard left the staged update in place${t#unstage left a transaction behind}" ;;
+    "reclaim removed "*)
+      if [[ "$t" =~ ^reclaim\ removed\ ([0-9]+)\ runtimes\ \(([0-9]+|\?)\ bytes\)\ rc=([0-9]+|\?)(.*)$ ]]; then
+        local rn="${BASH_REMATCH[1]}" rb="${BASH_REMATCH[2]}" rrc="${BASH_REMATCH[3]}" rtail="${BASH_REMATCH[4]}"
+        event_count_phrase "$rn" "unused runtime" "unused runtimes"
+        EVENT_PLAIN="Removed $EVENT_COUNT"
+        if [[ "$rb" != "?" ]]; then EVENT_PLAIN+=", $(human_bytes "$rb" 2>/dev/null || echo "$rb bytes")"; fi
+        [[ "$rrc" == 0 ]] || EVENT_PLAIN+=", Flatpak exit code $rrc"
+        rtail="${rtail/, in use: /, including extensions an app uses: }"
+        EVENT_PLAIN+="$rtail"
+      fi ;;
+    "reclaim found nothing to remove") EVENT_PLAIN="Unused runtimes: nothing to remove" ;;
+    "reclaim changed (digest), nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, the list changed" ;;
+    "reclaim changed (unstable), nothing removed")
+      EVENT_PLAIN="Unused runtimes: nothing removed, some became unused less than an hour ago" ;;
+    "reclaim changed (new), nothing removed")
+      EVENT_PLAIN="Unused runtimes: nothing removed, one was installed during the update" ;;
+    "reclaim needs authorization, nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, an administrator is needed" ;;
+    "reclaim failed (flatpak did not answer)") EVENT_PLAIN="Unused runtimes: Flatpak did not answer" ;;
+    "reclaim failed rc="*)
+      if [[ "$t" =~ ^reclaim\ failed\ rc=([0-9]+|\?)(.*)$ ]]; then
+        EVENT_PLAIN="Unused runtimes: removal failed (exit code ${BASH_REMATCH[1]})${BASH_REMATCH[2]}"
+      fi ;;
+    "reclaim refused (running as root)") EVENT_PLAIN="Unused runtimes: refused, Kempt ran as root" ;;
+    "reclaim refused (reclaim=off)") EVENT_PLAIN="Unused runtimes: refused, the reclaim setting is off" ;;
+    "passwordless enable rc=0") EVENT_PLAIN="Passwordless updates turned on" ;;
+    "passwordless enable rc="*) EVENT_PLAIN="Passwordless updates not turned on (exit code ${t#passwordless enable rc=})" ;;
+    "passwordless disable rc=0") EVENT_PLAIN="Passwordless updates turned off" ;;
+    "passwordless disable rc="*) EVENT_PLAIN="Passwordless updates not turned off (exit code ${t#passwordless disable rc=})" ;;
+    "discover-notifier off") EVENT_PLAIN="Discover's update notifier turned off" ;;
+    "discover-notifier on") EVENT_PLAIN="Discover's update notifier turned on" ;;
+    "discover-notifier keep") EVENT_PLAIN="Discover's update notifier kept as it is" ;;
+    "config set "*)
+      if [[ "$t" =~ ^config\ set\ ([a-z][a-z0-9_]+)=(.*)\ \(was\ (.*)\)$ ]]; then
+        local k="${BASH_REMATCH[1]}" v="${BASH_REMATCH[2]}" o="${BASH_REMATCH[3]}"
+        if [[ "$k" == surface ]]; then v="$(surface_word "$v")"; o="$(surface_word "$o")"; fi
+        [[ "$o" != unset ]] || o="not set"
+        EVENT_PLAIN="Setting $k changed to $v (was $o)"
+      fi ;;
+    "hold "*) EVENT_PLAIN="Held ${t#hold }" ;;
+    "unhold "*) EVENT_PLAIN="No longer held: ${t#unhold }" ;;
+  esac
+  # A stage a live update made obsolete, in words.
+  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update)/(a live update replaced it)}"
+  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update, /(a live update replaced it, and }"
+  # A notification the line records, in words.
+  [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
+}
+
+# Event lines with the control characters taken out (tab and newline stay), so an escape sequence
+# or carriage return written into events.log cannot reach the terminal that shows it.
+events_safe() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
+
+# Event lines from stdin, in plain words. A line that is not `<timestamp> <via> <text>` is printed
+# as it is.
+events_plain() {  # [prefix]; stdin: events.log lines
+  local ts via text
+  while IFS=' ' read -r ts via text || [[ -n "$ts" ]]; do
+    if [[ -n "$text" ]]; then
+      event_plain "$text"
+      printf '%s%s %s %s\n' "${1:-}" "$ts" "$via" "$EVENT_PLAIN"
+    else
+      printf '%s%s\n' "${1:-}" "$ts${via:+ $via}"
+    fi
+  done
+}
+
 log_event() {  # text
   local via=cli
   # The widget prefixes every command it runs with KEMPT_VIA=widget (plasmoid main.qml and
@@ -353,6 +518,21 @@ config_enum_values() {  # key → accepted values, space separated, or nothing
   esac
 }
 
+# A surface as Kempt reads it: trimmed, lower-cased, and with `widget` read as `popup`. `widget` is
+# the word the person sees, and `popup` is the value stored, which older widgets and scripts read.
+surface_canon() {  # surface → canonical spelling (unknown values pass through, trimmed and lowered)
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
+  s="${s,,}"
+  [[ "$s" != widget ]] || s=popup
+  printf '%s\n' "$s"
+}
+
+# The word a person reads for a stored surface. Only `popup` differs.
+surface_word() {  # surface → user-facing word
+  if [[ "$1" == popup ]]; then printf 'widget\n'; else printf '%s\n' "$1"; fi
+}
+
 # What `config set` says when it did not recognise what was written. WARN, never refuse: an unknown
 # key may be one a newer widget or a later Kempt reads, and a CLI that refused would be the thing
 # that stopped it working. So the write goes through and the status stays 0; the only change is
@@ -370,6 +550,8 @@ config_warn_unknown() {  # key value
   vals="$(config_enum_values "$k")"
   [[ -n "$vals" ]] || return 0
   [[ " $vals " == *" $v "* ]] && return 0
+  # The accepted list in the words the person types: `widget` for the stored `popup`.
+  [[ "$k" != surface ]] || vals="${vals/popup/widget}"
   echo "warning: '$v' is not a value $k accepts. Accepted: ${vals// /, }" >&2
 }
 
@@ -2857,7 +3039,10 @@ offline_marker_read() {  # → the marker as one line of JSON, or nothing
 # `transaction` and `marker` (both transaction-derived) and CANNOT TELL under `none` (a legacy
 # marker, or names from a check, which cannot see resolver-added packages). docs/architecture.md's
 # state.json table is the full contract each value carries.
-offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_source} JSON, or nothing
+# $1, optional: a file of the dnf updates the check found pending and not held, one name a line.
+# With it, and with the staged names readable, `not_staged` counts the pending ones the stage leaves
+# out: updates published after the stage was built. Absent whenever either list is missing.
+offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, holds_conflict, names_source[, not_staged]} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
   [[ -n "$marker" ]] || return 0
@@ -2880,7 +3065,7 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
   # that sixty-one packages install on the next restart when what installs is a whole new Fedora.
   # The marker is dropped by the next live run's reconcile; until then it simply says nothing.
   offline_release_upgrade >/dev/null && return 0
-  local names="" names_source=none
+  local names="" names_source=none not_staged=""
   if names="$(offline_txjson_names)"; then
     names_source=transaction
   elif jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
@@ -2915,16 +3100,25 @@ offline_staged_state() {  # → {staged_at, count, armed, holds_conflict, names_
                     ($h | lines) as $hl
                     | [($n | lines)[] | . as $x | select($hl | index($x))] | unique')" \
         || { conflict='[]'; names_source=none; }
+      if [[ "$names_source" != none && -n "${1:-}" && -r "$1" ]]; then
+        not_staged="$(jq -n --rawfile n "$names_f" --rawfile p "$1" '
+                        def lines: split("\n") | map(select(length > 0));
+                        ($n | lines) as $nl
+                        | [($p | lines)[] | . as $x | select(($nl | index($x)) == null)]
+                        | unique | length')" || not_staged=""
+      fi
     else
       conflict='[]'; names_source=none
     fi
     rm -f "$names_f" "$holds_f"
   fi
+  [[ "$not_staged" =~ ^[0-9]+$ ]] || not_staged=""
   # count: markers written before the field existed carry no number, and null is the honest answer.
   # Every reader drops the figure from its sentence rather than inventing one.
-  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" \
+  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" --arg ns "$not_staged" \
     '{staged_at: (.staged_at // null), count: (.staged // null), armed: true,
-      holds_conflict: $conflict, names_source: $nsrc}' <<<"$marker"
+      holds_conflict: $conflict, names_source: $nsrc}
+     + (if $ns == "" then {} else {not_staged: ($ns | tonumber)} end)' <<<"$marker"
 }
 
 # Kempt's stage, when it is `ready` but another updater's symlink decides the next restart: that
@@ -2980,7 +3174,7 @@ publish_staged_state() {
   # offers to stage what is downloaded, or to upgrade live over it, which makes the CLI discard it
   # as superseded and throw the download away. Rule 1 of the schema, on the writing side: a reader
   # that learned nothing leaves what was there.
-  staged="$(offline_staged_state)" || return 0
+  staged="$(offline_staged_state "")" || return 0
   # state.lock rather than check.lock. The holder of check.lock is always a check that runs for
   # tens of seconds, and this exists to publish without that wait: tests/test_update.sh holds
   # check.lock for ten seconds and asserts a run publishes anyway. state.lock is held only for
@@ -3145,10 +3339,12 @@ KEMPT_JQ_COUNTS='
     else empty end;
   # How a run reads in kempt history and kempt summary. The stored surface of a harvested
   # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
+  # A run in the widget is stored as "popup" and shown as "widget".
   def surface_label:
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
     elif .surface == "offline (installed by another updater)"
     then "staged update (installed by another updater)"
+    elif .surface == "popup" then "widget"
     else .surface end;
 '
 
@@ -3381,7 +3577,7 @@ KEMPT_JQ_TIME='
     (stamp_s) as $at
     | if $at == null or ($now | type) != "number" or ($now - $at) < 86400 then ""
       else (($now - $at) / 86400 | floor) as $n
-           | "metadata \($n) " + (if $n == 1 then "day old" else "days old" end) end;
+           | "lists \($n) " + (if $n == 1 then "day old" else "days old" end) end;
 '
 
 # The status facts from one state document. Input: the document, or null when there is none.
