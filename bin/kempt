@@ -632,8 +632,16 @@ cmd_check() {
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   # AFTER harvest_offline, where the marker's lifecycle is decided: a stage it just consumed or
   # cleared must not be published one line later as still pending.
-  local staged_state
-  staged_state="$(offline_staged_state)"
+  # The pending names go along only when dnf ANSWERED (dnf_priced): the previous state's items are
+  # not news about what arrived after the stage. Held packages are left out, since the stage skips
+  # them on purpose.
+  local staged_state pend_f=""
+  if [[ "$dnf_priced" == true ]] && pend_f="$(mktemp 2>/dev/null)"; then
+    jq -r '.[] | select(.held != true) | .name' <<<"$dnf_items" > "$pend_f" 2>/dev/null \
+      || { rm -f "$pend_f"; pend_f=""; }
+  fi
+  staged_state="$(offline_staged_state "$pend_f")"
+  [[ -z "$pend_f" ]] || rm -f "$pend_f"
   # dnf5 keeps ONE stored transaction for ordinary offline updates and Fedora release upgrades
   # alike, so a staged release upgrade is a fact about what the offline surface can do right now:
   # staging over it cancels it, and Kempt refuses to. Published so the widget can say so and stop
@@ -795,9 +803,8 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   # config_set validates the KEY and stores the value as given - and the popup would then hide
   # Update Now for a box whose runs go to the terminal. The warning still names what was written,
   # not what it was read as.
-  local s="$1"
-  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
-  s="${s,,}"
+  local s
+  s="$(surface_canon "$1")"
   case "$s" in
     terminal|popup|background|offline) printf '%s\n' "$s" ;;
     *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
@@ -2131,12 +2138,10 @@ cmd_run() {
     # could turn a stage into a live update. Once only, so there is no "which one wins".
     --surface=*)
       [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
-      named_set=1; named="${a#--surface=}"
-      named="${named#"${named%%[![:space:]]*}"}"; named="${named%"${named##*[![:space:]]}"}"
-      named="${named,,}"
+      named_set=1; named="$(surface_canon "${a#--surface=}")"
       case "$named" in
         terminal|popup|background|offline) ;;
-        *) echo "unknown --surface value: ${a#--surface=} (use terminal, popup, background or offline)" >&2; exit 2 ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget, background or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -2238,7 +2243,7 @@ cmd_run() {
       exit 5
     fi
   else
-    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$surface)"; return 0; fi
+    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
     local self_q surface_q
     printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
     setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
@@ -2828,8 +2833,12 @@ cmd_config() {
     set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
          # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
          # stops a newer widget writing a key it knows and this build does not.
-         config_warn_unknown "$2" "$3"
-         config_set "$2" "$3"
+         # `widget` is the word on screen for the stored `popup`, so both spellings are accepted and
+         # the file keeps the one older widgets read.
+         local v="$3"
+         [[ "$2" != surface || "$(surface_canon "$v")" != popup ]] || v=popup
+         config_warn_unknown "$2" "$v"
+         config_set "$2" "$v"
          # Choosing how updates run, here or in Settings, answers the popup's one offer.
          [[ "$2" != surface ]] || rm -f "$SURFACE_OFFER_FILE" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
@@ -3276,22 +3285,25 @@ cmd_security_ack() {
   esac
 }
 
-# `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
-# already one fact per line in a fixed vocabulary, meant to be read with grep.
+# `kempt log` - the event log, newest last, in plain words (events_plain). The file keeps its
+# fixed vocabulary, one fact per line, for grep; --raw prints those lines as they are.
 cmd_log() {
-  local n=30
+  local n=30 raw=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] \
-            || { echo "usage: kempt log [-n N]  (N >= 1)" >&2; exit 2; }
+            || { echo "usage: kempt log [-n N] [--raw]  (N >= 1)" >&2; exit 2; }
           n="$2"; shift 2 ;;
-      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N]" >&2; exit 2 ;;
+      --raw) raw=1; shift ;;
+      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N] [--raw]" >&2; exit 2 ;;
     esac
   done
   # No file yet is the ordinary state of a fresh install, not an error - same answer shape as
   # `kempt summary` on a box with no runs: a sentence on STDOUT and exit 0.
   [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
-  tail -n "$n" "$EVENTS_FILE"
+  if [[ -n "$raw" ]]; then tail -n "$n" "$EVENTS_FILE" | events_safe
+  else tail -n "$n" "$EVENTS_FILE" | events_safe | events_plain
+  fi
 }
 
 # --- kempt doctor ---
@@ -3571,7 +3583,7 @@ doctor_tool_rows() {
   # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
   # warning nobody can act on.
   local surface auto term_needed=false
-  surface="$(config_get surface)"; auto="$(config_get auto_accept)"
+  surface="$(surface_canon "$(config_get surface)")"; auto="$(config_get auto_accept)"
   case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
   is_true "$auto" || term_needed=true
   if command -v "$KEMPT_TERMINAL" >/dev/null; then
@@ -3579,7 +3591,7 @@ doctor_tool_rows() {
   elif [[ "$term_needed" == true ]]; then
     doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
   else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$surface"
+    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$(surface_word "$surface")"
   fi
 
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
@@ -3737,6 +3749,50 @@ doctor_dnf_cache_row() {
   hit="$(doctor_world_writable "$KEMPT_DNF_SYSIMAGE_DIR")"
   if [[ -n "$hit" ]]; then
     doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $KEMPT_DNF_SYSIMAGE_DIR"
+  fi
+}
+
+# Fedora asks systemd to hold off shutdown and sleep while packages install, through either of two
+# plugins: libdnf5's for the whole dnf transaction, rpm's for the install step. KDE's logout screen
+# shows nothing about the hold, so a person can think shutdown is broken. Read-only on both counts.
+doctor_inhibit_installed() {  # → the installed plugin names, one a line
+  local out
+  if [[ -n "$KEMPT_RPM_INHIBIT_CMD" ]]; then
+    out="$($KEMPT_RPM_INHIBIT_CMD 2>/dev/null)" || true
+  else
+    # rpm -q prints "package X is not installed" on stdout for a missing one, and exits non-zero.
+    out="$(rpm -q --qf '%{NAME}\n' libdnf5-plugin-systemd-inhibit rpm-plugin-systemd-inhibit \
+             2>/dev/null)" || true
+  fi
+  grep -xE 'libdnf5-plugin-systemd-inhibit|rpm-plugin-systemd-inhibit' <<<"$out" || true
+}
+
+doctor_inhibit_enabled() {  # → 0 when libdnf5 runs its systemd-inhibit plugin
+  [[ -r "$KEMPT_DNF_INHIBIT_CONF" ]] || return 1
+  # The last `enabled` in [main] wins. Absent means on. libdnf5 reads 0, no, false and off as off.
+  # An indented line continues the value above it, as in libdnf5's parser, so it is never a key.
+  local v
+  v="$(awk '/^\[/ { sec = $0; gsub(/[[:space:]\[\]]/, "", sec); next }
+            sec == "main" && /^enabled[[:space:]]*=/ {
+              sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); val = tolower($0) }
+            END { print val }' "$KEMPT_DNF_INHIBIT_CONF" 2>/dev/null)" || return 1
+  [[ "$v" != 0 && "$v" != no && "$v" != false && "$v" != off ]]
+}
+
+doctor_inhibit_row() {
+  on_ostree && return 0
+  local have
+  have="$(doctor_inhibit_installed)"
+  if grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && doctor_inhibit_enabled; then
+    doctor_ok "shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit"
+  elif grep -qx rpm-plugin-systemd-inhibit <<<"$have"; then
+    doctor_ok "shutdown during package installs: blocked by rpm-plugin-systemd-inhibit"
+  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && [[ ! -e "$KEMPT_DNF_INHIBIT_CONF" ]]; then
+    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $KEMPT_DNF_INHIBIT_CONF is missing, so dnf does not load it. Reinstall it, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
+  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have"; then
+    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $KEMPT_DNF_INHIBIT_CONF. Set enabled = 1 there, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
+  else
+    doctor_warn "shutdown during package installs: not blocked. A shutdown or sleep while packages install can leave the system half updated. To block it, run: sudo dnf5 install rpm-plugin-systemd-inhibit"
   fi
 }
 
@@ -4054,7 +4110,7 @@ doctor_recent_events() {
   echo
   echo "Recent events (kempt log):"
   if [[ -s "$EVENTS_FILE" ]]; then
-    tail -n 5 "$EVENTS_FILE" | sed 's/^/  /'
+    tail -n 5 "$EVENTS_FILE" | events_safe | events_plain "  "
   else
     echo "  none"
   fi
@@ -4075,6 +4131,7 @@ cmd_doctor() {
   doctor_other_updater_row
   doctor_metadata_row
   doctor_dnf_cache_row
+  doctor_inhibit_row
   doctor_config_row
   doctor_state_dir_row
   doctor_files_row
@@ -4207,61 +4264,165 @@ cmd_disable_passwordless() {
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
 #   7 update only: another program held the dnf or Flatpak lock through all three tries
 #   8 run as root: every command but help, version and `discover-notifier status` refuses
-usage() {
-  cat <<'EOF'
-usage: kempt <command>
+# One block per command, in the order `kempt help` lists them. A block is the command's synopsis
+# lines (two spaces in), each followed by its description at column 24. `kempt help` prints them
+# all; `kempt <command> --help` and `kempt help <command>` print one (usage_of).
+KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage reclaim config
+discover-notifier enable-passwordless disable-passwordless version help"
+usage_block() {  # command → its block, or nothing for a command Kempt does not have
+  case "$1" in
+    check) cat <<'EOF'
   check [--refresh] [--anyway] [--coalesce] [--strict]
                         refresh pending-updates state (JSON to stdout). --refresh fetches package
                         metadata now, ignoring the 3-hour interval but never the battery or
                         metered-connection rules. --anyway downloads package lists now, even on
                         battery or a metered connection. --coalesce accepts the answer of a check
                         that finished while this one waited (the widget's automatic checks).
-                        --strict exits 1 when dnf or Flatpak failed, the apps for you only could
-                        not be listed, or the previous state was served
+                        --strict exits 1 when dnf or Flatpak failed, the per-user Flatpak apps
+                        could not be listed, or the previous state was served
+EOF
+    ;;
+    update) cat <<'EOF'
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
-                        for this run. --risky-ok leaves out the session-critical notification
+                        for this run. --no-flatpak updates system packages only. --surface=X
+                        picks where it runs: terminal, widget, background or offline, which
+                        stages it for the next restart. --risky-ok leaves out the
+                        session-critical notification
+EOF
+    ;;
+    run) cat <<'EOF'
   run [--print-command] [--surface=X] [--risky-ok]
                         start an update where the config says, as Update Now does, and return.
-                        --surface=X runs this one elsewhere. --risky-ok as for update, but a
-                        terminal run still asks
+                        --print-command prints the launch command and starts nothing.
+                        --surface=X runs this one elsewhere: terminal, widget, background or
+                        offline. --risky-ok as for update, but a terminal run still asks
+EOF
+    ;;
+    status) cat <<'EOF'
   status [--json]       what the last check found, in words: pending, held, staged, restart owed.
                         Reads only. Exits 1 when there is no state, it cannot be read, or the
                         last check failed. --json prints the published state, and exits 1 only
                         when there is none
-  summary [N]           human summary of the last (or Nth-last) run
-  summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
-                        or if the newest entry is damaged)
+EOF
+    ;;
+    summary) cat <<'EOF'
+  summary [N | --json]  human summary of the last (or Nth-last) run. --json prints the newest
+                        run's history entry, verbatim JSON (nothing if no runs yet, or if the
+                        newest entry is damaged)
+EOF
+    ;;
+    history) cat <<'EOF'
   history [--json]      list past runs, newest first; --json prints them as a JSON array of
                         history entries
-  log [-n N]            recent events: what Kempt did, when, and from where (default 30)
+EOF
+    ;;
+    log) cat <<'EOF'
+  log [-n N] [--raw]    recent events: what Kempt did, when, and from where (default 30).
+                        --raw prints the lines as events.log stores them
+EOF
+    ;;
+    doctor) cat <<'EOF'
   doctor                check this install: helpers, polkit action, tools, config, state
-  hold dnf:<pkg> | flatpak:<app.id>     skip in updates, still listed
-  unhold <same>         remove a hold
+EOF
+    ;;
+    hold) cat <<'EOF'
+  hold dnf:<pkg> | flatpak:<app.id>
+                        skip in updates, still listed
+EOF
+    ;;
+    unhold) cat <<'EOF'
+  unhold dnf:<pkg> | flatpak:<app.id>
+                        remove a hold
+EOF
+    ;;
+    holds) cat <<'EOF'
   holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
                         arguments, on one line, to reuse by hand
+EOF
+    ;;
+    unstage) cat <<'EOF'
   unstage               discard the staged offline update; the next restart installs nothing
+EOF
+    ;;
+    reclaim) cat <<'EOF'
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
-  config get <key> [default] | config set <key> <value>
-                        read or write a setting
+EOF
+    ;;
+    config) cat <<'EOF'
+  config get <key> [default]
+  config set <key> <value>
+                        read or write a setting. surface takes terminal, widget, background
+                        or offline
+EOF
+    ;;
+    discover-notifier) cat <<'EOF'
   discover-notifier off | on | keep | status [--json]
                         turn Discover's own update notifier off or back on for this user, keep
                         it as it is (the widget's answer), or say whether it is installed, on
                         and running
-  enable-passwordless | disable-passwordless
-  --version | version | -V   print the version and exit
-  help | --help | -h    print this list
-
-More: man kempt
 EOF
+    ;;
+    enable-passwordless) cat <<'EOF'
+  enable-passwordless   let your desktop session install dnf updates without a password. Asks
+                        for an administrator's password once, to install a polkit rule
+EOF
+    ;;
+    disable-passwordless) cat <<'EOF'
+  disable-passwordless  remove that rule, so dnf updates ask for a password again
+EOF
+    ;;
+    version|--version|-V) cat <<'EOF'
+  --version | version | -V   print the version and exit
+EOF
+    ;;
+    help|--help|-h) cat <<'EOF'
+  help [command] | --help | -h
+                        print this list, or one command's usage
+EOF
+    ;;
+  esac
+}
+
+usage() {
+  local c
+  echo "usage: kempt <command>"
+  for c in $KEMPT_USAGE_ORDER; do usage_block "$c"; done
+  printf '\nMore: man kempt\n'
+}
+
+# One command's usage: its synopsis lines as "usage: kempt ...", then its description. Returns 1,
+# printing nothing, for a command Kempt does not have.
+usage_of() {  # command
+  # security-ack is the widget's, so it stays out of usage(), but its own --help still answers.
+  if [[ "$1" == security-ack ]]; then
+    printf 'usage: kempt security-ack --expect=DIGEST\n\n  For the widget: records that the security updates it showed were seen\n'
+    return 0
+  fi
+  local block
+  block="$(usage_block "$1")"
+  [[ -n "$block" ]] || return 1
+  awk '
+    /^  [^ ]/ {
+      line = substr($0, 3); desc = ""
+      if (match(line, /   *[^ ]/)) { desc = substr(line, RSTART); line = substr(line, 1, RSTART - 1) }
+      sub(/^ +/, "", desc)
+      print (n++ ? "       kempt " : "usage: kempt ") line
+      if (desc != "") d[nd++] = desc
+      next
+    }
+    { sub(/^ +/, ""); d[nd++] = $0 }
+    END { if (nd) print ""; for (i = 0; i < nd; i++) print "  " d[i] }' <<<"$block"
+  printf '\nMore: man kempt\n'
 }
 
 # --help or -h right after any command asks for help, and gets it before the command runs or
-# parses anything, so `kempt update --help` can never start an update.
+# parses anything, so `kempt update --help` can never start an update. The help is that command's
+# own. A command Kempt does not have is a usage error, as it is without the flag.
 if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
-  usage
-  exit 0
+  usage_of "$1" && exit 0
+  echo "unknown command: ${1:-''}" >&2; usage >&2; exit 2
 fi
 
 # Kempt is a per-user tool: as root it would read and write root's config and state, and the
@@ -4305,6 +4466,12 @@ case "${1:-help}" in
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;
-  help|--help|-h) usage ;;
-  *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
+  help|--help|-h)
+    if [[ $# -le 1 ]]; then usage
+    elif ! usage_of "$2" >/dev/null; then
+      echo "unknown command: ${2:-''}" >&2; usage >&2; exit 2
+    elif [[ $# -gt 2 ]]; then echo "unknown option: $3" >&2; exit 2
+    else usage_of "$2"
+    fi ;;
+  *) echo "unknown command: ${1:-''}" >&2; usage >&2; exit 2 ;;
 esac

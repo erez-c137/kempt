@@ -1349,4 +1349,58 @@ KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS/offline/transaction.json). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $DS" \
   "a world-writable file in dnf5's state is a WARN with the chmod"
 
+
+# --- shutdown protection during package installs ---------------------------------------------------
+# Fedora blocks shutdown and sleep while packages install, through libdnf5's plugin or rpm's. The
+# row reads which are installed and whether libdnf5's is on, and the last line counts its WARN.
+warns_of() { local l; l="$(tail -1 "$1")"
+  [[ "$l" =~ ([0-9]+)\ warnings?$ ]] && { echo "${BASH_REMATCH[1]}"; return; }; echo 0; }
+IC="$TESTTMP/inhibit.conf"
+"$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by rpm-plugin-systemd-inhibit" \
+  "rpm's plugin installed is an ok row"
+base_warns="$(warns_of "$TESTTMP/inh.txt")"
+printf '[main]\nname = systemd-inhibit\nenabled = 1\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit" \
+  "libdnf5's plugin installed with enabled = 1 is an ok row"
+printf '[main]\nname = systemd-inhibit\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
+  "...and so is a config with no enabled key, which libdnf5 reads as on"
+printf '[main]\nname = systemd-inhibit\nenabled = False \n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $IC" \
+  "libdnf5's plugin turned off, with no rpm plugin, is a WARN naming the file"
+assert_eq "$(warns_of "$TESTTMP/inh.txt")" "$(( base_warns + 1 ))" "...and the last line counts it"
+printf '[other]\nenabled = 0\n[main]\nname = systemd-inhibit\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
+  "an enabled key outside [main] does not turn the plugin off"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$TESTTMP/no-such.conf" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $TESTTMP/no-such.conf is missing" \
+  "with no config file libdnf5 never loads its plugin, so that is a WARN that says the file is missing"
+printf '[main]\nname = systemd-inhibit\n  enabled = 0\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
+  "an indented enabled line continues the value above it, as libdnf5 reads it, so it is not a key"
+printf '[main]\nenabled = 0\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="printf libdnf5-plugin-systemd-inhibit\nrpm-plugin-systemd-inhibit\n" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by rpm-plugin-systemd-inhibit" \
+  "rpm's plugin covers for libdnf5's when that one is off"
+KEMPT_RPM_INHIBIT_CMD="false" "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. A shutdown or sleep while packages install can leave the system half updated. To block it, run: sudo dnf5 install rpm-plugin-systemd-inhibit" \
+  "neither plugin is a WARN with the command that installs one"
+assert_eq "$(warns_of "$TESTTMP/inh.txt")" "$(( base_warns + 1 ))" "...and the last line counts it"
+KEMPT_RPM_INHIBIT_CMD="echo package rpm-plugin-systemd-inhibit is not installed" "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked." \
+  "rpm's not-installed line is not read as the package"
+
 finish

@@ -595,6 +595,10 @@ cat > "$HIST_DIR/20260919T140000.json" <<'ENTRY'
     "added":[{"name":"org.kde.KStyle.Adwaita","to":"?"}],"removed":[]}}}
 ENTRY
 vsum="$("$KEMPT" summary)"
+# A run in the widget is stored as `popup` and read as `widget`.
+assert_contains "$(awk 'NR==1' <<<"$vsum")" "(widget" "the summary heading names a widget run widget"
+assert_not_contains "$("$KEMPT" history | grep 2026-09-19T14:00:00)" "popup" "...and so does its history row"
+assert_contains "$("$KEMPT" history | grep 2026-09-19T14:00:00)" "  widget  " "...which says widget"
 assert_eq "$(grep -c '? → ?' <<<"$vsum")" "0" "no arrow between two versions nobody knows"
 assert_eq "$(grep -cE '^  org\.kde\.Platform$' <<<"$vsum")" "1" \
   "...the row is its name alone, which is the part that is true"

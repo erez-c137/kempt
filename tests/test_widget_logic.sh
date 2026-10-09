@@ -956,6 +956,7 @@ for s in terminal popup background offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
 assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
+assert_eq "$(js 'L.resolveSurface(" Widget ")')" "popup" "widget is the CLI's other name for popup, as surface_canon reads it"
 assert_eq "$(js 'L.resolveSurface("")')" "terminal" "so does an empty one"
 assert_eq "$(js 'L.resolveSurface(null)')" "terminal" "and a missing one"
 assert_eq "$(js 'L.resolveSurface(" POPUP ")')" "popup" "case and whitespace do not hide a real surface"
@@ -2093,11 +2094,11 @@ assert_eq "$(js "L.viewModel(Object.assign({}, $UF, {backends:{flatpak:{items:[]
 mfoot() {  # [metadata_refreshed] → the whole footer line
   js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{}${1:+,metadata_refreshed:\"$1\"}},false,\"\",{nowMs:$NOW}).footerText"
 }
-assert_eq "$(mfoot 2026-08-23T12:00:00+03:00)" "Checked 4 min ago · metadata 3 days old" \
-  "metadata three days old is said, beside the check that answered from it"
-assert_eq "$(mfoot 2026-08-25T12:00:00+03:00)" "Checked 4 min ago · metadata 1 day old" \
+assert_eq "$(mfoot 2026-08-23T12:00:00+03:00)" "Checked 4 min ago · lists 3 days old" \
+  "lists three days old is said, beside the check that answered from it"
+assert_eq "$(mfoot 2026-08-25T12:00:00+03:00)" "Checked 4 min ago · lists 1 day old" \
   "...and one day reads as one day, not \"1 days\""
-assert_eq "$(mfoot 2026-08-25T11:00:00+03:00)" "Checked 4 min ago · metadata 1 day old" \
+assert_eq "$(mfoot 2026-08-25T11:00:00+03:00)" "Checked 4 min ago · lists 1 day old" \
   "...from the moment it passes 24 hours"
 assert_eq "$(mfoot 2026-08-26T11:00:00+03:00)" "Checked 4 min ago" \
   "metadata fetched an hour ago is not worth a word"
@@ -2106,7 +2107,7 @@ assert_eq "$(mfoot 2026-08-26T12:00:00+03:00)" "Checked 4 min ago" \
 assert_eq "$(mfoot)" "Checked 4 min ago" \
   "a state with no metadata stamp says nothing about one, rather than guessing an age"
 assert_eq "$(mfoot not-a-date)" "Checked 4 min ago" \
-  "...and an unreadable stamp is the same silence, never \"metadata NaN days old\""
+  "...and an unreadable stamp is the same silence, never \"lists NaN days old\""
 # After a Check for Updates whose fetch did not land (battery, metered, offline), any age from a
 # minute up is said: the person asked for fresh lists and has to be able to tell they did not get
 # them. The press is at 12:02; metadata from before it is the missed fetch.
@@ -2114,11 +2115,11 @@ mfoot_asked() {  # metadata_refreshed askedMs
   js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{},metadata_refreshed:\"$1\"},false,\"\",{nowMs:$NOW,refreshAskedMs:$2}).footerText"
 }
 ASKED="$(js 'Date.parse("2026-08-26T12:02:00+03:00")')"
-assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 3 hours old" \
+assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 "$ASKED")" "Checked 4 min ago · lists 3 hours old" \
   "a Check for Updates that got no fetch says how old the metadata is"
-assert_eq "$(mfoot_asked 2026-08-26T11:00:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 1 hour old" \
+assert_eq "$(mfoot_asked 2026-08-26T11:00:00+03:00 "$ASKED")" "Checked 4 min ago · lists 1 hour old" \
   "...one hour reads as one hour"
-assert_eq "$(mfoot_asked 2026-08-26T11:55:00+03:00 "$ASKED")" "Checked 4 min ago · metadata 9 min old" \
+assert_eq "$(mfoot_asked 2026-08-26T11:55:00+03:00 "$ASKED")" "Checked 4 min ago · lists 9 min old" \
   "...and under an hour, in minutes"
 assert_eq "$(mfoot_asked 2026-08-26T12:02:00+03:00 "$ASKED")" "Checked 4 min ago" \
   "a fetch stamped in the press's own second is the press's fetch, and says nothing"
@@ -2133,7 +2134,7 @@ answer() {  # state-json askedMs [engineFault]
 OK_STATE='{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{},metadata_refreshed:"2026-08-26T09:00:00+03:00"}'
 assert_eq "$(answer "$OK_STATE" 0)" "Up to date" \
   "a Check for Updates answer is the line at the top"
-assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Metadata 3 hours old" \
+assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Lists 3 hours old" \
   "...with the metadata age when the fetch it asked for did not happen"
 STALE_STATE='{schema:1,status:"stale",error:"dnf check failed",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{}}'
 assert_eq "$(answer "$STALE_STATE" "$ASKED")" "The check failed for dnf. The counts are from 4 min ago." \
@@ -2216,7 +2217,7 @@ assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" f
   "...nor a stale check, which reports its own failure"
 assert_eq "$(fm "$NETERR" "$ASKED" messageSlots fetchMissedDismissed:true)" '[]' \
   "the close button takes it off screen"
-assert_eq "$(fm "$NETERR" "$ASKED" footerText fetchMissedDismissed:true)" "Checked 1 min ago · metadata 3 hours old" \
+assert_eq "$(fm "$NETERR" "$ASKED" footerText fetchMissedDismissed:true)" "Checked 1 min ago · lists 3 hours old" \
   "...and the footer says the age again"
 assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
@@ -2227,7 +2228,7 @@ assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedMessage)" 
 assert_eq "$(js 'JSON.stringify(L.messageStack({report:true, fetchMissed:true, staged:true}))')" \
   '["report","staged"]' "the staged banner outranks the notice"
 assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true},$NETERR" "$ASKED" footerText reportShown:true)" \
-  "Checked 1 min ago · metadata 3 hours old" \
+  "Checked 1 min ago · lists 3 hours old" \
   "...and the footer gives the age when the notice is crowded out"
 assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists less than a minute old." \
@@ -2762,6 +2763,23 @@ ARMED_PLAIN='{staged_at:"x",count:61,armed:true}'
 assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
   "61 updates are staged and install on the next restart" \
   "an ordinary armed stage still says what the restart will do, and nothing about rebuilding"
+# Updates the stage leaves out ride the plain banner: dnf ones the CLI counted, plus Flatpak apps,
+# which never stage. Absent, zero or malformed counts add nothing.
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).banner")" \
+  "They install when you restart. 2 other updates are not in the staged update." \
+  "dnf updates published after the stage are named as waiting for the next update"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:1,armed:true,not_staged:0},false,1).banner")" \
+  "It installs when you restart. 1 other update is not in the staged update." \
+  "...a pending Flatpak app counts too, and one reads as one"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,3).banner")" \
+  "They install when you restart. 5 other updates are not in the staged update." "...and the two add up"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:'2'},false).banner")" \
+  "They install when you restart." "...a count that is not a number adds nothing"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true},false,0).banner")" \
+  "They install when you restart." "...and with nothing left out the banner is unchanged"
+assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).message")" \
+  "61 updates are staged and install on the next restart. 2 other updates are not in the staged update." \
+  "...and the whole sentence, the accessible name, says it too"
 
 # --- the message stack, capped at two (panel proposal 6 / decision D5) ---------------------------
 # Five messages left the list 95 px tall at the default popup size (26x24 grid units = 468x432),
@@ -2879,7 +2897,7 @@ assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimMessage")" \
   "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." "...with its line"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
   '["org.kde.Platform 5.15-23.08 (no longer supported)","org.freedesktop.Platform.GL.default 24.08"]' \
-  "...one line per runtime for Show What"
+  "...one line per runtime for Show Runtimes"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimDigest")" "0123456789abcdef" \
   "...and the digest the button hands back to the CLI"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimAutomatic")" "false" "...in ask mode"
@@ -3307,7 +3325,7 @@ assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings ac
 assert_eq "$(js 'L.COPY.engineMissing')" "Nothing can check for updates yet." \
   "copy: the store-first first run says what that means, under a header that says what is missing"
 assert_eq "$(js 'L.COPY.engineMissingInstall')" \
-  "$(printf 'To install it on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nOn other systems, see github.com/erez-c137/kempt.')" \
+  "$(printf 'To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt.')" \
   "copy: ...and the commands that fix it, complete enough to paste"
 assert_eq "$(js 'L.COPY.engineUnrunnable')" \
   "The engine is installed but cannot start, so nothing can check for updates." \
@@ -3998,7 +4016,8 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # ui_grep is deliberately NOT the tool here: it walks logic.js too, and logic.js is where these
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
-for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip; do
+for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
+            reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l)" "1" \
     "the popup writes COPY.$_lit verbatim, as a literal a translator can extract"
 done

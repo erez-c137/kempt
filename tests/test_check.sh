@@ -967,6 +967,18 @@ assert_eq "$(jq -r .schema "$st")" "1" "offline_staged is additive: the schema d
 assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" "no hold, so nothing conflicts with the stage"
 assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "transaction" \
   "...and the empty list is one dnf5's own transaction vouches for"
+# Updates the stage leaves out: every pending, unheld dnf name that is not in dnf5's transaction.
+# Worked out here from the state itself, so the test follows the fixtures rather than a number.
+want_ns="$(jq -r '.backends.dnf.items[] | select(.held != true) | .name' "$st" \
+  | grep -vxE 'ca-certificates|librepo|openldap' | sort -u | wc -l)"
+assert_exit 0 "the fixtures leave some pending updates out of the stage" -- test "$want_ns" -gt 0
+assert_eq "$(jq -r '.offline_staged.not_staged' "$st")" "$want_ns" \
+  "not_staged counts the pending dnf updates the staged transaction leaves out"
+# A transaction nobody can read cannot deny anything, so the count is absent rather than a guess.
+KEMPT_OFFLINE_TXJSON="$TESTTMP/no-such-tx.json" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.offline_staged | has("not_staged")' "$st")" "false" \
+  "...and it is absent when the staged names cannot be read"
+"$KEMPT" check >/dev/null
 
 # A marker written before the count existed still describes a real pending install. null is the
 # honest answer - every reader drops the number from the sentence rather than inventing one.

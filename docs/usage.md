@@ -20,7 +20,7 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
 | [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
 | [`kempt --version`](#--version) | Prints the version |
-| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each |
+| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each. `help <command>` or `<command> --help` gives one command's usage. |
 
 ## A typical day
 
@@ -127,13 +127,13 @@ zero updates.
 | Exit | When |
 | --- | --- |
 | 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
-| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), apps for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
+| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), per-user Flatpak apps that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
 | 2 | Unknown option. |
 
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|popup|background|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=terminal|widget|background|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -147,7 +147,7 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `popup` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
 With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
@@ -207,6 +207,10 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 (`bootc upgrade` on a bootc image). Support is planned. Kempt detects them by
 `/run/ostree-booted`. `kempt doctor` reports it on its second line, and the widget hides
 **Update Now**.
+
+**Shutdown waits while packages install.** Fedora blocks shutdown and sleep during the install
+step, and KDE's logout screen does not say why. Stopping during the download is safe. `kempt
+doctor` checks it.
 
 | Exit | When |
 | --- | --- |
@@ -298,7 +302,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|popup|background|offline] [--risky-ok]
+kempt run [--print-command] [--surface=terminal|widget|background|offline] [--risky-ok]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
@@ -431,7 +435,7 @@ footer says when the check ran and how old the package lists were, then the last
 System (dnf): 7 updates for kernel-core, bash, curl, tar, and 3 more
 Apps (flatpak): 3 updates for org.gimp.GIMP, net.mkiol.SpeechNote and org.mozilla.firefox
 
-Checked 2 hours ago · metadata 2 days old
+Checked 2 hours ago · lists 2 days old
 Last update 3 days ago · 41 updated
 ```
 
@@ -534,35 +538,31 @@ kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)
 ## log
 
 ```
-kempt log [-n N]
+kempt log [-n N] [--raw]
 ```
 
-One line per thing Kempt did, newest last. `-n` sets how many lines to show (default 30). With
-nothing recorded it prints `No events recorded yet.`
+One line per thing Kempt did, newest last. `-n` sets how many (default 30).
 
 ```bash
-kempt log -n 6
+kempt log -n 4
 ```
 
 ```
-2026-08-26T20:58:03+03:00 cli refresh ok
-2026-08-26T20:58:11+03:00 cli check ok actionable=7 held=1
-2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
-2026-08-26T21:11:02+03:00 widget run start surface=background
-2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
-2026-08-26T21:14:41+03:00 widget check ok actionable=0 held=1
+2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
+2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
+2026-08-26T21:11:02+03:00 widget Update started in the background
+2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 ```
 
-Each line is `<timestamp> <via> <what happened>`, where `via` is `widget` or `cli` (a terminal, a
-script or a timer).
+`via` is `widget` or `cli` (a terminal, script or timer). `--raw` prints the stored words below.
 
 | Exit | When |
 | --- | --- |
-| 0 | Always, including an empty log. |
+| 0 | Always. |
 | 2 | `-n` without a positive whole number, or an unknown option. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600, trimmed to the last 2000 lines past 2500.
-The wording is fixed, so you can search it:
+Its wording is fixed, so you can search it:
 
 | Line | Written when |
 | --- | --- |
@@ -667,15 +667,13 @@ ok    widget: match checkout
 ok    widget engine: /home/you/src/kempt/bin/kempt
 
 Recent events (kempt log):
-  2026-08-26T21:10:55+03:00 widget config set auto_accept=true (was false)
-  2026-08-26T21:11:02+03:00 widget run start surface=background
-  2026-08-26T21:14:40+03:00 widget run done rc=0 updated=7 reboot=needed
+  2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 
 kempt doctor: all checks passed
 ```
 
 Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem, and the last line counts
-problems and warnings. One pass shows every problem. The last five events follow.
+problems and warnings. The last five events follow.
 
 | Exit | When |
 | --- | --- |
@@ -705,7 +703,7 @@ What a `FAIL` means:
 The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
 when the notifier is off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
-**Turn Off Discover's Notifier**. `./install.sh` offers the same. A second row says when Discover
+**Turn Off Discover's Notifier**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
@@ -851,7 +849,7 @@ kempt config get refresh_interval_min   # 60
 newer widget can use keys this version does not know:
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, popup, background, offline
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, background, offline
 ```
 
 Setting `surface` also answers the widget's one-time offer to run updates in the widget.
@@ -908,8 +906,7 @@ without a password. When it is not installed, `off`, `on` and `keep` say so and 
 **`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
 notifier stops starting at login, and stops the running one. A file of your own there moves to a
 name ending in `.before-kempt`, and Kempt prints where. A symlink stays a symlink. Kempt keeps one
-such copy and never overwrites it. When the notifier is already off, `off` says so and changes
-nothing.
+such copy and never overwrites it.
 
 **`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
 a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so

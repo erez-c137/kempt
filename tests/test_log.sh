@@ -370,9 +370,106 @@ assert_eq "$(text_of "$(last_event)")" "passwordless disable rc=0" "...and is re
 for i in $(seq 1 40); do "$KEMPT" config set surface "s$i" >/dev/null; done
 assert_eq "$("$KEMPT" log | wc -l)" "30" "kempt log shows the last 30 by default"
 assert_eq "$("$KEMPT" log -n 5 | wc -l)" "5" "-n takes a count"
-assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "config set surface=s40 (was s39)" \
+assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "Setting surface changed to s40 (was s39)" \
   "...counting back from the newest, which is printed last"
 assert_eq "$("$KEMPT" log -n 500 | wc -l)" "40" "asking for more than exist shows all of them"
+assert_eq "$(text_of "$("$KEMPT" log -n 1 --raw)")" "config set surface=s40 (was s39)" \
+  "--raw prints the line as events.log stores it"
+assert_eq "$("$KEMPT" log -n 500 --raw)" "$(cat "$EV")" "...every line verbatim"
+
+# The display is plain words; the file keeps its vocabulary. One line per family, each of which
+# must come out changed and with none of the file's key=value words.
+: > "$EV"
+plain_in=(
+  "check ok actionable=78 held=2" "check ok actionable=1 held=0" "check stale dnf check failed: x"
+  "check shared last_check=2026-01-01T00:00:00+00:00" "refresh ok" "refresh failed" "refresh flatpak ok"
+  "refresh flatpak failed" "refresh skipped (on battery)" "refresh anyway (the connection is metered)"
+  "refresh anyway (on battery)"
+  "run start surface=popup" "run did not start: x" "run done rc=0 updated=7 reboot=needed"
+  "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
+  "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
+  "offline stage cannot install (status x) - announced" "offline stage found nothing to stage"
+  "offline stage installed by another updater (3 updated)" "offline marker cleared (stage gone)"
+  "harvest applied (3 updated)" "harvest found the staged transaction did not run (1 updated)"
+  "harvest skipped snapshot failed" "harvest cleared stale marker"
+  "harvest deferred: packages moved outside Kempt while the stage is still armed"
+  "harvest entry not written (state directory unwritable?)" "harvest log not written (state directory unwritable?)"
+  "history entry not written (state directory unwritable?)" "unstage discarded the staged update"
+  "unstage refused (another updater has prepared the next restart)" "unstage refused by the root helper"
+  "unstage found nothing staged" "unstage cleared a marker with no transaction under it" "unstage failed rc=126"
+  "unstage left a transaction behind (status ready)" "reclaim removed 2 runtimes (2000000 bytes) rc=0"
+  "reclaim found nothing to remove" "reclaim changed (digest), nothing removed"
+  "reclaim changed (unstable), nothing removed" "reclaim changed (new), nothing removed"
+  "reclaim needs authorization, nothing removed" "reclaim failed rc=1: error: x"
+  "reclaim failed (flatpak did not answer)" "reclaim refused (running as root)" "reclaim refused (reclaim=off)"
+  "passwordless enable rc=0" "passwordless enable rc=1" "passwordless disable rc=0" "passwordless disable rc=126"
+  "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
+  "hold dnf:kernel-core" "unhold dnf:kernel-core"
+  "security notified count=3" "security check failed" "run start surface=bogus"
+  "offline staged 4 (NOT recorded: the state directory could not be written)"
+  "offline stage recorded without its package baseline - the restart result will not be reported"
+  "offline stage refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
+  "offline stage found nothing to stage (every pending update is held)"
+  "offline stage installed by another updater (before the restart)"
+  "offline stage left in place (another updater has prepared the next restart)"
+  "offline stage replaced outside Kempt (x) - announced"
+  "offline restage failed (stage left in place, another updater has prepared the next restart)"
+  "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
+  "offline marker dropped (a release upgrade (44) replaced our stage)"
+  "offline marker kept (a new stage arrived while the check ran)"
+  "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
+  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2")
+for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
+cp "$EV" "$TESTTMP/ev.before"
+plain_out="$("$KEMPT" log -n 500)"
+assert_eq "$(wc -l <<<"$plain_out")" "${#plain_in[@]}" "every line of the sample is shown"
+unchanged=""; codey=""; i=0
+while IFS= read -r line; do
+  shown="$(text_of "$line")"
+  [[ "$shown" != "${plain_in[$i]}" ]] || unchanged+="${plain_in[$i]}; "
+  grep -qE '(actionable|held|updated|surface|rc|last_check|reclaim|count)=| - |\b(harvest|popup|unstage|offline|marker|superseded|baseline)\b|root helper|NOT ' <<<"$shown" \
+    && codey+="$shown; "
+  i=$(( i + 1 ))
+done <<<"$plain_out"
+assert_eq "${unchanged%; }" "" "every family in the sample is shown in plain words"
+assert_eq "${codey%; }" "" "...with none of the file's code words"
+# The sample has to keep up with the code: every kind of line a log_event call writes (its text up
+# to the first expansion) needs a line here, so a new kind cannot ship without a sentence.
+missing=""
+while IFS= read -r head; do
+  [[ -n "$head" ]] || continue
+  found=""
+  for t in "${plain_in[@]}"; do [[ "$t" == "$head"* ]] && { found=1; break; }; done
+  [[ -n "$found" ]] || missing+="$head; "
+done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" \
+           | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
+assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
+assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a security notice reads as one"
+assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
+  "a stage without its baseline says what that costs"
+assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
+assert_eq "$(cmp -s "$EV" "$TESTTMP/ev.before" && echo same)" "same" "showing the log leaves events.log as it was"
+assert_contains "$plain_out" "cli Checked: 78 updates to install, 2 held" "a check reads as what the badge shows"
+assert_contains "$plain_out" "cli Checked: 1 update to install"$'\n' "...one update is singular, and no held is left out"
+assert_contains "$plain_out" "cli Staged update installed on restart (3 updated)" "a restart install reads as one"
+assert_contains "$plain_out" "cli Update started in the widget" "a run in the widget says so"
+assert_contains "$plain_out" "cli Setting surface changed to widget (was not set)" "a setting change names widget, not the stored word"
+assert_contains "$plain_out" "cli Removed 2 unused runtimes, 2 MB" "a removal gives its size in a unit"
+# A last line with no newline after it is still shown, and control characters never reach the
+# terminal: ESC, BEL, a carriage return and an OSC title sequence are taken out, in both views.
+printf '2026-01-01T00:00:00+00:00 cli refresh ok' >> "$EV"
+assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "Package lists downloaded" "a last line without a newline is shown"
+: > "$EV"
+printf '2026-01-01T00:00:00+00:00 cli hold dnf:a\033[31mb\a\rc\033]0;title\007\n' >> "$EV"
+ctl="$("$KEMPT" log -n 1; "$KEMPT" log -n 1 --raw; { "$KEMPT" doctor 2>/dev/null || true; } | grep 'Held dnf' || true)"
+assert_eq "$(LC_ALL=C grep -c $'[\x01-\x08\x0b-\x1f\x7f]' <<<"$ctl")" "0" \
+  "no control character reaches the terminal from kempt log, --raw or doctor"
+assert_contains "$ctl" "Held dnf:a[31mbc]0;title" "...and the rest of the line is still shown"
+cp "$TESTTMP/ev.before" "$EV"
+printf 'not an event line\n' >> "$EV"
+assert_eq "$("$KEMPT" log -n 1)" "not an event line" "a line that is not an event is shown as it is"
+: > "$EV"; for i in $(seq 1 40); do "$KEMPT" config set surface "s$i" >/dev/null; done
+
 assert_exit 2 "a zero count is a usage error" "$KEMPT" log -n 0
 assert_exit 2 "so is a non-numeric one" "$KEMPT" log -n five
 assert_exit 2 "so is -n with nothing after it" "$KEMPT" log -n
@@ -439,7 +536,7 @@ for i in $(seq 1 8); do "$KEMPT" config set surface "d$i" >/dev/null; done
 out="$("$KEMPT" doctor 2>&1 || true)"
 assert_eq "$(sed -n '/Recent events/,$p' <<<"$out" | grep -c '^  2[0-9][0-9][0-9]-')" "5" \
   "...and the last five when there are more"
-assert_eq "$(grep -c '^  .* config set surface=d8 (was d7)$' <<<"$out")" "1" \
+assert_eq "$(grep -c '^  .* Setting surface changed to d8 (was d7)$' <<<"$out")" "1" \
   "...ending on the newest one"
 assert_eq "$(grep -c '^FAIL' <<<"$out")" "0" "...and the section cannot be mistaken for a report line"
 # On failure, the count alone cannot say WHICH report line doctor produced - show it.

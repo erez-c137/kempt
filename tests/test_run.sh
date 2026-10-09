@@ -18,9 +18,9 @@ assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt 
 "$KEMPT" config set surface background
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=background)" "background plan"
 "$KEMPT" config set surface popup
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=popup)" "popup plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "popup plan"
 # --risky-ok, after Install Now in the popup, reaches the detached update and nothing else.
-assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=widget)" \
   "Install Now passes --risky-ok on to a detached update"
 "$KEMPT" config set surface offline
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "offline plan"
@@ -48,7 +48,7 @@ assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update
   "--dry-run still does what it always did"
 assert_eq "$("$KEMPT" run --dry-run)" "$("$KEMPT" run --print-command)" \
   "...and exactly what the new spelling does"
-assert_eq "$("$KEMPT" help | grep -c -- '--print-command')" "1" \
+assert_eq "$("$KEMPT" help | grep -c -- '--print-command' | awk '{print ($1 >= 1)}')" "1" \
   "the usage text offers the new spelling"
 assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
   "...and does not offer the old one"
@@ -63,6 +63,17 @@ assert_eq "$(grep -ci dry "$REPO_ROOT/docs/man/kempt.1")" "0" \
 surferr="$("$KEMPT" run --print-command 2>&1 >/dev/null)"
 assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "terminal: $KEMPT_TERMINAL -e kempt update" "unknown surface falls back to terminal"
 grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknown surface warns on stderr" || { echo "FAIL: surface warning"; _fail=1; }
+
+# `widget` is the other name for the stored `popup`: a hand-written surface=widget, and
+# --surface=widget, both run detached in the widget.
+"$KEMPT" config set auto_accept true
+sed -i 's/^surface=.*/surface=widget/' "$KEMPT_CONFIG_DIR/config"
+assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update (surface=widget)" \
+  "a hand-written surface=widget runs in the widget, with no warning"
+assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update (surface=widget)" \
+  "--surface=widget is accepted as the widget"
+assert_contains "$("$KEMPT" run --print-command --surface=bogus 2>&1)" "use terminal, widget, background or offline" \
+  "an unknown --surface value names widget among the choices"
 
 # --- --surface=<s>: one run on a named surface, whatever the setting says -----------------------
 # The widget stages through this (`kempt run --surface=offline`) so that a stage gets the same
@@ -79,7 +90,7 @@ assert_eq "$("$KEMPT" run --surface=offline --print-command)" "detached: kempt u
 # override passed on, a terminal asked for by name would stage in that window instead.
 assert_eq "$("$KEMPT" run --print-command --surface=terminal)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=terminal" \
   "--surface=terminal on a box configured to stage opens a terminal that updates live"
-assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=popup)" \
+assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=widget)" \
   "...a surface is read the way the setting is, trimmed and case-folded"
 "$KEMPT" config set auto_accept false
 assert_eq "$("$KEMPT" run --print-command --surface=offline)" "terminal: $KEMPT_TERMINAL -e kempt update --surface=offline" \
@@ -91,7 +102,7 @@ assert_eq "$("$KEMPT" run --print-command --surface=popup)" "terminal: $KEMPT_TE
 # rather than quietly turned into a terminal the way a mistyped setting is.
 rc=0; surferr="$("$KEMPT" run --print-command --surface=bogus 2>&1 >/dev/null)" || rc=$?
 assert_eq "$rc" "2" "run: an unknown --surface is refused (exit 2)"
-assert_eq "$surferr" "unknown --surface value: bogus (use terminal, popup, background or offline)" \
+assert_eq "$surferr" "unknown --surface value: bogus (use terminal, widget, background or offline)" \
   "...naming the surfaces there are"
 assert_exit 2 "run: an empty --surface is refused" "$KEMPT" run --print-command --surface=
 assert_exit 2 "run: --surface given twice is refused" \

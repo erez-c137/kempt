@@ -68,14 +68,38 @@ assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTT
 # --help or -h after a command is a request for help, not a mistake to exit 2 over. update and run
 # go through the same line of the dispatcher; they are left out here so that no test can ever start
 # a run if that line goes.
-for sub in check summary history log doctor config hold unhold holds enable-passwordless disable-passwordless; do
+# What it prints is that command's own usage, never the whole list.
+for sub in check summary history log doctor config hold unhold holds unstage reclaim discover-notifier \
+           enable-passwordless disable-passwordless; do
   for flag in --help -h; do
-    assert_exit 0 "kempt $sub $flag prints the usage and exits 0" "$KEMPT" "$sub" "$flag"
-    grep -q '^usage: kempt <command>' "$TESTTMP/last_output" \
-      && echo "ok: ...and what it prints is the usage list" \
-      || { echo "FAIL: kempt $sub $flag did not print the usage list"; _fail=1; }
+    assert_exit 0 "kempt $sub $flag prints its usage and exits 0" "$KEMPT" "$sub" "$flag"
+    grep -q "^usage: kempt $sub" "$TESTTMP/last_output" \
+      && ! grep -q '^usage: kempt <command>' "$TESTTMP/last_output" \
+      && echo "ok: ...and what it prints is the usage of $sub alone" \
+      || { echo "FAIL: kempt $sub $flag did not print its own usage"; _fail=1; sed 's/^/    /' "$TESTTMP/last_output"; }
   done
 done
+assert_eq "$("$KEMPT" help check)" "$("$KEMPT" check --help)" "kempt help check prints what kempt check --help does"
+assert_exit 2 "kempt help with a command Kempt does not have is a usage error" "$KEMPT" help bogus
+assert_exit 2 "...and so is --help after one" "$KEMPT" bogus --help
+# A command's help takes nothing after it, and an empty name is shown as one.
+assert_exit 2 "help with an extra word after the command is a usage error" "$KEMPT" help check extra
+assert_contains "$(cat "$TESTTMP/last_output")" "unknown option: extra" "...naming the extra word"
+assert_exit 2 "help with an empty name is a usage error" "$KEMPT" help ''
+assert_contains "$(cat "$TESTTMP/last_output")" "unknown command: ''" "...and shows the empty name as ''"
+assert_contains "$("$KEMPT" summary --help)" "usage: kempt summary [N | --json]" \
+  "summary's help is one synopsis, so each description belongs to it"
+assert_contains "$("$KEMPT" help enable-passwordless)" "an administrator's password once" \
+  "enable-passwordless says whose password it asks for"
+# security-ack is the widget's: its --help answers, and the full usage leaves it out.
+assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --expect=DIGEST" \
+  "the internal security-ack still answers --help, without running"
+assert_not_contains "$("$KEMPT" --help)" "security-ack" "...and stays out of the full usage"
+assert_contains "$("$KEMPT" check --help)" "per-user Flatpak apps" "check's help names the per-user Flatpak apps"
+assert_contains "$("$KEMPT" config --help)" "terminal, widget, background" "config's help lists the surface values"
+assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"
+assert_contains "$("$KEMPT" disable-passwordless --help)" "ask for a password again" "...and so does disable-passwordless"
+assert_not_contains "$("$KEMPT" help)" "popup" "the usage list never says popup"
 # doctor answers "which build is this?" too - it is the command people are asked to paste.
 KEMPT_POLICY_FILE="$TESTTMP/nopolicy" "$KEMPT" doctor > "$TESTTMP/doctor.txt" 2>&1 || true
 assert_exit 0 "doctor reports the version" -- grep -qE "^info +kempt $VER " "$TESTTMP/doctor.txt"

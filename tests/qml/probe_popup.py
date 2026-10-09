@@ -1105,12 +1105,17 @@ p.check("...the badge still the true actionable count, which no restart has run 
 p.check("...and Update Now GONE, because the work it would start is already done and waiting",
         lev("updateButton.visible"), False)
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
-        "and not spoken", said(), ["61 updates are staged and install on the next restart"])
+        "and not spoken", said(),
+        ["61 updates are staged and install on the next restart. "
+         "3 other updates are not in the staged update."])
+# The fixture's three pending Flatpak apps are not in the stage, so the banner says they wait.
 p.check("...showing only what the header does not already say",
-        lev("stagedMessage.text"), "They install when you restart.")
+        lev("stagedMessage.text"),
+        "They install when you restart. 3 other updates are not in the staged update.")
 p.check("...while its accessible name is the whole sentence, with the count",
         lev("stagedMessage.Accessible.name"),
-        "61 updates are staged and install on the next restart")
+        "61 updates are staged and install on the next restart. "
+        "3 other updates are not in the staged update.")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...and offering the restart, since no restart message is carrying it",
@@ -1150,8 +1155,9 @@ p.check("...and the staged message stands its button down rather than showing a 
 # A marker from before the CLI recorded a count still describes a real pending install.
 STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", None)
 state(STAGED_NOCOUNT)
+# The fixture's pending Flatpak apps add their own sentence after it, so only the first is compared.
 p.check("an unknown count loses the number, not the sentence",
-        lev("stagedMessage.Accessible.name"), ev("Logic.COPY.stagedUnknownCount"))
+        lev("stagedMessage.Accessible.name.split('. ')[0]"), ev("Logic.COPY.stagedUnknownCount"))
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
@@ -1730,11 +1736,11 @@ ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
 p.pump(100)
 p.check("the offer is on screen with its two actions",
         [lev("reclaimMessage.visible"), lev("reclaimMessage.actions[0].text"),
-         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show What"])
+         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show Runtimes"])
 p.check("...and the button says what it does, for the eye and for a screen reader",
         [lev("reclaimMessage.actions[0].tooltip"),
          lev("reclaimMessage.actions[0].Accessible.description")],
-        ["Removes the Flatpak runtimes listed under Show What."] * 2)
+        ["Removes the Flatpak runtimes listed under Show Runtimes."] * 2)
 
 open(CHECKSRC, "w").write(RC_GONE)
 open(RECLAIMST, "w").write(RC_GONE)
@@ -2274,8 +2280,8 @@ hush()
 ev("checkAction.trigger()")
 settle()
 p.check("a Check for Updates whose fetch did not happen says how old the lists are",
-        said(), ["Up to date. Metadata 3 hours old"])
-p.check("...in the footer's own words", "metadata 3 hours old" in str(lev("footerLabel.text")),
+        said(), ["Up to date. Lists 3 hours old"])
+p.check("...in the footer's own words", "lists 3 hours old" in str(lev("footerLabel.text")),
         True)
 
 # The same press answered by this check, with the fetch failed for want of a network. A message
@@ -2345,7 +2351,7 @@ p.check("closing it keeps it closed for this press",
         [ev("root.fetchMissedClosedFor === root.refreshAskedMs"), lev("fetchMissedMessage.visible")],
         [True, False])
 p.check("...and the footer gives the age again",
-        "metadata 3 hours old" in str(lev("footerLabel.text")), True)
+        "lists 3 hours old" in str(lev("footerLabel.text")), True)
 _fetched = dict(_failed, metadata_refreshed=datetime.datetime.now().astimezone().isoformat(
     timespec="seconds"), backends=_missed["backends"], last_check=(
         datetime.datetime.now().astimezone() + datetime.timedelta(seconds=5)).isoformat(
@@ -3706,6 +3712,8 @@ _ASSEMBLED_IN_LOGIC = {
     "riskySummaryMore",     # -> riskySummaryOf -> vm.riskyMessage (a count and the family list)
     "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
+    "stagedOthersOne",      # -> stagedOthersOf -> vm.stagedBanner, after the banner's sentence
+    "stagedOthersMore",     # -> stagedOthersOf -> vm.stagedBanner, with the count in the %1
     "stageBlocked",         # -> vm.stagedBanner and vm.stagedMessage, behind another updater's restart
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
