@@ -1671,8 +1671,12 @@ log_refresh_skip() {  # reason
 }
 
 # Whether dnf5's system cache holds metadata for at least one repository the check can read.
+# A cache directory you cannot read or enter counts as usable: it is there, only not yours to list.
 dnf_cache_usable() {
   local f
+  if [[ -d "$KEMPT_DNF_CACHE_DIR" && ( ! -r "$KEMPT_DNF_CACHE_DIR" || ! -x "$KEMPT_DNF_CACHE_DIR" ) ]]; then
+    return 0
+  fi
   for f in "$KEMPT_DNF_CACHE_DIR"/*/repodata/repomd.xml; do
     [[ -r "$f" ]] && return 0
   done
@@ -2091,8 +2095,9 @@ offline_installonly_rpm_names() {  # → installed names providing installonlypk
     # shellcheck disable=SC2086
     out="$($KEMPT_RPM_INSTALLONLY_CMD 2>/dev/null)" || true
   else
-    # rc 1 when one provide has no package, with the other's names still printed.
-    out="$(rpm -q --qf '%{NAME}\n' --whatprovides 'installonlypkg(kernel)' 'installonlypkg(kernel-module)' 2>/dev/null)" || true
+    # rc 1 when a provide has no package, with the names for the others still printed.
+    out="$(rpm -q --qf '%{NAME}\n' --whatprovides 'installonlypkg(kernel)' 'installonlypkg(kernel-module)' \
+      'installonlypkg(vm)' 'multiversion(kernel)' 2>/dev/null)" || true
   fi
   local line
   while IFS= read -r line; do

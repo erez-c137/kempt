@@ -331,6 +331,14 @@ STUB
   KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
   assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "3" \
     "...but with no usable cache it is tried again once 15 minutes old"
+  # Root reads any directory, so this case only means something for a user.
+  if (( EUID != 0 )); then
+    touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"; chmod 000 "$TESTTMP/dnf-cache"
+    KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+    chmod 755 "$TESTTMP/dnf-cache"
+    assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "3" \
+      "...while a cache you cannot read counts as there"
+  fi
 
   # The published line never carries a credential, even from a tail cut inside a URL.
   rel() { printf '%b' "$1" > "$TESTTMP/rel.err"; refresh_error_line "$TESTTMP/rel.err" "${2:-1}"; }
