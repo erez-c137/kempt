@@ -112,9 +112,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   notes lose their double negatives.
 - **The widget hides the download size while an update is staged**, since nothing is left to
   download.
-- **`kempt` refuses to run as root, and exits 8.** As root it would use root's config and state,
-  and the passwordless rule would name root. Help, the version and `discover-notifier status`
-  still answer. `KEMPT_ALLOW_ROOT=1` lifts the refusal.
+- **`kempt` and `install.sh` refuse to run as root, and exit 8.** As root they would use root's
+  home, config and state, and the passwordless rule would name root. Help, the version and
+  `discover-notifier status` still answer. `KEMPT_ALLOW_ROOT=1` lifts the refusal.
 - **A run counts the dnf step as done only when it confirms it.** A dnf step that ends any other
   way now fails the run, and no staged update is promised.
 

@@ -4033,7 +4033,7 @@ fi
 
 # Kempt is a per-user tool: as root it would read and write root's config and state, and the
 # polkit rule it renders would name root. Help, the version and the read-only notifier status
-# stay open, because install.sh asks for the status and may run under sudo.
+# stay open, since they change nothing.
 if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
   case "${1:-help} ${2:-}" in
     "help "*|"--help "*|"-h "*|"version "*|"--version "*|"-V "*|"discover-notifier status") ;;
