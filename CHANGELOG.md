@@ -9,6 +9,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Security updates can announce themselves.** Turn on **Security updates** in the widget's
+  settings, or run `kempt config set notify_security true`. Each new set of system security
+  updates then gets one notification, and the panel icon asks for attention until you open the
+  widget. Those rows are marked **Security**. It is off by default.
 - **Download Anyway fetches package lists on battery or a metered connection, once.** When a
   check skipped the download for one of those reasons, the widget offers **Download Anyway**.
   In a terminal, run `kempt check --anyway`. Nothing automatic ever does this. The event log says

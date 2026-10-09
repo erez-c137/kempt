@@ -354,6 +354,11 @@ The lowest value it offers is 15 minutes.
 **Restart…** button. With it off, the footer still says `restart pending`. Kempt never restarts on
 its own either way.
 
+**Security updates** (`notify_security`, off by default) announces each new set of security
+updates in system packages once. Their rows are marked **Security**, and the tooltip counts them.
+Until you open the widget, the panel icon asks for attention. If Kempt is **Always hidden** in the
+tray, Plasma keeps it hidden.
+
 **Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default), **Remove after updates**
 or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are left out of
 updates.
