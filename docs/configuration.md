@@ -175,7 +175,8 @@ battery or a metered connection. The widget's **Check for Updates** runs it. Whe
 no fetch, the widget says why and how old the metadata is.
 
 `kempt check --anyway` fetches now even on battery or a metered connection, for that check only.
-The widget's **Download Anyway** button runs it. No setting or automatic check ever does.
+The widget's **Download Anyway** button runs it. No setting or automatic check ever does. With
+`KEMPT_SKIP_REFRESH` set it still fetches nothing, and says so in one line on stderr.
 
 Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json` once a dnf
 refresh has worked, and leaves it out until then. Once the metadata is over 24 hours old, the

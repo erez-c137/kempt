@@ -583,9 +583,14 @@ assert_eq "$(cat "$TESTTMP/refresh-env" 2>/dev/null)" "0" \
 assert_eq "$(hist_count)" "$hist_before" "...and writes no history entry"
 # The off switch still wins: tests and a box with fetching turned off.
 rm -f "$TESTTMP/refresh-calls"
-st_any_off="$(KEMPT_SKIP_REFRESH=1 PATH="$TESTTMP/metered-bin:$PATH" "$KEMPT" check --anyway 2>/dev/null)"
+st_any_off="$(KEMPT_SKIP_REFRESH=1 PATH="$TESTTMP/metered-bin:$PATH" "$KEMPT" check --anyway 2>"$TESTTMP/any-off.err")"
 assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)|$(jq -r '.refresh_skipped // "absent"' <<<"$st_any_off")" \
   "0|off" "KEMPT_SKIP_REFRESH still skips with --anyway, and says off"
+assert_eq "$(grep -c '^warning: nothing was downloaded; KEMPT_SKIP_REFRESH turns fetching off$' "$TESTTMP/any-off.err")" "1" \
+  "...and warns on stderr, in one line, that it downloaded nothing"
+KEMPT_SKIP_REFRESH=1 "$KEMPT" check --refresh >/dev/null 2>"$TESTTMP/refresh-off.err" || true
+assert_not_contains "$(cat "$TESTTMP/refresh-off.err")" "KEMPT_SKIP_REFRESH" \
+  "...a warning a check without --anyway does not give"
 assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
 
 # A check started inside Kempt (after a run, an unstage, a reclaim) never passes --anyway. cmd_check

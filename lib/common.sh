@@ -1534,8 +1534,15 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
   # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
   # skipped fetch from a failed one, and does not read an old failure marker as this check's.
   REFRESH_SKIPPED=""
-  if [[ -n "${KEMPT_SKIP_REFRESH:-}" ]]; then REFRESH_SKIPPED=off; return 0; fi
   local force="${1:-}" anyway="${2:-}"
+  # The off switch wins over --anyway too. Said on stderr, as the lock wait says it, so a typed
+  # `kempt check --anyway` does not look as if it fetched.
+  if [[ -n "${KEMPT_SKIP_REFRESH:-}" ]]; then
+    REFRESH_SKIPPED=off
+    [[ "$anyway" != anyway ]] \
+      || echo "warning: nothing was downloaded; KEMPT_SKIP_REFRESH turns fetching off" >&2
+    return 0
+  fi
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
