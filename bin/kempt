@@ -2348,7 +2348,7 @@ reconcile_replaced_stage() {
   stage_lock_try || return 0
   local why updated
   if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
-    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart installs a different update. $(stage_remedy)"
+    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart will not install it. $(stage_remedy)"
     log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - announced"
     updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
