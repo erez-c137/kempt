@@ -8,6 +8,7 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .PP
 .B kempt check
 .RB [ \-\-refresh ]
+.RB [ \-\-anyway ]
 .RB [ \-\-coalesce ]
 .RB [ \-\-strict ]
 .br
@@ -85,12 +86,14 @@ Only two small helpers run as root, one per polkit action, and both check every 
 serve dnf. Flatpak updates run as you and never ask for a password.
 .SH COMMANDS
 .TP
-.BR check " [" \-\-refresh "] [" \-\-coalesce "] [" \-\-strict ]
+.BR check " [" \-\-refresh "] [" \-\-anyway "] [" \-\-coalesce "] [" \-\-strict ]
 Ask every enabled backend what is pending, write the state file and print it as JSON. A check
 answers from the local dnf and Flatpak caches. It refreshes them at most once every three hours,
 and never on battery or a metered connection.
 .B \-\-refresh
 fetches now, but still skips battery and metered connections.
+.B \-\-anyway
+fetches now even on battery or a metered connection, for this check only.
 .B \-\-coalesce
 is for automatic checks: when this check waited for another that succeeded later, that one's state
 is printed and nothing is queried.

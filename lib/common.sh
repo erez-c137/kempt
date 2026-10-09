@@ -1529,13 +1529,13 @@ log_refresh_skip() {  # reason
   return 0
 }
 
-maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never blocks check on failure
+maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
   # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
   # skipped fetch from a failed one, and does not read an old failure marker as this check's.
   REFRESH_SKIPPED=""
   if [[ -n "${KEMPT_SKIP_REFRESH:-}" ]]; then REFRESH_SKIPPED=off; return 0; fi
-  local force="${1:-}"
+  local force="${1:-}" anyway="${2:-}"
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.
@@ -1546,8 +1546,9 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
   #
   # `kempt check --refresh` passes THIS gate and nothing below it. The interval is a courtesy to
   # the mirrors, and somebody standing at the machine asking for fresh metadata may overrule it.
-  # The two rules below are a different kind of thing - they are about this person's battery and
-  # this person's bill - so a flag that quietly spent either would be worse than no flag at all.
+  # The battery and metering rules below spend this person's power and data, so only `anyway`
+  # passes them: `kempt check --anyway`, typed or pressed, for this one check. Nothing automatic
+  # may pass it, and it is never exported, so cmd_check's internal callers cannot inherit it.
   # due_fp is the shared gate. dnf has one exception: while no dnf refresh has ever worked and the
   # latest one failed, there is no cache to check against, so the dnf arm is tried again once the
   # failure is 15 minutes old (the marker's mtime; one in the future counts as old). A Flatpak fetch
@@ -1562,9 +1563,16 @@ maybe_refresh_metadata() {  # [force] - ≤ every 3h, AC power, unmetered; never
     if (( now - failed_at < 0 || now - failed_at >= 900 )); then due_dnf=1; fi
   fi
   (( due_fp || due_dnf )) || return 0
-  if on_battery; then REFRESH_SKIPPED=battery; log_refresh_skip "on battery"; return 0; fi
-  # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
-  if metered_connection; then REFRESH_SKIPPED=metered; log_refresh_skip "the connection is metered"; return 0; fi
+  # An override is logged every time, because each one spent power or data somebody asked to spend.
+  if on_battery; then
+    if [[ "$anyway" != anyway ]]; then REFRESH_SKIPPED=battery; log_refresh_skip "on battery"; return 0; fi
+    log_event "refresh anyway (on battery)"
+  fi
+  if metered_connection; then
+    # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
+    if [[ "$anyway" != anyway ]]; then REFRESH_SKIPPED=metered; log_refresh_skip "the connection is metered"; return 0; fi
+    log_event "refresh anyway (the connection is metered)"
+  fi
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
   # keep in step with this one. `ok` records whether ANY fetch landed; see the stamp at the bottom.
