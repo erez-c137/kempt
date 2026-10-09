@@ -57,6 +57,8 @@ ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh
 export KEMPT_NOTIFY=/tmp/gate-notify KEMPT_TERMINAL=/bin/true
+# The gate drives Kempt as root inside its container, which Kempt otherwise refuses.
+export KEMPT_ALLOW_ROOT=1
 K=$ROOT/bin/kempt
 STATE=$HOME/.local/state/kempt
 TOML=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml

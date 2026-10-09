@@ -193,6 +193,9 @@ sandbox() {  # fresh dirs per test file; call first
   # switches the reclaim feature off. Unset so a developer's elevated shell cannot decide which
   # branch the reclaim tests take; the files that test the guard set them per command.
   unset SUDO_UID PKEXEC_UID
+  # Kempt refuses to run as root. A suite run as root, such as in a CI container, lifts the
+  # refusal; test_version.sh checks the refusal itself.
+  if [[ $EUID -eq 0 ]]; then export KEMPT_ALLOW_ROOT=1; else unset KEMPT_ALLOW_ROOT; fi
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 

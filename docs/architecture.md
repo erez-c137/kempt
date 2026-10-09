@@ -843,6 +843,7 @@ missing path, unless the row says otherwise.
 | Variable | Default | Used for |
 | --- | --- | --- |
 | `KEMPT_ROOT` | the directory above `lib/common.sh` | Where the CLI reads `VERSION`, `backends/` and the rules template. `kempt doctor` calls it a checkout when `install.sh` is in it. With no `VERSION`, `kempt --version` answers `kempt unknown` |
+| `KEMPT_ALLOW_ROOT` | unset | `1` lets every command run as root. Unset, only help, the version and `discover-notifier status` do, and the rest exit 8. `tests/lib.sh` sets it only when the suite itself runs as root |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
 | `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | the matching `*_HELPER_PATH` | Point at stub helpers |

@@ -165,4 +165,29 @@ if command -v git >/dev/null 2>&1; then
     "an installed dev build prints its whole name"
 fi
 
+# --- as root ------------------------------------------------------------------------------------
+# An unprivileged user namespace gives EUID 0 without sudo. Every command but help, the version and
+# the notifier status refuses with exit 8, before it reads or writes anything.
+if command -v unshare >/dev/null && unshare -r true 2>/dev/null; then
+  as_root() { env -u KEMPT_ALLOW_ROOT unshare -r "$KEMPT" "$@"; }
+  rm -rf "$KEMPT_STATE_DIR" "$KEMPT_CONFIG_DIR"
+  rc=0; err="$(as_root check 2>&1 >/dev/null)" || rc=$?
+  assert_eq "$rc|$err" "8|kempt: run Kempt as your own user, without sudo. It asks for a password when it needs one." \
+    "kempt check as root exits 8 with one line"
+  assert_exit 1 "...and creates no state directory" -- test -e "$KEMPT_STATE_DIR"
+  for c in "update" "config get surface" "hold dnf:vim" "enable-passwordless" "nonsense"; do
+    # shellcheck disable=SC2086  # each entry is a command and its words
+    rc=0; as_root $c >/dev/null 2>&1 || rc=$?
+    assert_eq "$rc" "8" "kempt $c as root exits 8"
+  done
+  for c in "--version" "version" "help" "-h" "discover-notifier status"; do
+    # shellcheck disable=SC2086
+    rc=0; as_root $c >/dev/null 2>&1 || rc=$?
+    assert_eq "$(( rc != 8 ))" "1" "kempt $c still answers as root"
+  done
+  assert_exit 0 "KEMPT_ALLOW_ROOT=1 lifts the refusal" -- env KEMPT_ALLOW_ROOT=1 unshare -r "$KEMPT" config get surface
+else
+  echo "skip: no unprivileged user namespaces, so the root refusal is not tested here"
+fi
+
 finish

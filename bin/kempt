@@ -3962,6 +3962,7 @@ cmd_disable_passwordless() {
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
 #   7 update only: another program held the dnf or Flatpak lock through all three tries
+#   8 run as root: every command but help, version and `discover-notifier status` refuses
 usage() {
   cat <<'EOF'
 usage: kempt <command>
@@ -4012,6 +4013,17 @@ EOF
 if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
   usage
   exit 0
+fi
+
+# Kempt is a per-user tool: as root it would read and write root's config and state, and the
+# polkit rule it renders would name root. Help, the version and the read-only notifier status
+# stay open, because install.sh asks for the status and may run under sudo.
+if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
+  case "${1:-help} ${2:-}" in
+    "help "*|"--help "*|"-h "*|"version "*|"--version "*|"-V "*|"discover-notifier status") ;;
+    *) echo "kempt: run Kempt as your own user, without sudo. It asks for a password when it needs one." >&2
+       exit 8 ;;
+  esac
 fi
 
 # Before any command reads the config, so the first `config get surface` of this version already

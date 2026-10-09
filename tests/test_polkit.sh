@@ -198,10 +198,11 @@ fi
 
 # As root, pkexec is not needed to write anywhere, so the test setting is refused there too. Run
 # as EUID 0 in an unprivileged user namespace, without sudo: if the refusal failed, the "root"
-# install would land in TESTTMP, where the second assertion finds it.
+# install would land in TESTTMP, where the second assertion finds it. KEMPT_ALLOW_ROOT lifts the
+# root refusal, so this reaches the destination check behind it.
 if [[ $EUID -ne 0 ]] && command -v unshare >/dev/null && timeout 20 unshare --map-root-user true 2>/dev/null; then
   assert_exit 2 "as root, the test setting is refused even with no pkexec wrapper" -- \
-    timeout 20 unshare --map-root-user env KEMPT_RULES_DST="$TESTTMP/as-root.rules" "$KEMPT" enable-passwordless
+    timeout 20 unshare --map-root-user env KEMPT_ALLOW_ROOT=1 KEMPT_RULES_DST="$TESTTMP/as-root.rules" "$KEMPT" enable-passwordless
   assert_exit 1 "...and nothing is written there" -- test -e "$TESTTMP/as-root.rules"
 else
   skip "as-root destination test - needs an unprivileged user namespace"
