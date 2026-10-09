@@ -3731,16 +3731,24 @@ doctor_metadata_row() {
 }
 
 # The last check failed. A WARN with the first line of its error, so a box where every check fails
-# (offline, a broken repo) cannot read "no problems" with nothing beside it.
+# (offline, a broken repo) cannot read "no problems" with nothing beside it. dnf's no-cache text
+# reads as kempt status words it, through the same jq def (lists_never_downloaded).
 doctor_last_check_row() {
-  local status err
+  local line
   [[ -s "$STATE_FILE" ]] || return 0
-  status="$(jq -r -n '[inputs][0] | select(type == "object") | .status // empty | tostring' "$STATE_FILE" 2>/dev/null)" || status=""
-  [[ "$status" == stale ]] || return 0
-  err="$(jq -r -n '[inputs][0] | .error | if type == "string" then
-           ([split("\n")[] | sub("^\\s+"; "") | select(. != "")] | .[0] // "") else "" end' "$STATE_FILE" 2>/dev/null \
-         | tr -d '[:cntrl:]' | cap_bytes 200)" || err=""
-  doctor_warn "last check failed${err:+: $err}. The counts Kempt shows are from an earlier check, if any"
+  line="$(jq -r -n "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
+            [inputs][0] | select(type == "object" and .status == "stale")
+            | (.error | first_line) as $err
+            | (lists_never_downloaded) as $plain
+            | ((.last_success | type) == "string" and (.last_success | sub("^\\s+"; "")) != "") as $ever
+            | (if ($err | test("Cache-only enabled but no cache|no cache"; "i")) and $plain != "" then $plain
+               else $err end) as $why
+            | "last check failed" + (if $why != "" then ": " + $why else "" end) + ". "
+              + (if $ever then "The counts Kempt shows are from an earlier check"
+                 else "There are no counts yet" end)' "$STATE_FILE" 2>/dev/null \
+          | tr -d '[:cntrl:]' | cap_bytes 400)" || line=""
+  [[ -n "$line" ]] && doctor_warn "$line"
+  return 0
 }
 
 # Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left

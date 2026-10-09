@@ -2245,6 +2245,8 @@ assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" footerText)" "Checked
   "...while the footer invents no age"
 assert_eq "$(fm 'metadata_refreshed:null' "$ASKED" fetchMissedMessage)" "" \
   "...and with no stamp and no refresh error there is nothing to claim"
+assert_eq "$(fm "metadata_refreshed:null,refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+  "...nor with refreshing turned off, whose refresh error is from a download Kempt no longer tries"
 # Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
 # waits up to 30 s, so the widget waits longer than that before it calls the write lost.
 assert_eq "$(js 'L.ANSWER_TIMEOUT_MS >= 35000')" "true" \

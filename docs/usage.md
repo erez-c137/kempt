@@ -717,7 +717,7 @@ users can change root's dnf files, and name the `chmod` that fixes it.
 | Line | What it means |
 | --- | --- |
 | `WARN  package lists: the last download failed (<reason>) ...` | Checks answer from older lists, offline for example. |
-| `WARN  last check failed: <reason> ...` | The counts Kempt shows are from an earlier check. |
+| `WARN  last check failed: <reason> ...` | The counts Kempt shows are from an earlier check, or there are none yet. dnf's no-cache error reads as in `kempt status`. |
 
 ### The staged transaction
 

@@ -1422,9 +1422,17 @@ assert_contains "$(cat "$TESTTMP/off.txt")" \
   "WARN  package lists: the last download failed (Curl error (6): Could not resolve host: mirrors.fedoraproject.org). Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh" \
   "a failed dnf fetch is a WARN with the first line of its error"
 assert_contains "$(cat "$TESTTMP/off.txt")" \
-  "WARN  last check failed: dnf check failed: Cache-only enabled but no cache. The counts Kempt shows are from an earlier check, if any" \
-  "a stale state is a WARN with the first line of its error"
+  "WARN  last check failed: dnf check failed: Cache-only enabled but no cache. There are no counts yet" \
+  "a stale state is a WARN with the first line of its error, and no earlier check means no counts"
 assert_eq "$(warns_of "$TESTTMP/off.txt")" "$(( off_base + 2 ))" "...and the last line counts both"
+# dnf's no-cache text reads in the words kempt status uses, from the refresh error that says why.
+printf '%s\n' '{"schema":1,"status":"stale","error":"dnf check failed: Cache-only enabled but no cache for repository \"fedora\"","last_success":"2026-08-20T10:00:00+03:00","actionable":0,"backends":{"dnf":{"refresh_error":"Curl error (6): Could not resolve host: mirrors.fedoraproject.org"}}}' > "$STATE_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/off.txt")" \
+  "WARN  last check failed: Package lists have never been downloaded: Curl error (6): Could not resolve host: mirrors.fedoraproject.org. The counts Kempt shows are from an earlier check" \
+  "dnf's no-cache text becomes the plain words kempt status prints"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "Cache-only" "...never dnf's raw text"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "if any" "...and no hedge after the counts"
 printf '%s\n' '{"schema":1,"status":"ok","actionable":0,"backends":{}}' > "$STATE_FILE"
 rm -f "$REFRESH_DNF_FAILED_FILE"
 "$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true

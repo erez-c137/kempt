@@ -3609,6 +3609,15 @@ KEMPT_JQ_STATUS='
   def first_line:
     if type == "string" then ([split("\n")[] | sub("^\\s+"; "") | sub("\\s+$"; "") | select(. != "")] | .[0] // "")
     else "" end;
+  # What a failed dnf download says in plain words, or "" when the state carries no refresh
+  # error. dnf with no cache says only that it has none ("Cache-only enabled but no cache for
+  # repository ..."); the refresh error says why. kempt status and kempt doctor both print this.
+  def lists_never_downloaded:
+    if (type == "object") and ((.backends | type) == "object") and ((.backends.dnf | type) == "object")
+       and ((.backends.dnf.refresh_error | type) == "string")
+    then (.backends.dnf.refresh_error | first_line) as $e
+         | if $e == "" then "" else "Package lists have never been downloaded: " + $e end
+    else "" end;
   def usable_state:
     type == "object"
     and (if (.schema | type) == "number" and .schema != 1 then false
@@ -3653,7 +3662,6 @@ KEMPT_JQ_STATUS='
       | ($stale and ($ever | not) and ($walked | not)) as $never_answered
       | ((($s.backends | type) == "object") and (($s.backends.dnf | type) == "object")
          and (($s.backends.dnf.refresh_error | type) == "string")) as $fetch_failed
-      | (if $fetch_failed then $s.backends.dnf.refresh_error | first_line else "" end) as $fetch_error
       | ((($s.backends | type) == "object") and (($s.backends.flatpak | type) == "object")
          and (($s.backends.flatpak.scopes | type) == "object") and $s.backends.flatpak.scopes.user == "failed") as $user_unchecked
       | ((($s.release_upgrade | type) == "object") and (($s.release_upgrade.to | type) == "string")
@@ -3674,9 +3682,7 @@ KEMPT_JQ_STATUS='
          else ($actionable | tostring) + " updates available" end) as $header
       | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky
       | "H\u001f" + ($header | clean),
-        # dnf with no cache says only that it has none ("Cache-only enabled but no cache for
-        # repository ..."); the refresh error says why there is none.
-        (if $never_answered and $fetch_error != "" then "P\u001f" + ("Package lists have never been downloaded: " + $fetch_error | clean)
+        (if $never_answered and ($s | lists_never_downloaded) != "" then "P\u001f" + ($s | lists_never_downloaded | clean)
          elif $never_answered then ($s.error | first_line | select(. != "") | "P\u001f" + (. | clean))
          else empty end),
         ( $c.sections[]

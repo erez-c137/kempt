@@ -1516,7 +1516,8 @@ function refreshMissed(state, askedMs) {
     var asked = Number(askedMs);
     if (!state || typeof state !== "object" || !isFinite(asked) || asked <= 0) return false;
     var at = stampMs(state.metadata_refreshed);
-    if (!isFinite(at)) return refreshErrorOf(state) !== "";
+    // ...unless refreshing is turned off: that error is from a download Kempt no longer tries.
+    if (!isFinite(at)) return refreshErrorOf(state) !== "" && state.refresh_skipped !== "off";
     return at < Math.floor(asked / 1000) * 1000;
 }
 
