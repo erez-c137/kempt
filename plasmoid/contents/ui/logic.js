@@ -411,10 +411,10 @@ var COPY = {
     engineMissing: "Nothing can check for updates yet.",
     // One command per line, so neither wraps in the middle.
     engineMissingInstall:
-        "To install it on Fedora, run:\n"
+        "To install the engine on Fedora, run:\n"
         + "sudo dnf copr enable erez-c137/kempt\n"
         + "sudo dnf install kempt-plasmoid\n"
-        + "On other systems, see github.com/erez-c137/kempt.",
+        + "For other ways to install it, see github.com/erez-c137/kempt.",
     // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
     // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
     // The tests drift-guard the two: every command this copies must appear verbatim in the other.
@@ -496,9 +496,15 @@ var COPY = {
     reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
     // Added with reclaim=automatic, where the next successful update removes them anyway.
     reclaimAutomatic: "Kempt removes them after the next update.",
-    // After a ref in the Show What list whose branch Flatpak marks end of life.
+    // After a ref in the Show Runtimes list whose branch Flatpak marks end of life.
     reclaimEol: "(no longer supported)",
-    reclaimShowWhat: "Show What",
+    // The offer's two buttons. Free Up Space Now in automatic mode, where the next update removes
+    // them anyway; Freeing Up Space… while it runs. The QML repeats each literal for i18n.
+    reclaimAction: "Free Up Space",
+    reclaimActionNow: "Free Up Space Now",
+    reclaimRunning: "Freeing Up Space…",
+    reclaimTooltip: "Removes the Flatpak runtimes listed under Show Runtimes.",
+    reclaimShowWhat: "Show Runtimes",
     // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
     reclaimFreed: "Freed %1.",
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
@@ -1468,11 +1474,11 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
-        return "metadata " + days + (days === 1 ? " day old" : " days old");
+        return "lists " + days + (days === 1 ? " day old" : " days old");
     }
     var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return "metadata " + hours + (hours === 1 ? " hour old" : " hours old");
-    return "metadata " + Math.floor(age / 60000) + " min old";
+    if (hours >= 1) return "lists " + hours + (hours === 1 ? " hour old" : " hours old");
+    return "lists " + Math.floor(age / 60000) + " min old";
 }
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
@@ -2946,7 +2952,7 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
-        // The reclaim offer: its line, one line per runtime for Show What, the digest the button
+        // The reclaim offer: its line, one line per runtime for Show Runtimes, the digest the button
         // passes to `kempt reclaim --expect`, and which of the two button labels applies.
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,

@@ -36,16 +36,13 @@ chosen, there is no badge, but the icon still changes and the tooltip has the co
 
 ## Inside the widget
 
-Click the icon. Here, updates are pending, a restart is owed and a kernel is included:
+Click the icon. Here, two updates are pending, a restart is owed and you hold `kernel-core`, so the
+update leaves the kernel out:
 
 ```
- 3 updates available                                 [refresh] [gear]   <- header
+ 2 updates available                                 [refresh] [gear]   <- header
  --------------------------------------------------------------------
  (!) Restart to apply installed updates          [Restart…]      [x]   <- messages
- (i) This update includes a kernel. The safest way is to
-     install it on the next restart, so nothing changes
-     under the running desktop.
-                                        [Install on Next Restart]
 
  System (dnf)                                                          <- the list
    nodejs                                                     [🔓]
@@ -150,7 +147,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    nothing. Either answer hides the message for good. The **Discover** row in settings turns the
    notifier back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
-    is at least 100 MB to free, or an amount Kempt could not measure. **Show What** lists the
+    is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
     says so. When **Unused Flatpak runtimes** is **Remove after updates**, the message adds
@@ -267,7 +264,7 @@ succeeds it reads `No successful check yet`. It can add:
 
 - ` · last check failed`.
 - ` · apps for you only not checked`, when the apps installed for you alone could not be listed.
-- ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
+- ` · lists 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
 - ` · ~140 MB`, the estimated download, when known, something is pending, and no update is staged.

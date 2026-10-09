@@ -258,7 +258,7 @@ check's per-user items, and the widget says the apps for you only could not be c
 - It is absent until a dnf fetch has worked. `kempt doctor` then says no dnf refresh is recorded
   yet when fetches have run, and never refreshed when none has.
 - A check answers from the cache, so this can be much older than `last_check`.
-- The widget's footer shows `metadata N days old` past 24 hours. When a **Check for Updates**
+- The widget's footer shows `lists N days old` past 24 hours. When a **Check for Updates**
   press got no fetch, a message gives the age and why: `refresh_skipped`, else
   `backends.dnf.refresh_error` (`Logic.fetchMissedOf`). It shows only while the state on screen is
   the one that press was answered with, so the next check takes it away. The footer shows the age

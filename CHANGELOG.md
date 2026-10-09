@@ -129,11 +129,15 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `discover-notifier status` still answer. `KEMPT_ALLOW_ROOT=1` lifts the refusal.
 - **A run counts the dnf step as done only when it confirms it.** A dnf step that ends any other
   way now fails the run, and no staged update is promised.
-
 - **`kempt log` shows each event in plain words.** `check ok actionable=78 held=1` reads
   `Checked: 78 updates to install, 1 held`, and `harvest applied` reads `Staged update installed
   on restart`. `kempt doctor`'s last events read the same. `events.log` keeps its wording, and
   `kempt log --raw` prints it.
+- **The widget's footer says `lists 2 days old`**, not `metadata 2 days old`, once the package
+  lists are over a day old.
+- **Show What is now Show Runtimes**, and the Free Up Space button, tooltip and progress text read
+  the same everywhere. When the engine is missing, the widget now says how to install the engine
+  and where to find other ways.
 
 ### Fixed
 

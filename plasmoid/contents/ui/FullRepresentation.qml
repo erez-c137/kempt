@@ -1091,7 +1091,7 @@ PlasmaExtras.Representation {
 
         // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is
         // wrong, and LAST in the order (logic.js, MESSAGE_ORDER): the offer keeps until the next open.
-        // Show What adds one line per runtime under the sentence, so the name read out lists them too.
+        // Show Runtimes adds one line per runtime under the sentence, so the name read out lists them too.
         Kirigami.InlineMessage {
             id: reclaimMessage
             Component.onCompleted: popup.plainTextMessage(reclaimMessage)
@@ -1114,7 +1114,7 @@ PlasmaExtras.Representation {
                     text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
                         : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
                     icon.name: "edit-clear-all"
-                    tooltip: i18n("Removes the Flatpak runtimes listed under Show What.")
+                    tooltip: i18n("Removes the Flatpak runtimes listed under Show Runtimes.")
                     Accessible.description: tooltip
                     enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
                              && !popup.plasmoidItem.updating
@@ -1122,7 +1122,7 @@ PlasmaExtras.Representation {
                 },
                 Kirigami.Action {
                     id: reclaimShowWhat
-                    text: i18n("Show What")
+                    text: i18n("Show Runtimes")
                     icon.name: "view-list-details"
                     checkable: true
                     checked: reclaimMessage.showingWhat

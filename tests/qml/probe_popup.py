@@ -1730,11 +1730,11 @@ ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
 p.pump(100)
 p.check("the offer is on screen with its two actions",
         [lev("reclaimMessage.visible"), lev("reclaimMessage.actions[0].text"),
-         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show What"])
+         lev("reclaimMessage.actions[1].text")], [True, "Free Up Space", "Show Runtimes"])
 p.check("...and the button says what it does, for the eye and for a screen reader",
         [lev("reclaimMessage.actions[0].tooltip"),
          lev("reclaimMessage.actions[0].Accessible.description")],
-        ["Removes the Flatpak runtimes listed under Show What."] * 2)
+        ["Removes the Flatpak runtimes listed under Show Runtimes."] * 2)
 
 open(CHECKSRC, "w").write(RC_GONE)
 open(RECLAIMST, "w").write(RC_GONE)
@@ -2274,8 +2274,8 @@ hush()
 ev("checkAction.trigger()")
 settle()
 p.check("a Check for Updates whose fetch did not happen says how old the lists are",
-        said(), ["Up to date. Metadata 3 hours old"])
-p.check("...in the footer's own words", "metadata 3 hours old" in str(lev("footerLabel.text")),
+        said(), ["Up to date. Lists 3 hours old"])
+p.check("...in the footer's own words", "lists 3 hours old" in str(lev("footerLabel.text")),
         True)
 
 # The same press answered by this check, with the fetch failed for want of a network. A message
@@ -2345,7 +2345,7 @@ p.check("closing it keeps it closed for this press",
         [ev("root.fetchMissedClosedFor === root.refreshAskedMs"), lev("fetchMissedMessage.visible")],
         [True, False])
 p.check("...and the footer gives the age again",
-        "metadata 3 hours old" in str(lev("footerLabel.text")), True)
+        "lists 3 hours old" in str(lev("footerLabel.text")), True)
 _fetched = dict(_failed, metadata_refreshed=datetime.datetime.now().astimezone().isoformat(
     timespec="seconds"), backends=_missed["backends"], last_check=(
         datetime.datetime.now().astimezone() + datetime.timedelta(seconds=5)).isoformat(

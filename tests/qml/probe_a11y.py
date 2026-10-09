@@ -510,10 +510,10 @@ p.check("Free Up Space is named by its label, which is what the message's button
         lev("reclaimMessage.actions[0].text"), "Free Up Space")
 p.check("...and says what pressing it does before a polkit dialog takes the focus",
         lev("reclaimMessage.actions[0].Accessible.description"),
-        "Removes the Flatpak runtimes listed under Show What.")
+        "Removes the Flatpak runtimes listed under Show Runtimes.")
 lev("reclaimMessage.showingWhat = true")
 p.pump(60)
-p.check("Show What puts one line per runtime under it, and the name read out says them too",
+p.check("Show Runtimes puts one line per runtime under it, and the name read out says them too",
         lev("reclaimMessage.Accessible.name"),
         "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.\n"
         "org.kde.Platform 5.15-23.08 (no longer supported)\n"
@@ -534,7 +534,7 @@ p.check("...until the set it was closed for is no longer the one on offer",
 # At the smallest popup size, with the restart message and the offer both up, the space left for
 # the list is shorter than the placeholder's icon and sentence. Centred, it used to spill upward
 # over the messages. Walked through every height from the minimum to this window's, at both
-# widths, with Show What shut and open: wherever it is shown, its painted box is inside the area.
+# widths, with Show Runtimes shut and open: wherever it is shown, its painted box is inside the area.
 GU = lev("Kirigami.Units.gridUnit")
 BOTH = reclaim_from(uptodate_from("state-reboot-needed.json", "state-uptodate-reboot.json"),
                     "state-reclaim-reboot.json")
@@ -572,7 +572,7 @@ seen, outside = placeholder_walk((22 * GU, 460))
 p.check("...and at no popup size does the placeholder paint outside the list's area", outside, [])
 lev("reclaimMessage.showingWhat = true")
 seen_open, outside = placeholder_walk((22 * GU,))
-p.check("...Show What open included", outside, [])
+p.check("...Show Runtimes open included", outside, [])
 # Which states a walk reaches depends on the font: with a small one the words fit even in the
 # smallest popup and it never stands down. probe_popup pins each threshold at forced heights;
 # here only that nothing else occurs, and that the icon both shows and drops.

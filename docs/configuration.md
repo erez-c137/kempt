@@ -180,7 +180,7 @@ The widget's **Download Anyway** button runs it. No setting or automatic check e
 
 Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json` once a dnf
 refresh has worked, and leaves it out until then. Once the metadata is over 24 hours old, the
-widget's footer shows `metadata N days old`, and `kempt doctor` reports it on its own row. A
+widget's footer shows `lists N days old`, and `kempt doctor` reports it on its own row. A
 skipped refresh is also written to the event log, at most once a
 day.
 
