@@ -23,7 +23,11 @@ PlasmoidItem {
     property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     property bool recheckRefresh: false    // ...and whether any folded request was Check for Updates
     property bool recheckWatched: false    // ...and whether EVERY folded request was the watcher's
+    // ...and whether Download Anyway was pressed during it. Set in downloadAnyway() and nowhere
+    // else, and replayed only into a check a person asked for.
+    property bool recheckAnyway: false
     property bool checkingRefresh: false   // the check in flight is itself a fetch (`--refresh`)
+    property bool checkingAnyway: false    // ...and one that passes the battery and metering rules
     // When the last Check for Updates whose check has landed was pressed, as Date.now(); 0 until
     // then. The footer compares it with metadata_refreshed to say when that press got no fetch.
     property double refreshAskedMs: 0
@@ -99,8 +103,9 @@ PlasmoidItem {
     property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
-    // A Check for Updates that answered nothing while a state is held: the sentence put in
-    // actionMessage for it, so the next check can take back that report and no other. It is also
+    // A Check for Updates that answered nothing while a state is held, or a Download Anyway press
+    // answered with the state from before it: the sentence put in actionMessage for it, so the
+    // next check can take back that report and no other. It is also
     // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
     property string checkFailNote: ""
     function clearCheckFailNote() {
@@ -401,10 +406,14 @@ PlasmoidItem {
     // `fromWatcher` is true for a check the file watcher started: the trace of a write, often one
     // the widget just made itself (an offer's answer writes the config file). It keeps what the
     // person is reading, the confirmation of that answer and a Check Installation answer.
-    function doCheck(automatic, refresh, fromWatcher) {
+    //
+    // `anyway` is true only from downloadAnyway() and its replay below: a fetch that also passes
+    // the battery and metering rules. Ignored on any check that is automatic or not a fetch.
+    function doCheck(automatic, refresh, fromWatcher, anyway) {
         var auto = automatic === true;
         var fresh = refresh === true;
         var watched = fromWatcher === true;
+        var spend = anyway === true && fresh && !auto;
         // The last event's reports have had their moment. Cleared BEFORE the coalesce guard: a
         // Refresh pressed while a check runs is still the user asking for the next thing.
         //
@@ -448,11 +457,13 @@ PlasmoidItem {
         }
         checking = true;
         checkingRefresh = fresh;
+        checkingAnyway = spend;
         var askedMs = Date.now();
-        executor.run(kemptCmd + Logic.checkArgs(auto, fresh), Logic.CHECK_TIMEOUT_MS,
+        executor.run(kemptCmd + Logic.checkArgs(auto, fresh, spend), Logic.CHECK_TIMEOUT_MS,
                      function(stdout, stderr, rc) {
             root.checking = false;
             root.checkingRefresh = false;
+            root.checkingAnyway = false;
             // Stamped for EVERY completed check, whatever it answered: the quiet window below is
             // about the writes a check makes, and it makes those either way.
             root.lastCheckFinished = Date.now();
@@ -479,6 +490,13 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
+                // A Download Anyway press whose check gave up waiting on another check's lock: the
+                // CLI printed the state from before the press and downloaded nothing. Said here,
+                // after the line above that clears the note, or the press would look ignored.
+                if (spend && Logic.servedBeforePress(parsed, askedMs)) {
+                    root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");
+                    root.actionMessage = root.checkFailNote;
+                }
             } else if (rc === 127) {
                 // Nothing to run. cliError is cleared so the popup shows one message about one
                 // situation instead of both.
@@ -539,11 +557,16 @@ PlasmoidItem {
                 var asked = root.recheckAsked;
                 var again = root.recheckRefresh;
                 var watchedAgain = root.recheckWatched;
+                // A Download Anyway press folded in is honoured once, and only by a check a person
+                // asked for, never by an automatic one. Not during a run either, where the button
+                // itself does nothing: a run that started since the press drops it.
+                var anywayAgain = asked && root.recheckAnyway && !root.updating;
                 root.recheckPending = false;
                 root.recheckAsked = false;
                 root.recheckRefresh = false;
                 root.recheckWatched = false;
-                root.doCheck(!asked, again, watchedAgain);
+                root.recheckAnyway = false;
+                root.doCheck(!asked, again || anywayAgain, watchedAgain, anywayAgain);
                 return;
             }
             // Anything waiting for a check to LAND is free now. Before the bounded retry on
@@ -1034,6 +1057,17 @@ PlasmoidItem {
 
     function dismissFetchMissed() {
         fetchMissedClosedFor = refreshAskedMs;
+    }
+
+    // Download Anyway: one check that fetches even on battery or a metered connection. Only this
+    // press asks for that. During a check it is remembered and runs next, unless the running check
+    // already passes the rules: then a second press adds nothing, not even a plain check. During a
+    // run it does nothing, like Check for Updates' button.
+    function downloadAnyway() {
+        if (updating) return;
+        if (checking && checkingAnyway) return;
+        if (checking) recheckAnyway = true;
+        doCheck(false, true, false, true);
     }
 
     // The one-time offer's answer, either way, written as the setting itself: setting the surface

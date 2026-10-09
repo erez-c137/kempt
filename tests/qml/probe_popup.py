@@ -2337,6 +2337,8 @@ ev("checkAction.trigger()")
 settle()
 p.check("premise: a new press that missed shows the message again",
         lev("fetchMissedMessage.visible"), True)
+p.check("...and a fetch that failed offers no Download Anyway",
+        [lev("fetchAnywayAction.visible"), lev("fetchAnywayAction.enabled")], [False, False])
 lev("fetchMissedMessage.visible = false")
 settle()
 p.check("closing it keeps it closed for this press",
@@ -2354,6 +2356,91 @@ ev("checkAction.trigger()")
 settle()
 p.check("a later Check for Updates that fetched shows no message",
         [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage")], [False, ""])
+
+# Download Anyway: on a fetch skipped for battery or a metered link, the message carries one button.
+# Its press runs one check with --anyway, and that check's answer clears the message.
+def _stamp(seconds):
+    return (datetime.datetime.now().astimezone()
+            + datetime.timedelta(seconds=seconds)).isoformat(timespec="seconds")
+_skipped = dict(_missed, refresh_skipped="battery", last_check=_stamp(5))
+open(os.path.join(p.sandbox, "state-skipped.json"), "w").write(json.dumps(_skipped))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-skipped.json"))
+ev("checkAction.trigger()")
+settle()
+p.check("a fetch skipped on battery offers Download Anyway on its message",
+        [lev("fetchMissedMessage.visible"), lev("fetchAnywayAction.visible"),
+         lev("fetchAnywayAction.enabled"), lev("fetchAnywayAction.text")],
+        [True, True, True, "Download Anyway"])
+p.check("...with the battery tooltip", lev("fetchAnywayAction.tooltip"),
+        ev("Logic.COPY.downloadAnywayPowerTip"))
+ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(dict(_skipped, refresh_skipped="metered"))))
+settle()
+p.check("...and the metered tooltip on a metered link",
+        [lev("fetchAnywayAction.visible"), lev("fetchAnywayAction.tooltip")],
+        [True, ev("Logic.COPY.downloadAnywayMeteredTip")])
+p.check("premise: no check has asked to download anyway yet", p.call_count("check --anyway"), 0)
+_fetched_anyway = dict(_fetched, last_check=_stamp(8),
+                       metadata_refreshed=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+open(os.path.join(p.sandbox, "state-fetched-anyway.json"), "w").write(json.dumps(_fetched_anyway))
+open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetched-anyway.json"))
+p.clear_calls()
+lev("fetchAnywayAction.trigger()")
+settle()
+p.check("pressing it runs one check that downloads anyway",
+        p.calls_matching("check"), ["check --anyway"])
+p.check("...and its answer takes the message and the button away",
+        [lev("fetchMissedMessage.visible"), lev("fetchAnywayAction.visible")], [False, False])
+p.clear_calls()
+ev("root.doCheck(true)")
+settle()
+ev("checkAction.trigger()")
+settle()
+p.check("...and nothing after it repeats the override",
+        p.calls_matching("check"), ["check --coalesce", "check --refresh"])
+
+# ...and under the placeholder over package lists that were never downloaded.
+_nocache = {"schema": 1, "status": "stale", "last_success": None, "actionable": 0,
+            "held_total": 0, "refresh_skipped": "battery",
+            "error": 'dnf check failed: Cache-only enabled but no cache for repository "fedora"',
+            "last_check": _stamp(0), "backends": {"dnf": {"enabled": True, "items": []}}}
+def _show(doc):
+    ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(doc)))
+    settle()
+_show(_nocache)
+p.check("lists never downloaded on battery put Download Anyway under the hint",
+        [lev("placeholder.explanation"), lev("placeholder.helpfulAction === anywayPlaceholderAction"),
+         lev("anywayPlaceholderAction.enabled"), lev("anywayPlaceholderAction.tooltip")],
+        [ev("Logic.COPY.checkNoCachePowerHint"), True, True, ev("Logic.COPY.downloadAnywayPowerTip")])
+_show(dict(_nocache, refresh_skipped="metered"))
+p.check("...and on a metered connection, with its own tooltip",
+        [lev("placeholder.helpfulAction === anywayPlaceholderAction"),
+         lev("anywayPlaceholderAction.tooltip")], [True, ev("Logic.COPY.downloadAnywayMeteredTip")])
+_show(dict(_nocache, refresh_skipped="off"))
+p.check("...but not with fetching turned off",
+        [lev("placeholder.helpfulAction === anywayPlaceholderAction"),
+         lev("anywayPlaceholderAction.enabled")], [False, False])
+# A press while a check runs is remembered and runs next. The check in flight is an automatic one,
+# slowed so the press lands inside it.
+_show(_nocache)
+open(CHECKSLEEP, "w").write("1")
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+p.check("premise: a check is running", ev("root.checking"), True)
+lev("anywayPlaceholderAction.trigger()")
+p.check("a press during a running check is remembered, not dropped",
+        [ev("root.recheckPending"), ev("root.recheckAnyway")], [True, True])
+ev("root.doCheck(true)")
+settle()
+open(CHECKSLEEP, "w").write("")
+p.check("...and honoured by the check after it, even with an automatic request folded in",
+        p.calls_matching("check"), ["check --coalesce", "check --anyway"])
+p.check("...leaving nothing to replay", ev("root.recheckAnyway"), False)
+p.clear_calls()
+ev("root.doCheck(true)")
+settle()
+p.check("...so the next automatic check is an ordinary one", p.calls_matching("check"), ["check --coalesce"])
+state(fixture("state-live.json"))
 
 # The engine missing or refusing to run. The line at the top says which, and so does the answer.
 # Pressed a second or more after the lists above were stamped, and before that state's last_check:

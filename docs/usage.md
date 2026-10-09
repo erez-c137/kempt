@@ -66,7 +66,7 @@ that only read take no lock.
 ## check
 
 ```
-kempt check [--refresh] [--coalesce] [--strict]
+kempt check [--refresh] [--anyway] [--coalesce] [--strict]
 ```
 
 Asks every enabled backend what is pending, writes `~/.local/state/kempt/state.json`, and prints
@@ -85,6 +85,7 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | Option | Effect |
 | --- | --- |
 | `--refresh` | Fetches package metadata now instead of waiting out the 3-hour interval. On battery or a metered connection it still skips the fetch. dnf and Flatpak each give up after 2 minutes. |
+| `--anyway` | Fetches now, even on battery or a metered connection. Implies `--refresh` and applies to this check only. The event log says `refresh anyway`. |
 | `--coalesce` | Reuses the answer of a check this one waited for, when that check succeeded and finished in a later second. Nothing is queried or written, and the event log says `check shared`. `--refresh` turns it off. |
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
@@ -96,7 +97,8 @@ hold always run a check of their own.
 refreshes them at most once every 3 hours, which is the only network use, and skips that on battery
 or a metered connection. On a fresh install the first check refreshes before it asks, and a backend
 that cannot reports `stale` until a refresh succeeds. Old metadata shows in the widget's footer, in
-`kempt doctor`, and in the event log, which records a skipped refresh once a day.
+`kempt doctor`, and in the event log, which records a skipped refresh once a day. To fetch anyway,
+run `kempt check --anyway` or press **Download Anyway** in the widget.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's record
 of a stage that has gone.
@@ -542,6 +544,7 @@ The wording is fixed, so you can search it:
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
 | `refresh skipped (<reason>)` | Skipped on battery or a metered connection. At most once a day. |
+| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Download Anyway** fetched past that rule. Every time. |
 | `run start surface=<surface>` | A run is about to change the system. |
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |

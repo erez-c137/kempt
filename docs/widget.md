@@ -107,7 +107,9 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, another message says why and gives their
-   age, until closed or the next check.
+   age, until closed or the next check. On battery or a metered connection it offers **Download
+   Anyway**, which fetches them once, now. If another check held the lock until the press gave
+   up, it says `Another check was running. Press Download Anyway again.`
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
@@ -310,7 +312,9 @@ The list says `Everything is up to date` and the footer has no **Update Now**. T
 can still show, because a restart can be owed with nothing pending. In place of
 `Everything is up to date`, the **Held** group shows when every pending update is held,
 and `Apps installed for you only could not be checked.` when those apps could not be listed. When a
-check could not run Kempt at all, it says so there, with **Check Installation** under it.
+check could not run Kempt at all, it says so there, with **Check Installation** under it. When the
+package lists were never downloaded because of battery or a metered connection, the hint says to
+plug in or switch connections, and **Download Anyway** sits under the hint.
 
 ### About the restart
 
@@ -373,6 +377,7 @@ Each button runs a command described in [usage.md](usage.md).
 | Button | Command |
 | --- | --- |
 | **Check for Updates** | `kempt check --refresh` |
+| **Download Anyway** | `kempt check --anyway` |
 | **Update Now** | `kempt run` |
 | **Install Now** | `kempt run --risky-ok` |
 | **Install on Next Restart**, **Rebuild Staged Update** | `kempt run --surface=offline` |

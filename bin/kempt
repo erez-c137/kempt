@@ -474,9 +474,10 @@ reclaim_after_run() {  # log_file
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
-  # --refresh overrules the three-hour interval and NOTHING else: the battery and metering rules
-  # are about the person's hardware and their bill, not about being polite to a mirror, so a flag
-  # that quietly spent either would be worse than no flag. maybe_refresh_metadata carries the rule.
+  # --refresh overrules the three-hour interval only. --anyway implies it and also passes the
+  # battery and metering rules, for this check alone. It stays a local, passed as an argument: the
+  # internal `cmd_check` calls after holds and runs must never inherit it. maybe_refresh_metadata
+  # carries both rules.
   # --coalesce is the widget's automatic checks (timer, watcher, popup open, startup, post-run
   # fallback): "any check that finishes after I asked answers me too". Two widget instances (one
   # per panel tray) otherwise turn every automatic trigger into two dnf queries back to back, the
@@ -484,10 +485,11 @@ cmd_check() {
   # and a state someone else produced from the old metadata does not answer it.
   # --strict is for scripts: an answer that is not current (a backend failed, the per-user listing
   # failed, or the previous state was served) exits 1 instead of 0, after the state is printed.
-  local force_refresh="" coalesce="" strict=""
+  local force_refresh="" anyway="" coalesce="" strict=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --refresh) force_refresh=force; shift ;;
+      --anyway) force_refresh=force; anyway=anyway; shift ;;
       --coalesce) coalesce=1; shift ;;
       --strict) strict=1; shift ;;
       *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -503,6 +505,8 @@ cmd_check() {
   exec 9>"$KEMPT_STATE_DIR/check.lock"
   if ! flock -w "$KEMPT_CHECK_LOCK_WAIT" 9; then
     echo "warning: another check holds the lock; serving previous state" >&2
+    [[ -z "$anyway" ]] \
+      || echo "warning: nothing was downloaded; run kempt check --anyway again when the other check ends" >&2
     # `[inputs][0]`, and NOT `jq -e .`: a multi-document state file is valid input to jq, so the
     # plain form prints BOTH documents under exit 0 and the widget's JSON.parse throws on the
     # second. House idiom - same guard on prev_ls below, in state_prev_items and `summary --json`.
@@ -530,7 +534,7 @@ cmd_check() {
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
   # one staged transaction into two history entries
   harvest_offline
-  maybe_refresh_metadata "$force_refresh"
+  maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
   # nothing below may change `status`: the check must answer with or without a size.
@@ -3982,13 +3986,14 @@ cmd_disable_passwordless() {
 usage() {
   cat <<'EOF'
 usage: kempt <command>
-  check [--refresh] [--coalesce] [--strict]
+  check [--refresh] [--anyway] [--coalesce] [--strict]
                         refresh pending-updates state (JSON to stdout). --refresh fetches package
                         metadata now, ignoring the 3-hour interval but never the battery or
-                        metered-connection rules. --coalesce accepts the answer of a check that
-                        finished while this one waited (the widget's automatic checks). --strict
-                        exits 1 when dnf or Flatpak failed, the apps for you only could not be
-                        listed, or the previous state was served
+                        metered-connection rules. --anyway downloads package lists now, even on
+                        battery or a metered connection. --coalesce accepts the answer of a check
+                        that finished while this one waited (the widget's automatic checks).
+                        --strict exits 1 when dnf or Flatpak failed, the apps for you only could
+                        not be listed, or the previous state was served
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
                         for this run. --risky-ok leaves out the session-critical notification
