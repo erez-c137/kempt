@@ -300,8 +300,9 @@ var COPY = {
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
     // contradiction one level down. "%1"/"%2" because these are the only entries whose
-    // subject is a package name from another program, and spec section 7 requires them stated as
-    // sentences rather than head/tail fragments; stagedVariantOf substitutes.
+    // subject is a package name from another program, and a sentence with a name in it must be
+    // one whole translatable string, never a head and a tail glued together; stagedVariantOf
+    // substitutes.
     // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
     // is right for "what is risky here" and wrong here, where the person is owed the number of
     // packages their holds did not stop. In the USER'S order of events, with BOTH remedies: named

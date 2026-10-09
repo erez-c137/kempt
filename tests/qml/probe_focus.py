@@ -5,11 +5,11 @@ Kept as the sequences these bugs were found by rather than rewritten - each one 
 can walk into, and the bug in every case is a control that stopped being on screen while it still
 held the keyboard.
 
-  F1  Update Now is HIDDEN when there is nothing to run, and the box can become up to date while
+  1.  Update Now is HIDDEN when there is nothing to run, and the box can become up to date while
       the popup is open (the 30s watcher, the hourly timer, a `kempt update` finishing in a
       terminal). Focus stayed on the hidden button, so Space started `kempt run` on a box with
       nothing to update.
-  F4  the same trap on Refresh, which used to be hidden while a check ran, plus the open that
+  2.  the same trap on Refresh, which used to be hidden while a check ran, plus the open that
       walks straight into it: popupOpened() fires the refresh-on-open check FIRST and announces
       popupShown() after, so focusPrimary() chose a Refresh button the check had just taken off
       the screen - and the popup opened with the keyboard on nothing at all.
@@ -158,7 +158,7 @@ def uptodate_from(source, name):
 UPTODATE = uptodate_from("state-live.json", "state-uptodate.json")
 
 # ==================================================================================================
-# F1. the focused Update Now disappears under the keyboard
+# 1. the focused Update Now disappears under the keyboard
 # ==================================================================================================
 state(fixture("state-live.json"))
 ev('root.postRunLine = ""')
@@ -218,9 +218,9 @@ press(Qt.Key_Tab)
 p.check("...and Tab still has somewhere to go", focused() != "nothing", True)
 
 # ==================================================================================================
-# F4. the same trap on Refresh, and the open that walks straight into it
+# 2. the same trap on Refresh, and the open that walks straight into it
 # ==================================================================================================
-# Refresh used to be REPLACED by its spinner while a check ran. Same shape as F1 and the same
+# Refresh used to be REPLACED by its spinner while a check ran. Same shape as section 1 and the same
 # consequence: the keyboard stayed on a control that was no longer on screen. It is disabled now
 # and stays where it is, with the spinner beside it.
 state(fixture("state-live.json"))
@@ -282,7 +282,7 @@ open(SLEEP, "w").write("0")
 settle()
 
 # ==================================================================================================
-# F5. the pane that replaces the whole content area, and where the keyboard goes with it
+# 3. the pane that replaces the whole content area, and where the keyboard goes with it
 # ==================================================================================================
 # Measured before this: a run replaces the content wholesale, the keyboard stayed on the INVISIBLE
 # Update Now, and the utterance over the stuck pane was "Update Now push button" for a control
