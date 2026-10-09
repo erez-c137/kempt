@@ -165,4 +165,8 @@ grep -q 'left in place because the stored offline transaction could not be read.
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
+# dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
+assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \
+  "every run in history recorded dnf as ok or failed"
+
 finish

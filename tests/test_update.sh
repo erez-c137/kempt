@@ -2848,4 +2848,8 @@ UNINSTALL runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.f
 "$KEMPT" config set reclaim ask >/dev/null
 export KEMPT_FLATPAK_USER_DIR="$TESTTMP/no-user-flatpak"
 
+# dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
+assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \
+  "every run in history recorded dnf as ok or failed"
+
 finish

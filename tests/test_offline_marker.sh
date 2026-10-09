@@ -326,4 +326,8 @@ replaced_staged() {  # replaced-flag → offline_staged_state's output
 assert_eq "$(replaced_staged false | jq -r .count)" "61" "premise: an armed stage of Kempt's is published"
 assert_eq "$(replaced_staged true)" "" "a stage replaced outside Kempt is not published as Kempt's"
 
+# dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
+assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \
+  "every run in history recorded dnf as ok or failed"
+
 finish
