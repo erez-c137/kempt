@@ -1575,6 +1575,9 @@ cmd_update() {
         # it would remove that symlink and cancel the other updater's restart install. The stage
         # replaced whatever the old marker described, so only the marker goes.
         if [[ "$(offline_link_state)" == other ]]; then
+          # The download is stored and will not install: dnf5 makes /system-update only when it
+          # is absent. The words match apply_refusal_reason's for the same link.
+          reason_override="the updates were downloaded, but another updater has prepared the next restart, so they will not install then. Try again after the restart"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           log_event "offline stage left in place (another updater has prepared the next restart)"
         else
@@ -1622,7 +1625,7 @@ cmd_update() {
           # dnf5 replaced the previous transaction before failing, so the old marker describes
           # nothing. The clean would remove another updater's /system-update and cancel its
           # restart install, so only the marker goes.
-          reason_override="could not rebuild the staged update. Another updater has prepared the next restart, so nothing staged by Kempt installs then"
+          reason_override="could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then

@@ -536,6 +536,10 @@ assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot copy" -- test ! -f "$af_pre"
 assert_eq "$(tail -n 3 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
   "...and the log says why the stored one stayed"
+afhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$afhist")" \
+  "the updates were downloaded, but another updater has prepared the next restart, so they will not install then. Try again after the restart" \
+  "...and the reason says the download will not install at the restart"
 
 # --- and the same escalation the other way round: nobody reads stderr in a panel ------------------
 # A cleanup that failed leaves the box in the one state a person has to act on by hand, and the run
@@ -640,8 +644,8 @@ assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot copy" -- test ! -f "$sf_pre"
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$sthist")" \
-  "could not rebuild the staged update. Another updater has prepared the next restart, so nothing staged by Kempt installs then" \
-  "...and the reason says the restart installs the other update"
+  "could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart" \
+  "...and the reason says the old stage is gone and the restart installs the other update"
 grep -q 'offline restage failed (stage left in place, another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why nothing was cleaned" || { echo "FAIL: no event for the skipped clean"; _fail=1; }
 
