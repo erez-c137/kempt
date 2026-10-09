@@ -63,6 +63,14 @@ PlasmaExtras.Representation {
     property bool traysHeading: (Plasmoid.containmentDisplayHints
                                  & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
+    // The tooltip of every press that installs at the next restart: the risky message's restart
+    // choice and the footer button. COPY.installOnNextRestartTooltip and
+    // COPY.installOnNextRestartSystemTooltip, written once here as literals for i18n() to extract.
+    // It promises Flatpak apps update now only when some are waiting.
+    readonly property string stageTooltip: vm.stageTooltipNamesFlatpak
+        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
+        : i18n("Installs system updates during the next restart.")
+
     // The representation-switch heuristic, not decoration: Plasma compares the space it has
     // against these to decide between the panel icon and this popup. Removing them is how a widget
     // ends up showing the popup inside a panel.
@@ -847,10 +855,7 @@ PlasmaExtras.Representation {
                     // restart-shaped actions under one icon, one opening KDE's logout prompt and
                     // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
-                    // Promises Flatpak apps update now only when some are waiting.
-                    tooltip: popup.vm.stageTooltipNamesFlatpak
-                        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
-                        : i18n("Installs system updates during the next restart.")
+                    tooltip: popup.stageTooltip
                     // Gone, not greyed, while a Fedora release upgrade is stored: the message that
                     // replaces this one says why, and a disabled button with its explanation in a
                     // different message is a puzzle rather than an answer.
@@ -1531,10 +1536,7 @@ PlasmaExtras.Representation {
                 // choice's words (Logic.updateButtonOf).
                 text: popup.vm.updateStages ? i18n("Install on Next Restart") : i18n("Update Now")
                 icon.name: "system-software-update"
-                readonly property string stagesTooltip: !popup.vm.updateStages ? ""
-                    : popup.vm.stageTooltipNamesFlatpak
-                        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
-                        : i18n("Installs system updates during the next restart.")
+                readonly property string stagesTooltip: popup.vm.updateStages ? popup.stageTooltip : ""
                 Accessible.name: text
                 Accessible.description: stagesTooltip
                 PlasmaComponents.ToolTip.text: stagesTooltip

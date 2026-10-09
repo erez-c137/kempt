@@ -167,7 +167,7 @@ KEMPT_INSTALL_ECHO=1 bash "$INSTALL" <<<"n" >/dev/null 2>&1 || true
 # stays load-bearing (only the root helpers are copies).
 assert_exit 0 "real mode symlinks the CLI into ~/.local/bin" -- test -L "$HOME/.local/bin/kempt"
 assert_eq "$(readlink "$HOME/.local/bin/kempt")" "$REPO_ROOT/bin/kempt" "real mode symlink points into the checkout"
-grep -q "don't move/delete the repo" <<<"$out" \
+grep -q "so do not move or delete it" <<<"$out" \
   && echo "ok: says the checkout is load-bearing" || { echo "FAIL: no checkout warning - got: $out"; _fail=1; }
 
 # --- wrong outcomes: what the installer SAYS when the auth dialog is dismissed. KEMPT_INSTALL_ECHO=fail
@@ -175,18 +175,18 @@ grep -q "don't move/delete the repo" <<<"$out" \
 irc=0
 iout="$(KEMPT_INSTALL_ECHO=fail bash "$INSTALL" </dev/null 2>&1)" || irc=$?
 assert_eq "$irc" "1" "a declined install exits 1, not a bare pkexec rc"
-grep -q 'root helpers are NOT installed' <<<"$iout" \
+grep -q 'root helpers and the panel widget are not installed' <<<"$iout" \
   && echo "ok: a declined install says the helpers are missing" || { echo "FAIL: install failure message - got: $iout"; _fail=1; }
 # The widget arm sits after the root step, so a declined dialog skips it too. Skipping is right (a
 # widget with no root helpers can only ever show a failed check), but it must be SAID, not silent.
-grep -q 'panel widget was not installed either' <<<"$iout" \
+grep -q 'and the panel widget are not installed' <<<"$iout" \
   && echo "ok: ...and that the widget was skipped along with them" || { echo "FAIL: declined install does not mention the widget - got: $iout"; _fail=1; }
 urc=0
 uout="$(KEMPT_INSTALL_ECHO=fail bash "$INSTALL" --uninstall 2>&1)" || urc=$?
 assert_eq "$urc" "1" "a declined uninstall exits 1, not a bare pkexec rc"
-grep -q 'the CLI symlink is gone, but' <<<"$uout" \
+grep -q 'The CLI symlink is gone, but' <<<"$uout" \
   && echo "ok: a declined uninstall names the half-removed state" || { echo "FAIL: uninstall failure message - got: $uout"; _fail=1; }
-grep -q 're-run ./install.sh --uninstall' <<<"$uout" \
+grep -q 'Run ./install.sh --uninstall again' <<<"$uout" \
   && echo "ok: ...and says how to finish" || { echo "FAIL: no recovery instruction - got: $uout"; _fail=1; }
 
 # --- the notifier question. "no" must mean no: `!= "n"` used to read the word "no" as consent.
@@ -297,7 +297,7 @@ assert_eq "$(cat "$TESTTMP/kp-calls")" "-t Plasma/Applet -i $REPO_ROOT/plasmoid"
   "...as an Applet install of the repo's own plasmoid tree"
 grep -q 'Add Widgets' "$TESTTMP/wout" && echo "ok: and it says how to actually put the widget on the panel" \
   || { echo "FAIL: no instruction after install - got: $(cat "$TESTTMP/wout")"; _fail=1; }
-grep -q 'COPY' "$TESTTMP/wout" && echo "ok: ...and that the widget, unlike the CLI, is a copy" \
+grep -q 'the widget is a copy' "$TESTTMP/wout" && echo "ok: ...and that the widget, unlike the CLI, is a copy" \
   || { echo "FAIL: does not say the widget is a copy - got: $(cat "$TESTTMP/wout")"; _fail=1; }
 # The icon is installed into a theme directory that a plasmashell started before it existed will
 # not have in its search list. The signal below fixes that for a running session; the way out when
@@ -332,12 +332,12 @@ grep -qF -- "the widget was upgraded in a running session" "$TESTTMP/uout" \
 rc=0
 out="$(KEMPT_KPACKAGETOOL="$TESTTMP/no-such-kpackagetool" widget_install 2>&1)" || rc=$?
 assert_eq "$rc" "0" "a missing kpackagetool6 never fails the install"
-grep -q 'NOT installed' <<<"$out" && echo "ok: and it says the widget was skipped" \
+grep -q 'panel widget was not installed' <<<"$out" && echo "ok: and it says the widget was skipped" \
   || { echo "FAIL: silent widget skip - got: $out"; _fail=1; }
 rc=0
 out="$(KEMPT_KPACKAGETOOL="$TESTTMP/kp-broken" widget_install 2>&1)" || rc=$?
 assert_eq "$rc" "0" "a kpackagetool6 that fails both ways never fails the install either"
-grep -q 'CLI is installed and working' <<<"$out" && echo "ok: and it says what still works" \
+grep -q 'CLI is installed and works' <<<"$out" && echo "ok: and it says what still works" \
   || { echo "FAIL: unhelpful widget failure - got: $out"; _fail=1; }
 
 # Uninstall addresses the package by id, and a widget that was never installed is not an error.

@@ -71,7 +71,7 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
 # output passes vacuously.
 for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
-            'package metadata' \
+            'package lists' \
             'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine'; do
   grep -E '^(ok|info|WARN|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
@@ -86,12 +86,12 @@ assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
 kempt_init_dirs
 rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package metadata: never refreshed' "$TESTTMP/doc-meta" \
+grep -qE '^info +package lists: never refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: a box that has never fetched metadata says so, rather than dating it" \
   || { echo "FAIL: no never-refreshed metadata row"; _fail=1; }
 touch -d '3 days ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package metadata is 3 days old' "$TESTTMP/doc-meta" \
+grep -qE '^info +package lists are 3 days old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and an old cache is dated in whole days" \
   || { echo "FAIL: no metadata age row"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
 grep -q 'kempt check --refresh' "$TESTTMP/doc-meta" \
@@ -99,12 +99,12 @@ grep -q 'kempt check --refresh' "$TESTTMP/doc-meta" \
   || { echo "FAIL: the metadata row offers no remedy"; _fail=1; }
 touch -d '1 day ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package metadata is 1 day old' "$TESTTMP/doc-meta" \
+grep -qE '^info +package lists are 1 day old' "$TESTTMP/doc-meta" \
   && echo "ok: ...and one day reads as one day, verb and all" \
   || { echo "FAIL: the metadata row says '1 days'"; _fail=1; }
 touch "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
+grep -qE '^ok +package lists: refreshed' "$TESTTMP/doc-meta" \
   && echo "ok: ...and a cache fetched today is an ok row, not a finding" \
   || { echo "FAIL: fresh metadata is not reported ok"; _fail=1; }
 # Fetches have run but no dnf one is on record: the shared stamp also moves for Flatpak alone, so
@@ -112,7 +112,7 @@ grep -qE '^ok +package metadata: refreshed' "$TESTTMP/doc-meta" \
 rm -f "$LAST_REFRESH_DNF_FILE"
 touch "$LAST_REFRESH_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package metadata: no dnf refresh recorded yet' "$TESTTMP/doc-meta" \
+grep -qE '^info +package lists: no dnf refresh recorded yet' "$TESTTMP/doc-meta" \
   && echo "ok: a box with fetches but no dnf stamp does not date the dnf metadata" \
   || { echo "FAIL: the shared stamp is reported as a dnf refresh"; _fail=1; grep -i metadata "$TESTTMP/doc-meta" | sed 's/^/    /'; }
 grep -q 'dnf5 makecache --refresh shows why' "$TESTTMP/doc-meta" \
@@ -397,13 +397,13 @@ assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || ec
 "$KEMPT" config set include_flatpak true
 
 # Apps installed with --user: one line saying how many, and never a failure.
-assert_contains "$("$KEMPT" doctor 2>&1)" "per-user Flatpak apps: none" "no per-user installation: doctor says none"
+assert_contains "$("$KEMPT" doctor 2>&1)" "apps for you only: none" "no per-user installation: doctor says none"
 mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
 assert_contains "$(KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD="cat $FIXTURES/flatpak-list.tsv" "$KEMPT" doctor 2>&1)" \
-  "per-user Flatpak apps: 2, checked and updated with the system ones" "a per-user installation: doctor counts its apps"
+  "apps for you only: 2, checked and updated with the system ones" "a per-user installation: doctor counts its apps"
 assert_exit 0 "a per-user list that fails is information, not a failure" \
   env KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" \
+assert_contains "$(cat "$TESTTMP/last_output")" "apps for you only: the list failed, so updates skip them and checks keep their last known updates" \
   "...said as such, with what checks and updates then do"
 
 # --- the listing behind reclaim ------------------------------------------------------------------

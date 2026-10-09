@@ -14,7 +14,7 @@ Three things live here that nothing else can reach:
     end of the run stopped the spinner a few seconds in, showed a summary of the PREVIOUS run, and
     sent `kempt check` off to queue for the lock the transaction was holding.
 
-P3a added the popup's restart action to that list, and it is the one command in this widget that
+The popup's restart action joined that list later, and it is the one command in this widget that
 must never be got wrong: `org.kde.LogoutPrompt.promptReboot` opens KDE's own cancellable prompt,
 while the `org.kde.Shutdown` family reboots the machine on the spot. Both the positive assertion
 (the exact argv) and the negative one (neither Shutdown name appears anywhere in the widget) live
@@ -578,7 +578,7 @@ ev("root.leaveUpdating()")
 settle()
 
 # ==================================================================================================
-# P3a: the clock, refresh-on-open, the last run, and the restart action.
+# The clock, refresh-on-open, the last run, and the restart action.
 # ==================================================================================================
 
 # --- the 30-second clock ------------------------------------------------------------------------
@@ -984,7 +984,7 @@ p.check("off the tray the refresh button is ours to show, registered action or n
         lev("refreshButton.visible"), True)
 
 # ==============================================================================================
-# P3b: the layout - the message stack, the list, the Last update row and the footer.
+# The layout - the message stack, the list, the Last update row and the footer.
 # ==============================================================================================
 # This one line is the difference between a test and a decoration. createWithInitialProperties
 # above assigns a VALUE; main.qml writes `vm: root.vm`, which is a BINDING that re-reads the
@@ -1241,7 +1241,7 @@ p.check("...with the discard offered as well, after the remedy rather than inste
         [lev("stagedMessage.actions[2].text"), lev("stagedMessage.actions[2].visible")],
         [ev("Logic.COPY.stagedDiscardAction"), True])
 
-# HIG M1: the only Restart button on screen sat forty pixels above the sentence saying what a
+# The only Restart button on screen sat forty pixels above the sentence saying what a
 # restart would install. The design had already removed it from the warning for that reason.
 CONFLICT_REBOOT = conflict_from("state-reboot-needed.json", "state-staged-conflict-reboot.json",
                                 ["kf6-kio"], "transaction", count=4)

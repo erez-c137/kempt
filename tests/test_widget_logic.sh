@@ -300,8 +300,8 @@ assert_eq "$(js "$clean.emptyStateText")" "Everything is up to date" \
 assert_eq "$(js "$clean.emptyStateText")" "$(js 'L.COPY.everythingUpToDate')" \
   "...in the copy table's own words, not a second copy of them"
 # The popup must never say the same thing twice in the same breath: the header already carries
-# "Up to date", so the placeholder underneath has to be a DIFFERENT sentence (plan P3, "never both
-# at once with the same words").
+# "Up to date", so the placeholder underneath has to be a DIFFERENT sentence: never both at once
+# with the same words.
 assert_eq "$(js "$clean.headerText === $clean.emptyStateText")" "false" \
   "the header and the placeholder never say the identical words"
 assert_eq "$(js "$clean.headerText")" "Up to date" "...the header being the short one"
@@ -2326,7 +2326,7 @@ assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerText")" "2 
 assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerTooltip")" "not a date" \
   "...with the raw stamp still one hover away, which is where a verbatim value belongs"
 
-# A1, all three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
+# All three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
 # is not carrying it - never both at once, and never neither.
 assert_eq "$(vm "{nowMs:$NOW}" "$RB" 1 'footerText')" "Checked 4 min ago · 1 held" \
   "reminder ON: the message carries the restart, so the footer does not repeat it"
@@ -2699,7 +2699,7 @@ assert_eq "$(js 'L.rowsOf([{title:"System (dnf)",backend:"dnf",items:[{name:"a",
 assert_eq "$(js 'V("held-only",false).rows[0].held')" "true" \
   "...on a real capture whose every pending update is held"
 
-# --- a staged box says staged, at the top as well as in the banner (panel proposal 4 / D2) -------
+# --- a staged box says staged, at the top as well as in the banner ------------------------------
 # Staging changed nothing at the top of the popup: the header still said "23 updates available" and
 # Update Now was still lit, directly under a green banner saying the same 23 were staged. The
 # reading a first-timer took from that was "so it did not work?".
@@ -2709,7 +2709,7 @@ assert_eq "$(js "L.viewModel($STAGED_HDR,false).headerText")" "23 updates staged
 assert_eq "$(js "L.viewModel($STAGED_HDR,false).tooltipMain")" "23 updates staged for the next restart" \
   "...and the panel tooltip says the same, so hover and popup cannot disagree"
 # The badge is deliberately NOT touched: those updates really are still pending until the restart
-# runs, and the count-stays-true principle is not overturned by any of this (panel, D2).
+# runs, and the count-stays-true principle is not overturned by any of this.
 assert_eq "$(js "L.viewModel($STAGED_HDR,false).badgeText")" "23" \
   "...while the badge stays the true actionable count, which the restart has not changed yet"
 assert_eq "$(js "L.viewModel($STAGED_HDR,false).stagedArmed")" "true" \
@@ -2781,7 +2781,7 @@ assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged
   "61 updates are staged and install on the next restart. 2 other updates are not in the staged update." \
   "...and the whole sentence, the accessible name, says it too"
 
-# --- the message stack, capped at two (panel proposal 6 / decision D5) ---------------------------
+# --- the message stack, capped at two -----------------------------------------------------------
 # Five messages left the list 95 px tall at the default popup size (26x24 grid units = 468x432),
 # and at Layout.minimumHeight the messages alone overflowed - they sit OUTSIDE the ScrollView, so
 # nothing scrolled and the list was simply gone. The rule is a pure function here rather than four
@@ -3289,7 +3289,7 @@ assert_eq "$(js 'L.COPY.skipInstalling')" "Skip installing %1" \
 assert_eq "$(js 'L.COPY.stopSkipping')" "Stop skipping %1" "copy: ...and its way out"
 # The description is the CONSEQUENCE. QQC2 already hands `text` to AT-SPI as the accessible name,
 # so a description bound to `text` was the same sentence spoken twice and the one slot that could
-# explain the effect, wasted (a11y P4).
+# explain the effect, wasted.
 assert_eq "$(js 'L.COPY.holdConsequence')" \
   "Kempt skips it on every update until you stop holding it." \
   "copy: what holding a package actually does, per package and Kempt-only"
@@ -4017,7 +4017,8 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
 for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
-            reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport; do
+            reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
+            installOnNextRestartTooltip installOnNextRestartSystemTooltip; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l)" "1" \
     "the popup writes COPY.$_lit verbatim, as a literal a translator can extract"
 done

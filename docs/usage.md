@@ -127,7 +127,7 @@ zero updates.
 | Exit | When |
 | --- | --- |
 | 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
-| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), per-user Flatpak apps that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
+| 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), Flatpak apps installed for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
 | 2 | Unknown option. |
 
 ## update
@@ -402,9 +402,7 @@ What it removes:
   `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
-group) logged in at the desktop. Over the network, or from an account that is not an administrator,
-nothing is removed. Run it as yourself, too: as root or with `sudo`, Flatpak cannot see your own
-apps, so Kempt removes nothing.
+group) logged in at the desktop, so over the network nothing is removed.
 
 With `reclaim=automatic` (see [configuration](configuration.md#keys)), a successful update removes
 the offered set, and its summary says how much was freed, under **Unused Flatpak runtimes** in a
@@ -416,7 +414,7 @@ terminal. A removal writes an event line and no history entry.
 | 1 | Flatpak could not list or remove the runtimes. If it stopped part-way, Kempt says how much it freed, or, when the list afterwards could not be read, that the removal may be partial: run `kempt reclaim --list`. |
 | 2 | Unknown option, or a digest that is not 16 lowercase hex characters. |
 | 3 | Another update is running. |
-| 5 | Nothing removed: run as root, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
+| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
 | 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
 
 ## status
@@ -656,7 +654,7 @@ ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
 ok    unused Flatpak runtimes: Kempt can list them
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
-ok    package metadata: refreshed 2026-08-26T20:58:03+03:00
+ok    package lists: refreshed 2026-08-26T20:58:03+03:00
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt
@@ -706,6 +704,10 @@ when the notifier is off for you, and `info` when it starts with your session, n
 **Turn Off Discover's Notifier**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
+
+`shutdown during package installs` is `WARN` unless `rpm-plugin-systemd-inhibit`, or an enabled
+`libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` and `dnf state` are `WARN` when other
+users can change root's dnf files, and name the `chmod` that fixes it.
 
 ### The staged transaction
 
