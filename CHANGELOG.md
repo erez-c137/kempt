@@ -81,7 +81,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   again. Before, they showed Flatpak's raw error line. Both reasons now read as short sentences.
 - **Updates run in the widget by default.** A new install opens no terminal window. An install
   that already had the terminal keeps it. The first `kempt` command after the upgrade, other than
-  help, the version and `discover-notifier status`, writes `surface=terminal` to the config file.
+  help, the version, `status` and `discover-notifier status`, writes `surface=terminal` to the config file.
   A config file that names a surface is never changed.
 - **Update Now asks before installing kernel, systemd or desktop updates outside a terminal.** It
   offers **Install on Next Restart**, which has keyboard focus, or **Install Now**. The message says

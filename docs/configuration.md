@@ -124,8 +124,8 @@ surfaces, **Update Now** asks in the widget first, and offers **Install on Next 
 
 Before 0.1.8 the default was `terminal`. An install that has run Kempt before, and whose config
 file names no surface, keeps `terminal`. The first `kempt` command after the upgrade writes
-`surface=terminal`, once. `--help`, `--version` and `discover-notifier status` do not count. A
-config file that names a surface is never changed.
+`surface=terminal`, once. `--help`, `--version`, `kempt status` and `discover-notifier status`
+do not count. A config file that names a surface is never changed.
 
 When Kempt wrote that line, the widget offers once to run updates itself: **Use This Widget**
 or **Keep the Terminal Window**. Any change to the `surface` setting answers the offer, including
