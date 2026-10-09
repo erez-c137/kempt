@@ -404,8 +404,8 @@ assert_eq "$(js "L.viewModel($(nc_skip battery),false).problemHint")" "Plug in, 
 assert_eq "$(js "L.viewModel($(nc_skip metered),false).problemHint")" \
   "Switch to an unmetered connection, then press Check for Updates." \
   "...on a metered connection it says to switch, since a refresh never runs there"
-assert_eq "$(js "L.viewModel($(nc_skip off),false).problemHint")" "Press Check for Updates to download them." \
-  "...and with fetching turned off it promises nothing about power or the network"
+assert_eq "$(js "L.viewModel($(nc_skip off),false).problemHint")" "Fetching package lists is turned off." \
+  "...and with fetching turned off it promises no download at all"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\").network")" "false" "checkProblemOf: no cache alone is not a network failure"
 assert_eq "$(js "L.checkProblemOf(\"$nocache\", $(printf '%s' "$neterr" | jq -Rs .)).network")" "true" \
   "...but no cache after a refresh with a network error is"
@@ -653,7 +653,7 @@ assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing s
 # half to lose. So the summary sentence stands in: the same fact, advising nothing.
 assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade","kernel"]' \
   "the risk is still on screen beside the release upgrade"
-assert_eq "$(js "$ru.riskyMessage.indexOf(\"the running desktop depends on\") >= 0")" "true" \
+assert_eq "$(js "$ru.riskyMessage.indexOf(\"your running session depends on\") >= 0")" "true" \
   "...as the summary, which states the risk"
 assert_eq "$(js "$ru.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
   "...and not the recommendation, which would advise a button that is not there"
@@ -1169,7 +1169,7 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
 more=""; if (( n_fams > 4 )); then more=", …"; fi
-expect_risky="$n_risky pending updates touch packages the running desktop depends on ($shown$more)."
+expect_risky="$n_risky pending updates touch packages your running session depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
 assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
   "the offline recommendation names the count and the first four families, exactly like the CLI"
@@ -1252,17 +1252,17 @@ done
 # NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
 # the count-and-families phrase, which is what the popup showed before this existed.
 assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" \
-  "This update touches 1 package the running desktop depends on (akmod). The safest way is to install it on the next restart." \
+  "This update touches 1 package your running session depends on (akmod). The safest way is to install it on the next restart." \
   "the driver without a kernel gets the same recommendation in the singular, not a kernel sentence"
 assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
-  "This update touches 2 packages the running desktop depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
+  "This update touches 2 packages your running session depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
   "a risky set with no kernel in it recommends the same button, and says what is in it in words"
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
 # The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages the running desktop depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
+  "This update touches 6 packages your running session depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -2321,7 +2321,7 @@ assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "
 # reads it today keeps working.
 assert_eq "$(js 'V("risky-heavy",false).riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
   "a captured risky transaction with kernel-core in it names the kernel"
-assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("the running desktop depends on") >= 0')" "true" \
+assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("your running session depends on") >= 0')" "true" \
   "...while riskySummary keeps its own, unchanged phrasing"
 assert_eq "$(js 'V("live",false).riskyMessage')" "" "an everyday transaction raises no message"
 assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
@@ -2341,10 +2341,10 @@ assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
   "...nor is an object that merely carries a length"
 # The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
-  "2 pending updates touch packages the running desktop depends on (the core system library, the Linux kernel)." \
+  "2 pending updates touch packages your running session depends on (the core system library, the Linux kernel)." \
   "a genuine array still derives the summary it always did, now in the shared vocabulary"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]},false).riskySummary')" \
-  "1 pending update touches a package the running desktop depends on (the core system library)." \
+  "1 pending update touches a package your running session depends on (the core system library)." \
   "...and one is an update, singular"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
@@ -3139,10 +3139,10 @@ assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
   "This update includes a kernel and the NVIDIA driver. The safest way is to install them on the next restart, so nothing changes under the running desktop." \
   "copy: and the one that names the driver too"
 assert_eq "$(js 'L.COPY.riskySessionOne')" \
-  "This update touches 1 package the running desktop depends on (%1). The safest way is to install it on the next restart." \
+  "This update touches 1 package your running session depends on (%1). The safest way is to install it on the next restart." \
   "copy: a session-critical set with no kernel in it, in the singular"
 assert_eq "$(js 'L.COPY.riskySessionMore')" \
-  "This update touches %1 packages the running desktop depends on (%2). The safest way is to install them on the next restart." \
+  "This update touches %1 packages your running session depends on (%2). The safest way is to install them on the next restart." \
   "copy: ...and in the plural, where the count and the pronoun move together"
 assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
 assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"

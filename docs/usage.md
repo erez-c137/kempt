@@ -152,8 +152,8 @@ value into a live update there.
 
 What happens, in order:
 
-1. **Risky-transaction check** (skipped for `offline`). If the update touches packages the running
-   desktop depends on, a terminal run asks first:
+1. **Risky-transaction check** (skipped for `offline`). If the update touches packages your running
+   session depends on, a terminal run asks first:
 
    ```
      Heads up: 13 session-critical packages are pending.

@@ -128,8 +128,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    [About the restart](#about-the-restart).
 7. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** Another version also names the NVIDIA driver.
-   Without a kernel, it names the desktop packages in the update: `This update touches 20 packages
-   the running desktop depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
+   Without a kernel, it names the session packages in the update: `This update touches 20 packages
+   your running session depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
    on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
    staged. When you press **Update Now** and updates run outside a terminal, it asks first. The
    message moves to the top (below a Check Installation result), starts *"Nothing is installed

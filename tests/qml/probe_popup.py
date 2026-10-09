@@ -2693,7 +2693,7 @@ p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"
 p.check("...and the kernel message states the risk without recommending the restart install",
         "next restart" in str(lev("riskyMessage.text")), False)
 p.check("...while still saying a session-critical package is pending",
-        "the running desktop depends on" in str(lev("riskyMessage.text")), True)
+        "your running session depends on" in str(lev("riskyMessage.text")), True)
 # ...and the press itself is unreachable, which is the point of the whole exercise.
 _before_ru = p.call_count("update")
 p.check("Install on Next Restart is not offered at all",
@@ -3628,6 +3628,7 @@ _ASSEMBLED_IN_LOGIC = {
     "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
     "checkNoCachePowerHint",  # -> checkProblemOf, for lists never downloaded on battery
     "checkNoCacheMeteredHint",  # -> checkProblemOf, for lists never downloaded on a metered connection
+    "checkNoCacheOffHint",  # -> checkProblemOf, for lists never downloaded with fetching turned off
     "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
     "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
     "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read

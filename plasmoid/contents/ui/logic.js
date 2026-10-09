@@ -183,10 +183,10 @@ var COPY = {
     // ...and the same recommendation with no kernel in the set. The family list is kept, capped
     // where the count sentence caps it, because it is the evidence for the claim.
     riskySessionOne:
-        "This update touches 1 package the running desktop depends on (%1). "
+        "This update touches 1 package your running session depends on (%1). "
         + "The safest way is to install it on the next restart.",
     riskySessionMore:
-        "This update touches %1 packages the running desktop depends on (%2). "
+        "This update touches %1 packages your running session depends on (%2). "
         + "The safest way is to install them on the next restart.",
     // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
     // because nothing else says the click did not start a run, and the question ends what is read
@@ -194,8 +194,8 @@ var COPY = {
     riskyAskLead: "Nothing is installed yet.",
     riskyAskQuestion: "Install on the next restart, or now?",
     // The same risk with no advice, for a box with no route to the next restart.
-    riskySummaryOne: "1 pending update touches a package the running desktop depends on (%1).",
-    riskySummaryMore: "%1 pending updates touch packages the running desktop depends on (%2).",
+    riskySummaryOne: "1 pending update touches a package your running session depends on (%1).",
+    riskySummaryMore: "%1 pending updates touch packages your running session depends on (%2).",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
@@ -238,6 +238,8 @@ var COPY = {
     checkNoCacheHint: "Press Check for Updates to download them.",
     checkNoCachePowerHint: "Plug in, then press Check for Updates.",
     checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
+    // KEMPT_SKIP_REFRESH turns fetching off, so no press can download them.
+    checkNoCacheOffHint: "Fetching package lists is turned off.",
     checkRefreshFailedHint: "dnf could not download them. Its error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
@@ -1074,7 +1076,7 @@ function riskyFamiliesOf(names) {
     return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
 }
 
-// "20 pending updates touch packages the running desktop depends on (dbus, glibc, kernel, kf6,
+// "20 pending updates touch packages your running session depends on (dbus, glibc, kernel, kf6,
 // ...).", from the same family names as the CLI's notification. Drawn only where the
 // recommendation below cannot be: there is no route to the next restart.
 function riskySummaryOf(names) {
@@ -2192,6 +2194,7 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
             : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
                 hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
                     : refreshSkipped === "metered" ? COPY.checkNoCacheMeteredHint
+                    : refreshSkipped === "off" ? COPY.checkNoCacheOffHint
                     : COPY.checkNoCacheHint };
     }
     return failed;
