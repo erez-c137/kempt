@@ -707,6 +707,11 @@ when the notifier is off for you, and `info` when it starts with your session, n
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
+A `shutdown during package installs` row is `ok` when `rpm-plugin-systemd-inhibit`, or an enabled
+`libdnf5-plugin-systemd-inhibit`, stops a shutdown mid-install, and `WARN` with neither. `dnf cache`
+and `dnf state` rows are `WARN` when other users can change root's dnf files, which an earlier Kempt
+could cause, and name the `chmod` that fixes it.
+
 ### The staged transaction
 
 Doctor compares Kempt's record of a staged update with what dnf5 has stored, and prints nothing
