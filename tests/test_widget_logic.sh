@@ -149,6 +149,14 @@ assert_eq "$(js "L.viewModel($noact,false).footerText.indexOf(\"MB\") >= 0")" "f
   "no actionable updates, no figure in the footer"
 assert_eq "$(js "L.viewModel($noact,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
   "...and none in the tooltip"
+# A stage is armed: its packages are already downloaded, so neither the footer nor the tooltip
+# offers a figure "to download".
+dl_staged="$(printf '%s' "$dl_state" | sed 's/}$/,offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:3,armed:true}}/')"
+assert_eq "$(js "L.viewModel($dl_staged,false).footerText.indexOf(\"MB\") >= 0")" "false" \
+  "while a stage is armed, no download figure in the footer"
+assert_eq "$(js "L.viewModel($dl_staged,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
+  "...and none in the tooltip"
+assert_eq "$(js "L.viewModel($dl_staged,false).downloadText")" "" "...and none published"
 
 # --- the tooltip names what is pending ------------------------------------------------------------
 # A count says how many, not what. Three names are enough to recognise a kernel or a browser from

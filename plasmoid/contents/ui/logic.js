@@ -517,7 +517,7 @@ var DOT = " \u00b7 ";
 // "~", never "up to": the figure has error in BOTH directions, so any wording implying a ceiling
 // is false - dnf pulls in dependencies `--upgrades` never listed, flatpak transfers ostree deltas
 // far smaller than the published size, and a transaction already staged offline is downloaded in
-// full while the number still counts it.
+// full while the number still counts it, so the view model shows no figure while a stage is armed.
 // Under a megabyte it says "< 1 MB": nobody decides differently between 300 kB and 800 kB, and a
 // number that small next to an update button invites the reader to think it is precise.
 // "" for absent, zero, negative or not-a-number, and empty means render NOTHING: no "unknown",
@@ -2547,8 +2547,9 @@ function viewModel(state, updating, cliError, opts) {
 
     // Read only out of a state this build can read, like every optional key: a schema-1 reader
     // tolerates the key being absent (every file written before this existed) and being the wrong
-    // type. formatDownload answers "" to both.
-    var downloadText = usable ? formatDownload(state.download_bytes) : "";
+    // type. formatDownload answers "" to both. Nothing while a stage is armed: its packages are
+    // already downloaded, and "to download" beside them is false.
+    var downloadText = usable && !staged ? formatDownload(state.download_bytes) : "";
 
     var subParts = [];
     // The fact, and only the fact. The install commands belong in the popup, where they can be
