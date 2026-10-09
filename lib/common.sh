@@ -113,6 +113,16 @@ SURFACE_OFFER_FILE="$KEMPT_STATE_DIR/surface-offer"
 # The security advisories already announced and already seen, for notify_security:
 # {"notified": [ids], "acknowledged": [ids]}. Written under the writers' lock (see security_update).
 SECURITY_SEEN_FILE="$KEMPT_STATE_DIR/security-seen.json"
+# Stamp for the once-a-day `security check failed` line, removed when the query works again.
+SECURITY_FAIL_FILE="$KEMPT_STATE_DIR/last_security_fail"
+# What notify_security may add to a check, in seconds: the advisory query, each of the two waits for
+# the writers' lock, and the notification. Kept small, because the widget's CHECK_BODY_MS counts
+# them (a test there reads these three lines).
+# shellcheck disable=SC2034  # read by backends/dnf.sh
+SECURITY_QUERY_TIMEOUT=15
+# shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
+SECURITY_LOCK_WAIT=5
+SECURITY_NOTIFY_TIMEOUT=5
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -960,7 +970,9 @@ kempt_version() {  # → the version string, or "unknown"
 }
 
 # --- the user-file writers' lock ---------------------------------------------------------------
-# INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write.
+# INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write, and
+# so do the security writers: cmd_check while it works out the `security` block and writes
+# state.json, and cmd_security_ack while it patches both files.
 # Readers (config_get, holds_all, holds_for) take no lock at all and must not start.
 #
 # Why it exists: all three writers read the file into a variable and write the whole file back
@@ -974,24 +986,26 @@ kempt_version() {  # → the version string, or "unknown"
 # fd 7, and the number is load-bearing: fd 8 is the update lock (acquire_lock) and fd 9 is
 # cmd_check's check.lock, both of which can be held for a whole run and are inherited by children.
 #
-# Nesting is ruled out by construction rather than handled: the only callers are cmd_config,
-# cmd_hold and cmd_unhold, one write per command, and nothing on the privileged or checking paths
-# calls a writer. Re-entering would be quiet rather than loud - `exec 7>>` on a held fd CLOSES it
+# Nesting is ruled out by construction rather than handled: the callers are cmd_config, cmd_hold,
+# cmd_unhold, cmd_discover_notifier, cmd_security_ack and cmd_check's security step, each taking it
+# once and releasing it before anything else could take it. cmd_hold and cmd_unhold release it
+# before their closing check, which takes it again. Re-entering would be quiet rather than loud - `exec 7>>` on a held fd CLOSES it
 # first, dropping the outer lock unnoticed. If a writer ever has to call another one, pass the open
 # descriptor down; do not re-open it.
 #
 # `>>` and not `>`: the `>` form truncates on open, so a process that merely ATTEMPTS the lock would
 # erase a live holder's file first (same reasoning as acquire_lock's note). kempt_init_dirs first,
 # also like acquire_lock: a box where the state directory cannot be created fails there, not here.
-writer_lock() {
+writer_lock() {  # [seconds to wait, 30 by default]
+  local wait="${1:-30}"
   kempt_init_dirs
   exec 7>>"$WRITER_LOCK_FILE"
   # -w rather than -n: these writes are ~10ms apiece, so an overlap is a wait of that length and
   # refusing would turn it into a lost write instead. 30s is far past any honest queue - reaching
   # it means a holder is wedged, and writing anyway would put the lost-write bug straight back.
   # rc 1, and the caller reports it: a lock we could not take is not a write that failed.
-  flock -w 30 7 || {
-    echo "kempt: could not take the writers' lock at $WRITER_LOCK_FILE after 30s" >&2
+  flock -w "$wait" 7 || {
+    echo "kempt: could not take the writers' lock at $WRITER_LOCK_FILE after ${wait}s" >&2
     exec 7>&-
     return 1
   }
@@ -1189,7 +1203,7 @@ now_iso()      { date -Is; }
 # notification was delivered: one tried from a timer with no session bus is tried again by the
 # next check that has one. Bounded, because a check is waiting on it.
 session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
-notify_delivered() { session_bus_present || return 1; timeout 10 "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1; }
+notify_delivered() { session_bus_present || return 1; timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1; }
 
 # The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
 # shape reads as empty, which at worst announces a set once more.
@@ -1216,18 +1230,22 @@ security_digest() {  # stdin: one id per line → digest, or nothing
 # stage is armed and when an update is running, either of which means the panel does not ask.
 # An id leaves the seen file only when its package is no longer pending at all (installed, or gone
 # from the repositories): a set that shrinks because of a hold and grows back is not news.
+# Nothing else bounds the two lists, and nothing must: an id still open that fell out of them would
+# be announced again by every check. The ids to announce are read from every open advisory, not
+# from the 200 the state publishes, so an id outside that window is announced once like any other.
 # Prints the block on the first line and the ids to announce on the second (space separated, and
-# empty when there is nothing new). rc≠0 leaves the seen file as it was.
-security_update() {  # parsed armed busy
+# empty when there is nothing new). rc≠0 leaves the seen file as it was. $4 false: the caller could
+# not take the writers' lock, so the pruned seen file is not written.
+security_update() {  # parsed armed busy [write]
   local seen out block fresh digest
   seen="$(security_seen_read)"
   out="$(jq -c --argjson s "$seen" --argjson armed "$2" --argjson busy "$3" '
-    def keep($k): [.[] | select(IN($k[]))] | .[-200:];
+    def keep($k): [.[] | select(IN($k[]))];
     . as $p
     | ($s.notified | keep($p.known)) as $n
     | ($s.acknowledged | keep($p.known)) as $a
     | {seen: {notified: $n, acknowledged: $a},
-       fresh: [$p.advisories[] | select((IN($n[]) or IN($a[])) | not)],
+       fresh: [($p.open // $p.advisories)[] | select((IN($n[]) or IN($a[])) | not)],
        block: {count: ($p.packages | length), packages: $p.packages, advisories: $p.advisories,
                attention: (([$p.advisories[] | select(IN($a[]) | not)] | length) > 0
                            and ($armed | not) and ($busy | not))}}' <<<"$1" 2>/dev/null)" || return 1
@@ -1235,7 +1253,7 @@ security_update() {  # parsed armed busy
   digest="$(jq -r '.block.advisories[]' <<<"$out" | security_digest)"
   block="$(jq -c --arg d "$digest" '.block + {digest: $d}' <<<"$out")" || return 1
   fresh="$(jq -r '.fresh | join(" ")' <<<"$out")" || return 1
-  if [[ "$(jq -c '.seen' <<<"$out")" != "$seen" ]]; then
+  if [[ "${4:-true}" == true && "$(jq -c '.seen' <<<"$out")" != "$seen" ]] && security_seen_writable; then
     jq -c '.seen' <<<"$out" | atomic_write "$SECURITY_SEEN_FILE" 2>/dev/null || true
   fi
   printf '%s\n%s\n' "$block" "$fresh"
@@ -1252,14 +1270,37 @@ update_running_elsewhere() {
   [[ $rc -eq 75 ]]
 }
 
-# Adds ids to one list of the seen file. The caller holds the writers' lock.
-security_seen_add() {  # list(notified|acknowledged) id...
+# The seen file is a regular file or nothing yet. Anything else there (a directory, say) would take
+# atomic_write's rename INTO it and read back as empty, so every check would announce again.
+security_seen_writable() { [[ ! -e "$SECURITY_SEEN_FILE" || ( -f "$SECURITY_SEEN_FILE" && ! -L "$SECURITY_SEEN_FILE" ) ]]; }
+
+# Adds ids to one list of the seen file, or with "drop" as $1 takes them back out of it. The caller
+# holds the writers' lock. rc 0 only when the file reads back with the change in it, so a caller
+# that announces only after a recorded add cannot announce the same ids at every check.
+security_seen_add() {  # [drop] list(notified|acknowledged) id...
+  local op=add
+  [[ "$1" == drop ]] && { op=drop; shift; }
   local list="$1"; shift
   [[ $# -gt 0 ]] || return 0
+  security_seen_writable || return 1
   security_seen_read \
-    | jq -c --arg l "$list" '.[$l] = ((.[$l] - $ARGS.positional) + $ARGS.positional | .[-200:])' \
+    | jq -c --arg l "$list" --arg op "$op" '
+        .[$l] = ((.[$l] - $ARGS.positional) + (if $op == "add" then $ARGS.positional else [] end))' \
          --args "$@" \
-    | atomic_write "$SECURITY_SEEN_FILE"
+    | atomic_write "$SECURITY_SEEN_FILE" || return 1
+  security_seen_read | jq -e --arg l "$list" --arg op "$op" '
+      (.[$l] | map({key: ., value: true}) | from_entries) as $have
+      | all($ARGS.positional[]; ($have[.] == true) == ($op == "add"))' --args "$@" >/dev/null 2>&1
+}
+
+# The `security check failed` line, at most once a day, as log_refresh_skip does for its own.
+log_security_failure() {
+  local last=0 now; now="$(date +%s)"
+  [[ -f "$SECURITY_FAIL_FILE" ]] && last="$(stat -c %Y "$SECURITY_FAIL_FILE" 2>/dev/null || echo 0)"
+  if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
+  touch "$SECURITY_FAIL_FILE" 2>/dev/null || true
+  log_event "security check failed"
+  return 0
 }
 
 # The notification's one sentence. The names are the pending items' own, already KEMPT_NAME_RE-clean.

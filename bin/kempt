@@ -712,18 +712,20 @@ cmd_check() {
      && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
     state="$merged"
   fi
-  # The writers' lock from here to the write: `kempt security-ack` patches state.json and the seen
-  # file under it, so an acknowledgement can neither be overwritten by a state worked out from the
-  # seen file before it, nor patch an older state over this one. Not having it (30 s, a wedged
-  # holder) never fails the check.
-  local wlocked=""
-  writer_lock 2>/dev/null && wlocked=1
-  # The security block, worked out last, when the stage and the lock can be read as they stand.
+  # The writers' lock from here to the write, for a check that has a security answer to merge:
+  # `kempt security-ack` patches state.json and the seen file under it, so an acknowledgement can
+  # neither be overwritten by a state worked out from the seen file before it, nor patch an older
+  # state over this one. A short wait, and not having it never fails the check: the block is then
+  # published without touching the seen file, and nothing is announced, since nothing announced
+  # could be recorded.
+  local wlocked="" sec_announce=""
   if [[ -n "$sec_parsed" ]]; then
-    local sec_armed=false sec_busy=false sec_out sec_block
+    writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null && wlocked=1
+    local sec_armed=false sec_busy=false sec_out sec_block sec_write=false
+    [[ -n "$wlocked" ]] && sec_write=true
     jq -e '.armed == true' <<<"${staged_state:-null}" >/dev/null 2>&1 && sec_armed=true
     update_running_elsewhere && sec_busy=true
-    if sec_out="$(security_update "$sec_parsed" "$sec_armed" "$sec_busy")" \
+    if sec_out="$(security_update "$sec_parsed" "$sec_armed" "$sec_busy" "$sec_write")" \
        && sec_block="$(head -n1 <<<"$sec_out")" \
        && merged="$(jq --argjson b "$sec_block" '. + {security: $b}' <<<"$state" 2>/dev/null)" \
        && [[ -n "$merged" ]]; then
@@ -732,6 +734,15 @@ cmd_check() {
       [[ "$sec_armed" == true ]] || sec_fresh="$(sed -n 2p <<<"$sec_out")"
     else
       sec_failed=1
+    fi
+    # Recorded BEFORE it is sent, while the lock is held, and taken back only if it was not
+    # delivered. The other order needs the lock a second time after the notification, and a lock
+    # not had then meant the same set announced again at every check. A seen file that cannot be
+    # written (not a regular file, a full disk) announces nothing.
+    # shellcheck disable=SC2086  # the ids are one word each (dnf_security_parse checked them)
+    if [[ -n "$sec_fresh" && -n "$wlocked" ]] && session_bus_present \
+       && security_seen_add notified $sec_fresh 2>/dev/null; then
+      sec_announce=1
     fi
   fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
@@ -742,17 +753,22 @@ cmd_check() {
   else [[ -z "$wlocked" ]] || writer_unlock; return 1; fi
   [[ -z "$wlocked" ]] || writer_unlock
   # Announced from the check rather than the widget, so a terminal-only install hears it too and
-  # two widgets on two panels do not say it twice. Recorded only when it was delivered.
-  if [[ -n "$sec_fresh" ]]; then
+  # two widgets on two panels do not say it twice.
+  if [[ -n "$sec_announce" ]]; then
     local sec_body
     sec_body="$(jq -r '.security.packages[]' <<<"$state" 2>/dev/null | security_notice)"
     if [[ -n "$sec_body" ]] && notify_delivered "Kempt" "$sec_body"; then
-      # shellcheck disable=SC2086  # the ids are one word each (dnf_security_parse checked them)
-      if writer_lock 2>/dev/null; then security_seen_add notified $sec_fresh 2>/dev/null || true; writer_unlock; fi
       log_event "security notified count=$(jq -r '.security.count' <<<"$state" 2>/dev/null)"
+    elif writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null; then
+      # Not delivered: the next check with a session tries again. Without the lock the ids stay
+      # recorded, which loses this one announcement rather than repeating it.
+      # shellcheck disable=SC2086
+      security_seen_add drop notified $sec_fresh 2>/dev/null || true
+      writer_unlock
     fi
   fi
-  [[ -z "$sec_failed" ]] || log_event "security check failed"
+  if [[ -n "$sec_failed" ]]; then log_security_failure
+  elif [[ -n "$sec_asked" ]]; then rm -f "$SECURITY_FAIL_FILE" 2>/dev/null || true; fi
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
   if [[ "$status" == "ok" ]]; then

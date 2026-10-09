@@ -141,7 +141,7 @@ Four files in the state directory are `flock` targets:
 | `lock` | Runs | |
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
-| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check | Each rewrites a whole file. `kempt security-ack` takes it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
+| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_security` on | Each rewrites a whole file. `kempt security-ack` takes it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
 
 [usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
 

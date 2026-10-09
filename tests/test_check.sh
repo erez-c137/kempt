@@ -1823,11 +1823,80 @@ assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a row of the wrong sha
 adv_set "${base_rows[@]}"; echo 1 > "$TESTTMP/advisory-rc"
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a non-zero exit publishes no block"
-assert_eq "$(events_since 'security check failed')" "3" "...and is logged"
+assert_eq "$(events_since 'security check failed')" "1" "...and is logged once a day, not at every check"
 assert_eq "$(notes)" "$n_before" "...and no failure sends anything"
+touch -d '25 hours ago' "$KEMPT_STATE_DIR/last_security_fail"
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(events_since 'security check failed')" "2" "...and again the next day"
 echo 0 > "$TESTTMP/advisory-rc"; echo '[]' > "$TESTTMP/advisory-out"
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c '.security | {count, attention, digest}' <<<"$out")" '{"count":0,"attention":false,"digest":""}' "nothing due is a block with nothing in it"
+assert_eq "$([[ -e "$KEMPT_STATE_DIR/last_security_fail" ]] && echo kept || echo gone)" "gone" \
+  "a query that works clears the stamp, so the next failure is logged at once"
+
+# More open advisories than the 200 the state publishes. Every open one stays on record, so a new
+# one is announced once and nothing that is still open is announced again.
+many=(); for i in $(seq -w 0 229); do many+=("$(adv_row "FEDORA-2026-a$i" curl-8.18.0-9.fc44.x86_64)"); done
+adv_set "${many[@]}"
+rm -f "$KEMPT_STATE_DIR/security-seen.json"
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '[.security.count, (.security.advisories | length)]' <<<"$out")" "[1,200]" \
+  "(230 open advisories on one package: the state publishes 200 of them)"
+assert_eq "$(sec_seen 'notified | length')" "230" "...and records all 230 as announced"
+n_before="$(notes)"
+adv_set "${many[@]}" "$(adv_row FEDORA-2026-zz1 tar-2:1.35-9.fc44.x86_64)"
+for _ in 1 2 3 4 5; do "$KEMPT" check >/dev/null 2>&1; done
+assert_eq "$(( $(notes) - n_before ))" "1" "one new advisory over 5 checks is one notification, though it sorts past the 200"
+assert_eq "$(sec_seen 'notified | length')" "231" "...and every open advisory is still on record"
+
+# A notification that was not delivered is taken off the record, so the next check tries again.
+cat > "$TESTTMP/notify-fails" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TESTTMP/notify-failed"
+exit 1
+STUB
+chmod +x "$TESTTMP/notify-fails"
+adv_set "${base_rows[@]}"
+rm -f "$KEMPT_STATE_DIR/security-seen.json" "$TESTTMP/notify-failed"
+n_before="$(notes)"
+KEMPT_NOTIFY="$TESTTMP/notify-fails" "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(grep -c . "$TESTTMP/notify-failed")" "1" "(the notifier was tried and failed)"
+assert_eq "$(sec_seen notified)" "[]" "a notification that failed leaves nothing recorded as announced"
+"$KEMPT" check >/dev/null 2>&1
+assert_eq "$(( $(notes) - n_before ))" "1" "...so the next check announces the set"
+
+# A seen file that cannot be written announces nothing, rather than the same set at every check.
+rm -f "$KEMPT_STATE_DIR/security-seen.json"; mkdir "$KEMPT_STATE_DIR/security-seen.json"
+n_before="$(notes)"
+out="$("$KEMPT" check 2>/dev/null)"; "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(jq -r '.security.count' <<<"$out")" "3" "a seen path that is a directory still publishes the block"
+assert_eq "$(notes)" "$n_before" "...and announces nothing, at any check"
+assert_eq "$(find "$KEMPT_STATE_DIR/security-seen.json" -mindepth 1 | wc -l)" "0" "...and writes nothing into the directory"
+rmdir "$KEMPT_STATE_DIR/security-seen.json"
+
+# A wedged writers' lock: a check with notify_security on waits for it briefly, publishes the block
+# and announces nothing. One with the setting off does not wait at all. This shell holds the lock.
+"$KEMPT" check >/dev/null 2>&1
+adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-w1 brandnew-1.0-1.fc44.x86_64)"
+seen_before="$(cat "$KEMPT_STATE_DIR/security-seen.json")"
+n_before="$(notes)"
+exec 5>>"$KEMPT_STATE_DIR/writer.lock"; flock 5
+t0="$(date +%s)"
+out="$("$KEMPT" check 2>/dev/null)"
+took=$(( $(date +%s) - t0 ))
+assert_eq "$(( took >= 4 && took <= 15 ))" "1" "a wedged lock costs a check its short wait, not 30 s (took ${took} s)"
+assert_eq "$(jq -r '.security.packages | index("brandnew") != null' <<<"$out")" "true" "...the block is still published"
+assert_eq "$(notes)" "$n_before" "...nothing is announced, since nothing could be recorded"
+assert_eq "$(cat "$KEMPT_STATE_DIR/security-seen.json")" "$seen_before" "...and the seen file is untouched"
+flock -u 5; exec 5>&-
+"$KEMPT" config set notify_security false
+exec 5>>"$KEMPT_STATE_DIR/writer.lock"; flock 5
+t0="$(date +%s)"
+"$KEMPT" check >/dev/null 2>&1
+took=$(( $(date +%s) - t0 ))
+flock -u 5; exec 5>&-
+assert_eq "$(( took < 4 ))" "1" "with notify_security off a check does not wait for the writers' lock (took ${took} s)"
+"$KEMPT" config set notify_security true
 
 # dnf not answering, or an image-based system: no question at all.
 : > "$TESTTMP/advisory-calls"

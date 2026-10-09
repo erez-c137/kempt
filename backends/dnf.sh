@@ -135,7 +135,7 @@ dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did no
   [[ -r "$KEMPT_DNF_SYSTEM_CACHE" ]] && cache=(--setopt=cachedir="$KEMPT_DNF_SYSTEM_CACHE")
   # Unquoted on purpose: a seam holds a command with arguments (see dnf_sizes).
   # shellcheck disable=SC2086
-  timeout 30 ${KEMPT_DNF_ADVISORY_CMD:-$KEMPT_DNF_CMD} "${cache[@]}" -C -q \
+  timeout "$SECURITY_QUERY_TIMEOUT" ${KEMPT_DNF_ADVISORY_CMD:-$KEMPT_DNF_CMD} "${cache[@]}" -C -q \
     advisory list --security --updates --json </dev/null 2>/dev/null
 }
 
@@ -145,7 +145,8 @@ dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did no
 # do not look like an advisory id are dropped. The package name is the NEVRA without its `.arch`
 # and its `-[epoch:]version-release`. Output:
 #   known       ids whose package is pending at all, held or not (what the seen file may keep)
-#   advisories  ids whose package is pending and not held, at most 200
+#   open        ids whose package is pending and not held, all of them (what is announced)
+#   advisories  the first 200 of those, sorted (what the state publishes and the widget acknowledges)
 #   packages    those packages, as the pending items name them and in their order
 # The names come from the items, never from the NEVRA, so they are the names the widget lists and
 # have already passed KEMPT_NAME_RE.
@@ -162,6 +163,7 @@ dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSO
     | [$known[] | select($pend[.pkg] == false)] as $open
     | ($open | map(.pkg) | unique) as $pkgs
     | { known: ($known | map(.id) | unique),
+        open: ($open | map(.id) | unique),
         advisories: ($open | map(.id) | unique | .[:200]),
         packages: [($items[0] // [])[] | select(.held != true) | .name | tostring
                    | select(. as $n | $pkgs | index([$n]) != null)] }'

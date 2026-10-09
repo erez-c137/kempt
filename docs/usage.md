@@ -539,7 +539,7 @@ The wording is fixed, so you can search it:
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
 | `security notified count=<n>` | A notification announced a new set of security updates. `<n>` counts all the pending ones. Needs `notify_security`. |
-| `security check failed` | dnf could not list the security advisories. The check itself still worked. |
+| `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
 | `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
