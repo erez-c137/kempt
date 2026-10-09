@@ -98,8 +98,8 @@ WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
 # The stage lock (see stage_lock): held while a stage is replacing dnf5's transaction and Kempt's
 # marker has not caught up yet.
 STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
-# Short locks, held for milliseconds on fd 4 and fd 5: the state file's read-modify-write and the
-# event log's append and trim. Separate files, because a rename gives the guarded file a new inode.
+# Short locks, held for milliseconds on a descriptor bash picks: the state file's read-modify-write
+# and the event log's append and trim. A lock that cannot be opened is skipped, never the write. Separate files, because a rename gives the guarded file a new inode.
 STATE_LOCK_FILE="$KEMPT_STATE_DIR/state.lock"
 EVENTS_LOCK_FILE="$KEMPT_STATE_DIR/events.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
@@ -247,22 +247,30 @@ log_event() {  # text
     # truncates, so two first writers cannot erase each other's line.
     [[ -e "$EVENTS_FILE" ]] || ( umask 077; : >> "$EVENTS_FILE" ) || return 0
     # The append and the trim share one lock, so a line written between the trim's read and its
-    # rename cannot be lost. After 5 seconds the line is appended anyway and the trim waits.
-    local locked=false
-    {
-      flock -w 5 5 && locked=true
-      printf '%s %s %s\n' "$(now_iso)" "$via" "$1" >> "$EVENTS_FILE" || return 0
-      # Retention, checked on write because there is no timer to check it on. Keeping the last 2000
-      # of 2500 means the rewrite runs once every 500 events. atomic_write keeps a reader from seeing
-      # a half-written file, and its 0600 temp carries the mode across.
-      local n
-      n="$(wc -l < "$EVENTS_FILE")" || return 0
-      if [[ "$locked" == true ]] && (( n > 2500 )); then
-        tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
-      fi
-    } 5>>"$EVENTS_LOCK_FILE"
+    # rename cannot be lost. A lock that times out after 5 seconds, or cannot be opened, still
+    # lets the line through, and the trim waits for a later write.
+    local locked=false lfd
+    if { exec {lfd}>>"$EVENTS_LOCK_FILE"; } 2>/dev/null; then
+      flock -w 5 "$lfd" && locked=true
+    else
+      lfd=""
+    fi
+    log_event_write "$via" "$1" "$locked" || true
+    if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
   } 2>/dev/null || true
   return 0
+}
+
+log_event_write() {  # via text locked
+  printf '%s %s %s\n' "$(now_iso)" "$1" "$2" >> "$EVENTS_FILE" || return 0
+  # Retention, checked on write because there is no timer to check it on. Keeping the last 2000
+  # of 2500 means the rewrite runs once every 500 events, and only under the lock. atomic_write keeps
+  # a reader from seeing a half-written file, and its 0600 temp carries the mode across.
+  local n
+  n="$(wc -l < "$EVENTS_FILE")" || return 0
+  if [[ "$3" == true ]] && (( n > 2500 )); then
+    tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
+  fi
 }
 
 # Byte-for-byte equality of two readable files, with coreutils alone. `cmp` is diffutils, which is
@@ -1605,11 +1613,16 @@ write_state() {
   }
   # state.lock, so a write never lands inside publish_staged_state's read and write. That caller
   # already holds it and says so with STATE_LOCK_HELD. A lock not taken in 10 seconds is skipped.
+  # A lock file that cannot be opened is skipped, and the write still happens.
   if [[ "${STATE_LOCK_HELD:-}" == 1 ]]; then
     printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
-  else
-    { flock -w 10 4 || true; printf '%s\n' "$doc" | atomic_write "$STATE_FILE"; } 4>>"$STATE_LOCK_FILE"
+    return
   fi
+  local lfd rc=0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  printf '%s\n' "$doc" | atomic_write "$STATE_FILE" || rc=$?
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return "$rc"
 }
 
 # When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
@@ -2778,7 +2791,7 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
 # state file at all means a box that has never checked, and there is nothing to keep consistent.
 publish_staged_state() {
   [[ -f "$STATE_FILE" ]] || return 0
-  local staged out
+  local staged
   # Not a bare call: this runs under errexit on the far side of an update that has already
   # downloaded and armed a transaction, and a marker this cannot read is not a reason to end the
   # run there.
@@ -2804,30 +2817,36 @@ publish_staged_state() {
   # empty and the file is left exactly as it was for the check behind us to rewrite properly.
   # offline_stage_blocked travels with it: a stage just armed behind another updater's symlink
   # is published as what it is, not as nothing.
-  local blocked
+  local blocked lfd
   blocked="$(offline_stage_blocked_state)" || blocked=""
-  {
-    flock -w 10 4 || true
-    if [[ -n "$staged" ]]; then
-      out="$(jq -c -n --argjson st "$staged" \
-               '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
-               "$STATE_FILE" 2>/dev/null)" || return 0
-    elif [[ -n "$blocked" ]]; then
-      out="$(jq -c -n --argjson b "$blocked" \
-               '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
-               "$STATE_FILE" 2>/dev/null)" || return 0
-    else
-      out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
-               "$STATE_FILE" 2>/dev/null)" || return 0
-    fi
-    [[ -n "$out" ]] || return 0
-    # ...and the write is best-effort like everything above it. This runs on the far side of a
-    # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
-    # state directory that cannot be written is the same degrade the history entry beside it takes,
-    # not a staged update reported as a failed run. Without this, the one case where the marker
-    # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
-    printf '%s\n' "$out" | STATE_LOCK_HELD=1 write_state 2>/dev/null || return 0
-  } 4>>"$STATE_LOCK_FILE" 2>/dev/null || return 0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  publish_staged_state_write "$staged" "$blocked" 2>/dev/null || true
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return 0
+}
+
+# The read and write behind publish_staged_state, run while it holds state.lock.
+publish_staged_state_write() {  # staged blocked
+  local staged="$1" blocked="$2" out
+  if [[ -n "$staged" ]]; then
+    out="$(jq -c -n --argjson st "$staged" \
+             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  elif [[ -n "$blocked" ]]; then
+    out="$(jq -c -n --argjson b "$blocked" \
+             '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  else
+    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
+             "$STATE_FILE" 2>/dev/null)" || return 0
+  fi
+  [[ -n "$out" ]] || return 0
+  # ...and the write is best-effort like everything above it. This runs on the far side of a
+  # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
+  # state directory that cannot be written is the same degrade the history entry beside it takes,
+  # not a staged update reported as a failed run. Without this, the one case where the marker
+  # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
+  printf '%s\n' "$out" | STATE_LOCK_HELD=1 write_state 2>/dev/null || return 0
 }
 
 # The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just

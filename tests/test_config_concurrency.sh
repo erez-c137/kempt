@@ -144,4 +144,19 @@ wait
 assert_eq "$(cat "$TESTTMP/stale" 2>/dev/null)" "" "a publish racing write_state never puts back an older state"
 assert_eq "$(jq -c . "$STATE_FILE")" '{"seq":300,"offline_staged":{"count":1}}' "...and the last write stands"
 
+
+# --- a lock that cannot be opened skips the lock, never the write ---------------------------------
+# A directory stands in for a lock file that is mode 000, root-owned or otherwise unopenable.
+rm -f "$KEMPT_STATE_DIR/state.lock" "$KEMPT_STATE_DIR/events.lock"
+mkdir "$KEMPT_STATE_DIR/state.lock" "$KEMPT_STATE_DIR/events.lock"
+rc=0; echo '{"seq":1}' | write_state || rc=$?
+assert_eq "$rc|$(jq -c . "$STATE_FILE")" '0|{"seq":1}' "write_state writes when state.lock cannot be opened"
+publish_staged_state
+assert_eq "$(jq -c . "$STATE_FILE")" '{"seq":1,"offline_staged":{"count":1}}' "...and so does publish_staged_state"
+log_event unopenable
+assert_eq "$(tail -n 1 "$EV" | sed 's/^[^ ]* //')" "cli unopenable" "log_event appends when events.lock cannot be opened"
+rc=0; echo '[1]' | write_state 2>/dev/null || rc=$?
+assert_eq "$rc" "1" "write_state still returns the write's failure"
+rmdir "$KEMPT_STATE_DIR/state.lock" "$KEMPT_STATE_DIR/events.lock"
+
 finish
