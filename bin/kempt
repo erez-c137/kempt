@@ -2308,6 +2308,13 @@ clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the mar
 # What to do about a stage that will not install as Kempt made it, for both announcements below.
 # Commands rather than a button: they work from a terminal and from the widget alike.
 KEMPT_STAGE_REMEDY="To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean."
+# ...except over a stored Fedora release upgrade, where both commands would be wrong: a stage is
+# refused, and a clean would delete the upgrade.
+KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor"
+stage_remedy() {
+  if offline_release_upgrade >/dev/null; then printf '%s' "$KEMPT_STAGE_RELUP_REMEDY"
+  else printf '%s' "$KEMPT_STAGE_REMEDY"; fi
+}
 
 # The announce-once key is the marker itself - `armed: false` IS the record that this was said,
 # and a box checking every ten minutes would otherwise repeat it 144 times a day.
@@ -2320,7 +2327,7 @@ reconcile_detour_stage() {  # marker-json toml-status
   # write below is a read-modify-write of a file `kempt update` owns under a different lock.
   offline_marker_still "$1" || {
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
-  notify "Kempt" "Your staged update can no longer install on a restart. $KEMPT_STAGE_REMEDY"
+  notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
   log_event "offline stage cannot install (status $2) - announced"
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
@@ -2341,7 +2348,7 @@ reconcile_replaced_stage() {
   stage_lock_try || return 0
   local why updated
   if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
-    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart installs a different update. $KEMPT_STAGE_REMEDY"
+    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart installs a different update. $(stage_remedy)"
     log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - announced"
     updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
