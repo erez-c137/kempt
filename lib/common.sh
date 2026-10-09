@@ -144,6 +144,8 @@ KEMPT_OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offlin
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
+# dnf's main config, read for `installonlypkgs` only (offline_installonly_name). Read, never written.
+KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -1922,9 +1924,31 @@ rpm_evrcmp() {  # e:v-r e:v-r → prints -1, 0 or 1
 #   Upgrade, Install   installed at the staged EVR or newer
 #   Downgrade          installed at exactly the staged EVR: a newer one means it did not happen
 #   Reinstall          installed at the staged EVR or newer, and proves nothing on its own
-#   Remove             that exact build no longer installed
+#   Remove             that exact build no longer installed, unless it is installonly
 # Anything less is not satisfied: a partial install, a file that does not read, or a transaction
 # with nothing in it that shows it ran (empty, or only reinstalls, which an untouched box passes).
+# Whether a package name is one dnf keeps several builds of (installonly). dnf5's defaults are
+# provides (installonlypkg(kernel), installonlypkg(kernel-module), ...), which only rpm can resolve,
+# so the kernel families that carry them are named here. Plain names in the config's
+# `installonlypkgs` are added; provide-shaped entries there are skipped.
+offline_installonly_name() {  # name → 0 when installonly
+  case "$1" in
+    kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
+      |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
+      |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
+  esac
+  [[ -r "$KEMPT_DNF_CONF" ]] || return 1
+  local line v tok
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*installonlypkgs[[:space:]]*=(.*)$ ]] || continue
+    v="${BASH_REMATCH[1]//,/ }"
+    for tok in $v; do
+      [[ "$tok" =~ $KEMPT_NAME_RE && "$tok" == "$1" ]] && return 0
+    done
+  done < "$KEMPT_DNF_CONF"
+  return 1
+}
+
 offline_stage_satisfied() {  # → 0 when the stored transaction's changes are all on the box
   [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
   local sz want have line
@@ -1978,7 +2002,11 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
       esac
     done <<<"${inst[$key]:-}"
     case "$action" in
-      Remove) [[ "$found" == false ]] || return 1; proof=true ;;
+      # dnf5 removes the oldest installonly build to stay within installonly_limit. Another
+      # updater may keep it, which leaves the stage's upgrades installed and that build behind.
+      # So a kept installonly build does not block, and proves nothing either.
+      Remove) if [[ "$found" == false ]]; then proof=true
+              elif ! offline_installonly_name "${key%.*}"; then return 1; fi ;;
       Reinstall) [[ "$found" == true ]] || return 1 ;;
       *) [[ "$found" == true ]] || return 1; proof=true ;;
     esac

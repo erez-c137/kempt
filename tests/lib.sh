@@ -105,6 +105,8 @@ sandbox() {  # fresh dirs per test file; call first
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.
   export KEMPT_RPM_QA_CMD="$TESTTMP/UNSTUBBED-rpm-qa"
+  # dnf's config, read for installonlypkgs. Unset, the box's own /etc/dnf/dnf.conf would decide.
+  export KEMPT_DNF_CONF="$TESTTMP/no-dnf.conf"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have

@@ -1012,8 +1012,31 @@ act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Downgrade"}'
 assert_exit 0 "a staged downgrade installed at its build is done" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
 act_tx '{"nevra":"bash-5.3.8-1.fc44.x86_64","action":"Downgrade"}'
 assert_exit 1 "...and not done while a newer build is installed" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
-act_tx '{"nevra":"kernel-core-6.19.3-200.fc44.x86_64","action":"Remove"},{"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install"}'
+act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Remove"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
 assert_exit 1 "a staged removal is not done while that build is still installed" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+# ...except an installonly build. dnf5 removes the oldest kernel to stay within installonly_limit;
+# another updater that installed the same set may keep it. The upgrades are what the stage was for.
+act_tx '{"nevra":"kernel-core-6.19.3-200.fc44.x86_64","action":"Remove"},{"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install"}'
+assert_exit 0 "...an old kernel another updater kept does not stop a stage being done" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+act_tx '{"nevra":"kernel-core-6.19.3-200.fc44.x86_64","action":"Remove"}'
+assert_exit 1 "...though a kept kernel proves nothing on its own" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
+for io in kernel kernel-modules-extra kernel-devel-matched kernel-debug-core kernel-uki-virt; do
+  assert_exit 0 "$io is installonly" -- bash -c 'source "$1/lib/common.sh"; offline_installonly_name "$2"' _ "$REPO_ROOT" "$io"
+done
+for io in kernel-headers kernel-tools kernel-tools-libs kernel-srpm-macros bash; do
+  assert_exit 1 "$io is not" -- bash -c 'source "$1/lib/common.sh"; offline_installonly_name "$2"' _ "$REPO_ROOT" "$io"
+done
+# dnf's own config adds plain names; provide-shaped entries are skipped.
+printf '[main]\ninstallonlypkgs=installonlypkg(vm), my-kmod other-pkg\n' > "$TESTTMP/io-dnf.conf"
+io_conf() { KEMPT_DNF_CONF="$TESTTMP/io-dnf.conf" bash -c 'source "$1/lib/common.sh"; offline_installonly_name "$2"' _ "$REPO_ROOT" "$1"; }
+assert_exit 0 "a name dnf.conf lists as installonly counts" -- io_conf my-kmod
+assert_exit 0 "...each of them" -- io_conf other-pkg
+assert_exit 1 "...and a provide is not mistaken for a name" -- io_conf "installonlypkg(vm)"
+assert_exit 1 "...nor is an unlisted package" -- io_conf bash
+act_tx '{"nevra":"my-kmod-1.0-1.fc44.x86_64","action":"Remove"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
+printf 'my-kmod-0:1.0-1.fc44.x86_64\n' >> "$TESTTMP/pk-qa-kmod"; cat "$pk_qa" >> "$TESTTMP/pk-qa-kmod"
+assert_exit 0 "...and a kept build of it does not stop a stage being done" -- \
+  env KEMPT_DNF_CONF="$TESTTMP/io-dnf.conf" bash -c 'KEMPT_OFFLINE_TXJSON="$2" KEMPT_RPM_QA_CMD="cat $3"; source "$1/lib/common.sh"; offline_stage_satisfied' _ "$REPO_ROOT" "$TESTTMP/pk-tx-act.json" "$TESTTMP/pk-qa-kmod"
 act_tx '{"nevra":"kernel-core-6.18.0-200.fc44.x86_64","action":"Remove"},{"nevra":"kernel-core-6.20.1-200.fc44.x86_64","action":"Install"}'
 assert_exit 0 "...and done once it is gone, other builds of it staying" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
 act_tx '{"nevra":"bash-5.3.9-1.fc44.x86_64","action":"Reinstall"}'
