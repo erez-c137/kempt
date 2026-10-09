@@ -455,8 +455,17 @@ KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
 # Discover's own update settings. `UseUnattendedUpdates=true` under [Global] makes the notifier
 # download updates and prepare them for the next restart by itself, through PackageKit.
 KEMPT_DISCOVER_UPDATES_CONF="${KEMPT_DISCOVER_UPDATES_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/PlasmaDiscoverUpdates}"
-# The administrator's default for the same setting, which the user's file overrides unless locked.
-KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-/etc/xdg/PlasmaDiscoverUpdates}"
+# The administrator's defaults for the same setting, which the user's file overrides unless locked.
+# A colon-separated list in XDG_CONFIG_DIRS order, most important first. Relative entries are skipped.
+discover_sysconf_default() {
+  local d out="" dirs
+  IFS=: read -ra dirs <<<"${XDG_CONFIG_DIRS:-/etc/xdg}"
+  for d in "${dirs[@]}"; do
+    if [[ "$d" == /* ]]; then out+="${out:+:}${d%/}/PlasmaDiscoverUpdates"; fi
+  done
+  printf '%s\n' "${out:-/etc/xdg/PlasmaDiscoverUpdates}"
+}
+KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-$(discover_sysconf_default)}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
 # The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
@@ -505,38 +514,44 @@ discover_enabled() {
 }
 
 # → 0, and the path of the file that decided, when Discover is set to install updates by itself.
-# Read as text, never with kreadconfig6, which may be absent. The system file is read first and the
-# user's file overrides it, as KConfig does. A `[$i]` marker in the system file on the key, on
-# [Global] or before any group locks the value, and the user's file then cannot change it.
+# Read as text, never with kreadconfig6, which may be absent. As in KConfig, the system files are
+# read from least to most important and the user's file last, each overriding the one before. A
+# `[$i]` marker on the key, on [Global] or before any group locks the value for every later file.
 # True, on, yes and 1 count as true. A file that cannot be read counts as absent.
 discover_unattended() {
-  local sys="$KEMPT_DISCOVER_UPDATES_SYSCONF" user="$KEMPT_DISCOVER_UPDATES_CONF"
-  [[ -f "$sys" && -r "$sys" ]] || sys=""
-  [[ -f "$user" && -r "$user" ]] || user=""
-  [[ -n "$sys$user" ]] || return 1
-  {
-    [[ -z "$sys" ]] || head -c 65536 "$sys" 2>/dev/null
-    printf '\n\001KEMPT-USER\n'
-    [[ -z "$user" ]] || head -c 65536 "$user" 2>/dev/null
-  } | awk -v sysf="$sys" -v userf="$user" '
+  local f i dirs files=()
+  IFS=: read -ra dirs <<<"$KEMPT_DISCOVER_UPDATES_SYSCONF"
+  for (( i = ${#dirs[@]} - 1; i >= 0; i-- )); do
+    f="${dirs[i]}"
+    if [[ -n "$f" && -f "$f" && -r "$f" ]]; then files+=("$f"); fi
+  done
+  f="$KEMPT_DISCOVER_UPDATES_CONF"
+  if [[ -f "$f" && -r "$f" ]]; then files+=("$f"); fi
+  (( ${#files[@]} > 0 )) || return 1
+  for f in "${files[@]}"; do
+    printf '\001KEMPT-FILE %s\n' "$f"
+    head -c 65536 "$f" 2>/dev/null
+    printf '\n'
+  done | awk '
     function locked(t) { return t ~ /\[\$[A-Za-z]*i[A-Za-z]*\]/ }
-    $0 == "\001KEMPT-USER" { inuser = 1; sec = ""; next }
+    # A lock seen in one file applies from the next file on.
+    index($0, "\001KEMPT-FILE ") == 1 { if (pend) blocked = 1; pend = 0; cur = substr($0, 13); sec = ""; next }
     /^[[:space:]]*\[/ {
       s = $0; gsub(/[[:space:]]/, "", s); lk = locked(s); gsub(/\[\$[A-Za-z]+\]/, "", s)
-      if (s != "") { sec = s; if (!inuser && lk && s == "[Global]") glock = 1 }
-      else if (!inuser && lk && sec == "") flock_ = 1
+      if (s != "") { sec = s; if (lk && s == "[Global]") pend = 1 }
+      else if (lk && sec == "") pend = 1
       next
     }
-    sec == "[Global]" && index($0, "=") > 0 {
+    sec == "[Global]" && index($0, "=") > 0 && !blocked {
       k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k); lk = locked(k)
       gsub(/\[\$[A-Za-z]+\]/, "", k)
       if (k != "UseUnattendedUpdates") next
-      v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v); v = tolower(v)
-      if (!inuser) { sv = v; sset = 1; if (lk) klock = 1 }
-      else if (!(flock_ || glock || klock)) { uv = v; uset = 1 }
+      v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v)
+      r = tolower(v); set = 1; f = cur
+      if (lk) pend = 1
     }
     END {
-      if (uset) { r = uv; f = userf } else if (sset) { r = sv; f = sysf } else exit 1
+      if (!set) exit 1
       if (r == "true" || r == "on" || r == "yes" || r == "1") { print f; exit 0 }
       exit 1
     }'

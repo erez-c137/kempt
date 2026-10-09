@@ -210,8 +210,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A check that finishes while a run publishes its stage keeps its result.** The run could write
   back the state it read a moment before. Both now take `state.lock`.
 - **`kempt doctor` sees Discover's unattended updates set for the whole system.** It reads
-  `/etc/xdg/PlasmaDiscoverUpdates` under your own file, and an administrator's `[$i]` lock keeps
-  your value out. The row names the file that decided.
+  `PlasmaDiscoverUpdates` in each `XDG_CONFIG_DIRS` directory under your own file, and an
+  administrator's `[$i]` lock keeps your value out. The row names the file that decided.
 - **A kept kmod or akmod build no longer marks a stage another updater installed as stuck.** Kempt
   asks rpm which packages dnf keeps several builds of. The fixed kernel list stands in when rpm
   names none.
