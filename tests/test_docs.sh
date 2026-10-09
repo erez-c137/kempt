@@ -196,21 +196,65 @@ fi
 # Public files state facts without saying who decided them or how the work was done
 # (CONTRIBUTING.md, "What never goes in a public file"). This catches the words a search can find.
 #
-# The patterns are assembled from fragments so this file does not match itself, and the scan skips
-# internal/, .git, every other hidden directory but .github/ and every binary (grep -I). Hidden
-# directories hold local editor state, never shipped, like internal/. No `git ls-files`: the RPM's
-# %check stage runs the suite against a copy of the tree with no .git in it at all.
+# The words are kept as sha256 hashes, so this file does not spell them out. Each file is split
+# into lowercase words of letters and digits. Every word is hashed, and so is every pair of
+# neighbours. In a pair, a second word that starts with letters then a digit is also hashed as those
+# letters plus 0, and as ?0 when one letter starts it, so a numbered label matches whatever its
+# number. To add a word: printf '%s' word | sha256sum.
+#
+# The scan skips internal/, .git, every other hidden directory but .github/ and every binary file
+# (one with a NUL byte). Hidden directories hold local editor state, never shipped, like internal/.
+# No `git ls-files`: the RPM's %check stage runs the suite against a copy of the tree with no .git
+# in it at all.
 not_shipped=( \( -path "$REPO_ROOT/internal" -o -path "$REPO_ROOT/.git" -o \( -type d \
                 -path "$REPO_ROOT/*" -name '.*' -not -name .github \) \) -prune -o )
-private_words=("found""er" "hostile ""panel" "UX ""panel" "Task ""W[0-9]" "WP-""[A-Z][0-9]" "\bFab""le\b" "sub""agent")
-private_re="$(printf '%s|' "${private_words[@]}")"; private_re="${private_re%|}"
-leaked=""
-while IFS= read -r f; do
-  [[ "$f" == "$REPO_ROOT/tests/test_docs.sh" ]] && continue   # holds the patterns themselves
-  grep -qIiE "$private_re" "$f" 2>/dev/null && leaked+="${f#"$REPO_ROOT/"} "
-done < <(find "$REPO_ROOT" \
-           "${not_shipped[@]}" -type f -print)
-assert_eq "${leaked% }" "" \
+private_hashes=(
+  59458508a0827cff5f80ed091ebd8808fbe67c97357b58ca00a278e7359dec20
+  52196a62f405150a678ad281ebac39879901a5b7c60ab556fb5af366f28aefca
+  191d5c3a131a7bfef8bf2e068af9b6f1caab26779e14cdcf82bb19f4fa3b426c
+  baec58b415a97c4a809989b50f1255c55b96d96ad0f701b30295260b65300297
+  94a168d2da574b00ec6c787377278465271cf2b97e68af076fc3eee87eba8664
+  d298391b07433318a02bd922ed5b90112a4302606c4928b54e3fb1c18130d92e
+  09cf980b5ff304ac11b7f6d2c5c263da2a867425798ef5cc5d2ebcf55c4fcd23
+  9826156e68288510fefc3aea66addcdbff00eb41261a5c9031d6254ddbb7c3c3
+  b571424bde64029d3d806909d1e41e2aa62f4d3896ad6b58f90eaf33ea563180
+  a0474b137c1a1e56b7ddeac25811fc5604005a4a6a594124cd079ca96243e8b0
+  056f16a772f15a45ed3837bd191a375aaf719010b2b80028d4fb2caae610bba8
+)
+leaked="$(find "$REPO_ROOT" "${not_shipped[@]}" -type f -print0 \
+  | python3 -c '
+import hashlib, re, sys
+bad = set(sys.argv[2:])
+def h(text):
+    return hashlib.sha256(text.encode()).hexdigest() in bad
+out = []
+for path in sys.stdin.buffer.read().split(b"\0"):
+    if not path:
+        continue
+    try:
+        data = open(path, "rb").read()
+    except OSError:
+        continue
+    if b"\0" in data:
+        continue
+    words = re.findall(r"[a-z0-9]+", data.decode("utf-8", "replace").lower())
+    hit = any(h(w) for w in set(words))
+    for a, b in zip(words, words[1:]):
+        if hit:
+            break
+        keys = [b]
+        m = re.match(r"([a-z]+)[0-9]", b)
+        if m:
+            keys.append(m.group(1) + "0")
+            if len(m.group(1)) == 1:
+                keys.append("?0")
+        hit = any(h(a + " " + k) for k in keys)
+    if hit:
+        out.append(path.decode("utf-8", "replace")[len(sys.argv[1]) + 1:])
+print(" ".join(sorted(out)))
+' "$REPO_ROOT" "${private_hashes[@]}")" \
+  || leaked="(the private-word scan could not run)"
+assert_eq "$leaked" "" \
   "no public file talks about the project's own review process"
 
 # --- and no public file cites a document the public cannot open ----------------------------------

@@ -76,7 +76,7 @@ got="$(dnf_check)"
 assert_eq "$(jq 'length' <<<"$got")" "7" "dnf_check wires helper→parser"
 
 # Fully up-to-date box: check-update prints nothing and exits 0 (not 100). Normal state, not a
-# failure - Task 8 must not read the most common state on a maintained box as "stale".
+# failure - the state parser must not read the most common state on a maintained box as "stale".
 cat > "$TESTTMP/refresh-stub" <<'STUB'
 #!/usr/bin/env bash
 [[ "$1" == "check" ]] || exit 2

@@ -271,6 +271,12 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 
 %changelog
 * Sat Oct 03 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
+- Security: the root helpers set their own umask, so root's dnf files can no
+  longer be left writable by other users, and they never discard another
+  updater's prepared restart. kempt doctor warns about files left open.
+- Error messages drop URL credentials, tokens and your home path.
+- kempt and install.sh refuse to run as root (exit 8).
+- New kempt status, per-command --help, and a plain-words kempt log.
 - Updates run in the widget by default. Installs that used the terminal keep
   it, and the widget offers the switch once.
 - Kernel, systemd and desktop updates ask first when run outside a terminal.

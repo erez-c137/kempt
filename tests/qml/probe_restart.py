@@ -79,7 +79,7 @@ def settle():
 settle()
 
 # ==================================================================================================
-# F3. Restart... while the action queue is busy with a check
+# Restart... while the action queue is busy with a check
 # ==================================================================================================
 # 6 seconds here; the real check is allowed 120. The queue is strictly first-in-first-out, so on
 # the shared executor the prompt could not be asked for until the whole check had finished.
@@ -154,7 +154,7 @@ settle()
 p.check("a prompt that DOES open leaves nothing to apologise for", ev("root.restartError"), "")
 
 # ==================================================================================================
-# F13b. a dismissal that outlived the message it was about
+# A dismissal that outlived the message it was about
 # ==================================================================================================
 # Closing the restart message sets restartDismissed for this plasmashell session, which is the
 # right shape for a dismissal (see main.qml: persisting it would promise to remember something the

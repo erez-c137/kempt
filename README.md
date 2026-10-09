@@ -47,9 +47,9 @@ install. Its background work can also hold the dnf lock.
 Kempt checks the same cache the update uses, so the count in the tray is what that cache offers.
 Updates published since that check can still join the update. dnf fetches new lists once its
 copy passes the repository's age limit, six hours for Fedora's updates, and Flatpak always asks.
-A `dnf5 check-update` of your own reads your user cache, so its count can differ. Every update ends
-with a summary: each package's old and new version, how long it took, and whether to restart.
-The widget runs the same commands you can run in a terminal, so the two always agree.
+Every update ends with a summary: each package's old and new version, how long it took, and
+whether to restart. The widget runs the same commands you can run in a terminal, so the two always
+agree.
 
 Kempt is a desktop tool. It checks for updates on its own, but installs them only when you say
 so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better fit.
@@ -72,13 +72,14 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
   disk.
 - **A summary of every run.** Each package with its old and new version, plus the full log.
   Updates installed during a restart get a summary too.
-- **A log of what Kempt did.** `kempt log` has one line per action, stamped with where it came
-  from.
+- **A log of what Kempt did.** `kempt log` has one line per action.
 - **Limited root access.** Two small helper scripts do the work that needs root, through polkit.
   You can allow updates without a password, for the active local session only.
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
+- **Security alerts, if you want them.** One notification per new set of security updates, off by
+  default. Kempt can also turn off Discover's notifier, so you see one count.
 
 ![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
 

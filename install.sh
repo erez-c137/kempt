@@ -76,7 +76,7 @@ run() {
 # without Plasma at all) must still end up with a working `kempt`.
 widget_install() {
   command -v "$KEMPT_KPACKAGETOOL" >/dev/null 2>&1 || {
-    echo "note: $KEMPT_KPACKAGETOOL not found - the panel widget was NOT installed (the CLI works without it)"
+    echo "note: $KEMPT_KPACKAGETOOL was not found, so the panel widget was not installed. The CLI works without it."
     return 0
   }
   # -i refuses when the package is already installed and -u is the upgrade path, so trying -i
@@ -88,18 +88,18 @@ widget_install() {
   elif run "$KEMPT_KPACKAGETOOL" -t Plasma/Applet -u "$ROOT/plasmoid"; then
     upgraded=1
   else
-    echo "warning: could not install the panel widget - the CLI is installed and working; re-run ./install.sh to try the widget again" >&2
+    echo "warning: could not install the panel widget. The CLI is installed and works. Run ./install.sh again to retry the widget." >&2
     return 0
   fi
   icon_install
   echo "Panel widget installed. Add it: right-click the panel > Add Widgets > search for Kempt."
-  echo "note: the widget is a COPY (the CLI is a symlink) - re-run ./install.sh after changing plasmoid/."
+  echo "note: the widget is a copy, while the CLI is a symlink. Run ./install.sh again after changing plasmoid/."
   # An upgrade replaces the files under a plasmashell that already has the OLD ones loaded, and
   # nothing makes it re-read them: the applet keeps running the QML it started with, and a tray
   # entry can end up half-reloaded. Deliberately NOT solved by removing and re-installing the
   # package - kpackagetool6 -r takes every instance of the applet off the user's panels with it,
   # which would silently cost them the widget they had placed.
-  [[ $upgraded -eq 1 ]] && echo "note: the widget was upgraded in a running session - run 'plasmashell --replace' (or log out) so the tray entry reloads cleanly."
+  [[ $upgraded -eq 1 ]] && echo "note: the widget was upgraded in a running session. Run 'plasmashell --replace', or log out and back in, so the panel entry reloads cleanly."
   return 0
 }
 
@@ -209,7 +209,7 @@ main() {
     # shellcheck disable=SC2016
     run pkexec /usr/bin/bash -c 'rm -f "$1" "$2" "$3" "$4"' _ \
       "$LIBEXEC_DIR/kempt-refresh" "$LIBEXEC_DIR/kempt-apply" "$ACTIONS_DIR/$POLICY" "$RULES_FILE" \
-      || { echo "root uninstall failed (authentication declined?) - the CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed; re-run ./install.sh --uninstall" >&2; exit 1; }
+      || { echo "root uninstall failed, possibly because the password prompt was declined. The CLI symlink is gone, but $LIBEXEC_DIR/kempt-* and the polkit action are still installed. Run ./install.sh --uninstall again." >&2; exit 1; }
     echo "Kempt uninstalled. Your settings and history in ~/.config/kempt and ~/.local/state/kempt stay."
     # Named only when Kempt's own file keeps the notifier off, which is the case `on` can undo.
     if [[ "$("$ROOT/bin/kempt" discover-notifier status --json 2>/dev/null)" == *'"enabled":false,'*'"by_kempt":true'* ]]; then
@@ -254,9 +254,9 @@ main() {
   && install -m 755 -o root -g root "$1" "$2" /usr/local/libexec/ \
   && install -m 644 -o root -g root "$3" /usr/share/polkit-1/actions/' _ \
     "$ROOT/libexec/kempt-refresh" "$ROOT/libexec/kempt-apply" "$ROOT/polkit/$POLICY" \
-    || { echo "root install failed (authentication declined?) - the CLI symlink is in place, but the root helpers are NOT installed and 'kempt check' will not work yet; the panel widget was not installed either. Re-run ./install.sh to finish both" >&2; exit 1; }
+    || { echo "root install failed, possibly because the password prompt was declined. The CLI symlink is in place, but the root helpers and the panel widget are not installed, so 'kempt check' will not work yet. Run ./install.sh again to finish both." >&2; exit 1; }
   echo "Installed. Try: kempt check   (reference: man kempt)"
-  echo "note: the CLI runs from this checkout (symlink install) - don't move/delete the repo. Only the root helpers + policy are copies."
+  echo "note: the CLI runs from this checkout through a symlink, so do not move or delete it. Only the root helpers and the polkit policy are copies."
 
   # After the root step, deliberately. The widget needs no authentication, so it COULD go first
   # like widget_uninstall does - but a widget installed against missing root helpers is worse than

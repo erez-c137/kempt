@@ -3614,10 +3614,10 @@ doctor_tool_rows() {
         || fp_user_n="?"
     fi
     case "$fp_user_n" in
-      0) doctor_info "per-user Flatpak apps: none" ;;
-      \?) doctor_info "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" ;;
-      1) doctor_info "per-user Flatpak apps: 1, checked and updated with the system ones" ;;
-      *) doctor_info "per-user Flatpak apps: $fp_user_n, checked and updated with the system ones" ;;
+      0) doctor_info "apps for you only: none" ;;
+      \?) doctor_info "apps for you only: the list failed, so updates skip them and checks keep their last known updates" ;;
+      1) doctor_info "apps for you only: 1, checked and updated with the system ones" ;;
+      *) doctor_info "apps for you only: $fp_user_n, checked and updated with the system ones" ;;
     esac
   fi
 
@@ -3713,20 +3713,20 @@ doctor_metadata_row() {
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.
   if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
-    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
+    doctor_info "package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why"
     return 0
   fi
   if [[ -z "$iso" ]]; then
-    doctor_info "package metadata: never refreshed on this computer. The next check on mains power and an unmetered connection fetches it"
+    doctor_info "package lists: never refreshed on this computer. The next check on mains power and an unmetered connection fetches them"
     return 0
   fi
   days="$(metadata_age_days)"
   if [[ "$days" == 0 ]]; then
-    doctor_ok "package metadata: refreshed $iso"
+    doctor_ok "package lists: refreshed $iso"
   else
     local word=days
     if [[ "$days" == 1 ]]; then word=day; fi
-    doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch one now, on mains power and an unmetered connection, run: kempt check --refresh"
+    doctor_info "package lists are $days $word old ($iso). Checks answer from them. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch them now, on mains power and an unmetered connection, run: kempt check --refresh"
   fi
 }
 
@@ -4270,7 +4270,7 @@ cmd_disable_passwordless() {
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
 #   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
-#     could not list the per-user Flatpak apps or served the previous state, `doctor` found a
+#     could not list the Flatpak apps installed for you only or served the previous state, `doctor` found a
 #     problem, or a writer
 #     (config set / hold / unhold / discover-notifier off|on|keep) could not take the writers' lock. docs/usage.md carries the
 #     same table. Keep the two in step.
@@ -4298,8 +4298,8 @@ usage_block() {  # command → its block, or nothing for a command Kempt does no
                         metered-connection rules. --anyway downloads package lists now, even on
                         battery or a metered connection. --coalesce accepts the answer of a check
                         that finished while this one waited (the widget's automatic checks).
-                        --strict exits 1 when dnf or Flatpak failed, the per-user Flatpak apps
-                        could not be listed, or the previous state was served
+                        --strict exits 1 when dnf or Flatpak failed, the Flatpak apps installed
+                        for you only could not be listed, or the previous state was served
 EOF
     ;;
     update) cat <<'EOF'
