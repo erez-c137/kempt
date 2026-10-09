@@ -398,7 +398,7 @@ STUB
     "the bracket or quote that closes a query stays"
   assert_eq "$(red 'GET https://bob:p@ss/w0rd@h/r and https://bob:123/x@h/r')" "GET https://h/r and https://h/r" \
     "a password holding @ and / goes up to the last @"
-  assert_eq "$(red '"https://u:p@ss/w0rd@h.example" (https://u:p@ss@h.example), https://u:p@ss@my_host/r')" '"https://h.example" (https://h.example), https://my_host/r' \
+  assert_eq "$(red '"https://u:p@ss/w0rd@hosta" (https://u:p@ss@hosta), https://u:p@ss@my_host/r')" '"https://hosta" (https://hosta), https://my_host/r' \
     "a password holding @ goes when quotes, brackets or an odd host follow"
   assert_eq "$(red 'x https://h/r?token=ab]SECRETTAIL [https://h/r?a=b]')" "x https://h/r [https://h/r]" \
     "a bracket inside a query does not end it, and one that closes the word stays"
