@@ -148,7 +148,10 @@ grep -q '^skip:' /tmp/qml.log \
 sec "first contact, as an ordinary user"
 su - alice -c "kempt doctor" > /tmp/doc.log 2>&1; drc=$?
 is "doctor exits 0 on a fresh packaged install" "$drc" "0"
-grep -q 'all checks passed' /tmp/doc.log && ok "...and says so" || { bad "doctor did not pass"; grep '^FAIL' /tmp/doc.log; }
+# A warning (no Flatpak in the image, say) changes the last line to "no problems, N warnings"; a
+# problem changes it to "N problems found". Warnings are shown so they get read.
+grep -qE 'kempt doctor: (all checks passed|no problems)' /tmp/doc.log && ok "...and says so" || { bad "doctor did not pass"; tail -5 /tmp/doc.log; }
+grep '^WARN' /tmp/doc.log | sed 's/^/  /'
 is "the version it reports is the released one" "$(su - alice -c 'kempt --version')" "kempt $VER"
 su - alice -c "kempt holds" >/dev/null 2>&1 && ok "holds runs on a box that has never held anything" || bad "holds failed"
 su - alice -c "kempt summary --json" >/dev/null 2>&1 && ok "summary --json runs with no history" || bad "summary --json failed"
