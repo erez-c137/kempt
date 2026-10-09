@@ -2365,6 +2365,114 @@ cmd_history() {  # [--json]: every run, newest first; --json as one array of his
   (( ${#files[@]} )) || echo "no update runs recorded yet"
 }
 
+status_last_run() {  # now-epoch → "Last update ..." for the newest history entry, or nothing
+  local f files=() line phrase failed
+  # The listing cmd_summary uses, and its reasons (byte order, ls as the existence filter).
+  # shellcheck disable=SC2012
+  while IFS= read -r f; do [[ -n "$f" ]] && files+=("$f"); done \
+    < <(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r || true)
+  # The newest entry only, as `summary --json` and the widget read it: a damaged newest entry gets no
+  # line, never an older run passed off as the last one.
+  f="${files[0]:-}"
+  [[ -n "$f" ]] || return 0
+  # An entry that cannot be dated gets no line, as in the widget's Last update row.
+  line="$(jq -r -n --argjson now "$1" "$KEMPT_JQ_TIME"'
+            [inputs] | select(length == 1 and (.[0] | type == "object")) | .[0]
+            | select(.timestamp | renderable_stamp)
+            | (.timestamp | rel_time($now)) + "\u001f" + (if .status == "ok" then "" else "failed" end)' \
+            "$f" 2>/dev/null)" || line=""
+  [[ -n "$line" ]] || return 0
+  phrase="$(history_phrase "$f" 2>/dev/null)" || phrase=""
+  [[ -n "$phrase" ]] || return 0
+  failed="${line#*$'\x1f'}"
+  printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
+}
+
+cmd_status() {  # [--json]: what the last check found, in words; reads only
+  local json=false
+  if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  # The state is read once, with the house idiom: the first document, and only if it is an object.
+  # A missing, empty or half-written file is no state. No lock is taken and nothing is written, so
+  # status answers while a check or an update runs.
+  local doc
+  doc="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || doc=""
+  if [[ "$json" == true ]]; then
+    [[ -n "$doc" ]] || exit 1
+    jq . <<<"$doc"
+    return 0
+  fi
+  # KEMPT_NOW (seconds since the epoch) pins the clock for the tests.
+  local now="${KEMPT_NOW:-}"
+  [[ "$now" =~ ^[0-9]+$ ]] || now="$(date +%s)"
+  local records
+  records="$(jq -r -n --argjson now "$now" "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
+               [inputs][0] | status_records($now)' <<<"${doc:-null}")" \
+    || { echo "kempt: could not read the update state" >&2; exit 1; }
+  local tag a b header="" detail="" footer="" restart="" staged=false security="" held="" rc=1
+  local -a sections=() held_names=() names=()
+  local title="" count=""
+  status_flush_section() {
+    [[ -n "$title" ]] || return 0
+    local word="updates" phrase
+    [[ "$count" == 1 ]] && word="update"
+    phrase="$(printf '%s\n' ${names[@]+"${names[@]}"} | names_phrase)"
+    sections+=("$title: $count $word${phrase:+ for $phrase}")
+    title=""; names=()
+  }
+  while IFS=$'\x1f' read -r tag a b; do
+    case "$tag" in
+      H) header="$a" ;;
+      P) detail="$a" ;;
+      S) status_flush_section; title="$a"; count="$b" ;;
+      N) names+=("$a") ;;
+      L) held="$a" ;;
+      M) held_names+=("$a") ;;
+      C) security="$a" ;;
+      G) staged=true ;;
+      R) restart="$a" ;;
+      F) footer="$a" ;;
+      X) rc="$a" ;;
+    esac
+  done <<<"$records"
+  status_flush_section
+
+  printf '%s\n' "$header"
+  # The same probe Update Now's wrapper makes: another process holds the update lock, which an
+  # update, a reclaim and an unstage all take.
+  update_running_elsewhere && echo "Kempt is changing the system right now"
+  [[ -n "$detail" ]] && printf '%s\n' "$detail"
+
+  # While a stage is armed the pending sections and the security count read as work still waiting,
+  # so they give way to the staged line, as they do in the widget's tooltip.
+  local -a body=()
+  [[ "$staged" == true ]] || body+=(${sections[@]+"${sections[@]}"})
+  if [[ -n "$held" ]]; then
+    local held_phrase
+    held_phrase="$(printf '%s\n' ${held_names[@]+"${held_names[@]}"} | names_phrase)"
+    body+=("Held: $held${held_phrase:+ ($held_phrase)}")
+  fi
+  if [[ -n "$security" && "$staged" != true ]]; then
+    if [[ "$security" == 1 ]]; then body+=("Security: 1 update"); else body+=("Security: $security updates"); fi
+  fi
+  if [[ "$staged" == true ]]; then
+    local staged_line
+    staged_line="$(staged_summary_line /dev/stdin <<<"$doc")"
+    [[ -n "$staged_line" ]] && body+=("$staged_line")
+  fi
+  [[ -n "$restart" ]] && body+=("$restart")
+  if (( ${#body[@]} )); then echo; printf '%s\n' "${body[@]}"; fi
+
+  local last
+  last="$(status_last_run "$now")"
+  if [[ -n "$footer" || -n "$last" ]]; then
+    echo
+    [[ -n "$footer" ]] && printf '%s\n' "$footer"
+    [[ -n "$last" ]] && printf '%s\n' "$last"
+  fi
+  return "$rc"
+}
+
 # The staged-offline result is only visible AFTER the reboot that applied it, so the next check is
 # what turns it into a normal history entry.
 # GATED ON THE BOOT SESSION: "the installed set moved" is no evidence the stage applied - a live
@@ -4117,6 +4225,10 @@ usage: kempt <command>
                         start an update where the config says, as Update Now does, and return.
                         --surface=X runs this one elsewhere. --risky-ok as for update, but a
                         terminal run still asks
+  status [--json]       what the last check found, in words: pending, held, staged, restart owed.
+                        Reads only. Exits 1 when there is no state, it cannot be read, or the
+                        last check failed. --json prints the published state, and exits 1 only
+                        when there is none
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)
@@ -4177,6 +4289,7 @@ case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;
   update)  shift; cmd_update "$@" ;;
   run)     shift; cmd_run "$@" ;;
+  status)  shift; cmd_status "$@" ;;
   summary) shift; cmd_summary "$@" ;;
   history) shift; cmd_history "$@" ;;
   log)     shift; cmd_log "$@" ;;

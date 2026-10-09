@@ -123,6 +123,10 @@ jobs:
           bash tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
           grep -qE '^skip: (node is not installed|PySide6 is absent)' /tmp/logic.log \
             && { echo "::error::node or PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
+          # kempt status against the same logic.js: its parity half needs node too.
+          bash tests/test_status.sh 2>&1 | tee /tmp/status.log
+          grep -qE '^skip: node is absent, so status was NOT compared' /tmp/status.log \
+            && { echo "::error::node was missing, so status was not compared with the widget"; exit 1; } || true
 
       - name: The QML probes, against the real Qt 6 engine
         shell: bash
