@@ -414,7 +414,7 @@ terminal. A removal writes an event line and no history entry.
 | 1 | Flatpak could not list or remove the runtimes. If it stopped part-way, Kempt says how much it freed, or, when the list afterwards could not be read, that the removal may be partial: run `kempt reclaim --list`. |
 | 2 | Unknown option, or a digest that is not 16 lowercase hex characters. |
 | 3 | Another update is running. |
-| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
+| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
 | 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
 
 ## status

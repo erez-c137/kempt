@@ -197,7 +197,8 @@ its own. A pinned runtime is never removed: use
 to keep one.
 .IP
 It never asks for a password. Removing needs an administrator logged in at the desktop. Exit 5: nothing removed, because it ran as root with
-.BR KEMPT_ALLOW_ROOT=1 ,
+.B KEMPT_ALLOW_ROOT=1
+set or under sudo or pkexec,
 Flatpak is off or missing,
 .B reclaim=off
 is set, removing needs an administrator, or there is no

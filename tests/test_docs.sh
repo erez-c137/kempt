@@ -252,7 +252,8 @@ for path in sys.stdin.buffer.read().split(b"\0"):
     if hit:
         out.append(path.decode("utf-8", "replace")[len(sys.argv[1]) + 1:])
 print(" ".join(sorted(out)))
-' "$REPO_ROOT" "${private_hashes[@]}")"
+' "$REPO_ROOT" "${private_hashes[@]}")" \
+  || leaked="(the private-word scan could not run)"
 assert_eq "$leaked" "" \
   "no public file talks about the project's own review process"
 
