@@ -48,6 +48,17 @@ assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
 config_set restart_reminder true
 assert_eq "$(config_get restart_reminder)" "true" "and back on again"
 
+# --- notify_security: off unless asked for -----------------------------------------------------
+assert_eq "$(kempt_default notify_security)" "false" "the defaults table knows notify_security, and it is off"
+assert_contains " $KEMPT_CONFIG_KEYS " " notify_security " "...and it is a known setting"
+assert_eq "$(config_get notify_security)" "false" "an untouched notify_security reads as false"
+config_set notify_security true
+assert_eq "$(is_true "$(config_get notify_security)" && echo on || echo off)" "on" "turning it on round-trips"
+# A boolean, so it follows the rule every boolean follows: anything but true, 1 or yes reads as off.
+config_set notify_security on
+assert_eq "$(is_true "$(config_get notify_security)" && echo on || echo off)" "off" "...and a value that is not a boolean reads as off"
+config_set notify_security false
+
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
 # ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
 # anything that is not exactly `automatic` must never remove without asking, so an unknown value

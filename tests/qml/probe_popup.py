@@ -3730,6 +3730,8 @@ _ASSEMBLED_IN_LOGIC = {
     "checkNetworkShort",    # -> vm.tooltipSub, for a network failure
     "checkFailedShort",     # -> vm.tooltipSub, for any other failure
     "lastSuccessfulCheck",  # -> vm.tooltipSub while stale (a relative time goes into the %1)
+    "securityCount",        # -> vm.tooltipSub, the security updates pending (the count goes into the %1)
+    "securityCountOne",     # -> vm.tooltipSub, when there is one
     "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed

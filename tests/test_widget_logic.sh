@@ -1133,6 +1133,34 @@ RT_NEW='{schema:1,status:"ok",actionable:1,held_total:0,backends:{flatpak:{enabl
 assert_eq "$(js "L.viewModel($RT_NEW,false).sections.map(function (s) { return s.title; })")" \
   '["flatpak extension"]' "an unknown kind gets a section rather than being dropped"
 
+# --- notify_security: the row token, the tooltip count and the panel's attention ----------------
+assert_eq "$(js "V('security').rows.filter(function (r) { return r.kind === 'item' && r.security; }).map(function (r) { return r.name; })")" \
+  '["curl","git-core","tar"]' "the rows the security block names carry the Security token"
+assert_eq "$(js "V('security').rows.filter(function (r) { return r.backend === 'flatpak' && r.security; }).length")" "0" \
+  "...and no Flatpak row does"
+assert_eq "$(js "V('live').rows.filter(function (r) { return r.security; }).length")" "0" "with no block, no row carries it"
+assert_contains "$(js "V('security').tooltipSub")" "3 security updates" "the tooltip counts them"
+assert_eq "$(js "var t = V('security').tooltipSub; t.indexOf('3 security updates') > t.indexOf('curl')")" "true" \
+  "...after the pending names"
+assert_eq "$(js "L.COPY.securityToken + '|' + L.COPY.securityCountOne")" "Security|1 security update" "the copy, with its singular"
+ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"], advisories:["FEDORA-2026-c1"], attention:false, digest:"0123456789abcdef"}' "$FIXTURES/state-security.json")"
+assert_contains "$(js "L.viewModel($ONE_SEC,false).tooltipSub")" "1 security update" "one is singular"
+assert_eq "$(js "V('security').needsAttention")" "true" "a set nobody has seen makes the panel ask for attention"
+assert_eq "$(js "V('security').securityDigest")" "0123456789abcdef" "...with the digest the popup acknowledges"
+assert_eq "$(js "V('security', true).needsAttention")" "false" "...but not during an update"
+assert_eq "$(js "L.viewModel($ONE_SEC,false).needsAttention")" "false" "an acknowledged set does not ask"
+assert_eq "$(js "L.viewModel($ONE_SEC,false).securityDigest")" "" "...and offers nothing to acknowledge"
+assert_eq "$(js "V('live').needsAttention")" "false" "no block, no attention"
+STAGED_SEC="$(jq -c '.offline_staged = {staged_at:"2026-08-25T11:00:00+03:00", count:7, armed:true}' "$FIXTURES/state-security.json")"
+assert_eq "$(js "L.viewModel($STAGED_SEC,false).stagedArmed")" "true" "(premise: the stage is armed)"
+assert_eq "$(js "L.viewModel($STAGED_SEC,false).needsAttention")" "false" "an armed stage does not ask"
+assert_not_contains "$(js "L.viewModel($STAGED_SEC,false).tooltipSub")" "security update" "...and the tooltip leaves the count out, like the names"
+NODIGEST="$(jq -c '.security.digest = "nope"' "$FIXTURES/state-security.json")"
+assert_eq "$(js "L.viewModel($NODIGEST,false).needsAttention")" "false" "a block without a usable digest cannot ask, since nothing could acknowledge it"
+assert_eq "$(js "L.viewModel($NODIGEST,false).engineFault")" "undefined" "(and is otherwise read as usual)"
+assert_eq "$(js "var a = V('live'), b = V('security'); ['tooltipSub','needsAttention','securityDigest','securityCount'].forEach(function (k) { delete a[k]; delete b[k]; }); var drop = function (k, v) { return k === 'security' ? undefined : v; }; JSON.stringify(a, drop) === JSON.stringify(b, drop)")" \
+  "true" "the block moves the token, the tooltip and the attention, and nothing else"
+
 # --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
   {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
@@ -2244,7 +2272,7 @@ done
 assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(1, "", "kempt: could not take the writers lock\nx", "x"))')" \
   '{"ok":false,"text":"kempt: could not take the writers lock"}' \
   "...and any other failure is the CLI's own reason"
-assert_eq "$(js 'L.checkErrorOf(124, "timeout after 510000ms")')" "The check did not finish in time." \
+assert_eq "$(js 'L.checkErrorOf(124, "timeout after 540000ms")')" "The check did not finish in time." \
   "with no state, the Executor's kill is a sentence, never its timeout text"
 assert_eq "$(js 'L.checkErrorOf(1, "kempt: the check could not run\nmore")')" "kempt: the check could not run" \
   "...and any other failure is the CLI's first stderr line"
@@ -3326,7 +3354,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3654,6 +3682,14 @@ assert_eq "${helper_bound#* }" "${cli_refresh_s:-missing}" \
   "...and the root helper stops dnf5's makecache after the same ${cli_refresh_s:-?} s"
 assert_eq "$(js "L.CHECK_TIMEOUT_MS >= L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000 + ${helper_bound%% *}000")" "true" \
   "...with room for its ${helper_bound%% *} s grace before SIGKILL"
+# ...and the check without its fetch covers what notify_security adds to it: the advisory query,
+# two waits for the writers' lock and the notification, read from lib/common.sh, on top of the
+# 120 s the check's own queries had before.
+_sq="$(sed -n 's/^SECURITY_QUERY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sl="$(sed -n 's/^SECURITY_LOCK_WAIT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sn="$(sed -n 's/^SECURITY_NOTIFY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+assert_eq "$(js "L.CHECK_BODY_MS >= 120000 + (${_sq:-999} + 2 * ${_sl:-999} + ${_sn:-999}) * 1000")" "true" \
+  "the check without its fetch leaves room for the security query (${_sq:-?} s), two lock waits (${_sl:-?} s) and the notification (${_sn:-?} s)"
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
   grep -qF 'Logic.checkArgs(auto, fresh, spend), Logic.CHECK_TIMEOUT_MS,' "$MQ"
 assert_exit 0 "...the Flatpak arm is bounded by KEMPT_REFRESH_TIMEOUT" -- \

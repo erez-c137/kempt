@@ -101,6 +101,12 @@ var COPY = {
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
+    // A system package whose pending update fixes a security advisory, as a word on its row. Only
+    // for someone who turned notify_security on: the CLI asks dnf about advisories for nobody else.
+    securityToken: "Security",
+    // ...and how many of them, in the panel tooltip after the pending names.
+    securityCount: "%1 security updates",
+    securityCountOne: "1 security update",
     // What a row draws where the CLI wrote "?": "? → 9.9.9-1.fc44" reads as "the widget does not
     // know". The DATA keeps the "?" - it is the CLI's sentinel and the padlock recognises it too.
     versionNew: "new",
@@ -214,7 +220,7 @@ var COPY = {
     noSuccessfulCheckYet: "No successful check yet",
     // A check that never answered. The first is the problem line when there is no state at all;
     // the other two are the report over counts we still hold, which otherwise change nothing on
-    // screen. Never the Executor's own "timeout after 510000ms": that is a log line, not a reason.
+    // screen. Never the Executor's own "timeout after 540000ms": that is a log line, not a reason.
     checkTimedOut: "The check did not finish in time.",
     checkUnfinished: "The check did not finish. The counts shown are from the last check.",
     checkFailedOver: "The check failed. The counts shown are from the last check.",
@@ -1242,10 +1248,10 @@ var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
 // KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
 // the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
-// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 120 s). 925 s in all,
+// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 150 s). 955 s in all,
 // plus over half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
-var RECLAIM_TIMEOUT_MS = 960000;
+var RECLAIM_TIMEOUT_MS = 990000;
 
 // The size on offer, or null when the CLI could not work it out. A value of the wrong type is
 // read as unknown, never coerced.
@@ -1583,13 +1589,15 @@ function checkArgs(automatic, refresh, anyway) {
 // How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
-// CHECK_BODY_MS is the check without its fetch. The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT
-// (120 s) once per installation, system and per-user, and dnf's makecache. That one runs as root,
-// where the CLI's timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the
-// same 120 s, plus a 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
-// 120 + 240 + 120 + 30 = 510 s.
-var CHECK_BODY_MS = 120000;
-var CHECK_TIMEOUT_MS = 510000;
+// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for what
+// notify_security adds (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers'
+// lock and the 5 s notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
+// installation, system and per-user, and dnf's makecache. That one runs as root, where the CLI's
+// timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the same 120 s, plus a
+// 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
+// 150 + 240 + 120 + 30 = 540 s.
+var CHECK_BODY_MS = 150000;
+var CHECK_TIMEOUT_MS = 540000;
 
 // The oldest the popup's counts may be before opening it asks for fresh ones. A CEILING, not an
 // alternative to the configured interval: somebody who set an hour still opened the popup to LOOK
@@ -1629,11 +1637,27 @@ function backendKeys(backends) {
     return out;
 }
 
+// securityOf(state) -> the CLI's `security` block as the widget uses it, or an empty one. The block
+// is optional (notify_security off, an older CLI, a check whose advisory query failed), and every
+// field is checked before it is believed. `attention` needs a digest, because acknowledging the set
+// is what clears it and `kempt security-ack` takes nothing else.
+function securityOf(state) {
+    var s = state && state.security && typeof state.security === "object" ? state.security : null;
+    var none = { count: 0, names: {}, attention: false, digest: "" };
+    if (s === null || typeof s.count !== "number" || !(s.count >= 1)) return none;
+    var names = {}, packages = arrayOf(s.packages), i;
+    for (i = 0; i < packages.length; i++) names[String(packages[i])] = true;
+    var digest = typeof s.digest === "string" && /^[0-9a-f]{16}$/.test(s.digest) ? s.digest : "";
+    return { count: Math.floor(s.count), names: names, attention: s.attention === true && digest !== "",
+             digest: digest };
+}
+
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
 // A backend with enabled:false contributes NOTHING - no section, no held rows, no counts - so
 // "include_flatpak=false" renders as an absent Apps section rather than an empty one.
 function collectItems(state) {
     var sections = [], heldItems = [], actionable = 0, heldTotal = 0;
+    var securityNames = securityOf(state).names;
     var backends = (state && state.backends && typeof state.backends === "object") ? state.backends : {};
     var keys = backendKeys(backends), i, j;
     for (i = 0; i < keys.length; i++) {
@@ -1675,6 +1699,10 @@ function collectItems(state) {
                 // Installed with `flatpak install --user`, so it is this person's alone. The row
                 // says so, which also tells apart one id installed both ways.
                 forYouOnly: item.scope === "user",
+                // A system package the CLI's security block names. dnf rows only: Flatpak apps
+                // publish no security notices, and a name shared with an app must not borrow it.
+                security: key === "dnf" && item.name !== undefined && item.name !== null
+                          && securityNames[String(item.name)] === true,
                 bothScopes: !!(item.name !== undefined && item.name !== null
                                && scopesOf[String(item.name)].user && scopesOf[String(item.name)].system)
             };
@@ -1734,6 +1762,7 @@ function rowOf(item, kind) {
              // Absent means holdable, so a row built by an older caller keeps its padlock.
              holdable: item.holdable !== false,
              forYouOnly: item.forYouOnly === true,
+             security: item.security === true,
              bothScopes: item.bothScopes === true };
 }
 
@@ -2553,6 +2582,13 @@ function viewModel(state, updating, cliError, opts) {
     // it too.
     var rebootNeeded = usable && state.reboot_needed === true;
 
+    // The security block, and whether the panel icon asks for attention: a set with an advisory
+    // nobody has seen in the popup yet (the CLI's `attention`), and only while there is something
+    // to press. Not while a stage is armed (the person already chose to install them), nor during
+    // an update, nor without an engine to acknowledge the set with.
+    var security = securityOf(usable ? state : null);
+    var needsAttention = security.attention && !staged && !updating && !noEngine;
+
     var tooltipMain, headerText;
     if (updating) {
         tooltipMain = COPY.updatingHere;
@@ -2651,6 +2687,12 @@ function viewModel(state, updating, cliError, opts) {
         // is armed: the header already says the work is done and waiting for a restart.
         var pendingNames = staged ? "" : pendingNamesOf(counted.sections, riskyPending);
         if (pendingNames !== "") subParts.push(pendingNames);
+        // ...and how many of them fix a security advisory. Not while a stage is armed, like the
+        // names: the work is done and waiting for a restart.
+        if (!staged && security.count > 0) {
+            subParts.push(security.count === 1 ? COPY.securityCountOne
+                                               : fill(COPY.securityCount, "%1", security.count));
+        }
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
         // Not when the tooltip title already ends in it ("Up to date · 10 held").
@@ -2895,6 +2937,11 @@ function viewModel(state, updating, cliError, opts) {
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
         stagedArmed: staged,
+        // The panel icon asks for attention (Plasma's NeedsAttentionStatus), and the digest the
+        // popup passes to `kempt security-ack` when it is opened. "" whenever it does not ask.
+        needsAttention: needsAttention,
+        securityDigest: needsAttention ? security.digest : "",
+        securityCount: security.count,
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
@@ -3050,6 +3097,7 @@ if (typeof module !== "undefined" && module.exports) {
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,
+        securityOf: securityOf,
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,

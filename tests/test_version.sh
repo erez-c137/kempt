@@ -82,6 +82,10 @@ done
 assert_eq "$("$KEMPT" help check)" "$("$KEMPT" check --help)" "kempt help check prints what kempt check --help does"
 assert_exit 2 "kempt help with a command Kempt does not have is a usage error" "$KEMPT" help bogus
 assert_exit 2 "...and so is --help after one" "$KEMPT" bogus --help
+# security-ack is the widget's: its --help answers, and the full usage leaves it out.
+assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --expect=DIGEST" \
+  "the internal security-ack still answers --help, without running"
+assert_not_contains "$("$KEMPT" --help)" "security-ack" "...and stays out of the full usage"
 assert_contains "$("$KEMPT" check --help)" "per-user Flatpak apps" "check's help names the per-user Flatpak apps"
 assert_contains "$("$KEMPT" config --help)" "terminal, widget, background" "config's help lists the surface values"
 assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"
