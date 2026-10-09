@@ -418,7 +418,7 @@ p.check("...scrolled into view rather than left below the fold",
 # A hold that failed is reported in the row, and said out loud.
 # ==================================================================================================
 # It used to be the fifth InlineMessage at the top of the content, up to 300 px from the pin, and
-# it did not say hold or unhold (HIG P6).
+# it did not say hold or unhold.
 open(PENDING_SRC, "w").write(PENDING)
 open(HELD_SRC, "w").write(HELD)
 state(PENDING)

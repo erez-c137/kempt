@@ -98,7 +98,7 @@ assert_eq "$(cut -f1 <<<"$snap" | paste -sd, -)" "com.a.B,org.x.App" \
   "app ids stay in byte order for join"
 
 # Fully up-to-date box: remote-ls prints nothing, exits 0. Must NOT look like a failed check
-# (Task 8 would misread a non-zero rc as "stale" on the most common state there is).
+# (the state parser would misread a non-zero rc as "stale" on the most common state there is).
 export KEMPT_FLATPAK_REMOTE_CMD="true"
 crc=0
 none="$(flatpak_check)" || crc=$?
