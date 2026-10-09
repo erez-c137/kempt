@@ -4226,8 +4226,9 @@ usage: kempt <command>
                         --surface=X runs this one elsewhere. --risky-ok as for update, but a
                         terminal run still asks
   status [--json]       what the last check found, in words: pending, held, staged, restart owed.
-                        Reads only. --json prints the published state. Exits 1 when there is no
-                        state, it cannot be read, or the last check failed
+                        Reads only. Exits 1 when there is no state, it cannot be read, or the
+                        last check failed. --json prints the published state, and exits 1 only
+                        when there is none
   summary [N]           human summary of the last (or Nth-last) run
   summary --json        the newest run's history entry, verbatim JSON (nothing if no runs yet,
                         or if the newest entry is damaged)

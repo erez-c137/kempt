@@ -205,9 +205,10 @@ unused less than an hour ago. Exit 1: Flatpak failed, possibly after removing so
 to see what is left.
 .TP
 .BR status " [" \-\-json ]
-Say in words what the last check found, and the last update. It only reads.
+Say what the last check found, and the last update. It only reads. Exit 1: no state,
+or a failed check.
 .B \-\-json
-prints the state. Exit 1: no state, or the last check failed.
+prints the state; exit 1 only without one.
 .TP
 .BR summary " [" \c
 .IR N ]

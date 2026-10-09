@@ -440,9 +440,9 @@ update. While an update, a reclaim or an unstage runs, it says Kempt is changing
 `kempt check` refreshes what it reads.
 
 `--json` prints the saved state, the same document `kempt check` prints. With no state it prints
-nothing.
+nothing and exits 1. Otherwise it exits 0.
 
-Exit 1: there is no state, it cannot be read, or the last check failed. The text still prints.
+Without `--json`, exit 1 means there is no state, it cannot be read, or the last check failed.
 
 ## summary and history
 
