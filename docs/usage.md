@@ -656,7 +656,7 @@ ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
 ok    unused Flatpak runtimes: Kempt can list them
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
-ok    package metadata: refreshed 2026-08-26T20:58:03+03:00
+ok    package lists: refreshed 2026-08-26T20:58:03+03:00
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
 ok    checkout intact: /home/you/src/kempt

@@ -3614,10 +3614,10 @@ doctor_tool_rows() {
         || fp_user_n="?"
     fi
     case "$fp_user_n" in
-      0) doctor_info "per-user Flatpak apps: none" ;;
-      \?) doctor_info "per-user Flatpak apps: the list failed, so updates skip them and checks keep their last known updates" ;;
-      1) doctor_info "per-user Flatpak apps: 1, checked and updated with the system ones" ;;
-      *) doctor_info "per-user Flatpak apps: $fp_user_n, checked and updated with the system ones" ;;
+      0) doctor_info "apps for you only: none" ;;
+      \?) doctor_info "apps for you only: the list failed, so updates skip them and checks keep their last known updates" ;;
+      1) doctor_info "apps for you only: 1, checked and updated with the system ones" ;;
+      *) doctor_info "apps for you only: $fp_user_n, checked and updated with the system ones" ;;
     esac
   fi
 
@@ -3707,20 +3707,20 @@ doctor_metadata_row() {
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.
   if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
-    doctor_info "package metadata: no dnf refresh recorded yet. Fetch one now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its metadata, and sudo dnf5 makecache --refresh shows why"
+    doctor_info "package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why"
     return 0
   fi
   if [[ -z "$iso" ]]; then
-    doctor_info "package metadata: never refreshed on this computer. The next check on mains power and an unmetered connection fetches it"
+    doctor_info "package lists: never refreshed on this computer. The next check on mains power and an unmetered connection fetches them"
     return 0
   fi
   days="$(metadata_age_days)"
   if [[ "$days" == 0 ]]; then
-    doctor_ok "package metadata: refreshed $iso"
+    doctor_ok "package lists: refreshed $iso"
   else
     local word=days
     if [[ "$days" == 1 ]]; then word=day; fi
-    doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch one now, on mains power and an unmetered connection, run: kempt check --refresh"
+    doctor_info "package lists are $days $word old ($iso). Checks answer from them. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch them now, on mains power and an unmetered connection, run: kempt check --refresh"
   fi
 }
 

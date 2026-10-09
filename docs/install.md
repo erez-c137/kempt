@@ -105,7 +105,7 @@ ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 ok    dnf: /usr/bin/dnf5
-info  package metadata: never refreshed on this computer. The next check on mains power and an unmetered connection fetches it
+info  package lists: never refreshed on this computer. The next check on mains power and an unmetered connection fetches them
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
 ok    program files intact: /usr/share/kempt
