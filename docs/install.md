@@ -256,9 +256,9 @@ and the widget are not, so `kempt check` will not work yet. Re-run `./install.sh
 
 ### The Discover-notifier opt-out
 
-Fedora's `plasma-discover-notifier` duplicates Kempt's notifications. Its background PackageKit
-work also takes the dnf5 lock at random moments, which makes Kempt runs fail. When the notifier is
-installed, the installer asks:
+Fedora's `plasma-discover-notifier` counts updates from PackageKit's own cache, so its number can
+differ from Kempt's. Its background PackageKit work can also hold the dnf5 lock, which makes a Kempt
+run wait, or stop with exit 7. When the notifier is installed, the installer asks:
 
 ```
 Turn off Discover's update notifier for this user? [Y/n]
