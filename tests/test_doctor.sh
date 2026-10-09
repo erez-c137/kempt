@@ -1429,8 +1429,9 @@ assert_eq "$(warns_of "$TESTTMP/off.txt")" "$(( off_base + 2 ))" "...and the las
 printf '%s\n' '{"schema":1,"status":"stale","error":"dnf check failed: Cache-only enabled but no cache for repository \"fedora\"","last_success":"2026-08-20T10:00:00+03:00","actionable":0,"backends":{"dnf":{"refresh_error":"Curl error (6): Could not resolve host: mirrors.fedoraproject.org"}}}' > "$STATE_FILE"
 "$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/off.txt")" \
-  "WARN  last check failed: Package lists have never been downloaded: Curl error (6): Could not resolve host: mirrors.fedoraproject.org. The counts Kempt shows are from an earlier check" \
-  "dnf's no-cache text becomes the plain words kempt status prints"
+  "WARN  last check failed: Package lists could not be downloaded: Curl error (6): Could not resolve host: mirrors.fedoraproject.org. The counts Kempt shows are from an earlier check" \
+  "dnf's no-cache text becomes plain words, and an earlier success means the lists were downloaded once"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "never been downloaded" "...so it never says never"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "Cache-only" "...never dnf's raw text"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "if any" "...and no hedge after the counts"
 # The same reason kempt status gives (test_status.sh): a failure other than no cache keeps its own.

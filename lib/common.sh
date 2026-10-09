@@ -3610,7 +3610,9 @@ KEMPT_JQ_STATUS='
     if type == "string" then ([split("\n")[] | sub("^\\s+"; "") | sub("\\s+$"; "") | select(. != "")] | .[0] // "")
     else "" end;
   # A failed check, in plain words when its error is dnf saying it has no cache ("Cache-only
-  # enabled but no cache for repository ..."): the refresh error says why there is none. Otherwise
+  # enabled but no cache for repository ..."): the refresh error says why there is none. After an
+  # earlier check succeeded the lists were downloaded once (dnf clean all can empty the cache), so
+  # that case says "could not be downloaded", not "never". Otherwise
   # the first line of the error, or "". kempt status and kempt doctor both print this, so the two
   # cannot give different reasons for one state.
   def check_problem:
@@ -3619,7 +3621,9 @@ KEMPT_JQ_STATUS='
       | (if ((.backends | type) == "object") and ((.backends.dnf | type) == "object")
             and ((.backends.dnf.refresh_error | type) == "string")
          then .backends.dnf.refresh_error | first_line else "" end) as $fetch
-      | if ($err | test("no cache"; "i")) and $fetch != "" then "Package lists have never been downloaded: " + $fetch
+      | if ($err | test("no cache"; "i")) and $fetch != "" then
+          (if (.last_success | type) == "string" and .last_success != ""
+           then "Package lists could not be downloaded: " else "Package lists have never been downloaded: " end) + $fetch
         else $err end
     end;
   def usable_state:
