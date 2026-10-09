@@ -155,6 +155,9 @@ KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
 # dnf's main config, read for `installonlypkgs` only (offline_installonly_name). Read, never written.
 KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
+# The installed names that provide installonlypkg(kernel) or installonlypkg(kernel-module), one
+# per line. Empty means the rpm query in offline_installonly_rpm_names.
+KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -2030,15 +2033,39 @@ rpm_evrcmp() {  # e:v-r e:v-r → prints -1, 0 or 1
 # Anything less is not satisfied: a partial install, a file that does not read, or a transaction
 # with nothing in it that shows it ran (empty, or only reinstalls, which an untouched box passes).
 # Whether a package name is one dnf keeps several builds of (installonly). dnf5's defaults are
-# provides (installonlypkg(kernel), installonlypkg(kernel-module), ...), which only rpm can resolve,
-# so the kernel families that carry them are named here. Plain names in the config's
-# `installonlypkgs` are added; provide-shaped entries there are skipped.
+# provides (installonlypkg(kernel), installonlypkg(kernel-module)), so rpm resolves them to the
+# installed names, akmod and kmod builds included. When rpm names nothing, the kernel families
+# below stand in. Plain names in the config's `installonlypkgs` are added either way.
+offline_installonly_rpm_names() {  # → installed names providing installonlypkg(...), one per line
+  local out
+  if [[ -n "$KEMPT_RPM_INSTALLONLY_CMD" ]]; then
+    # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
+    # shellcheck disable=SC2086
+    out="$($KEMPT_RPM_INSTALLONLY_CMD 2>/dev/null)" || true
+  else
+    # rc 1 when one provide has no package, with the other's names still printed.
+    out="$(rpm -q --qf '%{NAME}\n' --whatprovides 'installonlypkg(kernel)' 'installonlypkg(kernel-module)' 2>/dev/null)" || true
+  fi
+  local line
+  while IFS= read -r line; do
+    if [[ "$line" =~ $KEMPT_NAME_RE ]]; then printf '%s\n' "$line"; fi
+  done <<<"$out" | sort -u
+}
+
 offline_installonly_name() {  # name → 0 when installonly
-  case "$1" in
-    kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
-      |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
-      |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
-  esac
+  # Asked once per process: a transaction can name many builds.
+  if [[ -z "${_KEMPT_INSTALLONLY_RPM+x}" ]]; then
+    _KEMPT_INSTALLONLY_RPM="$(offline_installonly_rpm_names)"
+  fi
+  if [[ -n "$_KEMPT_INSTALLONLY_RPM" ]]; then
+    grep -qxF -- "$1" <<<"$_KEMPT_INSTALLONLY_RPM" && return 0
+  else
+    case "$1" in
+      kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
+        |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
+        |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
+    esac
+  fi
   [[ -r "$KEMPT_DNF_CONF" ]] || return 1
   local line v tok
   while IFS= read -r line; do

@@ -899,6 +899,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when a file in it is world-writable. `tests/lib.sh` points it at a path that does not exist |
 | `KEMPT_DNF_SYSIMAGE_DIR` | `/usr/lib/sysimage/libdnf5` | dnf5's system state. Checked by `kempt doctor` like the cache. `tests/lib.sh` points it at a path that does not exist |
 | `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so an old kernel that is still installed does not count against a stage another updater installed. Points at a missing file in the tests |
+| `KEMPT_RPM_INSTALLONLY_CMD` | (unset: `rpm -q --whatprovides` for `installonlypkg(kernel)` and `installonlypkg(kernel-module)`) | Lists the installed installonly names, kmod and akmod builds included. With no names, a fixed list of kernel families stands in. Stubbed |
 | `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |

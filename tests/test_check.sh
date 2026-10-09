@@ -1083,6 +1083,22 @@ assert_exit 0 "a name dnf.conf lists as installonly counts" -- io_conf my-kmod
 assert_exit 0 "...each of them" -- io_conf other-pkg
 assert_exit 1 "...and a provide is not mistaken for a name" -- io_conf "installonlypkg(vm)"
 assert_exit 1 "...nor is an unlisted package" -- io_conf bash
+# rpm resolves dnf5's installonlypkg() provides to installed names, so a kmod or akmod build counts.
+printf '#!/bin/sh\nprintf "%%s\\n" kernel-core kernel-core "kmod-nvidia-6.20.1-200.fc44.x86_64" akmod-nvidia "no package provides installonlypkg(kernel-module)"\n' \
+  > "$TESTTMP/rpm-io"; chmod +x "$TESTTMP/rpm-io"
+io_rpm() { KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/rpm-io" KEMPT_DNF_CONF="$TESTTMP/io-dnf.conf" \
+  bash -c 'source "$1/lib/common.sh"; offline_installonly_name "$2"' _ "$REPO_ROOT" "$1"; }
+assert_exit 0 "a name rpm resolves from installonlypkg() is installonly" -- io_rpm kmod-nvidia-6.20.1-200.fc44.x86_64
+assert_exit 0 "...an akmod too" -- io_rpm akmod-nvidia
+assert_exit 0 "...and dnf.conf still adds its names" -- io_rpm my-kmod
+assert_exit 1 "...while the fixed list steps back once rpm has answered" -- io_rpm kernel-debug-core
+assert_exit 1 "...and rpm's not-found line is no name" -- io_rpm "no package provides installonlypkg(kernel-module)"
+printf '#!/bin/sh\nexit 1\n' > "$TESTTMP/rpm-io"
+assert_exit 0 "a failed rpm query falls back to the fixed list" -- io_rpm kernel-debug-core
+printf '#!/bin/sh\necho akmod-foo\n' > "$TESTTMP/rpm-io"
+assert_exit 0 "the rpm answer is asked once per process" -- \
+  env KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/rpm-io" bash -c 'source "$1/lib/common.sh"
+    offline_installonly_name akmod-foo; rm -f "$2"; offline_installonly_name akmod-foo' _ "$REPO_ROOT" "$TESTTMP/rpm-io"
 act_tx '{"nevra":"my-kmod-1.0-1.fc44.x86_64","action":"Remove"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
 printf 'my-kmod-0:1.0-1.fc44.x86_64\n' >> "$TESTTMP/pk-qa-kmod"; cat "$pk_qa" >> "$TESTTMP/pk-qa-kmod"
 assert_exit 0 "...and a kept build of it does not stop a stage being done" -- \

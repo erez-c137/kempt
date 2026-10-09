@@ -111,6 +111,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_RPM_QA_CMD="$TESTTMP/UNSTUBBED-rpm-qa"
   # dnf's config, read for installonlypkgs. Unset, the box's own /etc/dnf/dnf.conf would decide.
   export KEMPT_DNF_CONF="$TESTTMP/no-dnf.conf"
+  # The installonly names rpm resolves. Unset, the box's own kernels would decide; poisoned, the
+  # fixed kernel list stands in, which is what most tests want.
+  export KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/UNSTUBBED-rpm-installonly"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
