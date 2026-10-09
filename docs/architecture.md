@@ -129,12 +129,12 @@ Rules for the state directory:
   whole old file or the whole new one. The temp sits next to its destination.
 - **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps, `reclaim-out.*` copies and
   `run-start.*` tokens.
-- **`log_event` never fails a command.** It always returns 0 and never blocks. Its `via` column is
+- **`log_event` never fails a command.** It always returns 0 and waits at most 5 seconds for its lock. Its `via` column is
   `widget` when `KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 - **An update applied on a restart gets a log Kempt writes itself**, from the snapshot diff.
   Kempt was not running, so there was no output to capture.
 
-Four files in the state directory are `flock` targets:
+Six files in the state directory are `flock` targets:
 
 | Lock | Serialises | Notes |
 | --- | --- | --- |
@@ -142,6 +142,8 @@ Four files in the state directory are `flock` targets:
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
 | `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold` | Each rewrites a whole config file. It lives in the state directory because the config directory is the user's. |
+| `state.lock` | Each write to `state.json`, and a run's read and write of `offline_staged` | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
+| `events.lock` | Appends to `events.log` and its trim | Held for milliseconds. After 5 seconds the line is appended and the trim waits. |
 
 [usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
 
@@ -195,7 +197,7 @@ cope with that.
 | `last_check` | ISO 8601 with offset | When this check ran, successful or not. |
 | `last_success` | ISO 8601, or `null` | When a check last succeeded. `null` until the first success. Kept at its old value while `status` is `stale`. |
 | `status` | `"ok"` or `"stale"` | `stale` means at least one backend failed and its previous items were reused. |
-| `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. |
+| `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. Each ends with at most 200 bytes of the tool's output, redacted as for `refresh_error`. |
 | `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
@@ -205,7 +207,7 @@ cope with that.
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every runtime. **A runtime's identity is its `name` and `branch` together.** Anything that keys items by name must key on the pair where this is present. Additive. |
 | `backends.<name>.items[].size_bytes` | integer, optional | Bytes this item would download, summed over every architecture of that name. **Absent means unknown, never zero.** Additive. |
 | `backends.flatpak.scopes` | object, optional | Only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. See [below](#flatpak-scopes). Additive. |
-| `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes, with any `user:password@` and any query string removed. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
+| `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes. URL credentials, queries, fragments and token-shaped path parts are removed, and your home directory is written as `~`. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item has a `size_bytes`**. Additive. |
 | `actionable` | integer | The badge number: non-held pending items across all backends. |
 | `held_total` | integer | Held pending items across all backends. |
@@ -843,6 +845,7 @@ missing path, unless the row says otherwise.
 | Variable | Default | Used for |
 | --- | --- | --- |
 | `KEMPT_ROOT` | the directory above `lib/common.sh` | Where the CLI reads `VERSION`, `backends/` and the rules template. `kempt doctor` calls it a checkout when `install.sh` is in it. With no `VERSION`, `kempt --version` answers `kempt unknown` |
+| `KEMPT_ALLOW_ROOT` | unset | `1` lets every command run as root. Unset, only help, the version and `discover-notifier status` do, and the rest exit 8. `tests/lib.sh` sets it only when the suite itself runs as root |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
 | `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
 | `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | the matching `*_HELPER_PATH` | Point at stub helpers |
@@ -891,12 +894,14 @@ missing path, unless the row says otherwise.
 | `KEMPT_DISCOVER_START` | `kstart` | What `kempt discover-notifier on` starts the notifier with, as `--application org.kde.discover.notifier`, detached. `on` waits up to `KEMPT_DISCOVER_START_POLLS` tenths of a second (default 30) for pgrep to find it. Stubbed |
 | `KEMPT_DISCOVER_BIN` | `/usr/libexec/DiscoverNotifier` | Started directly, detached, when there is no `kstart` or it started nothing. Also the start of the command line pgrep and pkill match. Stubbed |
 | `KEMPT_DISCOVER_UPDATES_CONF` | `~/.config/PlasmaDiscoverUpdates` | Discover's update settings. `kempt doctor` reads `UseUnattendedUpdates` under `[Global]` as text. Never written. `tests/lib.sh` points it at a missing file |
+| `KEMPT_DISCOVER_UPDATES_SYSCONF` | `PlasmaDiscoverUpdates` in each `$XDG_CONFIG_DIRS` directory (`/etc/xdg`) | The system defaults for the same setting, a colon-separated list with the most important first. Each file overrides the ones after it, and the user's file overrides them all. A `[$i]` marker on the key, `[Global]` or the whole file stops every file read after it. Never written. `tests/lib.sh` points it at a missing file |
 | `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. Stubbed |
 | `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. Never written or followed: its presence and its text decide whether it is dnf5's. Stubbed |
 | `KEMPT_OFFLINE_DATADIR` | `/usr/lib/sysimage/libdnf5/offline` | Where dnf5 points `/system-update`. A symlink pointing anywhere else is another updater's, so dnf5's transaction is not armed. `libexec/kempt-apply` reads this and `KEMPT_OFFLINE_LINK` only when not root. `tests/lib.sh` points it at the test directory |
-| `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when a file in it is world-writable. `tests/lib.sh` points it at a path that does not exist |
+| `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when a file in it is world-writable. With no readable `*/repodata/repomd.xml` in it, and the directory itself readable, a failed dnf refresh is tried again after 15 minutes. `tests/lib.sh` points it at a path that does not exist |
 | `KEMPT_DNF_SYSIMAGE_DIR` | `/usr/lib/sysimage/libdnf5` | dnf5's system state. Checked by `kempt doctor` like the cache. `tests/lib.sh` points it at a path that does not exist |
 | `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so an old kernel that is still installed does not count against a stage another updater installed. Points at a missing file in the tests |
+| `KEMPT_RPM_INSTALLONLY_CMD` | (unset: `rpm -q --whatprovides` for `installonlypkg(kernel)`, `installonlypkg(kernel-module)`, `installonlypkg(vm)` and `multiversion(kernel)`) | Lists the installed installonly names, kmod and akmod builds included. With no names, a fixed list of kernel families stands in. Stubbed |
 | `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
 | `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
 | `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |

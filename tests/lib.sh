@@ -111,6 +111,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_RPM_QA_CMD="$TESTTMP/UNSTUBBED-rpm-qa"
   # dnf's config, read for installonlypkgs. Unset, the box's own /etc/dnf/dnf.conf would decide.
   export KEMPT_DNF_CONF="$TESTTMP/no-dnf.conf"
+  # The installonly names rpm resolves. Unset, the box's own kernels would decide; poisoned, the
+  # fixed kernel list stands in, which is what most tests want.
+  export KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/UNSTUBBED-rpm-installonly"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
@@ -121,6 +124,7 @@ sandbox() {  # fresh dirs per test file; call first
   # that do not exist. Files that test those steps point them at their own stubs.
   # Discover's update settings: none, so no test reads a developer's own.
   export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
+  export KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/no-discover-updates-sysconf"
   export KEMPT_DISCOVER_PGREP="false" KEMPT_DISCOVER_PKILL="false"
   export KEMPT_DISCOVER_START="$TESTTMP/UNSTUBBED-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/UNSTUBBED-notifier"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
@@ -193,6 +197,9 @@ sandbox() {  # fresh dirs per test file; call first
   # switches the reclaim feature off. Unset so a developer's elevated shell cannot decide which
   # branch the reclaim tests take; the files that test the guard set them per command.
   unset SUDO_UID PKEXEC_UID
+  # Kempt refuses to run as root. A suite run as root, such as in a CI container, lifts the
+  # refusal; test_version.sh checks the refusal itself.
+  if [[ $EUID -eq 0 ]]; then export KEMPT_ALLOW_ROOT=1; else unset KEMPT_ALLOW_ROOT; fi
   trap '_rc=$?; rm -rf "$TESTTMP"; [[ $_rc -ne 0 ]] && exit $_rc; exit $_fail' EXIT
 }
 

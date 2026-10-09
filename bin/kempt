@@ -1420,7 +1420,8 @@ cmd_update() {
 
   # dnf
   run_heading "$log" "System (dnf)"
-  local yflag=() excl=() dnf_status="ok"
+  # unknown until a branch below says ok or failed. One that says neither is failed (after the block).
+  local yflag=() excl=() dnf_status="unknown"
   # WHICH dnf5 transaction a live run was, when dnf5's history can say (live_history_attribution).
   # Empty when it cannot, and everything downstream then reports the run from its two snapshots, the
   # way it did before the lookup existed. Declared here because the live branch below is one of two.
@@ -1520,7 +1521,7 @@ cmd_update() {
       # Asked of dnf5 rather than inferred from the count this run measured: the count can be
       # stale by the time the stage runs, and dnf5's own answer cannot.
       if [[ "$(offline_system_status)" == absent ]]; then
-        staged_nothing=true
+        staged_nothing=true; dnf_status="ok"
         if [[ -n "$held_dnf" ]]; then
           log_event "offline stage found nothing to stage (every pending update is held)"
         else
@@ -1545,7 +1546,7 @@ cmd_update() {
           apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
         fi
         if [[ "$nothing_foreign" == true ]]; then
-          staged_nothing=true
+          staged_nothing=true; dnf_status="ok"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           if [[ -n "$held_dnf" ]]; then
             log_event "offline stage found nothing to stage (every pending update is held)"
@@ -1554,7 +1555,7 @@ cmd_update() {
           fi
           log_event "offline stage left in place (another updater has prepared the next restart)"
         elif [[ $clean_rc -eq 0 ]]; then
-          staged_nothing=true; stage_discarded=true
+          staged_nothing=true; stage_discarded=true; dnf_status="ok"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           if [[ -n "$held_dnf" ]]; then
             log_event "offline stage found nothing to stage (every pending update is held)"
@@ -1604,10 +1605,14 @@ cmd_update() {
           # that failed - so the command travels on the notification instead.
           notify_tail=". The staged update could not be removed. Run: sudo dnf5 offline clean"
         fi
-      elif [[ "$had_stage" == true ]]; then
+      else
+        # Staged and armed.
+        dnf_status="ok"
         # A rebuild that worked. `offline staged N` below reports the new transaction; this line
         # reports that there was an old one, and what it was replaced for.
-        log_event "offline restage${prev_conflict:+ (holds: $(printf '%s\n' "$prev_conflict" | names_phrase))}"
+        if [[ "$had_stage" == true ]]; then
+          log_event "offline restage${prev_conflict:+ (holds: $(printf '%s\n' "$prev_conflict" | names_phrase))}"
+        fi
       fi
     else
       dnf_status="failed"; status="failed"
@@ -1666,13 +1671,23 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || { dnf_status="failed"; status="failed"; }
+    if apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}"; then
+      dnf_status="ok"
+    else
+      dnf_status="failed"; status="failed"
+    fi
     # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
     # this run was, and its packages are still the honest report of what moved.
     if [[ -n "$live_before" ]] && live_att="$(live_history_attribution "$live_before" "$live_cmd")"; then
       live_txid="${live_att%%$'\n'*}"
       if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
     fi
+  fi
+
+  # Fail closed: a dnf path above that set neither answer must not be reported, staged or summed
+  # as a success.
+  if [[ "$dnf_status" != ok && "$dnf_status" != failed ]]; then
+    dnf_status="failed"; status="failed"; run_failed_otherwise=1
   fi
 
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
@@ -3430,8 +3445,9 @@ doctor_other_updater_row() {
   # Discover installing updates by itself, while its notifier is there to do it. Its prepared
   # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
   # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
-  if { discover_entry_starts "$entry" || discover_running; } && discover_unattended; then
-    local unattended="Discover is set to install updates by itself on restart ($KEMPT_DISCOVER_UPDATES_CONF). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
+  local decided
+  if { discover_entry_starts "$entry" || discover_running; } && decided="$(discover_unattended)"; then
+    local unattended="Discover is set to install updates by itself on restart ($decided). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
     if [[ "$(config_get surface)" == offline ]]; then
       doctor_warn "$unattended"
     else
@@ -3966,6 +3982,7 @@ cmd_disable_passwordless() {
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
 #     unused less than an hour ago (every ref, on first use) - nothing was removed
 #   7 update only: another program held the dnf or Flatpak lock through all three tries
+#   8 run as root: every command but help, version and `discover-notifier status` refuses
 usage() {
   cat <<'EOF'
 usage: kempt <command>
@@ -4017,6 +4034,17 @@ EOF
 if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
   usage
   exit 0
+fi
+
+# Kempt is a per-user tool: as root it would read and write root's config and state, and the
+# polkit rule it renders would name root. Help, the version and the read-only notifier status
+# stay open, since they change nothing.
+if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
+  case "${1:-help} ${2:-}" in
+    "help "*|"--help "*|"-h "*|"version "*|"--version "*|"-V "*|"discover-notifier status") ;;
+    *) echo "kempt: run Kempt as your own user, without sudo. It asks for a password when it needs one." >&2
+       exit 8 ;;
+  esac
 fi
 
 # Before any command reads the config, so the first `config get surface` of this version already

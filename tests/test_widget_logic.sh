@@ -425,6 +425,12 @@ for _e in "$fp_net" "flatpak check failed: Could not connect: Network is unreach
           "flatpak check failed: error: Unable to load summary from remote flathub: While fetching https://dl.flathub.org/repo/summary.idx: [28] Timeout was reached"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "true" "network failure: $_e"
 done
+# librepo's words for a repository that answered 404 are a server reached, not a network failure.
+# Only dnf prints them, and the dnf check never downloads.
+for _e in "dnf check failed: Curl error (22): HTTP response code said error for https://h/r/repomd.xml [The requested URL returned error: 404]" \
+          "dnf check failed: Cannot download repomd.xml: All mirrors were tried"; do
+  assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "false" "not a network failure: $_e"
+done
 for _e in "dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)" \
           "kempt: dnf timed out" "kempt: cannot reach polkit (no system bus or polkit service)"; do
   assert_eq "$(js "L.checkProblemOf($(printf '%s' "$_e" | jq -Rs .)).network")" "false" "not a network failure: $_e"

@@ -113,6 +113,28 @@ assert_eq "$(jq -r .last_success <<<"$state4")" "$(jq -r .last_success <<<"$stat
 assert_eq "$(jq -r '.last_success != null' <<<"$state4")" "true" "preserved last_success is non-null"
 assert_eq "$(jq -r '.error | startswith("dnf check failed")' <<<"$state4")" "true" "stale error names the failing backend"
 
+# Both check errors go through the same redactor as the refresh error before they reach the state.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+echo "Failed to download https://bob:p@ss@w0rd@repohost:8080/aBcD1234eFgH5678iJkL/x?token=SECRET1 for $HOME/.cache/x" >&2
+exit 1
+STUB
+state_red="$("$KEMPT" check)"
+assert_contains "$(jq -r .error <<<"$state_red")" "dnf check failed: Failed to download https://repohost:8080/***/x for ~/.cache/x" \
+  "the dnf check error loses credentials, path tokens, the query and the home path"
+printf '#!/usr/bin/env bash\necho "error: While fetching https://u:pw@dlhost/repo/summary#t0ken: refused" >&2\nexit 1\n' \
+  > "$TESTTMP/fp-fail-red"; chmod +x "$TESTTMP/fp-fail-red"
+"$KEMPT" config set include_flatpak true
+state_red="$(KEMPT_FLATPAK_REMOTE_CMD="$TESTTMP/fp-fail-red" "$KEMPT" check)"
+"$KEMPT" config set include_flatpak false
+assert_contains "$(jq -r .error <<<"$state_red")" "flatpak check failed: error: While fetching https://dlhost/repo/summary refused" \
+  "...and so does the flatpak check error"
+assert_not_contains "$(jq -r .error <<<"$state_red")" "pw@" "...with nothing of the password left"
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+
 # --strict: the same failed check exits 1 for a script, and still prints and writes the state.
 # Without it the exit code stays 0, as the widget expects.
 assert_exit 0 "a failed check without --strict exits 0" "$KEMPT" check
@@ -299,6 +321,24 @@ STUB
   KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
   assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
     "once a dnf refresh has worked, a failing one waits for the gate"
+  # The same failure 15 minutes on, first with a cache to check against and then with none.
+  mkdir -p "$TESTTMP/dnf-cache/fedora-0123/repodata"; : > "$TESTTMP/dnf-cache/fedora-0123/repodata/repomd.xml"
+  touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"
+  KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "2" \
+    "...even 15 minutes on, while its cache is there"
+  rm -rf "$TESTTMP/dnf-cache/fedora-0123"
+  KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+  assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "3" \
+    "...but with no usable cache it is tried again once 15 minutes old"
+  # Root reads any directory, so this case only means something for a user.
+  if (( EUID != 0 )); then
+    touch -d '16 minutes ago' "$REFRESH_DNF_FAILED_FILE"; chmod 000 "$TESTTMP/dnf-cache"
+    KEMPT_DNF_CACHE_DIR="$TESTTMP/dnf-cache" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-dnf-neterr" "$KEMPT" check >/dev/null
+    chmod 755 "$TESTTMP/dnf-cache"
+    assert_eq "$(grep -c '^refresh$' "$TESTTMP/dnf-refresh-verbs")" "3" \
+      "...while a cache you cannot read counts as there"
+  fi
 
   # The published line never carries a credential, even from a tail cut inside a URL.
   rel() { printf '%b' "$1" > "$TESTTMP/rel.err"; refresh_error_line "$TESTTMP/rel.err" "${2:-1}"; }
@@ -306,8 +346,8 @@ STUB
   assert_eq "$(rel "$long https://h/r/repomd.xml?token=SECRETTOKEN123 [404]\n>>> Status code: 404 for https://h/r?token=SECRETTOKEN123\n")" \
     "Status code: 404 for https://h/r" "with no error line, dnf's >>> status line is used, without its query"
   pad="$(printf 'z%.0s' {1..176})"  # puts the 200-byte cut at "n=SECRETTOKEN123"
-  assert_eq "$(rel "$long https://h/r?token=SECRETTOKEN123 [404] $pad\n")" "[404] $pad" \
-    "a cut tail loses its first word, so a query cut in half does not survive"
+  assert_eq "$(rel "$long https://h/r?token=SECRETTOKEN123 [404] $pad\n")" "https://h/r [404] $pad" \
+    "the query is removed before the tail is cut, and a word the cut splits is dropped"
   assert_eq "$(rel "$(printf 'y%.0s' {1..190})https://user:pw@h/r [404]\n")" "[404]" \
     "...nor credentials cut in half"
   assert_eq "$(rel "fetch: https://h/r?token=abc\"def&k=SECRET2 [x]\n")" "fetch: https://h/r [x]" \
@@ -318,6 +358,63 @@ STUB
     "the line is at most 200 bytes and ends on a whole character"
   assert_eq "$(rel "" 124)|$(rel "  \n" 2)" "dnf makecache timed out|dnf makecache exited with status 2" \
     "a refresh that printed nothing is named by how it ended"
+
+  # The redactor itself, with the inputs that defeat a simple pattern.
+  red() { printf '%b' "$1" | redact_error_text; }
+  assert_eq "$(red 'GET https://bob:p@ss@w0rd@hosta/r failed')" "GET https://hosta/r failed" \
+    "a password holding @ is removed up to the last @ before the host"
+  assert_eq "$(red 'GET https://:tok@h/r and ftp://anon@h/r')" "GET https://h/r and ftp://h/r" \
+    "...an empty user or a user alone too"
+  assert_eq "$(red 'at https://h/r/x9F3kQ7mZ2pL8vB4nC6d/repodata/repomd.xml')" "at https://h/r/***/repodata/repomd.xml" \
+    "a token in a URL path is removed"
+  assert_eq "$(red 'at https://h/tkn-ab12CD34ef56GH78ij90/r')" "at https://h/tkn-***/r" "...after a prefix too"
+  assert_eq "$(red 'at https://h/550e8400-e29b-41d4-a716-446655440000/r')" "at https://h/***/r" "...and a UUID"
+  assert_eq "$(red 'at https://h/fedora-cisco-openh264/44/x86_64/os/')" "at https://h/fedora-cisco-openh264/44/x86_64/os/" \
+    "...while ordinary path words stay"
+  assert_eq "$(red 'at https://h/r#access_token=abc and https://h/r?a=1#b [x]')" "at https://h/r and https://h/r [x]" \
+    "a fragment is removed, and the bracket after it stays"
+  assert_eq "$(red 'cut tail: ss@host/r and u:p@ss@h2')" "cut tail: ss@host/r and h2" \
+    "a bare user:password@ is removed, @ in the password included"
+  assert_eq "$(HOME=/home/ann red 'in /home/ann/.cache, /home/ann and /home/anne/x')" "in ~/.cache, ~ and /home/anne/x" \
+    "the home directory becomes ~, and only as a whole path"
+  assert_eq "$(HOME=/ red 'in /etc/x')" "in /etc/x" "...and a home of / changes nothing"
+  assert_eq "$(red 'Is it? Yes.\r\nNext line')" "Is it? Yes. Next line" "a question mark in prose stays, and lines join"
+  assert_eq "$(red 'see HTTPS://U:P@H/x?y and git+ssh://me:pw@h:22/r')" "see HTTPS://H/x and git+ssh://h:22/r" \
+    "any scheme, in any case"
+  tail_f="$TESTTMP/tail.err"
+  { printf 'z%.0s' {1..5000}; printf ' https://user:p@ss@h/r?token=SECRET9 [404]\n'; } > "$tail_f"
+  assert_eq "$(stderr_tail "$tail_f")" "https://h/r [404]" "a long stderr is redacted before its last 200 bytes are taken"
+  { printf 'https://user:secret%.0s' {1..300}; printf '@h/r [404]\n'; } > "$tail_f"
+  assert_not_contains "$(stderr_tail "$tail_f")" "secret" "...so a credential longer than the window does not leak"
+  # Both parities, so the window starts inside a two-byte character once. sed in a UTF-8 locale
+  # cannot match that stray byte and used to keep the whole password.
+  for pad in 1 2; do
+    { printf 'https://bob:'; printf '\xc3\xa4%.0s' {1..3000}; printf '@h/r?token=%s [404]\n' "$(printf 'k%.0s' $(seq "$pad"))"; } > "$tail_f"
+    assert_eq "$(stderr_tail "$tail_f")" "[404]" "...nor one in a non-ASCII password (window parity $pad)"
+  done
+  assert_eq "$(red 'GET https://bob:pa?ss@hosta/r and https://bob:pa/ss@hosta/r#x')" "GET https://hosta/r and https://hosta/r" \
+    "a password holding ? or / is still removed up to the host"
+  assert_eq "$(red '(see https://h/r?token=abc) <https://h/r?k=v> "https://h/r?a=b"')" '(see https://h/r) <https://h/r> "https://h/r"' \
+    "the bracket or quote that closes a query stays"
+  assert_eq "$(red 'GET https://bob:p@ss/w0rd@h/r and https://bob:123/x@h/r')" "GET https://h/r and https://h/r" \
+    "a password holding @ and / goes up to the last @"
+  assert_eq "$(red '"https://u:p@ss/w0rd@h.example" (https://u:p@ss@h.example), https://u:p@ss@my_host/r')" '"https://h.example" (https://h.example), https://my_host/r' \
+    "a password holding @ goes when quotes, brackets or an odd host follow"
+  assert_eq "$(red 'x https://h/r?token=ab]SECRETTAIL [https://h/r?a=b]')" "x https://h/r [https://h/r]" \
+    "a bracket inside a query does not end it, and one that closes the word stays"
+  assert_eq "$(red 'at https://h.lan:8443/results/@kdesig/x')" "at https://h.lan:8443/results/@kdesig/x" \
+    "a host with a port keeps an @ in its path"
+  assert_eq "$(red 'pull oci+https://registry.lan:5000/repo@sha256:abcd')" "pull oci+https://registry.lan:5000/repo@sha256:abcd" \
+    "...and so does a registry digest"
+  assert_eq "$(red 'at https://[::1]:8080/r@x/y and https://u:pw@[::1]:8080/r')" "at https://[::1]:8080/r@x/y and https://[::1]:8080/r" \
+    "...and an IPv6 host, while userinfo in front of one still goes"
+  assert_eq "$(red 'GET https://u:pw@h/r?t=1,https://v:pw2@h2/s?k=2')" "GET https://h/r,https://h2/s" \
+    "URLs glued with a comma are each redacted"
+  big="$TESTTMP/big.err"
+  { for i in $(seq 1 20000); do printf 'word%s https://u:pw@h/r?t=%s ' "$i" "$i"; done; echo; } > "$big"
+  t0=$(date +%s%N); out="$(redact_error_text < "$big")"; t1=$(date +%s%N)
+  assert_eq "$(( (t1 - t0) / 1000000 < 2000 ))|$(( ${#out} <= 8192 ))" "1|1" "a megabyte of stderr is capped and redacted quickly"
+  assert_not_contains "$out" "pw@" "...and the capped text is still redacted"
 
   # ...and nothing fetched means nothing to rate-limit, so the window has to stay open.
   rm -f "$LAST_REFRESH_FILE"
@@ -1133,6 +1230,22 @@ assert_exit 0 "a name dnf.conf lists as installonly counts" -- io_conf my-kmod
 assert_exit 0 "...each of them" -- io_conf other-pkg
 assert_exit 1 "...and a provide is not mistaken for a name" -- io_conf "installonlypkg(vm)"
 assert_exit 1 "...nor is an unlisted package" -- io_conf bash
+# rpm resolves dnf5's installonlypkg() provides to installed names, so a kmod or akmod build counts.
+printf '#!/bin/sh\nprintf "%%s\\n" kernel-core kernel-core "kmod-nvidia-6.20.1-200.fc44.x86_64" akmod-nvidia "no package provides installonlypkg(kernel-module)"\n' \
+  > "$TESTTMP/rpm-io"; chmod +x "$TESTTMP/rpm-io"
+io_rpm() { KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/rpm-io" KEMPT_DNF_CONF="$TESTTMP/io-dnf.conf" \
+  bash -c 'source "$1/lib/common.sh"; offline_installonly_name "$2"' _ "$REPO_ROOT" "$1"; }
+assert_exit 0 "a name rpm resolves from installonlypkg() is installonly" -- io_rpm kmod-nvidia-6.20.1-200.fc44.x86_64
+assert_exit 0 "...an akmod too" -- io_rpm akmod-nvidia
+assert_exit 0 "...and dnf.conf still adds its names" -- io_rpm my-kmod
+assert_exit 1 "...while the fixed list steps back once rpm has answered" -- io_rpm kernel-debug-core
+assert_exit 1 "...and rpm's not-found line is no name" -- io_rpm "no package provides installonlypkg(kernel-module)"
+printf '#!/bin/sh\nexit 1\n' > "$TESTTMP/rpm-io"
+assert_exit 0 "a failed rpm query falls back to the fixed list" -- io_rpm kernel-debug-core
+printf '#!/bin/sh\necho akmod-foo\n' > "$TESTTMP/rpm-io"
+assert_exit 0 "the rpm answer is asked once per process" -- \
+  env KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/rpm-io" bash -c 'source "$1/lib/common.sh"
+    offline_installonly_name akmod-foo; rm -f "$2"; offline_installonly_name akmod-foo' _ "$REPO_ROOT" "$TESTTMP/rpm-io"
 act_tx '{"nevra":"my-kmod-1.0-1.fc44.x86_64","action":"Remove"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
 printf 'my-kmod-0:1.0-1.fc44.x86_64\n' >> "$TESTTMP/pk-qa-kmod"; cat "$pk_qa" >> "$TESTTMP/pk-qa-kmod"
 assert_exit 0 "...and a kept build of it does not stop a stage being done" -- \
@@ -1608,6 +1721,14 @@ assert_eq "$(same_sec -1)" "1" "...and one a second earlier does not"
 # still counts, past a minute it is stale, or every coalesced check would adopt it until then.
 assert_eq "$(same_sec 50)" "0" "a last_check under a minute ahead of the clock still counts"
 assert_eq "$(same_sec 120)" "1" "...and one two minutes ahead is stale"
+# Only the ISO 8601 form Kempt writes counts. date -d reads "now" or "tomorrow" happily, and a
+# state carrying one would answer every coalesced check.
+lc_form() { jq -n --arg t "$1" '{last_check:$t, status:"ok"}' > "$same_sec_state"
+  if STATE_FILE="$same_sec_state" state_checked_since "$(( $(date +%s) - 3600 ))" >/dev/null; then echo 0; else echo 1; fi; }
+assert_eq "$(lc_form "$(date -Is)")" "0" "a last_check in date -Is form counts"
+for f in now "+30 minutes" "$(date +%F)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -Is) " "$(date +%s)" "$(date -Ins)"; do
+  assert_eq "$(lc_form "$f")" "1" "a last_check of '$f' does not"
+done
 rm -f "$same_sec_state"
 
 # End to end: a state stamped three hours ahead with a count no check produced. A coalesced check

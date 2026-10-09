@@ -126,6 +126,12 @@ assert_exit 0 "uninstall leaves the holds alone" -- test -s "$KEMPT_CONFIG_DIR/h
 assert_exit 2 "unknown option refused" bash "$INSTALL" --bogus
 assert_exit 2 "--destdir without a value refused" bash "$INSTALL" --destdir
 assert_exit 2 "a bare positional argument refused" bash "$INSTALL" /some/where
+if unshare -r true 2>/dev/null; then
+  assert_exit 8 "run as root, the installer refuses" \
+    -- env -u KEMPT_ALLOW_ROOT unshare -r bash "$INSTALL" --destdir "$TESTTMP/as-root"
+  assert_eq "$(grep -c 'without sudo' "$TESTTMP/last_output")|$(test -e "$TESTTMP/as-root" && echo made || echo none)" \
+    "1|none" "...says why, and stages nothing"
+fi
 
 # --- real-mode command construction (printed, never run) ---
 # The paths must be PASSED to the root shell as positional args, never interpolated into its
