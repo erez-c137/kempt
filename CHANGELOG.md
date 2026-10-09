@@ -100,12 +100,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "staged update" and "next restart" for Kempt's own restart path. A history row that recorded
   `offline (applied on reboot)` now reads `restart (staged update installed)`. The stored entry
   and `--json` keep the old value.
-- **Messages say what to do next.** Release-upgrade banners give the install and remove commands.
-  The another-updater banner says to restart. A failed update says `Open Kempt and press Show
-  Log.` Prompts name the **Check for Updates** button, rebuild and discard say they ask for your
-  password, and Settings notes lose their double negatives.
+- **Messages say what to do next.** Release-upgrade banners give the install and remove commands,
+  including for an upgrade behind another updater's restart. A failed update names its log. A
+  lost stage gets one remedy. Prompts name the **Check for Updates** button, rebuild and discard
+  say they may ask for your password, and Settings notes lose their double negatives.
 - **Messages state the rules as they are.** On battery or a metered connection, `--refresh` does
-  not fetch either, and doctor, the widget and the guide now say so. `kempt --help` says a hold
+  not fetch either. Doctor and the guide say so, and the widget says whether to plug in or switch
+  networks. `kempt --help` says a hold
   skips a package in updates but still lists it. The Discover offer says Kempt shows updates on
   its panel icon and sends no notification for them.
 - **The widget hides the download size while an update is staged**, since nothing is left to
@@ -195,7 +196,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   widget on an old answer.
 - **A staged update replaced outside Kempt is never reported as installed.** After the restart,
   Kempt no longer names it in history or notifications as its own, and a blocked stage is
-  reported as blocked.
+  reported as blocked. Before the restart, its count is no longer published as staged.
+- **The session-critical notification waits for the run to start.** A run stopped by another
+  update's lock, or by a pre-flight check, said it was installing and then installed nothing.
 
 ### Security
 
