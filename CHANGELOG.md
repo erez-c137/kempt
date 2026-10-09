@@ -55,20 +55,18 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   turns fetching off.
 - **The history entry is a documented format.** `docs/architecture.md` describes the entry that
   `kempt summary --json` and `kempt history --json` print.
-- **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
-  that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 - **`kempt doctor` says when Discover installs updates on restart by itself.** Its prepared update
   replaces one Kempt staged. The row is `info`, or `WARN` when updates run on the next restart.
   It shows only while Discover's notifier starts with your session or is running. `WARN` is a new
   level and never counts as a problem.
-
 - **`widget` is another name for the `popup` surface.** `kempt config set surface widget` stores
   `popup`, and `--surface=widget` runs in the widget. `kempt history`, `kempt summary` and
   `kempt doctor` say `widget` where they said `popup`.
-
 - **`kempt <command> --help` prints that command's own usage**, and so does `kempt help <command>`.
   The help for `--surface=` lists its values, and `enable-passwordless` and
   `disable-passwordless` say what they do.
+- **For contributors: each doc has a word budget.** The suite fails a doc that grows past it, or
+  that fails `tools/prose-check.py`. The check measures sentence length, asides and self-praise.
 
 ### Changed
 
@@ -102,8 +100,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
-  break a sentence with a dash, and they use the words you see on screen.
-- **More widget messages are plain sentences.** The Held note reads "Kempt skips these. Other
+  break a sentence with a dash, and they use the words you see on screen. The Held note reads "Kempt skips these. Other
   updaters still see them." The commands to install a missing engine each get a line. A failed
   installation check points to the full report. A run that stops reporting back says the list
   shows what is pending now. A long list of desktop packages ends in "…".
@@ -189,8 +186,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   not been downloaded yet". Any other failure reads "The check failed" and offers Check
   Installation. The raw error stays underneath in small print. The state publishes dnf's refresh
   error as `backends.dnf.refresh_error`.
-- **A dnf refresh that has never worked is tried again 15 minutes after it failed.** Before, a
-  Flatpak fetch beside it held dnf off for three hours, leaving the check nothing to read.
+- **A dnf refresh that has never worked, or whose cache is gone, is tried again 15 minutes after
+  it failed.** Before, a Flatpak fetch beside it, or a cleared cache, held dnf off for three hours.
 - **The widget's hover text says each thing once.** With only held packages, it no longer gives
   the held count twice. A stale state reads "Last successful check 1 day ago", not a date.
 - **The staged message no longer repeats the header.** It reads "They install when you restart."
@@ -231,10 +228,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as
   `offline_stage_blocked`.
-
-- **`kempt check --coalesce` no longer trusts a check stamped in the future.** A `last_check`
-  more than a minute ahead of the clock counts as stale, so a clock set back cannot freeze the
-  widget on an old answer.
+- **`kempt check --coalesce` trusts only a `last_check` it could have written.** A stamp more
+  than a minute in the future, or a value such as "now" or a bare date, counts as stale, so a
+  clock set back cannot freeze the widget on an old answer.
 - **A staged update replaced outside Kempt is never reported as installed.** After the restart,
   Kempt no longer names it in history or notifications as its own, and a blocked stage is
   reported as blocked. Before the restart, its count is no longer published as staged.
@@ -253,10 +249,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget no longer calls a repository error a network failure.** "Curl error", "Cannot
   download" and "All mirrors were tried" mean a server answered. The widget now says the check
   failed and offers **Check Installation**.
-- **A failed dnf refresh is also tried again after 15 minutes when the cache is gone.** Before, a
-  box whose cache was cleared waited three hours.
-- **`kempt check --coalesce` accepts only the `last_check` form Kempt writes.** A value such as
-  "now" or a bare date no longer answers a coalesced check.
 
 ### Security
 
