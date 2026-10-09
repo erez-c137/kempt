@@ -33,6 +33,28 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CEILING = 3
 
 
+def is_own_probe(pid, cmdline):
+    """True for `python* <script>` where script is a probe or this supervisor in HERE."""
+    argv = cmdline.split(b"\0")
+    if len(argv) < 2 or not os.path.basename(argv[0]).startswith(b"python"):
+        return False
+    # First argument that is not a flag, so `python3 -u probe_x.py` counts. A relative path resolves
+    # against the process's CURRENT cwd: a probe that chdirs after starting is out of scope.
+    rest = [a for a in argv[1:] if not a.startswith(b"-")]
+    if not rest:
+        return False
+    script = os.fsdecode(rest[0])
+    base = os.path.basename(script)
+    if not (base == "safe_probe.py" or (base.startswith("probe_") and base.endswith(".py"))):
+        return False
+    if not os.path.isabs(script):
+        try:
+            script = os.path.join(os.readlink("/proc/%s/cwd" % pid), script)
+        except OSError:
+            return True        # cannot place it: fail closed, count it
+    return os.path.dirname(os.path.realpath(script)) == os.path.realpath(HERE)
+
+
 def pycount():
     """How many python3 are resident. Read from /proc, NOT from `ps`.
 
@@ -67,13 +89,12 @@ def pycount():
                 cmdline = fh.read()
         except OSError:
             continue                       # it exited while we looked; not ours to count
-        # The WHOLE command line, never argv[0] alone. A probe is started as
-        # `python3 /path/probe_x.py`, so argv[0] is the string "python3" and the probe's name is
-        # in argv[1]: reading only argv[0] made this census answer 0 on every box, every time,
-        # while printing that number as though it had counted something. The census is the guard
-        # that exists because a battery once reached ~2,200 Qt processes, and it was failing open.
-        # tests/test_widget_qml.sh's own pycount reads the whole line, which is the shape to match.
-        if b"probe_" in cmdline or b"safe_probe" in cmdline:
+        # Only OUR probes: a python interpreter (argv[0]) whose script (argv[1]) is probe_*.py or
+        # safe_probe.py inside THIS directory, compared by resolved path. A name match on the whole
+        # command line also counted another checkout's run, a shell whose grep pattern names
+        # safe_probe, and any job whose prompt quotes the word, and refused or failed on them.
+        # argv[1], not argv[0]: a probe is started as `python3 /path/probe_x.py`.
+        if is_own_probe(pid, cmdline):
             # ...and only if it is in OUR pid namespace. A container shares the host kernel, so a
             # probe running inside one is visible in /proc here and was counted as a leaked probe
             # of ours: running tests/release/run-release-check.sh (which runs this battery inside a

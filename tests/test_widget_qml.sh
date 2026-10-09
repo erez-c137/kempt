@@ -38,10 +38,28 @@ fi
 # unrelated python3 service starting mid-run is not read as a leaked probe and a leaked probe is
 # not hidden inside the slack allowed for one.
 pycount() {
-  local n=0 p line
+  # Only THIS checkout's probes: `python* <script>` where the script is probe_*.py or safe_probe.py
+  # inside $QMLDIR, by resolved path. Matching the word anywhere on a command line counted another
+  # worktree's run, a shell whose grep pattern names safe_probe, and any job quoting it.
+  local n=0 p pid cwd base script a
+  local -a argv
+  local qd; qd="$(readlink -f "${1:-$QMLDIR}")"
   for p in /proc/[0-9]*/cmdline; do
-    line="$(tr '\0' ' ' < "$p" 2>/dev/null)" || continue
-    [[ "$line" == *probe_* || "$line" == *safe_probe* ]] && n=$((n + 1))
+    pid="${p#/proc/}"; pid="${pid%/cmdline}"
+    { mapfile -d "" -t argv < "$p"; } 2>/dev/null || continue
+    [[ ${#argv[@]} -ge 2 && "${argv[0]##*/}" == python* ]] || continue
+    # The first argument that is not a flag, so `python3 -u probe_x.py` counts. A relative path is
+    # resolved against the process's CURRENT cwd: a probe that chdirs after starting is out of scope.
+    script=""
+    for a in "${argv[@]:1}"; do [[ "$a" == -* ]] || { script="$a"; break; }; done
+    [[ -n "$script" ]] || continue
+    base="${script##*/}"
+    [[ "$base" == safe_probe.py || "$base" == probe_*.py ]] || continue
+    if [[ "$script" != /* ]]; then
+      cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null)" || { n=$((n + 1)); continue; }  # fail closed
+      script="$cwd/$script"
+    fi
+    [[ "$(dirname "$(readlink -f "$script")")" == "$qd" ]] && n=$((n + 1))
   done
   printf '%s\n' "$n"
 }
@@ -50,6 +68,19 @@ pycount() {
 # Everything already on the box before we add to it. The probes are the only python3 this file
 # starts, so anything above this at the end is ours and is a leak.
 baseline="$(pycount)"
+
+# The census counts only probes of THIS checkout. Prove it: a process named like a probe but living
+# elsewhere, and a shell that merely names safe_probe, must not count; the same dummy counted
+# against its own directory must (so the census is not simply answering 0).
+mkdir -p "$TESTTMP/elsewhere"
+printf 'import time\ntime.sleep(60)\n' > "$TESTTMP/elsewhere/probe_fake.py"
+python3 "$TESTTMP/elsewhere/probe_fake.py" & _fake1=$!
+python3 -u "$TESTTMP/elsewhere/probe_fake.py" & _fake3=$!
+bash -c 'sleep 60; : safe_probe probe_x' & _fake2=$!
+sleep 0.5
+assert_eq "$(pycount)" "$baseline" "a probe-named process outside this checkout is not counted"
+assert_eq "$(pycount "$TESTTMP/elsewhere")" "2" "...and the census does count them in the directory it is asked about, with or without a flag like -u"
+kill "$_fake1" "$_fake2" "$_fake3" 2>/dev/null; wait "$_fake1" "$_fake2" "$_fake3" 2>/dev/null || true
 
 run_probe() {  # probe_name
   # Separate statements on purpose: bash expands every word of a `local` BEFORE it assigns any

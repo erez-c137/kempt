@@ -187,10 +187,12 @@ allow() {
 # --- the checks ---------------------------------------------------------------------------------
 # Only the text is searched, after the allowlist; a hit is reported with where it came from.
 CODE_WORDS='(?i)\b(surfaces?|harvest(s|ed|ing)?|seams?|(re-?)?arm(s|ed|ing)?|backends?)\b'
+# grep runs with LC_ALL=C.UTF-8: under LC_ALL=C (a build root, a container with no locale) -P cannot read
+# the \x{2013} class and matches nothing, so the real checks passed vacuously.
 check() {  # label perl-regex [collection, default $TEXT]
   local tsv="${3:-$TEXT}" hits
   cut -f2- "$tsv" | allow > "$tsv.text-only"
-  hits="$(grep -nP -- "$2" "$tsv.text-only" | cut -d: -f1 \
+  hits="$(LC_ALL=C.UTF-8 grep -nP -- "$2" "$tsv.text-only" | cut -d: -f1 \
           | while read -r n; do sed -n "${n}p" "$tsv"; done | sort -u || true)"
   if [[ -z "$hits" ]]; then
     echo "ok: $1"
