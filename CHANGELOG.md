@@ -217,8 +217,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Updates another updater installed are no longer called stuck.** When Discover's notifier
   installed the updates Kempt staged, Kempt said they could no longer install. It now checks that
   each staged package is installed at its staged version or newer. An old kernel the other updater
-  kept, where dnf5 would have removed it, does not count against that. It then records the run as
-  `offline (installed by another updater)` and says once that your staged updates are installed.
+  kept, where dnf5 would have removed it, does not count against that. It then shows the run in
+  `kempt history` as `staged update (installed by another updater)` and says once that your
+  staged updates are installed.
 - **A staged update behind another updater's restart is no longer promised.** When another updater
   has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
   `kempt unstage` waits until after the restart, because discarding would cancel the other update
