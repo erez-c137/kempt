@@ -235,21 +235,12 @@ A damaged entry is left out and named on stderr.
 .BR log " [" \-n " " \c
 .IR N "] [" \c
 .BR \-\-raw ]
-Print the event log, newest last, as sentences.
+Print the last
 .I N
-defaults to 30.
+(30) events as sentences, newest last;
 .B \-\-raw
-prints the lines as
-.I events.log
-stores them. Each line is
-.IR "timestamp via text" ,
-where
-.I via
-is
-.B widget
-or
-.BR cli .
-It answers "did the change I just made land?", which the run logs and history cannot.
+prints them as stored.
+It answers "did the change I just made land?"
 .TP
 .B doctor
 Check this install and print one line per check, marked
@@ -307,17 +298,15 @@ Print a setting. With no value stored, it prints
 or the built\-in default for a known key.
 .TP
 .BI "config set" " key value"
-Change a setting. Keys match
-.RB ' ^[a-z][a-z0-9_]+$ '
-and values are one line. An unknown key, or a value the key does not accept, gets a warning on
-stderr and is stored anyway, so a newer widget can use it.
+Change a setting. Values are one line. An unknown key or value gets a warning on stderr and is
+stored anyway, so a newer widget can use it.
 .B "surface widget"
 is stored as
 .BR popup .
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets your active local session install dnf updates without a password.
-It asks for your password once.
+It asks for an administrator's password once.
 .TP
 .B disable\-passwordless
 Remove that rule. Removing a rule that was never installed succeeds.
@@ -363,11 +352,9 @@ without one.
 .BR help " [" \c
 .IR command "], " \c
 .BR \-\-help ", " \-h
-Print the command list, or one command's usage. A bare
-.B kempt
-prints the list too, and an unknown command prints it on stderr and exits 2.
+Print the command list, or one command's usage, as
 .B \-\-help
-after a command prints its usage.
+after a command does. An unknown command prints the list on stderr and exits 2.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config

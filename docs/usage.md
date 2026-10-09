@@ -20,7 +20,7 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
 | [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
 | [`kempt --version`](#--version) | Prints the version |
-| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each. `kempt help <command>` or `kempt <command> --help` prints one command's usage. |
+| `kempt help`, `--help`, `-h` | Prints the list of commands with a line each. `help <command>` or `<command> --help` gives one command's usage. |
 
 ## A typical day
 
@@ -210,7 +210,7 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 
 **Shutdown waits while packages install.** Fedora blocks shutdown and sleep during the install
 step, and KDE's logout screen does not say why. Stopping during the download is safe. `kempt
-doctor` says whether this protection is on.
+doctor` checks it.
 
 | Exit | When |
 | --- | --- |
@@ -541,29 +541,24 @@ kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)
 kempt log [-n N] [--raw]
 ```
 
-One line per thing Kempt did, newest last. `-n` sets how many lines to show (default 30). With
-nothing recorded it prints `No events recorded yet.`
+One line per thing Kempt did, newest last. `-n` sets how many (default 30).
 
 ```bash
-kempt log -n 6
+kempt log -n 4
 ```
 
 ```
-2026-08-26T20:58:03+03:00 cli Package lists downloaded
 2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
 2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
 2026-08-26T21:11:02+03:00 widget Update started in the background
 2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
-2026-08-26T21:14:41+03:00 widget Checked: 0 updates to install, 1 held
 ```
 
-Each line is `<timestamp> <via> <what happened>`, where `via` is `widget` or `cli` (a terminal, a
-script or a timer). `--raw` prints the lines as the file stores them, in the words of the table
-below.
+`via` is `widget` or `cli` (a terminal, script or timer). `--raw` prints the stored words below.
 
 | Exit | When |
 | --- | --- |
-| 0 | Always, including an empty log. |
+| 0 | Always. |
 | 2 | `-n` without a positive whole number, or an unknown option. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600, trimmed to the last 2000 lines past 2500.
@@ -672,15 +667,13 @@ ok    widget: match checkout
 ok    widget engine: /home/you/src/kempt/bin/kempt
 
 Recent events (kempt log):
-  2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
-  2026-08-26T21:11:02+03:00 widget Update started in the background
   2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 
 kempt doctor: all checks passed
 ```
 
 Lines are `ok`, `info`, `WARN` or `FAIL`. Only `FAIL` counts as a problem, and the last line counts
-problems and warnings. One pass shows every problem. The last five events follow.
+problems and warnings. The last five events follow.
 
 | Exit | When |
 | --- | --- |
@@ -710,7 +703,7 @@ What a `FAIL` means:
 The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
 when the notifier is off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
-**Turn Off Discover's Notifier**. `./install.sh` offers the same. A second row says when Discover
+**Turn Off Discover's Notifier**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
@@ -913,8 +906,7 @@ without a password. When it is not installed, `off`, `on` and `keep` say so and 
 **`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
 notifier stops starting at login, and stops the running one. A file of your own there moves to a
 name ending in `.before-kempt`, and Kempt prints where. A symlink stays a symlink. Kempt keeps one
-such copy and never overwrites it. When the notifier is already off, `off` says so and changes
-nothing.
+such copy and never overwrites it.
 
 **`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
 a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so
