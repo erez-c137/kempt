@@ -3301,8 +3301,8 @@ cmd_log() {
   # No file yet is the ordinary state of a fresh install, not an error - same answer shape as
   # `kempt summary` on a box with no runs: a sentence on STDOUT and exit 0.
   [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
-  if [[ -n "$raw" ]]; then tail -n "$n" "$EVENTS_FILE"
-  else tail -n "$n" "$EVENTS_FILE" | events_plain
+  if [[ -n "$raw" ]]; then tail -n "$n" "$EVENTS_FILE" | events_safe
+  else tail -n "$n" "$EVENTS_FILE" | events_safe | events_plain
   fi
 }
 
@@ -4107,7 +4107,7 @@ doctor_recent_events() {
   echo
   echo "Recent events (kempt log):"
   if [[ -s "$EVENTS_FILE" ]]; then
-    tail -n 5 "$EVENTS_FILE" | events_plain "  "
+    tail -n 5 "$EVENTS_FILE" | events_safe | events_plain "  "
   else
     echo "  none"
   fi

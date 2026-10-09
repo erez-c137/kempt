@@ -395,11 +395,15 @@ event_plain() {  # event text → EVENT_PLAIN
   [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
 }
 
+# Event lines with the control characters taken out (tab and newline stay), so an escape sequence
+# or carriage return written into events.log cannot reach the terminal that shows it.
+events_safe() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
+
 # Event lines from stdin, in plain words. A line that is not `<timestamp> <via> <text>` is printed
 # as it is.
 events_plain() {  # [prefix]; stdin: events.log lines
   local ts via text
-  while IFS=' ' read -r ts via text; do
+  while IFS=' ' read -r ts via text || [[ -n "$ts" ]]; do
     if [[ -n "$text" ]]; then
       event_plain "$text"
       printf '%s%s %s %s\n' "${1:-}" "$ts" "$via" "$EVENT_PLAIN"

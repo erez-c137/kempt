@@ -455,6 +455,17 @@ assert_contains "$plain_out" "cli Staged update installed on restart (3 updated)
 assert_contains "$plain_out" "cli Update started in the widget" "a run in the widget says so"
 assert_contains "$plain_out" "cli Setting surface changed to widget (was not set)" "a setting change names widget, not the stored word"
 assert_contains "$plain_out" "cli Removed 2 unused runtimes, 2 MB" "a removal gives its size in a unit"
+# A last line with no newline after it is still shown, and control characters never reach the
+# terminal: ESC, BEL, a carriage return and an OSC title sequence are taken out, in both views.
+printf '2026-01-01T00:00:00+00:00 cli refresh ok' >> "$EV"
+assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "Package lists downloaded" "a last line without a newline is shown"
+: > "$EV"
+printf '2026-01-01T00:00:00+00:00 cli hold dnf:a\033[31mb\a\rc\033]0;title\007\n' >> "$EV"
+ctl="$("$KEMPT" log -n 1; "$KEMPT" log -n 1 --raw; { "$KEMPT" doctor 2>/dev/null || true; } | grep 'Held dnf' || true)"
+assert_eq "$(LC_ALL=C grep -c $'[\x01-\x08\x0b-\x1f\x7f]' <<<"$ctl")" "0" \
+  "no control character reaches the terminal from kempt log, --raw or doctor"
+assert_contains "$ctl" "Held dnf:a[31mbc]0;title" "...and the rest of the line is still shown"
+cp "$TESTTMP/ev.before" "$EV"
 printf 'not an event line\n' >> "$EV"
 assert_eq "$("$KEMPT" log -n 1)" "not an event line" "a line that is not an event is shown as it is"
 : > "$EV"; for i in $(seq 1 40); do "$KEMPT" config set surface "s$i" >/dev/null; done
