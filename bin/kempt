@@ -2441,14 +2441,16 @@ cmd_status() {  # [--json]: what the last check found, in words; reads only
   update_running_elsewhere && echo "An update is running"
   [[ -n "$detail" ]] && printf '%s\n' "$detail"
 
+  # While a stage is armed the pending sections and the security count read as work still waiting,
+  # so they give way to the staged line, as they do in the widget's tooltip.
   local -a body=()
-  body+=(${sections[@]+"${sections[@]}"})
+  [[ "$staged" == true ]] || body+=(${sections[@]+"${sections[@]}"})
   if [[ -n "$held" ]]; then
     local held_phrase
     held_phrase="$(printf '%s\n' ${held_names[@]+"${held_names[@]}"} | names_phrase)"
     body+=("Held: $held${held_phrase:+ ($held_phrase)}")
   fi
-  if [[ -n "$security" ]]; then
+  if [[ -n "$security" && "$staged" != true ]]; then
     if [[ "$security" == 1 ]]; then body+=("Security: 1 update"); else body+=("Security: $security updates"); fi
   fi
   if [[ "$staged" == true ]]; then
