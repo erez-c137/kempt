@@ -485,6 +485,40 @@ p.check("...with their value", stored("include_flatpak"), "false")
 toggle_fail(FAILGET, "include_flatpak", False)
 
 # ==================================================================================================
+# Security update notifications: off by default, and a round trip through `kempt config` like the
+# other booleans on this page.
+# ==================================================================================================
+for k, v in DEFAULTS:
+    setval(k, v)
+setval("notify_security", "false")
+p.clear_calls()
+pgSec, evSec = build()
+p.check("the page reads the security setting on open",
+        p.calls_matching("config get notify_security"), ["config get notify_security"])
+p.check("...and a stored false renders as an empty box", evSec("notifySecurity.checked"), False)
+evSec("notifySecurity.checked = true")
+evSec("notifySecurity.toggled()")
+p.pump(50)
+p.check("ticking it marks the page unsaved", evSec("page.unsavedChanges"), True)
+p.clear_calls()
+evSec("page.saveConfig()")
+p.wait_idle(evSec, "cfgExecutor")
+p.check("Apply writes the one key that moved, as four arguments",
+        [p.call_count("config set"), p.argv("config")], [1, ["config", "set", "notify_security", "true"]])
+p.check("...and the CLI holds it", stored("notify_security"), "true")
+pgSec2, evSec2 = build()
+p.check("a fresh page reads it back ticked", evSec2("notifySecurity.checked"), True)
+# An older CLI that has never heard of the key answers with nothing: the box stays as it was and
+# Apply does not write a value the user never chose.
+os.remove(os.path.join(VALUES, "notify_security"))
+p.clear_calls()
+pgSec3, evSec3 = build()
+p.check("an older CLI's empty answer leaves the box empty", evSec3("notifySecurity.checked"), False)
+evSec3("page.saveConfig()")
+p.wait_idle(evSec3, "cfgExecutor")
+p.check("...and Apply writes nothing for it", p.call_count("config set notify_security"), 0)
+
+# ==================================================================================================
 # The restart reminder.
 #
 # `restart_reminder` decides whether the popup may BRING UP a restart the machine is owed - the
@@ -625,8 +659,8 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "reclaim", "refresh_interval_min", "restart_reminder",
-         "surface", "widget_icon_size"])
+        ["auto_accept", "include_flatpak", "notify_security", "reclaim", "refresh_interval_min",
+         "restart_reminder", "surface", "widget_icon_size"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
 p.check("the stored surface is the selected radio", ev6("page.selectedSurface()"), "popup")

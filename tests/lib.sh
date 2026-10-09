@@ -57,6 +57,10 @@ sandbox() {  # fresh dirs per test file; call first
   # pending. A path that does not exist makes every size query fail, which is also the contract
   # worth exercising by default: a failed size query yields no number and never a failed check.
   export KEMPT_DNF_SIZES_CMD="$TESTTMP/UNSTUBBED-dnf-sizes"
+  # The advisory query, poisoned for the same reason: unset, a file that turns notify_security on
+  # would ask the REAL dnf5 of the box running the suite. A path that does not exist is "dnf did
+  # not answer", which publishes nothing and is the safe default.
+  export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
   # Poisoned too: unset, every harvest the suite drives would ask the REAL dnf5 history of the box
   # running it which transaction ran, and the answer would depend on that box's past. A path that
   # does not exist is "the history did not answer", which is also the branch every harvest test

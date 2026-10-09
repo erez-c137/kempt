@@ -141,8 +141,8 @@ Six files in the state directory are `flock` targets:
 | `lock` | Runs | |
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
-| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold` | Each rewrites a whole config file. It lives in the state directory because the config directory is the user's. |
-| `state.lock` | Each write to `state.json`, and a run's read and write of `offline_staged` | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
+| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_security` on | Each rewrites a whole file. `kempt security-ack` takes it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
+| `state.lock` | Each write to `state.json`, a run's read and write of `offline_staged`, and `kempt security-ack`'s read and patch | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
 | `events.lock` | Appends to `events.log` and its trim | Held for milliseconds. After 5 seconds the line is appended and the trim waits. |
 
 [usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
@@ -216,6 +216,7 @@ cope with that.
 | `reboot_needed` | boolean | Whether a restart is owed **now**, asked on every check. `false` means **nothing to say**, because a check that could not tell also answers `false`. Render no "no restart needed" line from it. Additive. |
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
 | `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason, `"off"` whenever `KEMPT_SKIP_REFRESH` turns fetching off. Absent otherwise. Additive. |
+| `security` | object, optional | Only while `notify_security` is on and dnf listed the security advisories. `count` and `packages`: the non-held dnf items with one. `advisories`: their IDs, at most 200. `attention`: a set the widget has not shown yet, with nothing staged and no update running. `digest`: 16 hex characters naming the set, `""` when empty. The widget acknowledges a set with `kempt security-ack --expect=<digest>`, which exits 6 when the set has changed. Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
@@ -527,6 +528,7 @@ laptop offline can still answer "what is pending?".
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
 | `flatpak list --system --runtime ...` (`flatpak_snapshot`, `flatpak_id_is_runtime`) | No |
 | `dnf5 --setopt=cachedir=/var/cache/libdnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
+| `dnf5 [--setopt=cachedir=/var/cache/libdnf5] -C advisory list --security --updates --json` (`dnf_security_query`) | No |
 | `dnf5 makecache --refresh` (`kempt-refresh refresh`) | **Yes** |
 | `flatpak remote-ls --updates --system --app ...`, no `--cached` (`flatpak_refresh`) | **Yes** |
 | `kempt-apply`'s upgrade verbs, and `flatpak update --system` (`flatpak_apply`) | **Yes**, that is what a run is |
@@ -852,7 +854,8 @@ missing path, unless the row says otherwise.
 | `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 only when the helper seam equals this one. Compared, never run |
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
 | `KEMPT_DNF_SIZES_CMD` | (empty, so the `dnf_sizes` query in [the network boundary](#the-network-boundary)) | The download-size query, apart from `KEMPT_DNF_CMD`, which tests point at a `needs-restarting` stub. Stubbed |
-| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The cache `dnf_sizes` reads, so sizes come from the check's metadata. When unreadable, the query drops the `--setopt`. Point it at a missing directory to test that |
+| `KEMPT_DNF_ADVISORY_CMD` | (empty, so `KEMPT_DNF_CMD`) | The security advisory query, run only when `notify_security` is on. `tests/lib.sh` points it at a missing path, so a test that wants an answer stubs it |
+| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The cache `dnf_sizes` and the advisory query read, so sizes come from the check's metadata. When unreadable, the query drops the `--setopt`. Point it at a missing directory to test that |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only (see [the network boundary](#the-network-boundary)) |
 | `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime queries. `tests/lib.sh` pins both at `true` (no runtimes), because a missing path would fail every flatpak check |
 | `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | The run's before and after snapshots. Many runtimes have no useful version, so the deployed commit is included. `tests/lib.sh` pins both at `true` |

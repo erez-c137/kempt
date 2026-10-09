@@ -1276,6 +1276,8 @@ PlasmoidItem {
     function popupOpened() {
         popupOnScreen = true;
         refreshClock();
+        // Before the refresh-on-open check below, so the acknowledgement is first on the queue.
+        acknowledgeSecurity();
         // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
         // cannot call back into this file, so the CLI's marker is looked for again at each open.
         if (!discoverOfferAnswered) readDiscoverAnswered();
@@ -1300,6 +1302,8 @@ PlasmoidItem {
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
         popupOnScreen = false;
+        // An acknowledgement that did not land is tried again at the next open.
+        securityAckSent = "";
         // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
         // under the Last update row. Asked BEFORE the post-run line clears.
         if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
@@ -1360,10 +1364,11 @@ PlasmoidItem {
     // an empty answer arms it again.
     // The post-run check, only when the CLI's own never arrived: a closing check that timed out on
     // the lock writes nothing, and the counts on screen would then stay the pre-run ones until
-    // the next scheduled check. Two minutes is a check without a fetch (Logic.CHECK_BODY_MS).
+    // the next scheduled check. Two and a half minutes is a check without a fetch
+    // (Logic.CHECK_BODY_MS).
     Timer {
         id: postRunCheck
-        interval: 120000
+        interval: 150000
         repeat: false
         onTriggered: root.doCheck(true)
     }
@@ -1452,9 +1457,13 @@ PlasmoidItem {
     // What the system tray does with this entry on "Auto". The tray reads this and nothing else,
     // and an applet that never sets a status is lower than PassiveStatus - so without this the
     // widget installs into the tray, is enabled there, and appears to do nothing at all.
-    // ActiveStatus always: hiding the icon when there is nothing to report would be the widget
-    // disappearing exactly when it is telling you the good news, and NeedsAttentionStatus forces
-    // the entry back into view even when the user has deliberately hidden it.
+    // ActiveStatus, never Passive: hiding the icon when there is nothing to report would be the
+    // widget disappearing exactly when it is telling you the good news. NeedsAttentionStatus while
+    // vm.needsAttention holds: a new set of security updates nobody has seen in the popup yet
+    // (notify_security), cleared by opening it. The tray animates the icon for it. It does not
+    // override the person's own choice: Plasma's tray (systemtraymodel.cpp,
+    // calculateEffectiveStatus) keeps an entry set to "Always hidden" in the hidden list whatever
+    // status the applet asks for, and only "Always shown" or Auto put it in the panel.
     //
     // Assigned once here rather than declared as `Plasmoid.status:`, for the test kit rather than
     // taste: `Plasmoid` is an ATTACHED object backed by a real Plasma applet, so a declarative
@@ -1464,17 +1473,47 @@ PlasmoidItem {
     // called look identical from outside, and either would silently put the widget back to being
     // installed in the tray, enabled, and invisible.
     property bool trayPresenceClaimed: false
+    // ...and which of the two statuses was last set, "active" or "attention", for the same reason.
+    property string trayStatusShown: ""
 
     function claimTrayPresence() {
+        var want = vm.needsAttention ? "attention" : "active";
+        if (want === trayStatusShown) return;
         try {
-            Plasmoid.status = PlasmaCore.Types.ActiveStatus;
+            Plasmoid.status = vm.needsAttention ? PlasmaCore.Types.NeedsAttentionStatus
+                                                : PlasmaCore.Types.ActiveStatus;
             root.trayPresenceClaimed = true;
+            root.trayStatusShown = want;
         } catch (e) {
             // No applet behind us: a test harness, not a panel. Say so anyway, because the same
             // catch would swallow a real Plasma API change whose only symptom in a panel is a tray
             // entry that never appears.
             console.warn("kempt: could not claim tray presence:", e);
         }
+    }
+
+    // The status follows the view model, and a set that lands while the popup is open has been seen.
+    onVmChanged: {
+        claimTrayPresence();
+        acknowledgeSecurity();
+    }
+
+    // The digest the last `kempt security-ack` was sent for, so a view model that changes while
+    // the popup is open (the clock, a watcher read) does not send it again.
+    property string securityAckSent: ""
+
+    // Tells the CLI the security updates on screen have been seen: it records the set and clears
+    // state.json's security.attention, which every widget then reads. --expect is the set this
+    // popup showed; a set that changed in between is refused (exit 6) and the next check's set is
+    // acknowledged in its turn while the popup stays open.
+    function acknowledgeSecurity() {
+        var digest = vm.securityDigest;
+        if (!popupOnScreen || digest === "" || digest === securityAckSent) return;
+        securityAckSent = digest;
+        executor.run(kemptCmd + " security-ack --expect=" + Logic.shellQuote(digest),
+                     Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
+            if (rc === 0) root.adoptState();
+        });
     }
 
     // Check for Updates, as a menu entry rather than a button. A QAction in

@@ -51,6 +51,8 @@ RowLayout {
     property bool forYouOnly: false
     // ...and the same id is installed for the system as well. A hold covers both copies.
     property bool bothScopes: false
+    // A system package whose pending update fixes a security advisory (Logic.COPY.securityToken).
+    property bool security: false
 
     // What the name line draws. One property, read by the label and by the pin's spellings, so the
     // row cannot name the same thing two ways.
@@ -124,6 +126,17 @@ RowLayout {
                 objectName: "forYouOnly"
                 visible: row.forYouOnly
                 text: i18n("For you only")
+                font: Kirigami.Theme.smallFont
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
+                elide: Text.ElideRight
+            }
+
+            // ...and the third state word, in the same place and size.
+            PlasmaComponents.Label {
+                objectName: "securityToken"
+                visible: row.security
+                text: i18n("Security")
                 font: Kirigami.Theme.smallFont
                 Layout.fillWidth: true
                 Layout.maximumWidth: implicitWidth

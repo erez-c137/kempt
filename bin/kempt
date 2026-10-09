@@ -539,6 +539,7 @@ cmd_check() {
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
   # nothing below may change `status`: the check must answer with or without a size.
   local dnf_sz fp_sz fp_scopes_f dnf_priced=false fp_priced=false
+  local sec_asked="" sec_raw="" sec_rc=1 sec_parsed="" sec_failed="" sec_fresh="" sec_items_f
   dnf_sz="$(mktemp)"; fp_sz="$(mktemp)"; fp_scopes_f="$(mktemp)"
   # -n/[inputs][0]: the corrupt-tolerance idiom above (a multi-doc file joins one last_success per
   # document into one string).
@@ -549,6 +550,13 @@ cmd_check() {
     # which carry their own sizes - re-pricing puts today's bytes on yesterday's list.
     dnf_priced=true
     dnf_sizes > "$dnf_sz" 2>/dev/null || : > "$dnf_sz"
+    # Which of them fix a security advisory: only for a person who asked (notify_security), only
+    # when dnf answered, and never on an image-based system, which dnf does not update. Read
+    # against the items after mark_held, below. A failure publishes nothing and is logged.
+    if is_true "$(config_get notify_security 2>/dev/null)" && ! on_ostree; then
+      sec_asked=1
+      if sec_raw="$(dnf_security_query)"; then sec_rc=0; else sec_rc=1; fi
+    fi
   else
     # explain_helper_error rewrites the one case the raw text gets WRONG: a missing root helper,
     # which `timeout` reports as a failure to run a command and reads as a timeout. dnf only -
@@ -581,6 +589,16 @@ cmd_check() {
   # already name a runtime (it was writable long before runtimes were counted), and mark_held keys
   # on the bare name, so without this a stale line would start holding a runtime today.
   fp_items="$(mark_held flatpak <<<"$fp_items" | flatpak_runtimes_never_held)"
+  if [[ -n "$sec_asked" ]]; then
+    sec_items_f="$(mktemp)"
+    printf '%s\n' "$dnf_items" > "$sec_items_f"
+    if [[ $sec_rc -ne 0 ]] \
+       || ! sec_parsed="$(dnf_security_parse "$sec_items_f" <<<"$sec_raw" 2>/dev/null)" \
+       || [[ "$sec_parsed" != \{* ]]; then
+      sec_parsed=""; sec_failed=1
+    fi
+    rm -f "$sec_items_f"
+  fi
   # After mark_held, because the coverage rule below counts NON-HELD items only.
   [[ "$dnf_priced" == true ]] && dnf_items="$(attach_sizes "$dnf_sz" <<<"$dnf_items")"
   [[ "$fp_priced"  == true ]] && fp_items="$(attach_sizes "$fp_sz"  <<<"$fp_items")"
@@ -694,11 +712,63 @@ cmd_check() {
      && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # The writers' lock from here to the write, for a check that has a security answer to merge:
+  # `kempt security-ack` patches state.json and the seen file under it, so an acknowledgement can
+  # neither be overwritten by a state worked out from the seen file before it, nor patch an older
+  # state over this one. A short wait, and not having it never fails the check: the block is then
+  # published without touching the seen file, and nothing is announced, since nothing announced
+  # could be recorded.
+  local wlocked="" sec_announce=""
+  if [[ -n "$sec_parsed" ]]; then
+    writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null && wlocked=1
+    local sec_armed=false sec_busy=false sec_out sec_block sec_write=false
+    [[ -n "$wlocked" ]] && sec_write=true
+    jq -e '.armed == true' <<<"${staged_state:-null}" >/dev/null 2>&1 && sec_armed=true
+    update_running_elsewhere && sec_busy=true
+    if sec_out="$(security_update "$sec_parsed" "$sec_armed" "$sec_busy" "$sec_write")" \
+       && sec_block="$(head -n1 <<<"$sec_out")" \
+       && merged="$(jq --argjson b "$sec_block" '. + {security: $b}' <<<"$state" 2>/dev/null)" \
+       && [[ -n "$merged" ]]; then
+      state="$merged"
+      # No announcement while a stage is armed: the person already chose to install them.
+      [[ "$sec_armed" == true ]] || sec_fresh="$(sed -n 2p <<<"$sec_out")"
+    else
+      sec_failed=1
+    fi
+    # Recorded BEFORE it is sent, while the lock is held, and taken back only if it was not
+    # delivered. The other order needs the lock a second time after the notification, and a lock
+    # not had then meant the same set announced again at every check. A seen file that cannot be
+    # written (not a regular file, a full disk) announces nothing.
+    # shellcheck disable=SC2086  # the ids are one word each (dnf_security_parse checked them)
+    if [[ -n "$sec_fresh" && -n "$wlocked" ]] && session_bus_present \
+       && security_seen_add notified $sec_fresh 2>/dev/null; then
+      sec_announce=1
+    fi
+  fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
   # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
   # failed write a failed check for a caller with errexit off.
-  if printf '%s\n' "$state" | write_state; then CHECK_WROTE_STATE=1; else return 1; fi
+  if printf '%s\n' "$state" | write_state; then CHECK_WROTE_STATE=1
+  else [[ -z "$wlocked" ]] || writer_unlock; return 1; fi
+  [[ -z "$wlocked" ]] || writer_unlock
+  # Announced from the check rather than the widget, so a terminal-only install hears it too and
+  # two widgets on two panels do not say it twice.
+  if [[ -n "$sec_announce" ]]; then
+    local sec_body
+    sec_body="$(jq -r '.security.packages[]' <<<"$state" 2>/dev/null | security_notice)"
+    if [[ -n "$sec_body" ]] && notify_delivered "Kempt" "$sec_body"; then
+      log_event "security notified count=$(jq -r '.security.count' <<<"$state" 2>/dev/null)"
+    elif writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null; then
+      # Not delivered: the next check with a session tries again. Without the lock the ids stay
+      # recorded, which loses this one announcement rather than repeating it.
+      # shellcheck disable=SC2086
+      security_seen_add drop notified $sec_fresh 2>/dev/null || true
+      writer_unlock
+    fi
+  fi
+  if [[ -n "$sec_failed" ]]; then log_security_failure
+  elif [[ -n "$sec_asked" ]]; then rm -f "$SECURITY_FAIL_FILE" 2>/dev/null || true; fi
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
   if [[ "$status" == "ok" ]]; then
@@ -3052,6 +3122,52 @@ cmd_reclaim() {
   return $rc
 }
 
+# `kempt security-ack --expect=DIGEST` - the widget's word that the security updates on screen
+# have been seen: opening the popup (or having it open when a new set lands) runs it, and the
+# panel stops asking for attention until a set with an advisory nobody has seen arrives. Internal,
+# so not in usage(). The digest is the one the check published (state.json's security.digest), so
+# an acknowledgement never covers a set it did not show; a different set exits 6 and records
+# nothing. Writes the seen file and patches state.json's security.attention under the writers'
+# lock, the lock cmd_check holds while it works the block out and writes it, so the patch reaches
+# every widget through its state.json watcher and the next check keeps it.
+cmd_security_ack() {
+  local expect=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --expect=*) expect="${1#--expect=}"; shift
+                  [[ "$expect" =~ ^[0-9a-f]{16}$ ]] || { echo "--expect takes the 16-character digest from kempt check" >&2; exit 2; } ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
+  [[ -n "$expect" ]] || { echo "usage: kempt security-ack --expect=DIGEST" >&2; exit 2; }
+  writer_lock "$SECURITY_LOCK_WAIT" || exit 1
+  # state.lock as well, from the read to the write, so a run's publish_staged_state cannot write
+  # state.json in between and have its offline_staged undone by this patch of the older file. The
+  # order is check.lock, then the writers' lock, then state.lock, as everywhere. A lock file that
+  # cannot be opened, or a lock not had in 10 seconds, is skipped like write_state skips it.
+  local state ids patched lfd rc=0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
+  if [[ -z "$state" || "$(jq -r '.security.digest? // empty' <<<"$state" 2>/dev/null)" != "$expect" ]]; then
+    rc=6
+  else
+    mapfile -t ids < <(jq -r '.security.advisories[]? | strings' <<<"$state")
+    _KEMPT_STATE_LOCK_HELD=1
+    if ! security_seen_add acknowledged "${ids[@]}" \
+       || ! patched="$(jq -c '.security.attention = false' <<<"$state")" \
+       || ! printf '%s\n' "$patched" | write_state; then
+      rc=1
+    fi
+    _KEMPT_STATE_LOCK_HELD=""
+  fi
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  writer_unlock
+  case $rc in
+    6) echo "The security updates changed since they were shown. Nothing was recorded." >&2; exit 6 ;;
+    1) echo "kempt: could not record that the security updates were seen" >&2; exit 1 ;;
+  esac
+}
+
 # `kempt log` - the event log, newest last. Deliberately the plainest command here: the file is
 # already one fact per line in a fixed vocabulary, meant to be read with grep.
 cmd_log() {
@@ -4071,6 +4187,7 @@ case "${1:-help}" in
   holds)   shift; cmd_holds "$@" ;;
   unstage) shift; cmd_unstage "$@" ;;
   reclaim) shift; cmd_reclaim "$@" ;;
+  security-ack) shift; cmd_security_ack "$@" ;;
   discover-notifier) shift; cmd_discover_notifier "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
