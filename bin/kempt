@@ -1571,7 +1571,18 @@ cmd_update() {
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
-        apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        # Behind another updater's /system-update the clean is skipped, as on the supersede path:
+        # it would remove that symlink and cancel the other updater's restart install. The stage
+        # replaced whatever the old marker described, so only the marker goes.
+        if [[ "$(offline_link_state)" == other ]]; then
+          # The download is stored and will not install: dnf5 makes /system-update only when it
+          # is absent. The words match apply_refusal_reason's for the same link.
+          reason_override="the updates were downloaded, but another updater has prepared the next restart, so they will not install then. Try again after the restart"
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          log_event "offline stage left in place (another updater has prepared the next restart)"
+        else
+          apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
+        fi
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
           log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
@@ -1610,6 +1621,13 @@ cmd_update() {
           # It is stale, and takes the clean below like any other leftover.
           reason_override="could not rebuild the staged update. The previous one is unchanged and still installs on the next restart"
           log_event "offline restage failed (previous stage intact)"
+        elif [[ "$(offline_link_state)" == other ]]; then
+          # dnf5 replaced the previous transaction before failing, so the old marker describes
+          # nothing. The clean would remove another updater's /system-update and cancel its
+          # restart install, so only the marker goes.
+          reason_override="could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart"
+          if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
+          log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the previous staged update was discarded and could not be rebuilt"
           # The marker described a transaction that no longer exists: the re-stage destroyed it,
@@ -1810,6 +1828,16 @@ cmd_update() {
   # it means today. Which of the two reasons it was is the difference between "Kempt did nothing"
   # and "your holds did what you asked" - the first reads as a fault - and it is the same
   # distinction, in the same words, that the notification below makes.
+  # A stage that worked behind another updater's symlink: dnf5 makes /system-update only when it is
+  # absent, so the arm succeeded and the next restart still installs the other updater's set. The
+  # entry says so, or history and summary read "staged for the next restart" over a restart that
+  # installs none of it. Keyed on the dnf half, as the staged phrase is: a failed Flatpak half
+  # does not undo the stage. Written only when it happened.
+  local stage_link_other=false
+  if [[ "$surface" == offline && "$dnf_status" == ok && "$staged_nothing" != true \
+        && "$(offline_link_state)" == other ]]; then
+    stage_link_other=true
+  fi
   local staged_nothing_why=""
   if [[ "$surface" == "offline" && "$status" == "ok" && "$staged_nothing" == true ]]; then
     if [[ -n "$held_dnf" ]]; then staged_nothing_why=held; else staged_nothing_why=nothing_pending; fi
@@ -1817,7 +1845,8 @@ cmd_update() {
   # `transaction_id` is additive and top-level, exactly as the harvest writes it: the id
   # `dnf5 history info` takes, present only when dnf5's history named the transaction.
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
-        --arg staged_nothing_why "$staged_nothing_why" \
+        --arg staged_nothing_why "$staged_nothing_why" --arg staged_n "$staged" \
+        --arg link_other "$stage_link_other" \
         --arg log "$log" --argjson dur "$run_dur" --arg txid "$live_txid" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
@@ -1832,7 +1861,9 @@ cmd_update() {
                       + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)
                       + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
-    + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
+    + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)
+    + (if $link_other == "true" then {stage_blocked: true} else {} end)
+    + (if ($staged_n | test("^[1-9][0-9]*$")) then {staged: ($staged_n | tonumber)} else {} end)' > "$hist_tmp" \
     || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no
@@ -1873,11 +1904,9 @@ cmd_update() {
     log_event "run failed rc=$run_rc: $reason"
   fi
 
-  # A stage that worked behind another updater's symlink: dnf5 makes /system-update only when it is
-  # absent, so the arm succeeded and the next restart still installs the other updater's set.
+  # The same stage, for the warning and the notification: only on a run that succeeded.
   local stage_blocked=false
-  if [[ "$surface" == offline && "$status" == ok && "$staged_nothing" != true \
-        && "$(offline_link_state)" == other ]]; then
+  if [[ "$status" == ok && "$stage_link_other" == true ]]; then
     stage_blocked=true
     log_warn "$log" "warning: another updater has prepared the next restart, so the updates staged here will not install then. See: kempt doctor"
   fi
@@ -2220,11 +2249,11 @@ cmd_history() {  # [--json]: every run, newest first; --json as one array of his
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, nor take the whole
     # listing down - every other run is still perfectly readable.
-    # run_counts_phrase, not a local ".updated | length": counting upgrades alone prints
-    # "0 updated" for a run whose own summary says "+2 installed, -1 removed".
+    # history_phrase counts installs and removals as well as upgrades, and names what a staging
+    # run staged.
     if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
        && [[ -n "$row" ]] \
-       && phrase="$(run_counts_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
+       && phrase="$(history_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
       # The reason, on the rows that have one, or a failed row sends the reader to a log file
       # to learn the authentication dialog was closed. `// ""` keeps older entries rendering the
       # same.

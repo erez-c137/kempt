@@ -149,6 +149,8 @@ KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
+# dnf's main config, read for `installonlypkgs` only (offline_installonly_name). Read, never written.
+KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -1930,9 +1932,31 @@ rpm_evrcmp() {  # e:v-r e:v-r → prints -1, 0 or 1
 #   Upgrade, Install   installed at the staged EVR or newer
 #   Downgrade          installed at exactly the staged EVR: a newer one means it did not happen
 #   Reinstall          installed at the staged EVR or newer, and proves nothing on its own
-#   Remove             that exact build no longer installed
+#   Remove             that exact build no longer installed, unless it is installonly
 # Anything less is not satisfied: a partial install, a file that does not read, or a transaction
 # with nothing in it that shows it ran (empty, or only reinstalls, which an untouched box passes).
+# Whether a package name is one dnf keeps several builds of (installonly). dnf5's defaults are
+# provides (installonlypkg(kernel), installonlypkg(kernel-module), ...), which only rpm can resolve,
+# so the kernel families that carry them are named here. Plain names in the config's
+# `installonlypkgs` are added; provide-shaped entries there are skipped.
+offline_installonly_name() {  # name → 0 when installonly
+  case "$1" in
+    kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
+      |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
+      |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
+  esac
+  [[ -r "$KEMPT_DNF_CONF" ]] || return 1
+  local line v tok
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*installonlypkgs[[:space:]]*=(.*)$ ]] || continue
+    v="${BASH_REMATCH[1]//,/ }"
+    for tok in $v; do
+      [[ "$tok" =~ $KEMPT_NAME_RE && "$tok" == "$1" ]] && return 0
+    done
+  done < "$KEMPT_DNF_CONF"
+  return 1
+}
+
 offline_stage_satisfied() {  # → 0 when the stored transaction's changes are all on the box
   [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
   local sz want have line
@@ -1986,7 +2010,11 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
       esac
     done <<<"${inst[$key]:-}"
     case "$action" in
-      Remove) [[ "$found" == false ]] || return 1; proof=true ;;
+      # dnf5 removes the oldest installonly build to stay within installonly_limit. Another
+      # updater may keep it, which leaves the stage's upgrades installed and that build behind.
+      # So a kept installonly build does not block, and proves nothing either.
+      Remove) if [[ "$found" == false ]]; then proof=true
+              elif ! offline_installonly_name "${key%.*}"; then return 1; fi ;;
       Reinstall) [[ "$found" == true ]] || return 1 ;;
       *) [[ "$found" == true ]] || return 1; proof=true ;;
     esac
@@ -2729,6 +2757,20 @@ KEMPT_JQ_COUNTS='
       (if a > 0 then "+" + (a|tostring) + " installed" else empty end),
       (if r > 0 then "-" + (r|tostring) + " removed"   else empty end) ]
     | if length == 0 then "no package changes" else join(", ") end;
+  # A staging run changes no package until the restart, so "no package changes" is true and
+  # misleading. Keyed on the dnf half, not the run: a failed Flatpak half fails the run but leaves
+  # the stage armed. Entries from older builds have no staged count or dnf status, and the phrase
+  # then leaves the count out and reads the run status. A stage made while another updater holds
+  # /system-update says it will not install then (stage_blocked).
+  def stage_phrase:
+    if .surface == "offline" and (.backends.dnf.status? // .status) == "ok"
+       and (.staged_nothing // "") == "" then
+      (if (.staged | type) == "number" and .staged > 0 then
+         (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
+       else "updates" end)
+      + (if .stage_blocked == true then " staged, but another updater has prepared the next restart"
+         else " staged for the next restart" end)
+    else empty end;
 '
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
@@ -2738,6 +2780,19 @@ run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N remo
   jq -r "$KEMPT_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
     counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
+}
+
+# The `kempt history` row's phrase. A staging run reads as what it staged, plus what Flatpak
+# changed live in the same run.
+history_phrase() {  # history-json-file → one phrase
+  jq -r "$KEMPT_JQ_COUNTS"'
+    def tot(k): [.backends[] | .[k] | length] | add // 0;
+    def fp(k): .backends.flatpak[k]? // [] | length;
+    [stage_phrase] as $st
+    | if ($st | length) == 0 then counts_phrase(tot("updated"); tot("added"); tot("removed"); false)
+      else $st[0] + (if fp("updated") + fp("added") + fp("removed") > 0
+                     then ", Flatpak: " + counts_phrase(fp("updated"); fp("added"); fp("removed"); false)
+                     else "" end) end' "$1"
 }
 
 # What the next restart will install, in one line, or nothing. Deliberately NOT part of
@@ -2827,7 +2882,7 @@ render_summary() {  # history-json-file → human text
       + (if .status == "ok" then "✓"
          else "FAILED. See " + .log
               + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),
-    "System (dnf): " + counts(.backends.dnf)
+    "System (dnf): " + (first(stage_phrase) // counts(.backends.dnf))
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
     (if (.backends.dnf.added|length) > 0 then addlines(.backends.dnf) else empty end),

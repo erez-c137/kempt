@@ -68,6 +68,17 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
   leaves the footer while the question is open. Before, it started them straight away.
   `auto_accept=false` still sends every run to the terminal.
+- **With updates set to run on the next restart, the footer button reads Install on Next
+  Restart.** Before, it read **Update Now**, which sounds like installing right away. It does so
+  with "ask before applying" on as well, since that run stages too. With only Flatpak apps pending,
+  or every system update held, nothing stages and it still reads **Update Now**. Its tooltip, and
+  the one on the restart choice, say that system updates install during the restart. They add that
+  Flatpak apps update now only when some are waiting.
+- **A staging run says what it staged.** `kempt history` and `kempt summary` read "78 updates
+  staged for the next restart" where they said "no package changes" and "0 updated". The history
+  entry carries the count as `staged`, and `stage_blocked` when another updater has prepared the
+  next restart. Older entries read the same, without the number. A run whose Flatpak half failed
+  still says what it staged.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
@@ -147,12 +158,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   messages, rows and footer now share one inset on both sides.
 - **Updates another updater installed are no longer called stuck.** When Discover's notifier
   installed the updates Kempt staged, Kempt said they could no longer install. It now checks that
-  each staged package is installed at its staged version or newer. It then records the run as
+  each staged package is installed at its staged version or newer. An old kernel the other updater
+  kept, where dnf5 would have removed it, does not count against that. It then records the run as
   `offline (installed by another updater)` and says once that your staged updates are installed.
 - **A staged update behind another updater's restart is no longer promised.** When another updater
   has prepared the next restart, `kempt doctor` no longer says Kempt's staged update installs then.
   `kempt unstage` waits until after the restart, because discarding would cancel the other update
-  too. A live update or an empty stage leaves it alone as well. Doctor also explains a leftover transaction whose updates are already installed.
+  too. A live update, an empty stage or a failed stage leaves it alone as well, and a failed stage
+  says to try again after the restart. `kempt history` and `kempt summary` say a stage made then
+  will not install at the restart. Doctor also explains a leftover transaction whose updates are
+  already installed.
 - **The widget no longer promises a staged update that another updater has displaced.** When
   another updater has prepared the next restart, the staged banner becomes a warning that the
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as

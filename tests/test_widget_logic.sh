@@ -867,6 +867,58 @@ for surf in terminal popup background offline nonsense; do
   done
 done
 
+# --- updateButtonOf: the footer button says what the press will do -----------------------------
+# On the offline surface the press stages: it downloads now and installs during the next restart.
+# "Update Now" reads as installing right away, so the button takes the restart choice's own words.
+assert_eq "$(js 'L.updateButtonOf("offline", 4, true).text')" "Install on Next Restart" \
+  "with updates set to run on the next restart, the footer button says so"
+assert_eq "$(js 'L.updateButtonOf("offline", 4, true).text === L.COPY.installOnNextRestart')" "true" \
+  "...in the same words as the restart choice"
+assert_eq "$(js 'L.updateButtonOf("offline", 4, true).tooltip')" \
+  "Installs system updates during the next restart. Flatpak apps update now." \
+  "...with the restart choice's tooltip, which says Flatpak apps update now when some are waiting"
+assert_eq "$(js 'L.updateButtonOf("offline", 4, false).tooltip')" \
+  "Installs system updates during the next restart." \
+  "...and leaves Flatpak out when no Flatpak app is waiting"
+assert_eq "$(js 'L.updateButtonOf(" OFFLINE ", 1, false).stages')" "true" "...for a padded, upper-case offline too"
+# Only system updates stage. With none actionable the press stages nothing.
+for _n in 0 -1 null undefined '"3"'; do
+  assert_eq "$(js "[L.updateButtonOf('offline', $_n, true).stages, L.updateButtonOf('offline', $_n, true).text]")" \
+    '[false,"Update Now"]' "offline with $_n system updates actionable keeps Update Now"
+done
+for _s in terminal popup background nonsense ''; do
+  assert_eq "$(js "L.updateButtonOf('$_s', 4, true).text")" "Update Now" "surface '$_s' keeps Update Now"
+  assert_eq "$(js "L.updateButtonOf('$_s', 4, true).tooltip")" "" "...and no extra tooltip"
+done
+# The view model keys on the CONFIGURED surface: with confirmation on, the run opens a terminal,
+# and `kempt update` on a terminal still stages when offline is configured (bin/kempt cmd_update).
+UB='function (surf, conf, edit) { var s = S("risky-heavy"); if (edit) edit(s); var o = {surface: surf}; if (conf !== undefined) o.configuredSurface = conf; return L.viewModel(s, false, "", o); }'
+assert_eq "$(js "[($UB)('offline', 'offline').updateStages, ($UB)('offline', 'offline').updateButtonText]")" \
+  '[true,"Install on Next Restart"]' "the view model publishes the restart label on the offline surface"
+assert_eq "$(js "[($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateStages, ($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateButtonText]")" \
+  '[true,"Install on Next Restart"]' "...and when confirmation sends the run to a terminal, which still stages"
+assert_eq "$(js "($UB)('popup', 'popup').updateButtonText")" "Update Now" "...and Update Now on any other surface"
+assert_eq "$(js "($UB)(undefined).updateButtonText")" "Update Now" "...and before the surface is known"
+assert_eq "$(js "[($UB)('offline', 'offline').stageTooltipNamesFlatpak, ($UB)('offline', 'offline').updateButtonTooltip]")" \
+  '[true,"Installs system updates during the next restart. Flatpak apps update now."]' \
+  "with Flatpak apps waiting, the tooltip says they update now"
+FPOFF='function (s) { s.backends.flatpak.enabled = false; }'
+FPNONE='function (s) { s.backends.flatpak.actionable = 0; s.backends.flatpak.items = []; }'
+DNFHELD='function (s) { s.backends.dnf.actionable = 0; s.backends.dnf.held = 20; s.backends.dnf.items.forEach(function (i) { i.held = true; }); }'
+DNFNONE='function (s) { s.backends.dnf.actionable = 0; s.backends.dnf.items = []; }'
+for _e in FPOFF FPNONE; do
+  assert_eq "$(js "[($UB)('offline', 'offline', ${!_e}).stageTooltipNamesFlatpak, ($UB)('offline', 'offline', ${!_e}).updateButtonTooltip]")" \
+    '[false,"Installs system updates during the next restart."]' "$_e: the tooltip leaves Flatpak out"
+done
+for _e in DNFHELD DNFNONE; do
+  assert_eq "$(js "[($UB)('offline', 'offline', ${!_e}).updateStages, ($UB)('offline', 'offline', ${!_e}).updateButtonText]")" \
+    '[false,"Update Now"]' "$_e: nothing stages, so the button keeps Update Now"
+done
+assert_eq "$(js "L.backendActionable({backends: {dnf: {items: [{held: false}, {held: true}, {}]}}}, 'dnf')")" "2" \
+  "backendActionable counts the unheld items when a backend publishes no count"
+assert_eq "$(js "[L.backendActionable(null, 'dnf'), L.backendActionable({backends: {}}, 'dnf')]")" "[0,0]" \
+  "...and 0 for no state or no backend"
+
 # --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
 for s in terminal popup background offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
@@ -3052,7 +3104,7 @@ assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /surface/i.tes
 
 assert_eq "$(js 'L.COPY.installOnNextRestart')" "Install on Next Restart" "copy: the offline action"
 assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
-  "Applies the update during a restart, so nothing changes underneath your running desktop." \
+  "Installs system updates during the next restart. Flatpak apps update now." \
   "copy: and what it does, which is the whole argument for choosing it"
 assert_eq "$(js 'L.COPY.kernelRestart')" \
   "This update includes a kernel. The safest way is to install it on the next restart, so nothing changes under the running desktop." \
@@ -3224,7 +3276,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

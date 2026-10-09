@@ -339,6 +339,12 @@ grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says s
 stgd_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r 'has("staged_nothing")' "$stgd_hist")" "false" \
   "...and its history entry does not claim nothing was staged"
+# ...and records how many it staged, the marker's own count, so history and summary can say it.
+assert_eq "$(jq -r '.staged | type' "$stgd_hist")" "number" "...and its history entry records the staged count"
+assert_eq "$(jq -r .staged "$stgd_hist")" "$(jq -r .staged "$marker")" "...the same count the marker holds"
+assert_eq "$(jq -r 'has("stage_blocked")' "$stgd_hist")" "false" "...and no blocked flag with no other updater"
+assert_eq "$("$KEMPT" history | awk 'NR==1' | grep -c " offline  ok  $(jq -r .staged "$stgd_hist") update[s]* staged for the next restart")" "1" \
+  "...and kempt history says what was staged, not \"no package changes\""
 
 # ARMING, which is the whole difference between a staged transaction and one that installs. dnf5
 # leaves a staged transaction at status="download-complete" and NO boot applies that; `dnf5 offline
@@ -433,6 +439,11 @@ assert_contains "$(cat "$TESTTMP/foreign.err")" "the updates staged here will no
 assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
   "$(jq -r '.staged' "$marker")" "...and the state carries the blocked stage for the widget"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "...not a pending one"
+fghist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r '[.status, .stage_blocked] | @tsv' "$fghist")" "ok	true" \
+  "...and its history entry marks the stage as blocked"
+assert_contains "$("$KEMPT" history | awk 'NR==1')" "staged, but another updater has prepared the next restart" \
+  "...so history does not promise the restart either"
 cp "$TESTTMP/marker.before-foreign" "$marker"
 cp "$TESTTMP/pre.before-foreign" "$pre"
 cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
@@ -512,6 +523,29 @@ assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")"
 
 # every run since the staging rewrote dnf-before.tsv, and the marker's own copy is still there
 assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
+
+# A failed arm is not unwound behind another updater's /system-update. dnf5's clean removes that
+# symlink whoever made it, which would cancel the other updater's restart install. The clean is
+# skipped, and the marker of the transaction this stage replaced goes.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+af_pre="$(jq -r .pre_snapshot "$marker")"
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+: > "$WORLD/apply-calls"
+armrc=0
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.armfail" \
+  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || armrc=$?
+assert_eq "$armrc" "1" "an arm that fails behind another updater's symlink still fails the run"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and the clean that would remove that symlink is never run"
+assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot copy" -- test ! -f "$af_pre"
+assert_eq "$(tail -n 3 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
+  "...and the log says why the stored one stayed"
+afhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$afhist")" \
+  "the updates were downloaded, but another updater has prepared the next restart, so they will not install then. Try again after the restart" \
+  "...and the reason says the download will not install at the restart"
 
 # --- and the same escalation the other way round: nobody reads stderr in a panel ------------------
 # A cleanup that failed leaves the box in the one state a person has to act on by hand, and the run
@@ -598,6 +632,29 @@ sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
   && { echo "FAIL: an unarmed stage was reported as still installing"; _fail=1; } \
   || echo "ok: ...and the reason does not claim it still installs"
 
+# ...and a rebuild that failed after dnf5 replaced the old transaction (the toml is no longer
+# `ready`), behind another updater's /system-update. The clean would remove that symlink and
+# cancel the other updater's restart install, so it is skipped and only Kempt's marker goes.
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+sf_pre="$(jq -r .pre_snapshot "$marker")"
+ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+: > "$WORLD/apply-calls"
+strc=0
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" \
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
+assert_eq "$strc" "1" "a rebuild that fails behind another updater's symlink fails the run"
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "...and never runs the clean that would remove that symlink"
+assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot copy" -- test ! -f "$sf_pre"
+sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$(jq -r .error "$sthist")" \
+  "could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart" \
+  "...and the reason says the old stage is gone and the restart installs the other update"
+grep -q 'offline restage failed (stage left in place, another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the log says why nothing was cleaned" || { echo "FAIL: no event for the skipped clean"; _fail=1; }
+
 # --- a stage with nothing in it is not a failed stage --------------------------------------------
 # Hold your only pending update, then stage: `dnf5 upgrade --offline` prints "Nothing to do", exits
 # 0 and stores no transaction, so arming fails with "No offline transaction is stored". Reported as
@@ -639,6 +696,7 @@ assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a r
 # fault where "every pending update is held" is the user's own holds working.
 assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \
   "...and says nothing was staged because every pending update is held"
+assert_eq "$(jq -r 'has("staged")' "$nhist")" "false" "...and carries no staged count"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 transaction_armed
 

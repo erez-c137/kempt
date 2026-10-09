@@ -847,7 +847,10 @@ PlasmaExtras.Representation {
                     // restart-shaped actions under one icon, one opening KDE's logout prompt and
                     // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
-                    tooltip: i18n("Applies the update during a restart, so nothing changes underneath your running desktop.")
+                    // Promises Flatpak apps update now only when some are waiting.
+                    tooltip: popup.vm.stageTooltipNamesFlatpak
+                        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
+                        : i18n("Installs system updates during the next restart.")
                     // Gone, not greyed, while a Fedora release upgrade is stored: the message that
                     // replaces this one says why, and a disabled button with its explanation in a
                     // different message is a puzzle rather than an answer.
@@ -1493,8 +1496,20 @@ PlasmaExtras.Representation {
 
             PlasmaComponents.Button {
                 id: updateButton
-                text: i18n("Update Now")
+                // With updates set to run on the next restart and system updates to stage, the
+                // press downloads now and installs at the restart, so it carries the risky
+                // choice's words (Logic.updateButtonOf).
+                text: popup.vm.updateStages ? i18n("Install on Next Restart") : i18n("Update Now")
                 icon.name: "system-software-update"
+                readonly property string stagesTooltip: !popup.vm.updateStages ? ""
+                    : popup.vm.stageTooltipNamesFlatpak
+                        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
+                        : i18n("Installs system updates during the next restart.")
+                Accessible.name: text
+                Accessible.description: stagesTooltip
+                PlasmaComponents.ToolTip.text: stagesTooltip
+                PlasmaComponents.ToolTip.visible: (hovered || visualFocus) && stagesTooltip.length > 0
+                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 // A raised Button and not a ToolButton: this is the primary action and it is not in
                 // a toolbar any more.
                 //

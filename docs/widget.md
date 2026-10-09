@@ -163,8 +163,9 @@ others are up. It goes when you close it, close the widget, ask for a check, or 
 
 ### The staged banner
 
-**Install on Next Restart** downloads an update now and installs it during the next restart. The
-banner is usually green, with its own **Restart…** when the restart message has none:
+**Install on Next Restart** downloads system updates now and installs them during the next
+restart. Flatpak apps update now. The banner is usually green, with its own **Restart…** when the
+restart message has none:
 
 ```
  (=) They install when you restart.   [Restart…]
@@ -266,16 +267,17 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known and there is something to update.
+- ` · ~140 MB`, the estimated download, when known and something is pending.
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
 the changes. Below a megabyte it reads `< 1 MB`.
 
-**Update Now** installs the updates wherever **Run updates in** says. After a press it shows a
-spinner until Kempt answers, so one press starts one run. It is hidden when nothing is pending, while
-an update is staged, and while its question is open. For kernel or desktop updates it asks first
-(message 7), unless a Fedora release upgrade is stored.
+**Update Now** runs updates wherever **Run updates in** says. With **On next reboot
+(offline)** and system updates pending, it reads **Install on Next Restart**. A press shows a
+spinner until Kempt answers. It hides when nothing is pending, an update is staged, or its question
+is open. Kernel or desktop updates make it ask first (message 7), unless a release upgrade is
+stored.
 
 ### While an update runs
 
@@ -317,7 +319,7 @@ cannot open, the message says why.
 The updates are already installed. Running programs and the kernel keep the old versions until
 they restart. A staged update is the other way round: it installs during the restart.
 
-The **x** hides the message until you next log in to Plasma. **Restart reminders** turns it off
+The **x** hides the message until your next Plasma login. **Restart reminders** turns it off
 for good.
 
 ## Settings
@@ -325,12 +327,12 @@ for good.
 Right-click the widget > **Configure Kempt…**, or press its gear. Every setting is
 also in [configuration.md](configuration.md).
 
-**Apply** and **OK** both save. **Apply** keeps the dialog open, **OK** closes it. Closing with
+**Apply** saves and keeps the dialog open, **OK** saves and closes it. Closing with
 unsaved changes asks first. A change reaches the panel at the widget's next look at the config
 file (see [When the widget checks](#when-the-widget-checks)).
 
 **Include Flatpak apps** (`include_flatpak`, on by default) checks and updates Flatpak apps and
-runtimes along with dnf packages.
+runtimes too.
 
 **Apply updates without asking for confirmation** (`auto_accept`, on by default) answers dnf and
 Flatpak for you. With it off, **Run updates in** is greyed out, because only a terminal window can

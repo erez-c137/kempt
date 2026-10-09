@@ -129,10 +129,14 @@ var COPY = {
     notUpdatingCheckAgain: "Not Updating? Check Again",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
-    // it. The tooltip is the whole argument for choosing it.
+    // it. The tooltip names what waits for the restart and what does not: Flatpak has no offline
+    // route, so a staging run still updates apps live. The footer button uses it too, and both
+    // take the shorter one when no Flatpak app is waiting (stageTooltipOf).
     installOnNextRestart: "Install on Next Restart",
     installOnNextRestartTooltip:
-        "Applies the update during a restart, so nothing changes underneath your running desktop.",
+        "Installs system updates during the next restart. Flatpak apps update now.",
+    // ...and the same without the Flatpak half, for when no Flatpak app is waiting.
+    installOnNextRestartSystemTooltip: "Installs system updates during the next restart.",
     // ...and the other answer, offered beside it only after Update Now was pressed on a set the
     // message above calls risky, on a box that would otherwise install it live without asking.
     installNow: "Install Now",
@@ -611,6 +615,37 @@ function updatingLabelOf(surface) {
 // in-widget log pane while a terminal window is what opens.
 function effectiveSurfaceOf(surface, autoAccept) {
     return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
+}
+
+// updateButtonOf(surface, dnfActionable, flatpakPending) -> the footer button: whether the press
+// stages, its label, and its tooltip. Takes the CONFIGURED surface: with confirmation on, the run
+// opens a terminal, and `kempt update` on a terminal still stages when offline is configured.
+// Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
+// held) the press stages nothing and the button says Update Now. The tooltip names Flatpak only
+// when Flatpak apps are waiting.
+function updateButtonOf(surface, dnfActionable, flatpakPending) {
+    if (resolveSurface(surface) !== "offline" || typeof dnfActionable !== "number" || !(dnfActionable > 0))
+        return { stages: false, text: COPY.updateNow, tooltip: "" };
+    return { stages: true, text: COPY.installOnNextRestart,
+             tooltip: stageTooltipOf(flatpakPending) };
+}
+
+// stageTooltipOf(flatpakPending) -> the tooltip of a press that installs at the next restart. Only
+// promises that Flatpak apps update now when some are waiting.
+function stageTooltipOf(flatpakPending) {
+    return flatpakPending === true ? COPY.installOnNextRestartTooltip
+                                   : COPY.installOnNextRestartSystemTooltip;
+}
+
+// backendActionable(state, key) -> the actionable count of one backend: 0 when it is disabled or
+// absent, its own count when it publishes one, else its items that are not held.
+function backendActionable(state, key) {
+    var b = (state && state.backends && typeof state.backends === "object") ? state.backends[key] : null;
+    if (!b || typeof b !== "object" || b.enabled === false) return 0;
+    if (typeof b.actionable === "number") return b.actionable;
+    var items = (b.items && typeof b.items.length === "number") ? b.items : [], n = 0;
+    for (var i = 0; i < items.length; i++) if (items[i] && !items[i].held) n++;
+    return n;
 }
 
 // --- how big the panel icon is asked to be -----------------------------------------------------
@@ -2337,6 +2372,10 @@ function viewModel(state, updating, cliError, opts) {
     // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
+    var flatpakPending = usable && backendActionable(state, "flatpak") > 0;
+    var updateButton = updateButtonOf(
+        typeof opts.configuredSurface === "string" ? opts.configuredSurface : runSurface,
+        usable ? backendActionable(state, "dnf") : 0, flatpakPending);
     var releaseUpgradeMessage = !releaseUpgrade ? ""
         : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
          : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
@@ -2809,6 +2848,12 @@ function viewModel(state, updating, cliError, opts) {
         // set to offline, pressing it runs exactly the command the CLI turns down. Hidden rather
         // than left to fail, on the same rule as everything else here.
         updateOffered: !imageBased && !(releaseUpgrade && stagesByDefault),
+        // The footer button's words. The QML writes both literals for i18n and picks one with
+        // updateStages; the text and tooltip are published so a test can pin the pair.
+        updateStages: updateButton.stages,
+        updateButtonText: updateButton.text,
+        updateButtonTooltip: updateButton.tooltip,
+        stageTooltipNamesFlatpak: flatpakPending,
         imageBasedMessage: imageBasedMessage,
         // Published rather than left as a literal in the QML's Accessible.description, so the
         // words a screen reader hears and the words the tooltip shows are one decision. The QML
@@ -2914,6 +2959,9 @@ if (typeof module !== "undefined" && module.exports) {
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
         effectiveSurfaceOf: effectiveSurfaceOf,
+        updateButtonOf: updateButtonOf,
+        stageTooltipOf: stageTooltipOf,
+        backendActionable: backendActionable,
         updatingLabelOf: updatingLabelOf,
         SURFACES: SURFACES,
         holdsOf: holdsOf,

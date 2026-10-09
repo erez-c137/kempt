@@ -481,6 +481,7 @@ kempt history
 ```
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  offline (applied on reboot)  ok  41 updated
+2026-08-22T23:10:37+03:00  offline  ok  41 updates staged for the next restart
 2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
 ```
 
