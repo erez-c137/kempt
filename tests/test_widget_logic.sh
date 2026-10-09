@@ -867,6 +867,30 @@ for surf in terminal popup background offline nonsense; do
   done
 done
 
+# --- updateButtonOf: the footer button says what the press will do -----------------------------
+# On the offline surface the press stages: it downloads now and installs during the next restart.
+# "Update Now" reads as installing right away, so the button takes the restart choice's own words.
+assert_eq "$(js 'L.updateButtonOf("offline").text')" "Install on Next Restart" \
+  "with updates set to run on the next restart, the footer button says so"
+assert_eq "$(js 'L.updateButtonOf("offline").text === L.COPY.installOnNextRestart')" "true" \
+  "...in the same words as the restart choice"
+assert_eq "$(js 'L.updateButtonOf("offline").tooltip')" \
+  "Installs system updates during the next restart. Flatpak apps update now." \
+  "...with the restart choice's tooltip, which says what waits for the restart and what does not"
+assert_eq "$(js 'L.updateButtonOf(" OFFLINE ").stages')" "true" "...for a padded, upper-case offline too"
+for _s in terminal popup background nonsense ''; do
+  assert_eq "$(js "L.updateButtonOf('$_s').text")" "Update Now" "surface '$_s' keeps Update Now"
+  assert_eq "$(js "L.updateButtonOf('$_s').tooltip")" "" "...and no extra tooltip"
+done
+# The view model takes the EFFECTIVE surface: with confirmation on, offline runs in a terminal, and
+# main.qml passes effectiveSurfaceOf's answer, so the button reads Update Now there.
+UB='function (surf) { return L.viewModel(S("risky-heavy"), false, "", {surface: surf}); }'
+assert_eq "$(js "[($UB)('offline').updateStages, ($UB)('offline').updateButtonText]")" \
+  '[true,"Install on Next Restart"]' "the view model publishes the restart label on the offline surface"
+assert_eq "$(js "[($UB)(L.effectiveSurfaceOf('offline', false)).updateStages, ($UB)('popup').updateButtonText]")" \
+  '[false,"Update Now"]' "...and Update Now when confirmation sends the run to a terminal, or on any other surface"
+assert_eq "$(js "($UB)(undefined).updateButtonText")" "Update Now" "...and before the surface is known"
+
 # --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
 for s in terminal popup background offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
@@ -3052,7 +3076,7 @@ assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /surface/i.tes
 
 assert_eq "$(js 'L.COPY.installOnNextRestart')" "Install on Next Restart" "copy: the offline action"
 assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
-  "Applies the update during a restart, so nothing changes underneath your running desktop." \
+  "Installs system updates during the next restart. Flatpak apps update now." \
   "copy: and what it does, which is the whole argument for choosing it"
 assert_eq "$(js 'L.COPY.kernelRestart')" \
   "This update includes a kernel. The safest way is to install it on the next restart, so nothing changes under the running desktop." \
@@ -3224,7 +3248,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateOffered"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","stageBlocked","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

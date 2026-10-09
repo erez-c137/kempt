@@ -731,7 +731,10 @@ def _code(name):
 #
 # The fourth is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
 # same way, so the tooltip that says so is its description too.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 4}
+#
+# The fifth is the footer button when updates run on the next restart: it reads Install on Next
+# Restart, and its tooltip says the press downloads now and installs at the restart.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 5}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

@@ -163,8 +163,9 @@ others are up. It goes when you close it, close the widget, ask for a check, or 
 
 ### The staged banner
 
-**Install on Next Restart** downloads an update now and installs it during the next restart. The
-banner is usually green, with its own **Restart…** when the restart message has none:
+**Install on Next Restart** downloads system updates now and installs them during the next
+restart. Flatpak apps update now. The banner is usually green, with its own **Restart…** when the
+restart message has none:
 
 ```
  (=) They install when you restart.   [Restart…]
@@ -266,16 +267,16 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · metadata 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known and there is something to update.
+- ` · ~140 MB`, the estimated download, when known and something is pending.
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
-the changes. Below a megabyte it reads `< 1 MB`.
+the changes.
 
-**Update Now** installs the updates wherever **Run updates in** says. After a press it shows a
-spinner until Kempt answers, so one press starts one run. It is hidden when nothing is pending, while
-an update is staged, and while its question is open. For kernel or desktop updates it asks first
-(message 7), unless a Fedora release upgrade is stored.
+**Update Now** installs the updates wherever **Run updates in** says. With **On next reboot
+(offline)** it reads **Install on Next Restart**. A press shows a spinner until Kempt answers. It is
+hidden when nothing is pending, an update is staged, or its question is open. For kernel or desktop updates it asks first (message 7), unless a
+Fedora release upgrade is stored.
 
 ### While an update runs
 

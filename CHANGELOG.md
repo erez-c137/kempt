@@ -68,6 +68,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing is installed yet and ends on the question, which a screen reader hears too. Update Now
   leaves the footer while the question is open. Before, it started them straight away.
   `auto_accept=false` still sends every run to the terminal.
+- **With updates set to run on the next restart, the footer button reads Install on Next
+  Restart.** Before, it read **Update Now**, which sounds like installing right away. Its tooltip,
+  and the one on the restart choice, now say that system updates install during the restart and
+  Flatpak apps update now.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer
