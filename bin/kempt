@@ -3140,7 +3140,7 @@ cmd_security_ack() {
     esac
   done
   [[ -n "$expect" ]] || { echo "usage: kempt security-ack --expect=DIGEST" >&2; exit 2; }
-  writer_lock || exit 1
+  writer_lock "$SECURITY_LOCK_WAIT" || exit 1
   # state.lock as well, from the read to the write, so a run's publish_staged_state cannot write
   # state.json in between and have its offline_staged undone by this patch of the older file. The
   # order is check.lock, then the writers' lock, then state.lock, as everywhere. A lock file that
