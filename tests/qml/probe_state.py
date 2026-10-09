@@ -339,6 +339,53 @@ p.check("...so it costs one fetch, not two",
         p.call_count("check --refresh"), 1)
 p.check("...and the running check is no longer marked as a fetch once it lands",
         ev("root.checkingRefresh"), False)
+
+# --- 6d. Download Anyway: a person's press, never automatic, never replayed ----------------------
+# Only downloadAnyway() asks the CLI to pass the battery and metering rules. Pressed during a check,
+# it runs next, once, and no automatic check carries it afterwards.
+p.clear_calls()
+ev("root.downloadAnyway()")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("Download Anyway runs one check that passes the rules", p.calls_matching("check"), ["check --anyway"])
+p.check("...marked as such only while it runs", ev("root.checkingAnyway"), False)
+p.clear_calls()
+ev("root.doCheck(true, true, false, true)")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("an automatic check handed the flag ignores it", p.calls_matching("check"), ["check --refresh"])
+p.clear_calls()
+ev("root.doCheck(false, false, false, true)")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.check("...and so does a check that is not a fetch", p.calls_matching("check"), ["check"])
+# During a running Check for Updates: the fetch in flight still skips the rules, so the press runs next.
+p.clear_calls()
+ev("root.doCheck(false, true)")
+p.pump(100)
+ev("root.downloadAnyway()")
+p.check("a press during a running fetch is remembered", ev("root.recheckAnyway"), True)
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...and honoured once that fetch lands", p.calls_matching("check"), ["check --refresh", "check --anyway"])
+p.check("...leaving nothing to replay", ev("root.recheckAnyway"), False)
+# During a running Download Anyway check: nothing more to honour.
+p.clear_calls()
+ev("root.downloadAnyway()")
+p.pump(100)
+ev("root.downloadAnyway()")
+p.check("a second press during a check that already passes the rules is not remembered",
+        ev("root.recheckAnyway"), False)
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("...so the rules are passed once", p.call_count("check --anyway"), 1)
+# Folded with automatic requests, the press is still a person's, and the automatic checks after it
+# are ordinary ones.
+p.clear_calls()
+ev("root.doCheck(true)")
+p.pump(100)
+ev("root.downloadAnyway()")
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+ev("root.doCheck(true)")
+p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
+p.check("a press folded into an automatic check runs once, and never again by itself",
+        p.calls_matching("check"), ["check --coalesce", "check --anyway", "check --coalesce"])
 open(MODE, "w").write("live")
 
 # The box with no successful check at all: there is no stamp to be old, so every open asks. That

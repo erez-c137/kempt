@@ -257,6 +257,11 @@ var COPY = {
     fetchWaitsForPower: "Kempt waits for mains power to download fresh package lists.",
     fetchWaitsForUnmetered: "Kempt waits for an unmetered connection to download fresh package lists.",
     fetchMissed: "Kempt did not get fresh package lists.",
+    // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
+    // one check that downloads anyway. Its tooltip follows the reason the check published.
+    downloadAnyway: "Download Anyway",
+    downloadAnywayPowerTip: "Downloads fresh package lists now, on battery power.",
+    downloadAnywayMeteredTip: "Downloads fresh package lists now over this metered connection.",
     fetchCountsFrom: "The counts are from lists %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
@@ -1505,6 +1510,12 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     return lead + " " + COPY.fetchCountsFrom.replace("%1", age);
 }
 
+// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Download Anyway can pass the rule
+// that skipped the fetch, else "". Fetching turned off ("off") is a setting no press overrides.
+function anywayReasonOf(refreshSkipped) {
+    return refreshSkipped === "battery" || refreshSkipped === "metered" ? refreshSkipped : "";
+}
+
 // ageWords(ms) -> "5 min old", "3 hours old", "2 days old", or "" for an age that is not one.
 function ageWords(age) {
     if (typeof age !== "number" || !isFinite(age) || age < 0) return "";
@@ -1517,10 +1528,13 @@ function ageWords(age) {
 }
 
 // --- the check command ------------------------------------------------------------------------
-// checkArgs(automatic, refresh) -> what doCheck appends to `kempt`. Check for Updates fetches fresh
-// metadata (`--refresh`). The checks nobody asked for coalesce and keep the CLI's 3-hour interval.
-// Any other press (a hold, Check again) runs a check of its own from the cache.
-function checkArgs(automatic, refresh) {
+// checkArgs(automatic, refresh, anyway) -> what doCheck appends to `kempt`. Check for Updates fetches
+// fresh metadata (`--refresh`). Download Anyway also passes the battery and metering rules, and
+// only for a press: never for a check nobody asked for. The checks nobody asked for coalesce and
+// keep the CLI's 3-hour interval. Any other press (a hold, Check again) runs a check of its own
+// from the cache.
+function checkArgs(automatic, refresh, anyway) {
+    if (anyway === true && refresh === true && automatic !== true) return " check --anyway";
     if (refresh === true) return " check --refresh";
     return automatic === true ? " check --coalesce" : " check";
 }
@@ -2812,6 +2826,13 @@ function viewModel(state, updating, cliError, opts) {
         // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
         // the "fetchMissed" slot. Empty when there is nothing to say.
         fetchMissedMessage: fetchMissedMessage,
+        // Why that message may offer Download Anyway: "battery", "metered", or "" for no button.
+        fetchMissedAnyway: fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
+        // The same for the placeholder over lists never downloaded: only under the battery and
+        // metered hints, so never beside a refresh error, Check Installation or fetching turned off.
+        problemAnyway: usable && problemNoCache && remedyCommand === ""
+            && (problemHint === COPY.checkNoCachePowerHint || problemHint === COPY.checkNoCacheMeteredHint)
+            ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
         stagedBanner: stageBlocked ? COPY.stageBlocked
             : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
@@ -2933,6 +2954,7 @@ if (typeof module !== "undefined" && module.exports) {
         shouldRefreshOnOpen: shouldRefreshOnOpen,
         refreshMissed: refreshMissed,
         fetchMissedOf: fetchMissedOf,
+        anywayReasonOf: anywayReasonOf,
         checkArgs: checkArgs,
         CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,
