@@ -1817,7 +1817,7 @@ cmd_update() {
   # `transaction_id` is additive and top-level, exactly as the harvest writes it: the id
   # `dnf5 history info` takes, present only when dnf5's history named the transaction.
   jq -n --arg ts "$(now_iso)" --arg surface "$surface" --arg status "$status" \
-        --arg staged_nothing_why "$staged_nothing_why" \
+        --arg staged_nothing_why "$staged_nothing_why" --arg staged_n "$staged" \
         --arg log "$log" --argjson dur "$run_dur" --arg txid "$live_txid" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
@@ -1832,7 +1832,8 @@ cmd_update() {
                       + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)
                       + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
-    + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)' > "$hist_tmp" \
+    + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)
+    + (if ($staged_n | test("^[0-9]+$")) then {staged: ($staged_n | tonumber)} else {} end)' > "$hist_tmp" \
     || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no
@@ -2220,11 +2221,11 @@ cmd_history() {  # [--json]: every run, newest first; --json as one array of his
   for f in "${files[@]}"; do
     # capture before printing: a damaged entry must not emit half a row, nor take the whole
     # listing down - every other run is still perfectly readable.
-    # run_counts_phrase, not a local ".updated | length": counting upgrades alone prints
-    # "0 updated" for a run whose own summary says "+2 installed, -1 removed".
+    # history_phrase counts installs and removals as well as upgrades, and names what a staging
+    # run staged.
     if row="$(jq -r '[.timestamp, .surface, .status] | join("  ")' "$f" 2>/dev/null)" \
        && [[ -n "$row" ]] \
-       && phrase="$(run_counts_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
+       && phrase="$(history_phrase "$f" 2>/dev/null)" && [[ -n "$phrase" ]]; then
       # The reason, on the rows that have one, or a failed row sends the reader to a log file
       # to learn the authentication dialog was closed. `// ""` keeps older entries rendering the
       # same.

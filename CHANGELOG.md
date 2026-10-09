@@ -72,6 +72,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Restart.** Before, it read **Update Now**, which sounds like installing right away. Its tooltip,
   and the one on the restart choice, now say that system updates install during the restart and
   Flatpak apps update now.
+- **A staging run says what it staged.** `kempt history` and `kempt summary` read "78 updates
+  staged for the next restart" where they said "no package changes" and "0 updated". The history
+  entry carries the count as `staged`. Older entries read the same, without the number.
 - **The widget has its own guide, `docs/widget.md`.** `docs/usage.md` is now the command
   reference: one table of commands, then each command with its options and exit codes.
 - **Messages from the widget and the `kempt` command read as short sentences.** They no longer

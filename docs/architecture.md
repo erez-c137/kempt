@@ -358,6 +358,7 @@ tolerate absence.
 | `backends.<name>.status` | string | The backend's outcome. |
 | `backends.<name>.skipped_held` | array of strings | Held names the run left out. |
 | `transaction_id` | number, optional | On a live run or a harvest, when dnf5's history named the transaction. |
+| `staged` | number, optional | On a staging run that staged updates: how many. |
 | `staged_nothing` | string, optional | On a staging run that staged nothing: `"held"` or `"nothing_pending"`. The widget treats any other value as an ordinary stage. |
 | `backends.flatpak.scopes` | object, optional | On a live run, only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome. A per-user set that cannot be listed before or after the run records `user` as failed and fails the run. |
 | `backends.flatpak.eol` | array, optional | On a live run: one `{id, branch, kind, apps, reason}` per end-of-life ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far. |

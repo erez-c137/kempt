@@ -2721,6 +2721,15 @@ KEMPT_JQ_COUNTS='
       (if a > 0 then "+" + (a|tostring) + " installed" else empty end),
       (if r > 0 then "-" + (r|tostring) + " removed"   else empty end) ]
     | if length == 0 then "no package changes" else join(", ") end;
+  # A staging run changes no package until the restart, so "no package changes" is true and
+  # misleading. Same test as the widget (lastRunOf): ok, surface offline, and something staged.
+  # Entries from older builds have no staged count, and the phrase then leaves it out.
+  def stage_phrase:
+    if .status == "ok" and .surface == "offline" and (.staged_nothing // "") == "" then
+      (if (.staged | type) == "number" then
+         (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
+       else "updates" end) + " staged for the next restart"
+    else empty end;
 '
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
@@ -2730,6 +2739,19 @@ run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N remo
   jq -r "$KEMPT_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
     counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
+}
+
+# The `kempt history` row's phrase. A staging run reads as what it staged, plus what Flatpak
+# changed live in the same run.
+history_phrase() {  # history-json-file → one phrase
+  jq -r "$KEMPT_JQ_COUNTS"'
+    def tot(k): [.backends[] | .[k] | length] | add // 0;
+    def fp(k): .backends.flatpak[k]? // [] | length;
+    [stage_phrase] as $st
+    | if ($st | length) == 0 then counts_phrase(tot("updated"); tot("added"); tot("removed"); false)
+      else $st[0] + (if fp("updated") + fp("added") + fp("removed") > 0
+                     then ", Flatpak: " + counts_phrase(fp("updated"); fp("added"); fp("removed"); false)
+                     else "" end) end' "$1"
 }
 
 # What the next restart will install, in one line, or nothing. Deliberately NOT part of
@@ -2819,7 +2841,7 @@ render_summary() {  # history-json-file → human text
       + (if .status == "ok" then "✓"
          else "FAILED. See " + .log
               + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),
-    "System (dnf): " + counts(.backends.dnf)
+    "System (dnf): " + (first(stage_phrase) // counts(.backends.dnf))
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),
     (if (.backends.dnf.updated|length) > 0 then lines(.backends.dnf) else empty end),
     (if (.backends.dnf.added|length) > 0 then addlines(.backends.dnf) else empty end),

@@ -339,6 +339,11 @@ grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says s
 stgd_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r 'has("staged_nothing")' "$stgd_hist")" "false" \
   "...and its history entry does not claim nothing was staged"
+# ...and records how many it staged, the marker's own count, so history and summary can say it.
+assert_eq "$(jq -r '.staged | type' "$stgd_hist")" "number" "...and its history entry records the staged count"
+assert_eq "$(jq -r .staged "$stgd_hist")" "$(jq -r .staged "$marker")" "...the same count the marker holds"
+assert_eq "$("$KEMPT" history | awk 'NR==1' | grep -c " offline  ok  $(jq -r .staged "$stgd_hist") update[s]* staged for the next restart")" "1" \
+  "...and kempt history says what was staged, not \"no package changes\""
 
 # ARMING, which is the whole difference between a staged transaction and one that installs. dnf5
 # leaves a staged transaction at status="download-complete" and NO boot applies that; `dnf5 offline
@@ -639,6 +644,7 @@ assert_eq "$(jq -r .status "$nhist")" "ok" "...and the history entry records a r
 # fault where "every pending update is held" is the user's own holds working.
 assert_eq "$(jq -r .staged_nothing "$nhist")" "held" \
   "...and says nothing was staged because every pending update is held"
+assert_eq "$(jq -r 'has("staged")' "$nhist")" "false" "...and carries no staged count"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 transaction_armed
 
