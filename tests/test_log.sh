@@ -384,6 +384,7 @@ plain_in=(
   "check ok actionable=78 held=2" "check ok actionable=1 held=0" "check stale dnf check failed: x"
   "check shared last_check=2026-01-01T00:00:00+00:00" "refresh ok" "refresh failed" "refresh flatpak ok"
   "refresh flatpak failed" "refresh skipped (on battery)" "refresh anyway (the connection is metered)"
+  "refresh anyway (on battery)"
   "run start surface=popup" "run did not start: x" "run done rc=0 updated=7 reboot=needed"
   "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
   "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
@@ -403,7 +404,21 @@ plain_in=(
   "reclaim failed (flatpak did not answer)" "reclaim refused (running as root)" "reclaim refused (reclaim=off)"
   "passwordless enable rc=0" "passwordless enable rc=1" "passwordless disable rc=0" "passwordless disable rc=126"
   "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
-  "hold dnf:kernel-core" "unhold dnf:kernel-core")
+  "hold dnf:kernel-core" "unhold dnf:kernel-core"
+  "security notified count=3" "security check failed" "run start surface=bogus"
+  "offline staged 4 (NOT recorded: the state directory could not be written)"
+  "offline stage recorded without its package baseline - the restart result will not be reported"
+  "offline stage refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
+  "offline stage found nothing to stage (every pending update is held)"
+  "offline stage installed by another updater (before the restart)"
+  "offline stage left in place (another updater has prepared the next restart)"
+  "offline stage replaced outside Kempt (x) - announced"
+  "offline restage failed (stage left in place, another updater has prepared the next restart)"
+  "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
+  "offline marker dropped (a release upgrade (44) replaced our stage)"
+  "offline marker kept (a new stage arrived while the check ran)"
+  "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
+  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2")
 for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
 cp "$EV" "$TESTTMP/ev.before"
 plain_out="$("$KEMPT" log -n 500)"
@@ -412,12 +427,27 @@ unchanged=""; codey=""; i=0
 while IFS= read -r line; do
   shown="$(text_of "$line")"
   [[ "$shown" != "${plain_in[$i]}" ]] || unchanged+="${plain_in[$i]}; "
-  grep -qE '(actionable|held|updated|surface|rc|last_check|reclaim)=| - |\b(harvest|popup|unstage|offline|marker)\b' <<<"$shown" \
+  grep -qE '(actionable|held|updated|surface|rc|last_check|reclaim|count)=| - |\b(harvest|popup|unstage|offline|marker|superseded|baseline)\b|root helper|NOT ' <<<"$shown" \
     && codey+="$shown; "
   i=$(( i + 1 ))
 done <<<"$plain_out"
 assert_eq "${unchanged%; }" "" "every family in the sample is shown in plain words"
 assert_eq "${codey%; }" "" "...with none of the file's code words"
+# The sample has to keep up with the code: every kind of line a log_event call writes (its text up
+# to the first expansion) needs a line here, so a new kind cannot ship without a sentence.
+missing=""
+while IFS= read -r head; do
+  [[ -n "$head" ]] || continue
+  found=""
+  for t in "${plain_in[@]}"; do [[ "$t" == "$head"* ]] && { found=1; break; }; done
+  [[ -n "$found" ]] || missing+="$head; "
+done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" \
+           | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
+assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
+assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a security notice reads as one"
+assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
+  "a stage without its baseline says what that costs"
+assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
 assert_eq "$(cmp -s "$EV" "$TESTTMP/ev.before" && echo same)" "same" "showing the log leaves events.log as it was"
 assert_contains "$plain_out" "cli Checked: 78 updates to install, 2 held" "a check reads as what the badge shows"
 assert_contains "$plain_out" "cli Checked: 1 update to install"$'\n' "...one update is singular, and no held is left out"

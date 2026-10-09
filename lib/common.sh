@@ -268,7 +268,7 @@ event_where_phrase() {  # surface → where a run went, in the widget's settings
     popup) EVENT_WHERE="in the widget" ;;
     background) EVENT_WHERE="in the background" ;;
     offline) EVENT_WHERE="to stage for the next restart" ;;
-    *) EVENT_WHERE="($1)" ;;
+    *) EVENT_WHERE="somewhere Kempt does not know ($1)" ;;
   esac
 }
 event_plain() {  # event text → EVENT_PLAIN
@@ -282,6 +282,11 @@ event_plain() {  # event text → EVENT_PLAIN
         [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
       fi ;;
     "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
+    "security notified count="*)
+      if [[ "$t" =~ ^security\ notified\ count=([0-9]+|\?)$ ]]; then
+        EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
+      fi ;;
+    "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
     "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
     "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
     "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
@@ -305,13 +310,22 @@ event_plain() {  # event text → EVENT_PLAIN
       rest="${t#offline staged }"
       if [[ "$rest" =~ ^([0-9]+|\?)(.*)$ ]]; then
         event_count_phrase "${BASH_REMATCH[1]}" "update" "updates"
-        EVENT_PLAIN="$EVENT_COUNT staged for the next restart${BASH_REMATCH[2]}"
+        rest="${BASH_REMATCH[2]}"
+        EVENT_PLAIN="$EVENT_COUNT staged for the next restart"
+        if [[ "$rest" =~ ^\ \(NOT\ recorded:\ (.*)\)$ ]]; then
+          EVENT_PLAIN+=", but not recorded, because ${BASH_REMATCH[1]}"
+        else
+          EVENT_PLAIN+="$rest"
+        fi
       fi ;;
     "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
     "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
     "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
     "offline stage installed by another updater"*)
       EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
+    "offline stage recorded without its package baseline"*)
+      EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
+    "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
     "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
     "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
@@ -329,6 +343,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
     "unstage cleared a marker with no transaction under it")
       EVENT_PLAIN="Discard: the staged update was already gone, so its record was cleared" ;;
+    "unstage refused by the root helper") EVENT_PLAIN="Discard was refused by Kempt's system helper" ;;
     "unstage refused"*) EVENT_PLAIN="Discard refused${t#unstage refused}" ;;
     "unstage failed rc="*) EVENT_PLAIN="Discard failed (exit code ${t#unstage failed rc=})" ;;
     "unstage left a transaction behind"*) EVENT_PLAIN="Discard left the staged update in place${t#unstage left a transaction behind}" ;;
@@ -373,6 +388,9 @@ event_plain() {  # event text → EVENT_PLAIN
     "hold "*) EVENT_PLAIN="Held ${t#hold }" ;;
     "unhold "*) EVENT_PLAIN="No longer held: ${t#unhold }" ;;
   esac
+  # A stage a live update made obsolete, in words.
+  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update)/(a live update replaced it)}"
+  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update, /(a live update replaced it, and }"
   # A notification the line records, in words.
   [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
 }
