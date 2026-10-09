@@ -3770,9 +3770,10 @@ doctor_inhibit_installed() {  # → the installed plugin names, one a line
 doctor_inhibit_enabled() {  # → 0 when libdnf5 runs its systemd-inhibit plugin
   [[ -r "$KEMPT_DNF_INHIBIT_CONF" ]] || return 1
   # The last `enabled` in [main] wins. Absent means on. libdnf5 reads 0, no, false and off as off.
+  # An indented line continues the value above it, as in libdnf5's parser, so it is never a key.
   local v
-  v="$(awk '/^[[:space:]]*\[/ { sec = $0; gsub(/[[:space:]\[\]]/, "", sec); next }
-            sec == "main" && /^[[:space:]]*enabled[[:space:]]*=/ {
+  v="$(awk '/^\[/ { sec = $0; gsub(/[[:space:]\[\]]/, "", sec); next }
+            sec == "main" && /^enabled[[:space:]]*=/ {
               sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); val = tolower($0) }
             END { print val }' "$KEMPT_DNF_INHIBIT_CONF" 2>/dev/null)" || return 1
   [[ "$v" != 0 && "$v" != no && "$v" != false && "$v" != off ]]
@@ -3786,6 +3787,8 @@ doctor_inhibit_row() {
     doctor_ok "shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit"
   elif grep -qx rpm-plugin-systemd-inhibit <<<"$have"; then
     doctor_ok "shutdown during package installs: blocked by rpm-plugin-systemd-inhibit"
+  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && [[ ! -e "$KEMPT_DNF_INHIBIT_CONF" ]]; then
+    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $KEMPT_DNF_INHIBIT_CONF is missing, so dnf does not load it. Reinstall it, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
   elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have"; then
     doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $KEMPT_DNF_INHIBIT_CONF. Set enabled = 1 there, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
   else

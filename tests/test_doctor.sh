@@ -1383,8 +1383,13 @@ assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-i
   "an enabled key outside [main] does not turn the plugin off"
 KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$TESTTMP/no-such.conf" \
   "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked." \
-  "with no config file libdnf5 never loads its plugin, so that is a WARN too"
+assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $TESTTMP/no-such.conf is missing" \
+  "with no config file libdnf5 never loads its plugin, so that is a WARN that says the file is missing"
+printf '[main]\nname = systemd-inhibit\n  enabled = 0\n' > "$IC"
+KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
+  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
+  "an indented enabled line continues the value above it, as libdnf5 reads it, so it is not a key"
 printf '[main]\nenabled = 0\n' > "$IC"
 KEMPT_RPM_INHIBIT_CMD="printf libdnf5-plugin-systemd-inhibit\nrpm-plugin-systemd-inhibit\n" KEMPT_DNF_INHIBIT_CONF="$IC" \
   "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
