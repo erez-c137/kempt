@@ -170,6 +170,12 @@ main() {
     esac
   done
 
+  # Run as root, every per-user path below would land in root's home. kempt refuses the same way.
+  if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
+    echo "install.sh: run it as your own user, without sudo. It asks for a password when it needs one." >&2
+    exit 8
+  fi
+
   # Test mode with a named directory: every notifier command reads and writes only inside it.
   if [[ -n "${KEMPT_INSTALL_ECHO:-}" && -n "${KEMPT_INSTALL_CONFIG_HOME:-}" ]]; then
     export XDG_CONFIG_HOME="$KEMPT_INSTALL_CONFIG_HOME"

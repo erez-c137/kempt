@@ -210,7 +210,7 @@ day.
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
 | `~/.local/state/kempt/security-seen.json` | The security advisory IDs already announced and already seen in the widget, so each set is announced once. An ID leaves when its package is no longer pending |
 | `~/.local/state/kempt/last_security_fail` | Timestamp for the once-a-day `security check failed` line, removed when the query works again |
-| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
+| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history
 entry is a full ISO 8601 string with the offset.

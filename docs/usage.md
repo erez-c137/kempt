@@ -55,6 +55,7 @@ Most commands use these codes. Each command's section lists its own cases.
 | 5 | Stopped before changing anything. |
 | 6 | `reclaim` only: the list changed. Nothing was removed. |
 | 7 | `update` only: another program held the package lock. |
+| 8 | Run as root. Run Kempt as your own user, and it asks for a password when it needs one. |
 
 **The writers' lock.** `kempt config set`, `kempt hold`, `kempt unhold` and `kempt discover-notifier
 off|on|keep` each rewrite a file in your home directory. They take a lock at

@@ -98,6 +98,13 @@ WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
 # The stage lock (see stage_lock): held while a stage is replacing dnf5's transaction and Kempt's
 # marker has not caught up yet.
 STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
+# Short locks, held for milliseconds on a descriptor bash picks: the state file's read-modify-write
+# and the event log's append and trim. A lock that cannot be opened is skipped, never the write. Separate files, because a rename gives the guarded file a new inode.
+STATE_LOCK_FILE="$KEMPT_STATE_DIR/state.lock"
+# Set only by publish_staged_state, around its own write_state. Unset first, so a value in the
+# environment can never make write_state skip the lock.
+unset _KEMPT_STATE_LOCK_HELD; _KEMPT_STATE_LOCK_HELD=""
+EVENTS_LOCK_FILE="$KEMPT_STATE_DIR/events.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # Reclaiming disk space. The size cache saves a du over every installed Flatpak runtime on each
 # check; it is keyed on the installed set, so any install, update or removal invalidates it. The
@@ -164,6 +171,9 @@ KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
 # dnf's main config, read for `installonlypkgs` only (offline_installonly_name). Read, never written.
 KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
+# The installed names that provide installonlypkg(kernel) or installonlypkg(kernel-module), one
+# per line. Empty means the rpm query in offline_installonly_rpm_names.
+KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
@@ -236,9 +246,8 @@ kempt_init_dirs() {
 #
 # Best-effort by construction, and that is a contract, not a shrug. It returns 0 whatever happens,
 # because a log line is never worth changing the exit status of the command that emitted it, and it
-# never blocks: a short line appended with >> is written atomically by the kernel, so overlapping
-# writers interleave whole lines and no lock is needed. A state directory that cannot be written
-# simply gets no events.
+# blocks for at most 5 seconds on events.lock. A state directory that cannot be written simply gets
+# no events.
 log_event() {  # text
   local via=cli
   # The widget prefixes every command it runs with KEMPT_VIA=widget (plasmoid main.qml and
@@ -250,24 +259,34 @@ log_event() {  # text
     # runs with errexit suspended, so a failing mkdir inside it can never take the caller down.
     kempt_init_dirs || return 0
     # 0600 from the moment the file exists. It names packages you hold and the values of your
-    # settings, and whichever command happens to log first is the one that creates it.
-    if [[ ! -e "$EVENTS_FILE" ]]; then
-      : > "$EVENTS_FILE" || return 0
-      chmod 600 "$EVENTS_FILE" || true
+    # settings, and whichever command happens to log first is the one that creates it. `>>` never
+    # truncates, so two first writers cannot erase each other's line.
+    [[ -e "$EVENTS_FILE" ]] || ( umask 077; : >> "$EVENTS_FILE" ) || return 0
+    # The append and the trim share one lock, so a line written between the trim's read and its
+    # rename cannot be lost. A lock that times out after 5 seconds still lets the line through, and
+    # the trim waits for a later write. A lock that cannot be opened never will be, so it trims anyway.
+    local locked=false lfd
+    if { exec {lfd}>>"$EVENTS_LOCK_FILE"; } 2>/dev/null; then
+      flock -w 5 "$lfd" && locked=true
+    else
+      lfd=""; locked=true
     fi
-    printf '%s %s %s\n' "$(now_iso)" "$via" "$1" >> "$EVENTS_FILE" || return 0
-    # Retention, checked on write because there is no timer to check it on. Keeping the last 2000
-    # of 2500 means the rewrite runs once every 500 events rather than on every append, and it goes
-    # through atomic_write so a reader (`kempt log`, `kempt doctor`) never sees a half-rewritten
-    # file - mktemp's 0600 temp carries the mode across the replace. A count rather than an age on
-    # purpose: it is a bound a human can reason about without knowing how busy the box has been.
-    local n
-    n="$(wc -l < "$EVENTS_FILE")" || return 0
-    if (( n > 2500 )); then
-      tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
-    fi
+    log_event_write "$via" "$1" "$locked" || true
+    if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
   } 2>/dev/null || true
   return 0
+}
+
+log_event_write() {  # via text locked
+  printf '%s %s %s\n' "$(now_iso)" "$1" "$2" >> "$EVENTS_FILE" || return 0
+  # Retention, checked on write because there is no timer to check it on. Keeping the last 2000
+  # of 2500 means the rewrite runs once every 500 events, and only under the lock. atomic_write keeps
+  # a reader from seeing a half-written file, and its 0600 temp carries the mode across.
+  local n
+  n="$(wc -l < "$EVENTS_FILE")" || return 0
+  if [[ "$3" == true ]] && (( n > 2500 )); then
+    tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
+  fi
 }
 
 # Byte-for-byte equality of two readable files, with coreutils alone. `cmp` is diffutils, which is
@@ -455,6 +474,17 @@ KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
 # Discover's own update settings. `UseUnattendedUpdates=true` under [Global] makes the notifier
 # download updates and prepare them for the next restart by itself, through PackageKit.
 KEMPT_DISCOVER_UPDATES_CONF="${KEMPT_DISCOVER_UPDATES_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/PlasmaDiscoverUpdates}"
+# The administrator's defaults for the same setting, which the user's file overrides unless locked.
+# A colon-separated list in XDG_CONFIG_DIRS order, most important first. Relative entries are skipped.
+discover_sysconf_default() {
+  local d out="" dirs
+  IFS=: read -ra dirs <<<"${XDG_CONFIG_DIRS:-/etc/xdg}"
+  for d in "${dirs[@]}"; do
+    if [[ "$d" == /* ]]; then out+="${out:+:}${d%/}/PlasmaDiscoverUpdates"; fi
+  done
+  printf '%s\n' "${out:-/etc/xdg/PlasmaDiscoverUpdates}"
+}
+KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-$(discover_sysconf_default)}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
 # The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
@@ -502,26 +532,48 @@ discover_enabled() {
   discover_entry_starts "$(discover_effective_entry)"
 }
 
-# → 0 when Discover is set to install updates by itself. Read as text, never with kreadconfig6,
-# which may be absent: section and key matched exactly, the value compared without case, and any
-# file that cannot be read answers no. KDE's `[$i]` markers (an administrator's lock, on the key,
-# the group or the whole file) are not part of the name. True, on, yes and 1 count as true, the
-# values KConfig writes or accepts for a bool.
+# → 0, and the path of the file that decided, when Discover is set to install updates by itself.
+# Read as text, never with kreadconfig6, which may be absent. As in KConfig, the system files are
+# read from least to most important and the user's file last, each overriding the one before. A
+# `[$i]` marker on the key, on [Global] or before any group locks the value for every later file.
+# True, on, yes and 1 count as true. A file that cannot be read counts as absent.
 discover_unattended() {
-  [[ -f "$KEMPT_DISCOVER_UPDATES_CONF" && -r "$KEMPT_DISCOVER_UPDATES_CONF" ]] || return 1
-  head -c 65536 "$KEMPT_DISCOVER_UPDATES_CONF" 2>/dev/null | awk '
+  local f i dirs files=()
+  IFS=: read -ra dirs <<<"$KEMPT_DISCOVER_UPDATES_SYSCONF"
+  for (( i = ${#dirs[@]} - 1; i >= 0; i-- )); do
+    f="${dirs[i]}"
+    if [[ -n "$f" && -f "$f" && -r "$f" ]]; then files+=("$f"); fi
+  done
+  f="$KEMPT_DISCOVER_UPDATES_CONF"
+  if [[ -f "$f" && -r "$f" ]]; then files+=("$f"); fi
+  (( ${#files[@]} > 0 )) || return 1
+  for f in "${files[@]}"; do
+    printf '\001KEMPT-FILE %s\n' "$f"
+    head -c 65536 "$f" 2>/dev/null
+    printf '\n'
+  done | awk '
+    function locked(t) { return t ~ /\[\$[A-Za-z]*i[A-Za-z]*\]/ }
+    # A lock seen in one file applies from the next file on.
+    index($0, "\001KEMPT-FILE ") == 1 { if (pend) blocked = 1; pend = 0; cur = substr($0, 13); sec = ""; next }
     /^[[:space:]]*\[/ {
-      s = $0; gsub(/[[:space:]]/, "", s); gsub(/\[\$[A-Za-z]+\]/, "", s)
-      if (s != "") sec = s
+      s = $0; gsub(/[[:space:]]/, "", s); lk = locked(s); gsub(/\[\$[A-Za-z]+\]/, "", s)
+      if (s != "") { sec = s; if (lk && s == "[Global]") pend = 1 }
+      else if (lk && sec == "") pend = 1
       next
     }
-    sec == "[Global]" && index($0, "=") > 0 {
-      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k); gsub(/\[\$[A-Za-z]+\]/, "", k)
-      if (k == "UseUnattendedUpdates") {
-        v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v); r = tolower(v)
-      }
+    sec == "[Global]" && index($0, "=") > 0 && !blocked {
+      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k); lk = locked(k)
+      gsub(/\[\$[A-Za-z]+\]/, "", k)
+      if (k != "UseUnattendedUpdates") next
+      v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v)
+      r = tolower(v); set = 1; f = cur
+      if (lk) pend = 1
     }
-    END { exit ((r == "true" || r == "on" || r == "yes" || r == "1") ? 0 : 1) }'
+    END {
+      if (!set) exit 1
+      if (r == "true" || r == "on" || r == "yes" || r == "1") { print f; exit 0 }
+      exit 1
+    }'
 }
 
 discover_running() {
@@ -1109,13 +1161,108 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
   fi
 }
 
-# The tail of a captured stderr file, flattened to one line for a JSON string or a warning, in one
-# place because all three callers need the same pipeline. The trailing `sed` is not cosmetic:
-# `tr '\n' ' '` turns the file's final newline into a SPACE, and command substitution strips
-# newlines but not spaces, so without it every error ends in one - inside state.json's `error`,
-# for every reader to render.
-stderr_tail() {  # file → last <=200 bytes, newlines to spaces, no trailing space
-  tail -c 200 "$1" | tr '\n' ' ' | sed 's/ *$//'
+# The one redactor for text a tool printed that Kempt then shows or keeps: state.json's errors, the
+# notification, the history entry and the event log. A password may hold an unencoded "@", so a
+# URL loses everything up to the LAST "@" before its host. It also loses its query, its #fragment
+# and any path part shaped like a token (16 or more letters and digits with a digit among them, or
+# a UUID). A bare user:password@ and any ?query outside a URL go too, and $HOME is written as ~.
+# One line out, with no length cap: each caller cuts the result to its own limit.
+redact_error_text() {  # stdin → one line
+  LC_ALL=C awk '
+    function path(p,   o, seg) {
+      gsub(/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/, "***", p)
+      o = ""
+      while (match(p, /[A-Za-z0-9]+/)) {
+        seg = substr(p, RSTART, RLENGTH)
+        if (RLENGTH >= 16 && seg ~ /[0-9]/) seg = "***"
+        o = o substr(p, 1, RSTART - 1) seg
+        p = substr(p, RSTART + RLENGTH)
+      }
+      return o p
+    }
+    # A ":" before the first "@", ahead of any / ? #, marks userinfo whose password may hold those
+    # characters, unless the text starts with "[" or is a dotted host or localhost with a port and a
+    # path. Userinfo runs to the last "@": an "@" in the path after it costs the text before it,
+    # never a password, since what follows a host can be any punctuation.
+    function url(u,   at, pre, c, r, i, auth, rest, q, tail) {
+      at = index(u, "@"); pre = (at ? substr(u, 1, at - 1) : "")
+      c = index(pre, ":"); r = match(pre, /[\/?#]/) ? RSTART : 0
+      if (pre ~ /^\[/ || (match(pre, /^[A-Za-z0-9.-]+:[0-9]+[\/?#]/) \
+          && (substr(pre, 1, c - 1) ~ /\./ || substr(pre, 1, c - 1) == "localhost"))) c = 0
+      if (at && c && (!r || c < r)) {
+        for (i = length(u); i >= at; i--) if (substr(u, i, 1) == "@") { u = substr(u, i + 1); break }
+      }
+      if (match(u, /[\/?#]/)) { auth = substr(u, 1, RSTART - 1); rest = substr(u, RSTART) }
+      else { auth = u; rest = "" }
+      for (i = length(auth); i > 0; i--) if (substr(auth, i, 1) == "@") { auth = substr(auth, i + 1); break }
+      tail = ""
+      if (match(rest, /[?#]/)) {
+        q = substr(rest, RSTART); rest = substr(rest, 1, RSTART - 1)
+        tail = qtail(q)
+      }
+      return auth path(rest) tail
+    }
+    # What follows a removed query: only the closing quotes and brackets that end the word. Anything
+    # else after a quote or a bracket is still part of the query, so it cannot leak.
+    function qtail(q) { return match(q, /[]"\047()<>]+$/) ? substr(q, RSTART) : "" }
+    # The input is capped at 8 KiB, ending on a whole word: the loops below are quadratic.
+    BEGIN { cap = 8192 }
+    { gsub(/\r/, ""); if (n <= cap) buf = (NR == 1 ? $0 : buf " " $0); n += length($0) + 1 }
+    END {
+      if (length(buf) > cap) { buf = substr(buf, 1, cap); sub(/[^ \t]*$/, "", buf) }
+      s = buf; home = ENVIRON["HOME"]; sub(/\/+$/, "", home)
+      if (home != "") {
+        o = ""
+        while ((i = index(s, home)) > 0) {
+          c = substr(s, i + length(home), 1)
+          if (c == "" || c !~ /[A-Za-z0-9._-]/) o = o substr(s, 1, i - 1) "~"
+          else o = o substr(s, 1, i - 1 + length(home))
+          s = substr(s, i + length(home))
+        }
+        s = o s
+      }
+      o = ""
+      while (match(s, /[A-Za-z][A-Za-z0-9+.-]*:\/\//)) {
+        o = o substr(s, 1, RSTART + RLENGTH - 1); s = substr(s, RSTART + RLENGTH)
+        if (match(s, /[ \t]/)) { u = substr(s, 1, RSTART - 1); s = substr(s, RSTART) } else { u = s; s = "" }
+        # URLs glued with a comma are taken one at a time.
+        if (match(u, /,[A-Za-z][A-Za-z0-9+.-]*:\/\//)) { s = substr(u, RSTART) s; u = substr(u, 1, RSTART - 1) }
+        o = o url(u)
+      }
+      s = o s
+      gsub(/[^\/@ \t]+:[^\/ \t]*@/, "", s)
+      o = ""
+      while (match(s, /\?[^ \t]+/)) {
+        q = substr(s, RSTART, RLENGTH); o = o substr(s, 1, RSTART - 1); s = substr(s, RSTART + RLENGTH)
+        o = o qtail(q)
+      }
+      s = o s
+      sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+      print s
+    }'
+}
+
+# One line cut to at most N bytes, on a character boundary.
+cap_bytes() {  # N; stdin → stdout
+  LC_ALL=C cut -b1-"$1" | LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
+}
+
+# The end of a captured stderr file as one redacted line of at most 200 bytes, for state.json or a
+# warning. The redaction runs before the cut, so a cut can never land inside a credential. A cut
+# that lands inside a word drops that word.
+stderr_tail() {  # file → one line
+  local n
+  n="$(wc -c < "$1" 2>/dev/null)" || n=0
+  tail -c 4096 "$1" 2>/dev/null \
+    | { if (( n > 4096 )); then LC_ALL=C sed -E '1s/^[^[:space:]]*//'; else cat; fi; } \
+    | redact_error_text \
+    | LC_ALL=C awk '{
+        s = $0
+        if (length(s) > 200) {
+          c = substr(s, length(s) - 200, 1); s = substr(s, length(s) - 199)
+          if (c != " ") { i = index(s, " "); s = i ? substr(s, i + 1) : "" }
+        }
+        sub(/^ +/, "", s); sub(/ +$/, "", s); print s }'
 }
 
 # A stderr tail from a privileged call, turned into something a human can act on. `timeout` reports
@@ -1184,15 +1331,15 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # first line: a package manager's log opens with repository chatter, and reporting "Updating
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
 # where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
-# heading is never the reason). Indentation stripped and capped at 120 characters, because this ends
-# up in a notification body.
+# heading is never the reason). Redacted, and capped at 120 characters, because this ends up in a
+# notification body.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
   [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
-  line="$(friendly_error "$line")"
+  line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
 }
 notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
@@ -1619,7 +1766,18 @@ write_state() {
     echo "kempt: not writing $STATE_FILE: the new state is not a single JSON object, so the previous one stays" >&2
     return 1
   }
-  printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
+  # state.lock, so a write never lands inside publish_staged_state's read and write. That caller
+  # already holds it and says so with _KEMPT_STATE_LOCK_HELD, a shell global never exported. A lock not taken in 10 seconds is skipped.
+  # A lock file that cannot be opened is skipped, and the write still happens.
+  if [[ "$_KEMPT_STATE_LOCK_HELD" == 1 ]]; then
+    printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
+    return
+  fi
+  local lfd rc=0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  printf '%s\n' "$doc" | atomic_write "$STATE_FILE" || rc=$?
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return "$rc"
 }
 
 # When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
@@ -1667,6 +1825,19 @@ log_refresh_skip() {  # reason
   return 0
 }
 
+# Whether dnf5's system cache holds metadata for at least one repository the check can read.
+# A cache directory you cannot read or enter counts as usable: it is there, only not yours to list.
+dnf_cache_usable() {
+  local f
+  if [[ -d "$KEMPT_DNF_CACHE_DIR" && ( ! -r "$KEMPT_DNF_CACHE_DIR" || ! -x "$KEMPT_DNF_CACHE_DIR" ) ]]; then
+    return 0
+  fi
+  for f in "$KEMPT_DNF_CACHE_DIR"/*/repodata/repomd.xml; do
+    [[ -r "$f" ]] && return 0
+  done
+  return 1
+}
+
 maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
   # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
@@ -1694,15 +1865,16 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
   # The battery and metering rules below spend this person's power and data, so only `anyway`
   # passes them: `kempt check --anyway`, typed or pressed, for this one check. Nothing automatic
   # may pass it, and it is never exported, so cmd_check's internal callers cannot inherit it.
-  # due_fp is the shared gate. dnf has one exception: while no dnf refresh has ever worked and the
-  # latest one failed, there is no cache to check against, so the dnf arm is tried again once the
-  # failure is 15 minutes old (the marker's mtime; one in the future counts as old). A Flatpak fetch
-  # beside it would otherwise hold dnf off for 3 hours, and a retry at every check would fetch every
-  # repo every few minutes. Once a dnf refresh has worked, a failing one waits for the gate.
+  # due_fp is the shared gate. dnf has one exception: while the latest dnf refresh failed and there
+  # is no cache to check against (no dnf refresh ever worked, or the cache is gone), the dnf arm is
+  # tried again once the failure is 15 minutes old (the marker's mtime; one in the future counts as
+  # old). A Flatpak fetch beside it would otherwise hold dnf off for 3 hours, and a retry at every
+  # check would fetch every repo every few minutes. With a cache, a failing one waits for the gate.
   local due_fp=1 due_dnf
   if [[ "$force" != force ]] && (( now - last >= 0 && now - last < 10800 )); then due_fp=0; fi
   due_dnf=$due_fp
-  if (( ! due_fp )) && [[ -f "$REFRESH_DNF_FAILED_FILE" && ! -f "$LAST_REFRESH_DNF_FILE" ]]; then
+  if (( ! due_fp )) && [[ -f "$REFRESH_DNF_FAILED_FILE" ]] \
+     && { [[ ! -f "$LAST_REFRESH_DNF_FILE" ]] || ! dnf_cache_usable; }; then
     local failed_at
     failed_at="$(stat -c %Y "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || echo 0)"
     if (( now - failed_at < 0 || now - failed_at >= 900 )); then due_dnf=1; fi
@@ -1770,29 +1942,23 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
 
 # One line of a failed dnf refresh, for state.json. The first line naming an error (librepo's
 # "Curl error (6): ..." says what went wrong), else dnf5's first ">>> " status line (it carries an
-# HTTP status), else the tail, which loses its first word when the cut may have split it: a tail
-# starting inside a URL would start inside its credentials. Any "scheme://user:pass@", or any
-# "user:pass@" at all, is removed, and so is any query string up to a space or "]", which is where a
-# private repo keeps its token. A refresh that printed nothing is named by its exit status (124 is
-# `timeout`). At most 200 bytes, cut on a character boundary.
+# HTTP status), else the end of the output. Each goes through redact_error_text. A refresh that
+# printed nothing is named by its exit status (124 is `timeout`). At most 200 bytes.
 refresh_error_line() {  # stderr file, exit status → one line
   local line
-  line="$(grep -m1 -i 'error' "$1" 2>/dev/null | tr -d '\r')" || line=""
-  [[ -n "$line" ]] || line="$(grep -m1 '^>>> ' "$1" 2>/dev/null | tr -d '\r')" || line=""
-  if [[ -z "$line" ]]; then
-    line="$(stderr_tail "$1" | tr -d '\r')"
-    if (( $(wc -c < "$1") > 200 )); then
-      if [[ "$line" == *' '* ]]; then line="${line#* }"; else line=""; fi
-    fi
+  line="$(grep -m1 -i 'error' "$1" 2>/dev/null)" || line=""
+  [[ -n "$line" ]] || line="$(grep -m1 '^>>> ' "$1" 2>/dev/null)" || line=""
+  if [[ -n "$line" ]]; then
+    line="$(printf '%s\n' "$line" | redact_error_text)"
+  else
+    line="$(stderr_tail "$1")"
   fi
-  line="$(printf '%s\n' "$line" \
-    | sed -E 's#(://)[^/@[:space:]]*@#\1#g; s#[^/@[:space:]]+:[^/@[:space:]]*@##g; s#\?[^][:space:]]*##g; s/^[[:space:]>]+//; s/[[:space:]]+$//')"
+  line="$(printf '%s\n' "$line" | sed -E 's/^[[:space:]>]+//; s/[[:space:]]+$//')"
   if [[ -z "$line" ]]; then
     if [[ "$2" == 124 ]]; then line="dnf makecache timed out"
     else line="dnf makecache exited with status $2"; fi
   fi
-  printf '%s\n' "$line" | LC_ALL=C cut -b1-200 \
-    | LC_ALL=C sed -E 's/([\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$//'
+  printf '%s\n' "$line" | cap_bytes 200
 }
 
 on_battery() {
@@ -2089,15 +2255,40 @@ rpm_evrcmp() {  # e:v-r e:v-r → prints -1, 0 or 1
 # Anything less is not satisfied: a partial install, a file that does not read, or a transaction
 # with nothing in it that shows it ran (empty, or only reinstalls, which an untouched box passes).
 # Whether a package name is one dnf keeps several builds of (installonly). dnf5's defaults are
-# provides (installonlypkg(kernel), installonlypkg(kernel-module), ...), which only rpm can resolve,
-# so the kernel families that carry them are named here. Plain names in the config's
-# `installonlypkgs` are added; provide-shaped entries there are skipped.
+# provides (installonlypkg(kernel), installonlypkg(kernel-module)), so rpm resolves them to the
+# installed names, akmod and kmod builds included. When rpm names nothing, the kernel families
+# below stand in. Plain names in the config's `installonlypkgs` are added either way.
+offline_installonly_rpm_names() {  # → installed names providing installonlypkg(...), one per line
+  local out
+  if [[ -n "$KEMPT_RPM_INSTALLONLY_CMD" ]]; then
+    # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
+    # shellcheck disable=SC2086
+    out="$($KEMPT_RPM_INSTALLONLY_CMD 2>/dev/null)" || true
+  else
+    # rc 1 when a provide has no package, with the names for the others still printed.
+    out="$(rpm -q --qf '%{NAME}\n' --whatprovides 'installonlypkg(kernel)' 'installonlypkg(kernel-module)' \
+      'installonlypkg(vm)' 'multiversion(kernel)' 2>/dev/null)" || true
+  fi
+  local line
+  while IFS= read -r line; do
+    if [[ "$line" =~ $KEMPT_NAME_RE ]]; then printf '%s\n' "$line"; fi
+  done <<<"$out" | sort -u
+}
+
 offline_installonly_name() {  # name → 0 when installonly
-  case "$1" in
-    kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
-      |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
-      |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
-  esac
+  # Asked once per process: a transaction can name many builds.
+  if [[ -z "${_KEMPT_INSTALLONLY_RPM+x}" ]]; then
+    _KEMPT_INSTALLONLY_RPM="$(offline_installonly_rpm_names)"
+  fi
+  if [[ -n "$_KEMPT_INSTALLONLY_RPM" ]]; then
+    grep -qxF -- "$1" <<<"$_KEMPT_INSTALLONLY_RPM" && return 0
+  else
+    case "$1" in
+      kernel|kernel-core|kernel-modules|kernel-modules-*|kernel-devel|kernel-devel-matched \
+        |kernel-uki-virt|kernel-uki-virt-*|kernel-debug|kernel-debug-*|kernel-rt|kernel-rt-* \
+        |kernel-64k|kernel-64k-*|kernel-16k|kernel-16k-*|kernel-PAE|kernel-PAE-*) return 0 ;;
+    esac
+  fi
   [[ -r "$KEMPT_DNF_CONF" ]] || return 1
   local line v tok
   while IFS= read -r line; do
@@ -2577,8 +2768,8 @@ KEMPT_CHECK_LOCK_WAIT="${KEMPT_CHECK_LOCK_WAIT:-60}"
 
 # `kempt check --coalesce`: prints state.json and returns 0 when it is ONE object, status "ok", whose
 # last_check is provably later than the epoch second in $1 (when the coalescing check was asked
-# for). Anything else - no file, a corrupt or multi-document one, a stale status, no readable
-# last_check - returns 1, and the caller runs a real check: the safe side.
+# for). Anything else - no file, a corrupt or multi-document one, a stale status, a last_check not
+# in Kempt's own ISO 8601 form - returns 1, and the caller runs a real check: the safe side.
 # STRICTLY later, in whole seconds, because last_check has whole seconds and so does $1. A check
 # stamped in the same second as the request may have been stamped BEFORE it, from a query that
 # started even earlier; `>` on truncated seconds proves last_check came after the request, at the
@@ -2593,7 +2784,11 @@ state_checked_since() {  # requested-epoch → state on stdout, or 1
   doc="$(jq -e -n '[inputs] | select(length == 1) | .[0]
                    | select(type == "object" and .status == "ok" and (.last_check | type) == "string")' \
            "$STATE_FILE" 2>/dev/null)" || return 1
-  at="$(date -d "$(jq -r '.last_check' <<<"$doc")" +%s 2>/dev/null)" || return 1
+  # Only the form `date -Is` writes. date -d also reads "now", "tomorrow" and bare dates, and none
+  # of those is a check that ran.
+  at="$(jq -r '.last_check' <<<"$doc")"
+  [[ "$at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$ ]] || return 1
+  at="$(date -d "$at" +%s 2>/dev/null)" || return 1
   now="$(date +%s)"
   [[ "$at" =~ ^[0-9]+$ ]] && (( at > $1 && at <= now + 60 )) || return 1
   printf '%s\n' "$doc"
@@ -2771,7 +2966,7 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
 # state file at all means a box that has never checked, and there is nothing to keep consistent.
 publish_staged_state() {
   [[ -f "$STATE_FILE" ]] || return 0
-  local staged out
+  local staged
   # Not a bare call: this runs under errexit on the far side of an update that has already
   # downloaded and armed a transaction, and a marker this cannot read is not a reason to end the
   # run there.
@@ -2786,22 +2981,28 @@ publish_staged_state() {
   # as superseded and throw the download away. Rule 1 of the schema, on the writing side: a reader
   # that learned nothing leaves what was there.
   staged="$(offline_staged_state)" || return 0
-  # NO check.lock here, and that is a decision rather than an omission. This function exists to put
-  # the staged fact in front of the user WITHOUT waiting for a check, and the holder of that lock is
-  # always a check - so taking it, on any timeout, reintroduces exactly the wait being removed.
-  # tests/test_update.sh holds the lock for ten seconds and asserts a run publishes anyway; that is
-  # the contract. What the lock would buy is narrow: write_state renames into place, so no reader
-  # ever sees a torn file, and the only exposure is a lost update between this read and its write,
-  # milliseconds later, on a key no check has computed yet in the window this runs in. The closing
-  # check rewrites the whole file immediately afterwards regardless.
+  # state.lock rather than check.lock. The holder of check.lock is always a check that runs for
+  # tens of seconds, and this exists to publish without that wait: tests/test_update.sh holds
+  # check.lock for ten seconds and asserts a run publishes anyway. state.lock is held only for
+  # this read and write and for each write_state, so a check's write cannot land between them.
+  # The order is always check.lock, then state.lock, so the two cannot deadlock.
   #
   # `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or
   # holds more than one document (see cmd_check). select yields NOTHING on either, so `out` is
   # empty and the file is left exactly as it was for the check behind us to rewrite properly.
   # offline_stage_blocked travels with it: a stage just armed behind another updater's symlink
   # is published as what it is, not as nothing.
-  local blocked
+  local blocked lfd
   blocked="$(offline_stage_blocked_state)" || blocked=""
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  publish_staged_state_write "$staged" "$blocked" 2>/dev/null || true
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return 0
+}
+
+# The read and write behind publish_staged_state, run while it holds state.lock.
+publish_staged_state_write() {  # staged blocked
+  local staged="$1" blocked="$2" out
   if [[ -n "$staged" ]]; then
     out="$(jq -c -n --argjson st "$staged" \
              '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
@@ -2820,7 +3021,10 @@ publish_staged_state() {
   # state directory that cannot be written is the same degrade the history entry beside it takes,
   # not a staged update reported as a failed run. Without this, the one case where the marker
   # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
-  printf '%s\n' "$out" | write_state 2>/dev/null || return 0
+  _KEMPT_STATE_LOCK_HELD=1
+  printf '%s\n' "$out" | write_state 2>/dev/null || true
+  _KEMPT_STATE_LOCK_HELD=""
+  return 0
 }
 
 # The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just

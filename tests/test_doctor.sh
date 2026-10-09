@@ -1261,6 +1261,41 @@ assert_exit 0 "...and so does On, spaces and a CRLF line ending included" -- una
 assert_exit 1 "0 reads as false" -- unatt '[Global]\nUseUnattendedUpdates=0\n'
 assert_exit 1 "the last line wins" -- unatt '[Global]\nUseUnattendedUpdates=true\nUseUnattendedUpdates=false\n'
 assert_exit 1 "a commented line is not the setting" -- unatt '[Global]\n#UseUnattendedUpdates=true\n'
+# One system file is read first and the user's overrides it, unless the system file
+# locks the key, the group or the whole file with [$i]. True names the file that decided.
+both() { printf "$1" > "$TESTTMP/discover-sys"; printf "$2" > "$TESTTMP/discover-updates"
+  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-sys" \
+    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
+G='[Global]\nUseUnattendedUpdates'
+assert_eq "$(rm -f "$TESTTMP/discover-updates"; printf "$G=true\n" > "$TESTTMP/discover-sys"
+  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-sys" \
+    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT")" "$TESTTMP/discover-sys" \
+  "the system file alone turns it on, and is named as the file that decided"
+assert_eq "$(both "$G=false\n" "$G=true\n")" "$TESTTMP/discover-updates" "the user's file overrides the system's, and is named"
+assert_exit 1 "...in both directions" -- both "$G=true\n" "$G=false\n"
+assert_exit 1 "a user file without the key leaves the system's false" -- both "$G=false\n" '[Global]\nOther=1\n'
+assert_eq "$(both "$G[\$i]=true\n" "$G=false\n")" "$TESTTMP/discover-sys" "a key locked in the system file wins over the user's"
+assert_exit 0 "...and so does a locked group" -- both '[Global][$i]\nUseUnattendedUpdates=true\n' "$G=false\n"
+assert_exit 0 "...and a locked file" -- both "[\$i]\n$G=true\n" "$G=false\n"
+assert_exit 1 "a locked group that leaves the key unset keeps the user's true out" -- both '[Global][$i]\n' "$G=true\n"
+assert_exit 0 "a lock on another group does not stop the user's file" -- both '[Other][$i]\nX=1\n' "$G=true\n"
+assert_exit 0 "...nor a [\$i] that follows a group, which is no file lock" -- both "[Other]\n[\$i]\n$G=false\n" "$G=true\n"
+# Several system files, most important first as in XDG_CONFIG_DIRS: hi, then lo, then the user's.
+three() { printf "$1" > "$TESTTMP/discover-hi"; printf "$2" > "$TESTTMP/discover-lo"; printf "$3" > "$TESTTMP/discover-updates"
+  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-hi:$TESTTMP/discover-lo" \
+    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
+assert_eq "$(three "$G=true\n" "$G=false\n" '')" "$TESTTMP/discover-hi" "the first system directory overrides the later ones"
+assert_exit 1 "...and the user's file overrides them all" -- three "$G=true\n" '' "$G=false\n"
+assert_eq "$(three "$G=false\n" "$G[\$i]=true\n" "$G=false\n")" "$TESTTMP/discover-lo" \
+  "a lock in a later system directory holds against the earlier ones and the user"
+assert_exit 1 "...and a lock in the first one overrides the later ones and holds against the user" \
+  -- three "$G[\$i]=false\n" "$G=true\n" "$G=true\n"
+assert_eq "$(mkdir -p "$TESTTMP/xa" "$TESTTMP/xb"; printf "$G=true\n" > "$TESTTMP/xb/PlasmaDiscoverUpdates"
+  rm -f "$TESTTMP/discover-updates"
+  env -u KEMPT_DISCOVER_UPDATES_SYSCONF XDG_CONFIG_DIRS="$TESTTMP/xa:relative:$TESTTMP/xb/" \
+    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT")" "$TESTTMP/xb/PlasmaDiscoverUpdates" \
+  "with no seam set, the system files come from XDG_CONFIG_DIRS"
+rm -f "$TESTTMP/discover-sys" "$TESTTMP/discover-hi" "$TESTTMP/discover-lo"
 "$KEMPT" config set surface "$saved_surface"
 export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
 
