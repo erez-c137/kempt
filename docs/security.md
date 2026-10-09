@@ -122,6 +122,11 @@ dnf5 would reboot the moment the transaction is armed.
 `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged transaction. At worst it
 throws away updates that were still waiting to install.
 
+Both helpers set `umask 022` before anything else. They also turn off core files and lift the file
+size limit. pkexec passes on the caller's umask and limits, and a refresh needs no password.
+Without the reset, anyone at the desk could make root write cache files that other users can
+change.
+
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
 

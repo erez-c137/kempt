@@ -1274,4 +1274,26 @@ assert_eq "$(grep -c '^FAIL  polkit action not installed' "$TESTTMP/last_output"
   "...and the missing polkit action beside it"
 assert_contains "$(cat "$TESTTMP/last_output")" '2 problems found' \
   "the summary counts them"
+
+# --- world-writable files in dnf5's cache, left by helpers that kept the caller's umask ----------
+# Reported with the fix, never repaired. Group-writable alone is not reported: root's files belong
+# to group root, and a umask of 002 sets that bit on every Fedora box that uses one.
+DC="$TESTTMP/dnf-cache"; mkdir -p "$DC/updates-1/repodata"
+: > "$DC/updates-1/repodata/repomd.xml"; chmod 644 "$DC/updates-1/repodata/repomd.xml"
+ln -sfn repomd.xml "$DC/updates-1/repodata/link"   # links are always 777 and say nothing
+KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf cache' "a cache with no world-writable file adds no row"
+chmod 664 "$DC/updates-1/repodata/repomd.xml"
+KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf cache' "...nor one that is only group-writable"
+chmod 666 "$DC/updates-1/repodata/repomd.xml"
+KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC/updates-1/repodata/repomd.xml)" \
+  "a world-writable file in the cache is a WARN naming it"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all && sudo chmod -R go-w $DC" "...with the command that fixes it"
+assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "666" "...and doctor changes nothing itself"
+chmod 644 "$DC/updates-1/repodata/repomd.xml"; chmod 777 "$DC/updates-1"
+KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC" "a world-writable directory counts too"
+
 finish

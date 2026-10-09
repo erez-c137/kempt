@@ -141,6 +141,9 @@ KEMPT_OFFLINE_LINK="${KEMPT_OFFLINE_LINK:-/system-update}"
 # writes (libdnf5's DEFAULT_DATADIR under the install root). PackageKit points the same symlink at
 # its own prepared update instead, and then the next restart is PackageKit's, not dnf5's.
 KEMPT_OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline}"
+# dnf5's system cache, which root writes on every refresh. `kempt doctor` only reads it, to find
+# world-writable files left by a release whose root helpers kept the caller's umask.
+KEMPT_DNF_CACHE_DIR="${KEMPT_DNF_CACHE_DIR:-/var/cache/libdnf5}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"

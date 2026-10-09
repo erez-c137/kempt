@@ -3420,6 +3420,18 @@ doctor_metadata_row() {
   fi
 }
 
+# Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
+# world-writable metadata in the cache, which any user could then alter. Group-writable is left out:
+# root's files belong to group root, and a common Fedora umask of 002 sets that bit harmlessly.
+# Reported, never repaired: the fix needs root, and the clean also drops anything altered.
+doctor_dnf_cache_row() {
+  [[ -d "$KEMPT_DNF_CACHE_DIR" ]] || return 0
+  local hit
+  hit="$(find "$KEMPT_DNF_CACHE_DIR" -perm -0002 ! -type l -print -quit 2>/dev/null)" || true
+  [[ -n "$hit" ]] || return 0
+  doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo dnf5 clean all && sudo chmod -R go-w $KEMPT_DNF_CACHE_DIR"
+}
+
 doctor_config_row() {
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
   # setting the user believes they wrote never applies. Validated exactly as config_set validates.
@@ -3754,6 +3766,7 @@ cmd_doctor() {
   doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
+  doctor_dnf_cache_row
   doctor_config_row
   doctor_state_dir_row
   doctor_files_row

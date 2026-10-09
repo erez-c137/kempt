@@ -150,6 +150,30 @@ grep -qF 'A live upgrade is not refused' "$SEC_DOC" \
   && echo "ok: docs/security.md names the live upgrade as outside the stored-transaction guard" \
   || { echo "FAIL: docs/security.md does not say the live upgrade is unguarded"; _fail=1; }
 
+# --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
+# Sourced, so the umask and limits the helper set can be read back after its ECHO line. The caller
+# sets umask 000, a file size limit and core files on. Each must be undone before dnf5 would run.
+hard_f="$(ulimit -H -f)"; hard_c="$(ulimit -H -c)"
+for h in "$AH" "$RH"; do
+  verb=dnf-offline-clean; [[ "$h" == "$RH" ]] && verb=refresh
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  got="$(env KEMPT_APPLY_ECHO=1 KEMPT_REFRESH_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash -c '
+    umask 000; ulimit -S -f 2048; ulimit -S -c "$2"
+    source "$1" "$3" >/dev/null
+    echo "$(umask) $(ulimit -c) $(ulimit -f)"' _ "$h" "$hard_c" "$verb")"
+  want_f=unlimited; [[ "$hard_f" == unlimited ]] || want_f=2048
+  assert_eq "$got" "0022 0 $want_f" "$(basename "$h"): umask 022, no core files and no file size limit, whatever the caller set"
+  # ...and first: nothing runs before the umask is set.
+  assert_eq "$(grep -vE '^[[:space:]]*(#|$)' "$h" | head -1)" "umask 022" "$(basename "$h"): the umask is its first command"
+done
+# The same through a real file, written by a child the way dnf5 would write one.
+mkdir -p "$TESTTMP/umask-probe"
+# shellcheck disable=SC2016 # expanded by the inner bash
+got_mode="$(env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash -c '
+  umask 000; source "$1" dnf-offline-clean >/dev/null; mkdir "$2/d"; : > "$2/f"; stat -c "%a" "$2/d" "$2/f" | tr "\n" " "' \
+  _ "$AH" "$TESTTMP/umask-probe")"
+assert_eq "$got_mode" "755 644 " "a directory and a file made under the helper are 755 and 644 after the caller's umask 000"
+
 # As root the path is fixed, and KEMPT_OFFLINE_TOML must change nothing. Run for real, without
 # sudo: an unprivileged user namespace makes EUID 0, and a private mount namespace puts a fixture
 # directory over /usr/lib/sysimage/libdnf5 for this one process. Nothing outside the namespace sees

@@ -158,6 +158,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   updates Kempt staged will not install then. It has no buttons. `state.json` carries this as
   `offline_stage_blocked`.
 
+### Security
+
+- **Root's dnf files can no longer be left open to other users.** The root helpers kept the umask
+  of whoever started them. A refresh needs no password, so anyone at the desk could make root write
+  metadata, downloads and staged updates that every user could change. The helpers now set their
+  own. `kempt doctor` warns about cache files an earlier version left open, with the fix.
+
 ## [0.1.7] - 2026-10-02
 
 ### Added

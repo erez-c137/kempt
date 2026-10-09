@@ -101,6 +101,9 @@ sandbox() {  # fresh dirs per test file; call first
   # ...and the symlink is dnf5's because it points here. A link pointing anywhere else is another
   # updater's, which a test makes on purpose.
   export KEMPT_OFFLINE_DATADIR="$TESTTMP"
+  # dnf5's system cache, which `kempt doctor` searches for world-writable files. A path that does not
+  # exist, so the REAL /var/cache/libdnf5 never decides a doctor test.
+  export KEMPT_DNF_CACHE_DIR="$TESTTMP/no-dnf-cache"
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.
