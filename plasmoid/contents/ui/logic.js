@@ -101,6 +101,12 @@ var COPY = {
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
+    // A system package whose pending update fixes a security advisory, as a word on its row. Only
+    // for someone who turned notify_security on: the CLI asks dnf about advisories for nobody else.
+    securityToken: "Security",
+    // ...and how many of them, in the panel tooltip after the pending names.
+    securityCount: "%1 security updates",
+    securityCountOne: "1 security update",
     // What a row draws where the CLI wrote "?": "? → 9.9.9-1.fc44" reads as "the widget does not
     // know". The DATA keeps the "?" - it is the CLI's sentinel and the padlock recognises it too.
     versionNew: "new",
@@ -1602,11 +1608,27 @@ function backendKeys(backends) {
     return out;
 }
 
+// securityOf(state) -> the CLI's `security` block as the widget uses it, or an empty one. The block
+// is optional (notify_security off, an older CLI, a check whose advisory query failed), and every
+// field is checked before it is believed. `attention` needs a digest, because acknowledging the set
+// is what clears it and `kempt security-ack` takes nothing else.
+function securityOf(state) {
+    var s = state && state.security && typeof state.security === "object" ? state.security : null;
+    var none = { count: 0, names: {}, attention: false, digest: "" };
+    if (s === null || typeof s.count !== "number" || !(s.count >= 1)) return none;
+    var names = {}, packages = arrayOf(s.packages), i;
+    for (i = 0; i < packages.length; i++) names[String(packages[i])] = true;
+    var digest = typeof s.digest === "string" && /^[0-9a-f]{16}$/.test(s.digest) ? s.digest : "";
+    return { count: Math.floor(s.count), names: names, attention: s.attention === true && digest !== "",
+             digest: digest };
+}
+
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
 // A backend with enabled:false contributes NOTHING - no section, no held rows, no counts - so
 // "include_flatpak=false" renders as an absent Apps section rather than an empty one.
 function collectItems(state) {
     var sections = [], heldItems = [], actionable = 0, heldTotal = 0;
+    var securityNames = securityOf(state).names;
     var backends = (state && state.backends && typeof state.backends === "object") ? state.backends : {};
     var keys = backendKeys(backends), i, j;
     for (i = 0; i < keys.length; i++) {
@@ -1648,6 +1670,10 @@ function collectItems(state) {
                 // Installed with `flatpak install --user`, so it is this person's alone. The row
                 // says so, which also tells apart one id installed both ways.
                 forYouOnly: item.scope === "user",
+                // A system package the CLI's security block names. dnf rows only: Flatpak apps
+                // publish no security notices, and a name shared with an app must not borrow it.
+                security: key === "dnf" && item.name !== undefined && item.name !== null
+                          && securityNames[String(item.name)] === true,
                 bothScopes: !!(item.name !== undefined && item.name !== null
                                && scopesOf[String(item.name)].user && scopesOf[String(item.name)].system)
             };
@@ -1707,6 +1733,7 @@ function rowOf(item, kind) {
              // Absent means holdable, so a row built by an older caller keeps its padlock.
              holdable: item.holdable !== false,
              forYouOnly: item.forYouOnly === true,
+             security: item.security === true,
              bothScopes: item.bothScopes === true };
 }
 
@@ -2524,6 +2551,13 @@ function viewModel(state, updating, cliError, opts) {
     // it too.
     var rebootNeeded = usable && state.reboot_needed === true;
 
+    // The security block, and whether the panel icon asks for attention: a set with an advisory
+    // nobody has seen in the popup yet (the CLI's `attention`), and only while there is something
+    // to press. Not while a stage is armed (the person already chose to install them), nor during
+    // an update, nor without an engine to acknowledge the set with.
+    var security = securityOf(usable ? state : null);
+    var needsAttention = security.attention && !staged && !updating && !noEngine;
+
     var tooltipMain, headerText;
     if (updating) {
         tooltipMain = COPY.updatingHere;
@@ -2622,6 +2656,12 @@ function viewModel(state, updating, cliError, opts) {
         // is armed: the header already says the work is done and waiting for a restart.
         var pendingNames = staged ? "" : pendingNamesOf(counted.sections, riskyPending);
         if (pendingNames !== "") subParts.push(pendingNames);
+        // ...and how many of them fix a security advisory. Not while a stage is armed, like the
+        // names: the work is done and waiting for a restart.
+        if (!staged && security.count > 0) {
+            subParts.push(security.count === 1 ? COPY.securityCountOne
+                                               : fill(COPY.securityCount, "%1", security.count));
+        }
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
         // Not when the tooltip title already ends in it ("Up to date · 10 held").
@@ -2866,6 +2906,11 @@ function viewModel(state, updating, cliError, opts) {
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
         stagedArmed: staged,
+        // The panel icon asks for attention (Plasma's NeedsAttentionStatus), and the digest the
+        // popup passes to `kempt security-ack` when it is opened. "" whenever it does not ask.
+        needsAttention: needsAttention,
+        securityDigest: needsAttention ? security.digest : "",
+        securityCount: security.count,
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
@@ -3021,6 +3066,7 @@ if (typeof module !== "undefined" && module.exports) {
         checkFailedOverOf: checkFailedOverOf,
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,
+        securityOf: securityOf,
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,

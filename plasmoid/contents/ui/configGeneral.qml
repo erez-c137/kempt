@@ -135,6 +135,7 @@ KCM.SimpleKCM {
         setIfChanged("refresh_interval_min", String(interval.value));
         setIfChanged("widget_icon_size", page.iconSizeKey);
         setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
+        setIfChanged("notify_security", notifySecurity.checked ? "true" : "false");
         setIfChanged("reclaim", page.reclaimKey);
         finishWrite();      // release the sentinel
     }
@@ -362,6 +363,14 @@ KCM.SimpleKCM {
                 return;
             }
             restartReminder.checked = Logic.isTrue(v);
+        });
+        // Newer still, so the same guard: "" is an older CLI that does not know the key.
+        readKey("notify_security", function (v) {
+            if (v === "") {
+                page.readFailed["notify_security"] = true;
+                return;
+            }
+            notifySecurity.checked = Logic.isTrue(v);
         });
         // Newer than `kempt config` too, so the same guard: an older CLI answers "" for a key it
         // does not know, and that is unknown, not ask.
@@ -628,6 +637,27 @@ KCM.SimpleKCM {
 
         QQC2.Label {
             text: i18n("When this is off, there is no message or button, and the status line ends \"restart pending\" when a restart is needed. Kempt never restarts your computer on its own.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
+        // --- the security notification ----------------------------------------------------------
+        // notify_security: off by default, like the CLI's own default for the key, so the window
+        // before the read lands shows the likely truth. The CLI does the work (the advisory query,
+        // the notification, the record of what was announced); this page only writes the key.
+        QQC2.CheckBox {
+            id: notifySecurity
+            Kirigami.FormData.label: i18n("Security updates:")
+            text: i18n("Notify me when security updates are waiting")
+            checked: false
+            enabled: !page.loading
+            onToggled: page.markChanged("notify_security")
+        }
+
+        QQC2.Label {
+            text: i18n("Covers system packages, since Flatpak apps publish no security notices.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8

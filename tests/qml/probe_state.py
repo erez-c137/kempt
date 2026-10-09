@@ -34,6 +34,9 @@ STATE_JSON = os.path.join(p.state, "state.json")
 # What `kempt summary --json` answers: the newest history entry, or nothing at all on a box that
 # has never run an update. Absent until section 8e, which is about a run that wrote one.
 SUMMARY = os.path.join(p.sandbox, "summary")
+# What `kempt security-ack` answers (section 9), and the CLI's memory of an acknowledged set.
+ACKRC = os.path.join(p.sandbox, "ackrc")
+ACKED = os.path.join(p.sandbox, "acked")
 
 p.stub("""
 mode="$(cat %(MODE)s)"
@@ -46,6 +49,16 @@ if [[ "$1 $2" == "summary --json" ]]; then
   cat %(SUM)s 2>/dev/null
   exit 0
 fi
+# The acknowledgement: the rc comes from a file, and a 0 does what the CLI does, which is to clear
+# the attention in state.json and remember the set, so the next check keeps it cleared.
+if [[ "$1" == security-ack ]]; then
+  rc="$(cat %(ACKRC)s 2>/dev/null || echo 0)"
+  if [[ "$rc" == 0 ]]; then
+    jq -c '.security.attention = false' %(ST)s > %(ST)s.tmp && mv %(ST)s.tmp %(ST)s
+    touch %(ACKED)s
+  fi
+  exit "$rc"
+fi
 if [[ "$1" == check ]]; then
   # The real CLI PERSISTS state.json and then prints it. The stub must do the same, or the
   # widget's watcher never sees its own footprint and a whole class of race goes untested.
@@ -54,6 +67,8 @@ if [[ "$1" == check ]]; then
     slow)        sleep 1; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
+    security)    if [[ -e %(ACKED)s ]]; then jq -c '.security.attention = false' %(FIX)s/state-security.json
+                 else cat %(FIX)s/state-security.json; fi > %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
     # What `sh -c "kempt check"` really answers on a box that has the widget and not the CLI.
     # Both the rc and the sentence are the shell's, verbatim.
@@ -65,7 +80,7 @@ if [[ "$1" == check ]]; then
   exit 0
 fi
 """ % {"MODE": MODE, "IVAL": IVAL, "SIZE": SIZE, "FIX": harness.FIXTURES,
-       "ST": STATE_JSON, "SUM": SUMMARY})
+       "ST": STATE_JSON, "SUM": SUMMARY, "ACKRC": ACKRC, "ACKED": ACKED})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.checking", False)
@@ -654,6 +669,50 @@ ev("root.checkAgain()")
 p.wait_for(ev, "root.updating", False, timeout_ms=15000)
 p.check("...and Check again still checks, and still ends the run",
         [p.call_count("check") - before, ev("root.updating")], [1, False])
+p.wait_idle(ev, "executor")
+
+# --- 9. a new set of security updates: the panel asks once, and opening the popup answers ------
+# The tray shows an entry asking for attention, and Plasma keeps one the user set to "Always
+# hidden" in the hidden list. The status is assigned in a try like the presence claim above, so the
+# witness is what proves the attention branch ran rather than throwing into the catch.
+ev("root.popupClosed()")
+open(MODE, "w").write("security")
+open(ACKRC, "w").write("6")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.wait_idle(ev, "executor")
+p.check("premise: the check reported a set nobody has seen", ev("root.vm.needsAttention"), True)
+p.check("the panel icon asks for attention", ev("root.trayStatusShown"), "attention")
+p.check("...and nothing is acknowledged while the popup is closed", p.call_count("security-ack"), 0)
+
+# A CLI that refuses (the set changed under it) leaves the request standing, and does not retry
+# while the popup stays open.
+ev("root.popupOpened()")
+p.wait_idle(ev, "executor")
+p.check("opening the popup acknowledges the set it saw, by its digest",
+        p.calls_matching("security-ack"), ["security-ack --expect=0123456789abcdef"])
+p.check("...and a refused acknowledgement leaves the request standing",
+        ev("root.trayStatusShown"), "attention")
+ev("root.popupClosed()")
+
+open(ACKRC, "w").write("0")
+ev("root.popupOpened()")
+p.wait_for(ev, "root.trayStatusShown", "active", timeout_ms=4000)
+p.wait_idle(ev, "executor")
+p.check("the next open tries again, and an accepted one clears the request",
+        [p.call_count("security-ack"), ev("root.trayStatusShown")], [2, "active"])
+ev("root.popupClosed()")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
+p.wait_idle(ev, "executor")
+p.check("a later check of the same set does not ask again", ev("root.trayStatusShown"), "active")
+ev("root.popupOpened()")
+p.wait_idle(ev, "executor")
+p.check("...and the popup has nothing more to acknowledge", p.call_count("security-ack"), 2)
+ev("root.popupClosed()")
+open(MODE, "w").write("live")
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False)
 p.wait_idle(ev, "executor")
 
 # ==================================================================================================
