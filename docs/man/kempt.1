@@ -302,10 +302,9 @@ Change a setting. Keys match
 .RB ' ^[a-z][a-z0-9_]+$ '
 and values are one line. An unknown key, or a value the key does not accept, gets a warning on
 stderr and is stored anyway, so a newer widget can use it.
-.B "config set surface widget"
-stores
-.BR popup ,
-the value the widget reads.
+.B "surface widget"
+is stored as
+.BR popup .
 .TP
 .B enable\-passwordless
 Install a polkit rule that lets your active local session install dnf updates without a password.
@@ -355,15 +354,11 @@ without one.
 .BR help " [" \c
 .IR command "], " \c
 .BR \-\-help ", " \-h
-Print the command list. A bare
+Print the command list, or one command's usage. A bare
 .B kempt
-prints it too, and an unknown command prints it on stderr and exits 2.
-.BI "help " command
-prints that command's usage, and so does
+prints the list too, and an unknown command prints it on stderr and exits 2.
 .B \-\-help
-or
-.B \-h
-right after a command.
+after a command prints its usage.
 .SH CONFIGURATION
 Settings live in
 .I ~/.config/kempt/config
