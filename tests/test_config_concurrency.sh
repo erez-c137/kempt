@@ -157,6 +157,22 @@ log_event unopenable
 assert_eq "$(tail -n 1 "$EV" | sed 's/^[^ ]* //')" "cli unopenable" "log_event appends when events.lock cannot be opened"
 rc=0; echo '[1]' | write_state 2>/dev/null || rc=$?
 assert_eq "$rc" "1" "write_state still returns the write's failure"
+# With no lock to share, the trim runs anyway, so the log stays bounded.
+for i in $(seq 1 2600); do echo "old $i"; done > "$EV"
+log_event bounded
+assert_eq "$(wc -l < "$EV")|$(tail -n 1 "$EV" | sed 's/^[^ ]* //')" "2000|cli bounded" \
+  "a log whose lock cannot be opened is still trimmed"
 rmdir "$KEMPT_STATE_DIR/state.lock" "$KEMPT_STATE_DIR/events.lock"
+
+# Only publish_staged_state may tell write_state the lock is held. A value from the environment,
+# under the old name or the new one, still waits for the lock.
+exec 3>>"$KEMPT_STATE_DIR/state.lock"; flock 3
+( sleep 2; flock -u 3 ) &
+t0=$(date +%s%N)
+echo '{"seq":2}' | STATE_LOCK_HELD=1 _KEMPT_STATE_LOCK_HELD=1 \
+  bash -c 'source "$1/lib/common.sh"; write_state' _ "$REPO_ROOT"
+t1=$(date +%s%N); wait; exec 3>&-
+assert_eq "$(( (t1 - t0) / 1000000 >= 1500 ))|$(jq -c . "$STATE_FILE")" '1|{"seq":2}' \
+  "an inherited lock-held flag does not skip state.lock"
 
 finish

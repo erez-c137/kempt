@@ -101,6 +101,9 @@ STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
 # Short locks, held for milliseconds on a descriptor bash picks: the state file's read-modify-write
 # and the event log's append and trim. A lock that cannot be opened is skipped, never the write. Separate files, because a rename gives the guarded file a new inode.
 STATE_LOCK_FILE="$KEMPT_STATE_DIR/state.lock"
+# Set only by publish_staged_state, around its own write_state. Unset first, so a value in the
+# environment can never make write_state skip the lock.
+unset _KEMPT_STATE_LOCK_HELD; _KEMPT_STATE_LOCK_HELD=""
 EVENTS_LOCK_FILE="$KEMPT_STATE_DIR/events.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # Reclaiming disk space. The size cache saves a du over every installed Flatpak runtime on each
@@ -247,13 +250,13 @@ log_event() {  # text
     # truncates, so two first writers cannot erase each other's line.
     [[ -e "$EVENTS_FILE" ]] || ( umask 077; : >> "$EVENTS_FILE" ) || return 0
     # The append and the trim share one lock, so a line written between the trim's read and its
-    # rename cannot be lost. A lock that times out after 5 seconds, or cannot be opened, still
-    # lets the line through, and the trim waits for a later write.
+    # rename cannot be lost. A lock that times out after 5 seconds still lets the line through, and
+    # the trim waits for a later write. A lock that cannot be opened never will be, so it trims anyway.
     local locked=false lfd
     if { exec {lfd}>>"$EVENTS_LOCK_FILE"; } 2>/dev/null; then
       flock -w 5 "$lfd" && locked=true
     else
-      lfd=""
+      lfd=""; locked=true
     fi
     log_event_write "$via" "$1" "$locked" || true
     if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
@@ -1631,9 +1634,9 @@ write_state() {
     return 1
   }
   # state.lock, so a write never lands inside publish_staged_state's read and write. That caller
-  # already holds it and says so with STATE_LOCK_HELD. A lock not taken in 10 seconds is skipped.
+  # already holds it and says so with _KEMPT_STATE_LOCK_HELD, a shell global never exported. A lock not taken in 10 seconds is skipped.
   # A lock file that cannot be opened is skipped, and the write still happens.
-  if [[ "${STATE_LOCK_HELD:-}" == 1 ]]; then
+  if [[ "$_KEMPT_STATE_LOCK_HELD" == 1 ]]; then
     printf '%s\n' "$doc" | atomic_write "$STATE_FILE"
     return
   fi
@@ -2885,7 +2888,10 @@ publish_staged_state_write() {  # staged blocked
   # state directory that cannot be written is the same degrade the history entry beside it takes,
   # not a staged update reported as a failed run. Without this, the one case where the marker
   # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
-  printf '%s\n' "$out" | STATE_LOCK_HELD=1 write_state 2>/dev/null || return 0
+  _KEMPT_STATE_LOCK_HELD=1
+  printf '%s\n' "$out" | write_state 2>/dev/null || true
+  _KEMPT_STATE_LOCK_HELD=""
+  return 0
 }
 
 # The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just
