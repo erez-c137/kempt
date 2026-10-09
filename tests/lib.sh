@@ -185,6 +185,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_USER_SNAP_CMD="true" KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_INFO_CMD="true"
+  # One remote for each installation, so the refresh arm runs as it does on a stock Fedora box. Unset,
+  # flatpak_refresh would read the remotes of the machine running the suite.
+  export KEMPT_FLATPAK_REMOTES_CMD="echo flathub" KEMPT_FLATPAK_USER_REMOTES_CMD="echo flathub"
   export KEMPT_FLATPAK_USER_REFRESH_CMD="$TESTTMP/UNSTUBBED-flatpak-user-refresh"
   export KEMPT_FLATPAK_USER_UPDATE_CMD="$TESTTMP/UNSTUBBED-flatpak-user-update"
   # Fedora 43's dnf5, which prints text. A dozen files stub dnf5 with its text output, and without

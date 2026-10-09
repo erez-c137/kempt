@@ -439,6 +439,11 @@ Checked 2 hours ago · lists 2 days old
 Last update 3 days ago · 41 updated
 ```
 
+| Line | What it means |
+| --- | --- |
+| `... · package lists could not be downloaded` (footer) | The last download failed, offline for example. The counts come from older lists. |
+| `Package lists have never been downloaded: <reason>` (under the header) | No check has answered yet. The reason is the first line of the download error. |
+
 It never runs a check, takes no lock and writes nothing, so it answers during a check or an
 update. While an update, a reclaim or an unstage runs, it says Kempt is changing the system.
 `kempt check` refreshes what it reads.
@@ -706,6 +711,11 @@ when the notifier is off for you, and `info` when it starts with your session, n
 **Turn Off Discover's Notifier**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
+
+| Line | What it means |
+| --- | --- |
+| `WARN  package lists: the last download failed (<reason>) ...` | Checks answer from older lists, offline for example. |
+| `WARN  last check failed: <reason> ...` | The counts Kempt shows are from an earlier check. |
 
 ### The staged transaction
 

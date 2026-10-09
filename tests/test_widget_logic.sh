@@ -2233,6 +2233,18 @@ assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3
 assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
   "Kempt could not reach the update servers to download fresh package lists. The counts are from lists less than a minute old." \
   "...and lists fetched seconds before the press are less than a minute old"
+# Lists fetched by dnf or Discover leave no metadata_refreshed. A press whose fetch failed still
+# says the lists could not be downloaded, and leaves out the age nobody knows.
+assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" fetchMissedMessage)" \
+  "Kempt could not reach the update servers to download fresh package lists." \
+  "with no metadata stamp, a failed fetch still leads with the failure, without an age"
+assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" checkAnswerText)" \
+  "Up to date. Kempt could not reach the update servers to download fresh package lists." \
+  "...and the spoken answer says so too"
+assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" footerText)" "Checked 1 min ago" \
+  "...while the footer invents no age"
+assert_eq "$(fm 'metadata_refreshed:null' "$ASKED" fetchMissedMessage)" "" \
+  "...and with no stamp and no refresh error there is nothing to claim"
 # Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
 # waits up to 30 s, so the widget waits longer than that before it calls the write lost.
 assert_eq "$(js 'L.ANSWER_TIMEOUT_MS >= 35000')" "true" \

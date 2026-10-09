@@ -356,6 +356,9 @@ assert_contains "$(cat "$TESTTMP/last_output")" 'root helper (refresh) not insta
 assert_contains "$(cat "$TESTTMP/last_output")" 'install.sh' \
   "...and says how to fix it"
 unset KEMPT_DNF_INSTALLED_CMD KEMPT_FLATPAK_REMOTE_CMD KEMPT_SKIP_REFRESH
+# Those checks left a stale state and a failed-fetch marker, each a WARN row of its own (asserted
+# at the end). The cases below count warnings from a clean slate.
+rm -f "$STATE_FILE" "$REFRESH_DNF_FAILED_FILE"
 
 # --- one failure class at a time, each proving its own FAIL line ---
 
@@ -654,6 +657,7 @@ pkg_state="$(KEMPT_REFRESH_HELPER="$TESTTMP/nope-refresh" "$NOGIT/bin/kempt" che
 assert_contains "$(jq -r .error <<<"$pkg_state")" \
   "dnf check failed: root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)" \
   "a packaged check names the package fix for a missing helper"
+rm -f "$STATE_FILE" "$REFRESH_DNF_FAILED_FILE"   # its stale state and marker are WARN rows below
 
 # --- the store copy that shadows a packaged widget ----------------------------------------------
 # The widget is installable on its own from the KDE Store, and kpackagetool6 puts what it installs
@@ -1402,5 +1406,29 @@ assert_eq "$(warns_of "$TESTTMP/inh.txt")" "$(( base_warns + 1 ))" "...and the l
 KEMPT_RPM_INHIBIT_CMD="echo package rpm-plugin-systemd-inhibit is not installed" "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked." \
   "rpm's not-installed line is not read as the package"
+
+
+# --- offline: the failed fetch and the failed check are WARN rows, and the last line counts them ---
+# A box where every check fails offline must not read "no problems" with nothing beside it.
+rm -f "$STATE_FILE" "$REFRESH_DNF_FAILED_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+off_base="$(warns_of "$TESTTMP/off.txt")"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "the last download failed" "no failure marker, no download row"
+mkdir -p "$KEMPT_STATE_DIR"
+printf 'Curl error (6): Could not resolve host: mirrors.fedoraproject.org\nsecond line\n' > "$REFRESH_DNF_FAILED_FILE"
+printf '%s\n' '{"schema":1,"status":"stale","error":"dnf check failed: Cache-only enabled but no cache\nmore","actionable":0,"backends":{}}' > "$STATE_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/off.txt")" \
+  "WARN  package lists: the last download failed (Curl error (6): Could not resolve host: mirrors.fedoraproject.org). Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh" \
+  "a failed dnf fetch is a WARN with the first line of its error"
+assert_contains "$(cat "$TESTTMP/off.txt")" \
+  "WARN  last check failed: dnf check failed: Cache-only enabled but no cache. The counts Kempt shows are from an earlier check, if any" \
+  "a stale state is a WARN with the first line of its error"
+assert_eq "$(warns_of "$TESTTMP/off.txt")" "$(( off_base + 2 ))" "...and the last line counts both"
+printf '%s\n' '{"schema":1,"status":"ok","actionable":0,"backends":{}}' > "$STATE_FILE"
+rm -f "$REFRESH_DNF_FAILED_FILE"
+"$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "last check failed" "a state that is not stale adds no row"
+rm -f "$STATE_FILE"
 
 finish

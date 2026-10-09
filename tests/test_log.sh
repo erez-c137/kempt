@@ -345,6 +345,13 @@ rm -f "$KEMPT_STATE_DIR/last_refresh"
 KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/dev/null
 assert_eq "$(events_like ' refresh flatpak failed')" "1" "a flatpak summary fetch that failed is recorded"
 assert_eq "$(events_like ' refresh ok')" "1" "...and says nothing about the dnf arm's own verdict"
+# No Flatpak remote at all (offline or not): nothing was downloaded, so no line says Flatpak lists
+# were, and nothing says the fetch failed either.
+rm -f "$KEMPT_STATE_DIR/last_refresh"
+: > "$EV"
+KEMPT_FLATPAK_REMOTES_CMD=true KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/dev/null
+assert_eq "$(events_like ' refresh flatpak')" "0" "with no Flatpak remote, no line claims a Flatpak download"
+assert_not_contains "$("$KEMPT" log 2>&1)" "Flatpak lists downloaded" "...and the plain log does not say it"
 export KEMPT_SKIP_REFRESH=1
 
 # ==================================================================================================

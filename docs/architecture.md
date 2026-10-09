@@ -527,6 +527,7 @@ laptop offline can still answer "what is pending?".
 | `flatpak remote-ls --updates --system --app --cached ...` (`flatpak_check`) | No |
 | `flatpak remote-ls --updates --system --runtime --cached ...` (`flatpak_check`) | No |
 | `flatpak list --system --app ...` (`flatpak_snapshot`) | No |
+| `flatpak remotes --system --columns=name` (`flatpak_refresh`, before the fetch) | No |
 | `flatpak list --system --runtime ...` (`flatpak_snapshot`, `flatpak_id_is_runtime`) | No |
 | `dnf5 --setopt=cachedir=/var/cache/libdnf5 -C repoquery --upgrades --latest-limit 1` (`dnf_sizes`) | No |
 | `dnf5 [--setopt=cachedir=/var/cache/libdnf5] -C advisory list --security --updates --json` (`dnf_security_query`) | No |
@@ -862,6 +863,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime queries. `tests/lib.sh` pins both at `true` (no runtimes), because a missing path would fail every flatpak check |
 | `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | The run's before and after snapshots. Many runtimes have no useful version, so the deployed commit is included. `tests/lib.sh` pins both at `true` |
 | `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups, run only after an end-of-life notice. A failure loses the note, not the run. `tests/lib.sh` pins both at `true` |
+| `KEMPT_FLATPAK_REMOTES_CMD`, `KEMPT_FLATPAK_USER_REMOTES_CMD` | `flatpak remotes --system --columns=name`, and `--user` | The configured remotes. With none, `flatpak_refresh` fetches nothing and no event claims a download. An unreadable list still lets the fetch run. `tests/lib.sh` pins both at `echo flathub` |
 | `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. Stubbed, so no test fetches from flathub |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. Stubbed, so the suite cannot update the host |
 | `KEMPT_FLATPAK_USER_DIR` | `$FLATPAK_USER_DIR`, else `$XDG_DATA_HOME/flatpak`, else `~/.local/share/flatpak` | The per-user installation, used only when `repo/config` exists. Skipped as root, under `sudo` or under `pkexec`. A failed per-user read drops only the per-user side. Stubbed |

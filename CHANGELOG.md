@@ -152,6 +152,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Offline checks say the package lists could not be downloaded.** The widget's notice said
+  nothing when the lists came from dnf or Discover, so old counts read as current. It now leads with
+  the failed download and leaves out the age nobody knows. `kempt status` adds
+  `package lists could not be downloaded` to its footer, and a box that never answered says
+  `Package lists have never been downloaded:` with the reason instead of dnf's no-cache text.
+  `kempt doctor` warns about the failed download and the failed check, and counts both. A refresh
+  with no Flatpak remote no longer logs `Flatpak lists downloaded`.
 - **The README no longer says the tray count always matches what gets installed.** Updates
   published after a check can join the update, and the README now says when.
 - **A missing root helper tells package users how to fix it.** `kempt check` and `kempt doctor`

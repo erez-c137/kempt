@@ -1509,12 +1509,22 @@ function metadataAgeText(iso, nowMs, floorMs) {
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
 // answered without fresh metadata: the refresh was skipped (battery, metered) or failed (offline).
-// metadata_refreshed has whole seconds, so `askedMs` is floored to its second. No stamp, no claim.
+// metadata_refreshed has whole seconds, so `askedMs` is floored to its second. With no stamp (the
+// lists here were fetched by dnf or Discover, never by Kempt) only a refresh_error the check left
+// behind says the fetch failed; otherwise no stamp, no claim.
 function refreshMissed(state, askedMs) {
     var asked = Number(askedMs);
     if (!state || typeof state !== "object" || !isFinite(asked) || asked <= 0) return false;
     var at = stampMs(state.metadata_refreshed);
-    return isFinite(at) && at < Math.floor(asked / 1000) * 1000;
+    if (!isFinite(at)) return refreshErrorOf(state) !== "";
+    return at < Math.floor(asked / 1000) * 1000;
+}
+
+// refreshErrorOf(state) -> the first line of the dnf refresh error the check published, or "".
+function refreshErrorOf(state) {
+    return state && typeof state === "object" && state.backends && typeof state.backends === "object"
+        && state.backends.dnf && typeof state.backends.dnf.refresh_error === "string"
+        ? firstLineOf(state.backends.dnf.refresh_error) : "";
 }
 
 // fetchMissedOf(state, askedMs, pressStamp) -> the notice for a Check for Updates press whose fetch
@@ -1535,16 +1545,16 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     var asked = Math.floor(Number(askedMs) / 1000) * 1000;
     var checked = stampMs(state.last_check);
     if (!isFinite(checked) || checked < asked) return "";
-    var age = ageWords(checked - stampMs(state.metadata_refreshed));
-    if (age === "") return "";
-    var err = state.backends && typeof state.backends === "object" && state.backends.dnf
-        && typeof state.backends.dnf.refresh_error === "string"
-        ? firstLineOf(state.backends.dnf.refresh_error) : "";
+    // No stamp means nobody knows how old the lists are: the lead stands alone, without an age.
+    var stamped = isFinite(stampMs(state.metadata_refreshed));
+    var age = stamped ? ageWords(checked - stampMs(state.metadata_refreshed)) : "";
+    if (stamped && age === "") return "";
+    var err = refreshErrorOf(state);
     var lead = state.refresh_skipped === "battery" ? COPY.fetchWaitsForPower
         : state.refresh_skipped === "metered" ? COPY.fetchWaitsForUnmetered
         : err === "" || typeof state.refresh_skipped === "string" ? COPY.fetchMissed
         : REFRESH_NETWORK_RE.test(err) ? COPY.fetchNoServers : COPY.fetchFailed;
-    return lead + " " + COPY.fetchCountsFrom.replace("%1", age);
+    return age === "" ? lead : lead + " " + COPY.fetchCountsFrom.replace("%1", age);
 }
 
 // servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state

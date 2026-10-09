@@ -3701,8 +3701,14 @@ doctor_other_updater_row() {
 }
 
 doctor_metadata_row() {
-  local iso days
+  local iso days failed=""
   iso="$(metadata_refreshed_iso)"
+  # The latest dnf fetch failed (offline, or the servers would not answer). A WARN, beside the age
+  # row below: every check answers from the lists already here, and those can be old or missing.
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]]; then
+    failed="$(head -n 1 "$REFRESH_DNF_FAILED_FILE" 2>/dev/null | tr -d '[:cntrl:]' | cap_bytes 200)" || failed=""
+    doctor_warn "package lists: the last download failed${failed:+ ($failed)}. Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh"
+  fi
   # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.
@@ -3722,6 +3728,19 @@ doctor_metadata_row() {
     if [[ "$days" == 1 ]]; then word=day; fi
     doctor_info "package metadata is $days $word old ($iso). Checks answer from this cache. A refresh runs at most once every 3 hours, and never on battery or a metered connection. To fetch one now, on mains power and an unmetered connection, run: kempt check --refresh"
   fi
+}
+
+# The last check failed. A WARN with the first line of its error, so a box where every check fails
+# (offline, a broken repo) cannot read "no problems" with nothing beside it.
+doctor_last_check_row() {
+  local status err
+  [[ -s "$STATE_FILE" ]] || return 0
+  status="$(jq -r -n '[inputs][0] | select(type == "object") | .status // empty | tostring' "$STATE_FILE" 2>/dev/null)" || status=""
+  [[ "$status" == stale ]] || return 0
+  err="$(jq -r -n '[inputs][0] | .error | if type == "string" then
+           ([split("\n")[] | sub("^\\s+"; "") | select(. != "")] | .[0] // "") else "" end' "$STATE_FILE" 2>/dev/null \
+         | tr -d '[:cntrl:]' | cap_bytes 200)" || err=""
+  doctor_warn "last check failed${err:+: $err}. The counts Kempt shows are from an earlier check, if any"
 }
 
 # Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
@@ -4130,6 +4149,7 @@ cmd_doctor() {
   doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
+  doctor_last_check_row
   doctor_dnf_cache_row
   doctor_inhibit_row
   doctor_config_row
