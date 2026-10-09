@@ -178,6 +178,7 @@ for state in stale x-staged; do
   else put "$state"; fi
   cp "$FIXTURES/run-last.json" "$HIST_DIR/20260825T090000.json"
   before="$(snapshot)"
+  assert_contains "$before" "$STATE_FILE" "the snapshot sees the state file ($state)"
   sleep 1   # a rewrite within the same second would keep its mtime
   "$KEMPT" status >/dev/null 2>&1 || true
   "$KEMPT" status --json >/dev/null 2>&1 || true
@@ -220,6 +221,12 @@ jq '.backends.flatpak.enabled = false' "$L" > "$PAR/x-fp-off.json"
 jq '.backends.dnf.items = [.backends.dnf.items[0]]' "$L" > "$PAR/x-one.json"
 jq '.security = {count: 2.7, packages: ["bash"]}' "$L" > "$PAR/x-security-frac.json"
 jq '.status = "stale" | .last_success = "  "' "$FIXTURES/state-never.json" > "$PAR/x-never-blank.json"
+# Each of these kills a mutant the fixtures above let live: held before per-user-unchecked in the
+# up-to-date header, and a staged count of zero or of the wrong type.
+jq '.backends.dnf.items = [{name: "bash", from: "1", to: "2", held: true}] | .backends.flatpak.items = []
+    | .actionable = 0 | .backends.flatpak.scopes = {user: "failed"}' "$L" > "$PAR/x-held-user-unchecked.json"
+jq '.offline_staged = {count: 0}' "$L" > "$PAR/x-staged-zero.json"
+jq '.offline_staged = {count: "12"}' "$L" > "$PAR/x-staged-strcount.json"
 
 bash_facts() {  # state file → {header, sections: [[title, count]], held, security}
   local doc
@@ -265,7 +272,8 @@ want="$(node -e '
     // The metadata age as the footer shows it: logic.js keeps the helper to itself.
     const vm = L.viewModel({ schema: 1, actionable: 0, status: "ok", last_success: iso,
                              metadata_refreshed: iso, backends: {} }, false, "", { nowMs: now * 1000 });
-    const meta = vm.footerText.split(" \u00b7 ").filter((p) => p.indexOf("metadata ") === 0)[0] || "";
+    // Matched by shape, not by its first word, so a rename of that word fails only on the bash side.
+    const meta = vm.footerText.split(" \u00b7 ").filter((p) => /^\S+ \d+ days? old$/.test(p))[0] || "";
     console.log(L.relativeTime(iso, now * 1000) + "|" + meta);
   }' "$LOGIC" "$NOW" "$ages")"
 # date -Iseconds writes local time; the stamps differ in zone only, and the absolute fallback
