@@ -55,7 +55,8 @@ Refresh calls time out after 120 seconds, because nobody is there to answer a di
 background check. That limit runs as you, so it cannot stop dnf5 once it runs as root. For that,
 `kempt-refresh` has systemd send `dnf5 makecache --refresh` SIGTERM after 120 seconds, and SIGKILL
 10 seconds later. The numbers are fixed in the helper and never come from the caller. A refresh
-stopped this way counts as failed, and the check goes on with the cached metadata. Apply calls have no timeout.
+stopped this way counts as failed, and the check goes on with the cached metadata. Apply calls
+have no timeout.
 
 **The Flatpak metadata refresh runs as you**, with no `pkexec`, polkit action or root helper. It
 fills your own `~/.cache/flatpak/system-cache/summaries/`, which is what the check reads. Kempt
@@ -121,11 +122,11 @@ dnf5 would reboot the moment the transaction is armed.
 `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged transaction. At worst it
 throws away updates that were still waiting to install.
 
-Neither helper runs dnf5 itself. After validating, each execs `systemd-run`, which
-starts dnf5 as a new service with `UMask=0022` and no core files. pkexec passes on the caller's
-umask, limits, ignored signals, working directory and cgroup, and a refresh needs no password. The
-service inherits none of them, so nobody at the desk can make root write files others can change.
-Without systemd as PID 1 a helper exits 4, running nothing.
+Neither helper runs dnf5 itself. After validating, each execs `systemd-run`, which starts dnf5 as
+a new service with `UMask=0022` and no core files. pkexec passes on the caller's umask, limits,
+ignored signals, working directory and cgroup, and a refresh needs no password. The service
+inherits none of them, so nobody at the desk can make root write files others can change. Without
+systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.

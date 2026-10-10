@@ -505,8 +505,8 @@ older marker, an unknown history format, no entries, more than 20, or two candid
 starts a day before `staged_at`, in case the clock was wrong early in boot.
 
 **A live run** reads the highest history id before the apply (`dnf_history_max_id`). Afterwards it
-takes the one newer entry that ran the helper's command (`dnf5 upgrade`, `-y`, one `--exclude=` per
-hold). That gives `transaction_id` and the report. Two matches, or no answer, is cannot tell.
+takes the one newer entry that ran the helper's command (`/usr/bin/dnf5 upgrade`, `-y`, one
+`--exclude=` per hold). That gives `transaction_id` and the report. Two matches, or no answer, is cannot tell.
 
 **Superseding.** dnf5 refuses a stage once the rpm database has moved. So a live `kempt update`
 discards the stage (`dnf-offline-clean`), removes the marker and its snapshot copy, and logs

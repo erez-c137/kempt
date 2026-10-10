@@ -712,7 +712,7 @@ Kempt installs on the next restart.
 
 `shutdown during package installs` is `WARN` unless `rpm-plugin-systemd-inhibit`, or an enabled
 `libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` and `dnf state` are `WARN` when other
-users can change root's dnf files, and name the `chmod` that fixes it.
+users can change root's dnf files, and give the fix.
 
 | Line | What it means |
 | --- | --- |

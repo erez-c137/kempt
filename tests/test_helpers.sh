@@ -400,7 +400,7 @@ assert_exit 255 "...and systemd-run's own 255 for a dnf5 killed by a signal" -- 
 # Fail closed. Without systemd as PID 1 (a container, say) or without systemd-run, nothing runs and
 # the helper exits 4, apart from 2 (bad arguments), 3 (refused) and dnf5's own statuses. It never
 # runs dnf5 from its own shell instead. ECHO is set on purpose: the seam cannot hide the refusal.
-nosd_line() { printf '%s: systemd is not running this system, or systemd-run is missing, so dnf5 was not started\n' "$1"; }
+nosd_line() { printf '%s: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed.\n' "$1"; }
 : > "$TESTTMP/not-executable"
 for h in "$RH" "$AH"; do
   verb=dnf-upgrade; [[ "$h" == "$RH" ]] && verb=refresh

@@ -3,12 +3,12 @@
 # Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing. -p keeps
 # bash from reading BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH, GLOBIGNORE or exported functions
 # from the caller (see kempt-apply).
-# This shell only decides. It validates its argument, reads, and then hands the one dnf5 command to
-# systemd, which starts it as a fresh system service (see run_dnf5). pkexec passes on far more of
-# the caller than its environment: the umask, resource limits, ignored signals, the working
-# directory, the nice value, the CPU affinity and the cgroup. A process systemd starts inherits none
-# of them. The umask and core-file lines below are belt and braces for this shell and systemd-run,
-# which write nothing; dnf5 gets its own from the unit properties.
+# This shell only decides. It validates its argument, checks the dnf5 version, and then hands the
+# one dnf5 command to systemd, which starts it as a fresh system service (see run_dnf5). pkexec
+# passes on far more of the caller than its environment: the umask, resource limits, ignored
+# signals, the working directory, the nice value, the CPU affinity and the cgroup. A process systemd
+# starts inherits none of them. The umask and core-file lines below are belt and braces for this
+# shell and systemd-run, which write nothing; dnf5 gets its own from the unit properties.
 umask 022
 ulimit -c 0
 set -euo pipefail
@@ -28,8 +28,9 @@ if [[ $EUID -ne 0 ]]; then
   SYSTEMD_RUN="${KEMPT_SYSTEMD_RUN:-$SYSTEMD_RUN}"
   SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"
 fi
-# Exit status when systemd cannot start dnf5. Apart from 2 (bad arguments) and from dnf5's own 0, 1
-# and 100. Without systemd, dnf5 does not run at all: never directly from this shell.
+# Exit status when systemd cannot start dnf5. It differs from 2 (bad arguments), from dnf5's own
+# 0, 1 and 100, and from pkexec's 126 and 127. Without systemd, dnf5 does not run at all, and never
+# directly from this shell.
 NO_SYSTEMD=4
 
 # The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
@@ -46,7 +47,7 @@ run_dnf5() {
   while [[ "$1" != -- ]]; do props+=("$1"); shift; done
   shift
   [[ -d "$SYSTEMD_BOOTED" && -x "$SYSTEMD_RUN" ]] || {
-    echo "kempt-refresh: systemd is not running this system, or systemd-run is missing, so dnf5 was not started" >&2
+    echo "kempt-refresh: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed." >&2
     exit "$NO_SYSTEMD"
   }
   run "$SYSTEMD_RUN" --pipe --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 \

@@ -8,8 +8,8 @@
 # -p is bash's privileged mode. It never reads BASH_ENV or ENV, and it ignores SHELLOPTS, BASHOPTS,
 # CDPATH, GLOBIGNORE and exported functions, so a caller that skips pkexec (sudo -E, say) still
 # cannot run code before the first line below. /usr/bin/bash because that is the path the package
-# ships. The same PATH is set on dnf5's unit (run_dnf5), so the pinned lookup order reaches dnf5's
-# own children (rpm scriptlets run as root) too.
+# ships. The same PATH is set on dnf5's unit (run_dnf5), so dnf5's own lookups use the pinned order.
+# rpm sets its own PATH for scriptlets.
 # This shell only decides. It validates the arguments, reads dnf5's stored state, and then hands
 # the one dnf5 command to systemd, which starts it as a fresh system service (see run_dnf5). pkexec
 # passes on far more of the caller than its environment: the umask, resource limits, ignored
@@ -40,22 +40,23 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
-# --pipe hands dnf5 this process's stdin, stdout and stderr, so dnf5's own "Is this ok" prompt
-# still reads the terminal when the CLI runs without -y; --wait and systemd-run's exit status carry
-# dnf5's back. The unit gets umask 022, no core files, systemd's default limits, cwd / and an
-# environment of its own, so PATH and LC_ALL are set on it: without them it gets systemd's PATH,
-# which puts /usr/local first for dnf5's own lookups, and the system locale. No time limit: stopping an
-# rpm transaction partway is worse than waiting for it. Every dnf5 argument comes after `--`, so a
-# validated --exclude can never reach systemd-run as an option, and --expand-environment=no keeps
-# PID 1 from expanding ${VAR} and $$ inside them. HOME is set because rpm scriptlets otherwise run
-# without one (pkexec set it to /root). argv[0] is /usr/bin/dnf5, and dnf5
-# records it in its history; cmd_update looks the run up by that exact command line.
+# --pipe hands dnf5 this process's stdin, stdout and stderr; a terminal on stdin gets --pty instead
+# (below), so dnf5's own "Is this ok" prompt still reads it when the CLI runs without -y. --wait and
+# systemd-run's exit status carry dnf5's back. The unit gets umask 022, no core files, systemd's
+# default limits, cwd / and an environment of its own, so PATH and LC_ALL are set on it: without
+# them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and the system
+# locale. No time limit: stopping an rpm transaction partway is worse than waiting for it. Every
+# dnf5 argument comes after `--`, so a validated --exclude can never reach systemd-run as an option,
+# and --expand-environment=no keeps PID 1 from expanding ${VAR} and $$ inside them. HOME is set
+# because rpm scriptlets otherwise run without one (pkexec set it to /root). argv[0] is
+# /usr/bin/dnf5, and dnf5 records it in its history; cmd_update looks the run up by that exact
+# command line.
 run_dnf5() {
   local -a props=()
   while [[ "$1" != -- ]]; do props+=("$1"); shift; done
   shift
   [[ -d "$SYSTEMD_BOOTED" && -x "$SYSTEMD_RUN" ]] || {
-    echo "kempt-apply: systemd is not running this system, or systemd-run is missing, so dnf5 was not started" >&2
+    echo "kempt-apply: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed." >&2
     exit "$NO_SYSTEMD"
   }
   # A terminal on stdin gets a pty of the unit's own instead of the terminal itself. With --pipe,
