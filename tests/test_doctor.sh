@@ -1356,6 +1356,13 @@ ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a u
     cd / && "$3" doctor 2>&1; rm -rf "$1" "$4"' _ "$dir" "$setup" "$KEMPT" "$TESTTMP/outside" || true
 }
 if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
+  # Some cases need a second user inside the namespace. That takes subordinate ids (newuidmap and
+  # /etc/subuid), which a CI runner may lack even when the namespace itself works.
+  if timeout 20 unshare --map-auto --map-root-user bash -c 'f=$(mktemp) && chown 1000:1000 "$f"; r=$?; rm -f "$f"; exit $r' 2>/dev/null; then
+    other_ids() { :; }
+  else
+    other_ids() { skip "no spare user ids in this namespace, so this case did not run: $1"; return 1; }
+  fi
   NC="$TESTTMP/ns-cache"; printf -v NCQ '%q' "$NC"
   NMOVE="t=\$(sudo mktemp -d $NCQ-unsafe.XXXXXX) && sudo mv -T --no-copy $NCQ \"\$t/old\""
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p r/repodata; : > r/repodata/repomd.xml; chmod 644 r/repodata/repomd.xml; ln -s repomd.xml r/repodata/link')"
@@ -1364,12 +1371,16 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   assert_not_contains "$out" 'dnf cache' "a root-owned cache with no world-writable file adds no row"
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 664 f')"
   assert_not_contains "$out" 'dnf cache' "...nor one that is only group-writable, group root"
-  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 0:1000 f; chmod 664 f')"
-  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
-    "group-writable with a group other than root counts"
-  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 1000:0 f; chmod 644 f')"
-  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
-    "a file another user owns counts, though nobody else can write it"
+  if other_ids "group-writable with a group other than root counts"; then
+    out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 0:1000 f; chmod 664 f')"
+    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+      "group-writable with a group other than root counts"
+  fi
+  if other_ids "a file another user owns counts, though nobody else can write it"; then
+    out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 1000:0 f; chmod 644 f')"
+    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+      "a file another user owns counts, though nobody else can write it"
+  fi
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 666 f')"
   assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
     "a world-writable file counts"
@@ -1379,15 +1390,21 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/d)" \
     "a world-writable directory counts too"
   # A link planted in the cache is reported only for itself. Doctor never reads through it.
-  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p "$4"; chmod 777 "$4"; : > "$4/open"; chmod 666 "$4/open"; chown -R 1000:1000 "$4"; mkdir r; ln -s "$4" r/packages; ln -s "$4/open" r/repodata')"
-  assert_not_contains "$out" 'dnf cache' "links to another user's world-writable files outside are not followed"
-  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir r; ln -s / r/packages; chown -h 1000:1000 r/packages')"
-  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/r/packages)" \
-    "a link another user owns is reported as the link itself"
+  if other_ids "links to another user's world-writable files outside are not followed"; then
+    out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p "$4"; chmod 777 "$4"; : > "$4/open"; chmod 666 "$4/open"; chown -R 1000:1000 "$4"; mkdir r; ln -s "$4" r/packages; ln -s "$4/open" r/repodata')"
+    assert_not_contains "$out" 'dnf cache' "links to another user's world-writable files outside are not followed"
+  fi
+  if other_ids "a link another user owns is reported as the link itself"; then
+    out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir r; ln -s / r/packages; chown -h 1000:1000 r/packages')"
+    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/r/packages)" \
+      "a link another user owns is reported as the link itself"
+  fi
   NS="$TESTTMP/ns-state"
-  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
-  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
-    "a state file another user owns is a WARN, the chown before the chmod"
+  if other_ids "a state file another user owns is a WARN, the chown before the chmod"; then
+    out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
+    assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
+      "a state file another user owns is a WARN, the chown before the chmod"
+  fi
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
   assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
     "a world-writable state file gets the same fix"
@@ -1401,9 +1418,11 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete. Then restart the computer." \
     "...and the fix deletes the links last, then asks for a restart"
   # The name is another user's choice: control bytes, C1 bytes and bidi controls all print as ?.
-  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > "$(printf "a\033[2Jb\302\233c\342\200\256d")"; chown 1000:0 a*')"
-  assert_contains "$out" "(for example $NS/a?[2Jb??c???d)" \
-    "a reported name keeps only printable ASCII, every other byte a ?"
+  if other_ids "a reported name keeps only printable ASCII, every other byte a ?"; then
+    out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > "$(printf "a\033[2Jb\302\233c\342\200\256d")"; chown 1000:0 a*')"
+    assert_contains "$out" "(for example $NS/a?[2Jb??c???d)" \
+      "a reported name keeps only printable ASCII, every other byte a ?"
+  fi
 else
   skip "no user namespace with spare ids here, so the root-owned dnf cache and state cases did not run"
 fi
