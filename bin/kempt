@@ -3763,16 +3763,26 @@ doctor_last_check_row() {
 # files belong to group root, and a common Fedora umask of 002 sets that bit harmlessly. find -P
 # never follows a link, so a link planted there cannot point the search elsewhere. Reported, never
 # repaired, because the fix needs root.
-doctor_unsafe_entry() {  # dir → the first entry under it another user could change, or nothing
+doctor_unsafe_entry() {  # dir [links] → the first entry under it another user could change, or nothing
   [[ -d "$1" ]] || return 0
-  find -P "$1" \( ! -user root -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
+  # With "links", any link counts too. dnf5 keeps none in its state, so a link there was planted, and
+  # chown -h would only make it root's: root's dnf5 would go on reading and writing through it.
+  local -a link=(-false); [[ "${2:-}" == links ]] && link=(-type l)
+  find -P "$1" \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
     -print -quit 2>/dev/null || true
+}
+# Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
+# controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
+# are ASCII, so nothing real is lost.
+doctor_plain_name() {  # text → the text, safe to print
+  local LC_ALL=C
+  printf '%s' "${1//[^ -~]/?}"
 }
 doctor_dnf_cache_row() {
   local hit dir_q fix
   hit="$(doctor_unsafe_entry "$KEMPT_DNF_CACHE_DIR")"
   if [[ -n "$hit" ]]; then
-    hit="${hit//[[:cntrl:]]/?}"   # another user picks the name, so it never reaches the terminal raw
+    hit="$(doctor_plain_name "$hit")"   # another user picks the name, so it never reaches the terminal raw
     printf -v dir_q '%q' "$KEMPT_DNF_CACHE_DIR"
     # Not dnf5 clean all: it follows links planted at <repo>/packages or <repo>/repodata and deletes
     # what they point at, outside the cache. The cache moves into a fresh root-only directory on the
@@ -3784,17 +3794,22 @@ doctor_dnf_cache_row() {
     if [[ ! -e "$KEMPT_OFFLINE_TOML" && ! -L "$KEMPT_OFFLINE_TOML" ]]; then
       fix="Replace the cache with: $fix"
     else
-      fix="Replacing the cache also deletes the staged update. So first discard it with kempt unstage, then run: $fix"
+      fix="Replacing the cache also deletes the staged update, so first discard it with kempt unstage. Then run: $fix"
     fi
-    doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). An earlier Kempt could leave them that way. Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix"
+    # Another user still writing into the old cache can make the last rm fail with "Directory not
+    # empty", which leaves a root-only <dir>-unsafe.XXXXXX behind; the glob reaches it again.
+    fix+=". If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*"
+    doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix"
   fi
-  hit="$(doctor_unsafe_entry "$KEMPT_DNF_SYSIMAGE_DIR")"
+  hit="$(doctor_unsafe_entry "$KEMPT_DNF_SYSIMAGE_DIR" links)"
   if [[ -n "$hit" ]]; then
-    hit="${hit//[[:cntrl:]]/?}"
+    hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
     # chown first: chmod alone leaves another user's files theirs, and chmod before chown leaves a
     # moment where that owner can still open them for writing. -h changes a link, not its target.
-    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo chown -R -h root:root $dir_q && sudo chmod -R go-w $dir_q"
+    # Links go last, once nobody else can add one; find -P -delete removes a link, never its target.
+    # Neither revokes a file another user already holds open for writing, hence the restart.
+    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops."
   fi
 }
 

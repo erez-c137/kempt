@@ -1326,24 +1326,28 @@ DC="$TESTTMP/dnf cache"; mkdir -p "$DC/updates-1/repodata"
 : > "$DC/updates-1/repodata/repomd.xml"; chmod 644 "$DC/updates-1/repodata/repomd.xml"
 printf -v DCQ '%q' "$DC"
 MOVE="t=\$(sudo mktemp -d $DCQ-unsafe.XXXXXX) && sudo mv -T --no-copy $DCQ \"\$t/old\" && sudo mkdir -m 0755 $DCQ && sudo restorecon $DCQ && sudo rm -rf --one-file-system \"\$t\""
+# Another user still writing there can make that last rm fail, so the row says how to finish later.
+RERUN="If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $DCQ-unsafe.*"
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC)" \
   "a cache root does not own is a WARN, even with nothing world-writable in it"
 assert_contains "$(tail -1 "$TESTTMP/dc.txt")" ", 1 warning" "...and the last line counts it"
 assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replace the cache with: $MOVE" \
   "...with the move-aside command, its path quoted for the shell, and a warning against dnf5 clean all"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "Replace the cache with: $MOVE. $RERUN" \
+  "...followed by the rerun for a leftover directory, its path quoted the same way"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and dnf5 clean all is never the advice"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "chmod -R go-w $DC" "...nor a chmod, which leaves another user's files theirs"
 # A stored transaction's packages live in the cache, so moving it aside waits for kempt unstage.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replacing the cache also deletes the staged update. So first discard it with kempt unstage, then run: $MOVE" \
+assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replacing the cache also deletes the staged update, so first discard it with kempt unstage. Then run: $MOVE. $RERUN" \
   "with an offline transaction stored, the fix says to discard it with kempt unstage first"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and never offers dnf5 clean all"
 assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doctor changes nothing itself"
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS). An earlier Kempt could leave them that way. Fix it with: sudo chown -R -h root:root $DS && sudo chmod -R go-w $DS" \
-  "a state directory root does not own is a WARN, the chown before the chmod"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops." \
+  "a state directory root does not own is a WARN: chown, then chmod, then the links, then a restart"
 
 ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a user namespace; dir removed after
   local var="$1" dir="$2" setup="$3"; shift 3
@@ -1382,13 +1386,24 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
     "a link another user owns is reported as the link itself"
   NS="$TESTTMP/ns-state"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
-  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). An earlier Kempt could leave them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
+  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
     "a state file another user owns is a WARN, the chown before the chmod"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
   assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
     "a world-writable state file gets the same fix"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f')"
   assert_not_contains "$out" 'dnf state' "a root-owned state directory adds no row"
+  # dnf5 keeps no links in its state, so even a root-owned one was planted. chown -h would leave root's
+  # dnf5 writing through it, so it counts, and the fix deletes it after the chown and chmod.
+  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; ln -s "$4" offline/transaction.json')"
+  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json)" \
+    "a root-owned link in the state directory is a WARN"
+  assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete. Then restart the computer." \
+    "...and the fix deletes the links last, then asks for a restart"
+  # The name is another user's choice: control bytes, C1 bytes and bidi controls all print as ?.
+  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > "$(printf "a\033[2Jb\302\233c\342\200\256d")"; chown 1000:0 a*')"
+  assert_contains "$out" "(for example $NS/a?[2Jb??c???d)" \
+    "a reported name keeps only printable ASCII, every other byte a ?"
 else
   skip "no user namespace with spare ids here, so the root-owned dnf cache and state cases did not run"
 fi
