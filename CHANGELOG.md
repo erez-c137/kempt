@@ -264,6 +264,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   package metadata that every user could change. Updates you installed or staged were exposed the
   same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about
   files an earlier version left open, with the fix.
+- **System updates now start in a clean environment of their own.** Before, the package manager
+  ran as root but kept settings from the program that asked for it, such as signals it ignored, its
+  working folder and its resource limits. Now the system starts each package manager run fresh,
+  with safe file permissions and nothing carried over. On a system without systemd running it, such
+  as a container, Kempt now refuses with a clear message instead of updating.
 - **Kempt no longer cancels another updater's restart install.** While Discover or PackageKit has
   prepared the next restart, the root helper refuses to discard a staged update. A discard would
   have removed the other updater's install.
