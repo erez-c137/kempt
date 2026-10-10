@@ -263,7 +263,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whoever started them. A refresh needs no password, so anyone at the desk could make root write
   package metadata that every user could change. Updates you installed or staged were exposed the
   same way if your own umask allowed it. The helpers now set their own. `kempt doctor` warns about
-  files an earlier version left open, with the fix.
+  files an earlier version left open, or that another user now owns, with the fix. For the cache
+  the fix moves it aside and makes a new one. `dnf5 clean all` is not safe there: it follows links
+  another user planted and deletes files outside the cache.
 - **System updates now start in a clean environment of their own.** Before, the package manager
   ran as root but kept settings from the program that asked for it, such as signals it ignored, its
   working folder and its resource limits. Now the system starts each package manager run fresh,

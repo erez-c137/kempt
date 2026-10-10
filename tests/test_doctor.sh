@@ -1316,42 +1316,83 @@ assert_eq "$(grep -c '^FAIL  polkit action not installed' "$TESTTMP/last_output"
 assert_contains "$(cat "$TESTTMP/last_output")" '2 problems found' \
   "the summary counts them"
 
-# --- world-writable files in dnf5's cache and state, left by helpers that kept the caller's umask ----------
-# Reported with the fix, never repaired. Group-writable alone is not reported: root's files belong
-# to group root, and a umask of 002 sets that bit on every Fedora box that uses one.
-DC="$TESTTMP/dnf-cache"; mkdir -p "$DC/updates-1/repodata"
+# --- files other users can change in dnf5's cache and state, left by helpers that kept the caller's umask ---
+# Reported with the fix, never repaired. An entry counts when root does not own it, or when it is
+# world-writable and not a link. Group-writable counts only with a group other than root: root's
+# files belong to group root, and a umask of 002 sets that bit on every Fedora box that uses one.
+# The test user owns everything it makes, so a plain run shows the "not root's" case; the rest run
+# as root in a user namespace with spare ids, where chown to another user works.
+DC="$TESTTMP/dnf cache"; mkdir -p "$DC/updates-1/repodata"
 : > "$DC/updates-1/repodata/repomd.xml"; chmod 644 "$DC/updates-1/repodata/repomd.xml"
-ln -sfn repomd.xml "$DC/updates-1/repodata/link"   # links are always 777 and say nothing
+printf -v DCQ '%q' "$DC"
+MOVE="t=\$(sudo mktemp -d $DCQ-unsafe.XXXXXX) && sudo mv -T --no-copy $DCQ \"\$t/old\" && sudo mkdir -m 0755 $DCQ && sudo restorecon $DCQ && sudo rm -rf --one-file-system \"\$t\""
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf cache' "a cache with no world-writable file adds no row"
-chmod 664 "$DC/updates-1/repodata/repomd.xml"
-KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf cache' "...nor one that is only group-writable"
-chmod 666 "$DC/updates-1/repodata/repomd.xml"
-KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC/updates-1/repodata/repomd.xml)" \
-  "a world-writable file in the cache is a WARN naming it"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC)" \
+  "a cache root does not own is a WARN, even with nothing world-writable in it"
 assert_contains "$(tail -1 "$TESTTMP/dc.txt")" ", 1 warning" "...and the last line counts it"
-assert_contains "$(cat "$TESTTMP/dc.txt")" "Fix it with: sudo chmod -R go-w $DC && sudo dnf5 clean all" \
-  "...with the command that fixes it, the clean included while nothing is stored"
-# The clean deletes a stored transaction's packages, so with one stored it waits for kempt unstage.
+assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replace the cache with: $MOVE" \
+  "...with the move-aside command, its path quoted for the shell, and a warning against dnf5 clean all"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and dnf5 clean all is never the advice"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "chmod -R go-w $DC" "...nor a chmod, which leaves another user's files theirs"
+# A stored transaction's packages live in the cache, so moving it aside waits for kempt unstage.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "Fix it with: sudo chmod -R go-w $DC. Then discard the staged update with kempt unstage, and run: sudo dnf5 clean all" \
-  "with an offline transaction stored, the fix leads with chmod and puts the clean after kempt unstage"
-assert_not_contains "$(cat "$TESTTMP/dc.txt")" "go-w $DC && sudo dnf5 clean all" "...and never chains the clean straight on"
-assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "666" "...and doctor changes nothing itself"
-chmod 644 "$DC/updates-1/repodata/repomd.xml"; chmod 777 "$DC/updates-1"
-KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC" "a world-writable directory counts too"
-chmod 755 "$DC/updates-1"
-# dnf5's system state, which the apply verbs wrote with the caller's umask too.
+assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replacing the cache also deletes the staged update. So first discard it with kempt unstage, then run: $MOVE" \
+  "with an offline transaction stored, the fix says to discard it with kempt unstage first"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and never offers dnf5 clean all"
+assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doctor changes nothing itself"
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_not_contains "$(cat "$TESTTMP/dc.txt")" 'dnf state' "a state directory with nothing world-writable adds no row"
-: > "$DS/offline/transaction.json"; chmod 666 "$DS/offline/transaction.json"
-KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS/offline/transaction.json). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $DS" \
-  "a world-writable file in dnf5's state is a WARN with the chmod"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS). An earlier Kempt could leave them that way. Fix it with: sudo chown -R -h root:root $DS && sudo chmod -R go-w $DS" \
+  "a state directory root does not own is a WARN, the chown before the chmod"
+
+ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a user namespace; dir removed after
+  local var="$1" dir="$2" setup="$3"; shift 3
+  timeout 60 unshare --map-auto --map-root-user env KEMPT_ALLOW_ROOT=1 "$var=$dir" "$@" bash -c '
+    mkdir -p "$1" && cd "$1" && eval "$2" || { echo "setup failed"; exit 9; }
+    cd / && "$3" doctor 2>&1; rm -rf "$1" "$4"' _ "$dir" "$setup" "$KEMPT" "$TESTTMP/outside" || true
+}
+if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
+  NC="$TESTTMP/ns-cache"; printf -v NCQ '%q' "$NC"
+  NMOVE="t=\$(sudo mktemp -d $NCQ-unsafe.XXXXXX) && sudo mv -T --no-copy $NCQ \"\$t/old\""
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p r/repodata; : > r/repodata/repomd.xml; chmod 644 r/repodata/repomd.xml; ln -s repomd.xml r/repodata/link')"
+  assert_not_contains "$out" "setup failed" "the namespace run set up its cache"
+  assert_contains "$(tail -1 <<<"$out")" "kempt doctor:" "...and reached the end of kempt doctor"
+  assert_not_contains "$out" 'dnf cache' "a root-owned cache with no world-writable file adds no row"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 664 f')"
+  assert_not_contains "$out" 'dnf cache' "...nor one that is only group-writable, group root"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 0:1000 f; chmod 664 f')"
+  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    "group-writable with a group other than root counts"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 1000:0 f; chmod 644 f')"
+  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    "a file another user owns counts, though nobody else can write it"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 666 f')"
+  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    "a world-writable file counts"
+  assert_contains "$out" "Replace the cache with: $NMOVE" "...with the move-aside command for that path"
+  assert_not_contains "$out" "sudo dnf5 clean all" "...and never dnf5 clean all"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir d; chmod 777 d')"
+  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/d)" \
+    "a world-writable directory counts too"
+  # A link planted in the cache is reported only for itself. Doctor never reads through it.
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p "$4"; chmod 777 "$4"; : > "$4/open"; chmod 666 "$4/open"; chown -R 1000:1000 "$4"; mkdir r; ln -s "$4" r/packages; ln -s "$4/open" r/repodata')"
+  assert_not_contains "$out" 'dnf cache' "links to another user's world-writable files outside are not followed"
+  out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir r; ln -s / r/packages; chown -h 1000:1000 r/packages')"
+  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/r/packages)" \
+    "a link another user owns is reported as the link itself"
+  NS="$TESTTMP/ns-state"
+  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
+  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). An earlier Kempt could leave them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
+    "a state file another user owns is a WARN, the chown before the chmod"
+  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
+  assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
+    "a world-writable state file gets the same fix"
+  out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f')"
+  assert_not_contains "$out" 'dnf state' "a root-owned state directory adds no row"
+else
+  skip "no user namespace with spare ids here, so the root-owned dnf cache and state cases did not run"
+fi
+rm -rf "$DC" "$DS"
 
 
 # --- shutdown protection during package installs ---------------------------------------------------
