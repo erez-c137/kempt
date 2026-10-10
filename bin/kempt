@@ -1741,12 +1741,13 @@ cmd_update() {
     fi
   else
     # The two reads that make a live run identifiable, taken as close around the apply as they can
-    # be. The command is rebuilt exactly as the root helper builds it (`dnf5 upgrade` then -y then
-    # the excludes, libexec/kempt-apply), because that is the command line dnf5 records; the suite
-    # takes it from the helper itself, so the two cannot drift apart unnoticed.
+    # be. The command is rebuilt exactly as the root helper builds it (`/usr/bin/dnf5 upgrade` then
+    # -y then the excludes, libexec/kempt-apply), because that is the command line dnf5 records,
+    # argv[0] and all; the suite takes it from the helper itself, so the two cannot drift apart
+    # unnoticed.
     local live_before="" live_cmd live_att
     live_before="$(dnf_history_max_id)" || live_before=""
-    local -a live_argv=(dnf5 upgrade "${yflag[@]}" "${excl[@]}")
+    local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
     if apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}"; then
       dnf_status="ok"

@@ -194,6 +194,16 @@ sandbox() {  # fresh dirs per test file; call first
   # the pin the dnf5 on the machine running the suite would decide which format they are read as.
   # The JSON path is tested where it is set explicitly (test_dnf.sh, test_helpers.sh).
   export KEMPT_DNF5_VERSION=5.2.18.0
+  # The root helpers hand dnf5 to systemd-run, and run only where systemd is PID 1. Both are seams
+  # an unprivileged run honours. The stand-in records its argv one per line, and its pid, and exits
+  # KEMPT_TEST_SDRUN_RC: unset, a helper run without its ECHO seam would ask the real systemd-run,
+  # which asks polkit for a password, and on a box without systemd it would refuse instead.
+  mkdir -p "$TESTTMP/systemd-booted"
+  export KEMPT_SYSTEMD_BOOTED="$TESTTMP/systemd-booted" KEMPT_SYSTEMD_RUN="$TESTTMP/systemd-run"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/systemd-run.argv"\necho "$$" > "%s/systemd-run.pid"\nexit "${KEMPT_TEST_SDRUN_RC:-0}"\n' \
+    "$TESTTMP" "$TESTTMP" > "$KEMPT_SYSTEMD_RUN"
+  chmod +x "$KEMPT_SYSTEMD_RUN"
+  unset KEMPT_TEST_SDRUN_RC
   # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
   # is only ever READ from, never run, and a test that cares drives both branches of its guard by
   # setting it itself. Unset here so a value exported in a developer's shell cannot decide which

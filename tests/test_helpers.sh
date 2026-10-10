@@ -2,6 +2,11 @@
 source "$(dirname "$0")/lib.sh"; sandbox
 RH="$REPO_ROOT/libexec/kempt-refresh"
 AH="$REPO_ROOT/libexec/kempt-apply"
+# What every dnf5 command is wrapped in: systemd starts it as a fresh service with these properties
+# and this environment, and every dnf5 argument comes after `--`. sd [properties] dnf5-args... prints
+# the command line the ECHO seams print. KEMPT_SYSTEMD_RUN is the stand-in tests/lib.sh writes.
+SD_BASE="--pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8"
+sd() { local props="$1"; shift; echo "$KEMPT_SYSTEMD_RUN $SD_BASE${props:+ $props} -- /usr/bin/dnf5 $*"; }
 
 # ECHO=1 on the rejection cases too (belt and braces): if an arg guard is ever removed, the
 # assertion fails loudly instead of the test reaching a real dnf5 invocation.
@@ -12,19 +17,19 @@ assert_exit 2 "refresh: bad verb"       env KEMPT_REFRESH_ECHO=1 bash "$RH" nuke
 assert_exit 2 "refresh: extra args rejected"  bash "$RH" check --installroot=/foo
 assert_exit 2 "refresh: trailing empty arg rejected" bash "$RH" refresh ''
 # KEMPT_REFRESH_ECHO mirrors apply's seam: print the final command instead of exec'ing it.
-assert_eq "$(KEMPT_DNF5_VERSION=5.2.18.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" "dnf5 --cacheonly check-update --quiet" \
+assert_eq "$(KEMPT_DNF5_VERSION=5.2.18.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" "$(sd '' --cacheonly check-update --quiet)" \
   "refresh helper: check builds exact command"
 # dnf5 5.4.0 added --json to check-update. The verb, its polkit action and its one argument stay
 # the same; only the output format follows the installed dnf5.
 assert_eq "$(KEMPT_DNF5_VERSION=5.4.0.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
-  "dnf5 --cacheonly check-update --quiet --json" "refresh helper: check asks for JSON from dnf5 5.4.0"
+  "$(sd '' --cacheonly check-update --quiet --json)" "refresh helper: check asks for JSON from dnf5 5.4.0"
 assert_eq "$(KEMPT_DNF5_VERSION=5.10.0.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
-  "dnf5 --cacheonly check-update --quiet --json" "...compared as versions, so 5.10 is newer than 5.4"
+  "$(sd '' --cacheonly check-update --quiet --json)" "...compared as versions, so 5.10 is newer than 5.4"
 assert_eq "$(KEMPT_DNF5_VERSION=5.3.9.0 KEMPT_REFRESH_ECHO=1 bash "$RH" check)" \
-  "dnf5 --cacheonly check-update --quiet" "...and text before it"
+  "$(sd '' --cacheonly check-update --quiet)" "...and text before it"
 # The time limit is inside the helper, as root: the CLI's `timeout` wraps pkexec and cannot signal a
-# root dnf5. The exact string pins the fixed path, the fixed 120 s and the 10 s kill-after.
-assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "/usr/bin/timeout -k 10 120 dnf5 makecache --refresh" \
+# root dnf5. The exact string pins the fixed 120 s and the 10 s before SIGKILL, as unit properties.
+assert_eq "$(KEMPT_REFRESH_ECHO=1 bash "$RH" refresh)" "$(sd '-p RuntimeMaxSec=120 -p TimeoutStopSec=10' makecache --refresh)" \
   "refresh helper: refresh builds exact command, bounded as root"
 assert_exit 2 "apply: no verb"          bash "$AH"
 assert_exit 2 "apply: bad verb"         bash "$AH" rm-rf
@@ -50,22 +55,22 @@ assert_eq "$fp_verb_out" \
   "apply: ...and says so with a usage line naming only the dnf verbs"
 # KEMPT_APPLY_ECHO=1 makes the helper print the final command instead of exec'ing it (test seam)
 got="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core)"
-assert_eq "$got" "dnf5 upgrade -y --exclude=vim-common --exclude=kernel-core" "dnf-upgrade builds exact command"
+assert_eq "$got" "$(sd '' upgrade -y --exclude=vim-common --exclude=kernel-core)" "dnf-upgrade builds exact command"
 got2="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-stage -y)"
-assert_eq "$got2" "dnf5 upgrade --offline -y" "offline stage builds exact command"
+assert_eq "$got2" "$(sd '' upgrade --offline -y)" "offline stage builds exact command"
 # Staging is only half the job: `dnf5 upgrade --offline` leaves the transaction at
 # status="download-complete", which no boot ever applies. `dnf5 offline reboot` is what flips it to
 # "ready" and creates the /system-update symlink systemd's generator looks for - and it reboots
 # immediately unless DNF_SYSTEM_UPGRADE_NO_REBOOT is set (dnf5-offline(8)). Kempt arms and lets the
 # person choose when, so the env var is load-bearing, not decoration: without it this verb reboots
 # the box out from under whoever pressed a button labelled "Install on Next Restart". It is set
-# through `env` rather than a shell assignment so the ECHO seam can print it and this assertion can
-# pin it - a prefix assignment would vanish from "$*" and leave the reboot guard unverifiable.
+# on the unit with --setenv, since a unit's environment is its own; that also puts it on the command
+# line the ECHO seam prints, so this assertion can pin the reboot guard.
 got3="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-arm)"
-assert_eq "$got3" "env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y" \
+assert_eq "$got3" "$(sd --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 offline reboot -y)" \
   "offline arm builds exact command, with the no-reboot guard"
 got4="$(KEMPT_APPLY_ECHO=1 bash "$AH" dnf-offline-clean)"
-assert_eq "$got4" "dnf5 offline clean -y" "offline clean builds exact command"
+assert_eq "$got4" "$(sd '' offline clean -y)" "offline clean builds exact command"
 # Neither verb takes an argument, so neither may SILENTLY DROP one. dnf5's offline subcommands
 # accept flags of their own (--installroot, --releasever); accepting-and-ignoring would let a
 # caller believe a scope was honoured when the root helper had thrown it away.
@@ -86,9 +91,9 @@ REFUSED_RC=3
 relup_line() { printf 'kempt-apply: refusing %s: a Fedora release upgrade (44 -> 45) is stored\n' "$1"; }
 unread_line() { printf 'kempt-apply: refusing %s: the stored offline transaction cannot be read, so it may be a Fedora release upgrade\n' "$1"; }
 declare -A offline_cmd=(
-  [dnf-offline-stage]="dnf5 upgrade --offline -y"
-  [dnf-offline-arm]="env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y"
-  [dnf-offline-clean]="dnf5 offline clean -y"
+  [dnf-offline-stage]="$(sd '' upgrade --offline -y)"
+  [dnf-offline-arm]="$(sd --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 offline reboot -y)"
+  [dnf-offline-clean]="$(sd '' offline clean -y)"
 )
 offline_args() { [[ "$1" == dnf-offline-stage ]] && echo -y; return 0; }
 printf 'this is not a transaction-state file\n' > "$TESTTMP/garbage.toml"
@@ -137,7 +142,7 @@ assert_exit 2 "a bad argument is exit 2 even over a stored release upgrade" -- \
 # A live upgrade does not touch the stored transaction, so it is not refused.
 assert_exit 0 "dnf-upgrade is not refused over a stored release upgrade" -- \
   env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-upgrade -y
-assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 upgrade -y" "...and builds its usual command"
+assert_eq "$(cat "$TESTTMP/last_output")" "$(sd '' upgrade -y)" "...and builds its usual command"
 # ...and the security doc must not call that harmless. The file stays, but the package set moves
 # under it: dnf5 drops a stored ordinary offline update after a live transaction, and a release
 # upgrade built against the old package set is not known to survive one. A claim that the live
@@ -197,22 +202,24 @@ assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LIN
   "another updater has prepared the next restart" "...also when the path is not a link at all"
 
 # --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
-# Sourced, so the umask and limits the helper set can be read back after its ECHO line. The caller
-# sets umask 000, a file size limit and core files on. Each must be undone before dnf5 would run.
-hard_f="$(ulimit -H -f)"; hard_c="$(ulimit -H -c)"
+# dnf5 gets its umask and limits from the unit systemd starts it in (UMask=0022 and LimitCORE=0 are
+# pinned above, and the rest are systemd's defaults), so nothing of the caller's reaches it. The
+# helper's own shell still resets the umask and turns core files off, as a second layer for the two
+# root processes that do run in the caller's context: this shell and systemd-run. Sourced, so they
+# can be read back after its ECHO line, with the caller at umask 000 and core files on.
+hard_c="$(ulimit -H -c)"
 for h in "$AH" "$RH"; do
   verb=dnf-offline-clean; [[ "$h" == "$RH" ]] && verb=refresh
   # shellcheck disable=SC2016 # expanded by the inner bash
   got="$(env KEMPT_APPLY_ECHO=1 KEMPT_REFRESH_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash -c '
-    umask 000; ulimit -S -f 2048; ulimit -S -c "$2"
+    umask 000; ulimit -S -c "$2"
     source "$1" "$3" >/dev/null
-    echo "$(umask) $(ulimit -c) $(ulimit -f)"' _ "$h" "$hard_c" "$verb")"
-  want_f=unlimited; [[ "$hard_f" == unlimited ]] || want_f=2048
-  assert_eq "$got" "0022 0 $want_f" "$(basename "$h"): umask 022, no core files and no file size limit, whatever the caller set"
+    echo "$(umask) $(ulimit -c)"' _ "$h" "$hard_c" "$verb")"
+  assert_eq "$got" "0022 0" "$(basename "$h"): its own shell has umask 022 and no core files, whatever the caller set"
   # ...and first: nothing runs before the umask is set.
   assert_eq "$(grep -vE '^[[:space:]]*(#|$)' "$h" | head -1)" "umask 022" "$(basename "$h"): the umask is its first command"
 done
-# The same through a real file, written by a child the way dnf5 would write one.
+# The same through a real file, written by a child of that shell.
 mkdir -p "$TESTTMP/umask-probe"
 # shellcheck disable=SC2016 # expanded by the inner bash
 got_mode="$(env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash -c '
@@ -242,7 +249,19 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
   assert_eq "$(cat "$TESTTMP/last_output")" "$(relup_line dnf-offline-arm)" "...refused by what the real path holds"
   assert_exit 0 "as root, the seam cannot invent a release upgrade either" -- \
     as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
-  assert_eq "$(cat "$TESTTMP/last_output")" "dnf5 offline clean -y" "...the real path is empty, so the verb goes ahead"
+  assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
+    "...the real path is empty, so the verb goes ahead, through the real systemd-run"
+  # The systemd seams change nothing as root either. The sandbox points them at the stand-in and a
+  # directory that exists; here the booted one points nowhere. Root reads only the real paths, so
+  # the answer is the box's own: go ahead where systemd runs, exit 4 where it does not.
+  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then
+    assert_exit 0 "as root, the systemd seams are ignored: the real systemd-run, though the seam says systemd is absent" -- \
+      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir"
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" "...and its fixed path"
+  else
+    assert_exit 4 "as root, the systemd seams are ignored: no systemd here, though the seams point at a stand-in" -- \
+      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean
+  fi
   if [[ ! -e /system-update && ! -L /system-update ]]; then
     assert_exit 0 "as root, the link seam cannot invent another updater's restart" -- \
       as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_LINK="$FL/foreign-link" KEMPT_OFFLINE_DATADIR="$FL/offline"
@@ -252,6 +271,107 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
 else
   skip "root-path seam test - needs unprivileged user and mount namespaces and $LIBDNF5"
 fi
+
+# --- the one way root's dnf5 starts: systemd-run, and nothing else ---------------------------------
+# pkexec hands the helper far more of the caller than its environment: umask, limits, ignored
+# signals, the working directory, nice, CPU affinity, the cgroup. Bash cannot undo all of that
+# (an ignored signal stays ignored across exec), so the helper does not try. It validates, reads,
+# and execs systemd-run, and systemd starts dnf5 as a fresh service that inherits none of it.
+# That only holds while the helper's own shell runs nothing else and writes nothing. This reads the
+# helper's code (comments out, continued lines joined) and prints each line that breaks the shape:
+#   - dnf5 named anywhere but as systemd-run's command, the rpm version read, or an error message
+#   - more than one exec, or one that is not the ECHO seam's `exec "$@"`
+#   - run called anywhere but on the one systemd-run line, with its fixed properties
+#   - a redirection other than to stderr or /dev/null, or a command that writes or starts another
+root_shape_violations() {  # helper file → one line per violation, then "read to the end"
+  local code
+  code="$(grep -vE '^[[:space:]]*#' "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')"
+  local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" --pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
+  grep -wE 'dnf5' <<<"$code" \
+    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "kempt-(apply|refresh): [^"]*" >&2$' \
+    | sed 's/^/dnf5 outside systemd-run: /' || true
+  local execs; execs="$(grep -wE 'exec' <<<"$code" || true)"
+  [[ "$(grep -c . <<<"$execs")" == 1 && "$execs" =~ else\ exec\ \"\$@\"\;\ fi$ ]] \
+    || printf 'exec other than the seam'"'"'s: %s\n' "${execs//$'\n'/ | }"
+  local runs; runs="$(grep -E '(^|[;&|)]|then|else|do)[[:space:]]*run[[:space:]]' <<<"$code" || true)"
+  [[ "$(grep -c . <<<"$runs")" == 1 ]] && grep -qE "$sdline" <<<"$runs" \
+    || printf 'run called other than on the systemd-run line: %s\n' "${runs//$'\n'/ | }"
+  sed -E 's/[0-9]*>&[0-9]//g; s/[0-9]*>[[:space:]]*\/dev\/null//g; s/ -> / /g' <<<"$code" | grep -E '>' \
+    | sed 's/^/writes a file: /' || true
+  grep -E '(^|[^A-Za-z0-9_-])(touch|mkdir|cp|mv|rm|ln|install|chmod|chown|chgrp|truncate|dd|tee|mktemp|mkfifo|timeout|env|nohup|setsid|nice|systemctl|pkexec|sudo|runuser|flatpak)([[:space:]]|$)|sed -i|[^&>]&([^&>]|$)' <<<"$code" \
+    | sed 's/^/writes or starts another command: /' || true
+  echo "read to the end"   # so a check that died partway can never pass as an empty answer
+}
+for h in "$RH" "$AH"; do
+  assert_eq "$(root_shape_violations "$h")" "read to the end" "$(basename "$h"): dnf5 starts only through systemd-run, and the shell before it writes nothing"
+done
+# The check can fail. Each of these is one line a future edit could plausibly add.
+mutant() { sed "$1" "$AH" > "$TESTTMP/mutant"; root_shape_violations "$TESTTMP/mutant"; }
+assert_exit 0 "...it catches dnf5 run straight from the shell" -- \
+  grep -q 'dnf5 outside systemd-run' <(mutant 's|^    run_dnf5 -- offline clean -y$|    run dnf5 offline clean -y|')
+assert_exit 0 "...it catches a second exec" -- \
+  grep -q 'exec other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; exec 3>/dev/null|')
+assert_exit 0 "...it catches a write before the exec" -- \
+  grep -q 'writes a file' <(mutant 's|^set -euo pipefail$|set -euo pipefail; echo x > /var/tmp/x|')
+assert_exit 0 "...it catches another command started as root" -- \
+  grep -q 'starts another' <(mutant 's|^set -euo pipefail$|set -euo pipefail; mkdir -p /var/tmp/x|')
+assert_exit 0 "...it catches the time limit going back to timeout" -- \
+  grep -q 'starts another' <(sed 's|run_dnf5 -p RuntimeMaxSec=120 -p TimeoutStopSec=10 -- makecache --refresh|run /usr/bin/timeout -k 10 120 dnf5 makecache --refresh|' "$RH" \
+    > "$TESTTMP/mutant-r"; root_shape_violations "$TESTTMP/mutant-r")
+
+# What systemd-run is handed, one argument per line, from the stand-in tests/lib.sh writes. No ECHO
+# here: the helper really execs it.
+# shellcheck disable=SC2086 # SD_BASE and the properties are split into words on purpose
+want_argv() { local props="$1"; shift; printf '%s\n' $SD_BASE $props -- /usr/bin/dnf5 "$@"; }
+SDARGV="$TESTTMP/systemd-run.argv"
+assert_exit 0 "refresh check execs systemd-run" -- env KEMPT_DNF5_VERSION=5.2.18.0 bash "$RH" check
+assert_eq "$(cat "$SDARGV")" "$(want_argv '' --cacheonly check-update --quiet)" "...with the fixed properties, then -- and dnf5's arguments"
+assert_exit 0 "refresh check on dnf5 5.4 execs systemd-run" -- env KEMPT_DNF5_VERSION=5.4.0 bash "$RH" check
+assert_eq "$(cat "$SDARGV")" "$(want_argv '' --cacheonly check-update --quiet --json)" "...asking for JSON"
+assert_exit 0 "refresh execs systemd-run" -- bash "$RH" refresh
+assert_eq "$(cat "$SDARGV")" "$(want_argv '-p RuntimeMaxSec=120 -p TimeoutStopSec=10' makecache --refresh)" "...bounded by the unit, not by timeout"
+assert_exit 0 "dnf-upgrade execs systemd-run" -- bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core
+assert_eq "$(cat "$SDARGV")" "$(want_argv '' upgrade -y --exclude=vim-common --exclude=kernel-core)" "...every exclude after the --, where systemd-run cannot read it as an option"
+for v in dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
+  rm -f "$SDARGV"
+  # shellcheck disable=SC2046
+  assert_exit 0 "$v execs systemd-run" -- env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(offline_args "$v")
+  case "$v" in
+    dnf-offline-stage) want="$(want_argv '' upgrade --offline -y)" ;;
+    dnf-offline-arm)   want="$(want_argv --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 offline reboot -y)" ;;
+    *)                 want="$(want_argv '' offline clean -y)" ;;
+  esac
+  assert_eq "$(cat "$SDARGV")" "$want" "...$v hands it exactly this"
+done
+# exec, not a child: the process that ran the helper IS systemd-run, so the shell is gone and its
+# exit status is systemd-run's, which is dnf5's.
+# shellcheck disable=SC2016 # expanded by the inner bash
+bash -c 'echo "$$" > "$2"; exec bash "$1" refresh' _ "$RH" "$TESTTMP/helper.pid"
+assert_eq "$(cat "$TESTTMP/systemd-run.pid")" "$(cat "$TESTTMP/helper.pid")" "the helper execs systemd-run in its own process, leaving nothing behind it"
+assert_exit 100 "dnf5's 100 from check-update comes back through the helper" -- env KEMPT_TEST_SDRUN_RC=100 bash "$RH" check
+assert_exit 1 "...and a failed refresh's 1" -- env KEMPT_TEST_SDRUN_RC=1 bash "$RH" refresh
+assert_exit 1 "...and a failed upgrade's 1" -- env KEMPT_TEST_SDRUN_RC=1 bash "$AH" dnf-upgrade -y
+assert_exit 255 "...and systemd-run's own 255 for a dnf5 killed by a signal" -- env KEMPT_TEST_SDRUN_RC=255 bash "$AH" dnf-offline-clean
+
+# Fail closed. Without systemd as PID 1 (a container, say) or without systemd-run, nothing runs and
+# the helper exits 4, apart from 2 (bad arguments), 3 (refused) and dnf5's own statuses. It never
+# runs dnf5 from its own shell instead. ECHO is set on purpose: the seam cannot hide the refusal.
+nosd_line() { printf '%s: systemd is not running this system, or systemd-run is missing, so dnf5 was not started\n' "$1"; }
+: > "$TESTTMP/not-executable"
+for h in "$RH" "$AH"; do
+  verb=dnf-upgrade; [[ "$h" == "$RH" ]] && verb=refresh
+  for case in "KEMPT_SYSTEMD_RUN=$TESTTMP/no-such-systemd-run" "KEMPT_SYSTEMD_RUN=$TESTTMP/not-executable" \
+              "KEMPT_SYSTEMD_BOOTED=$TESTTMP/no-such-dir"; do
+    rm -f "$SDARGV"
+    assert_exit 4 "$(basename "$h") $verb exits 4 with ${case%%=*} at ${case##*/}" -- env "$case" KEMPT_APPLY_ECHO=1 KEMPT_REFRESH_ECHO=1 bash "$h" "$verb"
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(nosd_line "$(basename "$h")")" "...says why"
+    assert_exit 1 "...and started nothing" -- test -e "$SDARGV"
+  done
+done
+assert_exit 2 "a bad argument is still exit 2 without systemd" -- env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" bash "$AH" dnf-upgrade --installroot=/
+assert_exit 2 "...for the refresh helper too" -- env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" bash "$RH" check extra
+assert_exit "$REFUSED_RC" "a refusal is still exit 3 without systemd" -- \
+  env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-offline-clean
 
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
 # [A-Za-z] to accented letters, so a caller's locale must not be able to widen what the ROOT
