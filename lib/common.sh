@@ -1230,6 +1230,9 @@ kempt_version() {  # → the version string, or "unknown"
 # `>>` and not `>`: the `>` form truncates on open, so a process that merely ATTEMPTS the lock would
 # erase a live holder's file first (same reasoning as acquire_lock's note). kempt_init_dirs first,
 # also like acquire_lock: a box where the state directory cannot be created fails there, not here.
+# The callers in this file take the default; bin/kempt passes a wait. shellcheck 0.9 and 0.10 check
+# this file without bin/kempt's calls and report that no caller passes an argument.
+# shellcheck disable=SC2120
 writer_lock() {  # [seconds to wait, 30 by default]
   local wait="${1:-30}"
   kempt_init_dirs
