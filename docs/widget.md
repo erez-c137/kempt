@@ -103,8 +103,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
    `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
-   check that worked. If the press got no fresh lists, another message says why and gives their
-   age, until closed or the next check. On battery or a metered connection it offers **Download
+   check that worked. If the press got no fresh lists, another message says why and, when known,
+   gives their age, until closed or the next check. On battery or a metered connection it offers **Download
    Anyway**, which fetches them once, now. If another check held the lock until the press gave
    up, it says `Another check was running. Press Download Anyway again.`
 

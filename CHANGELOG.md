@@ -213,8 +213,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and Settings gave up after 15 seconds, while another `kempt` command can make a write wait 30.
   They now wait 40 seconds, and a timeout says the change may not have been made.
 - **Check for Updates says when it could not get fresh package lists.** A message says why, such
-  as no network or running on battery, and how old the lists are. A screen reader hears the same.
-  It goes when you close it or at the next check.
+  as no network or running on battery, and how old the lists are when that is known. A screen
+  reader hears the same. It goes when you close it or at the next check.
 - **The widget keeps its contents clear of its border in every Plasma style.** Some styles leave
   no room at the edges, and the package names and padlocks touched the border. The header,
   messages, rows and footer now share one inset on both sides.

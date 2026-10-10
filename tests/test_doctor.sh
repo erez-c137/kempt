@@ -1421,6 +1421,8 @@ printf '%s\n' '{"schema":1,"status":"stale","error":"dnf check failed: Cache-onl
 assert_contains "$(cat "$TESTTMP/off.txt")" \
   "WARN  package lists: the last download failed (Curl error (6): Could not resolve host: mirrors.fedoraproject.org). Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh" \
   "a failed dnf fetch is a WARN with the first line of its error"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "never refreshed" "...and no second row contradicts it"
+assert_not_contains "$(cat "$TESTTMP/off.txt")" "no dnf refresh recorded" "...in either wording"
 assert_contains "$(cat "$TESTTMP/off.txt")" \
   "WARN  last check failed: dnf check failed: Cache-only enabled but no cache. There are no counts yet" \
   "a stale state is a WARN with the first line of its error, and no earlier check means no counts"
