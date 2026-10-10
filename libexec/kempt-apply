@@ -8,17 +8,18 @@
 # -p is bash's privileged mode. It never reads BASH_ENV or ENV, and it ignores SHELLOPTS, BASHOPTS,
 # CDPATH, GLOBIGNORE and exported functions, so a caller that skips pkexec (sudo -E, say) still
 # cannot run code before the first line below. /usr/bin/bash because that is the path the package
-# ships. PATH is exported, so the pinned lookup order reaches dnf5's own children (rpm scriptlets
-# run as root) too.
-# pkexec passes on the caller's umask and resource limits, so both are reset before anything else.
-# The umask keeps root's dnf5 from writing group- or world-writable files into its cache, its
-# downloads or the offline directory.
-# The file size limit goes so a limit the caller chose cannot cut a root write short. Core files
-# go off so a crash leaves no copy of root's memory on disk. Raising a limit can fail outside root,
-# which is only the test suite, and must not stop the helper there.
+# ships. The same PATH is set on dnf5's unit (run_dnf5), so dnf5's own lookups use the pinned order.
+# rpm sets its own PATH for scriptlets.
+# This shell only decides. It validates the arguments, reads dnf5's stored state, and then hands
+# the one dnf5 command to systemd, which starts it as a fresh system service (see run_dnf5). pkexec
+# passes on far more of the caller than its environment: the umask, resource limits, ignored
+# signals, the working directory, the nice value, the CPU affinity and the cgroup. A process systemd
+# starts inherits none of them, so root's dnf5 cannot write group- or world-writable files into its
+# cache, its downloads or the offline directory, and rpm scriptlets do not run with signals the
+# caller chose to ignore. The umask and core-file lines below are belt and braces for this shell
+# and systemd-run, which write nothing; dnf5 gets its own from the unit properties.
 umask 022
 ulimit -c 0
-ulimit -f unlimited 2>/dev/null || true
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
@@ -26,6 +27,46 @@ NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 
 run() {  # test seam: KEMPT_APPLY_ECHO=1 prints instead of exec
   if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+}
+
+# systemd-run, and the directory that exists only while systemd is PID 1 (sd_booted(3)). Fixed
+# whenever this runs as root; the seams are honoured only for an unprivileged caller, which is the
+# test suite, like KEMPT_OFFLINE_TOML below.
+SYSTEMD_RUN=/usr/bin/systemd-run
+SYSTEMD_BOOTED=/run/systemd/system
+if [[ $EUID -ne 0 ]]; then
+  SYSTEMD_RUN="${KEMPT_SYSTEMD_RUN:-$SYSTEMD_RUN}"
+  SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"
+fi
+
+# The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
+# --pipe hands dnf5 this process's stdin, stdout and stderr; a terminal on stdin gets --pty instead
+# (below), so dnf5's own "Is this ok" prompt still reads it when the CLI runs without -y. --wait and
+# systemd-run's exit status carry dnf5's back. The unit gets umask 022, no core files, systemd's
+# default limits, cwd / and an environment of its own, so PATH and LC_ALL are set on it: without
+# them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and the system
+# locale. No time limit: stopping an rpm transaction partway is worse than waiting for it. Every
+# dnf5 argument comes after `--`, so a validated --exclude can never reach systemd-run as an option,
+# and --expand-environment=no keeps PID 1 from expanding ${VAR} and $$ inside them. HOME is set
+# because rpm scriptlets otherwise run without one (pkexec set it to /root). argv[0] is
+# /usr/bin/dnf5, and dnf5 records it in its history; cmd_update looks the run up by that exact
+# command line.
+run_dnf5() {
+  local -a props=()
+  while [[ "$1" != -- ]]; do props+=("$1"); shift; done
+  shift
+  [[ -d "$SYSTEMD_BOOTED" && -x "$SYSTEMD_RUN" ]] || {
+    echo "kempt-apply: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed." >&2
+    exit "$NO_SYSTEMD"
+  }
+  # A terminal on stdin gets a pty of the unit's own instead of the terminal itself. With --pipe,
+  # Ctrl-C reaches only systemd-run, which exits 130 and leaves dnf5 running, still reading the
+  # terminal, so the next "y" typed at the shell answers dnf5's prompt. --pty puts the terminal in
+  # raw mode and hands ^C to dnf5, which stops (exit 1) or, inside the rpm transaction, finishes.
+  local io=--pipe
+  [[ -t 0 ]] && io=--pty
+  run "$SYSTEMD_RUN" "$io" --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 \
+    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root "${props[@]}" -- /usr/bin/dnf5 "$@"
 }
 
 # dnf5's record of the ONE stored offline transaction. An ordinary offline update and a Fedora
@@ -45,6 +86,9 @@ if [[ $EUID -ne 0 && -n "${KEMPT_OFFLINE_TOML:-}" ]]; then OFFLINE_STATE="$KEMPT
 # can tell the two apart and say which it was. dnf5 itself exits 0, 1, 2 or 100, and pkexec 126 or
 # 127, so 3 cannot be mistaken for either of them.
 REFUSED=3
+# Exit status when systemd cannot start dnf5: no systemd as PID 1 (a container, say), or no
+# systemd-run. Nothing ran. dnf5 is never started from this shell instead.
+NO_SYSTEMD=4
 
 # One `key = "value"` line from dnf5's file, the same line-anchored read lib/common.sh uses. It is
 # repeated here rather than sourced because root must never source a file outside this helper. The
@@ -131,19 +175,19 @@ case "$verb" in
       guard_stored_release_upgrade "$verb"
       offline=(--offline)
     fi
-    run dnf5 upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
+    run_dnf5 -- upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
     ;;
   # A staged transaction sits at status="download-complete" and no boot applies it. This is what
   # ARMS it: status becomes "ready" and /system-update appears, which is the only thing systemd's
   # system-update-generator looks for. DNF_SYSTEM_UPGRADE_NO_REBOOT is the supported
   # arm-without-rebooting switch (dnf5-offline(8)) and is not optional here - without it dnf5
   # reboots the moment the transaction is armed, which is not what "on next restart" promised.
-  # Passed via `env` so the guard is part of the command line the ECHO seam prints and the suite
-  # can pin; a bare prefix assignment would be invisible to both.
+  # Set on the unit with --setenv, since the unit's environment is its own, so the guard is part of
+  # the command line the ECHO seam prints and the suite can pin.
   dnf-offline-arm)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
-    run env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y
+    run_dnf5 --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 -- offline reboot -y
     ;;
   # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
   # calls this to unwind a stage it could not arm, and to retire a stage a live update has already
@@ -153,7 +197,7 @@ case "$verb" in
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
     guard_stored_release_upgrade "$verb"
     guard_foreign_system_update "$verb"
-    run dnf5 offline clean -y
+    run_dnf5 -- offline clean -y
     ;;
   *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
 esac

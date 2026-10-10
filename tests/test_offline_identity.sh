@@ -347,14 +347,18 @@ assert_eq "$(strict "$MARKER_REPLACED")" "$(printf 'verdict:applied 8\nstill run
 # That command is taken from the ROOT HELPER here rather than written out by hand, because the
 # helper is what dnf5 sees. A CLI that stopped agreeing with the helper about the command it runs
 # would quietly lose every live attribution, and this is the assertion that would not let it.
+# The helper hands dnf5 to systemd-run, so the command dnf5 runs is what follows the `--`, argv[0]
+# included: dnf5 records /usr/bin/dnf5 when that is how it was started (seen on dnf5 5.4.3).
 LIVE_CMD="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
-assert_eq "$LIVE_CMD" "dnf5 upgrade -y" "premise: the root helper runs the command dnf5 records"
-# ...and the excludes, where the CLI puts them. cmd_update builds `dnf5 upgrade "${yflag[@]}"
+LIVE_CMD="${LIVE_CMD#* -- }"
+assert_eq "$LIVE_CMD" "/usr/bin/dnf5 upgrade -y" "premise: the root helper runs the command dnf5 records"
+# ...and the excludes, where the CLI puts them. cmd_update builds `/usr/bin/dnf5 upgrade "${yflag[@]}"
 # "${excl[@]}"` and hands the helper the same two arrays; dnf5 records argv verbatim, so a helper
 # that moved --exclude ahead of -y would match nothing and lose the attribution of every run on a
 # box that holds a package - silently, and only on those boxes. Nothing else compares the two.
-assert_eq "$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y --exclude=nano --exclude=zsh)" \
-  "dnf5 upgrade -y --exclude=nano --exclude=zsh" "premise: ...with the held packages excluded in that order"
+_excl_cmd="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y --exclude=nano --exclude=zsh)"
+assert_eq "${_excl_cmd#* -- }" \
+  "/usr/bin/dnf5 upgrade -y --exclude=nano --exclude=zsh" "premise: ...with the held packages excluded in that order"
 
 LIVE_LIST="$TESTTMP/live-list.json"
 mkdir -p "$TESTTMP/live-info"; cp "$FIXTURES"/dnf-history-info-*.json "$TESTTMP/live-info/"

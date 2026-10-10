@@ -25,24 +25,13 @@ jobs:
     name: offline lifecycle on real dnf5
     runs-on: ubuntu-latest
     # The gate renames /usr/bin/dnf5, empties dnf5's package cache and points repositories at a
-    # dead address to inject failures. It refuses to run outside a throwaway container, and a job
-    # container is exactly that: it is discarded when the job ends.
-    container: registry.fedoraproject.org/fedora:44
+    # dead address to inject failures, so it refuses to run outside a throwaway container. The root
+    # helpers start dnf5 only through systemd-run, which needs systemd as PID 1, and a job container
+    # cannot give that. tests/live/run-offline-gate.sh boots one with podman (preinstalled on
+    # ubuntu-latest), the same way it does on a workstation.
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
-      # The same layout tests/live/run-offline-gate.sh builds with podman on a workstation: the
-      # tree at /opt/kempt, and the two tools the CLI needs that a minimal image lacks.
-      - name: Put the tree where the gate expects it
-        run: |
-          dnf5 -y -q install jq util-linux
-          mkdir -p /opt/kempt
-          cp -a . /opt/kempt/
-          rm -rf /opt/kempt/.git
-          dnf5 --version | head -1
-
-      - name: Run the gate
-        env:
-          KEMPT_GATE_CONTAINER: "1"
-        run: bash /opt/kempt/tests/live/offline-gate.sh
+      - name: Run the gate in a systemd container
+        run: bash tests/live/run-offline-gate.sh

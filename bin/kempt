@@ -1741,12 +1741,13 @@ cmd_update() {
     fi
   else
     # The two reads that make a live run identifiable, taken as close around the apply as they can
-    # be. The command is rebuilt exactly as the root helper builds it (`dnf5 upgrade` then -y then
-    # the excludes, libexec/kempt-apply), because that is the command line dnf5 records; the suite
-    # takes it from the helper itself, so the two cannot drift apart unnoticed.
+    # be. The command is rebuilt exactly as the root helper builds it (`/usr/bin/dnf5 upgrade` then
+    # -y then the excludes, libexec/kempt-apply), because that is the command line dnf5 records,
+    # argv[0] and all; the suite takes it from the helper itself, so the two cannot drift apart
+    # unnoticed.
     local live_before="" live_cmd live_att
     live_before="$(dnf_history_max_id)" || live_before=""
-    local -a live_argv=(dnf5 upgrade "${yflag[@]}" "${excl[@]}")
+    local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
     if apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}"; then
       dnf_status="ok"
@@ -3756,30 +3757,59 @@ doctor_last_check_row() {
 }
 
 # Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
-# world-writable files in dnf5's cache and state, which any user could then alter. Group-writable is
-# left out: root's files belong to group root, and a common Fedora umask of 002 sets that bit
-# harmlessly. Reported, never repaired, because the fix needs root.
-doctor_world_writable() {  # dir → the first world-writable entry under it, or nothing
+# world-writable files in dnf5's cache and state, which any user could then alter. An entry counts
+# when root does not own it, since its owner can change it whatever its mode, or when it is
+# world-writable and not a link. Group-writable counts only with a group other than root: root's
+# files belong to group root, and a common Fedora umask of 002 sets that bit harmlessly. find -P
+# never follows a link, so a link planted there cannot point the search elsewhere. Reported, never
+# repaired, because the fix needs root.
+doctor_unsafe_entry() {  # dir [links] → the first entry under it another user could change, or nothing
   [[ -d "$1" ]] || return 0
-  find "$1" -perm -0002 ! -type l -print -quit 2>/dev/null || true
+  # With "links", any link counts too. dnf5 keeps none in its state, so a link there was planted, and
+  # chown -h would only make it root's: root's dnf5 would go on reading and writing through it.
+  local -a link=(-false); [[ "${2:-}" == links ]] && link=(-type l)
+  find -P "$1" \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
+    -print -quit 2>/dev/null || true
+}
+# Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
+# controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
+# are ASCII, so nothing real is lost.
+doctor_plain_name() {  # text → the text, safe to print
+  local LC_ALL=C
+  printf '%s' "${1//[^ -~]/?}"
 }
 doctor_dnf_cache_row() {
-  local hit fix
-  hit="$(doctor_world_writable "$KEMPT_DNF_CACHE_DIR")"
+  local hit dir_q fix
+  hit="$(doctor_unsafe_entry "$KEMPT_DNF_CACHE_DIR")"
   if [[ -n "$hit" ]]; then
-    # dnf5 clean all also drops altered files, but it deletes a stored transaction's packages too.
-    # So it joins the fix only while nothing is stored.
-    fix="sudo chmod -R go-w $KEMPT_DNF_CACHE_DIR"
+    hit="$(doctor_plain_name "$hit")"   # another user picks the name, so it never reaches the terminal raw
+    printf -v dir_q '%q' "$KEMPT_DNF_CACHE_DIR"
+    # Not dnf5 clean all: it follows links planted at <repo>/packages or <repo>/repodata and deletes
+    # what they point at, outside the cache. The cache moves into a fresh root-only directory on the
+    # same file system, so another user cannot reach it mid-delete, and rm stays on that file system.
+    # --no-copy makes mv fail rather than fall back to a copy.
+    fix="t=\$(sudo mktemp -d $dir_q-unsafe.XXXXXX) && sudo mv -T --no-copy $dir_q \"\$t/old\""
+    fix+=" && sudo mkdir -m 0755 $dir_q && sudo restorecon $dir_q && sudo rm -rf --one-file-system \"\$t\""
+    # A stored transaction's packages live in the cache, so the move waits for kempt unstage.
     if [[ ! -e "$KEMPT_OFFLINE_TOML" && ! -L "$KEMPT_OFFLINE_TOML" ]]; then
-      fix+=" && sudo dnf5 clean all"
+      fix="Replace the cache with: $fix"
     else
-      fix+=". Then discard the staged update with kempt unstage, and run: sudo dnf5 clean all"
+      fix="Replacing the cache also deletes the staged update, so first discard it with kempt unstage. Then run: $fix"
     fi
-    doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: $fix"
+    # Another user still writing into the old cache can make the last rm fail with "Directory not
+    # empty", which leaves a root-only <dir>-unsafe.XXXXXX behind; the glob reaches it again.
+    fix+=". If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*"
+    doctor_warn "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix"
   fi
-  hit="$(doctor_world_writable "$KEMPT_DNF_SYSIMAGE_DIR")"
+  hit="$(doctor_unsafe_entry "$KEMPT_DNF_SYSIMAGE_DIR" links)"
   if [[ -n "$hit" ]]; then
-    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). An earlier Kempt could leave them that way. Fix it with: sudo chmod -R go-w $KEMPT_DNF_SYSIMAGE_DIR"
+    hit="$(doctor_plain_name "$hit")"
+    printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
+    # chown first: chmod alone leaves another user's files theirs, and chmod before chown leaves a
+    # moment where that owner can still open them for writing. -h changes a link, not its target.
+    # Links go last, once nobody else can add one; find -P -delete removes a link, never its target.
+    # Neither revokes a file another user already holds open for writing, hence the restart.
+    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops."
   fi
 }
 

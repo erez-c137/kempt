@@ -1315,10 +1315,13 @@ config_set() {  # key value [if-absent]
 # How long each arm of a metadata refresh (dnf, then Flatpak) may take before the check gives up on
 # it. It holds for Flatpak and for a polkit dialog nobody answers, which a background check sits on
 # for the full two minutes. It cannot stop dnf5 itself: once pkexec has started the helper, dnf5
-# runs as root and SIGTERM from this user gets EPERM. So kempt-refresh bounds makecache itself,
-# as root, with the same 120 s (`timeout -k 10 120`). Change one and change the other. The widget's
-# CHECK_TIMEOUT_MS allows for both. A seam only so the suite can reach that branch - hardcoded,
-# no test could drive it without waiting two minutes, and it had none.
+# runs as root and SIGTERM from this user gets EPERM. So kempt-refresh has systemd bound makecache,
+# as root, with the same 120 s (RuntimeMaxSec=120: SIGTERM, then SIGKILL after TimeoutStopSec=10).
+# Change one and change the other. The widget's CHECK_TIMEOUT_MS allows for both. A seam only so
+# the suite can reach that branch - hardcoded, no test could drive it without waiting two minutes,
+# and it had none. Both helpers exit 4, running nothing, where systemd is not PID 1 or systemd-run
+# is missing; that is recorded as a failed refresh or a failed run like any other, with the
+# helper's own line saying why.
 KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
 priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }

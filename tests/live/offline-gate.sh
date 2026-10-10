@@ -415,7 +415,7 @@ is "...and the command that built the transaction" "$(jq -r '.cmd_line // "absen
 has "...which carries the hold" "$(jq -r '.cmd_line // ""' <<<"$m")" "--exclude=$P1"
 staged13=$(jq -r '.staged_names[]' <<<"$m" | sort -u)
 before_id=$(history_top)
-dnf5 offline _execute > /tmp/s13-exec.out 2>&1
+DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent dnf5 offline _execute > /tmp/s13-exec.out 2>&1
 is "the transaction applied, and dnf5's record went with it" "$(toml_status)" "absent"
 applied_id=$(history_top)
 (( applied_id > before_id )) && ok "dnf5 recorded it as history entry $applied_id" || bad "no new history entry" "$before_id -> $applied_id"
@@ -449,7 +449,7 @@ dnf5 -y -q offline clean >/dev/null 2>&1
 dnf5 -y -q upgrade --offline --exclude="$X14" >/dev/null 2>&1 && DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 -y -q offline reboot >/dev/null 2>&1
 is "the outside stage is armed" "$(toml_status)" "ready"
 is "...against the same rpmdb cookie Kempt recorded, so the cookie alone cannot tell them apart" "$(toml_key rpmdb_cookie)" "$(jq -r .rpmdb_cookie <<<"$m")"
-dnf5 offline _execute > /tmp/s14-exec.out 2>&1
+DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent dnf5 offline _execute > /tmp/s14-exec.out 2>&1
 is "it applied" "$(toml_status)" "absent"
 : > /tmp/gate-notifications; n_hist=$(ls -1 "$STATE/history" | wc -l)
 KEMPT_BOOT_ID=s14-boot "$K" check >/dev/null 2>&1
@@ -478,7 +478,7 @@ is "the marker records it" "$(jq -r '.replaced // "absent"' <<<"$(marker)")" "tr
 is "...and is still the stage Kempt made" "$(jq -r .staged_at <<<"$(marker)")" "$at15"
 "$K" check >/dev/null 2>&1
 is "said once, not once per check" "$(grep -c 'replaced outside Kempt' /tmp/gate-notifications)" "1"
-dnf5 offline _execute > /tmp/s15-exec.out 2>&1
+DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent dnf5 offline _execute > /tmp/s15-exec.out 2>&1
 KEMPT_BOOT_ID=s15-boot "$K" check >/dev/null 2>&1
 is "after the restart it is not reported as Kempt's" "$(jq -r .surface "$(newest_hist)")" "restart (staged update did not run)"
 is "marker consumed" "$(marker)" ""
