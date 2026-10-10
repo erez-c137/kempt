@@ -305,7 +305,7 @@ root_shape_violations() {  # helper file → one line per violation, then "read 
     | sed 's/^/writes or starts another command: /' || true
   # Allowlist, not denylist: every call of run_dnf5 hands systemd-run only literal unit settings
   # from a fixed list. A caller-chosen -p or --setenv is a root command (ExecStartPre=, LD_PRELOAD=).
-  grep -oE '(^|[;&|]|then|else|do)[[:space:]]*run_dnf5[[:space:]][^;]*' <<<"$code" | sed -E 's/^.*run_dnf5[[:space:]]+//' \
+  grep -oE '(^|[^A-Za-z0-9_])run_dnf5[[:space:]][^;]*' <<<"$code" | sed -E 's/^.*run_dnf5[[:space:]]+//' \
     | grep -vE '^((-p (RuntimeMaxSec|TimeoutStopSec)=[0-9]+|--setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1) )*-- [^$]*(\$\{(offline|assume|excludes)\[@\]\}"?[^$]*)*$' \
     | sed 's/^/unit settings other than the fixed list: /' || true
   # Command position only: after a line start, ; & | ( { or a shell keyword. A variable as the command
@@ -339,6 +339,11 @@ assert_exit 0 "...it catches a caller's argument forwarded as a unit property" -
   grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- upgrade "\${offline\[@\]}"|    run_dnf5 "$@" -- upgrade "${offline[@]}"|')
 assert_exit 0 "...it catches an ExecStartPre= smuggled in as a property" -- \
   grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- offline clean -y$|    run_dnf5 -p ExecStartPre=/bin/true -- offline clean -y|')
+# Any position, not only after ; & | or a keyword: a brace group or a subshell is a call too.
+assert_exit 0 "...it catches a property smuggled in from a brace group" -- \
+  grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- offline clean -y$|    { run_dnf5 "$@" -- offline clean -y; }|')
+assert_exit 0 "...it catches a property smuggled in from a subshell" -- \
+  grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- offline clean -y$|    ( run_dnf5 -p ExecStartPre=/bin/true -- offline clean -y )|')
 assert_exit 0 "...it catches systemd-run called without run" -- \
   grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; "$SYSTEMD_RUN" --wait -- /usr/bin/rpm -e foo 2>/dev/null|')
 assert_exit 0 "...it catches eval" -- \
