@@ -12,7 +12,14 @@ trap 'podman rm -f "$name" >/dev/null 2>&1 || true; podman rmi -f "$img" >/dev/n
 printf 'FROM %s\nRUN dnf5 -y -q install systemd jq util-linux && dnf5 clean all\nCMD ["/sbin/init"]\n' "$BASE" \
   | podman build -q -t "$img" -f - >/dev/null
 podman run -d --name "$name" --systemd=always "$img" >/dev/null
-podman exec "$name" systemctl is-system-running --wait >/dev/null || true   # "degraded" is fine
+# Right after podman run the system bus may not exist yet, and then --wait returns at once with an
+# error instead of waiting. So ask again until systemd answers; "degraded" is fine.
+for _ in $(seq 60); do
+  st="$(podman exec "$name" systemctl is-system-running --wait 2>/dev/null || true)"
+  [[ "$st" == running || "$st" == degraded ]] && break
+  sleep 1
+done
+[[ "$st" == running || "$st" == degraded ]] || { echo "systemd did not finish booting in the gate container ($st)" >&2; exit 1; }
 # Tracked files only, as they are on disk: worktrees and private notes stay out of the container.
 git -C "$ROOT" ls-files -z | tar -C "$ROOT" --null --ignore-failed-read -T - -cf - | podman exec -i "$name" bash -c 'mkdir -p /opt/kempt && tar -xf - -C /opt/kempt'
 # The gate refuses to run outside a throwaway container; this is the runner saying it built one.
