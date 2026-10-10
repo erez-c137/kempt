@@ -44,9 +44,11 @@ fi
 # still reads the terminal when the CLI runs without -y; --wait and systemd-run's exit status carry
 # dnf5's back. The unit gets umask 022, no core files, systemd's default limits, cwd / and an
 # environment of its own, so PATH and LC_ALL are set on it: without them it gets systemd's PATH,
-# which puts /usr/local first for rpm scriptlets, and the system locale. No time limit: stopping an
+# which puts /usr/local first for dnf5's own lookups, and the system locale. No time limit: stopping an
 # rpm transaction partway is worse than waiting for it. Every dnf5 argument comes after `--`, so a
-# validated --exclude can never reach systemd-run as an option. argv[0] is /usr/bin/dnf5, and dnf5
+# validated --exclude can never reach systemd-run as an option, and --expand-environment=no keeps
+# PID 1 from expanding ${VAR} and $$ inside them. HOME is set because rpm scriptlets otherwise run
+# without one (pkexec set it to /root). argv[0] is /usr/bin/dnf5, and dnf5
 # records it in its history; cmd_update looks the run up by that exact command line.
 run_dnf5() {
   local -a props=()
@@ -56,8 +58,14 @@ run_dnf5() {
     echo "kempt-apply: systemd is not running this system, or systemd-run is missing, so dnf5 was not started" >&2
     exit "$NO_SYSTEMD"
   }
-  run "$SYSTEMD_RUN" --pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 \
-    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 "${props[@]}" -- /usr/bin/dnf5 "$@"
+  # A terminal on stdin gets a pty of the unit's own instead of the terminal itself. With --pipe,
+  # Ctrl-C reaches only systemd-run, which exits 130 and leaves dnf5 running, still reading the
+  # terminal, so the next "y" typed at the shell answers dnf5's prompt. --pty puts the terminal in
+  # raw mode and hands ^C to dnf5, which stops (exit 1) or, inside the rpm transaction, finishes.
+  local io=--pipe
+  [[ -t 0 ]] && io=--pty
+  run "$SYSTEMD_RUN" "$io" --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 \
+    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root "${props[@]}" -- /usr/bin/dnf5 "$@"
 }
 
 # dnf5's record of the ONE stored offline transaction. An ordinary offline update and a Fedora

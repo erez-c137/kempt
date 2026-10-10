@@ -36,9 +36,11 @@ NO_SYSTEMD=4
 # --pipe hands dnf5 this process's stdin, stdout and stderr; --wait and systemd-run's exit status
 # carry dnf5's back (100 from check-update included). The unit gets umask 022, no core files,
 # systemd's default limits, cwd /, and an environment of its own, so PATH and LC_ALL are set on it:
-# without them it gets systemd's PATH, which puts /usr/local first for rpm scriptlets, and the
-# system locale, which would translate the text the CLI parses. Every dnf5 argument comes after
-# `--`, so none of them can reach systemd-run as an option.
+# without them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and
+# the system locale, which would translate the text the CLI parses. Every dnf5 argument comes after
+# `--`, so none of them can reach systemd-run as an option, and --expand-environment=no keeps PID 1
+# from expanding ${VAR} and $$ inside them. HOME is set because rpm scriptlets otherwise run without
+# one (pkexec set it to /root).
 run_dnf5() {
   local -a props=()
   while [[ "$1" != -- ]]; do props+=("$1"); shift; done
@@ -47,8 +49,8 @@ run_dnf5() {
     echo "kempt-refresh: systemd is not running this system, or systemd-run is missing, so dnf5 was not started" >&2
     exit "$NO_SYSTEMD"
   }
-  run "$SYSTEMD_RUN" --pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 \
-    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 "${props[@]}" -- /usr/bin/dnf5 "$@"
+  run "$SYSTEMD_RUN" --pipe --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 \
+    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root "${props[@]}" -- /usr/bin/dnf5 "$@"
 }
 
 # Does the installed dnf5 print check-update as JSON? 5.4.0 added --json; Fedora 43 ships 5.2.

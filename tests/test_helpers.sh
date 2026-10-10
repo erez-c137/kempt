@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/lib.sh"; sandbox
+# kempt-apply picks --pty when stdin is a terminal; every exact-command assertion below is the
+# non-terminal case, whoever runs the suite. The terminal case has its own test.
+exec </dev/null
 RH="$REPO_ROOT/libexec/kempt-refresh"
 AH="$REPO_ROOT/libexec/kempt-apply"
 # What every dnf5 command is wrapped in: systemd starts it as a fresh service with these properties
 # and this environment, and every dnf5 argument comes after `--`. sd [properties] dnf5-args... prints
 # the command line the ECHO seams print. KEMPT_SYSTEMD_RUN is the stand-in tests/lib.sh writes.
-SD_BASE="--pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8"
+SD_BASE="--pipe --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root"
 sd() { local props="$1"; shift; echo "$KEMPT_SYSTEMD_RUN $SD_BASE${props:+ $props} -- /usr/bin/dnf5 $*"; }
 
 # ECHO=1 on the rejection cases too (belt and braces): if an arg guard is ever removed, the
@@ -286,7 +289,7 @@ fi
 root_shape_violations() {  # helper file → one line per violation, then "read to the end"
   local code
   code="$(grep -vE '^[[:space:]]*#' "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')"
-  local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" --pipe --wait --quiet --collect -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
+  local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" (--pipe|"\$io") --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
   grep -wE 'dnf5' <<<"$code" \
     | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "kempt-(apply|refresh): [^"]*" >&2$' \
     | sed 's/^/dnf5 outside systemd-run: /' || true
@@ -300,6 +303,19 @@ root_shape_violations() {  # helper file → one line per violation, then "read 
     | sed 's/^/writes a file: /' || true
   grep -E '(^|[^A-Za-z0-9_-])(touch|mkdir|cp|mv|rm|ln|install|chmod|chown|chgrp|truncate|dd|tee|mktemp|mkfifo|timeout|env|nohup|setsid|nice|systemctl|pkexec|sudo|runuser|flatpak)([[:space:]]|$)|sed -i|[^&>]&([^&>]|$)' <<<"$code" \
     | sed 's/^/writes or starts another command: /' || true
+  # Allowlist, not denylist: every call of run_dnf5 hands systemd-run only literal unit settings
+  # from a fixed list. A caller-chosen -p or --setenv is a root command (ExecStartPre=, LD_PRELOAD=).
+  grep -oE '(^|[;&|]|then|else|do)[[:space:]]*run_dnf5[[:space:]][^;]*' <<<"$code" | sed -E 's/^.*run_dnf5[[:space:]]+//' \
+    | grep -vE '^((-p (RuntimeMaxSec|TimeoutStopSec)=[0-9]+|--setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1) )*-- [^$]*(\$\{(offline|assume|excludes)\[@\]\}"?[^$]*)*$' \
+    | sed 's/^/unit settings other than the fixed list: /' || true
+  # Command position only: after a line start, ; & | ( { or a shell keyword. A variable as the command
+  # ("$D" args) is caught too: root's commands are named, never looked up from a variable.
+  grep -E '(^|[;&|({]|then|else|do)[[:space:]]*(eval|source|\.|rpm|kill|pkill|killall|bash|sh|/usr/bin/systemd-run|systemd-run|"\$[^"]*")([[:space:]]|$)' <(sed -E 's/\[\[[^]]*(\][^]][^]]*)*\]\]//g' <<<"$code") \
+    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*SYSTEMD_RUN=' \
+    | sed 's/^/runs code other than through systemd-run: /' || true
+  # The one choice the shell makes about systemd-run itself: a pty for a terminal, else pipes.
+  grep -E '(^|[^A-Za-z0-9_])io=' <<<"$code" | grep -vxE '[[:space:]]*local io=--pipe|[[:space:]]*\[\[ -t 0 \]\] && io=--pty' \
+    | sed 's/^/systemd-run mode other than pipe or pty: /' || true
   echo "read to the end"   # so a check that died partway can never pass as an empty answer
 }
 for h in "$RH" "$AH"; do
@@ -318,6 +334,29 @@ assert_exit 0 "...it catches another command started as root" -- \
 assert_exit 0 "...it catches the time limit going back to timeout" -- \
   grep -q 'starts another' <(sed 's|run_dnf5 -p RuntimeMaxSec=120 -p TimeoutStopSec=10 -- makecache --refresh|run /usr/bin/timeout -k 10 120 dnf5 makecache --refresh|' "$RH" \
     > "$TESTTMP/mutant-r"; root_shape_violations "$TESTTMP/mutant-r")
+
+assert_exit 0 "...it catches a caller's argument forwarded as a unit property" -- \
+  grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- upgrade "\${offline\[@\]}"|    run_dnf5 "$@" -- upgrade "${offline[@]}"|')
+assert_exit 0 "...it catches an ExecStartPre= smuggled in as a property" -- \
+  grep -q 'unit settings other than' <(mutant 's|^    run_dnf5 -- offline clean -y$|    run_dnf5 -p ExecStartPre=/bin/true -- offline clean -y|')
+assert_exit 0 "...it catches systemd-run called without run" -- \
+  grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; "$SYSTEMD_RUN" --wait -- /usr/bin/rpm -e foo 2>/dev/null|')
+assert_exit 0 "...it catches eval" -- \
+  grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; eval "${X:-:}"|')
+assert_exit 0 "...it catches a sourced file" -- \
+  grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; . /etc/kempt/root.conf 2>/dev/null|')
+assert_exit 0 "...it catches rpm run straight from the shell" -- \
+  grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; rpm --rebuilddb 2>/dev/null|')
+
+# A terminal on stdin gets --pty, so Ctrl-C reaches dnf5 instead of detaching it (see run_dnf5).
+if command -v python3 >/dev/null; then
+  # shellcheck disable=SC2016
+  pty_out="$(env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" \
+    python3 -c 'import pty,sys; pty.spawn(sys.argv[1:])' bash "$AH" dnf-offline-clean | tr -d '\r')"
+  assert_eq "$pty_out" "$(sd '' offline clean -y | sed 's/ --pipe / --pty /')" "kempt-apply: a terminal on stdin gets --pty, with the same properties"
+else
+  skip "pty selection test - needs python3"
+fi
 
 # What systemd-run is handed, one argument per line, from the stand-in tests/lib.sh writes. No ECHO
 # here: the helper really execs it.

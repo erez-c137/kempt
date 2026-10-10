@@ -280,9 +280,9 @@ command output stable.
 
 ## Pinned PATH
 
-Both helpers `export PATH=/usr/sbin:/usr/bin:/sbin:/bin` and set it on dnf5's service, so the
-pinned lookup order also applies to the children dnf5 starts, including rpm scriptlets running as
-root. This is an extra layer: pkexec already sanitises the environment.
+Both helpers `export PATH=/usr/sbin:/usr/bin:/sbin:/bin` and set it on dnf5's service, so that
+order also covers programs dnf5 starts; rpm sets its own PATH for scriptlets. This is an extra
+layer: pkexec already sanitises the environment.
 
 ## The panel widget
 
