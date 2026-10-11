@@ -106,7 +106,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   these. Other updaters still see them." The commands to install a missing engine each get a line. A
   failed installation check points to the full report. A run that stops reporting back says the list
   shows what is pending now. A long list of desktop packages ends in "…".
-- **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and "popup".**
+- **The package summary, the man page and `dnf info kempt-plasmoid` drop "one-click" and the widget's old name.**
   They describe what Kempt does in the same words as the rest of the release.
 - **The widget's summary names Fedora.** The KDE Store, Add Widgets and software centres read
   "Tidy dnf and Flatpak updates for Fedora KDE".
@@ -266,9 +266,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   signed in at this computer could make root leave dnf's package lists open for any user to change,
   for example to hide updates. We know of no way to gain root from that alone: dnf checks each
   package's signature before it installs it. Updates you ran yourself were exposed only if your own
-  umask lets every user write, which is not Fedora's default. Then another account could swap a
-  staged update. The restart installs staged packages without checking their signatures again, so
-  that could give it root. A computer with one user needs nothing. Each dnf run now gets a safe umask
+  umask lets every user write, which is not Fedora's default. Then any other account on the
+  computer could swap a staged update. The restart installs staged packages without checking their
+  signatures again, so that could give that account root. A computer with one user needs nothing. Each dnf run now gets a safe umask
   of its own. `kempt doctor` checks dnf's cache, its state and the staged packages, and gives the fix
   for each. The cache is a warning; the other two are failures. Do not use `dnf5 clean all` on an
   affected cache: it follows links another user planted and deletes files outside the cache.
