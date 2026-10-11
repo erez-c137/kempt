@@ -114,7 +114,7 @@ would let a caller believe it had been honoured.
 
 The removed `flatpak-update` verb also exits 2, so an old caller cannot get a privileged flatpak.
 
-`dnf-offline-arm` runs `env DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline reboot -y`. It installs
+`dnf-offline-arm` runs `dnf5 offline reboot -y` with `DNF_SYSTEM_UPGRADE_NO_REBOOT=1` set. It installs
 nothing. It marks an already-downloaded transaction ready and creates `/system-update`, which
 systemd's offline-update generator looks for at the next boot. Without the environment variable,
 dnf5 would reboot the moment the transaction is armed.
@@ -125,8 +125,12 @@ throws away updates that were still waiting to install.
 Neither helper runs dnf5 itself. After validating, each execs `systemd-run`, which starts dnf5 as
 a new service with `UMask=0022` and no core files. pkexec passes on the caller's umask, limits,
 ignored signals, working directory and cgroup, and a refresh needs no password. The service
-inherits none of them, so nobody at the desk can make root write files others can change. Without
+inherits none of them, so no other account can make root write files others can change. Without
 systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing.
+
+Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cache, state and
+staged packages for files another user could change. A changed staged package installs as root
+without a second signature check, so the state and staged rows are failures.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.

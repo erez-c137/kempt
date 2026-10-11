@@ -166,6 +166,9 @@ KEMPT_OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offlin
 KEMPT_DNF_CACHE_DIR="${KEMPT_DNF_CACHE_DIR:-/var/cache/libdnf5}"
 # dnf5's system state, where the apply verbs write. Read by `kempt doctor` for the same reason.
 KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
+# Where dnf5 keeps a staged update's packages until the restart installs them, without checking
+# their signatures again. Read by `kempt doctor` for the same reason.
+KEMPT_DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-/var/lib/dnf/offline}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
