@@ -3793,12 +3793,9 @@ doctor_dnf_cache_row() {
     # --no-copy makes mv fail rather than fall back to a copy.
     fix="t=\$(sudo mktemp -d $dir_q-unsafe.XXXXXX) && sudo mv -T --no-copy $dir_q \"\$t/old\""
     fix+=" && sudo mkdir -m 0755 $dir_q && sudo restorecon $dir_q && sudo rm -rf --one-file-system \"\$t\""
-    # A stored transaction's packages live in the cache, so the move waits for kempt unstage.
-    if [[ ! -e "$KEMPT_OFFLINE_TOML" && ! -L "$KEMPT_OFFLINE_TOML" ]]; then
-      fix="Replace the cache with: $fix"
-    else
-      fix="Replacing the cache also deletes the staged update, so first discard it with kempt unstage. Then run: $fix"
-    fi
+    # A staged update is unaffected: dnf5 keeps its packages in /var/lib/dnf/offline/packages and
+    # records their full paths, so it still installs from an empty cache.
+    fix="Replace the cache with: $fix"
     # Another user still writing into the old cache can make the last rm fail with "Directory not
     # empty", which leaves a root-only <dir>-unsafe.XXXXXX behind; the glob reaches it again.
     fix+=". If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*"
