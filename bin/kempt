@@ -3819,8 +3819,10 @@ doctor_dnf_cache_row() {
     # setfacl -b drops every ACL entry, default ones included, which chmod leaves in place.
     local acl=""
     command -v setfacl >/dev/null 2>&1 && acl=" && sudo setfacl -R -P -b $dir_q"
-    # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root.
-    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
+    # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
+    # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;
+    # dnf5 offline clean exits 0 when nothing is staged, so the chain goes on either way.
+    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
   fi
   hit="$(doctor_unsafe_entry "$KEMPT_DNF_OFFLINE_PKG_DIR" links)"
   if [[ -n "$hit" ]]; then

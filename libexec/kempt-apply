@@ -43,8 +43,9 @@ fi
 # --pipe hands dnf5 this process's stdin, stdout and stderr; a terminal on stdin gets --pty instead
 # (below), so dnf5's own "Is this ok" prompt still reads it when the CLI runs without -y. --wait and
 # systemd-run's exit status carry dnf5's back. The unit gets umask 022, no core files, systemd's
-# default limits, cwd / and an environment of its own, so PATH and LC_ALL are set on it: without
-# them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and the system
+# default limits, cwd / and an environment of its own (--pty also copies TERM, COLORTERM and
+# NO_COLOR from the caller, which only shape dnf5's output), so PATH and LC_ALL are set on it:
+# without them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and the system
 # locale. No time limit: stopping an rpm transaction partway is worse than waiting for it. Every
 # dnf5 argument comes after `--`, so a validated --exclude can never reach systemd-run as an option,
 # and --expand-environment=no keeps PID 1 from expanding ${VAR} and $$ inside them. HOME is set
