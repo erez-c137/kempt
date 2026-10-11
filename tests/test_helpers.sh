@@ -250,14 +250,20 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
   assert_exit "$REFUSED_RC" "as root, the real path decides: a stored release upgrade is refused even with the seam at an ordinary update" -- \
     as_ns_root "$TESTTMP/ns-relup" dnf-offline-arm KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
   assert_eq "$(cat "$TESTTMP/last_output")" "$(relup_line dnf-offline-arm)" "...refused by what the real path holds"
-  assert_exit 0 "as root, the seam cannot invent a release upgrade either" -- \
+  # Root reads only the real paths, so a verb that goes ahead does so where systemd runs and stops
+  # with exit 4 where it does not, as in the package build's container.
+  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then go_rc=0; else go_rc=4; fi
+  assert_exit "$go_rc" "as root, the seam cannot invent a release upgrade either" -- \
     as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
-  assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
-    "...the real path is empty, so the verb goes ahead, through the real systemd-run"
+  if (( go_rc == 0 )); then
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
+      "...the real path is empty, so the verb goes ahead, through the real systemd-run"
+  else
+    assert_not_contains "$(cat "$TESTTMP/last_output")" "release upgrade" "...the real path is empty, so it stops only for want of systemd"
+  fi
   # The systemd seams change nothing as root either. The sandbox points them at the stand-in and a
-  # directory that exists; here the booted one points nowhere. Root reads only the real paths, so
-  # the answer is the box's own: go ahead where systemd runs, exit 4 where it does not.
-  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then
+  # directory that exists; here the booted one points nowhere.
+  if (( go_rc == 0 )); then
     assert_exit 0 "as root, the systemd seams are ignored: the real systemd-run, though the seam says systemd is absent" -- \
       as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir"
     assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" "...and its fixed path"
@@ -266,7 +272,7 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
       as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean
   fi
   if [[ ! -e /system-update && ! -L /system-update ]]; then
-    assert_exit 0 "as root, the link seam cannot invent another updater's restart" -- \
+    assert_exit "$go_rc" "as root, the link seam cannot invent another updater's restart" -- \
       as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_LINK="$FL/foreign-link" KEMPT_OFFLINE_DATADIR="$FL/offline"
   else
     skip "root link-seam test: this box has a /system-update of its own"
