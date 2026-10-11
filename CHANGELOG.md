@@ -260,15 +260,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Security
 
 - **Root's dnf files can no longer be left open to other users.** In 0.1.0 to 0.1.7 the root
-  helpers kept the umask of whoever started them. A refresh needs no password, so a second account
-  signed in at the same computer could make root leave dnf's package files open for any user to
-  change. Updates you installed or staged were exposed the same way if your own umask allowed it.
-  The other account could then alter the package lists, for example to hide updates. It does not
-  give root, and dnf still checks package signatures. A computer with one user needs nothing. Each
-  dnf run now gets a safe umask of its own. `kempt doctor` warns when another user owns or can
-  change a file in dnf's cache or state, and gives the fix. For the cache the fix moves it aside
-  and makes a new one. Do not use `dnf5 clean all` there: it follows links another user planted and
-  deletes files outside the cache.
+  helpers kept the umask of whoever started them. A refresh needs no password, so another account
+  signed in at this computer could make root leave dnf's package lists open for any user to change,
+  for example to hide updates. We know of no way to gain root from that alone: dnf checks each
+  package's signature before it installs it. Updates you ran yourself were exposed only if your own
+  umask lets every user write, which is not Fedora's default. Then another account could swap a
+  staged update. The restart installs staged packages without checking their signatures again, so
+  that could give it root. A computer with one user needs nothing. Each dnf run now gets a safe umask
+  of its own. `kempt doctor` checks dnf's cache, its state and the staged packages, and gives the fix
+  for each. The cache is a warning; the other two are failures. Do not use `dnf5 clean all` on an
+  affected cache: it follows links another user planted and deletes files outside the cache.
 - **System updates now start in a clean environment of their own.** Before, dnf ran as root but
   kept settings from the program that started it, such as signals it ignored, its working folder
   and its resource limits. Now systemd starts each dnf run as a fresh service, with safe file

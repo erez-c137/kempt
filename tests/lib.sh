@@ -109,6 +109,7 @@ sandbox() {  # fresh dirs per test file; call first
   # exist, so the REAL /var/cache/libdnf5 never decides a doctor test.
   export KEMPT_DNF_CACHE_DIR="$TESTTMP/no-dnf-cache"
   export KEMPT_DNF_SYSIMAGE_DIR="$TESTTMP/no-dnf-sysimage"
+  export KEMPT_DNF_OFFLINE_PKG_DIR="$TESTTMP/no-dnf-offline"
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.

@@ -3771,8 +3771,15 @@ doctor_unsafe_entry() {  # dir [links] → the first entry under it another user
   # With "links", any link counts too. dnf5 keeps none in its state, so a link there was planted, and
   # chown -h would only make it root's: root's dnf5 would go on reading and writing through it.
   local -a link=(-false); [[ "${2:-}" == links ]] && link=(-type l)
-  find -P "$1" \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
-    -print -quit 2>/dev/null || true
+  local hit
+  hit="$(find -P "$1" \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
+    -print -quit 2>/dev/null)" || true
+  # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
+  # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
+  if [[ -z "$hit" ]] && command -v getfacl >/dev/null 2>&1; then
+    hit="$(getfacl -R -P -s -p "$1" 2>/dev/null | sed -n '1s/^# file: //p')" || true
+  fi
+  printf '%s' "$hit"
 }
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
@@ -3809,7 +3816,21 @@ doctor_dnf_cache_row() {
     # moment where that owner can still open them for writing. -h changes a link, not its target.
     # Links go last, once nobody else can add one; find -P -delete removes a link, never its target.
     # Neither revokes a file another user already holds open for writing, hence the restart.
-    doctor_warn "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops."
+    # setfacl -b drops every ACL entry, default ones included, which chmod leaves in place.
+    local acl=""
+    command -v setfacl >/dev/null 2>&1 && acl=" && sudo setfacl -R -P -b $dir_q"
+    # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root.
+    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
+  fi
+  hit="$(doctor_unsafe_entry "$KEMPT_DNF_OFFLINE_PKG_DIR" links)"
+  if [[ -n "$hit" ]]; then
+    hit="$(doctor_plain_name "$hit")"
+    printf -v dir_q '%q' "$KEMPT_DNF_OFFLINE_PKG_DIR"
+    # The restart installs these packages as root without checking their signatures again, so a
+    # swapped one runs its scripts as root. Their contents cannot be trusted, so the fix discards
+    # the stage and the directory; dnf5 makes a new one at the next stage. dnf5 offline clean does
+    # not follow links (checked on dnf5 5.4.6), and rm -rf never does.
+    doctor_fail "dnf staged updates: other users can change files in $KEMPT_DNF_OFFLINE_PKG_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way, and a changed package there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again."
   fi
 }
 

@@ -53,6 +53,8 @@ BuildRequires:  python3
 Requires:       jq
 Requires:       dnf5
 Requires:       polkit
+# The root helpers start dnf5 through systemd-run.
+Requires:       /usr/bin/systemd-run
 Requires:       util-linux-core
 # `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
 # dnf5: `dnf5 -q repoquery --whatprovides "dnf5-command(needs-restarting)"` returns dnf5-plugins,
@@ -272,9 +274,10 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 
 %changelog
 * Sat Oct 03 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
-- Security: the root helpers set their own umask, so root's dnf files can no
-  longer be left writable by other users, and they never discard another
-  updater's prepared restart. kempt doctor warns about files left open.
+- Security: systemd starts each root dnf run in a clean service with its own
+  umask, so root's dnf files can no longer be left writable by other users.
+  The helpers never discard another updater's prepared restart. kempt doctor
+  checks dnf's cache, state and staged packages for files left open.
 - Error messages drop URL credentials, tokens and your home path.
 - kempt and install.sh refuse to run as root (exit 8).
 - New kempt status, per-command --help, and a plain-words kempt log.

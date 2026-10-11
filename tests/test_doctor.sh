@@ -1346,9 +1346,17 @@ assert_not_contains "$(cat "$TESTTMP/dc.txt")" "unstage" "...and does not ask to
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and never offers dnf5 clean all"
 assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doctor changes nothing itself"
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
+acl_fix() { command -v setfacl >/dev/null && printf ' && sudo setfacl -R -P -b %s' "$1"; }  # dir → the ACL step, where setfacl exists
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops." \
-  "a state directory root does not own is a WARN: chown, then chmod, then the links, then a restart"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
+  "a state directory root does not own is a FAIL: chown, ACLs, chmod, then the links, a restart and a second look"
+# A staged update's packages install as root at the restart without a second signature check.
+DO="$TESTTMP/dnf-offline"; mkdir -p "$DO/packages"; : > "$DO/packages/p.rpm"
+KEMPT_DNF_OFFLINE_PKG_DIR="$DO" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf staged updates: other users can change files in $DO (for example $DO). Kempt 0.1.7 or earlier may have left them that way, and a changed package there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $DO. Then stage the updates again." \
+  "a staged-update folder root does not own is a FAIL: discard, remove, stage again"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "kempt doctor: all checks passed" "...and doctor does not call the box clean"
+rm -rf "$DO"
 
 ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a user namespace; dir removed after
   local var="$1" dir="$2" setup="$3"; shift 3
@@ -1401,23 +1409,44 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
       "a link another user owns is reported as the link itself"
   fi
   NS="$TESTTMP/ns-state"
-  if other_ids "a state file another user owns is a WARN, the chown before the chmod"; then
+  if other_ids "a state file another user owns is a FAIL, the chown before the chmod"; then
     out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
-    assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
-      "a state file another user owns is a WARN, the chown before the chmod"
+    assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
+      "a state file another user owns is a FAIL, the chown before the chmod"
   fi
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
-  assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
+  assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
     "a world-writable state file gets the same fix"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f')"
   assert_not_contains "$out" 'dnf state' "a root-owned state directory adds no row"
   # dnf5 keeps no links in its state, so even a root-owned one was planted. chown -h would leave root's
   # dnf5 writing through it, so it counts, and the fix deletes it after the chown and chmod.
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; ln -s "$4" offline/transaction.json')"
-  assert_contains "$out" "WARN  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json)" \
-    "a root-owned link in the state directory is a WARN"
+  assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json)" \
+    "a root-owned link in the state directory is a FAIL"
   assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete. Then restart the computer." \
     "...and the fix deletes the links last, then asks for a restart"
+  # An ACL entry grants what the mode does not show, and a default one passes to every new file.
+  if command -v setfacl >/dev/null; then
+    out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; setfacl -m d:u:0:rwx offline')"
+    assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline)" \
+      "a root-owned directory with a default ACL entry is a FAIL, though its mode is 755"
+    assert_contains "$out" "sudo setfacl -R -P -b $NS" "...and the fix drops the ACL entries"
+    out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; setfacl -m u:0:rw f')"
+    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+      "a cache file with an extra ACL entry counts too"
+  else
+    skip "setfacl is not installed, so the ACL cases did not run"
+  fi
+  NO="$TESTTMP/ns-offline"
+  out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'mkdir packages; : > packages/p.rpm')"
+  assert_not_contains "$out" 'dnf staged updates' "a root-owned staged-update folder adds no row"
+  out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'mkdir -m 0777 packages; : > packages/p.rpm')"
+  assert_contains "$out" "FAIL  dnf staged updates: other users can change files in $NO (for example $NO/packages)" \
+    "a world-writable staged-update folder is a FAIL"
+  out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'ln -s "$4" packages')"
+  assert_contains "$out" "FAIL  dnf staged updates: other users can change files in $NO (for example $NO/packages)" \
+    "a link in the staged-update folder is a FAIL"
   # The name is another user's choice: control bytes, C1 bytes and bidi controls all print as ?.
   if other_ids "a reported name keeps only printable ASCII, every other byte a ?"; then
     out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > "$(printf "a\033[2Jb\302\233c\342\200\256d")"; chown 1000:0 a*')"
