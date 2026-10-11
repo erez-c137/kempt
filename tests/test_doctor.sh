@@ -1338,10 +1338,11 @@ assert_contains "$(cat "$TESTTMP/dc.txt")" "Replace the cache with: $MOVE. $RERU
   "...followed by the rerun for a leftover directory, its path quoted the same way"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and dnf5 clean all is never the advice"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "chmod -R go-w $DC" "...nor a chmod, which leaves another user's files theirs"
-# A stored transaction's packages live in the cache, so moving it aside waits for kempt unstage.
+# A staged update keeps its packages outside the cache, so the fix is the same and never asks to discard it.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replacing the cache also deletes the staged update, so first discard it with kempt unstage. Then run: $MOVE. $RERUN" \
-  "with an offline transaction stored, the fix says to discard it with kempt unstage first"
+assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replace the cache with: $MOVE. $RERUN" \
+  "with an offline transaction stored, the fix is the same move"
+assert_not_contains "$(cat "$TESTTMP/dc.txt")" "unstage" "...and does not ask to discard the staged update"
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and never offers dnf5 clean all"
 assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doctor changes nothing itself"
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
