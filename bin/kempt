@@ -3702,7 +3702,7 @@ doctor_other_updater_row() {
 }
 
 doctor_metadata_row() {
-  local iso days failed=""
+  local iso days failed="" warned=""
   iso="$(metadata_refreshed_iso)"
   # The latest dnf fetch failed (offline, or the servers would not answer). A WARN, beside the age
   # row below: every check answers from the lists already here, and those can be old or missing.
@@ -3716,7 +3716,10 @@ doctor_metadata_row() {
   if [[ -f "$REFRESH_DNF_FAILED_FILE" && -z "$refresh_off" ]]; then
     failed="$(head -n 1 "$REFRESH_DNF_FAILED_FILE" 2>/dev/null | tr -d '[:cntrl:]' | cap_bytes 200)" || failed=""
     doctor_warn "package lists: the last download failed${failed:+ ($failed)}. Checks answer from the lists already on this computer. Check the network connection, then run: kempt check --refresh"
+    warned=1
   fi
+  # With no dnf fetch on record, the WARN above already says what the rows below would: one row.
+  [[ -z "$iso" && -n "$warned" ]] && return 0
   # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
   # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
   # for both: "never refreshed" would hide that fetches run.

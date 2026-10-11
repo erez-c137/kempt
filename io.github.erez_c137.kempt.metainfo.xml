@@ -17,7 +17,7 @@
       Kempt is a Plasma 6 widget and a command-line tool for dnf and Flatpak updates. It shows
       which updates are pending, leaves out the ones you hold, and installs them from the panel.
     </p>
-    <p>The count in the panel comes from the same cache the update uses, so the two agree.</p>
+    <p>The count in the panel comes from the same cache the update uses. Updates published since that check can still join the update.</p>
     <ul>
       <li>dnf5 and Flatpak updates, with the version each package moves from and to.</li>
       <li>Holds that skip a package but keep reporting it.</li>

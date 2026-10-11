@@ -84,7 +84,8 @@ Recommends:     konsole
 %description
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
-applies them in a terminal, in the background, or staged for the next restart.
+applies them in the panel widget, in a terminal, in the background, or staged
+for the next restart.
 The Plasma panel widget is a separate package, which dnf5 adds by default on a
 system that has Plasma, so installing this package on a server or in a
 container does not pull in the desktop.
@@ -105,8 +106,8 @@ Supplements:    (%{name} = %{version}-%{release} and plasma-workspace)
 %description plasmoid
 The system tray widget: a badge with the number of updates you have not held,
 a list of each one with the versions it moves between, and one button
-that runs the update. It drives the kempt command, so the badge and the
-transaction cannot disagree.
+that runs the update. It drives the kempt command, so the badge counts from
+the same cache the update uses.
 
 %prep
 %autosetup
