@@ -7,16 +7,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Security
-
-- **Updates stop while other users can change dnf's state or staged packages.** The root helper
-  now refuses to update, stage or set a staged update to install while another account can change
-  files in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`. The message says which folder
-  and sends you to `kempt doctor` for the fix. The fix for dnf's state now deletes a file another
-  account linked in from elsewhere, instead of making that file root's. The package now requires
-  `acl`, so these checks always look for ACL entries.
-
-## [0.1.8] - Unreleased
+## [0.1.8] - 2026-10-11
 
 ### Added
 
@@ -281,6 +272,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of its own. `kempt doctor` checks dnf's cache, its state and the staged packages, and gives the fix
   for each. The cache is a warning; the other two are failures. Do not use `dnf5 clean all` on an
   affected cache: it follows links another user planted and deletes files outside the cache.
+- **Updates stop while other users can change dnf's state or staged packages.** The root helper
+  refuses to update, stage or set a staged update to install while another account can change
+  files in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`. The message says which folder
+  and sends you to `kempt doctor` for the fix. The fix for dnf's state deletes a file another
+  account linked in from elsewhere, instead of making that file root's. The package requires
+  `acl`, so these checks always look for ACL entries.
 - **System updates now start in a clean environment of their own.** Before, dnf ran as root but
   kept settings from the program that started it, such as signals it ignored, its working folder
   and its resource limits. Now systemd starts each dnf run as a fresh service, with safe file
@@ -1270,7 +1267,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[0.1.8]: https://github.com/erez-c137/kempt/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/erez-c137/kempt/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/erez-c137/kempt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/erez-c137/kempt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/erez-c137/kempt/compare/v0.1.4...v0.1.5

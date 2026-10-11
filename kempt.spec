@@ -276,7 +276,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
-* Sat Oct 03 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
+* Sun Oct 11 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
 - Security: systemd starts each root dnf run in a clean service with its own
   umask, so root's dnf files can no longer be left writable by other users.
   The helpers never discard another updater's prepared restart. kempt doctor
