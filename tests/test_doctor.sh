@@ -1348,7 +1348,7 @@ assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doct
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
 acl_fix() { command -v setfacl >/dev/null && printf ' && sudo setfacl -R -P -b %s' "$1"; }  # dir → the ACL step, where setfacl exists
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
+assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
   "a state directory root does not own is a FAIL: chown, ACLs, chmod, then the links, a restart and a second look"
 # A staged update's packages install as root at the restart without a second signature check.
 DO="$TESTTMP/dnf-offline"; mkdir -p "$DO/packages"; : > "$DO/packages/p.rpm"
@@ -1424,7 +1424,7 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; ln -s "$4" offline/transaction.json')"
   assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json)" \
     "a root-owned link in the state directory is a FAIL"
-  assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete. Then restart the computer." \
+  assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer." \
     "...and the fix deletes the links last, then asks for a restart"
   # An ACL entry grants what the mode does not show, and a default one passes to every new file.
   if command -v setfacl >/dev/null; then
