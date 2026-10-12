@@ -1583,6 +1583,14 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"\
   "Update failed" "a failure with nothing to say still says it failed"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
   "Update failed" "...and so does one with no error field at all"
+# The root helper's refusal over a dnf folder other users can change reaches the Last update row
+# as the CLI worded it, and the row offers Check Installation, where doctor prints the fix.
+UNSAFE_RUN='{\"status\":\"failed\",\"error\":\"nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor\"}'
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), '')")" \
+  "Update failed: nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor" \
+  "a run the helper refused over an unsafe dnf folder says so on the Last update row"
+assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
+  "...and the row offers Check Installation"
 # Failure wins over the counts. A run that upgraded four packages and then failed is a failed run,
 # and saying "Updated 4 packages" about it would be the popup's worst possible lie.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \

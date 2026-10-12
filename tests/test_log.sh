@@ -415,7 +415,7 @@ plain_in=(
   "security notified count=3" "security check failed" "run start surface=bogus"
   "offline staged 4 (NOT recorded: the state directory could not be written)"
   "offline stage recorded without its package baseline - the restart result will not be reported"
-  "offline stage refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
+  "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
   "offline stage found nothing to stage (every pending update is held)"
   "offline stage installed by another updater (before the restart)"
   "offline stage left in place (another updater has prepared the next restart)"

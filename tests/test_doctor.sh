@@ -1347,9 +1347,14 @@ assert_not_contains "$(cat "$TESTTMP/dc.txt")" "sudo dnf5 clean all" "...and nev
 assert_eq "$(stat -c %a "$DC/updates-1/repodata/repomd.xml")" "644" "...and doctor changes nothing itself"
 DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
 acl_fix() { command -v setfacl >/dev/null && printf ' && sudo setfacl -R -P -b %s' "$1"; }  # dir → the ACL step, where setfacl exists
+# dir → the state fix up to its chown -R: the directories locked first, then every second hard link deleted.
+state_lock() {
+  local acl=""; command -v setfacl >/dev/null && acl=' -execdir setfacl -b {} \;'
+  printf 'sudo find -P %s -type d -execdir chown -h root:root {} \\;%s -execdir chmod go-w {} \\; && sudo find -P %s ! -type d -links +1 -print -delete' "$1" "$acl" "$1"
+}
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
-  "a state directory root does not own is a FAIL: chown, ACLs, chmod, then the links, a restart and a second look"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $(state_lock "$DS") && sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
+  "a state directory root does not own is a FAIL: lock the directories, drop hard links, chown, ACLs, chmod, then the links, a restart and a second look"
 # A staged update's packages install as root at the restart without a second signature check.
 DO="$TESTTMP/dnf-offline"; mkdir -p "$DO/packages"; : > "$DO/packages/p.rpm"
 KEMPT_DNF_OFFLINE_PKG_DIR="$DO" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
@@ -1411,11 +1416,11 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   NS="$TESTTMP/ns-state"
   if other_ids "a state file another user owns is a FAIL, the chown before the chmod"; then
     out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; : > offline/transaction.json; chown 1000:0 offline/transaction.json')"
-    assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
+    assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/offline/transaction.json). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $(state_lock "$NS") && sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
       "a state file another user owns is a FAIL, the chown before the chmod"
   fi
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
-  assert_contains "$out" "Fix it with: sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
+  assert_contains "$out" "Fix it with: $(state_lock "$NS") && sudo chown -R -h root:root $NS$(acl_fix "$NS") && sudo chmod -R go-w $NS" \
     "a world-writable state file gets the same fix"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f')"
   assert_not_contains "$out" 'dnf state' "a root-owned state directory adds no row"
@@ -1426,6 +1431,35 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
     "a root-owned link in the state directory is a FAIL"
   assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer." \
     "...and the fix deletes the links last, then asks for a restart"
+  # A hard link is the same file under a second name. Another user can link a file of theirs, or
+  # one they can write, into the state folder, and chown -R would then make that file root's. The
+  # fix, run as printed with sudo dropped and the dnf5 step stubbed, deletes the second name and
+  # leaves the file outside exactly as it was. The rest of the folder still becomes root's.
+  if other_ids "the state fix deletes a hard link to another user's file and leaves that file alone"; then
+    # shellcheck disable=SC2016 # expanded by the inner bash
+    out="$(timeout 60 unshare --map-auto --map-root-user env KEMPT_ALLOW_ROOT=1 KEMPT_DNF_SYSIMAGE_DIR="$NS" bash -c '
+      mkdir -p "$1/offline" "$3" && : > "$3/victim" && chmod 664 "$3/victim" && chown 1000:1000 "$3/victim" \
+        && ln "$3/victim" "$1/offline/transaction.json" && : > "$1/mine" && chown 1000:1000 "$1/mine" \
+        || { echo "setup failed"; exit 9; }
+      "$2" doctor > "$1.out" 2>&1
+      grep -F "dnf state:" "$1.out"
+      fix="$(sed -n "s/^FAIL  dnf state: .* Fix it with: \(.*\)\. The last step discards .*/\1/p" "$1.out")"
+      [[ -n "$fix" ]] || { echo "no fix printed"; exit 9; }
+      fix="${fix//sudo /}"; fix="${fix%dnf5 offline clean}true"
+      eval "$fix" >/dev/null 2>&1 || echo "the fix failed"
+      echo "victim $(stat -c "%u:%g %a %h" "$3/victim")"
+      [[ -e "$1/offline/transaction.json" ]] && echo "linked name kept" || echo "linked name gone"
+      echo "mine $(stat -c "%u:%g" "$1/mine")"
+      rm -rf "$1" "$1.out" "$3"' _ "$NS" "$KEMPT" "$TESTTMP/outside")" || true
+    assert_contains "$out" "FAIL  dnf state: other users can change files in $NS (for example $NS/" \
+      "a hard link to another user's file in the state folder is a FAIL"
+    assert_contains "$out" "$(state_lock "$NS") && sudo chown -R -h root:root $NS" \
+      "...and the fix deletes second hard links after locking the directories, before any chown"
+    assert_not_contains "$out" "the fix failed" "...and the printed fix runs as written"
+    assert_contains "$out" "victim 1000:1000 664 1" "...leaving the other user's file with its owner and mode"
+    assert_contains "$out" "linked name gone" "...deleting only the name inside the state folder"
+    assert_contains "$out" "mine 0:0" "...while the rest of the folder becomes root's"
+  fi
   # An ACL entry grants what the mode does not show, and a default one passes to every new file.
   if command -v setfacl >/dev/null; then
     out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" 'mkdir offline; setfacl -m d:u:0:rwx offline')"

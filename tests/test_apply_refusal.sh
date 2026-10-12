@@ -165,6 +165,47 @@ grep -q 'left in place because the stored offline transaction could not be read.
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
+# --- the helper refuses because other users can change dnf5's folders ----------------------------
+# The helper refuses the upgrade, the stage and the arm then. The CLI reads the same rule as the
+# user, names the folder, and points at kempt doctor, which prints the fix. A world-writable folder
+# counts whoever runs the suite.
+UNSAFE="$TESTTMP/unsafe-state"; mkdir -m 0777 "$UNSAFE"
+unsafe_refusal() { printf 'echo "kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix." >&2; exit 3' "$1" "$UNSAFE"; }
+apply_stub stage-unsafe "dnf-offline-stage) $(unsafe_refusal dnf-offline-stage) ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+rc=0
+KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-unsafe" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc" "1" "a stage refused over an unsafe dnf folder fails the run"
+assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
+assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
+assert_eq "$(last_error)" "nothing was staged, because other users can change files in $UNSAFE. See: kempt doctor" \
+  "...and the reason names the folder and the doctor"
+
+apply_stub arm-unsafe "dnf-offline-arm) $(unsafe_refusal dnf-offline-arm) ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+KEMPT_DNF_OFFLINE_PKG_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-unsafe" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+assert_eq "$(calls dnf-offline-clean)" "0" "an arm refused over an unsafe dnf folder is not unwound"
+assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because other users can change files in $UNSAFE. See: kempt doctor" \
+  "...and the reason names the staged-package folder"
+
+apply_stub live-unsafe "dnf-upgrade) $(unsafe_refusal dnf-upgrade) ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+rc=0
+KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc" "1" "a live update refused over an unsafe dnf folder fails the run"
+assert_eq "$(last_error)" "nothing was installed, because other users can change files in $UNSAFE. See: kempt doctor" \
+  "...and the reason names the folder and the doctor"
+grep -q 'live update refused by the root helper' "$KEMPT_STATE_DIR/events.log" \
+  && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no live refusal event"; _fail=1; }
+grep -q 'See: kempt doctor' "$WORLD/notifications" \
+  && echo "ok: ...and the notification points at the doctor" || { echo "FAIL: notification"; _fail=1; cat "$WORLD/notifications"; }
+# Where the CLI cannot see the folder the helper saw, the reason still says what kind of problem it is.
+reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+assert_eq "$(last_error)" "nothing was installed, because other users can change files in dnf's folders. See: kempt doctor" \
+  "...and without a folder to name, it says dnf's folders"
+rm -rf "$UNSAFE"
+
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
 assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \
   "every run in history recorded dnf as ok or failed"

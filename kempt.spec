@@ -56,6 +56,9 @@ Requires:       polkit
 # The root helpers start dnf5 through systemd-run.
 Requires:       /usr/bin/systemd-run
 Requires:       util-linux-core
+# getfacl: kempt doctor and kempt-apply look for ACL entries in dnf's folders, which give other
+# users access the mode bits do not show. setfacl is in the fix doctor prints.
+Requires:       acl
 # `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
 # dnf5: `dnf5 -q repoquery --whatprovides "dnf5-command(needs-restarting)"` returns dnf5-plugins,
 # and dnf5 itself only provides dnf5-command(offline). Without it reboot_needed is permanently

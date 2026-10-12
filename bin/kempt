@@ -1570,9 +1570,10 @@ cmd_update() {
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
     # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
-    # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, or a
-    # file it could not read, and changed nothing. Every path that sees it skips the unwind.
-    local stage_rc=0 arm_rc=0 clean_rc=0
+    # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, a
+    # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
+    # path that sees it skips the unwind.
+    local stage_rc=0 arm_rc=0 clean_rc=0 unsafe_dir=""
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
     # somebody else's (stage_lock). Released right after the marker is written.
@@ -1586,7 +1587,11 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
+      if unsafe_dir="$(apply_unsafe_dir)"; then
+        reason_override="nothing was staged, because other users can change files in $unsafe_dir. See: kempt doctor"
+      else
+        reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
+      fi
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
@@ -1652,7 +1657,11 @@ cmd_update() {
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
+        if unsafe_dir="$(apply_unsafe_dir)"; then
+          reason_override="the updates were staged, but not set to install on the next restart, because other users can change files in $unsafe_dir. See: kempt doctor"
+        else
+          reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
+        fi
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="the updates were staged, but could not be set to install on the next restart"
@@ -1749,10 +1758,19 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    if apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}"; then
+    local live_rc=0 unsafe_dir=""
+    apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
+    if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
     else
       dnf_status="failed"; status="failed"
+      # The helper refuses a live upgrade for one reason only: other users can change dnf5's
+      # folders. Nothing ran.
+      if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+        unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
+        reason_override="nothing was installed, because other users can change files in $unsafe_dir. See: kempt doctor"
+        log_event "live update refused by the root helper"
+      fi
     fi
     # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
     # this run was, and its packages are still the honest report of what moved.
@@ -3784,6 +3802,16 @@ doctor_unsafe_entry() {  # dir [links] → the first entry under it another user
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
 # are ASCII, so nothing real is lost.
+# The root helper refuses the upgrade, the stage and the arm while another user can change dnf5's
+# state or staged-package folder (guard_unsafe_dirs in libexec/kempt-apply). This reads the same
+# rule as the user, so a refusal can name the folder and send the reader to the fix.
+apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
+  local d
+  for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
+    [[ -n "$(doctor_unsafe_entry "$d" links)" ]] && { printf '%s\n' "$d"; return 0; }
+  done
+  return 1
+}
 doctor_plain_name() {  # text → the text, safe to print
   local LC_ALL=C
   printf '%s' "${1//[^ -~]/?}"
@@ -3812,17 +3840,33 @@ doctor_dnf_cache_row() {
   if [[ -n "$hit" ]]; then
     hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
-    # chown first: chmod alone leaves another user's files theirs, and chmod before chown leaves a
-    # moment where that owner can still open them for writing. -h changes a link, not its target.
-    # Links go last, once nobody else can add one; find -P -delete removes a link, never its target.
-    # Neither revokes a file another user already holds open for writing, hence the restart.
-    # setfacl -b drops every ACL entry, default ones included, which chmod leaves in place.
-    local acl=""
-    command -v setfacl >/dev/null 2>&1 && acl=" && sudo setfacl -R -P -b $dir_q"
+    # The directories first, and only them: once each is root's, with no ACL entry and no group or
+    # world write, nobody else can add, rename or remove a name anywhere in the tree. They are locked
+    # one at a time from the top, each from inside its parent (-execdir with \;, which runs before
+    # find reads that directory), so every path root acts on sits in a folder already locked: a
+    # batched -exec + would act on full paths later, while another user could still swap a listed
+    # folder for a link and have chmod, which always follows links, change its target. Then the hard
+    # links go. A file with more than one name may be another user's file linked in from outside,
+    # and chown -R or chmod -R would change that file itself, since a hard link is the same file.
+    # Deleting the name here leaves the file outside as it was. dnf5 keeps no file with a second
+    # name in its state, so nothing of dnf5's is lost. Doing this before the directories are
+    # locked would let another user link a file in again behind the delete.
+    # Then chown before chmod: chmod alone leaves another user's files theirs, and chmod before
+    # chown leaves a moment where that owner can still open them for writing, or chmod them back.
+    # -h changes a link, not its target. Links go last, once nobody else can add one; find -P
+    # -delete removes a link, never its target. Nothing here revokes a file another user already
+    # holds open for writing, hence the restart. setfacl -b drops every ACL entry, default ones
+    # included, which chmod leaves in place.
+    local acl="" dir_acl=""
+    if command -v setfacl >/dev/null 2>&1; then
+      acl=" && sudo setfacl -R -P -b $dir_q"; dir_acl=" -execdir setfacl -b {} \\;"
+    fi
+    local lock_dirs="sudo find -P $dir_q -type d -execdir chown -h root:root {} \\;$dir_acl -execdir chmod go-w {} \\;"
+    local drop_hard="sudo find -P $dir_q ! -type d -links +1 -print -delete"
     # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
     # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;
     # dnf5 offline clean exits 0 when nothing is staged, so the chain goes on either way.
-    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
+    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
   fi
   hit="$(doctor_unsafe_entry "$KEMPT_DNF_OFFLINE_PKG_DIR" links)"
   if [[ -n "$hit" ]]; then

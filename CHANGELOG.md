@@ -5,6 +5,17 @@ All notable changes to Kempt are recorded here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Updates stop while other users can change dnf's state or staged packages.** The root helper
+  now refuses to update, stage or set a staged update to install while another account can change
+  files in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`. The message says which folder
+  and sends you to `kempt doctor` for the fix. The fix for dnf's state now deletes a file another
+  account linked in from elsewhere, instead of making that file root's. The package now requires
+  `acl`, so these checks always look for ACL entries.
+
 ## [0.1.8] - Unreleased
 
 ### Added

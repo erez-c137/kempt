@@ -83,8 +83,9 @@ run_dnf5() {
 OFFLINE_STATE=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml
 if [[ $EUID -ne 0 && -n "${KEMPT_OFFLINE_TOML:-}" ]]; then OFFLINE_STATE="$KEMPT_OFFLINE_TOML"; fi
 
-# Exit status for "refused because of what is stored", kept apart from 2 (bad arguments) so the CLI
-# can tell the two apart and say which it was. dnf5 itself exits 0, 1, 2 or 100, and pkexec 126 or
+# Exit status for "refused because of what is stored", or because other users can change dnf5's
+# folders (guard_unsafe_dirs), kept apart from 2 (bad arguments) so the CLI can tell the two apart
+# and say which it was. dnf5 itself exits 0, 1, 2 or 100, and pkexec 126 or
 # 127, so 3 cannot be mistaken for either of them.
 REFUSED=3
 # Exit status when systemd cannot start dnf5: no systemd as PID 1 (a container, say), or no
@@ -154,6 +155,47 @@ guard_foreign_system_update() {  # verb → returns, or exits REFUSED
   exit "$REFUSED"
 }
 
+# Releases up to 0.1.7 could leave dnf5's state and staged-package folders writable by other users.
+# dnf5 keeps the staged transaction's record in the first, and that record names each package by
+# its full path in the second. The restart installs those packages as root without checking their
+# signatures again. So the upgrade, the stage and the arm all refuse while another user can change
+# either folder: what they would build on, or install at the next restart, cannot be trusted.
+# `kempt doctor` prints the fix. The clean is not refused, because discarding the stage is part of
+# that fix. The cache is not checked: dnf5 checks signatures when it installs from there.
+# The rule is doctor's (doctor_unsafe_entry in bin/kempt), written out here because root never
+# sources the CLI's library. An entry counts when root does not own it, when it is a link (dnf5
+# keeps none there), when it is world-writable, or when it is group-writable with a group other
+# than root. Any ACL entry counts too. find -P and getfacl -P never follow a link. A folder that
+# does not exist counts as safe: dnf5 creates it root-only. Only what is printed decides. find and
+# getfacl carry on past an entry they cannot read, so an error elsewhere never hides a hit.
+# Seams as for the state file: honoured only for an unprivileged caller.
+DNF_STATE_DIR=/usr/lib/sysimage/libdnf5
+DNF_OFFLINE_PKG_DIR=/var/lib/dnf/offline
+if [[ $EUID -ne 0 ]]; then
+  DNF_STATE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-$DNF_STATE_DIR}"
+  DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-$DNF_OFFLINE_PKG_DIR}"
+fi
+
+unsafe_entry() {  # dir → the first entry under it another user could change, or nothing
+  [[ -e "$1" || -L "$1" ]] || return 0
+  local hit
+  hit="$(find -P "$1" \( ! -user root -o -type l -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
+    -print -quit 2>/dev/null)" || true
+  if [[ -z "$hit" ]] && command -v getfacl >/dev/null 2>&1; then
+    hit="$(getfacl -R -P -s -p "$1" 2>/dev/null | sed -n '1s/^# file: //p')" || true
+  fi
+  printf '%s' "$hit"
+}
+
+guard_unsafe_dirs() {  # verb → returns, or exits REFUSED
+  local d
+  for d in "$DNF_STATE_DIR" "$DNF_OFFLINE_PKG_DIR"; do
+    [[ -z "$(unsafe_entry "$d")" ]] && continue
+    echo "kempt-apply: refusing $1: other users can change files in $d. Run kempt doctor for the fix." >&2
+    exit "$REFUSED"
+  done
+}
+
 verb="${1:-}"; shift || true
 case "$verb" in
   dnf-upgrade|dnf-offline-stage)
@@ -167,11 +209,12 @@ case "$verb" in
         *) echo "invalid arg: $a" >&2; exit 2 ;;
       esac
     done
+    guard_unsafe_dirs "$verb"
     offline=()
-    # Only the stage is guarded. A live upgrade does not replace the stored transaction, but it
-    # moves the package set under it, which can leave a stored release upgrade out of date. It is
-    # allowed on purpose: the CLI runs live updates while a release upgrade waits, and reports a
-    # failure of this verb as a failed run rather than a refusal. docs/security.md says so.
+    # Only the stage is guarded against a stored release upgrade. A live upgrade does not replace
+    # the stored transaction, but it moves the package set under it, which can leave a stored
+    # release upgrade out of date. It is allowed on purpose: the CLI runs live updates while a
+    # release upgrade waits. docs/security.md says so.
     if [[ "$verb" == dnf-offline-stage ]]; then
       guard_stored_release_upgrade "$verb"
       offline=(--offline)
@@ -187,6 +230,7 @@ case "$verb" in
   # the command line the ECHO seam prints and the suite can pin.
   dnf-offline-arm)
     [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
+    guard_unsafe_dirs "$verb"
     guard_stored_release_upgrade "$verb"
     run_dnf5 --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 -- offline reboot -y
     ;;
