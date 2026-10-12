@@ -309,7 +309,7 @@ if [[ $EUID -ne 0 && ${#NS_TARGETS[@]} -gt 0 ]] \
     assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...so the fix can discard the stage"
   done
 else
-  skip "root-owned unsafe-folder cases - need a user namespace with spare ids and $LIBDNF5 or /var/lib/dnf/offline"
+  skip "root-owned unsafe-folder cases - need a user namespace with spare ids and /usr/lib/sysimage/libdnf5 or /var/lib/dnf/offline"
 fi
 
 # --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
