@@ -261,23 +261,25 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
-- **Root's dnf files can no longer be left open to other users.** In 0.1.0 to 0.1.7 the root
-  helpers kept the umask of whoever started them. A refresh needs no password, so another account
-  signed in at this computer could make root leave dnf's package lists open for any user to change,
-  for example to hide updates. We know of no way to gain root from that alone: dnf checks each
-  package's signature before it installs it. Updates you ran yourself were exposed only if your own
-  umask lets every user write, which is not Fedora's default. Then any other account on the
-  computer could swap a staged update. The restart installs staged packages without checking their
-  signatures again, so that could give that account root. A computer with one user needs nothing. Each dnf run now gets a safe umask
-  of its own. `kempt doctor` checks dnf's cache, its state and the staged packages, and gives the fix
-  for each. The cache is a warning; the other two are failures. Do not use `dnf5 clean all` on an
-  affected cache: it follows links another user planted and deletes files outside the cache.
-- **Updates stop while other users can change dnf's state or staged packages.** The root helper
-  refuses to update, stage or set a staged update to install while another account can change
-  files in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`. The message says which folder
-  and sends you to `kempt doctor` for the fix. The fix for dnf's state deletes a file another
-  account linked in from elsewhere, instead of making that file root's. The package requires
-  `acl`, so these checks always look for ACL entries.
+- **Root's dnf files can no longer be left open to other users.** In 0.1.0 to 0.1.7 the root helpers
+  kept the umask of whoever started them. A refresh needs no password, so another account signed in
+  at this computer could make root leave dnf's package lists open for any user to change, for
+  example to hide updates. We know of no way to gain root from that alone: dnf checks each package's
+  signature before it installs it. Updates you ran yourself were exposed only if your own umask lets
+  every user write, which is not Fedora's default. Then any other account on the computer could swap
+  a staged update. The restart installs staged packages without checking their signatures again, so
+  that could give that account root. A computer with one user needs nothing. Each dnf run now gets a
+  safe umask of its own. `kempt doctor` checks dnf's cache, its state and the staged packages, and
+  gives the fix for each. The cache is a warning; the other two are failures. Do not use
+  `dnf5 clean all` on an affected cache: it follows links another user planted and deletes files
+  outside the cache.
+- **Updates stop while other users can change dnf's files.** Kempt's system helper refuses to
+  install updates, to stage them for the next restart, or to set them to install at the next
+  restart, while another account on the computer can change files in `/usr/lib/sysimage/libdnf5` or
+  `/var/lib/dnf/offline`. It says which folder, and `kempt doctor` shows the fix. That fix deletes
+  any file in dnf's state folder that has a second name (a hard link), because it may belong to
+  someone else, instead of making it root's. Discarding a staged update is still allowed. The
+  package needs `acl`, so these checks also see extra access rules on the folders.
 - **System updates now start in a clean environment of their own.** Before, dnf ran as root but
   kept settings from the program that started it, such as signals it ignored, its working folder
   and its resource limits. Now systemd starts each dnf run as a fresh service, with safe file

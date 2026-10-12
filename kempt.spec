@@ -280,7 +280,8 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 - Security: systemd starts each root dnf run in a clean service with its own
   umask, so root's dnf files can no longer be left writable by other users.
   The helpers never discard another updater's prepared restart. kempt doctor
-  checks dnf's cache, state and staged packages for files left open.
+  checks dnf's cache, state and staged packages for files left open, and
+  updates refuse to run while other users can change dnf's state.
 - Error messages drop URL credentials, tokens and your home path.
 - kempt and install.sh refuse to run as root (exit 8).
 - New kempt status, per-command --help, and a plain-words kempt log.
