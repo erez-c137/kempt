@@ -132,6 +132,12 @@ Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cac
 staged packages for files another user could change. A changed staged package installs as root
 without a second signature check, so the state and staged rows are failures.
 
+So `dnf-upgrade`, `dnf-offline-stage` and `dnf-offline-arm` exit 3 while another user can change
+anything in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`, by doctor's rule. The message
+names the folder and points to `kempt doctor`. `dnf-offline-clean` still runs, because the fix
+discards the stage. The fix deletes a file there with a second hard link, since that file may
+belong to someone else.
+
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
 
@@ -408,8 +414,8 @@ left in place.
   (`flatpak_polkit_agent_text_listener_new`), as `pkexec` does. Without a terminal, such as a cron
   job or a headless runner, the call is refused. Neither case is tested.
 - **The `*_ECHO` settings live in root-owned code.** They are unreachable through pkexec and they
-  only print, but they are there. So is `KEMPT_OFFLINE_TOML` in `kempt-apply`, which the helper
-  ignores whenever it runs as root.
+  only print, but they are there. So are `KEMPT_OFFLINE_TOML` and the dnf folder settings in `kempt-apply`, which the
+  helper ignores whenever it runs as root.
 - **The rules destination has a test setting.** `KEMPT_RULES_DST` redirects `enable-passwordless`
   and `disable-passwordless`, only in an unprivileged run with no pkexec wrapper. There both
   commands run as you, so the setting cannot reach a root write.

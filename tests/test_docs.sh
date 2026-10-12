@@ -144,7 +144,7 @@ declare -A WORD_BUDGET=(
   [docs/install.md]=1500
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=1750
-  [docs/security.md]=3600
+  [docs/security.md]=3680
   [docs/usage.md]=2950
   [docs/widget.md]=2750
 )

@@ -1570,9 +1570,10 @@ cmd_update() {
     # promise true: once staged, ANY restart installs. One pkexec flow covers both calls, since
     # auth_admin_keep still holds seconds later.
     # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
-    # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, or a
-    # file it could not read, and changed nothing. Every path that sees it skips the unwind.
-    local stage_rc=0 arm_rc=0 clean_rc=0
+    # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, a
+    # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
+    # path that sees it skips the unwind.
+    local stage_rc=0 arm_rc=0 clean_rc=0 unsafe_dir=""
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
     # somebody else's (stage_lock). Released right after the marker is written.
@@ -1586,7 +1587,11 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
+      if unsafe_dir="$(apply_unsafe_dir)"; then
+        reason_override="nothing was staged, because other users can change files in $unsafe_dir. See: kempt doctor"
+      else
+        reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
+      fi
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
@@ -1652,7 +1657,11 @@ cmd_update() {
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
+        if unsafe_dir="$(apply_unsafe_dir)"; then
+          reason_override="the updates were staged, but not set to install on the next restart, because other users can change files in $unsafe_dir. See: kempt doctor"
+        else
+          reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
+        fi
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="the updates were staged, but could not be set to install on the next restart"
@@ -1749,10 +1758,19 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    if apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}"; then
+    local live_rc=0 unsafe_dir=""
+    apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
+    if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
     else
       dnf_status="failed"; status="failed"
+      # The helper refuses a live upgrade for one reason only: other users can change dnf5's
+      # folders. Nothing ran.
+      if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
+        unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
+        reason_override="nothing was installed, because other users can change files in $unsafe_dir. See: kempt doctor"
+        log_event "live update refused by the root helper"
+      fi
     fi
     # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
     # this run was, and its packages are still the honest report of what moved.
@@ -3784,6 +3802,16 @@ doctor_unsafe_entry() {  # dir [links] → the first entry under it another user
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
 # are ASCII, so nothing real is lost.
+# The root helper refuses the upgrade, the stage and the arm while another user can change dnf5's
+# state or staged-package folder (guard_unsafe_dirs in libexec/kempt-apply). This reads the same
+# rule as the user, so a refusal can name the folder and send the reader to the fix.
+apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
+  local d
+  for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
+    [[ -n "$(doctor_unsafe_entry "$d" links)" ]] && { printf '%s\n' "$d"; return 0; }
+  done
+  return 1
+}
 doctor_plain_name() {  # text → the text, safe to print
   local LC_ALL=C
   printf '%s' "${1//[^ -~]/?}"

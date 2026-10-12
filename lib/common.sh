@@ -329,6 +329,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "offline stage recorded without its package baseline"*)
       EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
+    "live update refused by the root helper") EVENT_PLAIN="The update was refused by Kempt's system helper" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
     "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
     "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
@@ -1334,9 +1335,10 @@ priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-;
 
 # kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
 # of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. It
-# also refuses clean while /system-update is there and is not dnf5's link. The
-# helper decides that as root, on its own, so the CLI's pre-flight is not the only guard. Nothing ran
-# and nothing changed when it does. A caller that sees this status must not unwind with another
+# also refuses clean while /system-update is there and is not dnf5's link. It refuses the upgrade,
+# the stage and the arm while other users can change dnf5's state or staged-package folder, which
+# apply_unsafe_dir in bin/kempt names. The helper decides all of this as root, on its own, so the
+# CLI's pre-flight is not the only guard. Nothing ran and nothing changed when it does. A caller that sees this status must not unwind with another
 # offline verb (the helper refuses that too, for the same reason) and must not advise
 # `dnf5 offline clean`, which would delete exactly what the refusal protected.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file

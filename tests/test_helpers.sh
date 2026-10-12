@@ -204,6 +204,114 @@ assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LIN
   KEMPT_OFFLINE_DATADIR="$FL/offline" bash -c 'source "$1/lib/common.sh"; apply_refusal_reason' _ "$REPO_ROOT")" \
   "another updater has prepared the next restart" "...also when the path is not a link at all"
 
+# --- the upgrade, the stage and the arm refuse while other users can change dnf5's folders --------
+# The restart installs the staged packages as root without checking their signatures again, and
+# the stored record names each one by its full path. So while another user can change the state
+# folder or the staged-package folder, the three verbs that build on them exit 3. The clean still
+# runs: discarding the stage is part of the fix kempt doctor prints. The rule is doctor's.
+unsafe_line() { printf 'kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix.\n' "$1" "$2"; }
+UD="$TESTTMP/unsafe"
+declare -A verb_cmd=(
+  [dnf-upgrade]="$(sd '' upgrade -y)"
+  [dnf-offline-stage]="${offline_cmd[dnf-offline-stage]}"
+  [dnf-offline-arm]="${offline_cmd[dnf-offline-arm]}"
+  [dnf-offline-clean]="${offline_cmd[dnf-offline-clean]}"
+)
+verb_args() { [[ "$1" == dnf-upgrade || "$1" == dnf-offline-stage ]] && echo -y; return 0; }
+unsafe_case() {  # var setup label → each verb against a fresh folder at $UD made by setup
+  local var="$1" setup="$2" label="$3" v
+  for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
+    rm -rf "$UD"; mkdir -p "$UD"; (cd "$UD" && eval "$setup")
+    # shellcheck disable=SC2046 # verb_args prints nothing or one word
+    assert_exit "$REFUSED_RC" "$v is refused when $label" -- \
+      env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$var=$UD" bash "$AH" "$v" $(verb_args "$v")
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(unsafe_line "$v" "$UD")" "...and says which folder, and where the fix is"
+  done
+  rm -rf "$UD"; mkdir -p "$UD"; (cd "$UD" && eval "$setup")
+  assert_exit 0 "...but the clean still runs when $label" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$var=$UD" bash "$AH" dnf-offline-clean
+  assert_eq "$(cat "$TESTTMP/last_output")" "${verb_cmd[dnf-offline-clean]}" "...building its usual command"
+  rm -rf "$UD"
+}
+# The suite does not run as root, so everything it makes is "not root's". Here that stands in for
+# a folder another user owns. Root-owned cases run below, as root in a user namespace.
+if [[ $EUID -ne 0 ]]; then
+  unsafe_case KEMPT_DNF_SYSIMAGE_DIR 'mkdir offline' "the state folder is not root's"
+  unsafe_case KEMPT_DNF_OFFLINE_PKG_DIR 'mkdir packages' "the staged-package folder is not root's"
+else
+  skip "folders that are not root's - the suite is running as root"
+fi
+# Missing folders are safe: dnf5 creates them root-only. The sandbox points both at such paths.
+for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
+  # shellcheck disable=SC2046
+  assert_exit 0 "$v goes ahead when neither folder exists" -- \
+    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(verb_args "$v")
+  assert_eq "$(cat "$TESTTMP/last_output")" "${verb_cmd[$v]}" "...and builds its usual command"
+done
+# Argument validation still comes first.
+assert_exit 2 "a bad argument is exit 2 even with an unsafe folder" -- \
+  env KEMPT_APPLY_ECHO=1 KEMPT_DNF_SYSIMAGE_DIR="$TESTTMP" bash "$AH" dnf-upgrade --installroot=/
+
+# As root, in a user namespace with spare ids, the rest of doctor's rule: links, world- and
+# group-writable entries, entries another user owns and ACL entries count, and a clean folder does
+# not. The seams are honoured only for an unprivileged caller, so each run binds the folder over
+# the real path, as as_ns_root does below.
+ns_apply() {  # target setup verb → the helper's exit status as root, its message in last_output
+  local target="$1" setup="$2" verb="$3" args=""
+  [[ "$verb" == dnf-upgrade || "$verb" == dnf-offline-stage ]] && args=-y
+  rm -rf "$UD"; mkdir -p "$UD" "$TESTTMP/ns-plain"
+  local rc=0
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  timeout 30 unshare --map-auto --map-root-user --mount bash -c '
+    d="$1" t="$2" setup="$3" h="$4" v="$5" a="$6" plain="$7"
+    (cd "$d" && eval "$setup") || exit 97
+    # Both real folders get a root-owned stand-in first, so only the one under test can refuse.
+    for p in /usr/lib/sysimage/libdnf5 /var/lib/dnf/offline; do
+      [[ -d "$p" ]] && { mount --bind "$plain" "$p" || exit 99; }
+    done
+    [[ -d "$t" ]] || exit 96
+    mount --bind "$d" "$t" || exit 99
+    exec env KEMPT_APPLY_ECHO=1 KEMPT_SYSTEMD_BOOTED=/no-such-dir KEMPT_OFFLINE_TOML=/no-such-file bash "$h" "$v" $a' \
+    _ "$UD" "$target" "$setup" "$AH" "$verb" "$args" "$TESTTMP/ns-plain" > "$TESTTMP/last_output" 2>&1 || rc=$?
+  rm -rf "$UD"
+  return "$rc"
+}
+NS_TARGETS=()
+for t in /usr/lib/sysimage/libdnf5 /var/lib/dnf/offline; do [[ -d "$t" ]] && NS_TARGETS+=("$t"); done
+if [[ $EUID -ne 0 && ${#NS_TARGETS[@]} -gt 0 ]] \
+   && timeout 20 unshare --map-auto --map-root-user bash -c 'f=$(mktemp) && chown 1000:1000 "$f"; r=$?; rm -f "$f"; exit $r' 2>/dev/null; then
+  # Where systemd runs, a verb that goes ahead execs the real systemd-run with ECHO, so it prints and
+  # exits 0. Without systemd it exits 4. Either way it was not refused. The sandbox points both
+  # folder seams at missing paths, and root ignores them, so each refusal below also shows that a
+  # seam cannot hide the real folder.
+  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then go_rc=0; else go_rc=4; fi
+  for t in "${NS_TARGETS[@]}"; do
+    for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
+      for c in "world-writable file|: > f; chmod 666 f" "world-writable folder|mkdir d; chmod 777 d" \
+               "group-writable file with another group|: > f; chown 0:1000 f; chmod 664 f" \
+               "file another user owns|: > f; chown 1000:0 f; chmod 644 f" \
+               "root-owned link|ln -s / l" "folder that is itself world-writable|chmod 777 ."; do
+        assert_exit "$REFUSED_RC" "as root, $v is refused over a ${c%%|*} in $t" -- ns_apply "$t" "${c#*|}" "$v"
+        assert_contains "$(cat "$TESTTMP/last_output")" "other users can change files in $t. Run kempt doctor for the fix." "...naming the real folder"
+      done
+      if command -v setfacl >/dev/null; then
+        assert_exit "$REFUSED_RC" "as root, $v is refused over an ACL entry in $t, though the mode is 755" -- \
+          ns_apply "$t" 'mkdir d; setfacl -m u:0:rwx d' "$v"
+      else
+        skip "setfacl is not installed, so the ACL refusal did not run"
+      fi
+      assert_exit "$go_rc" "as root, $v goes ahead over a root-owned $t with group-root write" -- \
+        ns_apply "$t" ': > f; chmod 664 f; mkdir d' "$v"
+      assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...and is not refused"
+    done
+    assert_exit "$go_rc" "as root, the clean is never refused over an unsafe $t" -- \
+      ns_apply "$t" 'chmod 777 .' dnf-offline-clean
+    assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...so the fix can discard the stage"
+  done
+else
+  skip "root-owned unsafe-folder cases - need a user namespace with spare ids and $LIBDNF5 or /var/lib/dnf/offline"
+fi
+
 # --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
 # dnf5 gets its umask and limits from the unit systemd starts it in (UMask=0022 and LimitCORE=0 are
 # pinned above, and the rest are systemd's defaults), so nothing of the caller's reaches it. The
@@ -242,6 +350,8 @@ as_ns_root() {  # bind-dir verb [env...] → runs the helper as EUID 0 over that
   timeout 20 unshare --map-root-user --mount bash -c '
     d="$1" h="$2" v="$3"; shift 3
     mount --bind "$d" '"$LIBDNF5"' || exit 99
+    # The host'"'"'s root-owned files read as nobody'"'"'s in here, which the helper counts as unsafe.
+    if [[ -d /var/lib/dnf/offline ]]; then mount --bind "$d" /var/lib/dnf/offline || exit 99; fi
     [[ $EUID -eq 0 ]] || exit 98
     exec env KEMPT_APPLY_ECHO=1 "$@" bash "$h" "$v"' _ "$dir" "$AH" "$verb" "$@"
 }
