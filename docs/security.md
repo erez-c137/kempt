@@ -414,8 +414,8 @@ left in place.
   (`flatpak_polkit_agent_text_listener_new`), as `pkexec` does. Without a terminal, such as a cron
   job or a headless runner, the call is refused. Neither case is tested.
 - **The `*_ECHO` settings live in root-owned code.** They are unreachable through pkexec and they
-  only print, but they are there. So are `KEMPT_OFFLINE_TOML` and the dnf folder settings in `kempt-apply`, which the
-  helper ignores whenever it runs as root.
+  only print, but they are there. So are `KEMPT_OFFLINE_TOML` and the dnf folder settings in
+  `kempt-apply`, which the helper ignores whenever it runs as root.
 - **The rules destination has a test setting.** `KEMPT_RULES_DST` redirects `enable-passwordless`
   and `disable-passwordless`, only in an unprivileged run with no pkexec wrapper. There both
   commands run as you, so the setting cannot reach a root write.

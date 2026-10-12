@@ -3841,7 +3841,11 @@ doctor_dnf_cache_row() {
     hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
     # The directories first, and only them: once each is root's, with no ACL entry and no group or
-    # world write, nobody else can add, rename or remove a name anywhere in the tree. Then the hard
+    # world write, nobody else can add, rename or remove a name anywhere in the tree. They are locked
+    # one at a time from the top, each from inside its parent (-execdir with \;, which runs before
+    # find reads that directory), so every path root acts on sits in a folder already locked: a
+    # batched -exec + would act on full paths later, while another user could still swap a listed
+    # folder for a link and have chmod, which always follows links, change its target. Then the hard
     # links go. A file with more than one name may be another user's file linked in from outside,
     # and chown -R or chmod -R would change that file itself, since a hard link is the same file.
     # Deleting the name here leaves the file outside as it was. dnf5 keeps no file with a second
@@ -3855,9 +3859,9 @@ doctor_dnf_cache_row() {
     # included, which chmod leaves in place.
     local acl="" dir_acl=""
     if command -v setfacl >/dev/null 2>&1; then
-      acl=" && sudo setfacl -R -P -b $dir_q"; dir_acl=" -exec setfacl -b {} +"
+      acl=" && sudo setfacl -R -P -b $dir_q"; dir_acl=" -execdir setfacl -b {} \\;"
     fi
-    local lock_dirs="sudo find -P $dir_q -type d -exec chown root:root {} +$dir_acl -exec chmod go-w {} +"
+    local lock_dirs="sudo find -P $dir_q -type d -execdir chown -h root:root {} \\;$dir_acl -execdir chmod go-w {} \\;"
     local drop_hard="sudo find -P $dir_q ! -type d -links +1 -print -delete"
     # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
     # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;

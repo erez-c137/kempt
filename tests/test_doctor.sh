@@ -1349,8 +1349,8 @@ DS="$TESTTMP/dnf-sysimage"; mkdir -p "$DS/offline"
 acl_fix() { command -v setfacl >/dev/null && printf ' && sudo setfacl -R -P -b %s' "$1"; }  # dir → the ACL step, where setfacl exists
 # dir → the state fix up to its chown -R: the directories locked first, then every second hard link deleted.
 state_lock() {
-  local acl=""; command -v setfacl >/dev/null && acl=" -exec setfacl -b {} +"
-  printf 'sudo find -P %s -type d -exec chown root:root {} +%s -exec chmod go-w {} + && sudo find -P %s ! -type d -links +1 -print -delete' "$1" "$acl" "$1"
+  local acl=""; command -v setfacl >/dev/null && acl=' -execdir setfacl -b {} \;'
+  printf 'sudo find -P %s -type d -execdir chown -h root:root {} \\;%s -execdir chmod go-w {} \\; && sudo find -P %s ! -type d -links +1 -print -delete' "$1" "$acl" "$1"
 }
 KEMPT_DNF_SYSIMAGE_DIR="$DS" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf state: other users can change files in $DS (for example $DS). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $(state_lock "$DS") && sudo chown -R -h root:root $DS$(acl_fix "$DS") && sudo chmod -R go-w $DS && sudo find -P $DS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there." \
