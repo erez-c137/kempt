@@ -3812,17 +3812,29 @@ doctor_dnf_cache_row() {
   if [[ -n "$hit" ]]; then
     hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
-    # chown first: chmod alone leaves another user's files theirs, and chmod before chown leaves a
-    # moment where that owner can still open them for writing. -h changes a link, not its target.
-    # Links go last, once nobody else can add one; find -P -delete removes a link, never its target.
-    # Neither revokes a file another user already holds open for writing, hence the restart.
-    # setfacl -b drops every ACL entry, default ones included, which chmod leaves in place.
-    local acl=""
-    command -v setfacl >/dev/null 2>&1 && acl=" && sudo setfacl -R -P -b $dir_q"
+    # The directories first, and only them: once each is root's, with no ACL entry and no group or
+    # world write, nobody else can add, rename or remove a name anywhere in the tree. Then the hard
+    # links go. A file with more than one name may be another user's file linked in from outside,
+    # and chown -R or chmod -R would change that file itself, since a hard link is the same file.
+    # Deleting the name here leaves the file outside as it was. dnf5 keeps no file with a second
+    # name in its state, so nothing of dnf5's is lost. Doing this before the directories are
+    # locked would let another user link a file in again behind the delete.
+    # Then chown before chmod: chmod alone leaves another user's files theirs, and chmod before
+    # chown leaves a moment where that owner can still open them for writing, or chmod them back.
+    # -h changes a link, not its target. Links go last, once nobody else can add one; find -P
+    # -delete removes a link, never its target. Nothing here revokes a file another user already
+    # holds open for writing, hence the restart. setfacl -b drops every ACL entry, default ones
+    # included, which chmod leaves in place.
+    local acl="" dir_acl=""
+    if command -v setfacl >/dev/null 2>&1; then
+      acl=" && sudo setfacl -R -P -b $dir_q"; dir_acl=" -exec setfacl -b {} +"
+    fi
+    local lock_dirs="sudo find -P $dir_q -type d -exec chown root:root {} +$dir_acl -exec chmod go-w {} +"
+    local drop_hard="sudo find -P $dir_q ! -type d -links +1 -print -delete"
     # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
     # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;
     # dnf5 offline clean exits 0 when nothing is staged, so the chain goes on either way.
-    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
+    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
   fi
   hit="$(doctor_unsafe_entry "$KEMPT_DNF_OFFLINE_PKG_DIR" links)"
   if [[ -n "$hit" ]]; then
