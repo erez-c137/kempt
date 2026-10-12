@@ -329,7 +329,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "offline stage recorded without its package baseline"*)
       EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
-    "live update refused by the root helper") EVENT_PLAIN="The update was refused by Kempt's system helper" ;;
+    "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
     "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
     "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
