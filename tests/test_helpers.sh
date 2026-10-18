@@ -420,7 +420,7 @@ fi
 # must be made here too, on purpose.
 RUN_PIPED="$(cat <<'EOF'
 run_piped() {
-  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0
+  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0 sig=0
   exec {out}> >(cat)
   out_pid=$!
   exec {err}> >(cat >&2 {out}>&-)
@@ -428,14 +428,15 @@ run_piped() {
   { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
   sd_pid=$!
   exec {out}>&- {err}>&-
-  trap 'woke=1 stopped=1; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
-  trap 'woke=1 stopped=1; kill -s INT "$sd_pid" 2>/dev/null || :' INT
-  trap 'woke=1 stopped=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
+  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
+  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
+  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
   while :; do
     woke=0 rc=0
     wait "$sd_pid" || rc=$?
     (( woke )) || break
   done
+  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
   trap - TERM INT HUP
   if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
   wait "$out_pid" "$err_pid" || :

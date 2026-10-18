@@ -31,7 +31,7 @@ run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of r
 # well, since dnf5 may still hold their pipes open, and nothing outlives this shell. Identical in
 # kempt-apply.
 run_piped() {  # systemd-run --pipe ... → systemd-run's exit status
-  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0
+  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0 sig=0
   exec {out}> >(cat)
   out_pid=$!
   exec {err}> >(cat >&2 {out}>&-)
@@ -41,15 +41,18 @@ run_piped() {  # systemd-run --pipe ... → systemd-run's exit status
   { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
   sd_pid=$!
   exec {out}>&- {err}>&-
-  trap 'woke=1 stopped=1; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
-  trap 'woke=1 stopped=1; kill -s INT "$sd_pid" 2>/dev/null || :' INT
-  trap 'woke=1 stopped=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
+  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
+  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
+  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
   # A trapped signal ends wait early. Waiting again returns systemd-run's own status once it exits.
   while :; do
     woke=0 rc=0
     wait "$sd_pid" || rc=$?
     (( woke )) || break
   done
+  # If systemd-run exited while a trap ran, bash reaped it there and the next wait finds no child.
+  # Its status is lost, so report the signal that stopped it rather than 127 (a pkexec failure).
+  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
   trap - TERM INT HUP
   if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
   wait "$out_pid" "$err_pid" || :
