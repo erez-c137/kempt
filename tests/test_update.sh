@@ -1406,6 +1406,11 @@ chmod +x "$TESTTMP/refresh-stub"
 
 # not applied yet (reboot hasn't happened): the installed set still matches the pre-snapshot
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+# Well under the 50 entries the history keeps: at the cap, the harvested entry would push the
+# oldest out and the count below would not move. How many earlier sections leave depends on how
+# many of their per-second names collided, so trim rather than count on it.
+# shellcheck disable=SC2012
+ls -1t "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -n +11 | while IFS= read -r f; do rm -f "$f"; done
 before_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
 "$KEMPT" check >/dev/null
 assert_exit 0 "unapplied stage keeps its marker" -- test -f "$KEMPT_STATE_DIR/offline_staged.json"
