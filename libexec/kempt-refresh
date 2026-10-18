@@ -15,8 +15,48 @@ set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8
 
-run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of exec'ing it
-  if [[ -n "${KEMPT_REFRESH_ECHO:-}" ]]; then echo "$*"; else exec "$@"; fi
+run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of running it
+  if [[ -n "${KEMPT_REFRESH_ECHO:-}" ]]; then echo "$*"; elif [[ "$2" == --pipe ]]; then run_piped "$@"; else exec "$@"; fi
+}
+
+# With --pipe, systemd-run hands its own stdin, stdout and stderr to PID 1, which gives them to
+# dnf5's unit. They must never be this shell's own. PID 1 runs in SELinux's init_t, which may not
+# write the caller's files (a mktemp file in /tmp is user_tmp_t), and systemd-run then fails with
+# "Remote peer disconnected" before dnf5 starts. So its stdin is /dev/null, and its stdout and
+# stderr are each a pipe this shell makes, read by a cat that copies to this shell's stdout or
+# stderr. The two stay apart, because the CLI reads them apart. systemd-run runs as a child, not by
+# exec, so the shell waits for both cats before it exits: no output is cut short, and the exit
+# status is still systemd-run's, which is dnf5's. A TERM, INT or HUP to this shell is passed on to
+# systemd-run, as it reached systemd-run when the shell exec'd it. Then the cats are stopped as
+# well, since dnf5 may still hold their pipes open, and nothing outlives this shell. Identical in
+# kempt-apply.
+run_piped() {  # systemd-run --pipe ... → systemd-run's exit status
+  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0 sig=0
+  exec {out}> >(cat)
+  out_pid=$!
+  exec {err}> >(cat >&2 {out}>&-)
+  err_pid=$!
+  # Bash starts a background command with INT and QUIT ignored. systemd-run gets them back as this
+  # shell had them, the way exec handed them over.
+  { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
+  sd_pid=$!
+  exec {out}>&- {err}>&-
+  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
+  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
+  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
+  # A trapped signal ends wait early. Waiting again returns systemd-run's own status once it exits.
+  while :; do
+    woke=0 rc=0
+    wait "$sd_pid" || rc=$?
+    (( woke )) || break
+  done
+  # If systemd-run exited while a trap ran, bash reaped it there and the next wait finds no child.
+  # Its status is lost, so report the signal that stopped it rather than 127 (a pkexec failure).
+  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
+  trap - TERM INT HUP
+  if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
+  wait "$out_pid" "$err_pid" || :
+  return "$rc"
 }
 
 # systemd-run, and the directory that exists only while systemd is PID 1 (sd_booted(3)). Fixed
@@ -34,9 +74,10 @@ fi
 NO_SYSTEMD=4
 
 # The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
-# --pipe hands dnf5 this process's stdin, stdout and stderr; --wait and systemd-run's exit status
-# carry dnf5's back (100 from check-update included). The unit gets umask 022, no core files,
-# systemd's default limits, cwd /, and an environment of its own, so PATH and LC_ALL are set on it:
+# --pipe gives dnf5 /dev/null for stdin and pipes back to this process's stdout and stderr
+# (run_piped); --wait and systemd-run's exit status carry dnf5's back (100 from check-update
+# included). The unit gets umask 022, no core files, systemd's default limits, cwd /, and an
+# environment of its own, so PATH and LC_ALL are set on it:
 # without them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and
 # the system locale, which would translate the text the CLI parses. Every dnf5 argument comes after
 # `--`, so none of them can reach systemd-run as an option, and --expand-environment=no keeps PID 1

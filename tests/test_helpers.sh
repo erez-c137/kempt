@@ -304,9 +304,15 @@ if [[ $EUID -ne 0 && ${#NS_TARGETS[@]} -gt 0 ]] \
         ns_apply "$t" ': > f; chmod 664 f; mkdir d' "$v"
       assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...and is not refused"
     done
-    assert_exit "$go_rc" "as root, the clean is never refused over an unsafe $t" -- \
-      ns_apply "$t" 'chmod 777 .' dnf-offline-clean
-    assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...so the fix can discard the stage"
+    # A real /system-update (Discover's prepared update, say) is root's to judge, so the clean
+    # refuses over it whatever the folders hold. Only a box without one can show the clean going ahead.
+    if [[ ! -e /system-update && ! -L /system-update ]]; then
+      assert_exit "$go_rc" "as root, the clean is never refused over an unsafe $t" -- \
+        ns_apply "$t" 'chmod 777 .' dnf-offline-clean
+      assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...so the fix can discard the stage"
+    else
+      skip "root clean over an unsafe $t: this box has a /system-update of its own"
+    fi
   done
 else
   skip "root-owned unsafe-folder cases - need a user namespace with spare ids and /usr/lib/sysimage/libdnf5 or /var/lib/dnf/offline"
@@ -363,23 +369,28 @@ if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
   # Root reads only the real paths, so a verb that goes ahead does so where systemd runs and stops
   # with exit 4 where it does not, as in the package build's container.
   if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then go_rc=0; else go_rc=4; fi
-  assert_exit "$go_rc" "as root, the seam cannot invent a release upgrade either" -- \
-    as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
-  if (( go_rc == 0 )); then
-    assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
-      "...the real path is empty, so the verb goes ahead, through the real systemd-run"
+  # The clean below refuses over a real /system-update, as above.
+  if [[ ! -e /system-update && ! -L /system-update ]]; then
+    assert_exit "$go_rc" "as root, the seam cannot invent a release upgrade either" -- \
+      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
+    if (( go_rc == 0 )); then
+      assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
+        "...the real path is empty, so the verb goes ahead, through the real systemd-run"
+    else
+      assert_not_contains "$(cat "$TESTTMP/last_output")" "release upgrade" "...the real path is empty, so it stops only for want of systemd"
+    fi
+    # The systemd seams change nothing as root either. The sandbox points them at the stand-in and a
+    # directory that exists; here the booted one points nowhere.
+    if (( go_rc == 0 )); then
+      assert_exit 0 "as root, the systemd seams are ignored: the real systemd-run, though the seam says systemd is absent" -- \
+        as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir"
+      assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" "...and its fixed path"
+    else
+      assert_exit 4 "as root, the systemd seams are ignored: no systemd here, though the seams point at a stand-in" -- \
+        as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean
+    fi
   else
-    assert_not_contains "$(cat "$TESTTMP/last_output")" "release upgrade" "...the real path is empty, so it stops only for want of systemd"
-  fi
-  # The systemd seams change nothing as root either. The sandbox points them at the stand-in and a
-  # directory that exists; here the booted one points nowhere.
-  if (( go_rc == 0 )); then
-    assert_exit 0 "as root, the systemd seams are ignored: the real systemd-run, though the seam says systemd is absent" -- \
-      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir"
-    assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" "...and its fixed path"
-  else
-    assert_exit 4 "as root, the systemd seams are ignored: no systemd here, though the seams point at a stand-in" -- \
-      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean
+    skip "root clean seam tests: this box has a /system-update of its own"
   fi
   if [[ ! -e /system-update && ! -L /system-update ]]; then
     assert_exit "$go_rc" "as root, the link seam cannot invent another updater's restart" -- \
@@ -395,16 +406,50 @@ fi
 # pkexec hands the helper far more of the caller than its environment: umask, limits, ignored
 # signals, the working directory, nice, CPU affinity, the cgroup. Bash cannot undo all of that
 # (an ignored signal stays ignored across exec), so the helper does not try. It validates, reads,
-# and execs systemd-run, and systemd starts dnf5 as a fresh service that inherits none of it.
+# and starts systemd-run (exec'd for a terminal, else a child whose pipes it copies: run_piped),
+# and systemd starts dnf5 as a fresh service that inherits none of it.
 # That only holds while the helper's own shell runs nothing else and writes nothing. This reads the
 # helper's code (comments out, continued lines joined) and prints each line that breaks the shape:
 #   - dnf5 named anywhere but as systemd-run's command, the rpm version read, or an error message
 #   - more than one exec, or one that is not the ECHO seam's `exec "$@"`
 #   - run called anywhere but on the one systemd-run line, with its fixed properties
 #   - a redirection other than to stderr or /dev/null, or a command that writes or starts another
+#   - run_piped other than exactly the text below. It is the one place the shell makes pipes, starts
+#     cats and sends signals, so it is read as a whole and then set aside for the checks above.
+# run_piped as the check reads it: comments out, word for word. A change to the helpers' run_piped
+# must be made here too, on purpose.
+RUN_PIPED="$(cat <<'EOF'
+run_piped() {
+  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0 sig=0
+  exec {out}> >(cat)
+  out_pid=$!
+  exec {err}> >(cat >&2 {out}>&-)
+  err_pid=$!
+  { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
+  sd_pid=$!
+  exec {out}>&- {err}>&-
+  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
+  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
+  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
+  while :; do
+    woke=0 rc=0
+    wait "$sd_pid" || rc=$?
+    (( woke )) || break
+  done
+  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
+  trap - TERM INT HUP
+  if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
+  wait "$out_pid" "$err_pid" || :
+  return "$rc"
+}
+EOF
+)"
 root_shape_violations() {  # helper file → one line per violation, then "read to the end"
   local code
   code="$(grep -vE '^[[:space:]]*#' "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')"
+  [[ "$(sed -n '/^run_piped() {$/,/^}$/p' <<<"$code")" == "$RUN_PIPED" ]] \
+    || echo "run_piped other than the vetted text: the pipes, cats and signals are not the ones checked"
+  code="$(sed '/^run_piped() {$/,/^}$/d' <<<"$code")"
   local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" (--pipe|"\$io") --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
   grep -wE 'dnf5' <<<"$code" \
     | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "kempt-(apply|refresh): [^"]*" >&2$' \
@@ -469,6 +514,17 @@ assert_exit 0 "...it catches a sourced file" -- \
 assert_exit 0 "...it catches rpm run straight from the shell" -- \
   grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; rpm --rebuilddb 2>/dev/null|')
 
+assert_exit 0 "...it catches run_piped handing systemd-run this shell's own stdout again" -- \
+  grep -q 'run_piped other than' <(mutant 's|exec "\$@"; } </dev/null >&"\$out" 2>&"\$err"|exec "$@"; } </dev/null 2>\&"$err"|')
+assert_exit 0 "...it catches a write smuggled into run_piped" -- \
+  grep -q 'run_piped other than' <(mutant 's|^  out_pid=\$!$|  out_pid=$!; echo "$out_pid" > /run/x|')
+assert_exit 0 "...and still catches a write anywhere else" -- \
+  grep -q 'writes a file' <(mutant 's|^set -euo pipefail$|set -euo pipefail; exec {o}> /var/tmp/x|')
+for h in "$RH" "$AH"; do
+  assert_eq "$(sed -n '/^run_piped() {/,/^}/p' "$h" | grep -vE '^[[:space:]]*#')" \
+    "$(sed -n '/^run_piped() {/,/^}/p' "$AH" | grep -vE '^[[:space:]]*#')" "$(basename "$h"): run_piped is the same in both helpers"
+done
+
 # A terminal on stdin gets --pty, so Ctrl-C reaches dnf5 instead of detaching it (see run_dnf5).
 if command -v python3 >/dev/null; then
   # shellcheck disable=SC2016
@@ -480,22 +536,22 @@ else
 fi
 
 # What systemd-run is handed, one argument per line, from the stand-in tests/lib.sh writes. No ECHO
-# here: the helper really execs it.
+# here: the helper really runs it.
 # shellcheck disable=SC2086 # SD_BASE and the properties are split into words on purpose
 want_argv() { local props="$1"; shift; printf '%s\n' $SD_BASE $props -- /usr/bin/dnf5 "$@"; }
 SDARGV="$TESTTMP/systemd-run.argv"
-assert_exit 0 "refresh check execs systemd-run" -- env KEMPT_DNF5_VERSION=5.2.18.0 bash "$RH" check
+assert_exit 0 "refresh check runs systemd-run" -- env KEMPT_DNF5_VERSION=5.2.18.0 bash "$RH" check
 assert_eq "$(cat "$SDARGV")" "$(want_argv '' --cacheonly check-update --quiet)" "...with the fixed properties, then -- and dnf5's arguments"
-assert_exit 0 "refresh check on dnf5 5.4 execs systemd-run" -- env KEMPT_DNF5_VERSION=5.4.0 bash "$RH" check
+assert_exit 0 "refresh check on dnf5 5.4 runs systemd-run" -- env KEMPT_DNF5_VERSION=5.4.0 bash "$RH" check
 assert_eq "$(cat "$SDARGV")" "$(want_argv '' --cacheonly check-update --quiet --json)" "...asking for JSON"
-assert_exit 0 "refresh execs systemd-run" -- bash "$RH" refresh
+assert_exit 0 "refresh runs systemd-run" -- bash "$RH" refresh
 assert_eq "$(cat "$SDARGV")" "$(want_argv '-p RuntimeMaxSec=120 -p TimeoutStopSec=10' makecache --refresh)" "...bounded by the unit, not by timeout"
-assert_exit 0 "dnf-upgrade execs systemd-run" -- bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core
+assert_exit 0 "dnf-upgrade runs systemd-run" -- bash "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core
 assert_eq "$(cat "$SDARGV")" "$(want_argv '' upgrade -y --exclude=vim-common --exclude=kernel-core)" "...every exclude after the --, where systemd-run cannot read it as an option"
 for v in dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
   rm -f "$SDARGV"
   # shellcheck disable=SC2046
-  assert_exit 0 "$v execs systemd-run" -- env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(offline_args "$v")
+  assert_exit 0 "$v runs systemd-run" -- env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(offline_args "$v")
   case "$v" in
     dnf-offline-stage) want="$(want_argv '' upgrade --offline -y)" ;;
     dnf-offline-arm)   want="$(want_argv --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 offline reboot -y)" ;;
@@ -503,15 +559,85 @@ for v in dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
   esac
   assert_eq "$(cat "$SDARGV")" "$want" "...$v hands it exactly this"
 done
-# exec, not a child: the process that ran the helper IS systemd-run, so the shell is gone and its
-# exit status is systemd-run's, which is dnf5's.
+# In pipe mode systemd-run is the shell's child (run_piped), and the shell's exit status is
+# systemd-run's, which is dnf5's.
 # shellcheck disable=SC2016 # expanded by the inner bash
 bash -c 'echo "$$" > "$2"; exec bash "$1" refresh' _ "$RH" "$TESTTMP/helper.pid"
-assert_eq "$(cat "$TESTTMP/systemd-run.pid")" "$(cat "$TESTTMP/helper.pid")" "the helper execs systemd-run in its own process, leaving nothing behind it"
+assert_eq "$(cat "/proc/$(cat "$TESTTMP/helper.pid")/stat" 2>/dev/null || echo gone)" "gone" "the helper is gone once systemd-run has finished"
 assert_exit 100 "dnf5's 100 from check-update comes back through the helper" -- env KEMPT_TEST_SDRUN_RC=100 bash "$RH" check
 assert_exit 1 "...and a failed refresh's 1" -- env KEMPT_TEST_SDRUN_RC=1 bash "$RH" refresh
 assert_exit 1 "...and a failed upgrade's 1" -- env KEMPT_TEST_SDRUN_RC=1 bash "$AH" dnf-upgrade -y
 assert_exit 255 "...and systemd-run's own 255 for a dnf5 killed by a signal" -- env KEMPT_TEST_SDRUN_RC=255 bash "$AH" dnf-offline-clean
+
+# --- pipe mode never hands systemd-run this shell's own stdin, stdout or stderr ---------------------
+# --pipe passes systemd-run's fds to PID 1. Under SELinux PID 1 (init_t) may not write the caller's
+# files, such as a mktemp file in /tmp (user_tmp_t), so systemd-run failed and dnf5 never ran. No
+# SELinux here, so this stand-in reports what its fds are: /dev/null and two pipes, even when the
+# helper's own stdin, stdout and stderr are regular files. It also checks that each stream still
+# arrives whole and apart from the other, and that the exit status comes back.
+FDSD="$TESTTMP/fd-systemd-run"; FDREP="$TESTTMP/fd-report"
+cat > "$FDSD" <<'EOF'
+#!/usr/bin/env bash
+r="$KEMPT_TEST_FD_REPORT"
+fds="$(for n in 0 1 2; do echo "fd$n $(readlink "/proc/$$/fd/$n" 2>&1)"; done 2>/dev/null)"
+{ echo "$fds"; echo "parent $(tr '\0' ' ' < "/proc/$PPID/cmdline")"; grep '^SigIgn' "/proc/$$/status"; } > "$r"
+echo "to stdout"; echo "to stderr" >&2
+[[ -z "${KEMPT_TEST_FD_LINES:-}" ]] || { seq "$KEMPT_TEST_FD_LINES"; seq "$KEMPT_TEST_FD_LINES" >&2; }
+if [[ -n "${KEMPT_TEST_FD_HANG:-}" ]]; then
+  # Like dnf5 in its unit: something else still holds the pipes after systemd-run is gone.
+  trap 'echo "got TERM" >> "$r"; exit 143' TERM
+  trap 'echo "got INT" >> "$r"; exit 130' INT
+  sleep 4 & echo ready >> "$r"; wait
+fi
+exit "${KEMPT_TEST_SDRUN_RC:-0}"
+EOF
+chmod +x "$FDSD"
+echo "stdin of the caller" > "$TESTTMP/fd-stdin"
+for h in "$RH" "$AH"; do
+  verb=dnf-upgrade; [[ "$h" == "$RH" ]] && verb=check
+  rc=0
+  env KEMPT_SYSTEMD_RUN="$FDSD" KEMPT_TEST_FD_REPORT="$FDREP" KEMPT_TEST_SDRUN_RC=100 bash "$h" "$verb" \
+    <"$TESTTMP/fd-stdin" >"$TESTTMP/fd-out" 2>"$TESTTMP/fd-err" || rc=$?
+  n="$(basename "$h")"
+  assert_eq "$(grep '^fd0 ' "$FDREP")" "fd0 /dev/null" "$n: in pipe mode systemd-run's stdin is /dev/null, not the caller's"
+  assert_contains "$(grep '^fd1 ' "$FDREP")" "fd1 pipe:" "$n: ...its stdout is a pipe of the helper's, not the caller's file"
+  assert_contains "$(grep '^fd2 ' "$FDREP")" "fd2 pipe:" "$n: ...and so is its stderr"
+  assert_contains "$(grep '^parent ' "$FDREP")" "$h" "$n: ...started as the helper's own child"
+  assert_eq "$(cat "$TESTTMP/fd-out")" "to stdout" "$n: ...and what it writes to stdout lands in the caller's stdout"
+  assert_eq "$(cat "$TESTTMP/fd-err")" "to stderr" "$n: ...and stderr in the caller's stderr, kept apart"
+  assert_eq "$rc" 100 "$n: ...with systemd-run's exit status"
+  rc=0
+  env KEMPT_SYSTEMD_RUN="$FDSD" KEMPT_TEST_FD_REPORT="$FDREP" KEMPT_TEST_FD_LINES=200000 bash "$h" "$verb" \
+    >"$TESTTMP/fd-out" 2>"$TESTTMP/fd-err" || rc=$?
+  assert_eq "$rc $(wc -l < "$TESTTMP/fd-out") $(tail -n1 "$TESTTMP/fd-out") $(wc -l < "$TESTTMP/fd-err") $(tail -n1 "$TESTTMP/fd-err")" \
+    "0 200001 200000 200001 200000" "$n: a long output arrives whole on both streams before the helper exits"
+done
+
+# A TERM or INT to the helper reaches systemd-run, as it did when the helper exec'd it, and nothing
+# the helper started outlives it, even while something else still holds the pipes. env
+# --default-signal undoes the INT that a background job of this script would start out ignoring.
+helper_kids() { cat "/proc/$1/task/$1/children" 2>/dev/null; }
+if [[ -r /proc/self/task/$$/children ]] && env --default-signal=INT true 2>/dev/null; then
+  for sig in TERM INT; do
+    want=143; [[ $sig == INT ]] && want=130
+    rm -f "$FDREP"
+    env --default-signal=INT KEMPT_SYSTEMD_RUN="$FDSD" KEMPT_TEST_FD_REPORT="$FDREP" KEMPT_TEST_FD_HANG=1 \
+      bash "$AH" dnf-upgrade -y >"$TESTTMP/fd-out" 2>"$TESTTMP/fd-err" &
+    hp=$!
+    for _ in $(seq 100); do grep -q '^ready$' "$FDREP" 2>/dev/null && break; sleep 0.05; done
+    kids="$(helper_kids "$hp")"
+    t0=$SECONDS
+    kill -s "$sig" "$hp"
+    rc=0; wait "$hp" || rc=$?
+    assert_eq "$rc" "$want" "a $sig to the helper comes back as systemd-run's own status for it"
+    assert_contains "$(cat "$FDREP")" "got $sig" "...because systemd-run got the $sig"
+    assert_eq "$(( SECONDS - t0 < 3 ))" 1 "...and the helper did not wait for what still holds the pipes"
+    left=""; for k in $kids; do [[ -e "/proc/$k" ]] && left+=" $k:$(cat "/proc/$k/comm" 2>/dev/null)"; done
+    assert_eq "$(wc -w <<<"$kids") ${left:-none}" "3 none" "...and none of its three children (two cats, systemd-run) is left"
+  done
+else
+  skip "helper signal test - needs /proc/PID/task/PID/children and env --default-signal"
+fi
 
 # Fail closed. Without systemd as PID 1 (a container, say) or without systemd-run, nothing runs and
 # the helper exits 4, apart from 2 (bad arguments), 3 (refused) and dnf5's own statuses. It never

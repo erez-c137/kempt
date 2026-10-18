@@ -122,11 +122,13 @@ dnf5 would reboot the moment the transaction is armed.
 `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged transaction. At worst it
 throws away updates that were still waiting to install.
 
-Neither helper runs dnf5 itself. After validating, each execs `systemd-run`, which starts dnf5 as
+Neither helper runs dnf5 itself. After validating, each starts `systemd-run`, which starts dnf5 as
 a new service with `UMask=0022` and no core files. pkexec passes on the caller's umask, limits,
 ignored signals, working directory and cgroup, and a refresh needs no password. The service
 inherits none of them, so no other account can make root write files others can change. Without
-systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing.
+systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing. Without a terminal,
+`systemd-run` gets `/dev/null` and the helper's pipes, never the caller's files, which SELinux
+keeps PID 1 from writing.
 
 Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cache, state and
 staged packages for files another user could change. A changed staged package installs as root
