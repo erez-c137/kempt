@@ -151,6 +151,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The widget keeps up with its notification.** When an update finished or was staged, the
+  widget could stay busy for up to 30 seconds after the notification said so. It now follows within
+  about 2 seconds, and the state is saved before the notification goes out.
 - **Offline checks say the package lists could not be downloaded.** The widget's notice said
   nothing when the lists came from dnf or Discover, so old counts read as current. It now leads with
   the failed download and leaves out the age nobody knows. `kempt status` adds
