@@ -671,6 +671,55 @@ p.check("...and Check again still checks, and still ends the run",
         [p.call_count("check") - before, ev("root.updating")], [1, False])
 p.wait_idle(ev, "executor")
 
+# --- 8f. during a run the watcher ticks every 2 seconds, and only state.json ends the run ---------
+# The CLI publishes the stage and then notifies "Updates are staged", but the run ends here only
+# when a watcher tick sees state.json move. At 30 seconds a tick, the popup stayed busy for up to
+# half a minute after the notification said the run was over.
+p.check("the watcher ticks every 30 seconds outside a run", ev("watchTimer.interval"), 30000)
+ev("root.enterUpdating('offline')")
+p.check("...and every 2 seconds while a run of ours is in flight", ev("watchTimer.interval"), 2000)
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor")
+p.check("...and back to 30 once the run is over", ev("watchTimer.interval"), 30000)
+
+# The faster tick must not end a run early. The package database is rewritten all the way through a
+# dnf transaction, so a tick that sees only it move leaves the run alone. The stamp is the real one
+# with the rpmdb field moved, which is what that tick would read; the tick restores the real one.
+ev("postRunCheck.stop()")
+ev("root.enterUpdating('offline')")
+ev("root.watchStamp = ''; root.pollWatch(false)")
+p.wait_for(ev, "root.watchStamp !== ''", True)
+p.wait_idle(ev, "executor")
+real = ev("root.watchStamp")
+fields = real.split(" ")
+fields[0] = str(int(fields[0]) - 100)
+ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+p.wait_for(ev, "root.watchStamp === %s" % json.dumps(real), True, timeout_ms=4000)
+p.check("premise: the timer itself ticked within a few seconds of the run starting",
+        ev("root.watchStamp") == real, True)
+p.wait_idle(ev, "executor")
+p.check("a tick that sees only the package database move keeps the run going",
+        ev("root.updating"), True)
+
+# ...and the run's own state write ends it on the next tick, with nobody calling pollWatch.
+ev("root.lastCheckFinished = Date.now() - 61000")
+open(STATE_JSON, "w").write(json.dumps(STAGED))        # the CLI's publish, before it notifies
+harness.touch(STATE_JSON, "2030-06-01")
+p.wait_for(ev, "root.updating", False, timeout_ms=5000)
+p.check("the run's state write ends the run on the timer's next tick, within seconds",
+        ev("root.updating"), False)
+p.wait_idle(ev, "executor")
+ev("postRunCheck.stop()")
+
+# One watch poll queued at a time: the executor is shared with checks that take minutes, and a
+# 2-second tick behind one of those would otherwise pile up a stat per tick.
+ev("executor.run('sleep 1', 5000, function () {})")   # stands in for a slow check
+ev("root.pollWatch(true); root.pollWatch(true); root.pollWatch(true)")
+p.check("a watch poll already queued is not queued again",
+        ev("executor.queue.length"), 1)
+p.wait_idle(ev, "executor")
+p.check("...and the count goes back to zero once it has run", ev("root.watchPolls"), 0)
+
 # --- 9. a new set of security updates: the panel asks once, and opening the popup answers ------
 # The tray shows an entry asking for attention, and Plasma keeps one the user set to "Always
 # hidden" in the hidden list. The status is assigned in a try like the presence claim above, so the

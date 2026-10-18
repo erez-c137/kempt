@@ -349,11 +349,11 @@ PlasmoidItem {
     readonly property string configDir: "${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 
     // The event-driven half of the refresh: an update applied from any source shows up within
-    // seconds. KDirWatch is not reachable from pure QML, so this is a 30s stat of the two
-    // package databases plus our own state file. The config file is watched too, and that is what
-    // makes the settings page work at all: the page is built by the shell in its own dialog and
-    // cannot call back into this file, so it writes with `kempt config set` and this notices the
-    // mtime. That 30-second poll is the settings page's whole latency budget.
+    // seconds. KDirWatch is not reachable from pure QML, so this is a 30s stat (2s during a run)
+    // of the two package databases plus our own state file. The config file is watched too, and
+    // that is what makes the settings page work at all: the page is built by the shell in its own
+    // dialog and cannot call back into this file, so it writes with `kempt config set` and this
+    // notices the mtime. That 30-second poll is the settings page's whole latency budget.
     //
     // One field per path, ALWAYS. `stat` prints nothing for a path that does not exist, so a bare
     // `stat -c %Y a b c d` on a box without flatpak returns THREE numbers and every field after
@@ -373,6 +373,7 @@ PlasmoidItem {
         + "/config\"; do stat -c %Y \"$p\" 2>/dev/null || echo 0; done | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
+    property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
     // --- flows ---------------------------------------------------------------------------------
@@ -622,10 +623,19 @@ PlasmoidItem {
         });
     }
 
-    // One stat of the watched paths. `triggerCheck` separates the 30s watcher (which must react to
+    // One stat of the watched paths. `triggerCheck` separates the watcher (which must react to
     // a change) from the post-check re-baseline (which must not).
     function pollWatch(triggerCheck) {
+        // One poll queued at a time. This shares the serialized executor with checks that take
+        // minutes, and during a run the timer ticks every 2 seconds: without this, every tick of a
+        // long check would queue another stat behind it. Skipping costs nothing, because a queued
+        // poll stats when it RUNS, not when it was asked for, so it sees the same change. That
+        // holds for the re-baseline too: it clears watchStamp first, so a poll already queued
+        // learns the new mtimes instead of reacting to them.
+        if (root.watchPolls > 0) return;
+        root.watchPolls++;
         executor.run(watchCmd, 10000, function(stdout, stderr, rc) {
+            root.watchPolls--;                     // first, so nothing below can leave it stuck
             var stamp = String(stdout).trim();
             if (stamp === "") return;              // stat found nothing: learn nothing, change nothing
             var previous = root.watchStamp;
@@ -660,7 +670,7 @@ PlasmoidItem {
 
             // ...and a package database moving while a run of OURS is in flight is not news, it IS
             // the run: checking on it would queue `kempt check` behind the dnf lock the
-            // transaction holds, every 30 seconds, for the length of it. The config file is the
+            // transaction holds, every few seconds, for the length of it. The config file is the
             // one exception worth acting on meanwhile - it is the settings page's only way in, and
             // two `config get` calls take no locks. (A run that just ENDED cleared `updating` on
             // the line above, so it falls past this and gets the full re-read.)
@@ -1392,9 +1402,14 @@ PlasmoidItem {
         onTriggered: root.refreshClock()
     }
 
+    // Every 30 seconds, and every 2 while a run of ours is in flight: the run ends when state.json
+    // moves (pollWatch), and the CLI writes it before it notifies, so a slow tick here is the only
+    // thing between "Updates are staged" and the popup leaving its busy state. Faster ticks cannot
+    // end a run early: only a state.json change ends one, and the package database moving through
+    // the transaction is ignored while it runs.
     Timer {
         id: watchTimer
-        interval: 30000
+        interval: root.updating ? 2000 : 30000
         repeat: true
         running: true
         onTriggered: root.pollWatch(true)

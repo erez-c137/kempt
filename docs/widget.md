@@ -301,10 +301,10 @@ check interval, whichever is shorter, and on every open until a check succeeds. 
 screen stay until the answer arrives. If a check is already running, one more runs when it
 finishes, however often you open the widget.
 
-Every 30 seconds the widget also checks the package databases, its state file and the config
-file. A `dnf upgrade` in a terminal, a Discover run, another Kempt run or a settings change shows
-up without you asking. For a minute after a check, the widget ignores changes that check
-made.
+Every 30 seconds (every 2 during an update) the widget also checks the package databases, its
+state file and the config file. A `dnf upgrade` in a terminal, a Discover run, another Kempt run
+or a settings change shows up without you asking. For a minute after a check, the widget ignores
+changes that check made.
 
 ### When nothing is pending
 
