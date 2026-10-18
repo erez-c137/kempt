@@ -2032,6 +2032,16 @@ cmd_update() {
     log_warn "$log" "warning: another updater has prepared the next restart, so the updates staged here will not install then. See: kempt doctor"
   fi
 
+  reconcile_stage_after_live_run
+  # AFTER the reconciliation above, which is what decides whether a stage still stands, and BEFORE
+  # the check below, which is the slow half. The check publishes this too; this is the same fact,
+  # tens of seconds earlier, so no surface spends that window offering to stage what is already
+  # staged. See publish_staged_state.
+  # ...and BEFORE the notification below: the widget leaves its busy state when state.json moves,
+  # so a notification that went out first had the popup still busy beside "Updates are staged".
+  # Neither reads anything the summary or the notification writes.
+  publish_staged_state
+
   # tell the human. Both readers take the entry as a FILE, and on the one path where neither the
   # history nor a temp file could be written there is no file to give them - so they are skipped
   # rather than handed a path that does not exist, which would end the run here on jq's rc. The
@@ -2079,12 +2089,6 @@ cmd_update() {
   fi
   # The copy the summary was rendered from, when it could not be installed into the history.
   [[ -n "${hist_tmp:-}" ]] && rm -f "$hist_tmp"
-  reconcile_stage_after_live_run
-  # AFTER the reconciliation above, which is what decides whether a stage still stands, and BEFORE
-  # the check below, which is the slow half. The check publishes this too; this is the same fact,
-  # tens of seconds earlier, so no surface spends that window offering to stage what is already
-  # staged. See publish_staged_state.
-  publish_staged_state
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
   # nothing, so a person watching is told what the pause is.

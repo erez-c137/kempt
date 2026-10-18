@@ -602,8 +602,9 @@ secure. A rebuild destroys the old transaction at once, and the widget can sit o
 stage (`vm.stagedStagedAt`) is still published and still raises a warning. Otherwise it redraws
 the banner and says the staged update changed. During a run it does nothing, like `stageOffline`.
 
-When the 30-second watcher sees `state.json` change after a run, `adoptState()` takes the file at
-once. The run has already published the armed stage, and a stale **Update Now** would discard it.
+When the watcher (every 2 seconds during a run) sees `state.json` change after a run,
+`adoptState()` takes the file at once. The run has already published the armed stage, and a stale
+**Update Now** would discard it.
 
 ### What the message stack says to a screen reader
 
@@ -780,7 +781,7 @@ optional can be skipped.
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and its line in `usage` | A `--no-<name>` override and its usage line. Without it the backend can be switched off only in config. |
 | `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the widget lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
 | `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` | A title per `kind`, only if your backend writes `kind`. Without it the heading reads `<backend> <kind>`. |
-| The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm/rpmdb.sqlite`, `/var/lib/rpm` and `/var/lib/flatpak`, checked every 30s | Your package database's path. Without it an update applied in a terminal shows only after the next timed check. |
+| The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm/rpmdb.sqlite`, `/var/lib/rpm` and `/var/lib/flatpak`, checked every 30s (2s during a run) | Your package database's path. Without it an update applied in a terminal shows only after the next timed check. |
 | `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. |
 
 **Packaging needs nothing.** `kempt.spec` ships `backends/` as a directory and strips shebangs from

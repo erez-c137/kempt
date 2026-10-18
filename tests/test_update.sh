@@ -75,6 +75,15 @@ cat > "$TESTTMP/notify-stub" <<STUB
 echo "NOTIFY \$@" >> "$WORLD/notifications"
 STUB
 chmod +x "$TESTTMP/notify-stub"
+# The same stand-in that also writes down what state.json says is staged at the moment the
+# notification goes out: the order of the two is what the widget sees, not just the end result.
+cat > "$TESTTMP/notify-stub.state" <<STUB
+#!/usr/bin/env bash
+echo "NOTIFY \$@" >> "$WORLD/notifications"
+jq -c '.offline_staged.armed // "absent"' "$KEMPT_STATE_DIR/state.json" >> "$WORLD/notify-state" 2>/dev/null \
+  || echo unreadable >> "$WORLD/notify-state"
+STUB
+chmod +x "$TESTTMP/notify-stub.state"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-stub"
 export KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-update-stub"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
@@ -400,8 +409,9 @@ for _i in $(seq 1 100); do
   flock -w 0 -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null || break
   sleep 0.02
 done
-rm -f "$TESTTMP/closing-mark"
+rm -f "$TESTTMP/closing-mark" "$WORLD/notify-state"
 KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" KEMPT_CHECK_LOCK_WAIT=0 \
+  KEMPT_NOTIFY="$TESTTMP/notify-stub.state" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 kill "$lockpid" 2>/dev/null || true
 wait "$lockpid" 2>/dev/null || true
@@ -413,6 +423,10 @@ assert_eq "$(jq -r '.offline_staged.armed // "absent"' "$KEMPT_STATE_DIR/state.j
   "the run records the staged transaction itself, without waiting for a check"
 assert_eq "$(jq -r '.offline_staged.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
   "$(jq -r '.staged' "$marker")" "...carrying the marker's count, so no surface has to guess"
+# ...and it is there BEFORE the notification. The widget leaves its busy state on a state.json
+# change, so a stage published after "Updates are staged" kept the popup busy beside that message.
+assert_eq "$(cat "$WORLD/notify-state" 2>/dev/null)" "true" \
+  "the state already holds the stage when the notification goes out"
 # The rest of the state is LEFT ALONE. This is not a check and must not date itself as one: a fresh
 # last_check over counts nobody re-read is a worse lie than the one being fixed.
 assert_eq "$(jq -r '.last_check' "$KEMPT_STATE_DIR/state.json")" "2026-01-01T00:00:00+00:00" \
@@ -1392,6 +1406,11 @@ chmod +x "$TESTTMP/refresh-stub"
 
 # not applied yet (reboot hasn't happened): the installed set still matches the pre-snapshot
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+# Well under the 50 entries the history keeps: at the cap, the harvested entry would push the
+# oldest out and the count below would not move. How many earlier sections leave depends on how
+# many of their per-second names collided, so trim rather than count on it.
+# shellcheck disable=SC2012
+ls -1t "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -n +11 | while IFS= read -r f; do rm -f "$f"; done
 before_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
 "$KEMPT" check >/dev/null
 assert_exit 0 "unapplied stage keeps its marker" -- test -f "$KEMPT_STATE_DIR/offline_staged.json"
