@@ -66,7 +66,7 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
-    <release version="0.1.8" date="2026-10-11" type="stable">
+    <release version="0.1.8" date="2026-10-19" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.8</url>
       <description>
         <p>
