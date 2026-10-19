@@ -3934,7 +3934,7 @@ doctor_shell_quote() {  # text → the text quoted for the shell, every byte out
   local LC_ALL=C
   printf '%q' "$1"
 }
-# path → every name the kernel passes through to reach it, top down, one a line: each folder, and
+# path → every name the kernel passes through to reach it, top down, NUL after each: each folder, and
 # each link with the folders above its target after it. The folder reached last is left out, since
 # the rows above check it. At most 40 links are followed, the kernel's own limit.
 doctor_dnf_path_names() {
@@ -3947,7 +3947,9 @@ doctor_dnf_path_names() {
       ..) cur="${cur%/*}"; continue ;;
     esac
     names+=("$cur/$c")
-    if [[ -L "$cur/$c" ]] && (( hops++ < 40 )) && t="$(readlink -- "$cur/$c")" && [[ -n "$t" ]]; then
+    # The dot keeps a trailing newline of the target, which $(...) would strip into another name.
+    if [[ -L "$cur/$c" ]] && (( hops++ < 40 )) && t="$(readlink -- "$cur/$c" && echo .)" \
+       && t="${t%.}" && t="${t%$'\n'}" && [[ -n "$t" ]]; then
       [[ "$t" == /* ]] && cur=""
       rest="$t/$rest"
     else
@@ -3955,7 +3957,7 @@ doctor_dnf_path_names() {
     fi
   done
   unset 'names[-1]'
-  (( ${#names[@]} )) && printf '%s\n' "${names[@]}"
+  (( ${#names[@]} )) && printf '%s\0' "${names[@]}"
 }
 doctor_dnf_parents_row() {
   local top="$KEMPT_DNF_PARENTS_TOP" top_l="" top_r="" d p hit q link_note=""
@@ -3963,10 +3965,11 @@ doctor_dnf_parents_row() {
   local -A seen=()
   local -a walk=() own=() mode=() acl=() shown=()
   for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
+    # Made absolute but not normalised: ".." is the resolver's to take, from where a link leads.
+    [[ -n "$d" ]] || continue
+    [[ "$d" == /* ]] || d="$PWD/$d"
     # Top down, so a fix that runs in this order locks each folder before the ones inside it.
-    # A name with a newline is split here; such a name is never a dnf folder's parent, and the
-    # pieces that do not exist are skipped below.
-    while IFS= read -r p; do
+    while IFS= read -r -d '' p; do
       [[ -n "${seen[$p]+x}" ]] && continue
       seen[$p]=1
       # The top and the folders above it are skipped.
@@ -3974,7 +3977,7 @@ doctor_dnf_parents_row() {
         [[ "$p" == / || "$p" == "$top_l" || "$p" == "$top_r" || "$top_l" == "$p"/* || "$top_r" == "$p"/* ]] && continue
       fi
       walk+=("$p")
-    done < <(doctor_dnf_path_names "$(realpath -m -s -- "$d")")
+    done < <(doctor_dnf_path_names "$d")
   done
   for p in "${walk[@]}"; do
     [[ -e "$p" || -L "$p" ]] || continue

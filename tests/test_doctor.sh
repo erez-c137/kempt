@@ -1391,6 +1391,15 @@ mkdir -p "$DP/m/a" "$DP/m/b" "$DP/m/c"; ln -s ../b/l2 "$DP/m/a/l1"; ln -s ../c "
 KEMPT_DNF_CACHE_DIR="$DP/m/a/l1/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
 assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/m, $DP/m/a, $DP/m/a/l1, $DP/m/b, $DP/m/b/l2, $DP/m/c. " \
   "a chain of two links has each hop and its parents walked"
+# ".." after a link climbs from where the link leads, as the kernel does, not from the link's name.
+mkdir -p "$DP/u/deep/x"; ln -s deep/x "$DP/u/dl"
+KEMPT_DNF_CACHE_DIR="$DP/u/dl/../libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/u, $DP/u/dl, $DP/u/deep, $DP/u/deep/x. " \
+  "a .. after a link is taken from where the link leads"
+# A link target that ends in a newline names a different folder; it is walked as written.
+mkdir -p "$DP/n/ev"$'\n'; ln -s "ev"$'\n' "$DP/n/nl"
+KEMPT_DNF_CACHE_DIR="$DP/n/nl/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "$DP/n/nl, $DP/n/ev?" "a link target ending in a newline keeps it"
 # A link's target is another user's choice. In a UTF-8 locale, a bidi control in it still reaches
 # the printed command as an octal escape, and the list shows it as ?.
 RLO=$'‮'; [[ "$(LC_ALL=C.UTF-8 printf '%s' "$RLO" | wc -c)" == 3 ]] || RLO=$'\342\200\256'
