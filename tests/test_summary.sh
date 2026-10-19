@@ -177,21 +177,21 @@ stg_entry() {  # file, extra-json
 mkdir -p "$TESTTMP/hist-aside"; mv "$HIST_DIR"/*.json "$TESTTMP/hist-aside/"
 sf="$HIST_DIR/20261009T133716.json"
 stg_entry "$sf" '{"staged":78}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  78 updates staged for the next restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 78 updates for a restart" \
   "a staging run's history row says what it staged"
-assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): 78 updates staged for the next restart" \
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 78 updates for a restart" \
   "...and so does its summary, in place of 0 updated"
 assert_eq "$("$KEMPT" history --json | jq -c '.[0].staged')" "78" "...while --json carries the entry as written"
 stg_entry "$sf" '{"staged":1}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  1 update staged for the next restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 1 update for a restart" \
   "one staged update is singular"
 stg_entry "$sf" '{}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  updates staged for the next restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates for a restart" \
   "an entry from before the count existed still reads as a stage, without a number"
-assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): updates staged for the next restart" \
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged updates for a restart" \
   "...in the summary too"
 stg_entry "$sf" '{"staged":3,"backends":{"dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},"flatpak":{"status":"ok","skipped_held":[],"updated":[{"name":"org.a.B","from":"1","to":"2"}],"added":[],"removed":[]}}}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  3 updates staged for the next restart, Flatpak: 1 updated" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 3 updates for a restart, Flatpak: 1 updated" \
   "Flatpak's live changes in the same run are still counted"
 stg_entry "$sf" '{"staged_nothing":"held"}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  no package changes" \
@@ -201,18 +201,21 @@ assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  failed  no 
   "a failed staging run staged nothing, and says so"
 # A failed Flatpak half fails the run, but the dnf half staged and armed: the stage is still there.
 stg_entry "$sf" '{"status":"failed","error":"boom","staged":7,"backends":{"dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},"flatpak":{"status":"failed","skipped_held":[],"updated":[],"added":[],"removed":[]}}}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  failed  7 updates staged for the next restart  (boom)" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  failed  staged 7 updates for a restart  (boom)" \
   "a run whose Flatpak half failed still says what its dnf half staged"
-assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): 7 updates staged for the next restart" \
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 7 updates for a restart" \
   "...and so does its summary, never 0 updated"
 # A stage behind another updater's /system-update will not install at the next restart.
 stg_entry "$sf" '{"staged":5,"stage_blocked":true}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  5 updates staged, but another updater has prepared the next restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 5 updates, but another updater had prepared the restart" \
   "a stage behind another updater's restart does not promise to install then"
-assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): 5 updates staged, but another updater has prepared the next restart" \
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 5 updates, but another updater had prepared the restart" \
   "...in the summary too"
+stg_entry "$sf" '{"stage_blocked":true}'
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates, but another updater had prepared the restart" \
+  "...and without a count it drops the figure"
 stg_entry "$sf" '{"staged":0}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  updates staged for the next restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates for a restart" \
   "a staged count of 0 reads as unknown, never as 0 updates staged"
 stg_entry "$sf" '{"surface":"offline (applied on reboot)"}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  restart (staged update installed)  ok  no package changes" \

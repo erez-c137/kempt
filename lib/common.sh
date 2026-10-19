@@ -3344,14 +3344,18 @@ KEMPT_JQ_COUNTS='
   # the stage armed. Entries from older builds have no staged count or dnf status, and the phrase
   # then leaves the count out and reads the run status. A stage made while another updater holds
   # /system-update says it will not install then (stage_blocked).
+  # Worded as what the run did, never as what the box holds now: the entry outlives the stage
+  # (installed, discarded, replaced), and kempt status prints it under a header that says whether
+  # anything is staged today. "for the next restart" here contradicted that header once it was gone.
   def stage_phrase:
     if .surface == "offline" and (.backends.dnf.status? // .status) == "ok"
        and (.staged_nothing // "") == "" then
-      (if (.staged | type) == "number" and .staged > 0 then
-         (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
-       else "updates" end)
-      + (if .stage_blocked == true then " staged, but another updater has prepared the next restart"
-         else " staged for the next restart" end)
+      "staged "
+      + (if (.staged | type) == "number" and .staged > 0 then
+           (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
+         else "updates" end)
+      + (if .stage_blocked == true then ", but another updater had prepared the restart"
+         else " for a restart" end)
     else empty end;
   # How a run reads in kempt history and kempt summary. The stored surface of a harvested
   # restart keeps its old words, so scripts and old entries read the same. Only the display moves.

@@ -170,6 +170,37 @@ cat > "$HIST_DIR/20260826T090000.json" <<'EOF'
   "flatpak":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 EOF
 assert_eq "$(status | tail -n 1)" "Last update 1 day ago · no package changes · failed" "a failed run says so"
+# A staging run is a past event: its line stays true after the stage is gone (installed,
+# discarded, or replaced), so it never says the update is still waiting for the next restart.
+# Whether something is staged NOW is the header's job, from the state.
+stage_run() {  # extra-json
+  jq -n --argjson extra "$1" '{"timestamp":"2026-08-27T10:00:00+03:00","surface":"offline","status":"ok",
+    "duration_sec":40,"reboot_needed":false,"log":"/tmp/s.log","error":"",
+    "backends":{"dnf":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]},
+      "flatpak":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]}}} + $extra' \
+    > "$HIST_DIR/20260827T100000.json"
+}
+stage_run '{"staged":12}'
+jq '.offline_staged = {staged_at: "2026-08-27T10:00:00+03:00", count: 12, armed: true}' \
+  "$FIXTURES/state-live.json" > "$STATE_FILE"
+out="$(status)"
+assert_eq "$(head -n 1 <<<"$out")" "12 updates staged for the next restart" "a staging run: the header says what is staged now"
+assert_eq "$(tail -n 1 <<<"$out")" "Last update 59 min ago · staged 12 updates for a restart" \
+  "...and the last run says what that run did"
+put live
+out="$(status)"
+assert_eq "$(tail -n 1 <<<"$out")" "Last update 59 min ago · staged 12 updates for a restart" \
+  "the stage gone: the last run still reads true"
+assert_not_contains "$out" "next restart" "...and nothing claims the update is still staged"
+stage_run '{"staged":1}'
+assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged 1 update for a restart" "one staged update is singular"
+stage_run '{}'
+assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged updates for a restart" \
+  "an entry with no count drops the figure"
+stage_run '{"staged":3,"stage_blocked":true}'
+assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged 3 updates, but another updater had prepared the restart" \
+  "a stage behind another updater's restart says so, in the past"
+rm -f "$HIST_DIR/20260827T100000.json"
 echo '{not json' > "$HIST_DIR/20260827T090000.json"
 assert_not_contains "$(status)" "Last update" "a damaged newest entry gets no line, not an older run"
 rm -f "$HIST_DIR"/*.json
