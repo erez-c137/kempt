@@ -70,6 +70,8 @@ KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
 # The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
 # loudly (exit 4) instead of `kempt run` silently doing nothing at all.
 KEMPT_TERMINAL="${KEMPT_TERMINAL:-konsole}"
+# Test seam: doctor's ACL scan, and its row saying when that scan cannot run.
+KEMPT_GETFACL="${KEMPT_GETFACL:-getfacl}"
 
 CONFIG_FILE="$KEMPT_CONFIG_DIR/config"
 HOLDS_FILE="$KEMPT_CONFIG_DIR/holds"

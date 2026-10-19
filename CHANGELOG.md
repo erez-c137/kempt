@@ -7,6 +7,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`kempt doctor` warns when `getfacl` is missing.** Without it, the checks of dnf's folders cannot
+  see ACL entries. The package already requires it; a checkout install might not have it.
+
 ### Fixed
 
 - **A staged update cancelled by another program no longer still shows as staged.** A dnf

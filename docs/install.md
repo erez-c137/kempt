@@ -13,6 +13,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are in a base Fedora install. |
 | `flatpak` | Only when `include_flatpak` is on (the default). On a machine without Flatpak, run `kempt config set include_flatpak false`. |
+| `getfacl` (acl) | The dnf folder checks in `kempt doctor` read ACL entries with it. The package requires it; for a checkout install, `sudo dnf install acl`. |
 | `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
 | `konsole` | Only for updates in a terminal window (`surface=terminal`). For another emulator, set `KEMPT_TERMINAL` in your environment. |
 | KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. If it is missing, the installer says so and installs everything else. |

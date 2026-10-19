@@ -3601,6 +3601,10 @@ doctor_tool_rows() {
   # jq: a missing one exits 3 before this command runs, so this line only ever says ok - it names
   # WHICH jq answered rather than catching an absence.
   doctor_ok "jq: $(command -v jq) ($(jq --version 2>/dev/null || echo 'version unknown'))"
+  # getfacl: the dnf folder checks skip ACL entries without it (doctor_unsafe_entry), and so does
+  # the root helper's refusal. The RPM requires the acl package; a checkout install does not.
+  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 \
+    || doctor_warn "getfacl: not found, so the dnf folder checks cannot see ACL entries. Install it with: sudo dnf install acl"
 
   # The terminal emulator matters only where it is launched: surface=terminal, plus any surface
   # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
@@ -3798,8 +3802,8 @@ doctor_unsafe_entry() {  # dir [links] → the first entry under it another user
     -print -quit 2>/dev/null)" || true
   # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
   # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
-  if [[ -z "$hit" ]] && command -v getfacl >/dev/null 2>&1; then
-    hit="$(getfacl -R -P -s -p "$1" 2>/dev/null | sed -n '1s/^# file: //p')" || true
+  if [[ -z "$hit" ]] && command -v "$KEMPT_GETFACL" >/dev/null 2>&1; then
+    hit="$("$KEMPT_GETFACL" -R -P -s -p "$1" 2>/dev/null | sed -n '1s/^# file: //p')" || true
   fi
   printf '%s' "$hit"
 }
