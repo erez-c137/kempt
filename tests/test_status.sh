@@ -218,7 +218,7 @@ assert_eq "$(status_rc --json)" "1" "--json with no state exits 1"
 # --- usage ------------------------------------------------------------------------------------------
 assert_exit 2 "an unknown option is a usage error" "$KEMPT" status --bogus
 assert_exit 2 "a stray argument after --json is a usage error" "$KEMPT" status --json extra
-assert_contains "$("$KEMPT" status --help)" "status [--json]" "status --help prints the usage"
+assert_contains "$("$KEMPT" status --help)" "status [--list] [--json]" "status --help prints the usage"
 
 # --- an update running -----------------------------------------------------------------------------
 # The update lock held by another process: status says so, and answers rather than waiting.
@@ -354,5 +354,113 @@ assert_eq "$(jq -S -c -n "$KEMPT_JQ_STATUS"'status_copy')" \
     for (const k of keys.sort()) o[k] = L.COPY[k];
     console.log(JSON.stringify(o));' "$LOGIC" "$(jq -c -n "$KEMPT_JQ_STATUS"'status_copy | keys')")" \
   "the strings status shares with the widget are the widget's COPY entries"
+
+# --- status --list: every row, with its versions ----------------------------------------------------
+list() { "$KEMPT" status --list 2>&1 || true; }
+# The rows and the lines around them, without the last update, which earlier cases recorded.
+rows() { list | grep -v '^Last update '; }
+put live
+assert_eq "$(rows)" "10 updates available
+
+System (dnf): 7 updates
+  aajohan-comfortaa-fonts   3.105-0.9.20210729git2a87ac6.fc44 → 3.106-1.fc44
+  bash                      5.3.9-3.fc44 → 5.3.10-1.fc44
+  brandnew                  new → 1.0-1.fc44
+  curl                      8.18.0-8.fc44 → 8.18.0-9.fc44
+  git-core                  2.55.0-1.fc44 → 2.55.1-1.fc44
+  tar                       2:1.35-8.fc44 → 2:1.35-9.fc44
+  vim-minimal               2:9.2.967-1.fc44 → 2:9.2.1000-1.fc44
+Apps (flatpak): 3 updates
+  com.example.NotInstalled  new → 9.9
+  net.mkiol.SpeechNote      4.8.4 → 4.8.5
+  org.gimp.GIMP             3.0.2 → 3.0.4
+
+Checked 2 days ago" "--list: every pending row, the newest of a version set, a missing version as new"
+assert_eq "$(status_rc --list)" "0" "--list exits as status does"
+assert_eq "$(status_rc --list --bogus)" "2" "--list with an unknown option is refused"
+assert_eq "$("$KEMPT" status --list --json)" "$("$KEMPT" status --json)" "--list --json prints the state, as --json does"
+assert_eq "$("$KEMPT" status --json --list)" "$("$KEMPT" status --json)" "...in either order"
+
+put held-only
+out="$(list)"
+assert_eq "$(head -n 1 <<<"$out")" "Up to date · 10 held" "--list over held rows: the status header"
+assert_contains "$out" "Held: 10
+  aajohan-comfortaa-fonts   3.105-0.9.20210729git2a87ac6.fc44 → 3.106-1.fc44  held" "held rows in their own block, each marked held"
+assert_eq "$(grep -c '  held$' <<<"$out")" "10" "every held row says held"
+
+put security
+out="$(list)"
+assert_contains "$out" "  curl                      8.18.0-8.fc44 → 8.18.0-9.fc44  security" "a security fix says so"
+assert_contains "$out" "  bash                      5.3.9-3.fc44 → 5.3.10-1.fc44
+" "...and a row that is not one says nothing"
+jq '.security.count = 0' "$FIXTURES/state-security.json" > "$STATE_FILE"
+assert_not_contains "$(list)" "security" "a security block with no count marks nothing"
+
+# Runtimes by id and branch, per-user apps, a rebuild with the same version, and one with none.
+jq '.backends.dnf.items = [{name: "a-very-long-package-name-that-goes-past-forty-chars", from: "1", to: "2", held: false},
+                           {name: "zsh", from: "5.9", to: "5.9.1", held: true}]
+    | .backends.flatpak.items = [{name: "org.kde.Platform", branch: "6.9", kind: "runtime", from: "?", to: "?", held: false},
+                                 {name: "org.gnome.Theme", branch: "stable", kind: "runtime", from: "2024-05-30", to: "2024-05-30", held: false},
+                                 {name: "org.gimp.GIMP", scope: "user", from: "3.0.2", to: "3.0.4", held: false}]
+    | .security = {count: 1, packages: ["zsh"]}' "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_eq "$(rows)" "4 updates available
+
+System (dnf): 1 update
+  a-very-long-package-name-that-goes-past-forty-chars  1 → 2
+Apps (flatpak): 1 update
+  org.gimp.GIMP                             3.0.2 → 3.0.4  for you only
+Flatpak runtimes: 2 updates
+  org.kde.Platform 6.9
+  org.gnome.Theme stable                    2024-05-30 (new build)
+Held: 1
+  zsh                                       5.9 → 5.9.1  held, security
+Security: 1 update
+
+Checked 2 days ago" "--list: runtimes by id and branch, a long name whole, the widget's version rules"
+
+# Nothing pending: the header and the dateline only. No state: what status says, and exit 1.
+jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0' "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_eq "$(rows)" "Up to date
+
+Checked 2 days ago" "--list with nothing pending: up to date"
+rm -f "$STATE_FILE"
+assert_eq "$(list)" "$(status)" "--list with no state says what status says, the last update too"
+assert_eq "$(status_rc --list)" "1" "...and exits 1"
+
+# The lines around the sections are status's own: a restart owed, security, a staged update.
+put reboot-needed
+assert_contains "$(list)" "Restart to apply installed updates" "--list says a restart is owed"
+put security
+assert_contains "$(list)" "Security: 3 updates" "--list keeps the security count"
+jq '.offline_staged = {count: 10}' "$FIXTURES/state-live.json" > "$STATE_FILE"
+out="$(list)"
+assert_contains "$out" "$(status | grep '^Staged: ')" "--list keeps the staged line"
+assert_contains "$out" "Staged: " "...which is there"
+assert_contains "$out" "  curl                      8.18.0-8.fc44 → 8.18.0-9.fc44" "...and still lists the rows"
+assert_eq "$(list | tail -n 2)" "$(status | tail -n 2)" "--list ends as status does"
+# Names and versions from another program are printed with no control characters.
+jq '.backends.dnf.items = [{name: "evil\u001b[31m\nname", from: "1\r", to: "2\u0007", held: false}]
+    | .backends.flatpak.items = []' "$FIXTURES/state-live.json" > "$STATE_FILE"
+out="$(list)"
+assert_eq "$(LC_ALL=C grep -c $'[\x01-\x09\x0b-\x1f\x7f]' <<<"$out")" "0" "--list prints no control characters"
+assert_contains "$out" "  evil [31m name  1  → 2" "...each one a space, on one line"
+
+# The rows --list prints are the widget's rows: same sections, names, versions and marks.
+for f in live held-only security risky-heavy; do
+  put "$f"
+  got="$(jq -r -n "$KEMPT_JQ_STATUS"'[inputs][0] | list_records' "$STATE_FILE")"
+  # shellcheck disable=SC2016  # JavaScript, not shell
+  want="$(node -e '
+    const fs = require("fs"); const L = require(process.argv[1]);
+    const vm = L.viewModel(L.parseState(fs.readFileSync(process.argv[2], "utf8")), false, "", {});
+    const newest = (v) => v === "?" ? "new" : v;
+    for (const r of vm.rows) {
+      if (r.kind === "header") { console.log("S\u001f" + r.title); continue; }
+      const v = r.from === "?" && r.to === "?" ? "" : r.from === r.to ? r.to + " (new build)" : newest(r.from) + " → " + r.to;
+      const tags = [r.held ? "held" : "", r.security ? "security" : "", r.forYouOnly ? "for you only" : ""].filter(Boolean);
+      console.log("I\u001f" + r.name + (r.branch ? " " + r.branch : "") + "\u001f" + v + "\u001f" + tags.join(", "));
+    }' "$LOGIC" "$STATE_FILE")"
+  assert_eq "$(sed 's/^\(S\x1f[^\x1f]*\)\x1f.*/\1/' <<<"$got")" "$want" "--list rows match the widget's: state-$f.json"
+done
 
 finish

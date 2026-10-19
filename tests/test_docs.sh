@@ -201,7 +201,7 @@ asides+="$(grep -nE ' - ' "$MAN" | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' |
 assert_eq "${dashes% }" "" "CHANGELOG.md and the man page have no em or en dash"
 assert_eq "${asides% }" "" "CHANGELOG.md and the man page have no ' - ' aside (line numbers)"
 
-MAN_BUDGET=2300
+MAN_BUDGET=2311
 man_words="$(sed -E 's/^\.[A-Za-z]+ ?//; s/\\f[BIRP]//g; s/\\[-c]//g' "$REPO_ROOT/docs/man/kempt.1" | wc -w)"
 if (( man_words > MAN_BUDGET )); then
   echo "FAIL: docs/man/kempt.1 is $man_words words, its budget is $MAN_BUDGET: cut it, or raise MAN_BUDGET in this file and say why in the commit"

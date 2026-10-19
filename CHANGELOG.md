@@ -7,11 +7,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Security
+### Added
 
-- **`kempt doctor` checks the folders above dnf's folders.** Another user who can change `/var/lib`,
-  `/var/cache` or `/usr/lib/sysimage` could put their own folder in place of dnf's. Doctor now
-  reports such a folder as a problem and prints the commands that fix it.
+- **`kempt status --list` shows every update.** One line each with the current and new version,
+  then the held ones, marked held. Security updates and apps installed for you only are marked
+  too. It reads the last check, like `kempt status`, and lists the same updates as the widget.
 
 ### Fixed
 
@@ -28,6 +28,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget notices a staged update you remove or make yourself.** `sudo dnf5 offline clean`
   leaves the package database alone, so the widget kept saying the updates were staged until its
   next scheduled check. It now watches the staged update too, and checks within about a minute.
+
+### Security
+
+- **`kempt doctor` checks the folders above dnf's folders.** Another user who can change `/var/lib`,
+  `/var/cache` or `/usr/lib/sysimage` could put their own folder in place of dnf's. Doctor now
+  reports such a folder as a problem and prints the commands that fix it.
 
 ## [0.1.9] - 2026-10-19
 
