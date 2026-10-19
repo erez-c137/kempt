@@ -350,7 +350,7 @@ PlasmoidItem {
 
     // The event-driven half of the refresh: an update applied from any source shows up within
     // seconds. KDirWatch is not reachable from pure QML, so this is a 30s stat (2s during a run)
-    // of the two package databases plus our own state file. The config file is watched too, and
+    // of the two package databases, dnf5's offline transaction and our own state file. The config file is watched too, and
     // that is what makes the settings page work at all: the page is built by the shell in its own
     // dialog and cannot call back into this file, so it writes with `kempt config set` and this
     // notices the mtime. That 30-second poll is the settings page's whole latency budget.
@@ -367,15 +367,25 @@ PlasmoidItem {
     // terminal went unnoticed until the next timed check, up to an hour later, which is the exact
     // thing this poll exists to prevent. The directory stays in the list as well: it is what moves
     // if a future rpm layout goes back to replacing files, and an extra stat costs nothing.
+    // Last, dnf5's offline transaction, resolved as lib/common.sh resolves it: a stage made, armed
+    // or removed outside Kempt (`sudo dnf5 offline clean`) moves none of the paths above. The
+    // directory moves when the transaction's files come or go, the state file when it is
+    // rewritten in place, and /system-update when the stage is armed or disarmed. `stat` without
+    // -L reports the link itself, so a link pointing nowhere still answers.
     readonly property string watchCmd:
         "for p in /var/lib/rpm/rpmdb.sqlite /var/lib/rpm /var/lib/flatpak \"" + stateDir
         + "/state.json\" \"" + configDir
-        + "/config\"; do stat -c %Y \"$p\" 2>/dev/null || echo 0; done | tr '\\n' ' '"
+        + "/config\" \"${KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline}\""
+        + " \"${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml}\""
+        + " \"${KEMPT_OFFLINE_LINK:-/system-update}\""
+        + "; do stat -c %Y \"$p\" 2>/dev/null || echo 0; done | tr '\\n' ' '"
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
     property bool watchAbsorbRun: false    // ...and the package moves of a run of ours, with it
+    property bool watchAbsorbStage: false  // ...and the stage a Discard of ours just removed
+    property bool discardJustRan: false    // set by discardStaged for the check that follows it
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
     // --- flows ---------------------------------------------------------------------------------
@@ -565,6 +575,10 @@ PlasmoidItem {
             // would set off one more check a minute after the run's own.
             root.watchAbsorbState = true;
             root.watchAbsorbRun = root.updating || root.updateStartedMs >= askedMs;
+            // A Discard is neither a check nor a run, but it removes the stage, and the check it
+            // asks for would otherwise see that as news and start one more a minute later.
+            root.watchAbsorbStage = root.discardJustRan;
+            root.discardJustRan = false;
             root.pollWatch(false);
             if (root.recheckPending) {
                 var asked = root.recheckAsked;
@@ -654,15 +668,20 @@ PlasmoidItem {
             root.watchStamp = stamp;
             var absorb = root.watchAbsorbState;
             var absorbRun = absorb && root.watchAbsorbRun;
+            var absorbStage = absorb && root.watchAbsorbStage;
             root.watchAbsorbState = false;
             root.watchAbsorbRun = false;
+            root.watchAbsorbStage = false;
             if (previous === "" || !(triggerCheck || absorb)) return;
             // WHICH path moved, not merely that one did. See Logic.watchChange.
             var delta = Logic.watchChange(previous, stamp);
             if (absorb) {                          // a check's own write; see the re-baseline
                 delta.state = false;
-                if (absorbRun) delta.packages = false;
-                delta.any = delta.packages || delta.config;
+                // A check never stages, so only a run or a Discard of ours makes a stage change
+                // its own.
+                if (absorbRun) { delta.packages = false; delta.stage = false; }
+                if (absorbStage) delta.stage = false;
+                delta.any = delta.packages || delta.config || delta.stage;
             }
             if (!delta.any) return;
             // A run of ours ends when the CLI writes state.json - it re-checks itself on the way
@@ -735,9 +754,11 @@ PlasmoidItem {
             // again. A terminal dnf run that cancelled a stage left the widget saying "staged"
             // until somebody pressed Refresh. Postponed rather than checked at once, because a
             // long terminal transaction moves it on every tick: one check a minute, as before.
+            // A stage made, armed or cleaned outside Kempt is the same kind of news, and moves no
+            // package database at all.
             if (delta.config || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
                 root.doCheck(!delta.config, false, true);
-            } else if (delta.packages && !watchDeferred.running) {
+            } else if ((delta.packages || delta.stage) && !watchDeferred.running) {
                 watchDeferred.interval = Logic.watcherQuietLeft(root.lastCheckFinished, Date.now());
                 watchDeferred.start();
             }
@@ -961,6 +982,7 @@ PlasmoidItem {
                 // ...and the line is set AFTER it, not before: doCheck clears the last event's
                 // reports synchronously at its top, and this report is about the event that just
                 // happened rather than the one before it.
+                root.discardJustRan = true;
                 root.doCheck();
                 root.actionDone = said;
             });
@@ -1416,7 +1438,7 @@ PlasmoidItem {
         onTriggered: root.doCheck(true)
     }
 
-    // The watcher's check for a package database move seen inside the quiet window, at the
+    // The watcher's check for a package database or stage move seen inside the quiet window, at the
     // window's end (pollWatch). Not during a run of ours: the run ends with its own check.
     Timer {
         id: watchDeferred

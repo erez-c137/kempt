@@ -18,6 +18,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kempt summary` and `kempt log` said "1 update staged for the next restart" about the last run,
   even after that update was installed or discarded. They now say what the run did: "staged 1
   update for a restart". The first line of `kempt status` still says whether anything is staged now.
+- **The widget notices a staged update you remove or make yourself.** `sudo dnf5 offline clean`
+  leaves the package database alone, so the widget kept saying the updates were staged until its
+  next scheduled check. It now watches the staged update too, and checks within about a minute.
 
 ## [0.1.9] - 2026-10-19
 

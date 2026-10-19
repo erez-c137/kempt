@@ -778,46 +778,58 @@ function resolveIconSize(setting, cell, steps) {
 }
 
 // --- the watcher stamp -----------------------------------------------------------------------
-// main.qml polls four mtimes every 30 seconds. WHICH of them moved is the part that matters,
+// main.qml polls eight mtimes every 30 seconds. WHICH of them moved is the part that matters,
 // because /var/lib/rpm is rewritten continuously all the way through a dnf transaction: comparing
 // the stamp as one string says only "something changed", which during a run of ours is true every
 // 30 seconds - so the widget declares the run finished a few seconds in, prints a summary of the
 // PREVIOUS run, and starts a `kempt check` that wants the lock the transaction is holding. Only
 // OUR state file says a run ended, and these field names are that distinction (here, not in QML,
 // so node can pin them).
-// The five paths main.qml stats, in its order: rpmdb.sqlite, the rpm directory, flatpak,
-// state.json, config. The first two are one question - "did the package database move" - asked of
-// the file Fedora actually writes and of the directory an older rpm layout wrote. Anything that is
-// not the state file or the config file counts as packages, so both land there without a rule of
-// their own.
-var WATCH_FIELDS = 5;
+// The eight paths main.qml stats, in its order: rpmdb.sqlite, the rpm directory, flatpak,
+// state.json, config, then dnf5's offline directory, its state file and /system-update. The first
+// two are one question - "did the package database move" - asked of the file Fedora actually
+// writes and of the directory an older rpm layout wrote. The last three are another: did a stage
+// appear, get armed or go away. `dnf5 offline clean` moves none of the first five, so a stage
+// cleaned in a terminal went unseen until the next timed check.
+var WATCH_FIELDS = 8;
 var WATCH_STATE_FIELD = 3;
 var WATCH_CONFIG_FIELD = 4;
+var WATCH_STAGE_FROM = 5;
 
-// watchChange(prev, next) -> { any, packages, state, config, comparable }
-// `comparable` is false when either stamp is not the four fields main.qml asks for (an older
-// widget's stamp left across a reload, say). Then the answer degrades to a whole-string comparison
-// with every category true, rather than guessing which column is which: wrong-but-noisy beats
-// wrong-and-silent when what is at stake is noticing a finished run.
+// watchChange(prev, next) -> { any, packages, state, config, stage, comparable }
+// `comparable` is false when either stamp is neither the eight fields main.qml asks for nor the
+// five an older widget asked for. Then the answer degrades to a whole-string comparison with
+// every category true, rather than guessing which column is which: wrong-but-noisy beats
+// wrong-and-silent when what is at stake is noticing a finished run. A five-field stamp is the
+// first five of today's in the same order, so beside an eight-field one those five are compared
+// and the stage fields, which one side never saw, are not news.
 function watchChange(prev, next) {
-    var a = watchFieldsOf(prev), b = watchFieldsOf(next), i;
-    var out = { any: false, packages: false, state: false, config: false, comparable: false };
-    if (a.length !== WATCH_FIELDS || b.length !== WATCH_FIELDS) {
+    var a = watchFieldsOf(prev), b = watchFieldsOf(next), i, n;
+    var out = { any: false, packages: false, state: false, config: false, stage: false,
+                comparable: false };
+    if (!watchLayoutKnown(a.length) || !watchLayoutKnown(b.length)) {
         out.any = a.length > 0 && b.length > 0 && a.join(" ") !== b.join(" ");
         out.packages = out.any;
         out.state = out.any;
         out.config = out.any;
+        out.stage = out.any;
         return out;
     }
     out.comparable = true;
-    for (i = 0; i < WATCH_FIELDS; i++) {
+    n = Math.min(a.length, b.length);
+    for (i = 0; i < n; i++) {
         if (a[i] === b[i]) continue;
         out.any = true;
         if (i === WATCH_STATE_FIELD) out.state = true;
         else if (i === WATCH_CONFIG_FIELD) out.config = true;
+        else if (i >= WATCH_STAGE_FROM) out.stage = true;
         else out.packages = true;
     }
     return out;
+}
+
+function watchLayoutKnown(n) {
+    return n === WATCH_FIELDS || n === WATCH_STAGE_FROM;
 }
 
 function watchFieldsOf(stamp) {

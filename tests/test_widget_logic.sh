@@ -3523,28 +3523,49 @@ assert_eq "$(js 'L.resolveIconSize("toString", 44)')" "22" "...and does not reac
 # rewrites on its way out of a run, ends a run.
 # The first TWO fields are one question asked twice: rpmdb.sqlite is the file Fedora's rpm writes,
 # and the directory is what an older layout wrote. Both mean "packages moved".
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 5").any')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 5 6 7 8").any')" "false" \
   "an unchanged stamp is not a change"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 4 5").packages')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","9 2 3 4 5 6 7 8").packages')" "true" \
   "the rpm database file moving is a package-database change"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 4 5").state')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","9 2 3 4 5 6 7 8").state')" "false" \
   "...and does NOT mean a run ended"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 9 3 4 5").packages')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 9 3 4 5 6 7 8").packages')" "true" \
   "the rpm directory moving counts the same way, for a layout that writes it"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 9 4 5").state')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 9 4 5 6 7 8").state')" "false" \
   "...and neither does flatpak's"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 9 5").state')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 9 5 6 7 8").state')" "true" \
   "our own state file moving DOES mean a run ended"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 9 5").packages')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 9 5 6 7 8").packages')" "false" \
   "...and it is not reported as a package change"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 9").config')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 9 6 7 8").config')" "true" \
   "the config file moving is a config change - the settings page's only way in"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","1 2 3 4 9").state')" "false" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 9 6 7 8").state')" "false" \
   "...and does not end a run either"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 9 5").state')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","9 2 3 9 5 6 7 8").state')" "true" \
   "a transaction that ALSO wrote state.json still ends the run"
-assert_eq "$(js 'L.watchChange("1 2 3 4 5","9 2 3 9 5").packages')" "true" \
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","9 2 3 9 5 6 7 8").packages')" "true" \
   "...and still reports the package change alongside it"
+
+# The last three fields are dnf5's offline transaction: its directory, its state file and the
+# /system-update link. `sudo dnf5 offline clean` touches none of the others (rpm is not moved), so
+# without them a stage removed in a terminal read "staged" until the next timed check.
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 5 9 7 8").stage')" "true" \
+  "the offline directory moving is a stage change"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 5 6 9 8").stage')" "true" \
+  "...and so is its state file"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 5 6 7 0").stage')" "true" \
+  "...and the restart link going away"
+assert_eq "$(js 'var d = L.watchChange("1 2 3 4 5 6 7 8","1 2 3 4 5 9 7 0"); [d.any, d.packages, d.state, d.config].join()')" \
+  "true,false,false,false" "...which is none of the other three kinds"
+assert_eq "$(js 'L.watchChange("1 2 3 4 5 6 7 8","9 2 3 4 5 6 7 8").stage')" "false" \
+  "a package move alone is not a stage change"
+# A stamp from the widget before these fields existed, compared with a new one: the five fields the
+# two share are still compared one by one, and the three that were never seen are not news. The
+# old answer would have been "everything moved", ending a run and checking for nothing.
+assert_eq "$(js 'var d = L.watchChange("1 2 3 4 5","1 2 3 4 5 6 7 8"); [d.any, d.stage, d.state, d.comparable].join()')" \
+  "false,false,false,true" "an old five-field stamp beside a new one is not a change"
+assert_eq "$(js 'var d = L.watchChange("1 2 3 4 5 6 7 8","1 2 3 9 5"); [d.state, d.packages, d.stage].join()')" \
+  "true,false,false" "...while a move in the fields they share still counts, as its own kind"
 
 # THE path that has to be in there. Fedora's rpm database is sqlite and is modified IN PLACE, so
 # /var/lib/rpm's own mtime does not move for an install or a remove - on a machine updated tonight
@@ -3557,7 +3578,7 @@ grep -q 'stat -c %Y' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
 grep -q '/var/lib/rpm/rpmdb.sqlite' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
   && echo "ok: ...and watches the rpm database FILE, which is what Fedora actually writes" \
   || { echo "FAIL: the watcher does not stat rpmdb.sqlite - foreign dnf changes go unnoticed"; _fail=1; }
-assert_eq "$(js 'L.WATCH_FIELDS')" "5" \
+assert_eq "$(js 'L.WATCH_FIELDS')" "8" \
   "logic.js expects as many fields as main.qml stats, or every column shifts"
 # The padding in watchCmd is what makes those field numbers mean anything: `stat` prints NOTHING
 # for a path that does not exist, so an unpadded stamp on a box with no flatpak has three fields
@@ -3567,6 +3588,10 @@ assert_exit 0 "the watch command pads every path, so a missing one cannot shift 
   grep -q 'stat -c %Y .* || echo 0' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_exit 0 "...and the watcher compares those fields rather than the whole string" -- \
   grep -q 'Logic.watchChange(' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "the watcher stats dnf5's offline directory, where a stage lives" -- \
+  grep -q 'KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
+assert_exit 0 "...and the /system-update link that arms it" -- \
+  grep -q 'KEMPT_OFFLINE_LINK:-/system-update' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").comparable')" "false" \
   "a stamp that is not four fields is not compared field-wise"
 assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").state')" "true" \

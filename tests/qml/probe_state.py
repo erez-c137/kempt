@@ -814,6 +814,62 @@ p.wait_idle(ev, "executor")
 p.check("...and takes in a run's own package moves when the check overlapped one",
         [p.call_count("check") - before, ev("watchDeferred.running")], [0, False])
 
+# dnf5's offline transaction is watched too. `sudo dnf5 offline clean` removes the stored transaction
+# and /system-update and leaves the package database alone, so on a real box (2026-10-19) a clean
+# at 20:16 still read "staged" until the check at 20:25. Real files in the sandbox here (the
+# harness points the paths there), not a doctored stamp, so the stat itself is under test.
+p.check("with nothing staged the offline fields are there, and zero",
+        ev("root.watchStamp").split(" ")[5:], ["0", "0", "0"])
+os.makedirs(p.offline)
+open(p.offline_toml, "w").write('[offline-transaction-state]\nstatus = "download-complete"\n')
+os.symlink(p.offline, p.offline_link)
+ev("root.watchStamp = ''; root.pollWatch(false)")      # the stage, already known
+p.wait_for(ev, "root.watchStamp !== ''", True)
+p.wait_idle(ev, "executor")
+ev("root.lastCheckFinished = Date.now() - 61000")
+before = p.call_count("check")
+os.remove(p.offline_toml)                              # what the clean does
+os.remove(p.offline_link)
+harness.touch(p.offline, "2030-07-01")
+ev("root.pollWatch(true)")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("a stage cleaned in a terminal is checked on the next tick", p.call_count("check") - before, 1)
+# Inside the window it waits for the window's end, as a package move does, and is not dropped.
+before = p.call_count("check")
+open(p.offline_toml, "w").write('[offline-transaction-state]\nstatus = "download-complete"\n')
+os.symlink(p.offline, p.offline_link)
+harness.touch(p.offline, "2030-07-02")
+ev("root.lastCheckFinished = Date.now()")
+ev("root.pollWatch(true)")
+p.wait_idle(ev, "executor")
+p.check("a stage made inside the window is postponed, not dropped",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [0, True])
+ev("watchDeferred.stop()")
+# ...and a stage of OUR run is the run's own footprint, taken in with its package moves, so the
+# run's own closing check is the only one.
+harness.touch(p.offline, "2030-07-03")
+ev("root.lastCheckFinished = Date.now() - 61000")
+ev("root.watchAbsorbState = true; root.watchAbsorbRun = true; root.pollWatch(false)")
+p.wait_idle(ev, "executor")
+p.check("a run's own stage changes start no check after it",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [0, False])
+# A Discard removes the stage and then asks for a check. That check's re-baseline takes the removal
+# in, or it reads as a terminal clean and sets off a second check a minute later. The same move
+# without the Discard is still news, so the absorb is the Discard's alone.
+def stage_moves_then_check(discard):
+    harness.touch(p.offline, "2030-07-0%d" % (5 if discard else 4))
+    ev("watchDeferred.stop()")
+    ev("root.discardJustRan = %s; root.doCheck()" % ("true" if discard else "false"))
+    p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+    p.wait_idle(ev, "executor")
+    return ev("watchDeferred.running")
+p.check("a stage change seen by a plain check's re-baseline is postponed", stage_moves_then_check(False), True)
+p.check("...but the one a Discard made is taken in", stage_moves_then_check(True), False)
+p.check("...and the flag is spent", ev("root.discardJustRan || root.watchAbsorbStage"), False)
+ev("watchDeferred.stop()")
+
 # A run that starts while a watcher check is postponed ends with its own check, which answers it.
 ev("watchDeferred.interval = 60000; watchDeferred.start()")
 ev("root.enterUpdating('offline')")

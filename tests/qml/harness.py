@@ -169,6 +169,16 @@ class Probe:
         # own state file move. Unset means the $HOME fallback runs, which is the real user's path.
         for var in ("KEMPT_STATE_DIR", "KEMPT_CONFIG_DIR"):
             os.environ.pop(var, None)
+        # dnf5's offline transaction, which the watcher stats too: pointed into the sandbox rather
+        # than unset, because unset is the host's real /usr/lib/sysimage and /system-update, and a
+        # stage made or cleaned on this box mid-probe would start checks the probe never asked for.
+        # Absent until a probe makes them, which is the box with nothing staged.
+        self.offline = os.path.join(self.sandbox, "offline")
+        self.offline_toml = os.path.join(self.offline, "offline-transaction-state.toml")
+        self.offline_link = os.path.join(self.sandbox, "system-update")
+        os.environ["KEMPT_OFFLINE_DATADIR"] = self.offline
+        os.environ["KEMPT_OFFLINE_TOML"] = self.offline_toml
+        os.environ["KEMPT_OFFLINE_LINK"] = self.offline_link
 
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtQml import QQmlEngine
