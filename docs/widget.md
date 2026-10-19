@@ -173,6 +173,9 @@ restart message has none:
 Updates that come out after staging, and pending Flatpak apps, are not in it. The banner then
 adds `2 other updates are not in the staged update.`
 
+A dnf command of your own, such as `sudo dnf install`, cancels a staged update. Within about a
+minute the banner goes and Kempt says so once. **Install on Next Restart** stages it again.
+
 If you hold a package that is already in the staged update, the banner turns into a warning,
 because there is no way to edit a stored update and the restart would still install it:
 
@@ -304,7 +307,7 @@ finishes, however often you open the widget.
 Every 30 seconds (every 2 during an update) the widget also checks the package databases, its
 state file and the config file. A `dnf upgrade` in a terminal, a Discover run, another Kempt run
 or a settings change shows up without you asking. For a minute after a check, the widget ignores
-changes that check made.
+changes that check made. A package change in that minute is checked when the minute is up.
 
 ### When nothing is pending
 

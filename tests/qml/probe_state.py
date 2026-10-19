@@ -711,6 +711,79 @@ p.check("the run's state write ends the run on the timer's next tick, within sec
 p.wait_idle(ev, "executor")
 ev("postRunCheck.stop()")
 
+# Ending the run opened the quiet window, and the window is for the run's own state.json writes
+# only. A package database move inside it is somebody else's transaction: on a real box
+# (2026-10-19) a terminal `dnf reinstall` twenty seconds after a stage removed /system-update, the
+# tick that saw it was inside the window, and the widget said "staged" until a manual check.
+p.check("premise: the run's end opened the quiet window",
+        ev("Logic.watcherCheckDue(root.lastCheckFinished, Date.now())"), False)
+before = p.call_count("check")
+harness.touch(STATE_JSON, "2030-06-02")                # the run's closing check, arriving late
+ev("root.pollWatch(true)")
+p.wait_idle(ev, "executor")
+p.check("a state.json write inside the window after a run starts nothing",
+        p.call_count("check") - before, 0)
+real = ev("root.watchStamp")
+fields = real.split(" ")
+fields[0] = str(int(fields[0]) - 100)
+ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+ev("root.pollWatch(true)")
+p.wait_idle(ev, "executor")
+p.check("a package database move inside it is not checked at once",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [0, True])
+p.check("...but at the window's end", abs(ev("watchDeferred.interval")
+        - (60000 - (ev("Date.now()") - ev("root.lastCheckFinished")))) < 2000, True)
+ev("watchDeferred.stop(); watchDeferred.interval = 1; watchDeferred.start()")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("...and then checked, exactly once", p.call_count("check") - before, 1)
+p.check("...and the window that check opened holds nothing back",
+        ev("watchDeferred.running"), False)
+
+# A move inside the window postpones one check, not one per tick: a long terminal transaction moves
+# the package database on every tick, and the window still holds it to one check a minute.
+before = p.call_count("check")
+for _ in range(3):
+    real = ev("root.watchStamp")
+    fields = real.split(" ")
+    fields[0] = str(int(fields[0]) - 100)
+    ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+    ev("root.pollWatch(true)")
+    p.wait_idle(ev, "executor")
+p.check("three moves inside the window start no check yet",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [0, True])
+# ...and any check that starts meanwhile answers them, so the postponed one stands down.
+ev("root.doCheck()")
+p.check("a check started meanwhile stands the postponed one down", ev("watchDeferred.running"), False)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("...so the moves cost exactly that one check", p.call_count("check") - before, 1)
+
+# A package database move made WHILE a check ran. The check may have read its answer before the
+# move, and the re-baseline that takes in the check's own state.json write used to take in the move
+# with it. Now it keeps the move: postponed to the end of the window that check opened.
+ev("watchDeferred.stop()")
+before = p.call_count("check")
+ev("executor.run('sleep 1', 5000, function () {})")   # holds the check back, so the move lands first
+ev("root.doCheck()")
+real = ev("root.watchStamp")
+fields = real.split(" ")
+fields[0] = str(int(fields[0]) - 100)
+ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("a package database move during a check is kept for a check after it",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [1, True])
+ev("watchDeferred.stop()")
+before = p.call_count("check")
+harness.touch(STATE_JSON, "2030-06-03")                # stands in for the check's own write
+ev("root.doCheck()")
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("...while a check's own state.json write is still taken in, and starts nothing",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [1, False])
+
 # One watch poll queued at a time: the executor is shared with checks that take minutes, and a
 # 2-second tick behind one of those would otherwise pile up a stat per tick.
 ev("executor.run('sleep 1', 5000, function () {})")   # stands in for a slow check

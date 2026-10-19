@@ -836,9 +836,10 @@ function watchFieldsOf(stamp) {
 // So a WATCHER-triggered check is dropped while the last completed check is still recent. Only the
 // watcher's: a Refresh press, the scheduled check, the popup opening and a settings write are all
 // somebody ASKING. The end of a run is not checked from the widget at all: the CLI checks on its
-// way out, and the widget waits for that (main.qml, pollWatch's `endedRun`). The cost is bounded - a change from elsewhere inside
-// the window is absorbed and the next scheduled check finds it, so the badge can only
-// over-report, never under-report.
+// way out, and the widget waits for that (main.qml, pollWatch's `endedRun`). A package database
+// move inside the window is postponed to its end (watcherQuietLeft), never dropped: it is never a
+// check's or a run's own footprint, and a dropped one stayed missed, so a stage another program
+// had cancelled still read as staged.
 var CHECK_QUIET_MS = 60000;
 
 // watcherCheckDue(lastCheckFinished, now) -> whether a watcher-triggered check should run.
@@ -853,6 +854,13 @@ function watcherCheckDue(lastCheckFinished, now) {
     // that can silence the widget indefinitely on a bad clock is not one.
     if (since < 0) return true;
     return since >= CHECK_QUIET_MS;
+}
+
+// watcherQuietLeft(lastCheckFinished, now) -> milliseconds until the quiet window ends, at least 1
+// (a Timer with interval 0 never fires), and 1 whenever watcherCheckDue would already say yes.
+function watcherQuietLeft(lastCheckFinished, now) {
+    if (watcherCheckDue(lastCheckFinished, now)) return 1;
+    return Math.max(1, CHECK_QUIET_MS - (Number(now) - Number(lastCheckFinished)));
 }
 
 // checkedSince(state, sinceMs) -> whether `state` was written by a check that ran after `sinceMs`.
@@ -3131,6 +3139,7 @@ if (typeof module !== "undefined" && module.exports) {
         watchFieldsOf: watchFieldsOf,
         WATCH_FIELDS: WATCH_FIELDS,
         watcherCheckDue: watcherCheckDue,
+        watcherQuietLeft: watcherQuietLeft,
         checkedSince: checkedSince,
         checkedAfterRun: checkedAfterRun,
         CHECK_QUIET_MS: CHECK_QUIET_MS

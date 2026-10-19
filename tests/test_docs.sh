@@ -146,7 +146,7 @@ declare -A WORD_BUDGET=(
   [docs/ROADMAP.md]=1750
   [docs/security.md]=3680
   [docs/usage.md]=2950
-  [docs/widget.md]=2750
+  [docs/widget.md]=2800
 )
 # A new doc needs a row, so it cannot grow outside the table.
 unbudgeted=""

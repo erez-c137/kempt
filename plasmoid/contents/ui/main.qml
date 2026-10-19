@@ -374,6 +374,7 @@ PlasmoidItem {
 
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
+    property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
     // --- flows ---------------------------------------------------------------------------------
@@ -438,6 +439,9 @@ PlasmoidItem {
         // answer away while it is being read. One still waiting its turn is left alone: it
         // answers a press made since.
         if (!auto && !watched && !doctorRunning) dismissDoctor();
+        // A check that starts from here on, or is folded into the running one below, reads the
+        // package database after the move that a postponed watcher check was waiting to answer.
+        watchDeferred.stop();
         // Asked again while one is running: coalesce, never drop. The running check read its
         // answer BEFORE the change that asked for this one, and the re-baseline below would then
         // swallow that change as if we had accounted for it - leaving the badge stale until the
@@ -548,11 +552,13 @@ PlasmoidItem {
                 root.loadLastRun(function (run) { root.endRunIfFinished(run); });
             }
             // Re-baseline the watcher: the check just rewrote state.json, and without this the
-            // next poll would see its own footprint as a change and check again, forever.
-            // Clearing the stamp FIRST closes the race - a watcher poll queued while the check was
-            // running reads the mtimes afterwards and would compare our fresh state.json against
-            // the pre-check baseline. No baseline means it learns the new mtimes instead.
-            root.watchStamp = "";
+            // next poll would see its own footprint as a change and check again, forever. The
+            // flag is set FIRST and is read by whichever poll runs next - a watcher poll queued
+            // while the check was running reads the mtimes afterwards and would compare our fresh
+            // state.json against the pre-check baseline. Only state.json is taken in: a package
+            // database or settings move made while the check ran is still acted on, since the
+            // check may have read its answer before it.
+            root.watchAbsorbState = true;
             root.pollWatch(false);
             if (root.recheckPending) {
                 var asked = root.recheckAsked;
@@ -640,9 +646,15 @@ PlasmoidItem {
             if (stamp === "") return;              // stat found nothing: learn nothing, change nothing
             var previous = root.watchStamp;
             root.watchStamp = stamp;
-            if (previous === "" || !triggerCheck) return;
+            var absorb = root.watchAbsorbState;
+            root.watchAbsorbState = false;
+            if (previous === "" || !(triggerCheck || absorb)) return;
             // WHICH path moved, not merely that one did. See Logic.watchChange.
             var delta = Logic.watchChange(previous, stamp);
+            if (absorb) {                          // a check's own write; see the re-baseline
+                delta.state = false;
+                delta.any = delta.packages || delta.config;
+            }
             if (!delta.any) return;
             // A run of ours ends when the CLI writes state.json - it re-checks itself on the way
             // out. Nothing else is that signal: /var/lib/rpm is rewritten all the way THROUGH a
@@ -707,8 +719,17 @@ PlasmoidItem {
             }
             // Automatic, and so coalescing, unless the config moved: include_flatpak changes what
             // is pending, and a check that began before the settings write must not answer for it.
+            // A package database move inside the window is postponed to its end, never dropped:
+            // it is another program's transaction (neither a run's nor a check's writes move it),
+            // and the stamp above has already taken it in, so a move skipped here is never seen
+            // again. A terminal dnf run that cancelled a stage left the widget saying "staged"
+            // until somebody pressed Refresh. Postponed rather than checked at once, because a
+            // long terminal transaction moves it on every tick: one check a minute, as before.
             if (delta.config || Logic.watcherCheckDue(root.lastCheckFinished, Date.now())) {
                 root.doCheck(!delta.config, false, true);
+            } else if (delta.packages && !watchDeferred.running) {
+                watchDeferred.interval = Logic.watcherQuietLeft(root.lastCheckFinished, Date.now());
+                watchDeferred.start();
             }
         });
     }
@@ -1381,6 +1402,14 @@ PlasmoidItem {
         interval: 150000
         repeat: false
         onTriggered: root.doCheck(true)
+    }
+
+    // The watcher's check for a package database move seen inside the quiet window, at the
+    // window's end (pollWatch). Not during a run of ours: the run ends with its own check.
+    Timer {
+        id: watchDeferred
+        repeat: false
+        onTriggered: if (!root.updating) root.doCheck(true, false, true)
     }
 
     Timer {
