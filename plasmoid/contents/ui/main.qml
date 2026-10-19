@@ -375,6 +375,7 @@ PlasmoidItem {
     property string watchStamp: ""         // last seen mtime set; "" until the first poll answers
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
+    property bool watchAbsorbRun: false    // ...and the package moves of a run of ours, with it
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
     // --- flows ---------------------------------------------------------------------------------
@@ -558,7 +559,12 @@ PlasmoidItem {
             // state.json against the pre-check baseline. Only state.json is taken in: a package
             // database or settings move made while the check ran is still acted on, since the
             // check may have read its answer before it.
+            // A check that overlapped a run of ours is the other case: polls queued behind it, so
+            // the run's own package moves are still unseen, and the run may end (endRunIfFinished,
+            // above) before the re-baseline poll reads them. Those are taken in too, or they
+            // would set off one more check a minute after the run's own.
             root.watchAbsorbState = true;
+            root.watchAbsorbRun = root.updating || root.updateStartedMs >= askedMs;
             root.pollWatch(false);
             if (root.recheckPending) {
                 var asked = root.recheckAsked;
@@ -636,8 +642,8 @@ PlasmoidItem {
         // minutes, and during a run the timer ticks every 2 seconds: without this, every tick of a
         // long check would queue another stat behind it. Skipping costs nothing, because a queued
         // poll stats when it RUNS, not when it was asked for, so it sees the same change. That
-        // holds for the re-baseline too: it clears watchStamp first, so a poll already queued
-        // learns the new mtimes instead of reacting to them.
+        // holds for the re-baseline too: it sets watchAbsorbState first, so a poll already queued
+        // takes in the check's own state.json write instead of reacting to it.
         if (root.watchPolls > 0) return;
         root.watchPolls++;
         executor.run(watchCmd, 10000, function(stdout, stderr, rc) {
@@ -647,12 +653,15 @@ PlasmoidItem {
             var previous = root.watchStamp;
             root.watchStamp = stamp;
             var absorb = root.watchAbsorbState;
+            var absorbRun = absorb && root.watchAbsorbRun;
             root.watchAbsorbState = false;
+            root.watchAbsorbRun = false;
             if (previous === "" || !(triggerCheck || absorb)) return;
             // WHICH path moved, not merely that one did. See Logic.watchChange.
             var delta = Logic.watchChange(previous, stamp);
             if (absorb) {                          // a check's own write; see the re-baseline
                 delta.state = false;
+                if (absorbRun) delta.packages = false;
                 delta.any = delta.packages || delta.config;
             }
             if (!delta.any) return;
@@ -720,7 +729,8 @@ PlasmoidItem {
             // Automatic, and so coalescing, unless the config moved: include_flatpak changes what
             // is pending, and a check that began before the settings write must not answer for it.
             // A package database move inside the window is postponed to its end, never dropped:
-            // it is another program's transaction (neither a run's nor a check's writes move it),
+            // it is another program's transaction (a check never moves it, and a run of ours is
+            // taken in above and in the re-baseline),
             // and the stamp above has already taken it in, so a move skipped here is never seen
             // again. A terminal dnf run that cancelled a stage left the widget saying "staged"
             // until somebody pressed Refresh. Postponed rather than checked at once, because a
@@ -1183,6 +1193,8 @@ PlasmoidItem {
         runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
         updating = true;
         riskyChoiceOpen = false;
+        // The run ends with its own check, which answers a postponed watcher check too.
+        watchDeferred.stop();
         // A run changes the installation, so whatever doctor said, or is about to say, is about
         // the one before it. The run's own end must not bring it back.
         dismissDoctor();

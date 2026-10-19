@@ -783,6 +783,44 @@ p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.wait_idle(ev, "executor")
 p.check("...while a check's own state.json write is still taken in, and starts nothing",
         [p.call_count("check") - before, ev("watchDeferred.running")], [1, False])
+# The mask itself, with the window closed so it is the only thing between a state.json change and
+# a check: the re-baseline's poll takes in a state.json write, and still acts on a package move.
+ev("root.lastCheckFinished = Date.now() - 61000")
+before = p.call_count("check")
+harness.touch(STATE_JSON, "2030-06-04")
+ev("root.watchAbsorbState = true; root.pollWatch(false)")
+p.wait_idle(ev, "executor")
+p.check("the re-baseline takes in a state.json write even outside the window",
+        p.call_count("check") - before, 0)
+real = ev("root.watchStamp")
+fields = real.split(" ")
+fields[0] = str(int(fields[0]) - 100)
+ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+ev("root.lastCheckFinished = Date.now() - 61000")
+ev("root.watchAbsorbState = true; root.pollWatch(false)")
+p.wait_for(ev, "root.checking", True, timeout_ms=4000)
+p.wait_for(ev, "root.checking", False, timeout_ms=15000)
+p.wait_idle(ev, "executor")
+p.check("...but acts on a package move made while the check ran", p.call_count("check") - before, 1)
+# ...unless the check overlapped a run of ours: then the move is the run's own transaction.
+real = ev("root.watchStamp")
+fields = real.split(" ")
+fields[0] = str(int(fields[0]) - 100)
+ev("root.watchStamp = %s" % json.dumps(" ".join(fields)))
+ev("root.lastCheckFinished = Date.now() - 61000")
+before = p.call_count("check")
+ev("root.watchAbsorbState = true; root.watchAbsorbRun = true; root.pollWatch(false)")
+p.wait_idle(ev, "executor")
+p.check("...and takes in a run's own package moves when the check overlapped one",
+        [p.call_count("check") - before, ev("watchDeferred.running")], [0, False])
+
+# A run that starts while a watcher check is postponed ends with its own check, which answers it.
+ev("watchDeferred.interval = 60000; watchDeferred.start()")
+ev("root.enterUpdating('offline')")
+p.check("starting a run stands a postponed watcher check down", ev("watchDeferred.running"), False)
+ev("root.leaveUpdating()")
+p.wait_idle(ev, "executor")
+ev("postRunCheck.stop()")
 
 # One watch poll queued at a time: the executor is shared with checks that take minutes, and a
 # 2-second tick behind one of those would otherwise pile up a stat per tick.
