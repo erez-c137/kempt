@@ -7,6 +7,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A staged update cancelled by a dnf command of your own is announced straight away.** dnf5
+  keeps calling such a stage ready, so Kempt said nothing until after the next restart, which
+  then installed nothing. The next check now says once that the staged update can no longer
+  install; with the widget, that is within about a minute. If your dnf command installed every
+  staged update, Kempt clears the stage and says nothing.
+
 ## [0.1.9] - 2026-10-19
 
 ### Added
@@ -18,8 +26,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A staged update cancelled by another program no longer still shows as staged.** A dnf
   command run in a terminal within a minute of a check, an update or a stage was missed, so the
-  widget kept saying the updates were staged until Refresh was pressed. The widget now checks
-  when that minute is up. A package change made while a check runs is no longer missed either.
+  widget kept saying the updates were staged until **Check for Updates** was pressed. The widget
+  now checks when that minute is up. A package change made while a check runs is no longer missed either.
 
 ## [0.1.8] - 2026-10-19
 

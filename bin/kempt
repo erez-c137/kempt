@@ -2627,6 +2627,29 @@ harvest_offline() {
     # Same boot: nothing can have APPLIED the stage, whatever the package set says - but it can
     # still have been thrown away, the one thing worth acting on here.
     [[ "$toml_status" == absent ]] && clear_gone_stage "$pre" "$marker"
+    # ...or cancelled: any live dnf5 transaction removes /system-update and leaves the toml at
+    # `ready`, so no restart will install it. Said now, not after a restart that installs nothing;
+    # cleared quietly if the live run installed every staged package. Skipped for a replaced stage
+    # (announced already), a stored release upgrade (not "your staged update"), and while a Kempt
+    # run holds the update lock: a live `kempt update` removes the symlink as it starts and
+    # discards the stage itself when it ends (reconcile_stage_after_live_run). dnf5's state is read
+    # again under stage_lock_try, once a stage in flight or a half-done `dnf5 offline clean` settled.
+    if [[ "$toml_status" == ready ]] && ! jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1 \
+       && ! offline_release_upgrade >/dev/null && ! update_running_elsewhere && stage_lock_try; then
+      if [[ "$(offline_system_status)" != ready || "$(offline_link_state)" != none ]]; then
+        :   # armed, another updater's, or gone: the paths above and the next check handle those
+      elif offline_marker_stage_satisfied "$marker"; then
+        if offline_marker_still "$marker"; then
+          rm -f "$OFFLINE_MARKER" ${pre:+"$pre"}
+          log_event "offline stage installed by another updater (before the restart)"
+        else
+          log_event "offline marker kept (a new stage arrived while the check ran)"
+        fi
+      else
+        reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+      fi
+      stage_unlock
+    fi
     return 0
   fi
   # A marker whose snapshot is gone can never be harvested: clear it rather than re-read a dead
