@@ -988,14 +988,43 @@ assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "a marker with no coun
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...and is still a pending install"
 
 # The SAME boot, and the symlink gone under a toml still saying `ready`: what any live dnf5
-# transaction run in a terminal outside Kempt leaves behind. The harvest cannot demote it yet - no
-# restart has happened - so the gate has to be in what the check publishes. It used to publish it,
-# and the widget showed "staged" over a stage no restart installs.
+# transaction run in a terminal outside Kempt leaves behind (dnf5 5.4: "Pending offline transaction
+# has been invalidated"). The check stops publishing it, or the widget shows "staged" over a stage
+# no restart installs, and says so once now: waiting for the restart to say it means a restart
+# for nothing. The marker is demoted, not cleared, so the doctor can still explain it.
+sb_notify="$TESTTMP/same-boot-notifications"
+cat > "$TESTTMP/sb-notify-stub" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$sb_notify"
+STUB
+chmod +x "$TESTTMP/sb-notify-stub"
+sb_check() { KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY="$TESTTMP/sb-notify-stub" "$KEMPT" check >/dev/null; }
 stage_marker boot-t4 61
-KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" "$KEMPT" check >/dev/null
+: > "$sb_notify"
+sb_check
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "a ready stage whose /system-update a live transaction removed is not published as staged"
 assert_exit 0 "...and its marker is kept, for the doctor to explain" -- test -f "$marker"
+assert_eq "$(jq -r '.armed' "$marker")" "false" "...demoted to a stage that will not install"
+assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
+  "...and announced in the same boot, without waiting for a restart"
+assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "1" \
+  "...and the announcement is recorded"
+: > "$sb_notify"
+sb_check
+assert_eq "$(cat "$sb_notify")" "" "the next check does not say it again"
+assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "1" \
+  "...nor record it again"
+# Kempt's own stage in flight holds the stage lock: the check leaves the marker alone meanwhile.
+stage_marker boot-t4 61
+: > "$sb_notify"
+( exec 7>>"$KEMPT_STATE_DIR/stage.lock"; flock -x 7; touch "$TESTTMP/sb-locked"; sleep 3 ) &
+sb_lock_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -f "$TESTTMP/sb-locked" ]] && break; sleep 0.2; done
+sb_check
+assert_eq "$(jq -r '.armed' "$marker")" "true" "a stage in flight is not demoted under it"
+assert_eq "$(cat "$sb_notify")" "" "...nor announced"
+wait "$sb_lock_pid" 2>/dev/null; rm -f "$TESTTMP/sb-locked"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" \
   "...while the same stage with its symlink in place is still a pending install"
@@ -1111,10 +1140,11 @@ assert_exit 0 "a demoted marker whose transaction then vanishes is still cleared
 # to be armed perfectly.
 stage_marker boot-t4 61
 inflight_marker="$(jq -Sc . "$marker")"
+inflight_before="$(events_since 'offline stage cannot install')"
 : > "$notify_log"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" detour_check
 assert_eq "$(cat "$notify_log")" "" "a download-complete stage in this boot is a stage in flight, not a dead one"
-assert_eq "$(events_since 'offline stage cannot install')" "1" "...so nothing new is announced"
+assert_eq "$(events_since 'offline stage cannot install')" "$inflight_before" "...so nothing new is announced"
 assert_eq "$(jq -Sc . "$marker")" "$inflight_marker" "...and the marker is left alone"
 # The state nothing used to name at all: `ready`, with the /system-update symlink GONE. Arming is
 # TWO things - the status and the symlink - and Kempt read the symlink in exactly one place, in
@@ -1203,6 +1233,35 @@ sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.0^git1-1/' "$pk_qa" > "$TESTTMP/pk-qa-
 assert_exit 0 "...and a ^ snapshot sorts after it" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-caret"
 sed 's/^librepo-0:1.21.0-1.fc44/librepo-0:1.21.0-10.fc44/' "$pk_qa" > "$TESTTMP/pk-qa-release"
 assert_exit 0 "...release 10 is newer than release 1, by number and not by text" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-release"
+# The same check in the SAME boot: a live `dnf upgrade` installed every staged package and
+# cancelled the stage doing it. The stage is done, so it goes quietly, with no "can no longer
+# install" about updates that are installed.
+stage_marker boot-t4 61
+: > "$sb_notify"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
+  KEMPT_RPM_QA_CMD="cat $pk_qa" sb_check
+assert_exit 0 "a same-boot stage a live run installed in full is cleared" -- test ! -f "$marker"
+assert_exit 0 "...along with its snapshot copy" -- test ! -f "$pre"
+assert_eq "$(cat "$sb_notify")" "" "...with nothing announced"
+assert_eq "$(events_since 'offline stage installed by another updater (before the restart)')" "1" \
+  "...and the clearing is recorded"
+# Some staged packages installed live, not all: the rest are still waiting, so it is a cancel.
+stage_marker boot-t4 61
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
+  KEMPT_RPM_QA_CMD="cat $TESTTMP/pk-qa-kernel" sb_check
+assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
+  "a same-boot stage installed only in part is announced as cancelled"
+assert_eq "$(jq -r '.armed' "$marker")" "false" "...and demoted, not cleared"
+# A stage already found replaced was announced as that; a later cancel of the other transaction
+# is not Kempt's to report.
+stage_marker boot-t4 61
+jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+: > "$sb_notify"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" sb_check
+assert_eq "$(cat "$sb_notify")" "" "a replaced stage is not announced again when its symlink goes"
+assert_eq "$(jq -r '.armed' "$marker")" "true" "...and its marker is left as it was"
+rm -f "$marker" "$pre"
+
 # rpm's ordering itself, against cases from rpm's own test suite (checked against rpm.vercmp).
 vercmp() { bash -c 'source "$1/lib/common.sh"; rpm_vercmp "$2" "$3"' _ "$REPO_ROOT" "$1" "$2"; }
 vc_bad=""

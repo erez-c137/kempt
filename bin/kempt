@@ -2627,6 +2627,27 @@ harvest_offline() {
     # Same boot: nothing can have APPLIED the stage, whatever the package set says - but it can
     # still have been thrown away, the one thing worth acting on here.
     [[ "$toml_status" == absent ]] && clear_gone_stage "$pre" "$marker"
+    # ...or cancelled: any live dnf5 transaction removes /system-update and leaves the toml at
+    # `ready` ("Pending offline transaction has been invalidated"), so no restart will install it.
+    # Said now rather than after the restart, which would then have been for nothing. If the live
+    # run installed every staged package, the stage is done and is cleared quietly, as the harvest
+    # does after a restart. A replaced stage was announced already and is not ours to report.
+    # Under stage_lock_try, like reconcile_replaced_stage: a stage in flight rewrites dnf5's
+    # state before it rewrites the marker.
+    if [[ "$toml_status" == ready && "$(offline_link_state)" == none ]] \
+       && ! jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1 && stage_lock_try; then
+      if offline_marker_stage_satisfied "$marker"; then
+        if offline_marker_still "$marker"; then
+          rm -f "$OFFLINE_MARKER" ${pre:+"$pre"}
+          log_event "offline stage installed by another updater (before the restart)"
+        else
+          log_event "offline marker kept (a new stage arrived while the check ran)"
+        fi
+      else
+        reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+      fi
+      stage_unlock
+    fi
     return 0
   fi
   # A marker whose snapshot is gone can never be harvested: clear it rather than re-read a dead

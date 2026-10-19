@@ -255,13 +255,14 @@ keeps one stored transaction and staging would cancel the upgrade. The message n
 restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`, or `sudo dnf5 offline clean`.
 Live updates still work, and the risky-transaction prompt offers only `[u]` and `[a]`.
 
-**When the staged update will not install.** A restart may have skipped it, or a dnf install of
-your own while it waited removed the restart trigger, though dnf5 still calls it `ready`. The next
-check tells you once:
+**When the staged update will not install.** A restart may have skipped it, or a dnf command of
+your own removed the restart trigger. The next check tells you once:
 
 ```
 Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.
 ```
+
+Kempt says nothing if your dnf command installed every staged update.
 
 **A live update replaces the stage.** A staged update is built against the installed packages, so
 when a live `kempt update` changes any rpm, Kempt discards the stage, which could only fail at boot.
