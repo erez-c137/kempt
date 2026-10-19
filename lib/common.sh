@@ -397,6 +397,9 @@ event_plain() {  # event text → EVENT_PLAIN
   # A stage a live update made obsolete, in words.
   EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update)/(a live update replaced it)}"
   EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update, /(a live update replaced it, and }"
+  # A stage whose /system-update link went while dnf5 still read "ready": a live dnf run cancels a
+  # stage that way, and nothing else in the file's words would tell a person that.
+  EVENT_PLAIN="${EVENT_PLAIN//(status ready, but the restart marker is gone)/(it was cancelled outside Kempt)}"
   # A notification the line records, in words.
   [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
 }
