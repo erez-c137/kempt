@@ -19,7 +19,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps calling such a stage ready, so Kempt said nothing until after the next restart, which
   then installed nothing. The next check now says once that the staged update can no longer
   install; with the widget, that is within about a minute. If your dnf command installed every
-  staged update, Kempt clears the stage and says nothing.
+  staged update, Kempt clears the stage and says nothing. `kempt log` now reads "it was cancelled
+  outside Kempt" there, not the name of an internal file.
 - **A past staging run no longer reads as still staged.** `kempt status`, `kempt history`,
   `kempt summary` and `kempt log` said "1 update staged for the next restart" about the last run,
   even after that update was installed or discarded. They now say what the run did: "staged 1

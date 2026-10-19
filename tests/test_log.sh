@@ -396,6 +396,7 @@ plain_in=(
   "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
   "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
   "offline stage cannot install (status x) - announced" "offline stage found nothing to stage"
+  "offline stage cannot install (status ready, but the restart marker is gone) - announced"
   "offline stage installed by another updater (3 updated)" "offline marker cleared (stage gone)"
   "harvest applied (3 updated)" "harvest found the staged transaction did not run (1 updated)"
   "harvest skipped snapshot failed" "harvest cleared stale marker"
@@ -455,6 +456,8 @@ assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a s
 assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
   "a stage without its baseline says what that costs"
 assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
+assert_contains "$plain_out" "cli Staged update cannot install (it was cancelled outside Kempt), and you were notified" \
+  "a stage cancelled outside Kempt says so without the marker's name"
 # A staging line is a past event: "for the next restart" read as current long after that stage was
 # installed or discarded.
 assert_contains "$plain_out" "cli Staged 12 updates for a restart"$'\n' "a staging line says what the run did"
