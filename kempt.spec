@@ -42,6 +42,7 @@ BuildRequires:  appstream
 BuildRequires:  libappstream-glib
 # For the check stage only: the test suite's bash half needs these (the CLI needs them at
 # runtime too, so they are also Requires below - the build root does not inherit those).
+BuildRequires:  acl
 BuildRequires:  jq
 BuildRequires:  util-linux-core
 # The compile check of the Flatpak listing helper below, its tests in the suite, and the suite's
