@@ -171,6 +171,9 @@ KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 # Where dnf5 keeps a staged update's packages until the restart installs them, without checking
 # their signatures again. Read by `kempt doctor` for the same reason.
 KEMPT_DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-/var/lib/dnf/offline}"
+# `kempt doctor` also checks every folder above those three, up to /. When set, the walk stops
+# below this folder instead. For tests, whose folders sit in one the test user owns.
+KEMPT_DNF_PARENTS_TOP="${KEMPT_DNF_PARENTS_TOP:-}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"

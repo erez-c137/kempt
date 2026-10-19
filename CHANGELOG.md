@@ -7,6 +7,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **`kempt doctor` checks the folders above dnf's folders.** Another user who can change `/var/lib`,
+  `/var/cache` or `/usr/lib/sysimage` could put their own folder in place of dnf's. Doctor now
+  reports such a folder as a problem and prints the commands that fix it.
+
 ### Fixed
 
 - **A staged update cancelled by a dnf command of your own is announced straight away.** dnf5

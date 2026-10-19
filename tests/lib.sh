@@ -110,6 +110,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_DNF_CACHE_DIR="$TESTTMP/no-dnf-cache"
   export KEMPT_DNF_SYSIMAGE_DIR="$TESTTMP/no-dnf-sysimage"
   export KEMPT_DNF_OFFLINE_PKG_DIR="$TESTTMP/no-dnf-offline"
+  # Doctor walks up from those three to the folders above them. $TESTTMP and the folders above it
+  # belong to whoever runs the suite, so the walk stops below it.
+  export KEMPT_DNF_PARENTS_TOP="$TESTTMP"
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.
