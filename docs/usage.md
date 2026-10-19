@@ -705,7 +705,7 @@ What a `FAIL` means:
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
 | `/system-update` is absent, or points at a ready update | The next restart starts the offline updater and installs nothing. Run `sudo dnf5 offline clean`. |
 
-The **Discover's update notifier** row appears only when it is installed. It is `ok`
+The **Discover's update notifier** row appears only when the notifier is installed. It is `ok`
 when off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
 **Turn Off Discover's Notifier**. A second row says when Discover

@@ -3915,8 +3915,8 @@ doctor_dnf_cache_row() {
 # rename it away and put their own in its place, so those rows would read the wrong folder. Each
 # parent counts when root does not own it, when it is writable by others or by a group other than
 # root without the sticky bit (which stops others renaming root's folder), or when an ACL entry
-# grants write. The walk follows the path as written and, where a link leads elsewhere, where it
-# resolves, since the kernel crosses both. Reported, never repaired.
+# grants write. The walk resolves the path one name at a time, as the kernel does, so every link
+# on the way and every folder above where each one leads is checked. Reported, never repaired.
 doctor_dnf_parent_acl_write() {  # dir → 0 when an ACL entry on it grants write, mask included
   command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 1
   "$KEMPT_GETFACL" -P -s -n -E -- "$1" 2>/dev/null | awk -F: '
@@ -3930,41 +3930,69 @@ doctor_dnf_parent_acl_write() {  # dir → 0 when an ACL entry on it grants writ
       exit !other
     }'
 }
+doctor_shell_quote() {  # text → the text quoted for the shell, every byte outside ASCII escaped
+  local LC_ALL=C
+  printf '%q' "$1"
+}
+# path → every name the kernel passes through to reach it, top down, one a line: each folder, and
+# each link with the folders above its target after it. The folder reached last is left out, since
+# the rows above check it. At most 40 links are followed, the kernel's own limit.
+doctor_dnf_path_names() {
+  local cur="" rest="$1/" c t hops=0
+  local -a names=(/)
+  while [[ -n "$rest" ]]; do
+    c="${rest%%/*}"; rest="${rest#*/}"
+    case "$c" in
+      ''|.) continue ;;
+      ..) cur="${cur%/*}"; continue ;;
+    esac
+    names+=("$cur/$c")
+    if [[ -L "$cur/$c" ]] && (( hops++ < 40 )) && t="$(readlink -- "$cur/$c")" && [[ -n "$t" ]]; then
+      [[ "$t" == /* ]] && cur=""
+      rest="$t/$rest"
+    else
+      cur="$cur/$c"
+    fi
+  done
+  unset 'names[-1]'
+  (( ${#names[@]} )) && printf '%s\n' "${names[@]}"
+}
 doctor_dnf_parents_row() {
-  local top="$KEMPT_DNF_PARENTS_TOP" top_l="" top_r="" d p i hit q link_note=""
+  local top="$KEMPT_DNF_PARENTS_TOP" top_l="" top_r="" d p hit q link_note=""
   if [[ -n "$top" ]]; then top_l="$(realpath -m -s -- "$top")"; top_r="$(realpath -m -- "$top")"; fi
   local -A seen=()
-  local -a walk=() chain own=() mode=() acl=() shown=()
+  local -a walk=() own=() mode=() acl=() shown=()
   for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
-    for p in "$(realpath -m -s -- "$d")" "$(realpath -m -- "$d")"; do
-      chain=()
-      while [[ "$p" == /?* ]]; do
-        p="$(dirname -- "$p")"
-        [[ -n "$top" && ( "$p" == "$top_l" || "$p" == "$top_r" ) ]] && break
-        chain+=("$p")
-      done
-      # Top down, so a fix that runs in this order locks each folder before the ones inside it.
-      for (( i = ${#chain[@]} - 1; i >= 0; i-- )); do
-        [[ -n "${seen[${chain[i]}]+x}" ]] && continue
-        seen[${chain[i]}]=1; walk+=("${chain[i]}")
-      done
-    done
+    # Top down, so a fix that runs in this order locks each folder before the ones inside it.
+    # A name with a newline is split here; such a name is never a dnf folder's parent, and the
+    # pieces that do not exist are skipped below.
+    while IFS= read -r p; do
+      [[ -n "${seen[$p]+x}" ]] && continue
+      seen[$p]=1
+      # The top and the folders above it are skipped.
+      if [[ -n "$top" ]]; then
+        [[ "$p" == / || "$p" == "$top_l" || "$p" == "$top_r" || "$top_l" == "$p"/* || "$top_r" == "$p"/* ]] && continue
+      fi
+      walk+=("$p")
+    done < <(doctor_dnf_path_names "$(realpath -m -s -- "$d")")
   done
   for p in "${walk[@]}"; do
     [[ -e "$p" || -L "$p" ]] || continue
     hit="$(find -P "$p" -prune \( ! -user root -o \( ! -type l ! -perm -1000 \
       \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) -print -quit 2>/dev/null)" || true
-    printf -v q '%q' "$p"
-    if [[ -n "$hit" ]]; then
-      own+=("$q"); shown+=("$(doctor_plain_name "$p")")
-      # chmod follows a link, so a link is made root's and left for the reader to look at.
-      if [[ -L "$p" ]]; then
-        link_note+=" $(doctor_plain_name "$p") is a link: check where it points with ls -ld $q before you run this."
-      else
-        mode+=("$q")
-      fi
-    elif [[ ! -L "$p" ]] && doctor_dnf_parent_acl_write "$p"; then
-      acl+=("$q"); shown+=("$(doctor_plain_name "$p")")
+    q="$(doctor_shell_quote "$p")"
+    local acl_hit=false
+    [[ ! -L "$p" ]] && doctor_dnf_parent_acl_write "$p" && acl_hit=true
+    [[ -n "$hit" ]] || $acl_hit || continue
+    shown+=("$(doctor_plain_name "$p")")
+    $acl_hit && acl+=("$q")
+    [[ -n "$hit" ]] || continue
+    own+=("$q")
+    # chmod follows a link, so a link is made root's and left for the reader to look at.
+    if [[ -L "$p" ]]; then
+      link_note+=" $(doctor_plain_name "$p") is a link: check where it points with ls -ld $q before you run this."
+    else
+      mode+=("$q")
     fi
   done
   (( ${#shown[@]} )) || return 0

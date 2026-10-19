@@ -1386,7 +1386,24 @@ assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/lnk,
   "a parent that is another user's link counts, and so does where it leads"
 assert_contains "$(cat "$TESTTMP/dp.txt")" "sudo chown -h root:root $DP $DP/lnk $DP/real && sudo chmod go-w $DP $DP/real. $DP/lnk is a link: check where it points with ls -ld $DP/lnk before you run this. Then run kempt doctor again." \
   "...the fix makes the link root's without chmod, which would follow it, and asks to check where it points"
-# With no top, the walk goes on to /: $TESTTMP is the test user's, so it is named too.
+# A link to a link: every hop is walked, as the kernel crosses each one.
+mkdir -p "$DP/m/a" "$DP/m/b" "$DP/m/c"; ln -s ../b/l2 "$DP/m/a/l1"; ln -s ../c "$DP/m/b/l2"
+KEMPT_DNF_CACHE_DIR="$DP/m/a/l1/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/m, $DP/m/a, $DP/m/a/l1, $DP/m/b, $DP/m/b/l2, $DP/m/c. " \
+  "a chain of two links has each hop and its parents walked"
+# A link's target is another user's choice. In a UTF-8 locale, a bidi control in it still reaches
+# the printed command as an octal escape, and the list shows it as ?.
+RLO=$'‮'; [[ "$(LC_ALL=C.UTF-8 printf '%s' "$RLO" | wc -c)" == 3 ]] || RLO=$'\342\200\256'
+mkdir -p "$DP/x${RLO}y"
+out="$(LC_ALL=C.UTF-8 KEMPT_DNF_SYSIMAGE_DIR="$DP/x${RLO}y/libdnf5" "$KEMPT" doctor 2>&1)" || true
+assert_contains "$out" "other users can change $DP, $DP/x???y. " "a bidi control in a parent's name prints as ?"
+RLOQ="$(LC_ALL=C bash -c 'printf %q "$1"' _ "$DP/x${RLO}y")"   # bash 5.2 quotes the whole name, older ones the byte
+assert_contains "$RLOQ" "\\342\\200\\256" "the C locale escapes the bidi control's bytes"
+assert_contains "$out" "sudo chown -h root:root $DP $RLOQ && " \
+  "...and as an octal escape in the fix, under a UTF-8 locale"
+assert_not_contains "$out" "$RLO" "...and never raw"
+# With no top, the walk goes on to /: $TESTTMP is the test user's, so it is named too. This assumes
+# the folders above $TESTTMP (TMPDIR, or /tmp) are root's or sticky, as on a stock system.
 out="$(KEMPT_DNF_PARENTS_TOP='' KEMPT_DNF_SYSIMAGE_DIR="$DP/libdnf5" "$KEMPT" doctor 2>&1)" || true
 assert_contains "$out" "other users can change $TESTTMP, $DP. " "with no top set, the walk goes past the test folder"
 out="$("$KEMPT" doctor 2>&1)" || true
@@ -1528,6 +1545,8 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
       "an ACL entry that grants write on a parent is a FAIL, fixed with setfacl -b"
     assert_contains "$(ns_parent 'setfacl -m d:u:0:rwx .')" "other users can change $NP/p. " \
       "...a default one too"
+    assert_contains "$(ns_parent 'setfacl -m u:0:rwx .; chmod 777 .')" "Fix it with: sudo chown -h root:root $NP/p && sudo setfacl -b $NP/p && sudo chmod go-w $NP/p. Then" \
+      "...and a parent with both a bad mode and such an entry gets every step"
     assert_eq "$(ns_parent 'setfacl -m u:0:r-x .')" "" "an ACL entry that only reads adds no row"
     assert_eq "$(ns_parent 'setfacl -m u:0:rwx,m::r-x .')" "" "...nor one whose write the mask removes"
     assert_eq "$(ns_parent 'setfacl -m u:0:rwx .' KEMPT_GETFACL="$TESTTMP/no-such-getfacl")" "" \
