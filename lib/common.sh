@@ -316,7 +316,7 @@ event_plain() {  # event text → EVENT_PLAIN
       if [[ "$rest" =~ ^([0-9]+|\?)(.*)$ ]]; then
         event_count_phrase "${BASH_REMATCH[1]}" "update" "updates"
         rest="${BASH_REMATCH[2]}"
-        EVENT_PLAIN="$EVENT_COUNT staged for the next restart"
+        EVENT_PLAIN="Staged $EVENT_COUNT for a restart"
         if [[ "$rest" =~ ^\ \(NOT\ recorded:\ (.*)\)$ ]]; then
           EVENT_PLAIN+=", but not recorded, because ${BASH_REMATCH[1]}"
         else
@@ -3354,7 +3354,7 @@ KEMPT_JQ_COUNTS='
       + (if (.staged | type) == "number" and .staged > 0 then
            (.staged | tostring) + (if .staged == 1 then " update" else " updates" end)
          else "updates" end)
-      + (if .stage_blocked == true then ", but another updater had prepared the restart"
+      + (if .stage_blocked == true then ", but another updater had already prepared a restart"
          else " for a restart" end)
     else empty end;
   # How a run reads in kempt history and kempt summary. The stored surface of a harvested

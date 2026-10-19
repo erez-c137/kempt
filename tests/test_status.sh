@@ -198,7 +198,7 @@ stage_run '{}'
 assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged updates for a restart" \
   "an entry with no count drops the figure"
 stage_run '{"staged":3,"stage_blocked":true}'
-assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged 3 updates, but another updater had prepared the restart" \
+assert_eq "$(status | tail -n 1)" "Last update 59 min ago · staged 3 updates, but another updater had already prepared a restart" \
   "a stage behind another updater's restart says so, in the past"
 rm -f "$HIST_DIR/20260827T100000.json"
 echo '{not json' > "$HIST_DIR/20260827T090000.json"

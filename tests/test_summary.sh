@@ -207,12 +207,12 @@ assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 7 
   "...and so does its summary, never 0 updated"
 # A stage behind another updater's /system-update will not install at the next restart.
 stg_entry "$sf" '{"staged":5,"stage_blocked":true}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 5 updates, but another updater had prepared the restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged 5 updates, but another updater had already prepared a restart" \
   "a stage behind another updater's restart does not promise to install then"
-assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 5 updates, but another updater had prepared the restart" \
+assert_eq "$("$KEMPT" summary | grep '^System (dnf):')" "System (dnf): staged 5 updates, but another updater had already prepared a restart" \
   "...in the summary too"
 stg_entry "$sf" '{"stage_blocked":true}'
-assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates, but another updater had prepared the restart" \
+assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates, but another updater had already prepared a restart" \
   "...and without a count it drops the figure"
 stg_entry "$sf" '{"staged":0}'
 assert_eq "$("$KEMPT" history)" "2026-10-09T13:37:16+03:00  offline  ok  staged updates for a restart" \

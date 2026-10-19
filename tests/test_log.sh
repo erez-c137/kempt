@@ -455,6 +455,11 @@ assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a s
 assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
   "a stage without its baseline says what that costs"
 assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
+# A staging line is a past event: "for the next restart" read as current long after that stage was
+# installed or discarded.
+assert_contains "$plain_out" "cli Staged 12 updates for a restart"$'\n' "a staging line says what the run did"
+assert_contains "$plain_out" "cli Staged 4 updates for a restart, but not recorded, because the state directory could not be written" \
+  "...and keeps why it was not recorded"
 assert_eq "$(cmp -s "$EV" "$TESTTMP/ev.before" && echo same)" "same" "showing the log leaves events.log as it was"
 assert_contains "$plain_out" "cli Checked: 78 updates to install, 2 held" "a check reads as what the badge shows"
 assert_contains "$plain_out" "cli Checked: 1 update to install"$'\n' "...one update is singular, and no held is left out"

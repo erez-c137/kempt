@@ -456,7 +456,7 @@ assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")"
 fghist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r '[.status, .stage_blocked] | @tsv' "$fghist")" "ok	true" \
   "...and its history entry marks the stage as blocked"
-assert_contains "$("$KEMPT" history | awk 'NR==1')" ", but another updater had prepared the restart" \
+assert_contains "$("$KEMPT" history | awk 'NR==1')" ", but another updater had already prepared a restart" \
   "...so history does not promise the restart either"
 cp "$TESTTMP/marker.before-foreign" "$marker"
 cp "$TESTTMP/pre.before-foreign" "$pre"
