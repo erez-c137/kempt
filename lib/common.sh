@@ -3660,7 +3660,7 @@ KEMPT_JQ_STATUS='
     | ($first + [$b | keys_unsorted[] | select(. as $k | ($first | any(.[]; . == $k)) | not)]) as $keys
     | [ $keys[] as $k | $b[$k] | select(type == "object" and .enabled != false)
         | (if (.items | type) == "array" then .items else [] end)
-        | map(if type == "object" then . else {} end)
+        | map(if type == "object" then . + {_backend: $k} else {_backend: $k} end)
         | {key: $k, pending: map(select((.held | truthy) | not)), held: map(select(.held | truthy))} ] as $bs
     | { sections: [ $bs[] as $e
           | ( ($e.pending | map(select(kind_of == "")) | select(length > 0)
@@ -3669,6 +3669,31 @@ KEMPT_JQ_STATUS='
                | {title: ((kind_titles[$e.key] // {})[$kd] // ($e.key + " " + $kd)),
                   items: [$e.pending[] | select(kind_of == $kd)]} ) ) ],
         held: [$bs[].held[]] };
+  # The rows `kempt status --list` prints, as logic.js collectItems and rowsOf build them: S for a
+  # section (title, US, count), then I for each row (name, US, versions, US, marks). The version
+  # rules are the widget ones (newestOf, fromTextOf, versionTextOf), so a row reads the same in
+  # both, and security marks only system packages, as securityOf and collectItems do.
+  def list_records:
+    if (usable_state | not) then empty else
+      (if (.security | type) == "object" and (.security.count | type) == "number" and .security.count >= 1
+       then [(if (.security.packages | type) == "array" then .security.packages[] else empty end) | tostring]
+       else [] end) as $sec
+      | def newest: if . == null or . == "" then "?" else tostring | split(",") | last end;
+        def vtext: (.from | newest) as $f | (.to | newest) as $t
+                   | if $f == "?" and $t == "?" then ""
+                     elif $f == $t then $t + " (new build)"
+                     else (if $f == "?" then "new" else $f end) + " → " + $t end;
+        def row:
+          (if .name == null then "" else (.name | tostring) end) as $n
+          | ([ (if .held | truthy then "held" else empty end),
+               (if ._backend == "dnf" and .name != null and ($n as $x | $sec | any(.[]; . == $x)) then "security" else empty end),
+               (if .scope == "user" then "for you only" else empty end) ] | join(", ")) as $tags
+          | "I\u001f" + ($n + (if .branch == null or .branch == "" then "" else " " + (.branch | tostring) end) | clean)
+            + "\u001f" + (vtext | clean) + "\u001f" + $tags;
+        collect as $c
+        | ($c.sections[] | "S\u001f" + (.title | clean) + "\u001f" + (.items | length | tostring), (.items[] | row)),
+          (if ($c.held | length) > 0 then "S\u001fHeld\u001f" + ($c.held | length | tostring), ($c.held[] | row) else empty end)
+    end;
   def status_records($now):
     if . == null then
       "H\u001fNo update data yet", "F\u001f" + status_copy.noSuccessfulCheckYet, "X\u001f1"

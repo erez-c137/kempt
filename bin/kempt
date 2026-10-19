@@ -2416,15 +2416,57 @@ status_last_run() {  # now-epoch → "Last update ..." for the newest history en
   printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
 }
 
-cmd_status() {  # [--json]: what the last check found, in words; reads only
-  local json=false
-  if [[ "${1:-}" == "--json" ]]; then json=true; shift; fi
-  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+# kempt status --list: the status header, every row with its versions, and the dateline. The rows
+# are the widget's (list_records). One name column for the whole list, as wide as the longest name
+# up to 40 characters; a longer name prints whole and pushes its versions along. Nothing is cut and
+# nothing depends on the terminal, so a pipe gets the same text a person does.
+status_list() {  # state-json header detail footer
+  local rows tag a b c width=0 pad line
+  rows="$(jq -r -n "$KEMPT_JQ_STATUS"'[inputs][0] | list_records' <<<"${1:-null}" 2>/dev/null)" || rows=""
+  while IFS=$'\x1f' read -r tag a b c; do
+    [[ "$tag" == I ]] && (( ${#a} > width )) && width=${#a}
+  done <<<"$rows"
+  (( width > 40 )) && width=40
+  printf '%s\n' "$2"
+  update_running_elsewhere && echo "Kempt is changing the system right now"
+  [[ -n "$3" ]] && printf '%s\n' "$3"
+  [[ -n "$rows" ]] && echo
+  while IFS=$'\x1f' read -r tag a b c; do
+    case "$tag" in
+      S) if [[ "$a" == Held ]]; then printf 'Held: %s\n' "$b"
+         elif [[ "$b" == 1 ]]; then printf '%s: 1 update\n' "$a"
+         else printf '%s: %s updates\n' "$a" "$b"; fi ;;
+      I) line="  $a"
+         if [[ -n "$b$c" ]]; then
+           pad=$(( width - ${#a} )); (( pad < 0 )) && pad=0
+           line+="$(printf '%*s' "$pad" '')  $b${c:+  $c}"
+         fi
+         # A row with marks and no versions would otherwise carry the gap meant for them.
+         line="${line%"${line##*[! ]}"}"
+         printf '%s\n' "$line" ;;
+    esac
+  done <<<"$rows"
+  [[ -n "$4" ]] && { echo; printf '%s\n' "$4"; }
+  return 0
+}
+
+cmd_status() {  # [--json] [--list]: what the last check found, in words; reads only
+  local json=false list=false
+  while (( $# )); do
+    case "$1" in
+      --json) json=true ;;
+      --list) list=true ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+    shift
+  done
   # The state is read once, with the house idiom: the first document, and only if it is an object.
   # A missing, empty or half-written file is no state. No lock is taken and nothing is written, so
   # status answers while a check or an update runs.
   local doc
   doc="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || doc=""
+  # --list adds nothing to --json: the state already carries every row, so the two together print
+  # the same document and no second JSON shape exists for scripts to depend on.
   if [[ "$json" == true ]]; then
     [[ -n "$doc" ]] || exit 1
     jq . <<<"$doc"
@@ -2464,6 +2506,10 @@ cmd_status() {  # [--json]: what the last check found, in words; reads only
     esac
   done <<<"$records"
   status_flush_section
+  if [[ "$list" == true ]]; then
+    status_list "$doc" "$header" "$detail" "$footer"
+    return "$rc"
+  fi
 
   printf '%s\n' "$header"
   # The same probe Update Now's wrapper makes: another process holds the update lock, which an
@@ -4460,9 +4506,11 @@ EOF
 EOF
     ;;
     status) cat <<'EOF'
-  status [--json]       what the last check found, in words: pending, held, staged, restart owed.
+  status [--list] [--json]
+                        what the last check found, in words: pending, held, staged, restart owed.
                         Reads only. Exits 1 when there is no state, it cannot be read, or the
-                        last check failed. --json prints the published state, and exits 1 only
+                        last check failed. --list prints every update with both versions, held
+                        ones marked held. --json prints the published state, and exits 1 only
                         when there is none
 EOF
     ;;

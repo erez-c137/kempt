@@ -7,6 +7,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`kempt status --list` shows every update.** One line each with the current and new version,
+  then the held ones, marked held. Security updates and apps installed for you only are marked
+  too. It reads the last check, like `kempt status`, and lists the same updates as the widget.
+
 ### Fixed
 
 - **A staged update cancelled by a dnf command of your own is announced straight away.** dnf5
