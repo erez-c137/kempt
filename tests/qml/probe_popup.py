@@ -285,13 +285,15 @@ def rebaseline():
 # The padding first, because the field NUMBERS below mean nothing without it. `stat` prints
 # nothing at all for a path that does not exist, so an unpadded `stat -c %Y a b c d` on a box
 # missing one of them returns three numbers and every field after the gap shifts left. Here the
-# gap is our own state file and the config file, neither of which this sandbox has yet.
+# gap is our own state file and the config file, neither of which this sandbox has yet, and
+# dnf5's offline folder, transaction file and /system-update link (the harness points them into
+# the sandbox, where nothing is staged).
 if os.path.exists(STATE_JSON):
     os.remove(STATE_JSON)
 rebaseline()
 f = fields()
-p.check("the watch stamp is five fields even when two of the paths do not exist", len(f), 5)
-p.check("...the missing ones padded with a zero rather than left out", [f[3], f[4]], ["0", "0"])
+p.check("the watch stamp is eight fields even when paths do not exist", len(f), 8)
+p.check("...the missing ones padded with a zero rather than left out", f[3:], ["0"] * 5)
 p.check("...and the ones that do exist carry a real mtime", f[0].isdigit() and f[0] != "0", True)
 
 # The command itself, read off the live property: this is the string a shell is really handed.
@@ -299,7 +301,7 @@ watchcmd = str(ev("root.watchCmd"))
 p.check("the watch command pads every path it stats", "|| echo 0" in watchcmd, True)
 raw = subprocess.run(["sh", "-c", watchcmd], capture_output=True, text=True,
                      env=dict(os.environ, HOME=p.home))
-p.check("...and running it in a real shell does return five fields", len(raw.stdout.split()), 5)
+p.check("...and running it in a real shell does return eight fields", len(raw.stdout.split()), 8)
 
 # Now the states. A run of ours is in flight; the package database moves, as it does all the way
 # through a dnf transaction.
