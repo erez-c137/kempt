@@ -352,7 +352,7 @@ assert_eq "$(jq -r 'has("staged_nothing")' "$stgd_hist")" "false" \
 assert_eq "$(jq -r '.staged | type' "$stgd_hist")" "number" "...and its history entry records the staged count"
 assert_eq "$(jq -r .staged "$stgd_hist")" "$(jq -r .staged "$marker")" "...the same count the marker holds"
 assert_eq "$(jq -r 'has("stage_blocked")' "$stgd_hist")" "false" "...and no blocked flag with no other updater"
-assert_eq "$("$KEMPT" history | awk 'NR==1' | grep -c " offline  ok  $(jq -r .staged "$stgd_hist") update[s]* staged for the next restart")" "1" \
+assert_eq "$("$KEMPT" history | awk 'NR==1' | grep -c " offline  ok  staged $(jq -r .staged "$stgd_hist") update[s]* for a restart")" "1" \
   "...and kempt history says what was staged, not \"no package changes\""
 
 # ARMING, which is the whole difference between a staged transaction and one that installs. dnf5
@@ -456,7 +456,7 @@ assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")"
 fghist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r '[.status, .stage_blocked] | @tsv' "$fghist")" "ok	true" \
   "...and its history entry marks the stage as blocked"
-assert_contains "$("$KEMPT" history | awk 'NR==1')" "staged, but another updater has prepared the next restart" \
+assert_contains "$("$KEMPT" history | awk 'NR==1')" ", but another updater had already prepared a restart" \
   "...so history does not promise the restart either"
 cp "$TESTTMP/marker.before-foreign" "$marker"
 cp "$TESTTMP/pre.before-foreign" "$pre"
