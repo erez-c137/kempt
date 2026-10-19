@@ -384,6 +384,8 @@ PlasmoidItem {
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
     property bool watchAbsorbRun: false    // ...and the package moves of a run of ours, with it
+    property bool watchAbsorbStage: false  // ...and the stage a Discard of ours just removed
+    property bool discardJustRan: false    // set by discardStaged for the check that follows it
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
     // --- flows ---------------------------------------------------------------------------------
@@ -573,6 +575,10 @@ PlasmoidItem {
             // would set off one more check a minute after the run's own.
             root.watchAbsorbState = true;
             root.watchAbsorbRun = root.updating || root.updateStartedMs >= askedMs;
+            // A Discard is neither a check nor a run, but it removes the stage, and the check it
+            // asks for would otherwise see that as news and start one more a minute later.
+            root.watchAbsorbStage = root.discardJustRan;
+            root.discardJustRan = false;
             root.pollWatch(false);
             if (root.recheckPending) {
                 var asked = root.recheckAsked;
@@ -662,15 +668,19 @@ PlasmoidItem {
             root.watchStamp = stamp;
             var absorb = root.watchAbsorbState;
             var absorbRun = absorb && root.watchAbsorbRun;
+            var absorbStage = absorb && root.watchAbsorbStage;
             root.watchAbsorbState = false;
             root.watchAbsorbRun = false;
+            root.watchAbsorbStage = false;
             if (previous === "" || !(triggerCheck || absorb)) return;
             // WHICH path moved, not merely that one did. See Logic.watchChange.
             var delta = Logic.watchChange(previous, stamp);
             if (absorb) {                          // a check's own write; see the re-baseline
                 delta.state = false;
-                // A check never stages, so only a run of ours makes a stage change its own.
+                // A check never stages, so only a run or a Discard of ours makes a stage change
+                // its own.
                 if (absorbRun) { delta.packages = false; delta.stage = false; }
+                if (absorbStage) delta.stage = false;
                 delta.any = delta.packages || delta.config || delta.stage;
             }
             if (!delta.any) return;
@@ -972,6 +982,7 @@ PlasmoidItem {
                 // ...and the line is set AFTER it, not before: doCheck clears the last event's
                 // reports synchronously at its top, and this report is about the event that just
                 // happened rather than the one before it.
+                root.discardJustRan = true;
                 root.doCheck();
                 root.actionDone = said;
             });

@@ -307,8 +307,8 @@ finishes, however often you open the widget.
 Every 30 seconds (every 2 during an update) the widget also checks the package databases, the
 staged update, its state file and the config file. A `dnf upgrade` or `sudo dnf5 offline clean` in
 a terminal, a Discover run, another Kempt run or a settings change shows up without you asking. For
-a minute after a check, the widget ignores changes that check made. A package or staged update
-change in that minute is checked when the minute is up.
+a minute after a check, the widget ignores changes that check made. A change to the packages or the
+staged update in that minute is checked when the minute is up.
 
 ### When nothing is pending
 
