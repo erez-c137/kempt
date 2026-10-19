@@ -26,8 +26,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A staged update cancelled by another program no longer still shows as staged.** A dnf
   command run in a terminal within a minute of a check, an update or a stage was missed, so the
-  widget kept saying the updates were staged until Refresh was pressed. The widget now checks
-  when that minute is up. A package change made while a check runs is no longer missed either.
+  widget kept saying the updates were staged until **Check for Updates** was pressed. The widget
+  now checks when that minute is up. A package change made while a check runs is no longer missed either.
 
 ## [0.1.8] - 2026-10-19
 
