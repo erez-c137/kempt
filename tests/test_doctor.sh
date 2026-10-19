@@ -1363,6 +1363,62 @@ assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf staged updates: other user
 assert_not_contains "$(cat "$TESTTMP/dc.txt")" "kempt doctor: all checks passed" "...and doctor does not call the box clean"
 rm -rf "$DO"
 
+# --- the folders above dnf5's folders ---
+# Whoever can change a parent can swap the folder below it for one of their own, so the rows above
+# would check the wrong folder. tests/lib.sh stops the walk at $TESTTMP, which the test user owns;
+# a plain run shows the "not root's" case, and the modes and ACLs run as root in a namespace below.
+DP="$TESTTMP/dnf-parent"; mkdir -p "$DP"
+KEMPT_DNF_SYSIMAGE_DIR="$DP/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "FAIL  dnf folders' parents: other users can change $DP. They could put a folder of their own in place of dnf's state, staged updates or cache, and the dnf checks would then look at theirs. Fix it with: sudo chown -h root:root $DP && sudo chmod go-w $DP. Then run kempt doctor again." \
+  "a parent of the dnf state folder that root does not own is a FAIL, even with the folder itself missing"
+assert_not_contains "$(cat "$TESTTMP/dp.txt")" "$DP/libdnf5." "...and names the parent, not the folder"
+assert_not_contains "$(cat "$TESTTMP/dp.txt")" "can change $TESTTMP." "...and the walk stops below the top the seam names"
+mkdir -p "$DP/a/b"
+KEMPT_DNF_OFFLINE_PKG_DIR="$DP/a/b/offline" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/a, $DP/a/b. " \
+  "every parent of the staged-update folder is walked, the top one first"
+assert_contains "$(cat "$TESTTMP/dp.txt")" "Fix it with: sudo chown -h root:root $DP $DP/a $DP/a/b && sudo chmod go-w $DP $DP/a $DP/a/b." \
+  "...and the fix takes them top down, the chown before the chmod"
+# A link is reported as the link, and the folder it leads to is walked as well.
+mkdir -p "$DP/real"; ln -s real "$DP/lnk"
+KEMPT_DNF_CACHE_DIR="$DP/lnk/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/lnk, $DP/real. " \
+  "a parent that is another user's link counts, and so does where it leads"
+assert_contains "$(cat "$TESTTMP/dp.txt")" "sudo chown -h root:root $DP $DP/lnk $DP/real && sudo chmod go-w $DP $DP/real. $DP/lnk is a link: check where it points with ls -ld $DP/lnk before you run this. Then run kempt doctor again." \
+  "...the fix makes the link root's without chmod, which would follow it, and asks to check where it points"
+# A link to a link: every hop is walked, as the kernel crosses each one.
+mkdir -p "$DP/m/a" "$DP/m/b" "$DP/m/c"; ln -s ../b/l2 "$DP/m/a/l1"; ln -s ../c "$DP/m/b/l2"
+KEMPT_DNF_CACHE_DIR="$DP/m/a/l1/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/m, $DP/m/a, $DP/m/a/l1, $DP/m/b, $DP/m/b/l2, $DP/m/c. " \
+  "a chain of two links has each hop and its parents walked"
+# ".." after a link climbs from where the link leads, as the kernel does, not from the link's name.
+mkdir -p "$DP/u/deep/x"; ln -s deep/x "$DP/u/dl"
+KEMPT_DNF_CACHE_DIR="$DP/u/dl/../libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "other users can change $DP, $DP/u, $DP/u/dl, $DP/u/deep, $DP/u/deep/x. " \
+  "a .. after a link is taken from where the link leads"
+# A link target that ends in a newline names a different folder; it is walked as written.
+mkdir -p "$DP/n/ev"$'\n'; ln -s "ev"$'\n' "$DP/n/nl"
+KEMPT_DNF_CACHE_DIR="$DP/n/nl/libdnf5" "$KEMPT" doctor > "$TESTTMP/dp.txt" 2>&1 || true
+assert_contains "$(cat "$TESTTMP/dp.txt")" "$DP/n/nl, $DP/n/ev?" "a link target ending in a newline keeps it"
+# A link's target is another user's choice. In a UTF-8 locale, a bidi control in it still reaches
+# the printed command as an octal escape, and the list shows it as ?.
+RLO=$'‮'; [[ "$(LC_ALL=C.UTF-8 printf '%s' "$RLO" | wc -c)" == 3 ]] || RLO=$'\342\200\256'
+mkdir -p "$DP/x${RLO}y"
+out="$(LC_ALL=C.UTF-8 KEMPT_DNF_SYSIMAGE_DIR="$DP/x${RLO}y/libdnf5" "$KEMPT" doctor 2>&1)" || true
+assert_contains "$out" "other users can change $DP, $DP/x???y. " "a bidi control in a parent's name prints as ?"
+RLOQ="$(LC_ALL=C bash -c 'printf %q "$1"' _ "$DP/x${RLO}y")"   # bash 5.2 quotes the whole name, older ones the byte
+assert_contains "$RLOQ" "\\342\\200\\256" "the C locale escapes the bidi control's bytes"
+assert_contains "$out" "sudo chown -h root:root $DP $RLOQ && " \
+  "...and as an octal escape in the fix, under a UTF-8 locale"
+assert_not_contains "$out" "$RLO" "...and never raw"
+# With no top, the walk goes on to /: $TESTTMP is the test user's, so it is named too. This assumes
+# the folders above $TESTTMP (TMPDIR, or /tmp) are root's or sticky, as on a stock system.
+out="$(KEMPT_DNF_PARENTS_TOP='' KEMPT_DNF_SYSIMAGE_DIR="$DP/libdnf5" "$KEMPT" doctor 2>&1)" || true
+assert_contains "$out" "other users can change $TESTTMP, $DP. " "with no top set, the walk goes past the test folder"
+out="$("$KEMPT" doctor 2>&1)" || true
+assert_not_contains "$out" "dnf folders' parents" "the sandbox's own folders add no row"
+rm -rf "$DP"
+
 ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a user namespace; dir removed after
   local var="$1" dir="$2" setup="$3"; shift 3
   timeout 60 unshare --map-auto --map-root-user env KEMPT_ALLOW_ROOT=1 "$var=$dir" "$@" bash -c '
@@ -1471,6 +1527,41 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
       "a cache file with an extra ACL entry counts too"
   else
     skip "setfacl is not installed, so the ACL cases did not run"
+  fi
+  # A parent's mode and ACL entries, as root: sticky and group-root writes stay quiet, like the rows above.
+  NP="$TESTTMP/ns-parent"
+  ns_parent() {  # setup [env...] → doctor's "dnf folders' parents" row with the state folder in $NP/p
+    local setup="$1" out; shift
+    out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NP/p/libdnf5" "cd ..; $setup" "$@")"
+    rm -rf "$NP"
+    grep -F -e "dnf folders' parents" -e "setup failed" <<<"$out" || true
+  }
+  assert_eq "$(ns_parent 'chmod 755 .')" "" "a root-owned parent at 755 adds no row"
+  assert_contains "$(ns_parent 'chmod 777 .')" "FAIL  dnf folders' parents: other users can change $NP/p. " \
+    "a world-writable parent is a FAIL"
+  assert_contains "$(ns_parent 'chmod 777 .')" "Fix it with: sudo chown -h root:root $NP/p && sudo chmod go-w $NP/p. Then" \
+    "...fixed with chown and chmod go-w"
+  assert_eq "$(ns_parent 'chmod 1777 .')" "" "...but not with the sticky bit, which keeps others from renaming root's folder"
+  assert_eq "$(ns_parent 'chmod 775 .')" "" "a parent writable by group root adds no row"
+  if other_ids "a parent another user owns, or writable by another group, is a FAIL"; then
+    assert_contains "$(ns_parent 'chown 0:1000 .; chmod 775 .')" "other users can change $NP/p. " \
+      "a parent writable by another group is a FAIL"
+    assert_contains "$(ns_parent 'chown 1000:0 .; chmod 755 .')" "other users can change $NP/p. " \
+      "a parent another user owns is a FAIL"
+  fi
+  if command -v setfacl >/dev/null; then
+    assert_contains "$(ns_parent 'setfacl -m u:0:rwx .')" "Fix it with: sudo setfacl -b $NP/p. Then" \
+      "an ACL entry that grants write on a parent is a FAIL, fixed with setfacl -b"
+    assert_contains "$(ns_parent 'setfacl -m d:u:0:rwx .')" "other users can change $NP/p. " \
+      "...a default one too"
+    assert_contains "$(ns_parent 'setfacl -m u:0:rwx .; chmod 777 .')" "Fix it with: sudo chown -h root:root $NP/p && sudo setfacl -b $NP/p && sudo chmod go-w $NP/p. Then" \
+      "...and a parent with both a bad mode and such an entry gets every step"
+    assert_eq "$(ns_parent 'setfacl -m u:0:r-x .')" "" "an ACL entry that only reads adds no row"
+    assert_eq "$(ns_parent 'setfacl -m u:0:rwx,m::r-x .')" "" "...nor one whose write the mask removes"
+    assert_eq "$(ns_parent 'setfacl -m u:0:rwx .' KEMPT_GETFACL="$TESTTMP/no-such-getfacl")" "" \
+      "without getfacl the ACL entry is not seen, as in the rows above"
+  else
+    skip "setfacl is not installed, so the parent ACL cases did not run"
   fi
   NO="$TESTTMP/ns-offline"
   out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'mkdir packages; : > packages/p.rpm')"

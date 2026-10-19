@@ -705,16 +705,16 @@ What a `FAIL` means:
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
 | `/system-update` is absent, or points at a ready update | The next restart starts the offline updater and installs nothing. Run `sudo dnf5 offline clean`. |
 
-The **Discover's update notifier** row appears only when that notifier is installed. It is `ok`
-when the notifier is off for you, and `info` when it starts with your session, naming
+The **Discover's update notifier** row appears only when the notifier is installed. It is `ok`
+when off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
 **Turn Off Discover's Notifier**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
 `shutdown during package installs` is `WARN` unless `rpm-plugin-systemd-inhibit`, or an enabled
-`libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` and `dnf state` are `WARN` when other
-users can change root's dnf files, and give the fix.
+`libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` warns and the other dnf rows fail
+when other users can change dnf's folders or one above them. Each gives the fix.
 
 | Line | What it means |
 | --- | --- |
@@ -723,8 +723,8 @@ users can change root's dnf files, and give the fix.
 
 ### The staged transaction
 
-Doctor compares Kempt's record of a staged update with what dnf5 has stored, and prints nothing
-here when neither exists.
+Doctor compares Kempt's record of a staged update with what dnf5 has stored. It prints nothing
+when neither exists.
 
 | Line | What it means |
 | --- | --- |
