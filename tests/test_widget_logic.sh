@@ -3603,6 +3603,16 @@ assert_eq "$(js 'L.watcherCheckDue(2000000, 1000000)')" "true" \
   "a clock that moved backwards never suppresses a check"
 assert_eq "$(js 'L.watcherCheckDue(NaN, 1000000)')" "true" "...nor does a stamp that is not a number"
 assert_eq "$(js 'L.watcherCheckDue(1000000, NaN)')" "true" "...nor a now that is not one"
+# A package database move inside the window is postponed to the window's end, never dropped: the
+# watcher has already taken it into its baseline, so a dropped one is never seen again (2026-10-19,
+# a terminal dnf run that cancelled a stage, and the widget still said "staged").
+assert_eq "$(js 'L.watcherQuietLeft(1000000, 1000000 + 20000)')" "40000" \
+  "a move twenty seconds after a check waits the forty left in the window"
+assert_eq "$(js 'L.watcherQuietLeft(1000000, 1000000 + 59999)')" "1" "...a millisecond before the edge, one"
+assert_eq "$(js 'L.watcherQuietLeft(1000000, 1000000 + 60000)')" "1" \
+  "...and past the edge it fires at once, never with a zero interval a Timer would ignore"
+assert_eq "$(js 'L.watcherQuietLeft(0, 1000000)')" "1" "...as it does with no check behind us"
+assert_eq "$(js 'L.watcherQuietLeft(2000000, 1000000)')" "1" "...or on a clock that moved backwards"
 # checkedSince: whether state.json was written by a check that ran after the press. last_check has
 # whole seconds, so a check in the press's own second counts.
 assert_eq "$(js 'L.checkedSince({last_check: "2026-09-26T15:25:18+03:00"}, Date.parse("2026-09-26T15:24:34+03:00"))')" "true" \

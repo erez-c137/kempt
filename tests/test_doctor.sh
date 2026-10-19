@@ -1596,4 +1596,17 @@ rm -f "$REFRESH_DNF_FAILED_FILE"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "last check failed" "a state that is not stale adds no row"
 rm -f "$STATE_FILE"
 
+# The folder checks above read ACLs with getfacl, and skip them where it is missing: the RPM requires
+# the acl package, a checkout install does not. Doctor says so, rather than passing a check it could
+# only half run.
+out="$(KEMPT_GETFACL="$TESTTMP/no-such-getfacl" "$KEMPT" doctor 2>&1)" || true
+assert_contains "$out" "WARN  getfacl: not found, so the dnf folder checks cannot see ACL entries. Install it with: sudo dnf install acl" \
+  "a missing getfacl is a warning that names the package"
+if command -v getfacl >/dev/null; then
+  out="$("$KEMPT" doctor 2>&1)" || true
+  assert_not_contains "$out" "getfacl: not found" "...and no row at all when getfacl is there"
+else
+  skip "getfacl is not installed, so the case with it present did not run"
+fi
+
 finish
