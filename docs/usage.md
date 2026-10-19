@@ -424,9 +424,8 @@ terminal. A removal writes an event line and no history entry.
 kempt status [--list] [--json]
 ```
 
-Says what the last check found, as the widget's header does: updates waiting with their first few
-names, held, security, staged, and a restart owed. The footer says when the check ran, how old the
-package lists were, and the last update.
+Says what the last check found: updates waiting with their first few names, held, security, staged,
+and a restart owed. The footer says when the check ran, the age of the lists and the last update.
 
 ```
 10 updates available
@@ -440,26 +439,20 @@ Last update 3 days ago · 41 updated
 
 | Line | What it means |
 | --- | --- |
-| `... · package lists could not be downloaded` (footer) | The last download failed, offline for example. The counts come from older lists. |
-| `Package lists have never been downloaded: <reason>` (under the header) | No check has answered yet. The reason is the first line of the download error. |
+| `... · package lists could not be downloaded` (footer) | The last download failed. The counts come from older lists. |
+| `Package lists have never been downloaded: <reason>` (under the header) | No check has answered yet. The reason is the download error's first line. |
 
-It never runs a check and writes nothing, so it answers during a check or an update, and says
-when Kempt is changing the system.
+It never runs a check, takes no lock and writes nothing, so it answers during a check or
+update. During an update, a reclaim or an unstage, it says Kempt is changing the system.
 `kempt check` refreshes what it reads.
 
-`--list` prints every update with both versions, then the held ones, marked `held`. Security
-updates and apps for you only are marked too.
-
-```
-System (dnf): 7 updates
-  bash           5.3.9-3.fc44 → 5.3.10-1.fc44
-  curl           8.18.0-8.fc44 → 8.18.0-9.fc44  security
-```
+`--list` lists every update and both versions in place of the sections. It marks rows `held`,
+`security` or `for you only`. `--list --json` prints what `--json` does.
 
 `--json` prints the saved state, the same document `kempt check` prints. With no state it prints
-nothing and exits 1. Otherwise it exits 0.
+nothing and exits 1, otherwise 0.
 
-Without `--json`, exit 1 means there is no state, it cannot be read, or the last check failed.
+Without `--json`, exit 1 means no state, an unreadable state, or a failed last check.
 
 ## summary and history
 

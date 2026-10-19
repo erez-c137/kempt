@@ -99,9 +99,10 @@ and never on battery or a metered connection.
 .B \-\-refresh
 fetches now, but still skips battery and metered connections.
 .B \-\-anyway
-fetches now even on battery or a metered connection.
+fetches now even on battery or a metered connection, for this check only.
 .B \-\-coalesce
-is for automatic checks: after waiting for a newer successful check, it prints that state.
+is for automatic checks: after waiting for a newer successful check, it prints that state and
+queries nothing.
 .B \-\-refresh
 turns it off.
 .B \-\-strict
@@ -212,7 +213,7 @@ to see what is left.
 Say what the last check found, and the last update. It only reads. Exit 1: no state,
 or a failed check.
 .B \-\-list
-prints every update with both versions, held ones marked held.
+lists every update and both versions, marking held ones.
 .B \-\-json
 prints the state; exit 1 only without one.
 .TP
@@ -225,7 +226,7 @@ counts back from the newest and defaults to 1. A damaged entry is skipped with a
 .B summary \-\-json
 Print the newest run's history entry as JSON, for the widget. It takes no
 .IR N .
-With no runs, or a damaged newest entry, it prints nothing.
+With no runs, or a damaged newest entry, it prints nothing and shows no older run instead.
 .TP
 .BR history " [" \-\-json ]
 List past runs, newest first: time, how it ran, status and what changed.

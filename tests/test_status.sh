@@ -357,8 +357,10 @@ assert_eq "$(jq -S -c -n "$KEMPT_JQ_STATUS"'status_copy')" \
 
 # --- status --list: every row, with its versions ----------------------------------------------------
 list() { "$KEMPT" status --list 2>&1 || true; }
+# The rows and the lines around them, without the last update, which earlier cases recorded.
+rows() { list | grep -v '^Last update '; }
 put live
-assert_eq "$(list)" "10 updates available
+assert_eq "$(rows)" "10 updates available
 
 System (dnf): 7 updates
   aajohan-comfortaa-fonts   3.105-0.9.20210729git2a87ac6.fc44 → 3.106-1.fc44
@@ -401,7 +403,7 @@ jq '.backends.dnf.items = [{name: "a-very-long-package-name-that-goes-past-forty
                                  {name: "org.gnome.Theme", branch: "stable", kind: "runtime", from: "2024-05-30", to: "2024-05-30", held: false},
                                  {name: "org.gimp.GIMP", scope: "user", from: "3.0.2", to: "3.0.4", held: false}]
     | .security = {count: 1, packages: ["zsh"]}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(list)" "4 updates available
+assert_eq "$(rows)" "4 updates available
 
 System (dnf): 1 update
   a-very-long-package-name-that-goes-past-forty-chars  1 → 2
@@ -412,19 +414,36 @@ Flatpak runtimes: 2 updates
   org.gnome.Theme stable                    2024-05-30 (new build)
 Held: 1
   zsh                                       5.9 → 5.9.1  held, security
+Security: 1 update
 
 Checked 2 days ago" "--list: runtimes by id and branch, a long name whole, the widget's version rules"
 
 # Nothing pending: the header and the dateline only. No state: what status says, and exit 1.
 jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(list)" "Up to date
+assert_eq "$(rows)" "Up to date
 
 Checked 2 days ago" "--list with nothing pending: up to date"
 rm -f "$STATE_FILE"
-assert_eq "$(list)" "No update data yet
-
-No successful check yet" "--list with no state says what status says"
+assert_eq "$(list)" "$(status)" "--list with no state says what status says, the last update too"
 assert_eq "$(status_rc --list)" "1" "...and exits 1"
+
+# The lines around the sections are status's own: a restart owed, security, a staged update.
+put reboot-needed
+assert_contains "$(list)" "Restart to apply installed updates" "--list says a restart is owed"
+put security
+assert_contains "$(list)" "Security: 3 updates" "--list keeps the security count"
+jq '.offline_staged = {count: 10}' "$FIXTURES/state-live.json" > "$STATE_FILE"
+out="$(list)"
+assert_contains "$out" "$(status | grep '^Staged: ')" "--list keeps the staged line"
+assert_contains "$out" "Staged: " "...which is there"
+assert_contains "$out" "  curl                      8.18.0-8.fc44 → 8.18.0-9.fc44" "...and still lists the rows"
+assert_eq "$(list | tail -n 2)" "$(status | tail -n 2)" "--list ends as status does"
+# Names and versions from another program are printed with no control characters.
+jq '.backends.dnf.items = [{name: "evil\u001b[31m\nname", from: "1\r", to: "2\u0007", held: false}]
+    | .backends.flatpak.items = []' "$FIXTURES/state-live.json" > "$STATE_FILE"
+out="$(list)"
+assert_eq "$(LC_ALL=C grep -c $'[\x01-\x09\x0b-\x1f\x7f]' <<<"$out")" "0" "--list prints no control characters"
+assert_contains "$out" "  evil [31m name  1  → 2" "...each one a space, on one line"
 
 # The rows --list prints are the widget's rows: same sections, names, versions and marks.
 for f in live held-only security risky-heavy; do

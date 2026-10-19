@@ -2416,21 +2416,17 @@ status_last_run() {  # now-epoch → "Last update ..." for the newest history en
   printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
 }
 
-# kempt status --list: the status header, every row with its versions, and the dateline. The rows
-# are the widget's (list_records). One name column for the whole list, as wide as the longest name
+# kempt status --list: the rows that take the place of the sections and the Held line, as the
+# widget lists them (list_records). One name column for the whole list, as wide as the longest name
 # up to 40 characters; a longer name prints whole and pushes its versions along. Nothing is cut and
 # nothing depends on the terminal, so a pipe gets the same text a person does.
-status_list() {  # state-json header detail footer
+status_list_rows() {  # state-json → the lines
   local rows tag a b c width=0 pad line
   rows="$(jq -r -n "$KEMPT_JQ_STATUS"'[inputs][0] | list_records' <<<"${1:-null}" 2>/dev/null)" || rows=""
   while IFS=$'\x1f' read -r tag a b c; do
     [[ "$tag" == I ]] && (( ${#a} > width )) && width=${#a}
   done <<<"$rows"
   (( width > 40 )) && width=40
-  printf '%s\n' "$2"
-  update_running_elsewhere && echo "Kempt is changing the system right now"
-  [[ -n "$3" ]] && printf '%s\n' "$3"
-  [[ -n "$rows" ]] && echo
   while IFS=$'\x1f' read -r tag a b c; do
     case "$tag" in
       S) if [[ "$a" == Held ]]; then printf 'Held: %s\n' "$b"
@@ -2446,7 +2442,6 @@ status_list() {  # state-json header detail footer
          printf '%s\n' "$line" ;;
     esac
   done <<<"$rows"
-  [[ -n "$4" ]] && { echo; printf '%s\n' "$4"; }
   return 0
 }
 
@@ -2506,10 +2501,6 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
     esac
   done <<<"$records"
   status_flush_section
-  if [[ "$list" == true ]]; then
-    status_list "$doc" "$header" "$detail" "$footer"
-    return "$rc"
-  fi
 
   printf '%s\n' "$header"
   # The same probe Update Now's wrapper makes: another process holds the update lock, which an
@@ -2520,8 +2511,15 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
   # While a stage is armed the pending sections and the security count read as work still waiting,
   # so they give way to the staged line, as they do in the widget's tooltip.
   local -a body=()
-  [[ "$staged" == true ]] || body+=(${sections[@]+"${sections[@]}"})
-  if [[ -n "$held" ]]; then
+  # --list: every row instead of the sections and the Held line, and still while a stage is armed,
+  # since the staged line below says those rows are the ones staged.
+  if [[ "$list" == true ]]; then
+    local row
+    while IFS= read -r row; do [[ -n "$row" ]] && body+=("$row"); done < <(status_list_rows "$doc")
+  else
+    [[ "$staged" == true ]] || body+=(${sections[@]+"${sections[@]}"})
+  fi
+  if [[ -n "$held" && "$list" != true ]]; then
     local held_phrase
     held_phrase="$(printf '%s\n' ${held_names[@]+"${held_names[@]}"} | names_phrase)"
     body+=("Held: $held${held_phrase:+ ($held_phrase)}")
