@@ -14,6 +14,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   then installed nothing. The next check now says once that the staged update can no longer
   install; with the widget, that is within about a minute. If your dnf command installed every
   staged update, Kempt clears the stage and says nothing.
+- **The widget notices a staged update you remove or make yourself.** `sudo dnf5 offline clean`
+  leaves the package database alone, so the widget kept saying the updates were staged until its
+  next scheduled check. It now watches the staged update too, and checks within about a minute.
 
 ## [0.1.9] - 2026-10-19
 
