@@ -1001,6 +1001,7 @@ chmod +x "$TESTTMP/sb-notify-stub"
 sb_check() { KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY="$TESTTMP/sb-notify-stub" "$KEMPT" check >/dev/null; }
 stage_marker boot-t4 61
 : > "$sb_notify"
+sb_before="$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')"
 sb_check
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "a ready stage whose /system-update a live transaction removed is not published as staged"
@@ -1008,23 +1009,47 @@ assert_exit 0 "...and its marker is kept, for the doctor to explain" -- test -f 
 assert_eq "$(jq -r '.armed' "$marker")" "false" "...demoted to a stage that will not install"
 assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
   "...and announced in the same boot, without waiting for a restart"
-assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "1" \
+assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
   "...and the announcement is recorded"
 : > "$sb_notify"
 sb_check
 assert_eq "$(cat "$sb_notify")" "" "the next check does not say it again"
-assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "1" \
+assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
   "...nor record it again"
+# A lock held by somebody else, until it is let go: a sentinel says it is held, and the holder
+# waits on a fifo rather than a timer, so a loaded box cannot release it early.
+sb_hold() {  # lock-file → holds it in the background; sb_release lets go
+  rm -f "$TESTTMP/sb-locked" "$TESTTMP/sb-go"; mkfifo "$TESTTMP/sb-go"
+  ( exec 7>>"$1"; flock -x 7; touch "$TESTTMP/sb-locked"; read -r _ < "$TESTTMP/sb-go" ) &
+  sb_lock_pid=$!
+  for _ in $(seq 1 50); do [[ -f "$TESTTMP/sb-locked" ]] && break; sleep 0.1; done
+  assert_exit 0 "(the lock is held for the next check)" -- test -f "$TESTTMP/sb-locked"
+}
+sb_release() { echo go > "$TESTTMP/sb-go"; wait "$sb_lock_pid" 2>/dev/null; rm -f "$TESTTMP/sb-locked" "$TESTTMP/sb-go"; }
 # Kempt's own stage in flight holds the stage lock: the check leaves the marker alone meanwhile.
 stage_marker boot-t4 61
 : > "$sb_notify"
-( exec 7>>"$KEMPT_STATE_DIR/stage.lock"; flock -x 7; touch "$TESTTMP/sb-locked"; sleep 3 ) &
-sb_lock_pid=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -f "$TESTTMP/sb-locked" ]] && break; sleep 0.2; done
+sb_hold "$KEMPT_STATE_DIR/stage.lock"
 sb_check
+sb_release
 assert_eq "$(jq -r '.armed' "$marker")" "true" "a stage in flight is not demoted under it"
 assert_eq "$(cat "$sb_notify")" "" "...nor announced"
-wait "$sb_lock_pid" 2>/dev/null; rm -f "$TESTTMP/sb-locked"
+# A live `kempt update` (or unstage, or reclaim) holds the update lock. dnf5 removes the symlink as
+# the live run starts, and the run discards the stage itself at its end: no "can no longer
+# install" in between.
+stage_marker boot-t4 61
+: > "$sb_notify"
+sb_hold "$KEMPT_STATE_DIR/lock"
+sb_check
+sb_release
+assert_eq "$(jq -r '.armed' "$marker")" "true" "a stage under a running Kempt update is left to that run"
+assert_eq "$(cat "$sb_notify")" "" "...and not announced"
+# A stored release upgrade lives in the same toml. A cancelled one is not "your staged update".
+stage_marker boot-t4 61
+: > "$sb_notify"
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" sb_check
+assert_eq "$(cat "$sb_notify")" "" "a stranded release upgrade is not announced as the staged update"
+assert_eq "$(jq -r '.armed' "$marker")" "true" "...and the marker is left alone"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" \
   "...while the same stage with its symlink in place is still a pending install"
@@ -1238,15 +1263,17 @@ assert_exit 0 "...release 10 is newer than release 1, by number and not by text"
 # install" about updates that are installed.
 stage_marker boot-t4 61
 : > "$sb_notify"
+sb_sat_before="$(events_since 'offline stage installed by another updater (before the restart)')"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
   KEMPT_RPM_QA_CMD="cat $pk_qa" sb_check
 assert_exit 0 "a same-boot stage a live run installed in full is cleared" -- test ! -f "$marker"
 assert_exit 0 "...along with its snapshot copy" -- test ! -f "$pre"
 assert_eq "$(cat "$sb_notify")" "" "...with nothing announced"
-assert_eq "$(events_since 'offline stage installed by another updater (before the restart)')" "1" \
+assert_eq "$(events_since 'offline stage installed by another updater (before the restart)')" "$((sb_sat_before + 1))" \
   "...and the clearing is recorded"
 # Some staged packages installed live, not all: the rest are still waiting, so it is a cancel.
 stage_marker boot-t4 61
+: > "$sb_notify"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
   KEMPT_RPM_QA_CMD="cat $TESTTMP/pk-qa-kernel" sb_check
 assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
