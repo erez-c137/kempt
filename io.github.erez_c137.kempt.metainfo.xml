@@ -66,6 +66,18 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.1.9" date="2026-10-19" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.9</url>
+      <description>
+        <p>
+          A fix release. When another program changed your packages shortly after a check, an
+          update or a stage, the widget could miss it. A dnf command run in a terminal cancels a
+          staged update, and the widget went on saying the updates were staged until you pressed
+          Refresh. It now checks within about a minute. kempt doctor also warns when getfacl is
+          missing.
+        </p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-10-19" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.8</url>
       <description>

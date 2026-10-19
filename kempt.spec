@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.8
+Version:        0.1.9
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -277,6 +277,12 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Mon Oct 19 2026 Erez <erez.c137@protonmail.com> - 0.1.9-1
+- The widget no longer misses a package change made by another program
+  shortly after a check, an update or a stage. A dnf command that cancelled
+  a staged update left the widget saying the updates were staged.
+- kempt doctor warns when getfacl is missing.
+
 * Mon Oct 19 2026 Erez <erez.c137@protonmail.com> - 0.1.8-1
 - Security: systemd starts each root dnf run in a clean service with its own
   umask, so root's dnf files can no longer be left writable by other users.
