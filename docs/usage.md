@@ -443,11 +443,11 @@ Last update 3 days ago · 41 updated
 | `Package lists have never been downloaded: <reason>` (under the header) | No check has answered yet. The reason is the download error's first line. |
 
 It never runs a check, takes no lock and writes nothing, so it answers during a check or
-update. During an update, a reclaim or an unstage, it says Kempt is changing the system.
+update. During an update, reclaim or unstage, it says Kempt is changing the system.
 `kempt check` refreshes what it reads.
 
-`--list` lists every update and both versions in place of the sections. It marks rows `held`,
-`security` or `for you only`. `--list --json` prints what `--json` does.
+`--list` lists every update with both versions in place of the sections. It marks rows `held`,
+`security` or `for you only`. `--list --json` prints what `--json` prints.
 
 `--json` prints the saved state, the same document `kempt check` prints. With no state it prints
 nothing and exits 1, otherwise 0.
