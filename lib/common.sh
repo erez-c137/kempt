@@ -1732,7 +1732,8 @@ startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
 
 # Every outside call of the startup code, under `timeout -k1 5`. While the Startup page gathers,
 # each call also fits in what is left of its budget (STARTUP_DEADLINE, in $SECONDS), and a session
-# call that times out marks the session slow so the page asks it nothing more. The mark is a file
+# call that times out or finds no time left marks the session slow so the page asks it nothing
+# more. A session that fails at once is then told apart as missing. The mark is a file
 # in STARTUP_TMP because the callers run in subshells.
 startup_timed() {  # system|user cmd args...
   local scope="$1" cmd="$2" t=5 rc=0
@@ -1740,12 +1741,15 @@ startup_timed() {  # system|user cmd args...
   [[ "$scope" != user || -z "${STARTUP_TMP:-}" || ! -e "$STARTUP_TMP/user-slow" ]] || return 1
   if [[ -n "${STARTUP_DEADLINE:-}" ]]; then
     t=$(( STARTUP_DEADLINE - SECONDS ))
-    (( t > 0 )) || return 1
+    if (( t <= 0 )); then
+      [[ "$scope" != user || -z "${STARTUP_TMP:-}" ]] || : > "$STARTUP_TMP/user-slow" 2>/dev/null || true
+      return 1
+    fi
     (( t <= 5 )) || t=5
   fi
   # shellcheck disable=SC2086  # the seam carries its own arguments
   timeout -k1 "$t" $cmd "$@" </dev/null 2>/dev/null 9>&- || rc=$?
-  if [[ $rc -eq 124 || $rc -eq 137 ]] && [[ "$scope" == user && $t -eq 5 && -n "${STARTUP_TMP:-}" ]]; then
+  if [[ $rc -eq 124 || $rc -eq 137 ]] && [[ "$scope" == user && -n "${STARTUP_TMP:-}" ]]; then
     : > "$STARTUP_TMP/user-slow" 2>/dev/null || true
   fi
   return "$rc"

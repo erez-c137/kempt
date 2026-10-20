@@ -3442,16 +3442,21 @@ startup_list() {
 # widget or as text grouped the way a person would say it. Works whatever startup_page says; the
 # setting only shows the widget's button.
 startup_page_cmd() {
-  local json="" a page
+  local json="" a page now today
   for a in "$@"; do case "$a" in
     --json) json=1 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
   page="$(startup_page_gather)" || { echo "kempt: could not gather the startup page" >&2; exit 1; }
   if [[ -n "$json" ]]; then printf '%s\n' "$page"; return 0; fi
+  # Today, yesterday and tomorrow are calendar days, worked out in UTC: the days the clocks change
+  # are 23 and 25 hours long. KEMPT_NOW (seconds since the epoch) pins the clock for the tests.
+  now="${KEMPT_NOW:-$(date +%s)}"
+  today="$(date -d "@$now" +%F)"
   # Every string came from outside (unit files, logs, crontabs), so control characters, which a
   # terminal would act on, are shown as spaces. The JSON keeps them: the widget shows plain text.
-  jq -r "$STARTUP_CLEAN_JQ"'
+  jq -r --arg today "$today" --arg yesterday "$(date -u -d "$today 12:00 UTC 1 day ago" +%F)" \
+        --arg tomorrow "$(date -u -d "$today 12:00 UTC 1 day" +%F)" "$STARTUP_CLEAN_JQ"'
     walk(if type == "string" then clean else . end)
     | def dur: if . == null then null elif . < 1 then "under 1 s" else round as $s
       | if $s < 60 then "\($s) s"
@@ -3459,15 +3464,15 @@ startup_page_cmd() {
         else "\($s / 3600 | floor) h" + (if $s % 3600 >= 60 then " \($s % 3600 / 60 | floor) min" else "" end) end end;
     def ymd: strftime("%Y-%m-%d");
     def local: try (fromdateiso8601 | localtime) catch null;
-    def lday: local as $t | if $t == null then .[:10] elif ($t | ymd) == (now | localtime | ymd) then "today"
-                            elif ($t | ymd) == (now - 86400 | localtime | ymd) then "yesterday"
+    def lday: local as $t | if $t == null then .[:10] elif ($t | ymd) == $today then "today"
+                            elif ($t | ymd) == $yesterday then "yesterday"
                             else ($t | strftime("%-d %b")) end;
     def when: local as $t
       | if $t == null then .
         else ($t | strftime("%H:%M")) as $hm | ($t | ymd) as $d
-          | if $d == (now | localtime | ymd) then "today \($hm)"
-            elif $d == (now + 86400 | localtime | ymd) then "tomorrow \($hm)"
-            elif $d == (now - 86400 | localtime | ymd) then "yesterday \($hm)"
+          | if $d == $today then "today \($hm)"
+            elif $d == $tomorrow then "tomorrow \($hm)"
+            elif $d == $yesterday then "yesterday \($hm)"
             else ($t | strftime("%-d %b")) + " " + $hm end end;
     def pad: tonumber | tostring | if length < 2 then "0" + . else . end;
     def num: test("^[0-9]+$");

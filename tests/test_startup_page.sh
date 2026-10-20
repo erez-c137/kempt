@@ -258,6 +258,16 @@ STARTUP_DEADLINE=$SECONDS
 assert_exit 1 "with the page's time used up, no call is made" -- startup_systemctl system --failed
 assert_eq "$(calls systemctl)" "" "...and systemctl is never started"
 unset STARTUP_DEADLINE
+# A session cut short by the page's time is slow too: session_missing is for one that failed at once.
+STARTUP_TMP="$TESTTMP/st"; mkdir -p "$STARTUP_TMP"
+STARTUP_DEADLINE=$SECONDS
+startup_systemctl user list-timers >/dev/null || true
+assert_eq "$([[ -e "$STARTUP_TMP/user-slow" ]] && echo slow || echo not)" "slow" "a session call with no time left marks the session slow"
+rm -f "$STARTUP_TMP/user-slow"; touch "$SD/slow-user"
+STARTUP_DEADLINE=$(( SECONDS + 3 ))
+startup_systemctl user list-timers >/dev/null || true
+assert_eq "$([[ -e "$STARTUP_TMP/user-slow" ]] && echo slow || echo not)" "slow" "...as does one that timed out on a shorter wait"
+rm -f "$SD/slow-user"; rm -rf "$STARTUP_TMP"; unset STARTUP_DEADLINE STARTUP_TMP
 mkdir -p "$TESTTMP/tmpd"
 TMPDIR="$TESTTMP/tmpd" page >/dev/null
 assert_eq "$(ls -A "$TESTTMP/tmpd")" "" "the page's temporary folder is gone when it ends"
@@ -472,5 +482,18 @@ t="$(text)"
 assert_contains "$t" "  Earlier starts:"$'\n'"    today 00:10: " "an earlier start today says today and its time"
 assert_contains "$t" $'\n'"    yesterday 23:40: " "...one yesterday says yesterday"
 assert_contains "$t" $'\n'"    16 Oct 08:00: " "...and an older one its date"
+
+# Today, tomorrow and yesterday are calendar days, as in the widget: the days the clocks change
+# are 23 and 25 hours long. America/New_York changes on 8 Mar and 1 Nov 2026.
+rm -f "$SD/analyze" "$SD/blame" "$KEMPT_STATE_DIR/boot-times.json"
+us() { echo "$(date -u -d "$1" +%s)000000"; }
+jq -cn --argjson n "$(us 2026-03-08T15:00:00Z)" --argjson l "$(us 2026-11-01T00:00:00Z)" \
+  '[{next: $n, last: null, unit: "a.timer", activates: "a.service"}, {next: null, last: $l, unit: "b.timer", activates: "b.service"}]' \
+  > "$SD/timers-system.json"
+t="$(TZ=America/New_York KEMPT_NOW="$(date -u -d 2026-03-08T04:30:00Z +%s)" text)"
+assert_contains "$t" "(a.timer): next tomorrow 11:00" "late on the day before a 23-hour day, that morning is tomorrow"
+t="$(TZ=America/New_York KEMPT_NOW="$(date -u -d 2026-11-02T04:30:00Z +%s)" text)"
+assert_contains "$t" "(b.timer): last run yesterday 20:00" "late on a 25-hour day, the evening before is yesterday"
+rm -f "$SD/timers-system.json"
 
 finish
