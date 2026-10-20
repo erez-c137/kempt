@@ -537,6 +537,8 @@ cmd_check() {
   # Right after the harvest, so the first check of a new boot compares against the stage it just
   # recorded. Never fails the check.
   startup_observe || true
+  # Once per boot, and only while the Startup page is on: how long this boot took.
+  startup_boot_record_if_on
   maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
@@ -3372,16 +3374,18 @@ cmd_startup() {
   local sub="${1:-}"
   [[ $# -eq 0 ]] || shift
   case "$sub" in
-    ""|--json) startup_list "$sub" "$@" ;;
+    --all) startup_page_cmd "$@" ;;
+    --json) if [[ "${1:-}" == --all ]]; then shift; startup_page_cmd --json "$@"; else startup_list "$sub" "$@"; fi ;;
+    "") startup_list "$sub" "$@" ;;
     mute|unmute) startup_mute_cmd "$sub" "$@" ;;
     ack) startup_ack "$@" ;;
-    *) echo "usage: kempt startup [--json] | mute|unmute <unit> [--user] | ack --expect=DIGEST" >&2; exit 2 ;;
+    *) echo "usage: kempt startup [--all] [--json] | mute|unmute <unit> [--user] | ack --expect=DIGEST" >&2; exit 2 ;;
   esac
 }
 
 startup_status_cmd() {  # scope unit → the command that shows why, quoted when it needs it
   local u="$2"
-  [[ "$u" == *\\* ]] && u="'$u'"
+  [[ "$u" =~ ^[A-Za-z0-9_.@:-]+$ ]] || u="'$u'"
   if [[ "$1" == user ]]; then printf 'systemctl --user status %s' "$u"; else printf 'systemctl status %s' "$u"; fi
 }
 
@@ -3426,6 +3430,79 @@ startup_list() {
   else
     echo "Nothing to report."
   fi
+}
+
+# `kempt startup --all` - the Startup page: everything startup_page_gather finds, as JSON for the
+# widget or as text grouped the way a person would say it. Works whatever startup_page says; the
+# setting only shows the widget's button.
+startup_page_cmd() {
+  local json="" a page
+  for a in "$@"; do case "$a" in
+    --json) json=1 ;;
+    *) echo "unknown option: $a" >&2; exit 2 ;;
+  esac; done
+  page="$(startup_page_gather)" || { echo "kempt: could not gather the startup page" >&2; exit 1; }
+  if [[ -n "$json" ]]; then printf '%s\n' "$page"; return 0; fi
+  jq -r '
+    def dur: if . == null then null elif . < 1 then "under 1 s" else round as $s
+      | if $s < 60 then "\($s) s"
+        elif $s < 3600 then "\($s / 60 | floor) min" + (if $s % 60 > 0 then " \($s % 60) s" else "" end)
+        else "\($s / 3600 | floor) h" + (if $s % 3600 >= 60 then " \($s % 3600 / 60 | floor) min" else "" end) end end;
+    def day: .[:10] | strptime("%Y-%m-%d") | strftime("%-d %b");
+    def when: fromdateiso8601 | localtime | strftime("%-d %b %H:%M");
+    def lday: fromdateiso8601 | localtime | strftime("%-d %b");
+    def every: ltrimstr("@") as $p
+      | {hourly: "every hour", daily: "every day", weekly: "every week", monthly: "every month",
+         yearly: "every year", annually: "every year", "1": "every day", "7": "every week"}[$p]
+        // (if $p | test("^[0-9]+$") then "every \($p) days" else . end);
+    def named: if .description == .unit then .unit else "\(.description) (\(.unit))" end;
+    def session: if .scope == "user" then ", when you log in" else "" end;
+    def entry: if .kind == "autostart" then "\(.description) (autostart)"
+               elif .kind == "rc-local" then .unit
+               elif .kind == "script" then "\(.unit) (autostart script)"
+               else named end;
+    def grouped: group_by([.package == null, (.package // "" | ascii_downcase)])
+      | map("  " + (.[0].package // "Not from a package"), (.[] | "    " + entry)) | .[];
+    def timer: named
+      + ([(if .last then "last \(.last | when)" else empty end), (if .next then "next \(.next | when)" else empty end),
+          (if .result != null and .result != "success" then "the last run failed" else empty end)]
+         | if length > 0 then ": " + join(", ") else "" end);
+    def cronline: if (.source | test("^(cron\\.|anacron$)"))
+      then "\(.command): \(.schedule | every)" + (if .last then ", last \(.last | lday)" else "" end)
+      else "\(.schedule) \(.command) ("
+           + (if .source == "crontab" then "your crontab" else .source end)
+           + (if .user != null then ", as \(.user)" else "" end) + ")" end;
+    (.schedule.notes // []) as $notes
+    | [ (.failed // empty
+         | ["Didn'"'"'t start this boot:"]
+           + [.units[] | "  \(named)\(session)",
+                         (if .log then "    \(.log)" else "    Stopped with an error (\(.result // .state))" end),
+                         (if .status_command then "    \(.status_command)" else empty end)]
+           + (if .journal_denied then ["No log lines for system services: you are not allowed to read the system journal."] else [] end)),
+        (.changed // empty
+         | ["Changed since the last update" + (if .since then " (\(.since | day))" else "" end) + ":"]
+           + [.added[] | "  Now starts: \(.unit)\(session)"] + [.removed[] | "  No longer starts: \(.unit)\(session)"]),
+        (.starts // empty | [.[] | select(.scope == "system")] | select(length > 0) | ["Starts with the computer:", grouped]),
+        (.starts // empty | [.[] | select(.scope == "user")] | select(length > 0) | ["Starts when you log in:", grouped]),
+        (.schedule // empty
+         | ["Runs on a schedule:"]
+           + ([.timers[] | select(.scope == "system")] | if length > 0 then ["  Timers"] + map("    " + timer) else [] end)
+           + ([.timers[] | select(.scope == "user")] | if length > 0 then ["  Your timers"] + map("    " + timer)
+                + (if $notes | index("linger_off") then ["    Your timers stop when you log out."] else [] end) else [] end)
+           + (.cron | if length > 0 then ["  Cron"] + map("    " + cronline)
+                + (if $notes | index("crond_down") then ["    These jobs never run: crond is not running."] else [] end) else [] end)
+           + (.at | if length > 0 then ["  Waiting at jobs"] + map("    \(.when) (job \(.id))") else [] end)),
+        (.boot_time // empty
+         | ["Startup time:",
+            "  " + (if .ready_sec != null then "Ready in \(.ready_sec | dur); everything started in \(.total_sec | dur)."
+                    else "Everything started in \(.total_sec | dur)." end)]
+           + (.usual // empty | ["  " + (if .ready_sec != null then "Usually ready in \(.ready_sec | dur); everything in \(.total_sec | dur)."
+                                        else "Usually everything starts in \(.total_sec | dur)." end)])
+           + (.slowest // empty | ["  Slowest to start: \(.unit), \(.sec | dur)."])
+           + (.recent | if length > 0 then ["  Earlier starts:"]
+                + map("    \(.at | day): " + (if .ready_sec != null then "ready in \(.ready_sec | dur), " else "" end)
+                      + "everything in \(.total_sec | dur)") else [] end)) ]
+    | if length == 0 then "Kempt found nothing to list." else map(join("\n")) | join("\n\n") end' <<<"$page"
 }
 
 startup_mute_cmd() {  # mute|unmute unit [--user]

@@ -86,6 +86,10 @@ config_set notify_startup false
 assert_eq "$(is_true "$(config_get notify_startup)" && echo on || echo off)" "off" "turning it off round-trips"
 config_set notify_startup true
 
+# --- startup_page: the widget's Startup button, off unless turned on ------------------------------
+assert_eq "$(kempt_default startup_page)" "false" "the defaults table knows startup_page, and it is off"
+assert_contains " $KEMPT_CONFIG_KEYS " " startup_page " "...and it is a known setting"
+
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
 # ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
 # anything that is not exactly `automatic` must never remove without asking, so an unknown value
