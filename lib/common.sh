@@ -1766,7 +1766,39 @@ startup_failed() {  # system|user
       | from_entries | select(.Id != null) | {(.Id): .}] | add // {}) as $s
     | [.[] | objects | select((.unit | type) == "string") | .unit as $u
        | select(($u | startswith("run-") | not) and ($s[$u].Transient // "no") != "yes")
-       | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list"
+       | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list" \
+    | startup_autostart_labels
+}
+
+# systemd names a session's autostart entry app-<escaped file name>@autostart.service, and its
+# description is often that unit name. A person knows it by the entry's Name=, else by the file name.
+startup_autostart_label() {  # unit → a name for it
+  local n="${1#app-}" d f name
+  n="${n%@autostart?service}"
+  printf -v n '%b' "$n"
+  if [[ -n "$n" && "$n" != */* ]]; then
+    local IFS=:
+    for d in "${XDG_CONFIG_HOME:-$HOME/.config}" ${XDG_CONFIG_DIRS:-/etc/xdg}; do
+      f="$d/autostart/$n.desktop"
+      [[ -r "$f" ]] || continue
+      name="$(sed -n '/^\[Desktop Entry\]/,/^\[/s/^Name=//p' "$f" 2>/dev/null | head -n 1)"
+      [[ -z "$name" ]] || { printf '%s' "$name"; return 0; }
+    done
+    printf '%s' "$n"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+startup_autostart_labels() {  # stdin: [{unit, description, ...}] → the same, autostart units named
+  local list u found=()
+  list="$(cat)"
+  mapfile -t found < <(jq -r '.[] | select(.description == .unit and (.unit | test("^app-.+@autostart\\.service$"))) | .unit' <<<"$list" 2>/dev/null)
+  for u in "${found[@]}"; do
+    list="$(jq -c --arg u "$u" --arg d "$(startup_autostart_label "$u")" \
+              'map(if .unit == $u and .description == $u then .description = $d else . end)' <<<"$list")"
+  done
+  printf '%s\n' "$list"
 }
 
 startup_enabled() {  # system|user [pattern...] → the enabled unit files, sorted; rc 1 when systemd did not answer
@@ -2259,7 +2291,7 @@ startup_page_starts() {  # enabled-system enabled-user (each a list, or null)
   fi
   jq -c --slurpfile m <(startup_file "$map") '
     map({scope, kind, unit, description, package: ($m[0][.path] // null), skipped})
-    | sort_by(.scope, .kind, .unit)' <<<"$items"
+    | sort_by(.scope, .kind, .unit)' <<<"$items" | startup_autostart_labels
 }
 
 # Every cron job this user can see, as tab-separated source, schedule, user, command and the

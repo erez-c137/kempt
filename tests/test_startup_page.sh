@@ -151,6 +151,21 @@ assert_contains "$t" "Didn't start this boot:"$'\n'"  Bluetooth service"$'\n'"  
   "...names the unit by its description, then its log line, then the command on a line of its own"
 assert_contains "$t" "  IMSettings (when you log in)" "...and says which units are your session's"
 
+# --- an autostart unit systemd names only by its unit: the entry's Name=, else its decoded name ---
+mkdir -p "$TESTTMP/xdg/autostart"
+printf '[Desktop Entry]\nName=IM Settings\nName[de]=IM-Einstellungen\n[Desktop Action x]\nName=Other\n' > "$TESTTMP/xdg/autostart/imsettings-start.desktop"
+export XDG_CONFIG_DIRS="$TESTTMP/xdg"
+FOO="app-foo\\x2dbar$AT"
+jq -cn --arg a "$AUTOSTART" --arg f "$FOO" '[{unit: $a, description: $a}, {unit: $f, description: $f}]' > "$SD/failed-user.json"
+mv "$SD/props-user/$AUTOSTART" "$TESTTMP/props-keep"
+assert_eq "$(startup_failed user | jq -r '[.[].description] | join(",")')" "foo-bar,IM Settings" \
+  "the list of services that stopped starting names an autostart unit by its entry, else its decoded name"
+t="$(text)"
+assert_contains "$t" "  IM Settings (when you log in)" "the page names it the same way"
+assert_contains "$t" "  foo-bar (when you log in)" "...decoding systemd's escapes when there is no entry"
+mv "$TESTTMP/props-keep" "$SD/props-user/$AUTOSTART"
+jq -cn --arg u "$AUTOSTART" '[{unit: $u, load: "loaded", active: "failed", sub: "failed", description: "IMSettings"}]' > "$SD/failed-user.json"
+
 # --- the journal denied: membership first, then a line, never the exit status -------------------
 reset_calls
 echo "tester" > "$SD/groups"
