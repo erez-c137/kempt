@@ -185,7 +185,8 @@ PlasmaExtras.Representation {
 
     // After Mute Until It Starts the pressed button is gone with its message, so the keyboard goes
     // to the next service's first button: the one that took its place, at the same index. With
-    // none after it, to the already-failing line, then the list, then wherever the popup opens.
+    // none after it, to the list (the already-failing line is plain text, not a control), then
+    // wherever the popup opens.
     // Later, not now: the messages are rebuilt from the new state first.
     function focusAfterStartupMute(at) {
         Qt.callLater(function () {
@@ -197,8 +198,7 @@ PlasmaExtras.Representation {
                     return;
                 }
             }
-            if (popup.canTakeFocus(startupAlready)) startupAlready.forceActiveFocus(Qt.TabFocusReason);
-            else if (popup.canTakeFocus(rowsView)) rowsView.forceActiveFocus(Qt.TabFocusReason);
+            if (popup.canTakeFocus(rowsView)) rowsView.forceActiveFocus(Qt.TabFocusReason);
             else popup.focusPrimary();
         });
     }

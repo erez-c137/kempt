@@ -213,10 +213,11 @@ lev("startupRepeater.itemAt(1).actions[1].trigger()")
 settle()
 p.check("an escaped unit reaches the CLI as one argument, backslash intact",
         p.argv("startup"), ["startup", "mute", ESCAPED])
-p.wait_for(lev, "popup.Window.activeFocusItem === startupAlready", True)
-p.check("with no service after it, the keyboard moves to the already-failing line",
-        [lev("popup.Window.activeFocusItem === startupAlready"), lev("startupAlready.text")],
-        [True, "Already failing before the update: Input Method starter."])
+# The list hands its focus on to its current row, so the list is asked, not the focused item.
+p.wait_for(lev, "rowsView.activeFocus", True)
+p.check("with no service after it, the keyboard moves to the list, past the already-failing text",
+        [lev("rowsView.activeFocus"), lev("startupAlready.activeFocus"), lev("startupAlready.visible")],
+        [True, False, True])
 # Characters systemd allows and a shell would not leave alone: one argument, exactly as named.
 ODD = "systemd-backlight@backlight:acpi\\x2dvideo0.service"
 p.clear_calls()
