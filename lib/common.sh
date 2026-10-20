@@ -1286,16 +1286,14 @@ config_is_set() {  # key → 0 when the file sets it
   [[ -n "$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)" ]]
 }
 
-# Whether check, update and the refresh include Flatpak. include_flatpak's default means "when
-# Flatpak is installed": on a box without the command, a default left alone would otherwise fail
-# every check with "command not found" for a backend nobody asked for. Set to true by hand, the
-# person did ask, and the failure is reported. The command is the first word of the backend's list
-# seam, the one doctor asks about too.
+# Whether check, update and the refresh include Flatpak: include_flatpak on and the command here.
+# Without the command every check would fail with "command not found", once an interval, and say
+# nothing doctor does not say once (its flatpak row). The command is the first word of the
+# backend's list seam, the one doctor asks about too.
 flatpak_included() {  # → 0 when Flatpak is part of Kempt's checks and updates here
   is_true "$(config_get include_flatpak)" || return 1
   local cmd="${KEMPT_FLATPAK_LIST_CMD:-flatpak}"
-  command -v "${cmd%% *}" >/dev/null 2>&1 && return 0
-  config_is_set include_flatpak
+  command -v "${cmd%% *}" >/dev/null 2>&1
 }
 
 config_set() {  # key value [if-absent]

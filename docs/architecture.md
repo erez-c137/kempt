@@ -198,7 +198,7 @@ cope with that.
 | `last_success` | ISO 8601, or `null` | When a check last succeeded. `null` until the first success. Kept at its old value while `status` is `stale`. |
 | `status` | `"ok"` or `"stale"` | `stale` means at least one backend failed and its previous items were reused. |
 | `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. Each ends with at most 200 bytes of the tool's output, redacted as for `refresh_error`. |
-| `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`), or left at its default where `flatpak` is not installed (`flatpak_included`). |
+| `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`), or where `flatpak` is not installed (`flatpak_included`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). Several versions of one package are comma-joined in **ascending** order. Readers that show one version take the last. |

@@ -3698,9 +3698,10 @@ doctor_tool_rows() {
   elif ! is_true "$(config_get include_flatpak)"; then
     doctor_info "flatpak command '$fp_cmd' not found. Kempt does not need it while include_flatpak=false"
   elif config_is_set include_flatpak; then
-    doctor_fail "flatpak command '$fp_cmd' not found. With include_flatpak=true, every check reports Flatpak stale. Install flatpak or run: kempt config set include_flatpak false"
+    # Check and update skip it either way (flatpak_included). Set by hand, the setting asks for
+    # something this box cannot do, so it is a WARN: worth settling, and nothing is broken.
+    doctor_warn "Flatpak is not installed, so Kempt skips it although include_flatpak is on. Install flatpak, or run: kempt config set include_flatpak false"
   else
-    # The default, left alone: check and update skip Flatpak here (flatpak_included).
     doctor_info "Flatpak is not installed, so Kempt checks system packages only"
   fi
   # Apps installed with `flatpak install --user`. Listed only when that installation exists,

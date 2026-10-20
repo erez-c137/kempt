@@ -394,11 +394,13 @@ assert_exit 0 "a missing flatpak is an info line while include_flatpak is at its
   env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" "info  Flatpak is not installed, so Kempt checks system packages only" \
   "...saying what Kempt does without it"
+# Set to true by hand, check and update still skip it, so doctor is where that is said: a WARN,
+# which leaves the exit status alone.
 "$KEMPT" config set include_flatpak true
-assert_exit 1 "a missing flatpak fails while include_flatpak=true is set by hand" \
+assert_exit 0 "a missing flatpak with include_flatpak=true set by hand is not a failure" \
   env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" "$KEMPT" doctor
-assert_eq "$(grep -qE '^FAIL .*flatpak' "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
-  "the FAIL line names flatpak"
+assert_contains "$(cat "$TESTTMP/last_output")" "WARN  Flatpak is not installed, so Kempt skips it although include_flatpak is on. Install flatpak, or run: kempt config set include_flatpak false" \
+  "...but a WARN saying Kempt skips it and how to settle it"
 "$KEMPT" config set include_flatpak false
 assert_exit 0 "...but is only an info line when include_flatpak=false" \
   env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" "$KEMPT" doctor

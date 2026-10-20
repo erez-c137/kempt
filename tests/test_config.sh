@@ -4,8 +4,9 @@ source "$REPO_ROOT/lib/common.sh"
 KEMPT="$REPO_ROOT/bin/kempt"
 kempt_init_dirs
 
-# config_is_set tells a value of the file's own from kempt_default's. flatpak_included rests on it:
-# include_flatpak left at its default skips a missing flatpak, and one set by hand does not.
+# config_is_set tells a value of the file's own from kempt_default's: doctor warns about a missing
+# flatpak only when include_flatpak=true was set by hand. flatpak_included leaves a missing
+# flatpak out either way.
 assert_exit 1 "config_is_set: a key the file does not name is not set" config_is_set include_flatpak
 printf 'include_flatpak=\n' > "$KEMPT_CONFIG_DIR/config"
 assert_exit 1 "...nor one with an empty value, which config_get also reads as the default" config_is_set include_flatpak
@@ -15,8 +16,8 @@ assert_eq "$(KEMPT_FLATPAK_LIST_CMD="true list" flatpak_included && echo in || e
   "...and includes it where the command exists"
 printf 'include_flatpak=true\n' > "$KEMPT_CONFIG_DIR/config"
 assert_exit 0 "...but a value set by hand is" config_is_set include_flatpak
-assert_eq "$(KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" flatpak_included && echo in || echo out)" "in" \
-  "flatpak_included: include_flatpak=true set by hand keeps Flatpak in without the command"
+assert_eq "$(KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" flatpak_included && echo in || echo out)" "out" \
+  "flatpak_included: include_flatpak=true set by hand still leaves Flatpak out without the command"
 printf 'include_flatpak=false\n' > "$KEMPT_CONFIG_DIR/config"
 assert_eq "$(KEMPT_FLATPAK_LIST_CMD="true list" flatpak_included && echo in || echo out)" "out" \
   "...and include_flatpak=false leaves it out wherever the command exists"

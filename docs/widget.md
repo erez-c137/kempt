@@ -341,7 +341,7 @@ unsaved changes asks first. A change reaches the panel at the widget's next look
 file (see [When the widget checks](#when-the-widget-checks)).
 
 **Include Flatpak apps** (`include_flatpak`, on by default) checks and updates Flatpak apps and
-runtimes, if Flatpak is installed.
+runtimes. Without Flatpak, it is greyed out.
 
 **Apply updates without asking for confirmation** (`auto_accept`, on by default) answers dnf and
 Flatpak for you. With it off, **Run updates in** is greyed out, because only a terminal window can
@@ -364,7 +364,7 @@ Until you open the widget, the panel icon asks for attention. If Kempt is **Alwa
 tray, Plasma keeps it hidden.
 
 **Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default), **Remove after updates**
-or **Never**. It is greyed out when Flatpak is not installed or Flatpak apps are left out of
+or **Never**. It is greyed out without Flatpak, or when Flatpak apps are left out of
 updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each asks for

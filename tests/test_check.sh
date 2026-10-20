@@ -85,9 +85,9 @@ assert_eq "$(jq .actionable <<<"$state")" "$((n_dnf + n_fp))" "actionable = all 
 assert_eq "$(jq -r '.last_success == .last_check' <<<"$state")" "true" "a successful check stamps last_success"
 assert_eq "$(jq -Sc . "$KEMPT_STATE_DIR/state.json")" "$(jq -Sc . <<<"$state")" "state persisted atomically"
 
-# No flatpak on the box and include_flatpak never set: Flatpak is skipped as if it were off, so the
-# missing command is not a failed check every hour. Set to true by hand, the person asked for
-# Flatpak, and its failure is still reported.
+# No flatpak on the box: Flatpak is skipped as if it were off, so the missing command is not a
+# failed check every hour. The same with include_flatpak=true set by hand: doctor warns about that
+# one, and a check that failed every time would add nothing to it.
 nofp=(env KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" KEMPT_FLATPAK_REMOTE_CMD="kempt-no-such-flatpak remote-ls")
 state_nofp="$("${nofp[@]}" "$KEMPT" check)"
 assert_eq "$(jq -r .status <<<"$state_nofp")" "ok" "no flatpak at the default: the check is ok"
@@ -96,8 +96,8 @@ assert_eq "$(jq -r .backends.flatpak.enabled <<<"$state_nofp")" "false" "...and 
 assert_eq "$(jq '.backends.dnf.items | length' <<<"$state_nofp")" "$n_dnf" "...while dnf is checked as usual"
 "$KEMPT" config set include_flatpak true >/dev/null
 state_nofp="$("${nofp[@]}" "$KEMPT" check)"
-assert_eq "$(jq -r .status <<<"$state_nofp")" "stale" "no flatpak with include_flatpak=true set: stale"
-assert_contains "$(jq -r .error <<<"$state_nofp")" "flatpak check failed" "...naming flatpak"
+assert_eq "$(jq -r .status <<<"$state_nofp")" "ok" "no flatpak with include_flatpak=true set: still ok"
+assert_eq "$(jq -r .backends.flatpak.enabled <<<"$state_nofp")" "false" "...and Flatpak still read as off"
 
 # holds: hold the first pending dnf package → actionable drops by 1, held_total=1
 first="$(jq -r '.backends.dnf.items[0].name' <<<"$state")"

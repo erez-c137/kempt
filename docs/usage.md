@@ -697,7 +697,7 @@ What a `FAIL` means:
 | `jq` is present | Always passes when doctor runs; without `jq` every command exits 3. |
 | `getfacl` is present (a `WARN` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
-| `flatpak` is present | Every check reports Flatpak stale. A `FAIL` only when `include_flatpak=true` is set by hand. Otherwise `info`, because Kempt then checks system packages only. |
+| `flatpak` is present (a `WARN` row only when `include_flatpak=true` is set by hand) | Kempt skips Flatpak. Otherwise `info`. |
 | Kempt can list unused Flatpak runtimes (only when Flatpak is on and `reclaim` is not `off`) | Nothing can offer to free space. It fails when `flatpak-libs` or `python3-gobject-base` is missing, and says to install them. Other listing errors are `info`, with Flatpak's reason. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
