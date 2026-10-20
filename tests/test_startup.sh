@@ -237,6 +237,17 @@ check >/dev/null
 assert_eq "$(notes)" "NOTIFY Kempt | Foo didn't start after the update. It stopped with an error. A service in your session (foo.service). To see why, run: kempt startup" \
   "a session unit says it is a service in your session"
 
+# A description is outside text: a tab in it must not split the line the note is read from, and
+# Plasma reads a notification body as markup.
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system "odd.service=Odd"$'\t'"<b>tab</b> & co"
+check >/dev/null
+assert_eq "$(notes)" "NOTIFY Kempt | Odd &lt;b&gt;tab&lt;/b&gt; &amp; co didn't start after the update. It stopped with an error. A system service (odd.service). To see why, run: kempt startup" \
+  "a tab becomes a space and markup is escaped, so the whole note arrives as text"
+assert_eq "$(startup_state '[.announced[] | select(.unsent)] | length')" "0" "...and nothing is marked unsent"
+
 # Attribution: dnf's history moved on since the run, so Kempt cannot tie it to the update.
 reset_world; dnf_max 151; check >/dev/null
 entry 20261020T110000 boot-A '[]' 150

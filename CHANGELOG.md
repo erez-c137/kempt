@@ -31,6 +31,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Notifications show `&`, `<` and `>` as written.** Plasma read them as markup, so a service
+  or package name with one could garble the message.
 - **An update no longer stops when Kempt cannot tidy its history.** Kempt keeps the newest 50
   run records and removes older ones. If one of them could not be removed, the run stopped there.
   Tidying is now best effort, as intended.

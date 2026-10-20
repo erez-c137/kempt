@@ -1592,7 +1592,14 @@ run_failure_reason() {  # log-file → one line, possibly empty
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
 }
-notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
+# Plasma reads a notification's body as markup, and Kempt's notes carry outside text (unit
+# descriptions, package names), so & < > are escaped for every caller.
+notify_escape() {  # args... → NOTIFY_ARGS
+  local a
+  NOTIFY_ARGS=()
+  for a in "$@"; do a="${a//&/\&amp;}"; a="${a//</\&lt;}"; a="${a//>/\&gt;}"; NOTIFY_ARGS+=("$a"); done
+}
+notify()       { notify_escape "$@"; "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 
 # --- the security notification (notify_security) ----------------------------------------------
@@ -1600,7 +1607,11 @@ now_iso()      { date -Is; }
 # notification was delivered: one tried from a timer with no session bus is tried again by the
 # next check that has one. Bounded, because a check is waiting on it.
 session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
-notify_delivered() { session_bus_present || return 1; timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1; }
+notify_delivered() {
+  session_bus_present || return 1
+  notify_escape "$@"
+  timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
+}
 
 # The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
 # shape reads as empty, which at worst announces a set once more.
@@ -1781,7 +1792,7 @@ startup_autostart_label() {  # unit → a name for it
     for d in "${XDG_CONFIG_HOME:-$HOME/.config}" ${XDG_CONFIG_DIRS:-/etc/xdg}; do
       f="$d/autostart/$n.desktop"
       [[ -r "$f" ]] || continue
-      name="$(sed -n '/^\[Desktop Entry\]/,/^\[/s/^Name=//p' "$f" 2>/dev/null | head -n 1)"
+      name="$(sed -n '/^\[Desktop Entry\]/,/^\[/s/^Name[[:space:]]*=[[:space:]]*//p' "$f" 2>/dev/null | head -n 1)"
       [[ -z "$name" ]] || { printf '%s' "$name"; return 0; }
     done
     printf '%s' "$n"
@@ -2043,7 +2054,7 @@ startup_observe() {
   while IFS=$'\t' read -r body event keys; do
     if notify_delivered "Kempt" "$body"; then log_event "$event"
     else read -ra keys <<<"$keys"; unsent+=("${keys[@]}"); fi
-  done < <(jq -r '.notes[] | [.body, .event, (.keys | join(" "))] | join("\t")' <<<"$out")
+  done < <(jq -r "$STARTUP_CLEAN_JQ"'.notes[] | [(.body | clean), (.event | clean), (.keys | join(" "))] | join("\t")' <<<"$out")
   [[ ${#unsent[@]} -gt 0 ]] || return 0
   writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
   jq -c --arg k "${unsent[*]}" '($k | split(" ")) as $ks
@@ -2113,7 +2124,6 @@ STARTUP_STATUS_JQ='def statuscmd($scope): if test("'"'"'") then null
   else "systemctl " + (if $scope == "user" then "--user " else "" end) + "status "
        + (if test("^[A-Za-z0-9_.@:-]+$") then . else "'"'"'" + . + "'"'"'" end) end;'
 # Control characters (C0, DEL, C1; newlines and tabs too) as spaces, for text shown in a terminal.
-# shellcheck disable=SC2034  # bin/kempt uses it
 STARTUP_CLEAN_JQ='def clean: explode | map(if . < 32 or (. >= 127 and . < 160) then 32 else . end) | implode;'
 # The page's times are UTC; history entries carry the local offset.
 # shellcheck disable=SC2016  # jq code, not shell

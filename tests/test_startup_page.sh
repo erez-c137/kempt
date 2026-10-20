@@ -153,7 +153,7 @@ assert_contains "$t" "  IMSettings (when you log in)" "...and says which units a
 
 # --- an autostart unit systemd names only by its unit: the entry's Name=, else its decoded name ---
 mkdir -p "$TESTTMP/xdg/autostart"
-printf '[Desktop Entry]\nName=IM Settings\nName[de]=IM-Einstellungen\n[Desktop Action x]\nName=Other\n' > "$TESTTMP/xdg/autostart/imsettings-start.desktop"
+printf '[Desktop Entry]\nName = IM Settings\nName[de]=IM-Einstellungen\n[Desktop Action x]\nName=Other\n' > "$TESTTMP/xdg/autostart/imsettings-start.desktop"
 export XDG_CONFIG_DIRS="$TESTTMP/xdg"
 FOO="app-foo\\x2dbar$AT"
 jq -cn --arg a "$AUTOSTART" --arg f "$FOO" '[{unit: $a, description: $a}, {unit: $f, description: $f}]' > "$SD/failed-user.json"
@@ -165,6 +165,18 @@ assert_contains "$t" "  IM Settings (when you log in)" "the page names it the sa
 assert_contains "$t" "  foo-bar (when you log in)" "...decoding systemd's escapes when there is no entry"
 mv "$TESTTMP/props-keep" "$SD/props-user/$AUTOSTART"
 jq -cn --arg u "$AUTOSTART" '[{unit: $u, load: "loaded", active: "failed", sub: "failed", description: "IMSettings"}]' > "$SD/failed-user.json"
+
+# --- every notification is text: Plasma would read & < > as markup ------------------------------
+cat > "$TESTTMP/notify" <<'STUB'
+#!/usr/bin/env bash
+printf '%s|' "$@" >> "$SD_DIR/notes"; echo >> "$SD_DIR/notes"
+STUB
+chmod +x "$TESTTMP/notify"
+( KEMPT_NOTIFY="$TESTTMP/notify"; DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
+  notify "Kempt" "a < b & c > d"; notify_delivered "Kempt" "<i>x</i> & y" || true )
+assert_eq "$(cat "$SD/notes")" "Kempt|a &lt; b &amp; c &gt; d|"$'\n'"Kempt|&lt;i&gt;x&lt;/i&gt; &amp; y|" \
+  "notify and notify_delivered escape markup for every caller"
+rm -f "$SD/notes"
 
 # --- the journal denied: membership first, then a line, never the exit status -------------------
 reset_calls
