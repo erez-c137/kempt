@@ -3421,8 +3421,8 @@ startup_list() {
     [[ -z "$since" ]] || line+=", since $(startup_day "$since")"
     echo "$line"
     [[ "$group" == recovered ]] || printf '    %s\n' "$(startup_status_cmd "$scope" "$unit")"
-  done < <(jq -r '("announced", "already", "muted", "recovered") as $g
-                  | .[$g][] | [$g, .scope, .unit, .description, (.since // "")] | join("\t")' <<<"$block")
+  done < <(jq -r "$STARTUP_CLEAN_JQ"'("announced", "already", "muted", "recovered") as $g
+                  | .[$g][] | [$g, .scope, (.unit | clean), (.description | clean), (.since // "")] | join("\t")' <<<"$block")
   [[ -z "$last" ]] || return 0
   # The all-clear only once a comparison has happened: before that, there is nothing to vouch for.
   if [[ "$(jq -r '.compared' <<<"$block")" == true ]]; then
@@ -3443,47 +3443,86 @@ startup_page_cmd() {
   esac; done
   page="$(startup_page_gather)" || { echo "kempt: could not gather the startup page" >&2; exit 1; }
   if [[ -n "$json" ]]; then printf '%s\n' "$page"; return 0; fi
-  jq -r '
-    def dur: if . == null then null elif . < 1 then "under 1 s" else round as $s
+  # Every string came from outside (unit files, logs, crontabs), so control characters, which a
+  # terminal would act on, are shown as spaces. The JSON keeps them: the widget shows plain text.
+  jq -r "$STARTUP_CLEAN_JQ"'
+    walk(if type == "string" then clean else . end)
+    | def dur: if . == null then null elif . < 1 then "under 1 s" else round as $s
       | if $s < 60 then "\($s) s"
         elif $s < 3600 then "\($s / 60 | floor) min" + (if $s % 60 > 0 then " \($s % 60) s" else "" end)
         else "\($s / 3600 | floor) h" + (if $s % 3600 >= 60 then " \($s % 3600 / 60 | floor) min" else "" end) end end;
-    def day: .[:10] | strptime("%Y-%m-%d") | strftime("%-d %b");
-    def when: fromdateiso8601 | localtime | strftime("%-d %b %H:%M");
-    def lday: fromdateiso8601 | localtime | strftime("%-d %b");
+    def ymd: strftime("%Y-%m-%d");
+    def local: try (fromdateiso8601 | localtime) catch null;
+    def day: local as $t | if $t == null then .[:10] else ($t | strftime("%-d %b")) end;
+    def lday: local as $t | if $t == null then .[:10] elif ($t | ymd) == (now | localtime | ymd) then "today"
+                            else ($t | strftime("%-d %b")) end;
+    def when: local as $t
+      | if $t == null then .
+        else ($t | strftime("%H:%M")) as $hm | ($t | ymd) as $d
+          | if $d == (now | localtime | ymd) then "today \($hm)"
+            elif $d == (now + 86400 | localtime | ymd) then "tomorrow \($hm)"
+            else ($t | strftime("%-d %b")) + " " + $hm end end;
+    def pad: tonumber | tostring | if length < 2 then "0" + . else . end;
+    def num: test("^[0-9]+$");
     def every: ltrimstr("@") as $p
       | {hourly: "every hour", daily: "every day", weekly: "every week", monthly: "every month",
          yearly: "every year", annually: "every year", "1": "every day", "7": "every week"}[$p]
-        // (if $p | test("^[0-9]+$") then "every \($p) days" else . end);
-    def named: if .description == .unit then .unit else "\(.description) (\(.unit))" end;
+        // (if $p | num then "every \($p) days" else . end);
+    def human: if startswith("@") then
+        {"@reboot": "at startup", "@hourly": "every hour", "@daily": "every day at 00:00",
+         "@midnight": "every day at 00:00", "@weekly": "every week", "@monthly": "every month",
+         "@yearly": "every year", "@annually": "every year"}[.] // .
+      else . as $raw | [splits(" +")] as $f
+        | if ($f | length) != 5 then $raw
+          elif ($f[0] | num) and ($f[1] | num) and $f[2:] == ["*", "*", "*"] then "every day at \($f[1] | pad):\($f[0] | pad)"
+          elif ($f[0] | num) and ($f[1] | num) and $f[2:4] == ["*", "*"] and ($f[4] | test("^[0-7]$")) then
+            "every \(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][$f[4] | tonumber]) at \($f[1] | pad):\($f[0] | pad)"
+          elif ($f[0] | num) and ($f[1] | num) and ($f[2] | num) and $f[3:] == ["*", "*"] then
+            "every month on day \($f[2] | tonumber) at \($f[1] | pad):\($f[0] | pad)"
+          elif ($f[0] | num) and $f[1:] == ["*", "*", "*", "*"] then "every hour at :\($f[0] | pad)"
+          elif ($f[0] | test("^\\*/[0-9]+$")) and $f[1:] == ["*", "*", "*", "*"] then "every \($f[0][2:]) minutes"
+          else $raw end end;
+    # A cron command by the program it runs: no redirections, no settings, no folder.
+    def program: gsub("[0-9]*>>?&?[ ]*[^ ]+"; "") | gsub("<[ ]*[^ ]+"; "")
+      | [splits(" +") | select(. != "" and (test("^[A-Za-z_][A-Za-z0-9_]*=") | not))] | (.[0] // "") | sub(".*/"; "")
+      | if . == "" then "a command" else . end;
+    def named: if .description == .unit or .description == "" then .unit else "\(.description) (\(.unit))" end;
+    def title: if .description == .unit or .description == "" then .unit else .description end;
     def session: if .scope == "user" then ", when you log in" else "" end;
-    def entry: if .kind == "autostart" then "\(.description) (autostart)"
-               elif .kind == "rc-local" then .unit
-               elif .kind == "script" then "\(.unit) (autostart script)"
-               else named end;
-    def grouped: group_by([.package == null, (.package // "" | ascii_downcase)])
-      | map("  " + (.[0].package // "Not from a package"), (.[] | "    " + entry)) | .[];
+    def entry: if .kind == "rc-local" then .unit elif .kind == "script" then "\(.unit) (autostart script)" else title end;
+    # A package heading only over two entries or more; what no package owns is worth seeing first.
+    def grouped: [.[] | select(.skipped | not)] as $on | ([.[] | select(.skipped)] | length) as $skip
+      | ([$on[] | select(.package == null)] | if length > 0 then ["  Not from a package"] + (map("    " + entry) | sort) else [] end)
+        + ([$on[] | select(.package != null)] | group_by(.package | ascii_downcase)
+           | map(if length >= 2 then ["  " + .[0].package] + (map("    " + entry) | sort)
+                 else ["  \(.[0] | entry) (\(.[0].package))"] end) | add // [])
+        + (if $skip == 1 then ["  1 more is set to start but is skipped on this computer."]
+           elif $skip > 1 then ["  \($skip) more are set to start but are skipped on this computer."] else [] end);
     def timer: named
-      + ([(if .last then "last \(.last | when)" else empty end), (if .next then "next \(.next | when)" else empty end),
+      + ([(if .last then "last run \(.last | when)" else empty end), (if .next then "next \(.next | when)" else empty end),
           (if .result != null and .result != "success" then "the last run failed" else empty end)]
          | if length > 0 then ": " + join(", ") else "" end);
     def cronline: if (.source | test("^(cron\\.|anacron$)"))
-      then "\(.command): \(.schedule | every)" + (if .last then ", last \(.last | lday)" else "" end)
-      else "\(.schedule) \(.command) ("
+      then "\(.command | program): \(.schedule | every)" + (if .last then ", last run \(.last | lday)" else "" end)
+      else "\(.command | program): \(.schedule | human) ("
            + (if .source == "crontab" then "your crontab" else .source end)
            + (if .user != null then ", as \(.user)" else "" end) + ")" end;
+    def step: if .unit | startswith("systemd-fsck") then "the disk check" else title end;
+    def took: (if .ready_sec != null then "ready in \(.ready_sec | dur); all services by \(.userspace_sec | dur)"
+               else "all services by \(.userspace_sec | dur)" end);
     (.schedule.notes // []) as $notes
-    | [ (.failed // empty
+    | [ (if (.notes // []) | index("session_slow") then ["Your session did not answer in time; its part is missing."] else empty end),
+        (.failed // empty
          | ["Didn'"'"'t start this boot:"]
-           + [.units[] | "  \(named)\(session)",
-                         (if .log then "    \(.log)" else "    Stopped with an error (\(.result // .state))" end),
-                         (if .status_command then "    \(.status_command)" else empty end)]
+           + [.units[] | "  \(title)" + (if .scope == "user" then " (when you log in)" else "" end),
+                         (if .log then "    Its log says: \(.log)" else "    Stopped with an error (\(.result // .state))" end),
+                         (if .status_command then "    To see why: \(.status_command)" else empty end)]
            + (if .journal_denied then ["No log lines for system services: you are not allowed to read the system journal."] else [] end)),
         (.changed // empty
          | ["Changed since the last update" + (if .since then " (\(.since | day))" else "" end) + ":"]
            + [.added[] | "  Now starts: \(.unit)\(session)"] + [.removed[] | "  No longer starts: \(.unit)\(session)"]),
-        (.starts // empty | [.[] | select(.scope == "system")] | select(length > 0) | ["Starts with the computer:", grouped]),
-        (.starts // empty | [.[] | select(.scope == "user")] | select(length > 0) | ["Starts when you log in:", grouped]),
+        (.starts // empty | [.[] | select(.scope == "system")] | select(length > 0) | ["Starts with the computer:"] + grouped),
+        (.starts // empty | [.[] | select(.scope == "user")] | select(length > 0) | ["Starts when you log in:"] + grouped),
         (.schedule // empty
          | ["Runs on a schedule:"]
            + ([.timers[] | select(.scope == "system")] | if length > 0 then ["  Timers"] + map("    " + timer) else [] end)
@@ -3491,17 +3530,15 @@ startup_page_cmd() {
                 + (if $notes | index("linger_off") then ["    Your timers stop when you log out."] else [] end) else [] end)
            + (.cron | if length > 0 then ["  Cron"] + map("    " + cronline)
                 + (if $notes | index("crond_down") then ["    These jobs never run: crond is not running."] else [] end) else [] end)
-           + (.at | if length > 0 then ["  Waiting at jobs"] + map("    \(.when) (job \(.id))") else [] end)),
+           + (.at | if length > 0 then ["  Waiting at jobs"] + map("    \(if .when then .when | when else "unknown time" end) (job \(.id))") else [] end)),
         (.boot_time // empty
-         | ["Startup time:",
-            "  " + (if .ready_sec != null then "Ready in \(.ready_sec | dur); everything started in \(.total_sec | dur)."
-                    else "Everything started in \(.total_sec | dur)." end)]
-           + (.usual // empty | ["  " + (if .ready_sec != null then "Usually ready in \(.ready_sec | dur); everything in \(.total_sec | dur)."
-                                        else "Usually everything starts in \(.total_sec | dur)." end)])
-           + (.slowest // empty | ["  Slowest to start: \(.unit), \(.sec | dur)."])
-           + (.recent | if length > 0 then ["  Earlier starts:"]
-                + map("    \(.at | day): " + (if .ready_sec != null then "ready in \(.ready_sec | dur), " else "" end)
-                      + "everything in \(.total_sec | dur)") else [] end)) ]
+         | ["Startup time:", "  " + (took | .[:1] | ascii_upcase) + (took | .[1:]) + "."]
+           + (if .total_sec != null then ["  From power on: \(.total_sec | dur)."] else [] end)
+           + (if .usual != null then ["  Usually " + (.usual | took) + "."] else [] end)
+           + (if .usual != null and .slowest != null and .userspace_sec > .usual.userspace_sec * 1.25
+                 and .userspace_sec > .usual.userspace_sec + 10
+              then ["  Longest step: \(.slowest | step), \(.slowest.sec | dur)."] else [] end)
+           + (.recent | if length > 0 then ["  Earlier starts:"] + map("    \(.at | day): " + took) else [] end)) ]
     | if length == 0 then "Kempt found nothing to list." else map(join("\n")) | join("\n\n") end' <<<"$page"
 }
 
