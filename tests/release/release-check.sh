@@ -203,11 +203,29 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   if [[ "$prev" == "$VER" ]]; then
     echo "  note: the repository already publishes $VER, so this upgrades $VER to $VER"
   fi
-  # Somebody who has used Kempt and never chose a surface: a state file and no config. When the
-  # default was the terminal, that meant the terminal, and the upgrade must keep it so.
-  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt/history ~/.local/state/kempt/snapshots && cd ~/.local/state/kempt && echo "{}" > state.json && echo "{}" > history/20250101T000000.json && echo pkg > snapshots/offline-pre-1.tsv'
-  mine="$(su - alice -c 'cd ~/.local/state/kempt && sha256sum state.json history/* snapshots/*')"
-  is "the state set to be preserved has its three files" "$(grep -c '^[0-9a-f]\{64\}  ' <<<"$mine")" "3"
+  # A real install first, its files written by the released version itself rather than by hand:
+  # alice does what a person does, and this build must read everything that left behind. The
+  # container has no polkit agent and may have no fresh metadata, so the check can come back stale
+  # and the update fails at authentication. A person meets both, both write the files that matter
+  # here, and only what the old version actually wrote is asserted on.
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt'
+  su - alice -c 'timeout 180 kempt check' >/dev/null 2>&1
+  su - alice -c 'kempt config set refresh_interval_min 30' >/dev/null 2>&1 \
+    || bad "the released version could not save a setting"
+  # jq is installed by the runner, so the hold names a package this machine really has.
+  su - alice -c 'kempt hold dnf:jq' >/dev/null 2>&1 || bad "the released version could not hold a package"
+  su - alice -c 'timeout 180 kempt update --surface=background --no-flatpak --risky-ok' </dev/null >/dev/null 2>&1
+  su - alice -c 'kempt doctor' >/dev/null 2>&1
+  user_files() { su - alice -c 'cd ~ && find .config/kempt .local/state/kempt -type f | LC_ALL=C sort | xargs -r sha256sum'; }
+  old_files="$(user_files)"
+  old_config="$(su - alice -c 'cat ~/.config/kempt/config' 2>/dev/null)"
+  old_hist="$(su - alice -c 'ls ~/.local/state/kempt/history/*.json 2>/dev/null | wc -l')"
+  old_status="$(su - alice -c 'jq -r .status ~/.local/state/kempt/state.json' 2>/dev/null)"
+  echo "  what the released version left: last check '${old_status:-none}', $old_hist history entries"
+  sed 's/^[0-9a-f]* */    /' <<<"$old_files"
+  grep -qx 'refresh_interval_min=30' <<<"$old_config" && ok "the released version wrote the setting" \
+    || bad "the released version's config has no refresh_interval_min=30" "$old_config"
+  is "...and the hold" "$(su - alice -c 'kempt holds')" "dnf:jq"
   dnf -y -q --setopt=tsflags= upgrade "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1 \
     || dnf -y -q --setopt=tsflags= --allowerasing install "/localrepo/kempt-$VER"*.noarch.rpm "/localrepo/kempt-plasmoid-$VER"*.noarch.rpm >/dev/null 2>&1
   is "the CLI ends on this build" "$(rpm -q --qf '%{VERSION}' kempt)" "$VER"
@@ -218,9 +236,49 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   [[ -f "$PDIR/metadata.json" ]] && ok "...and the widget is still where Plasma looks" \
     || bad "the upgrade left no widget behind"
   is "...at this version" "$(jq -r '.KPlugin.Version' $PDIR/metadata.json)" "$VER"
-  # Read BEFORE the next kempt command runs, since running one is allowed to write.
-  is "the user's state, history and snapshots survive the upgrade untouched" \
-     "$(su - alice -c 'cd ~/.local/state/kempt && sha256sum state.json history/* snapshots/*')" "$mine"
+  # alice's real install, read BEFORE the next kempt command runs, since running one is allowed
+  # to write.
+  is "the user's settings, holds, state, history and logs survive the upgrade untouched" \
+     "$(user_files)" "$old_files"
+  is "the setting made on the released version is kept" \
+     "$(su - alice -c 'kempt config get refresh_interval_min')" "30"
+  new_config="$(su - alice -c 'cat ~/.config/kempt/config' 2>/dev/null)"
+  lost="$(grep -vxF -f <(printf '%s\n' "$new_config") <<<"$old_config" || true)"
+  is "...and so is every other line of the config file" "$lost" ""
+  is "the hold is kept" "$(su - alice -c 'kempt holds')" "dnf:jq"
+  is "...and still reaches dnf as an exclude" "$(su - alice -c 'kempt holds --exclude-args')" "--exclude=jq"
+  if [[ -n "$old_status" ]]; then
+    su - alice -c 'kempt status --json' 2>/dev/null | jq -e 'type == "object"' >/dev/null \
+      && ok "this build reads the state the released version wrote" \
+      || bad "kempt status --json could not read the released version's state"
+  else
+    echo "note: the released version wrote no state, so reading it was NOT checked"
+  fi
+  # Exit 1 is documented for a failed last check, which a check without metadata is.
+  su - alice -c 'kempt status' >/dev/null 2>&1; src=$?
+  [[ $src -eq 0 || $src -eq 1 ]] && ok "kempt status answers over it (exit $src)" || bad "kempt status exited $src"
+  if (( old_hist > 0 )); then
+    hist_out="$(su - alice -c 'kempt history' 2>&1)"
+    is "kempt history lists every run the released version recorded" "$(grep -c '^[0-9]' <<<"$hist_out")" "$old_hist"
+    is "...with no entry read as corrupt" "$(grep -c corrupt <<<"$hist_out")" "0"
+    is "...and history --json carries them all" "$(su - alice -c 'kempt history --json' | jq length)" "$old_hist"
+  else
+    echo "note: the released version recorded no run, so its history was NOT checked"
+  fi
+  # A check by this build, with the hold in place: the hold must still mark its package.
+  su - alice -c 'timeout 180 kempt check' >/dev/null 2>&1
+  held_jq="$(su - alice -c 'kempt status --json' 2>/dev/null | jq -r '[.. | objects | select(.name? == "jq") | .held] | first // "absent"')"
+  case "$held_jq" in
+    true)   ok "this build's check marks the held package held" ;;
+    absent) echo "note: jq had no pending update, so the held mark in a check was NOT checked" ;;
+    *)      bad "this build's check does not mark the held package held" "$held_jq" ;;
+  esac
+  is "...and both packages still verify clean after this build's commands ran" \
+     "$(rpm -V kempt kempt-plasmoid >/dev/null 2>&1 && echo clean || echo dirty)" "clean"
+  # Then the edge cases a real run cannot reach, written by hand and read by this build.
+  # Somebody who has used Kempt and never chose a surface: a state file and no config. When the
+  # default was the terminal, that meant the terminal, and the upgrade must keep it so.
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt/history ~/.local/state/kempt/snapshots && cd ~/.local/state/kempt && echo "{}" > state.json && echo "{}" > history/20250101T000000.json && echo pkg > snapshots/offline-pre-1.tsv'
   is "an install that used the terminal keeps it across the upgrade" \
      "$(su - alice -c 'kempt config get surface')" "terminal"
   # The other install that predates the default: a config with a setting and no state at all.
