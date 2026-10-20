@@ -1732,7 +1732,8 @@ startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
 
 # Every outside call of the startup code, under `timeout -k1 5`. While the Startup page gathers,
 # each call also fits in what is left of its budget (STARTUP_DEADLINE, in $SECONDS), and a session
-# call that times out marks the session slow so the page asks it nothing more. The mark is a file
+# call that times out or finds no time left marks the session slow so the page asks it nothing
+# more. A session that fails at once is then told apart as missing. The mark is a file
 # in STARTUP_TMP because the callers run in subshells.
 startup_timed() {  # system|user cmd args...
   local scope="$1" cmd="$2" t=5 rc=0
@@ -1740,12 +1741,15 @@ startup_timed() {  # system|user cmd args...
   [[ "$scope" != user || -z "${STARTUP_TMP:-}" || ! -e "$STARTUP_TMP/user-slow" ]] || return 1
   if [[ -n "${STARTUP_DEADLINE:-}" ]]; then
     t=$(( STARTUP_DEADLINE - SECONDS ))
-    (( t > 0 )) || return 1
+    if (( t <= 0 )); then
+      [[ "$scope" != user || -z "${STARTUP_TMP:-}" ]] || : > "$STARTUP_TMP/user-slow" 2>/dev/null || true
+      return 1
+    fi
     (( t <= 5 )) || t=5
   fi
   # shellcheck disable=SC2086  # the seam carries its own arguments
   timeout -k1 "$t" $cmd "$@" </dev/null 2>/dev/null 9>&- || rc=$?
-  if [[ $rc -eq 124 || $rc -eq 137 ]] && [[ "$scope" == user && $t -eq 5 && -n "${STARTUP_TMP:-}" ]]; then
+  if [[ $rc -eq 124 || $rc -eq 137 ]] && [[ "$scope" == user && -n "${STARTUP_TMP:-}" ]]; then
     : > "$STARTUP_TMP/user-slow" 2>/dev/null || true
   fi
   return "$rc"
@@ -2272,7 +2276,9 @@ startup_page_starts() {  # enabled-system enabled-user (each a list, or null)
         + [.[] | select(endswith(".service") and (test("@\\.") | not))
            | {scope: $scope, kind: "service", unit: ., description: ($s[.].Description // .), path: ($s[.].FragmentPath // ""),
               skipped: skipped(.)}]
-        + [$t | to_entries[] | {scope: $scope, kind: "service", unit: .key, description: .key, path: .value, skipped: false}]
+        # systemd describes a template per instance ("Getty on %I"), so it goes by its name.
+        + [$t | to_entries[] | {scope: $scope, kind: "service", unit: .key, description: (.key | sub("@\\.service$"; "") + " instances"),
+                                path: .value, skipped: false}]
         + [$auto[0][] | {scope: $scope, kind: "autostart", unit, description: (.description // $s[.unit].Description // .unit),
                          path: ($s[.unit].SourcePath // ""), skipped: skipped(.unit)}]' <<<"$list")" && items="$more"
   done
@@ -2371,8 +2377,9 @@ startup_at_jobs() {  # → [{id, when}], when in UTC, or null when atq's time di
 }
 
 # Runs on a schedule: {timers, cron, at, notes}, or nothing. A timer that ran late is not a
-# failure, so only the started service's Result counts. Notes: crond_down (cron jobs exist and
-# crond is not running) and linger_off (session timers stop at logout).
+# failure, so only the started service's Result counts, and only once it has run: a service never
+# started says success. Notes: crond_down (cron jobs exist and crond is not running) and
+# linger_off (session timers stop at logout).
 startup_page_schedule() {
   local cron at timers='[]' more notes='[]' scope list acts=() show
   cron="$(startup_cron_jobs)" || cron='[]'
@@ -2388,7 +2395,7 @@ startup_page_schedule() {
       ($show | '"$STARTUP_SHOW_JQ"') as $s
       | $acc[0] + [.[] | {scope: $scope, unit, activates: (.activates // null),
                      description: ($s[.activates // ""].Description // .unit), last: (.last | iso), next: (.next | iso),
-                     result: ($s[.activates // ""].Result // null)}]' <<<"$list")" && timers="$more"
+                     result: (if (.last // 0) > 0 then $s[.activates // ""].Result // null else null end)}]' <<<"$list")" && timers="$more"
   done
   if [[ "$cron" != "[]" ]]; then
     show="$(startup_systemctl system show -p ActiveState -- crond.service)" \
@@ -2459,7 +2466,13 @@ startup_page_boot() {  # → {ready_sec, userspace_sec, total_sec, usual, slowes
   startup_boot_record slowest >/dev/null 2>&1 || true
   jq -c --arg b "$(current_boot_id)" "$STARTUP_UTC_JQ"'
     def median: sort | length as $n
-      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end;
+      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end
+      | if . == null then null else (. * 10 | round) / 10 end;
+    # A device is described by its /sys path. Its kernel name, the last part of the unit, says more.
+    def readable: if type == "object" and (.unit | type) == "string"
+                     and ((.unit | endswith(".device")) or ((.description // "") | tostring | startswith("/")))
+      then .description = "waiting for " + (.unit | sub("\\.device$"; "") | split("-") | last | gsub("\\\\x2d"; "-"))
+      else . end;
     (if type == "array" then . else [] end | map(select(type == "object" and (.userspace_sec | type) == "number"))) as $all
     | ([$all[] | select(.boot_id == $b)] | last) as $now | select($now != null)
     | ([$all[] | select(.boot_id != $b)] | .[-10:]) as $prev
@@ -2468,7 +2481,7 @@ startup_page_boot() {  # → {ready_sec, userspace_sec, total_sec, usual, slowes
                then {ready_sec: ([$prev[].ready_sec | numbers] | median),
                      userspace_sec: ([$prev[].userspace_sec] | median), boots: ($prev | length)}
                else null end),
-       slowest: ($now.slowest // null),
+       slowest: ($now.slowest // null | readable),
        recent: [$prev | reverse | .[:5][] | {boot_id, at: (.at | utc), ready_sec, userspace_sec, total_sec: (.total_sec // null)}]}' \
     "$BOOT_TIMES_FILE" 2>/dev/null || true
 }
@@ -2497,7 +2510,10 @@ startup_page_gather() {
   [[ -n "$eu" ]] || eu=null
   changed="$(startup_page_changed "$es" "$eu")"
   starts="$(startup_page_starts "$es" "$eu")"
-  [[ ! -e "$STARTUP_TMP/user-slow" ]] || notes='["session_slow"]'
+  # A session that fails at once has no bus to answer on (`su - user -c`). Without systemd in
+  # either scope, nothing is singled out.
+  if [[ -e "$STARTUP_TMP/user-slow" ]]; then notes='["session_slow"]'
+  elif [[ "$eu" == null && "$es" != null ]]; then notes='["session_missing"]'; fi
   jq -cn --arg boot "$(current_boot_id)" --arg at "$(date -u +%FT%TZ)" --argjson notes "$notes" \
      --slurpfile failed <(startup_file "$failed") --slurpfile changed <(startup_file "$changed") \
      --slurpfile starts <(startup_file "$starts") --slurpfile schedule <(startup_file "$schedule") \

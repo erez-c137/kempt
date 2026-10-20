@@ -254,6 +254,12 @@ serve({"schema": 1, "boot_id": "b", "generated_at": "x", "notes": []})
 pev("refreshButton.clicked()")
 settle()
 p.check("a page with nothing in it says so", pev("emptyLabel.text"), "Kempt found nothing to list.")
+serve({"schema": 1, "boot_id": "b", "generated_at": "x", "notes": ["session_missing"]})
+pev("refreshButton.clicked()")
+settle()
+p.check("a session that could not be reached is said, in place of the empty line",
+        [pev("notesRepeater.count"), pev("notesRepeater.itemAt(0).text"), pev("emptyLabel.text")],
+        [1, "Your session could not be reached, so what starts when you log in is missing.", ""])
 serve("", rc=1)
 pev("refreshButton.clicked()")
 settle()

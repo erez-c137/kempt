@@ -1293,7 +1293,11 @@ assert_eq "$(TZ=Europe/Berlin js "[L.startupWhenOf('2026-03-29T08:00:00Z', Date.
   L.startupWhenOf('2026-10-25T21:00:00Z', Date.parse('2026-10-24T22:30:00Z'))]")" \
   '["tomorrow 10:00","tomorrow 09:00","today 22:00"]' "...and tomorrow stays tomorrow across both clock changes"
 assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2027-01-01T01:00:00Z', $SP_NOW)]")" \
-  '["19 Oct 23:59","1 Jan 10:00"]' "...yesterday and next year by their date"
+  '["yesterday 23:59","1 Jan 10:00"]' "...yesterday says so, and next year is a date"
+assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2026-10-18T14:59:00Z', $SP_NOW)]")" \
+  '["yesterday 23:59","18 Oct 23:59"]' "...and the day before yesterday is a date"
+assert_eq "$(sp "{schema:1, notes:[], schedule:{timers:[], at:[], notes:[], cron:[{source:'cron.daily', schedule:'daily', user:null, command:'a', last:'2026-10-19T14:59:00Z'}, {source:'cron.daily', schedule:'daily', user:null, command:'b', last:'2026-10-18T14:59:00Z'}]}}" 'scheduleLines.slice(1).map(function (l) { return l.text; })')" \
+  '["a: every day, last run yesterday","b: every day, last run 18 Oct"]' "...as is a cron job's last day"
 assert_eq "$(spjs "[L.startupWhenOf('soon', $SP_NOW), L.startupWhenOf(null, $SP_NOW), L.startupWhenOf(42, $SP_NOW)]")" \
   '["soon","",""]' "...a time Kempt cannot read is shown as it came, and a missing one is nothing"
 assert_eq "$(spjs '[0.4, 6.117, 59.6, 180.996, 3600, 3725].map(L.startupDurationOf)')" \
@@ -1303,7 +1307,7 @@ assert_eq "$(sp "$SP_FULL" 'ok')" "true" "a whole page reads"
 assert_eq "$(sp "$SP_FULL" 'failed.map(function (f) { return [f.title, f.log, f.command]; })')" \
   '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
   "didn't start: the name, (when you log in) for a login item, its log line or the result, and the command to copy"
-assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct)" "changes since the last update, dated"
+assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct 18:00)" "changes since the last update, dated"
 assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: Syncthing (syncthing.service), when you log in","No longer starts: cups.service"]' \
   "...each one a line, by its description, else (an older CLI) its name"
 assert_eq "$(sp "{schema:1, changed:{since:'<b>x</b> later', added:[{scope:'system', unit:'a.service'}], removed:[]}}" 'changedTitle')" \
@@ -1318,7 +1322,7 @@ assert_eq "$(sp "$SP_FULL" 'startsLines.map(function (l) { return l.indent + (l.
 assert_eq "$(sp "{schema:1, notes:[], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:false}]}" 'startsLines')" \
   '[{"text":"A (p)","indent":0,"heading":false}]' "...with no scope heading when only one scope starts anything"
 assert_eq "$(sp "$SP_FULL" 'scheduleSummary')" "2 timers, 3 cron jobs, 1 waiting at job" "the schedule, counted"
-assert_eq "$(sp "$SP_FULL" 'scheduleNotes')" '["These cron jobs never run: crond is not running."]' "...with its notes always shown"
+assert_eq "$(sp "$SP_FULL" 'scheduleNotes')" '["These cron jobs do not run while crond is stopped."]' "...with its notes always shown"
 assert_eq "$(sp "$SP_FULL" 'scheduleLines.map(function (l) { return (l.heading ? "#" : "") + l.text; })')" \
   '["#Timers","Discard unused blocks (fstrim.timer): last run today 01:25, next today 22:56","#Your timers","Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00, the last run failed","#Cron","backup.sh: every day at 23:55 (your crontab)","raid-check: every 30 minutes (/etc/cron.d/raid, as root)","logrotate: every day, last run today","#Waiting at jobs","today 22:56 (job 7)"]' \
   "...and listed on request, cron by the program it runs"
@@ -1330,6 +1334,12 @@ assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:6, userspace_sec:41, 
 assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:null, userspace_sec:41, total_sec:null, usual:null, slowest:null, recent:[]}}" 'bootLine')" \
   "All services by 41 s." "...or with no usual yet"
 
+assert_eq "$(sp "{schema:1, notes:[], schedule:{timers:[{scope:'system', unit:'n.timer', description:'N', last:null, next:'2026-10-20T13:56:00Z', result:'exit-code'}], cron:[], at:[], notes:[]}}" 'ok, [p.timerFailures, p.scheduleLines[1].text]')" \
+  '[[],"N (n.timer): next today 22:56"]' "a timer that never ran claims no result"
+assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:6, userspace_sec:60, total_sec:null, usual:{ready_sec:5, userspace_sec:40, boots:4}, slowest:{unit:'sys-devices-pci0000:00-virtio1-block-vda-vda3.device', description:'waiting for vda3', sec:15}, recent:[]}}" 'bootLine')" \
+  "Ready in 6 s; all services by 1 min. Usually ready in 5 s; all services by 40 s. Longest step: waiting for vda3, 15 s." \
+  "the longest step by the description the CLI gives it"
+
 # Empty sections are not drawn, so each one is absent or empty.
 SP_EMPTY="{schema:1, boot_id:'b', generated_at:'x', notes:[]}"
 assert_eq "$(sp "$SP_EMPTY" 'ok, [p.ok, p.empty, p.failed.length, p.changed.length, p.timerFailures.length, p.startsSummary, p.scheduleSummary, p.bootLine, p.skippedLine]')" \
@@ -1338,6 +1348,9 @@ assert_eq "$(sp "$SP_EMPTY" 'problem')" "" "...which is not a problem"
 assert_eq "$(sp "{schema:1, notes:['session_slow'], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:true}]}" 'ok, [p.notes, p.startsSummary, p.skippedLine, p.empty]')" \
   '[["Your session did not answer in time, so what starts when you log in is missing."],"","1 more is set to start but is skipped on this computer.",false]' \
   "the slow session's note; only skipped entries leave just the skipped line"
+assert_eq "$(sp "{schema:1, notes:['session_missing']}" 'ok, [p.notes, p.empty]')" \
+  '[["Your session could not be reached, so what starts when you log in is missing."],false]' \
+  "a session that could not be reached has its own note"
 assert_eq "$(sp "{schema:1, notes:[], failed:{units:[$SP_SYS], journal_denied:true, journal_available:true}}" 'failedNote')" \
   "No log lines for system services: you are not allowed to read the system journal." "the journal that cannot be read says why there is no log line"
 

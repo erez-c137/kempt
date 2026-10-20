@@ -3629,6 +3629,7 @@ _ASSEMBLED_IN_LOGIC = {
     "startupPageJournalDenied",  # -> startupPageOf -> the note under what failed
     "startupPageNoJournal",
     "startupPageSessionSlow",    # -> startupPageOf -> a page note
+    "startupPageSessionMissing",
     "startupPageUnreadable",     # -> startupPageOf / startupPageOutcomeOf -> the page's problem line
     "startupPageTimedOut",
     "startupPageFailed",
