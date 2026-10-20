@@ -6,8 +6,10 @@ source "$REPO_ROOT/lib/common.sh"
 KEMPT="$REPO_ROOT/bin/kempt"
 
 # A systemctl stand-in driven by files: failed-<scope>.json is what `--failed` lists,
-# transient-<scope> names the units `show` calls transient, enabled-<scope>.json is the
-# list-unit-files answer, and down-<scope> makes that scope fail. Every call is recorded.
+# transient-<scope> names the units `show` calls transient, active-<scope> the ones running and
+# gone-<scope> the ones systemd no longer knows, enabled-<scope>.json is the list-unit-files
+# answer, down-<scope> makes that scope fail and garbage-<scope> makes it answer nonsense. Every
+# call is recorded.
 SD="$TESTTMP/sd"; mkdir -p "$SD"
 export SD_DIR="$SD"
 cat > "$TESTTMP/systemctl-stub" <<'STUB'
@@ -16,6 +18,7 @@ d="$SD_DIR"; scope=system
 if [[ "$1" == --user ]]; then scope=user; shift; fi
 echo "$scope $*" >> "$d/calls"
 [[ -e "$d/down-$scope" ]] && exit 1
+[[ -e "$d/garbage-$scope" ]] && { echo 'Id=?? {not json'; exit 0; }
 case "$1" in
   --failed) cat "$d/failed-$scope.json" 2>/dev/null || echo '[]' ;;
   --version) echo "systemd 259" ;;
@@ -27,7 +30,11 @@ case "$1" in
     for u in "$@"; do
       desc="$(jq -r --arg u "$u" '.[] | select(.unit == $u) | .description' "$d/failed-$scope.json" 2>/dev/null)"
       t=no; grep -qxF "$u" "$d/transient-$scope" 2>/dev/null && t=yes
-      printf 'Id=%s\nDescription=%s\nTransient=%s\n\n' "$u" "${desc:-$u}" "$t"
+      a=inactive l=loaded
+      [[ -n "$desc" ]] && a=failed
+      grep -qxF "$u" "$d/active-$scope" 2>/dev/null && a=active
+      grep -qxF "$u" "$d/gone-$scope" 2>/dev/null && l=not-found
+      printf 'Id=%s\nDescription=%s\nTransient=%s\nActiveState=%s\nLoadState=%s\n\n' "$u" "${desc:-$u}" "$t" "$a" "$l"
     done ;;
   *) exit 1 ;;
 esac
@@ -54,6 +61,7 @@ printf 'NOTIFY %s | %s\n' "\$1" "\${2:-}" >> "$TESTTMP/notifications"
 STUB
 chmod +x "$TESTTMP/notify-stub"
 export KEMPT_NOTIFY="$TESTTMP/notify-stub"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
 notes() { cat "$TESTTMP/notifications" 2>/dev/null || true; }
 note_count() { grep -c . "$TESTTMP/notifications" 2>/dev/null || echo 0; }
 
@@ -104,6 +112,7 @@ entry() {
 }
 reset_world() {
   rm -rf "$HD" "$KEMPT_STATE_DIR/startup.json" "$KEMPT_STATE_DIR/startup-mutes" "$TESTTMP/notifications" "$SD/calls"
+  rm -f "$SD"/active-* "$SD"/gone-* "$SD"/garbage-*
   failing system; failing user
   export KEMPT_BOOT_ID=boot-A
 }
@@ -189,7 +198,8 @@ assert_json_eq "$(startup_state '[.announced[] | {unit, scope, description}]')" 
   "after a restart, a unit failing now that was not failing at the run's start is announced"
 assert_json_eq "$(startup_state '[.already[].unit]')" '["cups.service"]' "...one failing before the update is already failing, and quiet"
 assert_eq "$(note_count)" "1" "...in one notification for the set"
-assert_contains "$(notes)" "NOTIFY 2 services didn't start after the update." "...which counts them and ties them to the update"
+assert_eq "$(notes)" "NOTIFY Kempt | 2 services didn't start after the update: Bluetooth service and Foo helper. To see why, run: kempt startup" \
+  "...which counts them, names them and ties them to the update"
 assert_eq "$(startup_state '[.boot_id, .baseline.transaction_id, .attribution]')" '["boot-B",142,"update"]' \
   "startup.json records the boot, the baseline's transaction and the attribution"
 assert_json_eq "$(block '.startup | {notify, attribution, already, recovered, muted, recovered_digest}')" \
@@ -210,7 +220,7 @@ entry 20261020T110000 boot-A '[]' 150
 export KEMPT_BOOT_ID=boot-B
 failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
-assert_eq "$(notes)" "NOTIFY Bluetooth service didn't start after the update. | It stopped with an error. A system service (bluetooth.service)." \
+assert_eq "$(notes)" "NOTIFY Kempt | Bluetooth service didn't start after the update. It stopped with an error. A system service (bluetooth.service). To see why, run: kempt startup" \
   "one new failure is named, with what kind of service it is"
 assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup failed after the update: bluetooth.service" "...and logged"
 
@@ -220,7 +230,7 @@ entry 20261020T110000 boot-A '[]' 150
 export KEMPT_BOOT_ID=boot-B
 failing user 'foo.service=Foo'
 check >/dev/null
-assert_eq "$(notes)" "NOTIFY Foo didn't start after the update. | It stopped with an error. A service in your session (foo.service)." \
+assert_eq "$(notes)" "NOTIFY Kempt | Foo didn't start after the update. It stopped with an error. A service in your session (foo.service). To see why, run: kempt startup" \
   "a session unit says it is a service in your session"
 
 # Attribution: dnf's history moved on since the run, so Kempt cannot tie it to the update.
@@ -229,7 +239,7 @@ entry 20261020T110000 boot-A '[]' 150
 export KEMPT_BOOT_ID=boot-B
 failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
-assert_contains "$(notes)" "NOTIFY Bluetooth service didn't start after the last restart." \
+assert_contains "$(notes)" "NOTIFY Kempt | Bluetooth service didn't start after the last restart." \
   "when another transaction ran since Kempt's, it says after the last restart and names no update"
 assert_eq "$(block '.startup.attribution')" '"restart"' "...and the block says restart"
 
@@ -268,8 +278,10 @@ check >/dev/null
 assert_eq "$(cat "$KEMPT_STATE_DIR/startup-mutes")" "system:cups.service" "a mute survives later checks"
 rm -f "$TESTTMP/notifications"
 failing system
+printf '%s\n' bluetooth.service cups.service > "$SD/active-system"
 check >/dev/null
-assert_contains "$(notes)" "NOTIFY 2 services are starting again." "a unit Kempt announced that starts again is announced once"
+assert_eq "$(notes)" "NOTIFY Kempt | 2 services are running again: Bluetooth service and CUPS Scheduler." \
+  "a unit Kempt announced that runs again is announced once"
 assert_eq "$(block '[.startup.recovered[].unit] | sort')" '["bluetooth.service","cups.service"]' "...and listed as recovered"
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" "...and recovery clears its mute"
 assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup recovered: bluetooth.service, cups.service" "...and it is logged"
@@ -334,18 +346,147 @@ assert_eq "$(block 'has("startup")')" "false" "with systemctl missing, state.jso
 out="$(KEMPT_SYSTEMCTL_CMD="$TESTTMP/UNSTUBBED-systemctl" "$KEMPT" doctor 2>&1)" || true
 assert_contains "$out" "info  startup: " "...and doctor's startup row is info, not a warning"
 
-# --- kempt doctor and kempt startup ------------------------------------------------------------
+# --- a scope that did not answer is compared when it does -------------------------------------
 reset_world; dnf_max 150; check >/dev/null
-assert_contains "$("$KEMPT" doctor 2>&1)" "ok    startup: everything that started before the last update starts" \
-  "doctor says so when nothing stopped starting"
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+failing user 'foo.service=Foo'
+touch "$SD/down-user"
+check >/dev/null
+assert_eq "$(startup_state '[.announced[].unit]')" '["bluetooth.service"]' "the first check of a boot compares the scope that answered"
+rm -f "$SD/down-user"
+check >/dev/null
+assert_eq "$(startup_state '[.announced[].unit] | sort')" '["bluetooth.service","foo.service"]' \
+  "...and a later check of the same boot compares the one that did not"
+assert_contains "$(notes)" "Foo didn't start after the update." "...and announces what it finds"
+check >/dev/null
+assert_eq "$(note_count)" "2" "...once"
+
+# --- a state that cannot be written announces nothing, and so repeats nothing --------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+chmod 555 "$KEMPT_STATE_DIR"
+check >/dev/null 2>&1 || true; check >/dev/null 2>&1 || true
+chmod 755 "$KEMPT_STATE_DIR"
+assert_eq "$(note_count)" "0" "with startup.json unwritable, nothing is announced, check after check"
+check >/dev/null
+assert_eq "$(note_count)" "1" "...and once it can be written, the set is announced once"
+
+# --- no session bus: the announcement waits for a check that has one ----------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$TESTTMP/no-runtime" "$KEMPT" check >/dev/null 2>&1
+assert_eq "$(note_count)" "0" "a check with no session bus announces nothing"
+check >/dev/null
+assert_eq "$(note_count)" "1" "...and the next check with one announces it"
+check >/dev/null
+assert_eq "$(note_count)" "1" "...once"
+
+# --- running again means running ----------------------------------------------------------------
+reset_world; dnf_max 150; check >/dev/null
 entry 20261020T110000 boot-A '[]' 150
 export KEMPT_BOOT_ID=boot-B
 failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
-assert_contains "$("$KEMPT" doctor 2>&1)" "WARN  startup: Bluetooth service didn't start after the last update. See: kempt startup" \
-  "doctor warns about a unit that stopped starting"
+"$KEMPT" startup mute bluetooth.service >/dev/null
+failing system
+check >/dev/null
+assert_eq "$(note_count)" "1" "a unit that is no longer failing but not running is not announced as running again"
+assert_eq "$(startup_state '[.announced[].unit]')" '["bluetooth.service"]' "...stays announced"
+assert_eq "$(cat "$KEMPT_STATE_DIR/startup-mutes")" "system:bluetooth.service" "...and keeps its mute"
+echo bluetooth.service > "$SD/gone-system"
+check >/dev/null
+assert_eq "$(note_count)" "1" "a unit systemd no longer knows is dropped without a word"
+assert_eq "$(startup_state '.announced | length')" "0" "...from the announced list"
+assert_eq "$(startup_state '.recovered | length')" "0" "...and is not listed as running again"
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+failing system
+echo bluetooth.service > "$SD/active-system"
+check >/dev/null
+assert_contains "$(notes)" "NOTIFY Kempt | Bluetooth service is running again. A system service (bluetooth.service)." \
+  "a unit that runs again is announced once"
+
+# A mute ends when the unit is seen running, whether or not Kempt ever announced it.
+reset_world; check >/dev/null
+"$KEMPT" startup mute foo.service --user >/dev/null
+check >/dev/null
+assert_eq "$(cat "$KEMPT_STATE_DIR/startup-mutes")" "user:foo.service" "a mute holds while the unit is not running"
+echo foo.service > "$SD/active-user"
+check >/dev/null
+assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" \
+  "...and ends once it is seen running"
+
+# A unit with a backslash is hidden by its mute like any other.
+reset_world; dnf_max 150; check >/dev/null
+"$KEMPT" startup mute "app-x\\x2dy$AUTOSTART" --user >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing user "app-x\\x2dy$AUTOSTART=X"
+check >/dev/null
+assert_eq "$(note_count)" "0" "a muted unit with a backslash in its name is not announced"
+assert_eq "$(block '[(.startup.announced | length), (.startup.muted | length)]')" '[0,1]' "...and is listed as muted only"
+assert_exit 2 "a unit name with a newline is refused" "$KEMPT" startup mute $'a\nb.service'
+assert_exit 0 "a colon after the first character is allowed" "$KEMPT" startup mute 'a:b.service'
+
+# --- nonsense from systemctl is not an answer -----------------------------------------------------
+reset_world
+touch "$SD/garbage-system" "$SD/garbage-user"
+assert_exit 0 "a check survives systemctl answering nonsense" "$KEMPT" check
+assert_eq "$(block 'has("startup")')" "false" "...and publishes no startup block"
+rm -f "$SD/garbage-system" "$SD/garbage-user"
+
+# --- the check closing a live run compares against that run, not the boot's first ---------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T090000 boot-A '[]' 150
+check >/dev/null
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+assert_eq "$(note_count)" "0" "premise: a unit that fails with no run since is not announced"
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+assert_eq "$(notes | grep -c "didn't start" || true)" "0" "a unit already failing when a live run started is not blamed on it"
+assert_eq "$(startup_state '[.already[].unit]')" '["bluetooth.service"]' "...and is listed as already failing"
+
+# --- a run that changed no package compares nothing ----------------------------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+jq '.backends.dnf.updated = []' "$HD/20261020T110000.json" > "$TESTTMP/e.json" && mv "$TESTTMP/e.json" "$HD/20261020T110000.json"
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+assert_eq "$(note_count)" "0" "after a run that changed no package, the next boot says nothing"
+
+# --- kempt doctor and kempt startup ------------------------------------------------------------
+reset_world; dnf_max 150; check >/dev/null
+assert_contains "$("$KEMPT" doctor 2>&1)" "info  startup: no Kempt update compared yet" \
+  "doctor says nothing was compared yet, rather than all clear, before any comparison"
+assert_eq "$("$KEMPT" startup)" "Nothing to report." "...and so does kempt startup"
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+check >/dev/null
+assert_contains "$("$KEMPT" doctor 2>&1)" "ok    startup: no service has stopped starting since a Kempt update" \
+  "doctor gives the all-clear once a comparison found nothing"
+assert_eq "$("$KEMPT" startup)" "No service has stopped starting since a Kempt update." "...and so does kempt startup"
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+day="$(LC_ALL=C date '+%-d %b')"
+assert_contains "$("$KEMPT" doctor 2>&1)" "WARN  startup: Bluetooth service has not started since an update on $day. See: kempt startup" \
+  "doctor warns about a unit that stopped starting, dated, without tying it to the newest update"
 out="$("$KEMPT" startup)"
-assert_contains "$out" "Didn't start after the update:" "kempt startup groups what did not start"
+assert_contains "$out" "Not starting since an update:" "kempt startup groups what did not start"
+assert_contains "$out" "Bluetooth service (bluetooth.service), since $day" "...each with the day it stopped"
 assert_contains "$out" "systemctl status bluetooth.service" "...with the command that shows why"
 assert_json_eq "$("$KEMPT" startup --json)" "$(block)" "kempt startup --json prints the block state.json carries"
 failing user "app-x\\x2dy$AUTOSTART=X"
