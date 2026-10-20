@@ -72,7 +72,7 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
 for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
             'package lists' \
-            'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine'; do
+            'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine' 'startup'; do
   grep -E '^(ok|info|WARN|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done

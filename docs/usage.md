@@ -418,6 +418,35 @@ terminal. A removal writes an event line and no history entry.
 | 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
 | 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
 
+## startup
+
+```
+kempt startup [--json]
+kempt startup mute|unmute <unit> [--user]
+```
+
+Lists the services that stopped starting after a Kempt update, with the command that shows why.
+Kempt only looks: it never starts, stops or enables a unit.
+
+```
+Not starting since an update:
+  Bluetooth service (bluetooth.service), since 20 Oct
+    systemctl status bluetooth.service
+```
+
+Kempt notes what is failing when an update starts, and compares after the update and after the
+next restart. Services already failing stay quiet. With no Kempt update since the last restart,
+nothing is compared. Each new set gets one notification, and a service that runs again gets one more.
+
+`mute` hides a unit until it is seen running. `--user` means a service in your session. `--json`
+prints the `startup` block from `kempt check`.
+
+| Exit | When |
+| --- | --- |
+| 0 | Listed, muted or unmuted. |
+| 1 | The state directory could not be written. |
+| 2 | Unknown option, or not a unit name. |
+
 ## status
 
 ```
@@ -576,6 +605,9 @@ Its wording is fixed, so you can search it:
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
 | `security notified count=<n>` | A notification announced a new set of security updates. `<n>` counts all the pending ones. Needs `notify_security`. |
+| `startup failed after the update: <units>` | Services that started before a Kempt update stopped starting after it. `after the last restart` when another tool changed packages since. Needs `notify_startup`. |
+| `startup recovered: <units>` | Services Kempt announced are running again. |
+| `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
 | `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
 | `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |

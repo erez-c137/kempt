@@ -534,6 +534,9 @@ cmd_check() {
   # inside the check lock, before anything reads the world: two overlapping checks must not turn
   # one staged transaction into two history entries
   harvest_offline
+  # Right after the harvest, so the first check of a new boot compares against the stage it just
+  # recorded. Never fails the check.
+  startup_observe || true
   maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
@@ -726,9 +729,19 @@ cmd_check() {
   # state over this one. A short wait, and not having it never fails the check: the block is then
   # published without touching the seen file, and nothing is announced, since nothing announced
   # could be recorded.
+  # The startup block is worked out under the same lock, for the same reason: `kempt startup ack`
+  # and mute patch it there.
   local wlocked="" sec_announce=""
-  if [[ -n "$sec_parsed" ]]; then
+  if [[ -n "$sec_parsed" || -n "${STARTUP_SEEN:-}" ]]; then
     writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null && wlocked=1
+  fi
+  local st_block
+  if [[ -n "${STARTUP_SEEN:-}" ]] && st_block="$(startup_block)" \
+     && merged="$(jq --argjson b "$st_block" '. + {startup: $b}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
+  if [[ -n "$sec_parsed" ]]; then
     local sec_armed=false sec_busy=false sec_out sec_block sec_write=false
     [[ -n "$wlocked" ]] && sec_write=true
     jq -e '.armed == true' <<<"${staged_state:-null}" >/dev/null 2>&1 && sec_armed=true
@@ -1273,11 +1286,12 @@ write_stage_marker() {
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" --argjson ident "$identity" \
-      --argjson mver "$KEMPT_MARKER_VERSION" \
+      --argjson mver "$KEMPT_MARKER_VERSION" --arg fb "${startup_base:-}" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
        {version:$mver, staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
        + $ident
+       + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)
        + (if $snap == "" then {} else {pre_snapshot:$snap} end)
        + (if $nsrc == "none" then {} else {staged_names:$names} end)' \
       | write_offline_marker
@@ -1389,6 +1403,12 @@ reconcile_stage_after_live_run() {
         # this baseline at any moment, and a half-copied one would diff as a real transaction.
         atomic_write "$mpre" < "$SNAP_DIR/dnf-after.tsv" \
           || echo "warning: could not rebase the staged-update baseline. The next check may report this run as the staged one" >&2
+        # The services' baseline moves with it: whatever this run broke, the stage did not.
+        local rb_marker
+        if [[ -n "${startup_base:-}" ]] && rb_marker="$(offline_marker_read)" && [[ -n "$rb_marker" ]]; then
+          jq -c --argjson fb "$startup_base" '. + {failed_before: $fb}' <<<"$rb_marker" | write_offline_marker \
+            || echo "warning: could not rebase the staged update's services baseline" >&2
+        fi
       fi
     fi
     # ALREADY APPLIED (baselines differ): a restart ran the stage and no check has harvested it.
@@ -1491,6 +1511,12 @@ cmd_update() {
       preflight_abort "cannot read the installed flatpak set, so nothing was changed"
     fi
   fi
+
+  # Which services were failing, and which were enabled, before anything changed: what the check
+  # after this run, or after the restart that applies a stage, compares against. Read-only and
+  # never stops the run; empty when the setting is off or systemd does not answer.
+  local startup_base=""
+  startup_base="$(startup_baseline 2>/dev/null)" || startup_base=""
 
   # Recorded here and not a line earlier: everything above can still decline to run without
   # touching the system. Past this point the system changes.
@@ -1974,7 +2000,8 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") '
+        --argjson fp_eol "$fp_eol" --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") \
+        --arg fb "$startup_base" '
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
@@ -1986,7 +2013,8 @@ cmd_update() {
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)
     + (if $link_other == "true" then {stage_blocked: true} else {} end)
-    + (if ($staged_n | test("^[1-9][0-9]*$")) then {staged: ($staged_n | tonumber)} else {} end)' > "$hist_tmp" \
+    + (if ($staged_n | test("^[1-9][0-9]*$")) then {staged: ($staged_n | tonumber)} else {} end)
+    + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)' > "$hist_tmp" \
     || { rm -f ${hist_tmp:+"$hist_tmp"}; hist_tmp=""; }
   # Removed whatever happened above: an unguarded write here used to take the whole run down on a
   # full home, on the far side of an update that had already installed everything - no summary, no
@@ -2841,15 +2869,20 @@ harvest_offline() {
   # and then left out: 0 would say a restart that installed packages took no time.
   local hdur=""
   if [[ -n "$txid" ]]; then hdur="$(dnf_history_duration "$txid")" || hdur=""; fi
+  # The services' baseline the stage recorded, carried into its entry: the first check of this boot
+  # compares against it.
+  local hfb=""
+  hfb="$(jq -c '.failed_before | objects' <<<"$marker" 2>/dev/null)" || hfb=""
   jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" \
-        --arg log "$hlog" --arg dur "$hdur" '
+        --arg log "$hlog" --arg dur "$hdur" --arg fb "$hfb" '
     ($repa[0]) as $dnf |
     {timestamp:$ts, surface:$surface, status:"ok",
      reboot_needed:false, log:$log,
      backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
-    + (if $dur == "" then {} else {duration_sec: ($dur | tonumber)} end)' > "$hist" \
+    + (if $dur == "" then {} else {duration_sec: ($dur | tonumber)} end)
+    + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)' > "$hist" \
     || { rm -f "$hist"; hist=""
          echo "warning: the staged update was applied, but its history entry could not be written" >&2
          log_event "harvest entry not written (state directory unwritable?)"; }
@@ -3329,6 +3362,158 @@ cmd_reclaim() {
   # under the update lock, then check.lock, the order cmd_update takes them in.
   cmd_check >/dev/null 2>&1 || true
   return $rc
+}
+
+# `kempt startup` - the services that stopped starting after an update, as the last check saw
+# them, each with the read-only command that shows why. Mute and unmute change what Kempt
+# mentions; ack is the widget's word that a "starting again" line was seen (security-ack's pattern).
+# Kempt only looks: nothing here starts, stops or enables a unit.
+cmd_startup() {
+  local sub="${1:-}"
+  [[ $# -eq 0 ]] || shift
+  case "$sub" in
+    ""|--json) startup_list "$sub" "$@" ;;
+    mute|unmute) startup_mute_cmd "$sub" "$@" ;;
+    ack) startup_ack "$@" ;;
+    *) echo "usage: kempt startup [--json] | mute|unmute <unit> [--user] | ack --expect=DIGEST" >&2; exit 2 ;;
+  esac
+}
+
+startup_status_cmd() {  # scope unit → the command that shows why, quoted when it needs it
+  local u="$2"
+  [[ "$u" == *\\* ]] && u="'$u'"
+  if [[ "$1" == user ]]; then printf 'systemctl --user status %s' "$u"; else printf 'systemctl status %s' "$u"; fi
+}
+
+startup_day() {  # ISO time → "20 Oct"
+  LC_ALL=C date -d "$1" '+%-d %b' 2>/dev/null || printf '%s' "${1%%T*}"
+}
+
+startup_list() {
+  [[ $# -le 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+  if ! startup_on; then
+    [[ "$1" == --json ]] && { echo '{}'; return 0; }
+    echo "Kempt is not watching for services that stop starting (notify_startup is off)."
+    return 0
+  fi
+  local block
+  block="$(startup_block)" || { echo "kempt: could not read $STARTUP_FILE" >&2; exit 1; }
+  if [[ "$1" == --json ]]; then printf '%s\n' "$block"; return 0; fi
+  # Each line names the day it stopped, not the newest update: an old failure is not the latest
+  # update's doing.
+  local group last="" scope unit desc since line
+  while IFS=$'\t' read -r group scope unit desc since; do
+    if [[ "$group" != "$last" ]]; then
+      [[ -z "$last" ]] || echo
+      case "$group" in
+        announced) echo "Not starting since an update:" ;;
+        already) echo "Already failing before an update:" ;;
+        muted) echo "Muted until they start:" ;;
+        recovered) echo "Running again:" ;;
+      esac
+      last="$group"
+    fi
+    line="  $desc ($unit)"
+    [[ -z "$since" ]] || line+=", since $(startup_day "$since")"
+    echo "$line"
+    [[ "$group" == recovered ]] || printf '    %s\n' "$(startup_status_cmd "$scope" "$unit")"
+  done < <(jq -r '("announced", "already", "muted", "recovered") as $g
+                  | .[$g][] | [$g, .scope, .unit, .description, (.since // "")] | join("\t")' <<<"$block")
+  [[ -z "$last" ]] || return 0
+  # The all-clear only once a comparison has happened: before that, there is nothing to vouch for.
+  if [[ "$(jq -r '.compared' <<<"$block")" == true ]]; then
+    echo "No service has stopped starting since a Kempt update."
+  else
+    echo "Nothing to report."
+  fi
+}
+
+startup_mute_cmd() {  # mute|unmute unit [--user]
+  local verb="$1" unit="" scope=system a
+  shift
+  for a in "$@"; do case "$a" in
+    --user) scope=user ;;
+    -*) echo "unknown option: $a" >&2; exit 2 ;;
+    *) [[ -z "$unit" ]] || { echo "kempt startup $verb takes one unit" >&2; exit 2; }; unit="$a" ;;
+  esac; done
+  [[ -n "$unit" ]] || { echo "usage: kempt startup $verb <unit> [--user]" >&2; exit 2; }
+  [[ "$unit" == *.* ]] || unit="$unit.service"
+  # systemd's own unit name alphabet (escaped names keep their backslashes); no slash, so the
+  # name can never be read as a path, and no newline, which would split the mutes file. A colon
+  # is fine after the first character: the scope is read up to the first one.
+  if [[ ${#unit} -gt 255 || ! "$unit" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*$ ]]; then
+    echo "invalid unit name: $unit" >&2; exit 2
+  fi
+  # An alias is stored under the unit's own name, the one systemd reports failing; when systemctl
+  # does not answer, the name is kept as typed. Unmute drops both spellings.
+  local id typed="$scope:$unit"
+  if startup_on && id="$(startup_systemctl "$scope" show -p Id -- "$unit")"; then
+    id="$(sed -n '1s/^Id=//p' <<<"$id")"
+    [[ ${#id} -gt 255 || ! "$id" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*\.[a-z]+$ ]] || unit="$id"
+  fi
+  kempt_init_dirs
+  writer_lock "$SECURITY_LOCK_WAIT" || exit 1
+  local key="$scope:$unit" rc=0 out
+  if [[ "$verb" == mute ]]; then
+    grep -qxF "$key" "$STARTUP_MUTES_FILE" 2>/dev/null \
+      || printf '%s\n' "$key" >> "$STARTUP_MUTES_FILE" || rc=1
+  elif [[ -f "$STARTUP_MUTES_FILE" ]]; then
+    out="$(grep -vxF -e "$key" -e "$typed" "$STARTUP_MUTES_FILE")" || [[ $? -eq 1 ]] || rc=1
+    [[ $rc -ne 0 ]] || printf '%s' "${out:+$out$'\n'}" | atomic_write "$STARTUP_MUTES_FILE" || rc=1
+  fi
+  [[ $rc -ne 0 ]] || startup_patch_state || true
+  writer_unlock
+  [[ $rc -eq 0 ]] || { echo "kempt: could not write $STARTUP_MUTES_FILE" >&2; exit 1; }
+  log_event "startup ${verb}d $key"
+}
+
+startup_ack() {
+  local expect=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --expect=*) expect="${1#--expect=}"; shift
+                  [[ "$expect" =~ ^[0-9a-f]{16}$ ]] || { echo "--expect takes the 16-character digest from kempt check" >&2; exit 2; } ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
+  [[ -n "$expect" ]] || { echo "usage: kempt startup ack --expect=DIGEST" >&2; exit 2; }
+  writer_lock "$SECURITY_LOCK_WAIT" || exit 1
+  local st rc=0
+  st="$(startup_read)"
+  if [[ "$(startup_digest <<<"$st")" != "$expect" ]]; then
+    rc=6
+  elif ! jq -c '.recovered = []' <<<"$st" | atomic_write "$STARTUP_FILE"; then
+    rc=1
+  else
+    startup_patch_state || rc=1
+  fi
+  writer_unlock
+  return "$rc"
+}
+
+# One row: WARN for what stopped starting (muted units excluded), dated rather than tied to the
+# newest update; ok once a comparison found nothing; info before any comparison, and without
+# systemctl. Info, not a warning, so a build root without systemd counts no warning.
+doctor_startup_row() {
+  startup_on || return 0
+  if ! startup_systemctl system --version >/dev/null; then
+    doctor_info "startup: systemctl did not answer, so Kempt cannot tell whether services still start after an update"
+    return 0
+  fi
+  local block n first since compared
+  block="$(startup_block 2>/dev/null)" || block='{}'
+  { IFS= read -r n; IFS= read -r first; IFS= read -r since; IFS= read -r compared; } < <(jq -r '
+      (.announced // []) as $a | ($a | length), ($a[0].description // ""),
+      ([$a[].since | strings] | min // ""), (.compared // false)' <<<"$block" 2>/dev/null)
+  if [[ "${n:-0}" -eq 1 ]]; then
+    doctor_warn "startup: $first has not started since an update on $(startup_day "$since"). See: kempt startup"
+  elif [[ "${n:-0}" -gt 1 ]]; then
+    doctor_warn "startup: $n services have not started since an update on $(startup_day "$since"). See: kempt startup"
+  elif [[ "$compared" == true ]]; then
+    doctor_ok "startup: no service has stopped starting since a Kempt update"
+  else
+    doctor_info "startup: no Kempt update compared yet"
+  fi
 }
 
 # `kempt security-ack --expect=DIGEST` - the widget's word that the security updates on screen
@@ -4444,6 +4629,7 @@ cmd_doctor() {
   doctor_state_dir_row
   doctor_files_row
   doctor_offline_rows
+  doctor_startup_row
   doctor_version_row
   doctor_install_rows
   # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone - a
@@ -4575,7 +4761,7 @@ cmd_disable_passwordless() {
 # One block per command, in the order `kempt help` lists them. A block is the command's synopsis
 # lines (two spaces in), each followed by its description at column 24. `kempt help` prints them
 # all; `kempt <command> --help` and `kempt help <command>` print one (usage_of).
-KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage reclaim config
+KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage reclaim startup config
 discover-notifier enable-passwordless disable-passwordless version help"
 usage_block() {  # command → its block, or nothing for a command Kempt does not have
   case "$1" in
@@ -4658,6 +4844,13 @@ EOF
     reclaim) cat <<'EOF'
   reclaim [--list] [-y] [--expect=DIGEST]
                         remove the Flatpak runtimes no installed app uses (--list only shows them)
+EOF
+    ;;
+    startup) cat <<'EOF'
+  startup [--json]      services that stopped starting after an update, and how to see why
+                        (read only)
+  startup mute|unmute <unit> [--user]
+                        hide one until it starts again, or show it again
 EOF
     ;;
     config) cat <<'EOF'
@@ -4751,7 +4944,7 @@ fi
 # mistyped command change nothing, so they skip it. So does `discover-notifier status`, which only
 # reads: `install.sh --uninstall` runs it and must write nothing.
 case "${1:-help}" in
-  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|\
+  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|startup|\
   enable-passwordless|disable-passwordless) surface_migrate ;;
   discover-notifier) [[ "${2:-}" == status ]] || surface_migrate ;;
 esac
@@ -4772,6 +4965,7 @@ case "${1:-help}" in
   unstage) shift; cmd_unstage "$@" ;;
   reclaim) shift; cmd_reclaim "$@" ;;
   security-ack) shift; cmd_security_ack "$@" ;;
+  startup) shift; cmd_startup "$@" ;;
   discover-notifier) shift; cmd_discover_notifier "$@" ;;
   enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
   disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
