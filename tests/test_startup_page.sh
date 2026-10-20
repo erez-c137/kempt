@@ -244,7 +244,15 @@ assert_eq "$(jq -c '.notes' <<<"$out")" '["session_slow"]' "a session call that 
 assert_not_contains "$(calls systemctl)" "user list-timers" "...and the session is asked nothing more"
 assert_not_contains "$(cat "$SD/journal-scopes" 2>/dev/null)" "user" "...not even its journal"
 assert_contains "$(text)" "Your session did not answer in time; its part is missing." "the text says what is missing"
-rm -f "$SD/slow-user" "$SD/timers-user.json" "$SD/failed-system.json" "$SD/journal-scopes"
+rm -f "$SD/slow-user" "$SD/timers-user.json" "$SD/journal-scopes"
+# No session bus at all (`su - user -c`): the session fails at once, which is not slow.
+touch "$SD/down-user"
+out="$(page)"
+assert_eq "$(jq -c '.notes' <<<"$out")" '["session_missing"]' "a session that could not be reached is noted"
+assert_contains "$(text)" "Your session could not be reached, so its part is missing." "...and the text says what is missing"
+touch "$SD/down-system"
+assert_eq "$(page | jq -c '.notes')" '[]' "with no systemd at all, the session is not singled out"
+rm -f "$SD/down-user" "$SD/down-system" "$SD/failed-system.json"
 reset_calls
 STARTUP_DEADLINE=$SECONDS
 assert_exit 1 "with the page's time used up, no call is made" -- startup_systemctl system --failed
@@ -298,9 +306,11 @@ assert_eq "$(jq -r '[.starts[] | select(.skipped) | .unit] | join(",")' <<<"$out
 assert_eq "$(calls rpm | wc -l | tr -d ' ')" "1" "rpm is asked once for every unit"
 assert_not_contains "$(calls systemctl)" "getty@.service" "a template is never handed to show, which refuses the whole call"
 t="$(text)"
-assert_contains "$t" "Starts with the computer:"$'\n'"  Not from a package"$'\n'"    My own thing"$'\n'"  openssh-server"$'\n'"    OpenSSH key generation"$'\n'"    OpenSSH server daemon"$'\n'"  getty@.service (systemd)"$'\n'"  1 more is set to start but is skipped on this computer." \
+assert_contains "$t" "Starts with the computer:"$'\n'"  Not from a package"$'\n'"    My own thing"$'\n'"  openssh-server"$'\n'"    OpenSSH key generation"$'\n'"    OpenSSH server daemon"$'\n'"  getty instances (systemd)"$'\n'"  1 more is set to start but is skipped on this computer." \
   "the text puts what no package owns first, one line per unit, and a package heading only over two"
 assert_not_contains "$t" "VirtualBox" "...and leaves out the skipped unit"
+assert_eq "$(jq -r '.starts[] | select(.unit == "getty@.service") | .description' <<<"$out")" "getty instances" \
+  "a template, which systemd describes per instance, is described by its name"
 assert_contains "$t" "Starts when you log in:"$'\n'"  Geoclue Demo agent (geoclue2-demos)"$'\n'"  PipeWire Multimedia Service (pipewire)" \
   "...and session services under their own heading"
 
@@ -322,7 +332,7 @@ out="$(page)"
 assert_json_eq "$(jq -c '.changed' <<<"$out")" \
   '{"since":"2026-10-18T07:00:00Z","added":[{"scope":"system","unit":"backup.timer","description":"backup.timer"},{"scope":"system","unit":"mine.service","description":"My own thing"},{"scope":"system","unit":"sshd-keygen.service","description":"OpenSSH key generation"},{"scope":"system","unit":"vboxservice.service","description":"VirtualBox guest services"}],"removed":[{"scope":"system","unit":"old.service","description":"old.service"}]}' \
   "units enabled or no longer enabled since the last run's baseline, described as the page describes them elsewhere, else by name; plumbing is left out"
-assert_contains "$(text)" "Changed since the last update (18 Oct):"$'\n'"  Now starts: backup.timer"$'\n'"  Now starts: My own thing (mine.service)" \
+assert_contains "$(text)" "Changed since the last update (18 Oct 07:00):"$'\n'"  Now starts: backup.timer"$'\n'"  Now starts: My own thing (mine.service)" \
   "the text names what changed, by its description"
 touch "$SD/down-user"
 assert_eq "$(page | jq -c '[.changed.added[].scope] | unique')" '["system"]' "a scope that did not answer is not compared"
@@ -353,6 +363,8 @@ assert_json_eq "$(jq -c '.schedule.timers[0]' <<<"$out")" \
   "$(jq -cn --arg l "$(date -u -d @"$TODAY" +%FT%TZ)" --arg n "$(date -u -d @"$TOMORROW" +%FT%TZ)" \
      '{scope: "system", unit: "backup.timer", activates: "backup.service", description: "Nightly backup", last: $l, next: $n, result: "exit-code"}')" \
   "a timer carries its last and next run and the result of the service it starts"
+assert_eq "$(jq -c '.schedule.timers[1].result' <<<"$out")" "null" \
+  "a timer that never ran has no result, though its service says success"
 assert_eq "$(jq -r '[.schedule.timers[].unit] | join(",")' <<<"$out")" "backup.timer,fstrim.timer,sync.timer" \
   "a timer that has never run and is not scheduled is left out"
 assert_json_eq "$(jq -c '[.schedule.cron[] | [.source, .schedule, .user, .command]]' <<<"$out")" \
@@ -380,7 +392,7 @@ rm -f "$LINGER/tester"
 out="$(page)"
 assert_eq "$(jq -c '.schedule.notes' <<<"$out")" '["crond_down","linger_off"]' "crond stopped and lingering off are both noted"
 t="$(text)"
-assert_contains "$t" "These jobs never run: crond is not running." "the crond note is in the text"
+assert_contains "$t" "These jobs do not run while crond is stopped." "the crond note is in the text"
 assert_contains "$t" "Your timers stop when you log out." "...and so is the lingering note"
 rm -f "$SD/crontab" "$ETC/crontab" "$ETC/anacrontab"; rm -rf "$ETC"/cron.*; rm -f "$SD/timers-user.json"
 assert_eq "$(page | jq -c '.schedule.notes')" '[]' "with no cron jobs and no session timers, neither note applies"
@@ -436,5 +448,29 @@ assert_not_contains "$(calls analyze)" "blame" "...and leaves the slowest unit t
 assert_contains "$(sed -n '/^cmd_check()/,/^}/p' "$KEMPT")" "startup_boot_record_if_on" "cmd_check calls it"
 assert_eq "$(page | jq -r '.boot_time.slowest.unit')" 'systemd-fsck@dev-disk-by\x2duuid-655f.service' \
   "the page fills in the slowest unit later"
+
+# A device's description is its /sys path; the page names it by its kernel name instead.
+rm -f "$KEMPT_STATE_DIR/boot-times.json"
+printf '4.007s sys-devices-pci0000:00-0000:00:03.0-virtio1-block-vda-vda3.device\n' > "$SD/blame"
+printf 'Description=/sys/devices/pci0000:00/0000:00:03.0/virtio1/block/vda/vda3\n' \
+  > "$SD/props-system/sys-devices-pci0000:00-0000:00:03.0-virtio1-block-vda-vda3.device"
+assert_eq "$(page | jq -r '.boot_time.slowest.description')" "waiting for vda3" "a device is named by its kernel name"
+jq '[.[] | .slowest.description = "/sys/devices/x/vda3"]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
+  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
+assert_eq "$(page | jq -r '.boot_time.slowest.description')" "waiting for vda3" "...in a boot recorded before too"
+
+# The usual is a median, rounded to a tenth of a second.
+jq -cn --arg y "$(date -u -d 'yesterday 23:40' +%FT%TZ)" --arg d "$(date -u -d 'today 00:10' +%FT%TZ)" '
+  [{boot_id: "c1", at: "2026-10-15T08:00:00Z", ready_sec: 3.506, userspace_sec: 3.617},
+   {boot_id: "c2", at: "2026-10-16T08:00:00Z", ready_sec: 3.505, userspace_sec: 3.656},
+   {boot_id: "c3", at: $y, ready_sec: 3.505, userspace_sec: 3.617},
+   {boot_id: "c4", at: $d, ready_sec: 3.506, userspace_sec: 3.656}]' > "$KEMPT_STATE_DIR/boot-times.json"
+out="$(page)"
+assert_json_eq "$(jq -c '.boot_time.usual' <<<"$out")" '{"ready_sec":3.5,"userspace_sec":3.6,"boots":4}' \
+  "the usual times carry no float noise"
+t="$(text)"
+assert_contains "$t" "  Earlier starts:"$'\n'"    today 00:10: " "an earlier start today says today and its time"
+assert_contains "$t" $'\n'"    yesterday 23:40: " "...one yesterday says yesterday"
+assert_contains "$t" $'\n'"    16 Oct 08:00: " "...and an older one its date"
 
 finish

@@ -459,7 +459,7 @@ Runs on a schedule:
     Discard unused blocks (fstrim.timer): last run 19 Oct 01:25, next 26 Oct 00:22
   Cron
     backup.sh: every day at 23:55 (your crontab)
-    These jobs never run: crond is not running.
+    These jobs do not run while crond is stopped.
 
 Startup time:
   Ready in 6 s; all services by 3 min 1 s.

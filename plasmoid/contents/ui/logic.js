@@ -579,6 +579,7 @@ var COPY = {
     startupPageFailedCode: "Kempt could not gather the startup list (exit %1).",
     startupPageEmpty: "Kempt found nothing to list.",
     startupPageSessionSlow: "Your session did not answer in time, so what starts when you log in is missing.",
+    startupPageSessionMissing: "Your session could not be reached, so what starts when you log in is missing.",
     startupPageFailedTitle: "Didn't start this boot",
     startupPageJournalDenied: "No log lines for system services: you are not allowed to read the system journal.",
     startupPageNoJournal: "No log lines: journalctl is not installed.",
@@ -593,7 +594,7 @@ var COPY = {
     startupPageYourTimers: "Your timers",
     startupPageCron: "Cron",
     startupPageAt: "Waiting at jobs",
-    startupPageCrondDown: "These cron jobs never run: crond is not running.",
+    startupPageCrondDown: "These cron jobs do not run while crond is stopped.",
     startupPageLingerOff: "Your timers stop when you log out."
 };
 
@@ -1420,7 +1421,8 @@ function startupLocalOf(iso) {
     return isNaN(ms) ? null : new Date(ms);
 }
 
-// startupWhenOf(iso, nowMs) -> "today 22:56", "tomorrow 00:00" or "21 Oct 09:00", in local time.
+// startupWhenOf(iso, nowMs) -> "today 22:56", "tomorrow 00:00", "yesterday 23:40" or "21 Oct 09:00",
+// in local time.
 // A string that is not a time is shown as it came; anything else is "".
 function startupWhenOf(iso, nowMs) {
     var t = startupLocalOf(iso);
@@ -1431,14 +1433,18 @@ function startupWhenOf(iso, nowMs) {
     var now = new Date(nowMs);
     if (startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)))
         return "tomorrow " + hm;
+    if (startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
+        return "yesterday " + hm;
     return t.getDate() + " " + STARTUP_MONTHS[t.getMonth()] + " " + hm;
 }
 
-// The date alone: "18 Oct", or "today" when `sayToday`.
+// The date alone: "18 Oct", or "today" and "yesterday" when `sayToday`.
 function startupDayOf(iso, nowMs, sayToday) {
-    var t = startupLocalOf(iso);
+    var t = startupLocalOf(iso), now = new Date(nowMs);
     if (t === null) return typeof iso === "string" ? startupClean(iso.slice(0, 10)) : "";
-    if (sayToday && startupYmd(t) === startupYmd(new Date(nowMs))) return "today";
+    if (sayToday && startupYmd(t) === startupYmd(now)) return "today";
+    if (sayToday && startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
+        return "yesterday";
     return t.getDate() + " " + STARTUP_MONTHS[t.getMonth()];
 }
 
@@ -1518,8 +1524,9 @@ function startupTimerOf(t, nowMs, sayFailed) {
     return startupNamedOf(t) + (parts.length > 0 ? ": " + parts.join(", ") : "");
 }
 
+// A timer that never ran has no result to report, whatever an older CLI said.
 function startupTimerFailed(t) {
-    return typeof t.result === "string" && t.result !== "success";
+    return typeof t.last === "string" && typeof t.result === "string" && t.result !== "success";
 }
 
 // A cron command by the program it runs: no redirections, no settings, no folder.
@@ -1604,6 +1611,7 @@ function startupPageOf(text, nowMs) {
     page.problem = "";
 
     if (arrayOf(d.notes).indexOf("session_slow") >= 0) page.notes.push(COPY.startupPageSessionSlow);
+    if (arrayOf(d.notes).indexOf("session_missing") >= 0) page.notes.push(COPY.startupPageSessionMissing);
 
     var failed = startupBlockOf(d.failed);
     if (failed !== null) {
@@ -1634,7 +1642,7 @@ function startupPageOf(text, nowMs) {
             .concat(startupObjectsOf(changed.removed).filter(named).map(line("No longer starts: ")));
         if (page.changed.length > 0)
             page.changedTitle = COPY.startupPageChanged
-                + (startupLocalOf(changed.since) !== null ? " (" + startupDayOf(changed.since, nowMs, false) + ")" : "");
+                + (startupLocalOf(changed.since) !== null ? " (" + startupWhenOf(changed.since, nowMs) + ")" : "");
     }
 
     var starts = startupObjectsOf(d.starts).filter(function (e) { return typeof e.unit === "string"; });

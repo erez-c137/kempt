@@ -380,12 +380,12 @@ UTC ISO 8601. Strings are raw; the text view prints control characters as spaces
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `schema`, `boot_id`, `generated_at` | 1, string, string | Always present |
-| `notes` | array | Always present. `session_slow`: the session timed out and its part is missing |
+| `notes` | array | Always present. `session_slow`: the session timed out and its part is missing. `session_missing`: the session failed at once (no session bus) |
 | `failed` | object | `units`: each `{scope, unit, description, state, result, log, status_command}`. `log` is the unit's own last warning, else its own last line, else systemd's last line about it, or `null`. `status_command` is `systemctl [--user] status <unit>`, single quoted unless the name is plain. `journal_denied`: a system unit failed and the system journal is not readable. `journal_available`: false without journalctl |
 | `changed` | object | `since` (the baseline's time), `added` and `removed`: `{scope, unit, description}` services and timers enabled or no longer enabled since the newest history entry's `failed_before.enabled`. `description` is the one `starts` or `schedule` gives the unit, else its name |
 | `starts` | array | `{scope, kind, unit, description, package, skipped}`. `kind`: `service`, `autostart` (systemd's `app-*@autostart.service`), `rc-local` or `script` (`~/.config/autostart-scripts`). `package` is `null` when no package owns the file. `skipped`: its condition failed this boot |
-| `schedule` | object | `timers`: `{scope, unit, activates, description, last, next, result}`, `result` being the started service's. `cron`: `{source, schedule, user, command, last}`, `source` being `crontab`, `/etc/crontab`, `/etc/cron.d/<file>`, `cron.<period>` or `anacron`. `at`: `{id, when}`. `notes`: `crond_down`, `linger_off` |
-| `boot_time` | object | `ready_sec` (default target, or `null`) and `userspace_sec` count from userspace's start, `total_sec` from power on (or `null`). `usual`: `{ready_sec, userspace_sec, boots}`, medians of up to 10 earlier boots, `null` under 3. `slowest`: `{unit, description, sec}` or `null`. `recent`: up to 5 earlier boots, newest first |
+| `schedule` | object | `timers`: `{scope, unit, activates, description, last, next, result}`, `result` being the started service's, `null` before the first run. `cron`: `{source, schedule, user, command, last}`, `source` being `crontab`, `/etc/crontab`, `/etc/cron.d/<file>`, `cron.<period>` or `anacron`. `at`: `{id, when}`. `notes`: `crond_down`, `linger_off` |
+| `boot_time` | object | `ready_sec` (default target, or `null`) and `userspace_sec` count from userspace's start, `total_sec` from power on (or `null`). `usual`: `{ready_sec, userspace_sec, boots}`, medians of up to 10 earlier boots to 0.1 s, `null` under 3. `slowest`: `{unit, description, sec}` or `null`; a device's `description` is `waiting for <kernel name>`. `recent`: up to 5 earlier boots, newest first |
 
 ## The offline transaction, end to end
 
