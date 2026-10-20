@@ -414,6 +414,8 @@ plain_in=(
   "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
   "hold dnf:kernel-core" "unhold dnf:kernel-core"
   "security notified count=3" "security check failed" "run start surface=bogus"
+  "startup failed after the update: bluetooth.service" "startup failed after the last restart: a.service, b.service"
+  "startup recovered: bluetooth.service" "startup muted system:cups.service" "startup unmuted user:foo.service"
   "offline staged 4 (NOT recorded: the state directory could not be written)"
   "offline stage recorded without its package baseline - the restart result will not be reported"
   "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"

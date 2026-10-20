@@ -141,7 +141,7 @@ Six files in the state directory are `flock` targets:
 | `lock` | Runs | |
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
-| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_security` on | Each rewrites a whole file. `kempt security-ack` takes it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
+| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_security` or `notify_startup` on | Each rewrites a whole file. `kempt security-ack` and `kempt startup` take it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
 | `state.lock` | Each write to `state.json`, a run's read and write of `offline_staged`, and `kempt security-ack`'s read and patch | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
 | `events.lock` | Appends to `events.log` and its trim | Held for milliseconds. After 5 seconds the line is appended and the trim waits. |
 
@@ -217,6 +217,7 @@ cope with that.
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
 | `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason, `"off"` whenever `KEMPT_SKIP_REFRESH` turns fetching off. Absent otherwise. Additive. |
 | `security` | object, optional | Only while `notify_security` is on and dnf listed the security advisories. `count` and `packages`: the non-held dnf items with one. `advisories`: their IDs, at most 200. `attention`: a set the widget has not shown yet, with nothing staged and no update running. `digest`: 16 hex characters naming the set, `""` when empty. The widget acknowledges a set with `kempt security-ack --expect=<digest>`, which exits 6 when the set has changed. Additive. |
+| `startup` | object, optional | Only while `notify_startup` is on and systemd answered. `announced`: units failing since a Kempt update, each `{unit, scope, description, since}`, `scope` being `system` or `user`. `already`: failing at the baseline. `recovered`: announced units that start again. `muted`: from `startup-mutes`. `attribution`: `update`, or `restart` when dnf's newest transaction is not Kempt's. `recovered_digest`: 16 hex characters, `""` when none. `kempt startup ack --expect=<digest>` clears `recovered` (exit 6 when it changed). The state lives in `startup.json`, and mutes in `startup-mutes` (`scope:unit` lines). Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
@@ -362,6 +363,7 @@ tolerate absence.
 | `backends.<name>.status` | string | The backend's outcome. |
 | `backends.<name>.skipped_held` | array of strings | Held names the run left out. |
 | `transaction_id` | number, optional | On a live run or a harvest, when dnf5's history named the transaction. |
+| `failed_before` | object, optional | What systemd said at the run's start, with `notify_startup` on: `boot_id`, `at`, `system` and `user` (the failed units as `{unit, description}`, transient ones left out), and `enabled` (the enabled unit files per scope). A scope that did not answer is absent. A stage keeps it in its marker, and a harvest copies it. |
 | `staged` | number, optional | On a staging run that staged updates: how many. Never 0. |
 | `stage_blocked` | `true`, optional | On a staging run whose stage worked while another updater held `/system-update`, so it does not install at the next restart. |
 | `staged_nothing` | string, optional | On a staging run that staged nothing: `"held"` or `"nothing_pending"`. The widget treats any other value as an ordinary stage. |
@@ -413,6 +415,7 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 | `staged_at`, `boot_id` | When, and in which boot session. |
 | `staged` | How many updates, published as `count`. |
 | `pre_snapshot` | The snapshot copy of the package set it was staged against. |
+| `failed_before` | The services baseline, as in the history entry. A live run that rebases the stage replaces it too. |
 | `staged_names` | What the transaction installs. Absent when unknown: `[]` would claim it installs nothing. |
 | `staged_names_source` | `transaction`, `check` or `none`. A list from a check may confirm a hold conflict but never deny one, because a check cannot see resolver-added packages. |
 | `staged_excluded` | The held packages left out. |
@@ -878,10 +881,10 @@ missing path, unless the row says otherwise.
 | `KEMPT_RECLAIM_PKCHECK_TIMEOUT` | `10` | Seconds that question may take. No answer in time is a no. A value outside 1 to 10 is 10, since the widget's wait is sized on it |
 | `KEMPT_GETENT_CMD` | `getent passwd` | Counts local login accounts, under a 5-second limit. More than one, or a failed lookup, makes `reclaim=automatic` act as `ask`. Stubbed |
 | `KEMPT_NSSWITCH_FILE`, `KEMPT_HOME_ROOTS` | `/etc/nsswitch.conf`, `/home /var/home` | The other two account signals: a network source (`sss`, `ldap`, `winbind`, `nis`) on the `passwd` line, and Flatpak data in more than one home. Either makes `reclaim=automatic` act as `ask`. Stubbed |
-| `KEMPT_SSSD_DIR`, `KEMPT_SMB_CONF`, `KEMPT_SYSTEMCTL_CMD` | `/etc/sssd`, `/etc/samba/smb.conf`, `systemctl` | Whether `sss` or `winbind` on that line counts. `sss` counts with an sssd `[domain/...]` section. If `/etc/sssd` is unreadable, it counts unless systemd says sssd is down and found no config. `winbind` counts with `security = ads` or `domain`. Any unreadable config counts. `ldap` and `nis` count from the line alone. Stubbed |
+| `KEMPT_SSSD_DIR`, `KEMPT_SMB_CONF`, `KEMPT_SYSTEMCTL_CMD` | `/etc/sssd`, `/etc/samba/smb.conf`, `systemctl` | Whether `sss` or `winbind` on that line counts. `sss` counts with an sssd `[domain/...]` section. If `/etc/sssd` is unreadable, it counts unless systemd says sssd is down and found no config. `winbind` counts with `security = ads` or `domain`. Any unreadable config counts. `ldap` and `nis` count from the line alone. `KEMPT_SYSTEMCTL_CMD` also answers `notify_startup`'s read-only queries, under `timeout 5`. Stubbed |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_GETFACL` | `getfacl` | Doctor's ACL scan of the dnf folders |
-| `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session |
+| `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session, which the harvest and `notify_startup` compare |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
 | `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to that, `cli` otherwise. Read only by `log_event` |
 | `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |

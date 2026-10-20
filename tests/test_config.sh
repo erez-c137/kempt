@@ -78,6 +78,14 @@ config_set notify_security on
 assert_eq "$(is_true "$(config_get notify_security)" && echo on || echo off)" "off" "...and a value that is not a boolean reads as off"
 config_set notify_security false
 
+# --- notify_startup: on unless turned off ---------------------------------------------------------
+assert_eq "$(kempt_default notify_startup)" "true" "the defaults table knows notify_startup, and it is on"
+assert_contains " $KEMPT_CONFIG_KEYS " " notify_startup " "...and it is a known setting"
+assert_eq "$(config_get notify_startup)" "true" "an untouched notify_startup reads as true"
+config_set notify_startup false
+assert_eq "$(is_true "$(config_get notify_startup)" && echo on || echo off)" "off" "turning it off round-trips"
+config_set notify_startup true
+
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
 # ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
 # anything that is not exactly `automatic` must never remove without asking, so an unknown value

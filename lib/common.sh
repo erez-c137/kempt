@@ -132,6 +132,12 @@ SECURITY_QUERY_TIMEOUT=15
 # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
 SECURITY_LOCK_WAIT=5
 SECURITY_NOTIFY_TIMEOUT=5
+# Whether everything that started before an update still starts after it (notify_startup).
+# startup.json is what the last check compared and announced; startup-mutes holds one
+# `scope:unit` per line, like holds, and recovery clears a unit's line. Both are written under the
+# writers' lock.
+STARTUP_FILE="$KEMPT_STATE_DIR/startup.json"
+STARTUP_MUTES_FILE="$KEMPT_STATE_DIR/startup-mutes"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -295,6 +301,11 @@ event_plain() {  # event text → EVENT_PLAIN
         EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
       fi ;;
     "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
+    "startup failed after the "*": "*) rest="${t#startup failed after the }"
+      EVENT_PLAIN="Didn't start after the ${rest%%: *}: ${rest#*: }" ;;
+    "startup recovered: "*) EVENT_PLAIN="Starting again: ${t#startup recovered: }" ;;
+    "startup muted "*:*) EVENT_PLAIN="Stopped mentioning ${t#startup muted *:} until it starts" ;;
+    "startup unmuted "*:*) EVENT_PLAIN="Mentioning ${t#startup unmuted *:} again" ;;
     "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
     "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
     "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
@@ -516,7 +527,7 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
@@ -597,6 +608,9 @@ kempt_default() {  # key → default ("" if unknown)
     # A desktop notification when pending system updates fix a security advisory. Off unless asked
     # for: the query costs a second per check, and a notification nobody asked for is noise.
     notify_security) echo false ;;
+    # A notification when a service that started before an update no longer starts after it. On:
+    # it costs two systemctl queries per check, and Kempt only looks.
+    notify_startup) echo true ;;
     *) echo "" ;;
   esac
 }
@@ -1679,6 +1693,283 @@ security_notice() {  # stdin: one package name per line → the body
   else
     printf 'Security updates are waiting for %s.\n' "$(names_phrase <<<"$names")"
   fi
+}
+
+# --- did everything come back after the update? (notify_startup) ---
+# Kempt only looks: every call below is a read-only systemctl query, as the user, through the seam
+# and under `timeout 5`. A scope that does not answer (no session bus from a timer, no systemd in a
+# container) is left out rather than read as "nothing failed".
+startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
+
+startup_systemctl() {  # system|user args...
+  local scope=()
+  [[ "$1" == user ]] && scope=(--user)
+  shift
+  # shellcheck disable=SC2086  # the seam carries its own arguments
+  timeout 5 $KEMPT_SYSTEMCTL_CMD ${scope[@]+"${scope[@]}"} "$@" </dev/null 2>/dev/null 9>&-
+}
+
+# The units failing now in one scope, as [{unit, description}]; rc 1 when systemd did not answer.
+# Transient units and run-* leftovers are skipped: systemd-run made them, Kempt's own helpers
+# included, and nobody set them up to start. `show` names the transient ones and gives the
+# description; when it fails, the list's own description stands.
+startup_failed() {  # system|user
+  local list show="" names=()
+  list="$(startup_systemctl "$1" --failed --output=json)" || return 1
+  jq -e 'type == "array"' <<<"$list" >/dev/null 2>&1 || return 1
+  mapfile -t names < <(jq -r '.[] | objects | .unit | strings | select(startswith("run-") | not)' <<<"$list")
+  if [[ ${#names[@]} -gt 0 ]]; then
+    show="$(startup_systemctl "$1" show -p Id -p Description -p Transient -- "${names[@]}")" || show=""
+  fi
+  jq -c --arg show "$show" '
+    ([$show | split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
+      | from_entries | select(.Id != null) | {(.Id): .}] | add // {}) as $s
+    | [.[] | objects | select((.unit | type) == "string") | .unit as $u
+       | select(($u | startswith("run-") | not) and ($s[$u].Transient // "no") != "yes")
+       | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list"
+}
+
+startup_enabled() {  # system|user → the enabled unit files, sorted; rc 1 when systemd did not answer
+  local list
+  list="$(startup_systemctl "$1" list-unit-files --state=enabled --output=json)" || return 1
+  jq -c 'if type == "array" then [.[] | objects | .unit_file | strings] | sort else error("shape") end' <<<"$list" 2>/dev/null
+}
+
+# What a run records at its start, as `failed_before` in its history entry and its stage marker:
+# the failed units of each scope that answered, and the enabled units of each. Nothing with the
+# setting off or with neither scope answering, and the entry then looks as it did before.
+startup_baseline() {
+  startup_on || return 0
+  local sys usr esys eusr
+  sys="$(startup_failed system)" || sys=null
+  usr="$(startup_failed user)" || usr=null
+  [[ "$sys" != null || "$usr" != null ]] || return 0
+  esys="$(startup_enabled system)" || esys=null
+  eusr="$(startup_enabled user)" || eusr=null
+  jq -cn --arg boot "$(current_boot_id)" --arg at "$(now_iso)" --argjson s "$sys" --argjson u "$usr" \
+         --argjson es "${esys:-null}" --argjson eu "${eusr:-null}" '
+    {boot_id: $boot, at: $at}
+    + (if $s == null then {} else {system: $s} end) + (if $u == null then {} else {user: $u} end)
+    + {enabled: ((if $es == null then {} else {system: $es} end) + (if $eu == null then {} else {user: $eu} end))}'
+}
+
+startup_read() {  # → startup.json as one line, or {"schema":1}
+  local s
+  s="$(jq -c -n '[inputs][0] | select(type == "object")' "$STARTUP_FILE" 2>/dev/null)" || s=""
+  printf '%s\n' "${s:-{\"schema\":1\}}"
+}
+
+startup_mutes_json() {  # → ["scope:unit", ...]
+  local m
+  [[ -f "$STARTUP_MUTES_FILE" ]] \
+    && m="$(jq -cRn '[inputs | select(test("^(system|user):[^:]"))] | unique' 2>/dev/null < "$STARTUP_MUTES_FILE")" || m=""
+  printf '%s\n' "${m:-[]}"
+}
+
+startup_hist_names() {  # → the history entries' file names, oldest first
+  local f
+  for f in "$HIST_DIR"/*.json; do [[ -f "$f" ]] && printf '%s\n' "${f##*/}"; done | LC_ALL=C sort
+}
+
+# The newest 50 history entries that carry a baseline, as one array, oldest first. A damaged
+# entry is skipped.
+startup_runs() {
+  local f
+  {
+    while IFS= read -r f; do
+      jq -c --arg file "${f%.json}" '
+        select(type == "object" and (.failed_before | type) == "object")
+        | {file: $file, timestamp, surface: (.surface // ""), txid: .transaction_id,
+           boot: .failed_before.boot_id, at: (.failed_before.at // ""), base: .failed_before,
+           dnf_changed: ([.backends.dnf.updated, .backends.dnf.added, .backends.dnf.removed]
+                         | map(length? // 0) | add > 0)}' "$HIST_DIR/$f" 2>/dev/null || true
+    done < <(startup_hist_names | tail -n 50)
+  } | jq -cs '.'
+}
+
+startup_kind() {  # system|user → the body's words for it
+  if [[ "$1" == user ]]; then printf 'A service in your session'; else printf 'A system service'; fi
+}
+
+startup_digest() {  # stdin: startup.json → the recovered set's digest, or nothing
+  jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | security_digest
+}
+
+# The check's step, right after harvest_offline. Every check asks systemd what is failing now, to
+# keep announced units current and to notice recovery. Only two moments compare against a
+# baseline and may announce: the first check of a new boot, against the EARLIEST run since the
+# previous boot began (a failure the first of two runs caused sits in the second run's baseline as
+# already failing), and the first check after a live run that changed packages, which is that run's
+# own closing check. With no Kempt run since the last boot, nothing is compared or said.
+# STARTUP_SEEN tells cmd_check that systemd answered, so the startup block is published.
+startup_observe() {
+  STARTUP_SEEN=""
+  startup_on || return 0
+  local sys usr
+  sys="$(startup_failed system)" || sys=null
+  usr="$(startup_failed user)" || usr=null
+  [[ "$sys" != null || "$usr" != null ]] || return 0
+  # shellcheck disable=SC2034  # read by cmd_check
+  STARTUP_SEEN=1
+  local cur st prev last newest window='[]' base=null ref=null att=restart
+  cur="$(current_boot_id)"
+  st="$(startup_read)"
+  prev="$(jq -r '.boot_id // ""' <<<"$st")"
+  last="$(jq -r '.last_run // ""' <<<"$st")"
+  newest="$(startup_hist_names | tail -n 1)" || newest=""
+  newest="${newest%.json}"
+  # The history is read only when the boot changed or a run arrived since the last look.
+  if [[ "$prev" != "$cur" || "$newest" != "$last" ]]; then
+    window="$(startup_runs | jq -c --arg prev "$prev" --arg cur "$cur" --arg last "$last" '
+      def live: (.surface | test("^(offline|restart)") | not) and .dnf_changed;
+      [.[] | select(.boot == $cur and live)] as $here
+      | if $prev != $cur and $prev != "" then [.[] | select(.boot == $prev)] + $here
+        elif any($here[]; .file > $last) then $here
+        else [] end
+      | sort_by(.at, .file)' 2>/dev/null)" || window='[]'
+  fi
+  if [[ "$(jq -r 'length' <<<"$window" 2>/dev/null)" =~ ^[1-9] ]]; then
+    base="$(jq -c '.[0].base' <<<"$window")"
+    # "After the update" only while one of these runs' transactions is still dnf's newest.
+    local max=""
+    max="$(dnf_history_max_id 2>/dev/null)" || max=""
+    ref="$(jq -c --arg max "$max" '
+      ([.[] | .txid | numbers] | map(tostring)) as $tx
+      | {run: .[0].timestamp,
+         transaction_id: ((if ($max != "" and ($tx | index($max)) != null) then $max else ($tx | last) end)
+                          | if . == null then null else tonumber end)}' <<<"$window")" || ref=null
+    if [[ -n "$max" ]] && jq -e --arg max "$max" 'any(.[]; (.txid | tostring) == $max)' <<<"$window" >/dev/null 2>&1; then
+      att=update
+    fi
+  fi
+  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  local out mutes
+  st="$(startup_read)"
+  mutes="$(startup_mutes_json)"
+  out="$(jq -c -n --argjson sys "$sys" --argjson usr "$usr" --argjson base "${base:-null}" --argjson st "$st" \
+           --argjson mutes "$mutes" --arg ts "$(now_iso)" --arg cur "$cur" --arg newest "$newest" \
+           --argjson ref "${ref:-null}" --arg att "$att" '
+    def key: .scope + ":" + .unit;
+    def recs($m): [("system", "user") as $s | ($m[$s] // empty) | .[] | {unit, scope: $s, description}];
+    def scopes($m): [("system", "user") as $s | select($m[$s] != null) | $s];
+    def good: (.description // "") as $d | $d != "" and $d != .unit;
+    def named($d): . + {description: ($d[key] // .description // .unit)};
+    def has_key($ks): key as $k | any($ks[]; . == $k);
+    {system: $sys, user: $usr} as $now
+    | recs($now) as $nowr | scopes($now) as $read | ($nowr | map(key)) as $nowk
+    | (if $base == null then [] else recs($base) end) as $baser
+    | (if $base == null then [] else scopes($base) end) as $bread
+    | ($baser | map(key)) as $basek
+    | ($st.boot_id != $cur) as $newboot
+    | ($st.announced // []) as $pa
+    | (reduce ($pa + ($st.already // []) + ($st.recovered // []) + $baser + $nowr)[] as $r
+         ($st.descriptions // {};
+          if ($r | good) and (has($r | key) | not) then .[$r | key] = $r.description else . end)) as $d
+    | [$pa[] | select(((.scope | IN($read[])) | not) or has_key($nowk))] as $still
+    | [$pa[] | select((.scope | IN($read[])) and (has_key($nowk) | not))] as $gone
+    | ($still | map(key)) as $stillk
+    | (if $base == null then []
+       else [$nowr[] | select((.scope | IN($bread[])) and (has_key($basek) | not)
+                              and (has_key($stillk) | not) and (has_key($mutes) | not))] end) as $new
+    | (if $base == null
+       then [($st.already // [])[] | select(((.scope | IN($read[])) | not) or has_key($nowk))]
+       else [$nowr[] | select((.scope | IN($bread[])) and has_key($basek) and (has_key($stillk) | not))] end) as $already
+    | ([(if $newboot then empty else ($st.recovered // [])[] end), $gone[]]
+       | map(select(has_key($nowk) | not)) | unique_by(key)) as $rec
+    | ([$still[], ($new[] | . + {since: $ts})] | map(named($d))) as $ann
+    | (($ann + $already + $rec + $nowr) | map(key)) as $keep
+    | {state: ({schema: 1, boot_id: $cur, last_run: $newest,
+                baseline: (if $base == null then ($st.baseline // null) else $ref end),
+                attribution: (if $base == null then ($st.attribution // "restart") else $att end),
+                announced: $ann,
+                already: [$already[] | named($d) | {unit, scope, description}],
+                recovered: [$rec[] | named($d) | {unit, scope, description}],
+                descriptions: ($d | with_entries(select(.key as $k | any(($keep + $mutes)[]; . == $k))))}),
+       new: [$new[] | named($d)], gone: [$gone[] | named($d)]}' 2>/dev/null)" || out=""
+  if [[ "$out" != \{* ]]; then writer_unlock; return 0; fi
+  local new_st
+  new_st="$(jq -c '.state' <<<"$out")"
+  [[ "$new_st" == "$st" ]] || printf '%s\n' "$new_st" | atomic_write "$STARTUP_FILE" 2>/dev/null || true
+  # Recovery ends a mute: "until it starts" has happened.
+  local gone_keys
+  gone_keys="$(jq -r '.gone[] | .scope + ":" + .unit' <<<"$out")"
+  if [[ -n "$gone_keys" && -s "$STARTUP_MUTES_FILE" ]]; then
+    grep -vxF -f <(printf '%s\n' "$gone_keys") "$STARTUP_MUTES_FILE" | atomic_write "$STARTUP_MUTES_FILE" 2>/dev/null || true
+  fi
+  writer_unlock
+  startup_announce "$(jq -c '.new' <<<"$out")" "$(jq -r '.state.attribution' <<<"$out")" \
+                   "$(jq -c '.gone' <<<"$out")"
+}
+
+# One notification per new failure set and one per recovered set, and an event line for each.
+startup_announce() {  # new-json attribution gone-json
+  local n when units title body
+  when="update"; [[ "$2" == update ]] || when="last restart"
+  n="$(jq -r 'length' <<<"$1" 2>/dev/null)" || n=0
+  if [[ "$n" -ge 1 ]]; then
+    units="$(jq -r '[.[].unit] | join(", ")' <<<"$1")"
+    if [[ "$n" -eq 1 ]]; then
+      title="$(jq -r '.[0].description' <<<"$1") didn't start after the $when."
+      body="It stopped with an error. $(startup_kind "$(jq -r '.[0].scope' <<<"$1")") ($(jq -r '.[0].unit' <<<"$1"))."
+    else
+      title="$n services didn't start after the $when."
+      body="They stopped with an error: $(jq -r '.[].description' <<<"$1" | names_phrase)."
+    fi
+    notify "$title" "$body"
+    log_event "startup failed after the $when: $units"
+  fi
+  n="$(jq -r 'length' <<<"$3" 2>/dev/null)" || n=0
+  if [[ "$n" -ge 1 ]]; then
+    units="$(jq -r '[.[].unit] | join(", ")' <<<"$3")"
+    if [[ "$n" -eq 1 ]]; then
+      title="$(jq -r '.[0].description' <<<"$3") is starting again."
+      body="$(startup_kind "$(jq -r '.[0].scope' <<<"$3")") ($(jq -r '.[0].unit' <<<"$3"))."
+    else
+      title="$n services are starting again."
+      body="$(jq -r '.[].description' <<<"$3" | names_phrase)."
+    fi
+    notify "$title" "$body"
+    log_event "startup recovered: $units"
+  fi
+  return 0
+}
+
+# state.json's `startup` block, from startup.json and the mutes. Muted units leave announced and
+# already, and are listed with their description.
+startup_block() {
+  local st mutes block digest
+  st="$(startup_read)"
+  mutes="$(startup_mutes_json)"
+  digest="$(startup_digest <<<"$st")"
+  block="$(jq -c --argjson m "$mutes" --argjson notify "$(startup_on && echo true || echo false)" \
+              --arg digest "$digest" '
+    def key: .scope + ":" + .unit;
+    def unmuted: key as $k | all($m[]; . != $k);
+    (.descriptions // {}) as $d
+    | {notify: $notify, attribution: (.attribution // "restart"),
+       announced: [(.announced // [])[] | select(unmuted) | {unit, scope, description, since}],
+       already: [(.already // [])[] | select(unmuted) | {unit, scope, description}],
+       recovered: [(.recovered // [])[] | {unit, scope, description}],
+       muted: [$m[] | index(":") as $i | {unit: .[$i + 1:], scope: .[:$i]} | . + {description: ($d[key] // .unit)}],
+       recovered_digest: $digest}' <<<"$st" 2>/dev/null)" || return 1
+  printf '%s\n' "$block"
+}
+
+# Rewrites state.json's startup block after a mute, an unmute or an acknowledgement, under
+# state.lock, as cmd_security_ack patches its own. The caller holds the writers' lock. A state with
+# no block (setting off, systemd not answering) is left alone.
+startup_patch_state() {
+  local state block patched lfd rc=0
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
+  if [[ -n "$state" ]] && jq -e 'has("startup")' <<<"$state" >/dev/null 2>&1 \
+     && block="$(startup_block)" && patched="$(jq -c --argjson b "$block" '.startup = $b' <<<"$state")"; then
+    _KEMPT_STATE_LOCK_HELD=1
+    printf '%s\n' "$patched" | write_state || rc=1
+    _KEMPT_STATE_LOCK_HELD=""
+  fi
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return "$rc"
 }
 
 # --- passwordless polkit rule rendering ---
