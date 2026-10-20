@@ -102,8 +102,10 @@ PlasmaExtras.Representation {
     // from whatever holds focus UP the parent chain: one handler here catches Escape from the
     // buttons, the padlocks and the message actions alike. Accepted, so a host that would also act
     // on it does not get a second go.
+    // On the Startup page it goes back to the updates first, as a second page's Back does.
     Keys.onEscapePressed: event => {
-        popup.closeRequested();
+        if (popup.startupOpen) popup.closeStartup();
+        else popup.closeRequested();
         event.accepted = true;
     }
 
@@ -142,7 +144,8 @@ PlasmaExtras.Representation {
     // Qt.TabFocusReason is the difference between focus and VISIBLE focus: a QQC2 control draws
     // its ring on `visualFocus`, which only the keyboard reasons set.
     function focusPrimary() {
-        if (canTakeFocus(updateButton)) updateButton.forceActiveFocus(Qt.TabFocusReason);
+        if (popup.startupOpen && startupPage.visible) startupPage.focusFirst();
+        else if (canTakeFocus(updateButton)) updateButton.forceActiveFocus(Qt.TabFocusReason);
         else if (canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
         else if (canTakeFocus(configureButton)) configureButton.forceActiveFocus(Qt.TabFocusReason);
         else popup.forceActiveFocus(Qt.TabFocusReason);
@@ -201,6 +204,40 @@ PlasmaExtras.Representation {
             if (popup.canTakeFocus(rowsView)) rowsView.forceActiveFocus(Qt.TabFocusReason);
             else popup.focusPrimary();
         });
+    }
+
+    // --- the Startup page ----------------------------------------------------------------------
+    // A second page in place of the update list, behind the header's Startup button, offered only
+    // while startup_page is on. Opening it gathers (main.qml, gatherStartupPage); nothing else
+    // does. It closes with Back, Escape, the button again, the setting going off, or the popup
+    // closing, so the next open starts on the updates.
+    property bool startupOpen: false
+
+    function openStartup() {
+        if (!popup.plasmoidItem.startupPageOn) return;
+        popup.startupOpen = true;
+        popup.plasmoidItem.gatherStartupPage();
+        Qt.callLater(function () { if (popup.startupOpen) startupPage.focusFirst(); });
+    }
+
+    function closeStartup() {
+        if (!popup.startupOpen) return;
+        popup.startupOpen = false;
+        Qt.callLater(function () {
+            if (popup.canTakeFocus(startupButton)) startupButton.forceActiveFocus(Qt.TabFocusReason);
+            else popup.focusPrimary();
+        });
+    }
+
+    Connections {
+        target: popup.plasmoidItem
+        ignoreUnknownSignals: true
+        function onPopupOnScreenChanged() {
+            if (!popup.plasmoidItem.popupOnScreen) popup.startupOpen = false;
+        }
+        function onStartupPageOnChanged() {
+            if (!popup.plasmoidItem.startupPageOn) popup.closeStartup();
+        }
     }
 
     // --- what the popup says out loud ---------------------------------------------------------
@@ -460,6 +497,32 @@ PlasmaExtras.Representation {
                 elide: Text.ElideRight
             }
 
+            // The Startup page, when startup_page is on. Checked while the page is showing, so the
+            // same press goes back.
+            PlasmaComponents.ToolButton {
+                id: startupButton
+                visible: popup.plasmoidItem.startupPageOn === true
+                icon.name: "preferences-system-startup"
+                display: PlasmaComponents.AbstractButton.IconOnly
+                text: i18n("Startup")
+                checkable: true
+                checked: popup.startupOpen
+                Accessible.name: text
+                Accessible.description: i18n("What starts with the computer and what runs on a schedule.")
+                PlasmaComponents.ToolTip.text: text
+                PlasmaComponents.ToolTip.visible: hovered || visualFocus
+                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                Keys.onReturnPressed: animateClick()
+                Keys.onEnterPressed: animateClick()
+                // `checked` is put back to the binding's answer: a checkable button flips itself
+                // on a press, and that would cut the binding.
+                onClicked: {
+                    if (popup.startupOpen) popup.closeStartup();
+                    else popup.openStartup();
+                    checked = Qt.binding(function () { return popup.startupOpen; });
+                }
+            }
+
             // Refresh, in Bluetooth's Header.qml shape, and hidden in the
             // tray for the same reason Bluetooth hides its own: Plasma 6.7 renders a SINGLE
             // contextual action as an ICON in the heading it draws, beside the pin and the gear,
@@ -575,8 +638,9 @@ PlasmaExtras.Representation {
         anchors.leftMargin: popup.edgeInset
         anchors.rightMargin: popup.edgeInset
         spacing: Kirigami.Units.smallSpacing
-        // A run of ours replaces this whole pane with the log tail below.
-        visible: !popup.plasmoidItem.updating
+        // A run of ours replaces this whole pane with the log tail below, and the Startup page
+        // replaces it while open.
+        visible: !popup.plasmoidItem.updating && !popup.startupOpen
 
         // --- the message stack -------------------------------------------------------------------
         // Kirigami.InlineMessage each, with their own `actions:` list rather than a hand-rolled
@@ -1728,6 +1792,17 @@ PlasmaExtras.Representation {
                 }
             }
         }
+    }
+
+    StartupPage {
+        id: startupPage
+        anchors.fill: parent
+        anchors.leftMargin: popup.edgeInset
+        anchors.rightMargin: popup.edgeInset
+        plasmoidItem: popup.plasmoidItem
+        visible: popup.startupOpen && !popup.plasmoidItem.updating
+        onBackRequested: popup.closeStartup()
+        onCopyRequested: text => popup.copyToClipboard(text)
     }
 
     // --- the updating state ----------------------------------------------------------------------

@@ -142,6 +142,7 @@ KCM.SimpleKCM {
         setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
         setIfChanged("notify_security", notifySecurity.checked ? "true" : "false");
         setIfChanged("notify_startup", notifyStartup.checked ? "true" : "false");
+        setIfChanged("startup_page", startupPage.checked ? "true" : "false");
         setIfChanged("reclaim", page.reclaimKey);
         finishWrite();      // release the sentinel
     }
@@ -428,6 +429,14 @@ KCM.SimpleKCM {
                 return;
             }
             notifyStartup.checked = Logic.isTrue(v);
+        });
+        // Newer still, so the same guard.
+        readKey("startup_page", function (v) {
+            if (v === "") {
+                page.readFailed["startup_page"] = true;
+                return;
+            }
+            startupPage.checked = Logic.isTrue(v);
         });
         // Newer than `kempt config` too, so the same guard: an older CLI answers "" for a key it
         // does not know, and that is unknown, not ask.
@@ -750,6 +759,24 @@ KCM.SimpleKCM {
         QQC2.Label {
             id: notifyStartupNote
             text: i18n("Kempt only looks. It never turns anything on or off, and the update count never includes this.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
+        // startup_page: off by default. It only adds the header's Startup button; the page reads.
+        QQC2.CheckBox {
+            id: startupPage
+            text: i18n("Show a Startup page")
+            checked: false
+            enabled: !page.loading
+            onToggled: page.markChanged("startup_page")
+        }
+
+        QQC2.Label {
+            id: startupPageNote
+            text: i18n("Lists what starts with the computer and what runs on a schedule. It reads the system journal when you are allowed to.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8

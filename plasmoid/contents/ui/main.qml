@@ -718,7 +718,7 @@ PlasmoidItem {
             if (root.updating) {
                 if (delta.config) {
                     root.readInterval(); root.readSurface(); root.readIconSize();
-                    root.readRestartReminder();
+                    root.readRestartReminder(); root.readStartupPage();
                 }
                 return;
             }
@@ -729,6 +729,7 @@ PlasmoidItem {
             root.readSurface();
             root.readIconSize();
             root.readRestartReminder();
+            root.readStartupPage();
 
             // ...and the check itself, unless this change is still the wake of the last one.
             // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
@@ -810,6 +811,32 @@ PlasmoidItem {
         executor.run(kemptCmd + " config get restart_reminder", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
             if (rc === 0 && v !== "") root.restartReminder = Logic.isTrue(v);
+        });
+    }
+
+    // Whether the header offers the Startup page. Same rule as readSurface; off is the CLI's default.
+    function readStartupPage() {
+        executor.run(kemptCmd + " config get startup_page", 10000, function(stdout, stderr, rc) {
+            var v = Logic.firstLineOf(stdout);
+            if (rc === 0 && v !== "") root.startupPageOn = Logic.isTrue(v);
+        });
+    }
+
+    // --- the Startup page ---------------------------------------------------------------------
+    // Gathered when the page opens and on its own Refresh, and by nothing else: the journal and
+    // crontab reads are the costly part, and nobody needs them unless looking. What comes back is
+    // Logic.startupPageOutcomeOf's: the page, or a problem to show in its place.
+    property bool startupPageOn: false
+    property var startupPage: null
+    property bool startupPageBusy: false
+
+    function gatherStartupPage() {
+        if (startupPageBusy) return;
+        startupPageBusy = true;
+        startupExecutor.run(kemptCmd + Logic.STARTUP_PAGE_ARGS, Logic.STARTUP_PAGE_TIMEOUT_MS,
+                            function(stdout, stderr, rc) {
+            root.startupPage = Logic.startupPageOutcomeOf(stdout, stderr, rc, Date.now());
+            root.startupPageBusy = false;
         });
     }
 
@@ -1416,6 +1443,10 @@ PlasmoidItem {
     // run tails its log every two seconds, which is the same bug in miniature.
     Executor { id: promptExecutor }
 
+    // ...and a FOURTH, for the Startup page: on the shared queue its gather would wait behind a
+    // check that may take minutes, with the page's spinner turning all that time.
+    Executor { id: startupExecutor }
+
     Timer {
         id: checkTimer
         // Clamped at BOTH ends, because this number comes from a text file a human can edit. A 0
@@ -1703,6 +1734,7 @@ PlasmoidItem {
         readSurface();
         readIconSize();
         readRestartReminder();
+        readStartupPage();
         // Before any run happens in this session, so the popup's Last update row has something
         // true to say the first time it is opened.
         loadLastRun();

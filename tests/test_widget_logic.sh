@@ -1247,6 +1247,113 @@ assert_eq "$(js '[L.COPY.startupSetting, L.COPY.startupSettingNote, L.COPY.start
   "Tell me when something stops starting after an update|Kempt only looks. It never turns anything on or off, and the update count never includes this.|Stop Muting %1" \
   "the setting, its note, and the settings button"
 
+# --- the Startup page: `kempt startup --all --json`, as the page draws it ---------------------------
+# Times are UTC in the JSON and local on the page, worded as the CLI words them. Tokyo has no
+# summer time, so these hold all year; noon on 20 Oct there is 03:00 UTC.
+SP_NOW='Date.parse("2026-10-20T03:00:00Z")'
+spjs() { TZ=Asia/Tokyo js "$1"; }
+sp() {  # JSON object literal, expression over the page `p`
+  spjs "var p = L.startupPageOf(JSON.stringify($1), $SP_NOW); p.$2"
+}
+SP_FAILED='{scope:"user", unit:"app-imsettings\\x2dstart@autostart.service", description:"imsettings-start", state:"failed", result:"exit-code", log:"Current desktop is not supported.", status_command:"systemctl --user status '"'"'app-imsettings\\x2dstart@autostart.service'"'"'"}'
+SP_SYS='{scope:"system", unit:"bluetooth.service", description:"Bluetooth service", state:"failed", result:"exit-code", log:null, status_command:"systemctl status bluetooth.service"}'
+SP_TIMER_OK='{scope:"system", unit:"fstrim.timer", activates:"fstrim.service", description:"Discard unused blocks", last:"2026-10-19T16:25:00Z", next:"2026-10-20T13:56:00Z", result:"success"}'
+SP_TIMER_BAD='{scope:"user", unit:"backup.timer", activates:"backup.service", description:"Nightly backup", last:"2026-10-20T15:00:00Z", next:"2026-10-22T00:00:00Z", result:"exit-code"}'
+SP_STARTS='[
+  {scope:"system", kind:"service", unit:"NetworkManager.service", description:"Network Manager", package:"NetworkManager", skipped:false},
+  {scope:"system", kind:"service", unit:"NetworkManager-wait-online.service", description:"Network Manager Wait Online", package:"NetworkManager", skipped:false},
+  {scope:"system", kind:"service", unit:"bluetooth.service", description:"Bluetooth service", package:"bluez", skipped:false},
+  {scope:"system", kind:"service", unit:"mine.service", description:"My own thing", package:null, skipped:false},
+  {scope:"system", kind:"service", unit:"vboxservice.service", description:"VirtualBox Guest Service", package:"virtualbox-guest-additions", skipped:true},
+  {scope:"system", kind:"service", unit:"hv.service", description:"Hyper-V KVP", package:"hyperv-daemons", skipped:true},
+  {scope:"user", kind:"autostart", unit:"app-kdeconnectd@autostart.service", description:"KDE Connect", package:"kdeconnectd", skipped:false},
+  {scope:"user", kind:"service", unit:"wireplumber.service", description:"Multimedia Service Session Manager", package:"wireplumber", skipped:false},
+  {scope:"user", kind:"script", unit:"hello.sh", description:"hello.sh", package:null, skipped:false}]'
+SP_FULL="{schema:1, boot_id:'b', generated_at:'2026-10-20T03:00:00Z', notes:[],
+  failed:{units:[$SP_FAILED, $SP_SYS], journal_denied:false, journal_available:true},
+  changed:{since:'2026-10-18T09:00:00Z', added:[{scope:'user', unit:'syncthing.service'}], removed:[{scope:'system', unit:'cups.service'}]},
+  starts:$SP_STARTS,
+  schedule:{timers:[$SP_TIMER_OK, $SP_TIMER_BAD],
+    cron:[{source:'crontab', schedule:'55 23 * * *', user:null, command:'/home/u/bin/backup.sh >> /home/u/log 2>&1', last:null},
+          {source:'/etc/cron.d/raid', schedule:'*/30 * * * *', user:'root', command:'PATH=/usr/bin /usr/sbin/raid-check', last:null},
+          {source:'cron.daily', schedule:'daily', user:null, command:'logrotate', last:'2026-10-19T22:12:00Z'}],
+    at:[{id:'7', when:'2026-10-20T13:56:00Z'}], notes:['crond_down']},
+  boot_time:{ready_sec:6.117, userspace_sec:180.996, total_sec:199.596,
+    usual:{ready_sec:5.2, userspace_sec:40.4, boots:9},
+    slowest:{unit:'systemd-fsck@dev-disk-by\\\\x2duuid-6.service', description:'File System Check', sec:92.362}, recent:[]}}"
+
+assert_eq "$(spjs "[L.startupWhenOf('2026-10-20T13:56:00Z', $SP_NOW), L.startupWhenOf('2026-10-20T15:00:00Z', $SP_NOW), L.startupWhenOf('2026-10-22T00:00:00Z', $SP_NOW)]")" \
+  '["today 22:56","tomorrow 00:00","22 Oct 09:00"]' "times read local: today, tomorrow, then the date, as the CLI says them"
+assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2027-01-01T01:00:00Z', $SP_NOW)]")" \
+  '["19 Oct 23:59","1 Jan 10:00"]' "...yesterday and next year by their date"
+assert_eq "$(spjs "[L.startupWhenOf('soon', $SP_NOW), L.startupWhenOf(null, $SP_NOW), L.startupWhenOf(42, $SP_NOW)]")" \
+  '["soon","",""]' "...a time Kempt cannot read is shown as it came, and a missing one is nothing"
+assert_eq "$(spjs '[0.4, 6.117, 59.6, 180.996, 3600, 3725].map(L.startupDurationOf)')" \
+  '["under 1 s","6 s","1 min","3 min 1 s","1 h","1 h 2 min"]' "durations as the CLI words them"
+
+assert_eq "$(sp "$SP_FULL" 'ok')" "true" "a whole page reads"
+assert_eq "$(sp "$SP_FULL" 'failed.map(function (f) { return [f.title, f.log, f.command]; })')" \
+  '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart@autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
+  "didn't start: the name, (when you log in) for a login item, its log line or the result, and the command to copy"
+assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct)" "changes since the last update, dated"
+assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: syncthing.service, when you log in","No longer starts: cups.service"]' "...each one a line"
+assert_eq "$(sp "$SP_FULL" 'timerFailures')" '["Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00"]' \
+  "a timer whose last run failed is listed in full"
+assert_eq "$(sp "$SP_FULL" 'startsSummary')" "5 services, 2 login items" "what starts: counted, skipped ones apart"
+assert_eq "$(sp "$SP_FULL" 'skippedLine')" "2 more are set to start but are skipped on this computer." "...and the skipped ones in one line"
+assert_eq "$(sp "$SP_FULL" 'startsLines.map(function (l) { return l.indent + (l.heading ? "#" : " ") + l.text; })')" \
+  '["0#At startup","1#Not from a package","2 My own thing","1 Bluetooth service (bluez)","1#NetworkManager","2 Network Manager","2 Network Manager Wait Online","0#When you log in","1#Not from a package","2 hello.sh (autostart script)","1 KDE Connect (kdeconnectd)","1 Multimedia Service Session Manager (wireplumber)"]' \
+  "...listed on request: what no package owns first, then by package"
+assert_eq "$(sp "{schema:1, notes:[], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:false}]}" 'startsLines')" \
+  '[{"text":"A (p)","indent":0,"heading":false}]' "...with no scope heading when only one scope starts anything"
+assert_eq "$(sp "$SP_FULL" 'scheduleSummary')" "2 timers, 3 cron jobs, 1 waiting at job" "the schedule, counted"
+assert_eq "$(sp "$SP_FULL" 'scheduleNotes')" '["These cron jobs never run: crond is not running."]' "...with its notes always shown"
+assert_eq "$(sp "$SP_FULL" 'scheduleLines.map(function (l) { return (l.heading ? "#" : "") + l.text; })')" \
+  '["#Timers","Discard unused blocks (fstrim.timer): last run today 01:25, next today 22:56","#Your timers","Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00, the last run failed","#Cron","backup.sh: every day at 23:55 (your crontab)","raid-check: every 30 minutes (/etc/cron.d/raid, as root)","logrotate: every day, last run today","#Waiting at jobs","today 22:56 (job 7)"]' \
+  "...and listed on request, cron by the program it runs"
+assert_eq "$(sp "$SP_FULL" 'bootLine')" \
+  "Ready in 6 s; all services by 3 min 1 s. Usually ready in 5 s; all services by 40 s. Longest step: the disk check, 1 min 32 s." \
+  "startup time against the usual, and the longest step when this start was slow"
+assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:6, userspace_sec:41, total_sec:null, usual:{ready_sec:5, userspace_sec:40, boots:4}, slowest:{unit:'x.service', description:'X', sec:9}, recent:[]}}" 'bootLine')" \
+  "Ready in 6 s; all services by 41 s. Usually ready in 5 s; all services by 40 s." "...and no longest step for a start as quick as usual"
+assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:null, userspace_sec:41, total_sec:null, usual:null, slowest:null, recent:[]}}" 'bootLine')" \
+  "All services by 41 s." "...or with no usual yet"
+
+# Empty sections are not drawn, so each one is absent or empty.
+SP_EMPTY="{schema:1, boot_id:'b', generated_at:'x', notes:[]}"
+assert_eq "$(sp "$SP_EMPTY" 'ok, [p.ok, p.empty, p.failed.length, p.changed.length, p.timerFailures.length, p.startsSummary, p.scheduleSummary, p.bootLine, p.skippedLine]')" \
+  '[true,true,0,0,0,"","","",""]' "a page with nothing in it says so, and draws no section"
+assert_eq "$(sp "$SP_EMPTY" 'problem')" "" "...which is not a problem"
+assert_eq "$(sp "{schema:1, notes:['session_slow'], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:true}]}" 'ok, [p.notes, p.startsSummary, p.skippedLine, p.empty]')" \
+  '[["Your session did not answer in time, so what starts when you log in is missing."],"","1 more is set to start but is skipped on this computer.",false]' \
+  "the slow session's note; only skipped entries leave just the skipped line"
+assert_eq "$(sp "{schema:1, notes:[], failed:{units:[$SP_SYS], journal_denied:true, journal_available:true}}" 'failedNote')" \
+  "No log lines for system services: you are not allowed to read the system journal." "the journal that cannot be read says why there is no log line"
+
+# Garbage, and strings from outside: plain text, one line each.
+for _g in "'not json'" "''" "'[1,2]'" "'{\"schema\":2}'" "undefined"; do
+  assert_eq "$(spjs "var p = L.startupPageOf($_g, $SP_NOW); [p.ok, p.problem]")" \
+    '[false,"Kempt could not read the startup list."]' "garbage ($_g) is a calm problem, never a page"
+done
+assert_eq "$(sp "{schema:1, notes:'x', failed:{units:'x'}, starts:{}, schedule:{timers:[null, 3, {unit:5}], cron:'x', at:null, notes:null}, boot_time:[]}" 'ok, [p.ok, p.failed.length, p.startsSummary, p.scheduleSummary, p.bootLine]')" \
+  '[true,0,"","",""]' "fields of the wrong type are left out, not drawn as nothing"
+assert_eq "$(sp "{schema:1, notes:[], failed:{units:[{scope:'system', unit:'x.service', description:'<b>Evil</b>\nline two\u0007', state:'failed', result:null, log:'a\tb', status_command:'systemctl status x.service\nrm -rf ~'}]}}" 'failed[0]')" \
+  '{"title":"<b>Evil</b> line two ","log":"Its log says: a b","command":""}' \
+  "control characters become spaces, markup stays text, and a command with a newline is never offered to copy"
+assert_eq "$(js "L.startupPageOutcomeOf('', 'timeout after 20000ms', 124, 0).problem")" \
+  "Kempt did not answer in time. Press Refresh to try again." "a gather that timed out says so"
+assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the startup page\n', 1, 0).problem")" \
+  "Kempt could not gather the startup list: kempt: could not gather the startup page" "...and one that failed gives the CLI's reason"
+assert_eq "$(js "L.startupPageOutcomeOf('', '', 1, 0).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
+assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all --json" "the page gathers with kempt startup --all --json"
+for _lit in startupPageButton startupPageButtonTip startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide startupPageSetting startupPageSettingNote; do
+  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" "1" \
+    "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+done
+assert_eq "$(js '[L.COPY.startupPageSetting, L.COPY.startupPageSettingNote].join("|")')" \
+  "Show a Startup page|Lists what starts with the computer and what runs on a schedule. It reads the system journal when you are allowed to." \
+  "the setting and its note"
+
 # --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
   {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
