@@ -284,11 +284,12 @@ rm -f "$TESTTMP/notifications"
 failing system
 printf '%s\n' bluetooth.service cups.service > "$SD/active-system"
 check >/dev/null
-assert_eq "$(notes)" "NOTIFY Kempt | 2 services are running again: Bluetooth service and CUPS Scheduler." \
-  "a unit Kempt announced that runs again is announced once"
-assert_eq "$(block '[.startup.recovered[].unit] | sort')" '["bluetooth.service","cups.service"]' "...and listed as recovered"
+assert_eq "$(notes)" "NOTIFY Kempt | Bluetooth service is running again. A system service (bluetooth.service)." \
+  "a unit Kempt announced that runs again is announced once, and a muted one recovers in silence"
+assert_eq "$(block '[.startup.recovered[].unit] | sort')" '["bluetooth.service"]' "...only the unmuted one is listed as recovered"
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" "...and recovery clears its mute"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup recovered: bluetooth.service, cups.service" "...and it is logged"
+assert_eq "$(startup_state '.announced | length')" "0" "...and the muted one leaves the announced list"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup recovered: bluetooth.service"$'\n' "...and it is logged"
 check >/dev/null
 assert_eq "$(note_count)" "1" "...once, not at every check"
 digest="$(block '.startup.recovered_digest' | tr -d '"')"
@@ -309,6 +310,24 @@ assert_eq "$(note_count)" "0" "a muted unit that fails is not announced"
 assert_exit 0 "unmute" "$KEMPT" startup unmute foo.service --user
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo gone)" "gone" "...removes the mute"
 assert_exit 2 "a unit name with a slash is refused" "$KEMPT" startup mute ../etc/passwd
+# Muting a unit systemd does not know, or one that is running, would be undone by the next check.
+echo nosuch.service > "$SD/gone-system"; echo nosuch.service > "$SD/gone-user"
+rc=0; out="$("$KEMPT" startup mute nosuch.service 2>&1)" || rc=$?
+assert_eq "$rc" "2" "a unit systemd does not know is refused"
+assert_eq "$out" "Kempt does not know a service called nosuch.service." "...with a plain message"
+echo mine.service > "$SD/gone-system"
+rc=0; out="$("$KEMPT" startup mute mine.service 2>&1)" || rc=$?
+assert_eq "$rc" "2" "a unit only your session knows is refused without --user"
+assert_eq "$out" "mine.service is a service in your session. To mute it, run: kempt startup mute mine.service --user" \
+  "...and the message says how to mute it"
+echo running.service > "$SD/active-system"
+rc=0; out="$("$KEMPT" startup mute running.service 2>&1)" || rc=$?
+assert_eq "$rc" "6" "a running unit is refused as having changed since it was shown"
+assert_eq "$out" "running.service is running, so there is nothing to mute." "...with a plain message"
+assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo none)" "none" "...and neither is recorded"
+touch "$SD/down-system"
+assert_exit 0 "when systemctl does not answer, the mute is kept as typed" "$KEMPT" startup mute running.service
+rm -f "$SD/down-system" "$SD/gone-system" "$SD/gone-user" "$SD/active-system"
 assert_exit 2 "an unknown startup subcommand is a usage error" "$KEMPT" startup frob
 
 # --- the first good description is kept after the package is removed -----------------------------

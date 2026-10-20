@@ -3609,6 +3609,7 @@ _SUBSTITUTED_IN_QML = {
     "versionRange",         # -> the version line's accessible name
     "discoverStatusOwn",    # -> the settings page's Discover row, with the startup file's path
     "startupMuteFailed",    # -> a startup entry's message, or the settings page, when a mute failed
+    "startupMuteRunning",   # -> ...the same places, when the service started before the press
     "startupUnmuteFailed",  # -> the settings page, when Stop Muting failed
     "startupStopMuting",    # -> the settings page's button on a muted service
     "startupUnmuted",       # -> ...and the line beside its Undo

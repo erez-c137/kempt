@@ -1244,6 +1244,12 @@ write_stage_marker() {
     if [[ "$staged_names_source" != none ]] && ! printf '%s' "$staged_names" | names_all_valid; then
       staged_names=""; staged_names_source=none
     fi
+    # A check that found nothing ran on metadata the stage itself then refreshed, so it says
+    # nothing about what was stored. The transaction's own names are the count then.
+    if [[ "$staged_names_source" == transaction && ! "$staged" =~ ^[1-9][0-9]*$ ]]; then
+      staged="$(printf '%s' "$staged_names" | grep -c .)" || true
+      staged_json="$staged"
+    fi
     # The excluded list comes from the holds file, which architecture.md promises is the user's to
     # edit by hand, so it gets the same gate rather than being trusted to hold_add's past checks.
     if ! jq -e 'type == "array" and all(.[]; type == "string")' <<<"$staged_excluded_json" >/dev/null 2>&1 \
@@ -3446,9 +3452,25 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   fi
   # An alias is stored under the unit's own name, the one systemd reports failing; when systemctl
   # does not answer, the name is kept as typed. Unmute drops both spellings.
-  local id typed="$scope:$unit"
-  if startup_on && id="$(startup_systemctl "$scope" show -p Id -- "$unit")"; then
-    id="$(sed -n '1s/^Id=//p' <<<"$id")"
+  # A unit systemd does not know, or one running now, is refused: the next check would end that
+  # mute at once, and the mute would have done nothing. Running is exit 6, as ack's: what was shown
+  # changed (the widget offers Mute only for a unit that was failing).
+  local id show typed="$scope:$unit"
+  if startup_on && show="$(startup_systemctl "$scope" show -p Id -p LoadState -p ActiveState -- "$unit")"; then
+    id="$(sed -n 's/^Id=//p' <<<"$show" | head -n 1)"
+    if [[ "$verb" == mute ]]; then
+      if grep -qx 'LoadState=not-found' <<<"$show"; then
+        local u="$unit" other
+        [[ "$u" == *\\* ]] && u="'$u'"
+        if [[ "$scope" == system ]] && other="$(startup_systemctl user show -p LoadState -- "$unit")" \
+           && grep -q '^LoadState=' <<<"$other" && ! grep -qx 'LoadState=not-found' <<<"$other"; then
+          echo "$unit is a service in your session. To mute it, run: kempt startup mute $u --user" >&2; exit 2
+        fi
+        echo "Kempt does not know a service called $unit." >&2; exit 2
+      elif grep -qx 'ActiveState=active' <<<"$show"; then
+        echo "$unit is running, so there is nothing to mute." >&2; exit 6
+      fi
+    fi
     [[ ${#id} -gt 255 || ! "$id" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*\.[a-z]+$ ]] || unit="$id"
   fi
   kempt_init_dirs

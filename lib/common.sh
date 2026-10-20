@@ -303,7 +303,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
     "startup failed after the "*": "*) rest="${t#startup failed after the }"
       EVENT_PLAIN="Didn't start after the ${rest%%: *}: ${rest#*: }" ;;
-    "startup recovered: "*) EVENT_PLAIN="Starting again: ${t#startup recovered: }" ;;
+    "startup recovered: "*) EVENT_PLAIN="Running again: ${t#startup recovered: }" ;;
     "startup muted "*:*) EVENT_PLAIN="Stopped mentioning ${t#startup muted *:} until it starts" ;;
     "startup unmuted "*:*) EVENT_PLAIN="Mentioning ${t#startup unmuted *:} again" ;;
     "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
@@ -1922,8 +1922,10 @@ startup_observe() {
     | ([($st.already // [])[] | select(((.scope | IN($cs[])) | not)
                                        and (((.scope | IN($read[])) | not) or in_keys($nowk)))]
        + [$nowr[] | select((.scope | IN($cs[])) and in_keys($basek) and (in_keys($stillk) | not))]) as $already
-    # A failure never told that recovers is never told either.
-    | ([($gone[] | select(.unsent | not) | . + {unsent: true}), (if $newboot then empty else ($st.recovered // [])[] end)]
+    # A failure never told that recovers is never told either, nor is a muted one: the person
+    # asked not to hear about it.
+    | ([($gone[] | select((.unsent | not) and (in_keys($mutes) | not)) | . + {unsent: true}),
+        (if $newboot then empty else ($st.recovered // [])[] end)]
        | map(select(in_keys($nowk) | not)) | unique_by(key)) as $rec
     | (if $cmp != null and ($cs | length) > 0 then $cmp.attribution else ($st.attribution // "restart") end) as $att
     | (if $att == "update" then "update" else "last restart" end) as $when

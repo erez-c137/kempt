@@ -1003,6 +1003,23 @@ assert_eq "$(jq -r 'has("staged_names")' "$marker")" "false" \
 assert_eq "$(jq -c '.staged_excluded' "$marker")" '[]' \
   "...and an empty excluded list, which sends unhold to its pending fallback"
 
+# A check on stale metadata finds nothing, and the stage, which fetches its own, stores updates.
+# The count is then what the transaction holds: "Staged 0 updates" over a stage of three is wrong
+# on every surface that repeats it.
+cat > "$TESTTMP/refresh-stub.checknothing" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-stub.checknothing"
+: > "$WORLD/apply-calls"
+rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+stale_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checknothing" \
+  "$KEMPT" update --surface=offline --no-flatpak 2>/dev/null)" || true
+assert_eq "$(jq -r '.staged' "$marker")" "3" "a check that found nothing gives way to the transaction's count"
+staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+assert_eq "$staged_ev" "3" "...on the event line too"
+assert_contains "$stale_out" "staged 3 updates for a restart" "...and in the run's summary"
+
 # ONE name that fails the name gate drops the WHOLE list. The gate is KEMPT_NAME_RE, the same shape
 # a hold is validated against, and it covers jq, the shell, QML and a terminal in one place. Partial
 # filtering would be worse than nothing: a list with a name quietly removed is a list that can still

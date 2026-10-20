@@ -1640,9 +1640,11 @@ PlasmoidItem {
         startupMuteError = null;
         executor.run(kemptCmd + args, Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
             if (rc !== 0) {
+                // Exit 6: the service started between the check and the press. Not a failure.
                 root.startupMuteError = { key: scope + ":" + unit,
-                    text: Logic.answerOutcomeOf(rc, "", stderr, "", "").text
-                          || i18n("Could not mute %1.", name || unit) };
+                    text: rc === 6 ? i18n("%1 is running again, so there is nothing to mute.", name || unit)
+                          : Logic.answerOutcomeOf(rc, "", stderr, "", "").text
+                            || i18n("Could not mute %1.", name || unit) };
                 root.startupMutePending = "";
                 return;
             }

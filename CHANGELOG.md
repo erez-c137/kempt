@@ -15,17 +15,21 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Kempt says when a service stops starting after an update.** Each update notes which
   services were failing before it. If one that was starting fails after the update or the restart
   that installs it, you get one notification, such as "Bluetooth service didn't start after the
-  update.", and another when it is running again. Services that were already failing stay quiet.
-  `kempt startup` lists them with the command that shows why, `kempt startup mute` silences one
-  until it starts, and `kempt doctor` warns. Kempt only looks: it never starts or stops a service.
-  Turn it off with `notify_startup=false`.
+  update.", and another when it is running again (`kempt log` reads "Running again"). Services
+  that were already failing stay quiet. `kempt startup` lists them with the command that shows
+  why, `kempt startup mute` silences one until it starts, recovery included, and `kempt doctor`
+  warns. Kempt only looks: it never starts or stops a service. Turn it off with
+  `notify_startup=false`.
 - **The widget shows a service that stopped starting after an update.** A warning names it, with
   **Copy Command** for the command that shows why and **Mute Until It Starts**. Services already
-  failing before the update are listed quietly. The panel count and icon never include this. Settings
-  has a **Services** checkbox and lists muted services, each with **Stop Muting**.
+  failing before the update are listed quietly. The panel count and icon never include this.
+  Settings has a **Services** checkbox and lists muted services, each with **Stop Muting**.
 
 ### Fixed
 
+- **A staged update now says how many updates it holds.** When the check before staging found
+  nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
+  updates". The count now comes from the staged update itself.
 - **An update no longer stops when Kempt cannot tidy its history.** Kempt keeps the newest 50
   run records and removes older ones. If one of them could not be removed, the run stopped there.
   Tidying is now best effort, as intended.
