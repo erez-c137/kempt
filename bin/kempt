@@ -3526,7 +3526,8 @@ startup_page_cmd() {
            + (if .journal_denied then ["No log lines for system services: you are not allowed to read the system journal."] else [] end)),
         (.changed // empty
          | ["Changed since the last update" + (if .since then " (\(.since | day))" else "" end) + ":"]
-           + [.added[] | "  Now starts: \(.unit)\(session)"] + [.removed[] | "  No longer starts: \(.unit)\(session)"]),
+           + [.added[] | .description //= .unit | "  Now starts: \(named)\(session)"]
+           + [.removed[] | .description //= .unit | "  No longer starts: \(named)\(session)"]),
         (.starts // empty | [.[] | select(.scope == "system")] | select(length > 0) | ["Starts with the computer:"] + grouped),
         (.starts // empty | [.[] | select(.scope == "user")] | select(length > 0) | ["Starts when you log in:"] + grouped),
         (.schedule // empty
