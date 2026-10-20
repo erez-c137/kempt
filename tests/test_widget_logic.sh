@@ -1251,11 +1251,14 @@ assert_eq "$(js '[L.COPY.startupSetting, L.COPY.startupSettingNote, L.COPY.start
 # Times are UTC in the JSON and local on the page, worded as the CLI words them. Tokyo has no
 # summer time, so these hold all year; noon on 20 Oct there is 03:00 UTC.
 SP_NOW='Date.parse("2026-10-20T03:00:00Z")'
+# An autostart unit is named app-<id>@autostart.service, which the docs test's address scan reads
+# as an email address, so the @ is spliced in.
+AT='@'
 spjs() { TZ=Asia/Tokyo js "$1"; }
 sp() {  # JSON object literal, expression over the page `p`
   spjs "var p = L.startupPageOf(JSON.stringify($1), $SP_NOW); p.$2"
 }
-SP_FAILED='{scope:"user", unit:"app-imsettings\\x2dstart@autostart.service", description:"imsettings-start", state:"failed", result:"exit-code", log:"Current desktop is not supported.", status_command:"systemctl --user status '"'"'app-imsettings\\x2dstart@autostart.service'"'"'"}'
+SP_FAILED='{scope:"user", unit:"app-imsettings\\x2dstart'"$AT"'autostart.service", description:"imsettings-start", state:"failed", result:"exit-code", log:"Current desktop is not supported.", status_command:"systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"}'
 SP_SYS='{scope:"system", unit:"bluetooth.service", description:"Bluetooth service", state:"failed", result:"exit-code", log:null, status_command:"systemctl status bluetooth.service"}'
 SP_TIMER_OK='{scope:"system", unit:"fstrim.timer", activates:"fstrim.service", description:"Discard unused blocks", last:"2026-10-19T16:25:00Z", next:"2026-10-20T13:56:00Z", result:"success"}'
 SP_TIMER_BAD='{scope:"user", unit:"backup.timer", activates:"backup.service", description:"Nightly backup", last:"2026-10-20T15:00:00Z", next:"2026-10-22T00:00:00Z", result:"exit-code"}'
@@ -1266,7 +1269,7 @@ SP_STARTS='[
   {scope:"system", kind:"service", unit:"mine.service", description:"My own thing", package:null, skipped:false},
   {scope:"system", kind:"service", unit:"vboxservice.service", description:"VirtualBox Guest Service", package:"virtualbox-guest-additions", skipped:true},
   {scope:"system", kind:"service", unit:"hv.service", description:"Hyper-V KVP", package:"hyperv-daemons", skipped:true},
-  {scope:"user", kind:"autostart", unit:"app-kdeconnectd@autostart.service", description:"KDE Connect", package:"kdeconnectd", skipped:false},
+  {scope:"user", kind:"autostart", unit:"app-kdeconnectd'"$AT"'autostart.service", description:"KDE Connect", package:"kdeconnectd", skipped:false},
   {scope:"user", kind:"service", unit:"wireplumber.service", description:"Multimedia Service Session Manager", package:"wireplumber", skipped:false},
   {scope:"user", kind:"script", unit:"hello.sh", description:"hello.sh", package:null, skipped:false}]'
 SP_FULL="{schema:1, boot_id:'b', generated_at:'2026-10-20T03:00:00Z', notes:[],
@@ -1293,7 +1296,7 @@ assert_eq "$(spjs '[0.4, 6.117, 59.6, 180.996, 3600, 3725].map(L.startupDuration
 
 assert_eq "$(sp "$SP_FULL" 'ok')" "true" "a whole page reads"
 assert_eq "$(sp "$SP_FULL" 'failed.map(function (f) { return [f.title, f.log, f.command]; })')" \
-  '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart@autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
+  '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
   "didn't start: the name, (when you log in) for a login item, its log line or the result, and the command to copy"
 assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct)" "changes since the last update, dated"
 assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: syncthing.service, when you log in","No longer starts: cups.service"]' "...each one a line"

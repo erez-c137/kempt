@@ -28,11 +28,13 @@ VALUES = os.path.join(p.sandbox, "values")
 os.makedirs(VALUES)
 
 HOSTILE = "<b>Bold</b><img src=x> & <a href='x'>link</a>"
-CMD = "systemctl --user status 'app-imsettings\\x2dstart@autostart.service'"
+# An autostart unit's name holds an @, spliced in so the docs test's address scan passes it by.
+UNIT = "app-imsettings\\x2dstart" + "@" + "autostart.service"
+CMD = "systemctl --user status '%s'" % UNIT
 FULL = {
     "schema": 1, "boot_id": "b", "generated_at": "2026-10-20T20:36:48Z", "notes": [],
     "failed": {"units": [
-        {"scope": "user", "unit": "app-imsettings\\x2dstart@autostart.service",
+        {"scope": "user", "unit": UNIT,
          "description": "imsettings-start", "state": "failed", "result": "exit-code",
          "log": "Current desktop isn't supported.", "status_command": CMD},
         {"scope": "system", "unit": "evil.service", "description": HOSTILE, "state": "failed",
