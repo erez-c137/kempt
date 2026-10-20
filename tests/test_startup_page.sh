@@ -320,10 +320,10 @@ jq -n '{timestamp: "2026-10-18T10:00:00+03:00", surface: "background", status: "
   > "$KEMPT_STATE_DIR/history/2026-10-18T10-00-00.json"
 out="$(page)"
 assert_json_eq "$(jq -c '.changed' <<<"$out")" \
-  '{"since":"2026-10-18T07:00:00Z","added":[{"scope":"system","unit":"backup.timer"},{"scope":"system","unit":"mine.service"},{"scope":"system","unit":"sshd-keygen.service"},{"scope":"system","unit":"vboxservice.service"}],"removed":[{"scope":"system","unit":"old.service"}]}' \
-  "units enabled or no longer enabled since the last run's baseline; plumbing is left out"
-assert_contains "$(text)" "Changed since the last update (18 Oct):"$'\n'"  Now starts: backup.timer"$'\n'"  Now starts: mine.service" \
-  "the text names what changed"
+  '{"since":"2026-10-18T07:00:00Z","added":[{"scope":"system","unit":"backup.timer","description":"backup.timer"},{"scope":"system","unit":"mine.service","description":"My own thing"},{"scope":"system","unit":"sshd-keygen.service","description":"OpenSSH key generation"},{"scope":"system","unit":"vboxservice.service","description":"VirtualBox guest services"}],"removed":[{"scope":"system","unit":"old.service","description":"old.service"}]}' \
+  "units enabled or no longer enabled since the last run's baseline, described as the page describes them elsewhere, else by name; plumbing is left out"
+assert_contains "$(text)" "Changed since the last update (18 Oct):"$'\n'"  Now starts: backup.timer"$'\n'"  Now starts: My own thing (mine.service)" \
+  "the text names what changed, by its description"
 touch "$SD/down-user"
 assert_eq "$(page | jq -c '[.changed.added[].scope] | unique')" '["system"]' "a scope that did not answer is not compared"
 rm -f "$SD/down-user"

@@ -739,7 +739,11 @@ def _code(name):
 # per service, so the description (the command, and what muting does) tells them apart by ear.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1}
+#
+# StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
+# copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
+# description back rather than repeating the literal.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 3}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
@@ -788,8 +792,9 @@ p.check("...with the first open, where the popup is built too late to hear it, c
         "Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()" in _popup,
         True)
 
-p.check("Escape asks and nothing more - the popup emits, and does not act",
-        "Keys.onEscapePressed: event => { popup.closeRequested(); event.accepted = true; }"
+p.check("Escape asks and nothing more - the popup emits, and does not act (on the Startup page, it goes back)",
+        "Keys.onEscapePressed: event => { if (popup.startupOpen) popup.closeStartup();"
+        " else popup.closeRequested(); event.accepted = true; }"
         in _popup, True)
 p.check("...and main.qml is what answers it, next to the property it owns",
         "onCloseRequested: root.expanded = false" in _MAIN, True)

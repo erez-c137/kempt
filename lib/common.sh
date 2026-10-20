@@ -2502,9 +2502,16 @@ startup_page_gather() {
      --slurpfile failed <(startup_file "$failed") --slurpfile changed <(startup_file "$changed") \
      --slurpfile starts <(startup_file "$starts") --slurpfile schedule <(startup_file "$schedule") \
      --slurpfile bt <(startup_file "$boot") '
+    # What changed is described as the page describes it elsewhere, else by its name: a unit no
+    # longer enabled is not asked about again.
+    ([($starts[0] // [])[], ($schedule[0].timers // [])[]]
+     | map(select((.description | type) == "string" and .description != "")
+           | {key: "\(.scope) \(.unit)", value: .description}) | from_entries) as $desc
+    | def described: map(. + {description: ($desc["\(.scope) \(.unit)"] // .unit)});
     {schema: 1, boot_id: $boot, generated_at: $at, notes: $notes}
     + (if $failed[0] == null then {} else {failed: $failed[0]} end)
-    + (if $changed[0] == null then {} else {changed: $changed[0]} end)
+    + (if $changed[0] == null then {}
+       else {changed: ($changed[0] | .added |= described | .removed |= described)} end)
     + (if $starts[0] == null then {} else {starts: $starts[0]} end)
     + (if $schedule[0] == null then {} else {schedule: $schedule[0]} end)
     + (if $bt[0] == null then {} else {boot_time: $bt[0]} end)'
