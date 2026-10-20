@@ -1244,6 +1244,12 @@ write_stage_marker() {
     if [[ "$staged_names_source" != none ]] && ! printf '%s' "$staged_names" | names_all_valid; then
       staged_names=""; staged_names_source=none
     fi
+    # A check that found nothing ran on metadata the stage itself then refreshed, so it says
+    # nothing about what was stored. The transaction's own names are the count then.
+    if [[ "$staged_names_source" == transaction && ! "$staged" =~ ^[1-9][0-9]*$ ]]; then
+      staged="$(printf '%s' "$staged_names" | grep -c .)" || true
+      staged_json="$staged"
+    fi
     # The excluded list comes from the holds file, which architecture.md promises is the user's to
     # edit by hand, so it gets the same gate rather than being trusted to hold_add's past checks.
     if ! jq -e 'type == "array" and all(.[]; type == "string")' <<<"$staged_excluded_json" >/dev/null 2>&1 \

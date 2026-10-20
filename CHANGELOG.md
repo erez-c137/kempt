@@ -26,6 +26,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A staged update now says how many updates it holds.** When the check before staging found
+  nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
+  updates". The count now comes from the staged update itself.
 - **An update no longer stops when Kempt cannot tidy its history.** Kempt keeps the newest 50
   run records and removes older ones. If one of them could not be removed, the run stopped there.
   Tidying is now best effort, as intended.
